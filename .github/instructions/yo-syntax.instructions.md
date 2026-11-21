@@ -1,32 +1,30 @@
 ---
 applyTo: "**/*.yo"
-description: "Use when writing or editing Yo language code. Covers critical syntax rules: curly brace semantics, cond/match parentheses, function definitions, parsing ambiguities, and expression vs block distinctions."
+description: "Use when writing or editing Yo code: how everything is spelled — braces, calls, operators, functions, closures, parameters and borrows, bindings, match patterns, imports, strings, unsafe/FFI and contracts."
 ---
 
 # Yo Language Syntax Rules
 
-## Curly braces: `.{ … }` builds a record, `{ names }` on a binding side picks fields, every other `{ … }` is a block
+## Curly braces: `.{ … }` is a record, `{ names }` on a binding side picks fields, every other `{ … }` is a block
 
-The whole rule (plans/reference/BRACE_BLOCKS.md, brace groups Generation B, v0.2.78):
+`plans/reference/BRACE_BLOCKS.md`.
 
-- **A record value is `.{ … }`, always**: `.{ x : 1, y : 2 }`, `.{ x, y }` (puns), `.{ x }` (one field),
-  `.{}` (the empty record), `.{ &y }`, `.{ ...base, x : 1 }`. With an expected struct type it is that
-  type's value (`(p : Point) = .{ x : 1, y : 2 }`), as `.Some(x)` is the expected enum's; with none it
-  is an anonymous record. Effect records and build options too: `io.await(fut, .{ io, exn })`,
+- **A record value is always `.{ … }`**: `.{ x : 1, y : 2 }`, `.{ x, y }` (puns), `.{ x }`, `.{}` (empty
+  record), `.{ &y }`, `.{ ...base, x : 1 }`. With an expected struct type it is that type's value
+  (`(p : Point) = .{ x : 1, y : 2 }`), as `.Some(x)` is the expected enum's; with none it is an anonymous
+  record. Effect records and build options too: `io.await(fut, .{ io, exn })`,
   `build.executable(.{ name : "n", root : "r" })`.
-- **A bare `{ … }` in expression position is a block**: `{ e }` yields `e`, `{ s; e }` yields `e`,
-  `{ s; }` yields unit, and `{}` is the empty block (unit). A `,` or a `label : value` pair directly
-  inside a bare expression brace is E0007, whose repair inserts the dot (`yo fix`).
-- **Binder positions keep bare braces**, a field list with no dot: `{ a } := s`, `{ a : alias } = s`,
-  `{ String } :: import("std/string")`, `{ ... } :: import("m")`, `match(p, { x, y } => …)`,
-  `.V({ x })` / `.V({})` in a pattern, and the closure capture list `{ y }(p) => …`, `{}() => …`. A
-  dot there is E0007, whose repair deletes it.
-- `(a, b)` is the only tuple spelling (`.{ 1, 2 }` is E0007 naming it), and `Point(x : 1, y : 2)` stays
-  the constructor of a named struct.
-- Record fields use spaces around `:` and infix field values stay grouped: `.{ x : (1 + 2), y : 3 }`.
-- Source written before v0.2.78 (where a bare brace group of fields was a record) is E0007; its
-  migration `yo fix --migrate record-literal` retired in v0.2.79, so run it on v0.2.78 (`yo version
-  install 0.2.78`) and step to the next release.
+- **A bare `{ … }` in expression position is a block**: `{ e }` yields `e`, `{ s; e }` yields `e`, `{ s; }`
+  and `{}` yield unit. A `,` or `label : value` directly inside a bare expression brace is E0007 (its
+  `yo fix` repair inserts the dot).
+- **Binder positions keep bare braces** (a field list, no dot): `{ a } := s`, `{ a : alias } = s`,
+  `{ String } :: import("std/string")`, `{ ... } :: import("m")`, `match(p, { x, y } => …)`, `.V({ x })` /
+  `.V({})` in a pattern, the closure capture list `{ y }(p) => …`, `{}() => …`. A dot there is E0007 (the
+  repair deletes it).
+- `(a, b)` is the only tuple spelling (`.{ 1, 2 }` is E0007 naming it); `Point(x : 1, y : 2)` is a named
+  struct's constructor.
+- Record fields use spaces around `:`, and an infix field value is grouped: `.{ x : (1 + 2), y : 3 }`.
+- Diagnostics print a record as `_(x : …, y : …)` (the parser's internal form).
 
 ```yo ignore
 r := .{ x : i32(1), y : i32(2) }; // a record
@@ -36,68 +34,39 @@ noop :: (fn() -> unit)({});        // the empty block is unit
 io.async((io : Io) => { cond(done => .Ok(()), true => .Err(e)) }) // a block yielding the cond
 ```
 
-## Always write `cond(...)` and `match(...)` with parentheses
+## Calls: always immediate parentheses
 
-- `cond(...)` - NOT `cond ...`
-- `match(...)` - NOT `match ...`
-- The parentheses are **required** and must not be omitted.
-- Always write `cond(condition => result, true => default)`
+- `func(a, b)`; never `func (a, b)` (space) or `func a, b` (paren-less, E0008).
+- Keywords and control flow too: `cond(...)`, `match(...)`, `return(value)`, `return()`, `unwind(value)`,
+  `unwind()`. `return expr` is invalid; inside a `cond`/`match` arm use a block:
+  `.None => { return(x); }`. When the whole body is one `match`/`cond`, use the expression body form and
+  skip `return`.
+- Write `cond(condition => result, true => default)`.
+- In an effect handler (`Exception(throw : (err) -> { ... })`) that does not resume normally, end with
+  `unwind(...)` / `unwind()`: a call like `exit(int(1))` returns `unit`, which does not satisfy the
+  handler's `ResumeType`. `unwind` needs the handler typed `ctl(...) -> R`, which it is when bound to a
+  `ctl` field such as `Exception.throw`.
+- Inside `quote(...)`: `unquote(expr)` and `unquote_splicing(exprs)` (words only; `#(expr)` / `...#(exprs)`
+  are lex errors naming the word). Dynamic field access groups after the dot: `value.(unquote(field_expr))`.
+- **Defining a macro** (a `quote(...)` parameter or `unquote(...)` return type) requires
+  `pragma(Pragma.AllowMacroDef);` at the top of the file, std included (`is_macro_def_capable_file`,
+  `src/evaluator/memory-safety.yo`; `plans/reference/MACRO_POLICY.md`). Calling macros and working with
+  quoted `Expr` values is ungated. There is no std `try` macro: match on the `Result`.
+- `impl(...)` at top level is a statement and needs its trailing `;` (without it the next line fails as a
+  paren-less call, E0008).
 
-## Paren hygiene: what `yo fmt` canonicalizes vs. keeps
+### `if` is sugar for `cond`
 
-`yo fmt` elides provably-redundant parentheses and keeps every
-load-bearing group (plans/archive/FMT_PAREN_ELISION.md, 2026-09-02 — the
-re-parse AST-equality gate makes a meaning-changing format structurally
-impossible). Write the bare forms directly; what survives a `yo fmt`
-pass is the canonical set.
-
-Fmt elides these — write the bare form:
-
-- **Prefix calls**: `-x` (not `-(x)`), `!flag` (not `!(flag)`), `?*T`
-  (not `?(*(T))`), `**T`, `-p.a`, `-f(x)`.
-- **Atom-like operands of any operator**: `x + y` (not `(x) + (y)`),
-  `y := -x` (not `y := (-x)`).
-- **Left same-operator chains (any length)**: `a + b + c` (not
-  `(a + b) + c`), `20 - 5 - 4 - 3` — same-operator chains left-associate
-  at every operand count (fixed 2026-10-01,
-  `issues/fixed/same-operator-chain-of-four-or-more-is-not-left-associative.md`;
-  before the fix four or more operands spliced one level too high, and fmt
-  refused to flatten the redundant parens).
-- **Whole call arguments**: `f(a + b)` (not `f((a + b))`), and the
-  classic comma-delimiter rule: `if(x == y, { ... })`, `assert(a == b, "m")`,
-  `while(i < n, { ... })` — never wrap a comma-delimited argument again.
-- **Lambda parameters**: `err -> { ... }` (not `(err) -> { ... }`).
-
-Fmt KEEPS these — the grammar needs them; do not remove by hand:
-
-- **An operator's infix-chain RHS**: `y := (1 + 2)`, `true => (x / y)`,
-  `{ x : (1 + 2), y : 3 }` — the chain must be one group.
-- **Mixed-operator groups**: `(a + b) * c` — no precedence; required.
-- **Right operands**: `3 + (4 - 5)` AND `3 + (4 + 5)` — a right group
-  changes the tree even for the same operator.
-- **Prefix calls with infix arguments**: `-(1 + 2)` — a prefix operator
-  binds exactly ONE postfix expression
-  (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1); the call parens are
-  the operand boundary.
-- **The operand call of a non-prefix-capable operator**: `...(entries)` —
-  `...` has no bare prefix form, so the tight call is its only operand
-  spelling. Until 2026-10-05
-  the elider stripped these too; the re-parse gate then silently disabled
-  paren elision for the WHOLE file, so the same `Item : *(MapEntry(K, V))`
-  spelling passed `fmt --check` in one file and was rewritten in another
-  (`issues/fixed/fmt-pointer-type-paren-verdict-is-context-dependent.md`).
-- **Multi-arg operator calls** (`-(a, b)`) and operator atoms (`(!)`).
-
-## `if` is sugar for `cond`
-
-`if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The prelude macro that used to back this was DELETED 2026-08-30 once the v0.2.20 seed shipped the desugar (plans/reference/MACRO_POLICY.md Part 3.2) — an `if` call the desugar leaves alone (odd arity, mismatched labels, a dynamically built AST) is now an error:
+`if(...)` is rewritten to `cond(...)` at parse time (`desugar_if_calls`, `src/expr.yo`); an `if` the
+desugar cannot rewrite (odd arity, mismatched labels, a built AST) is an error.
 
 ```yo ignore
 if(condition, then_body)        // → cond(condition => then_body, true => ())
 if(condition, then_body, else)  // → cond(condition => then_body, true => else)
 ```
 
-Use `if` for simple two-branch conditionals — especially for comptime early-return guards:
+Use `if` for two-branch conditionals and comptime early-return guards; `cond` for more branches or large
+ones.
 
 ```yo
 if(arch == Arch.Wasm32, {
@@ -106,112 +75,175 @@ if(arch == Arch.Wasm32, {
 });
 ```
 
-Use `cond` when there are more than two branches or when the branches are large.
+## Operators
 
-## Function definitions
+### No operator precedence
 
-- `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return(expr); })`
-- No space between `(fn() -> ReturnType)` and `({ body; })`
-- Function type body creation is a normal call: `(fn(...) -> T)({ body })`, not `(fn(...) -> T) { body }`
-- Top-level aliases for function types also need parentheses: `Callback :: (fn(x : i32) -> i32);`, not `Callback :: fn(x : i32) -> i32;`
-- Method definitions in `impl` use `name : (fn(self : Self) -> ReturnType)({ body })`
-- Use `Self` instead of the type name in method signatures, enum definitions, and struct definitions — the type name is not available inside its own definition
-- Use `struct(...)` for record/effect-record types. The old `module(...)`,
-  `Module`, and `SelfModule` syntax has been removed; imported source files are
-  namespace structs, and recursive type references use normal `Self`.
-- Bare `Module` is not a type-hierarchy alias anymore. Use `Type` for
-  compile-time type parameters/returns, and reflect source-module namespaces as
-  ordinary `TypeInfo.Struct(...)` values.
+`plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`.
 
-## Anonymous function (`=>`) parameters MAY carry type annotations
+1. **A chain of ONE operator left-associates at any length**: `a + b + c` is `(a + b) + c`,
+   `a - b - c - d` is `(((a - b) - c) - d)`, `(A | B | C | D)` needs nothing.
+2. **Adjacent DIFFERENT operators need parentheses**, else a parse error ("Adjacent different operators
+   need parentheses to clarify grouping"): `(a + b) * c`, `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`.
 
-The `=>` arrow form infers parameter types from the expected `Fn(...)`
-signature at the call site, and it also accepts an explicit `: Type` on a
-parameter — the annotation is documentation only: the adopted signature's
-type always wins and a mismatching annotation is NOT diagnosed. Both
-spellings are correct; the annotated form is the idiom inside `io.async`
-(`io.async((io : Io) => ...)`) and wherever the expected signature is not
-obvious.
+Layout never affects grouping (no newline-based associativity).
 
-```yo
-// CORRECT — types inferred from expected Fn signature:
-filtered := iter.filter(x => (x.* > i32(2)));
-
-// CORRECT — single parameter, parens optional:
-filtered := iter.filter(x => (x.* > i32(2)));
-
-// CORRECT — annotated `=>` parameter (annotation is documentation only):
-filtered := iter.filter((x : *i32) => (x.* > i32(2)));
-```
-
-Use the full `fn(...)` form when the closure needs a standalone signature
-for a typed slot:
-
-```yo
-// Use fn(...) form when the value needs a standalone signature:
-pred :: (fn(x : *i32) -> bool)(x.* > i32(2));
-filtered := iter.filter(pred);
-
-// Or inline:
-filtered := iter.filter((fn(x : *i32) -> bool)(x.* > i32(2)));
-```
-
-**Nested `=>` needs explicit right parens.** An unparenthesized `(p1) => (p2) => body`
-is a SAME-operator chain and left-associates — `((p1) => (p2)) => body` — which
-then fails with a confusing evaluator error ("Expected a function type…") long
-after parsing. A closure returning a closure (in any slot whose expected type
-supplies the signature) is written with the right group, which fmt keeps:
+`:`, `:=`, `=`, `::` and `->` are ordinary operators, so a different operator beside them needs a group:
+`x := a + b;` is E0003 — write `x := (a + b);`, `ok := (p && q);`, `end : (j + usize(1))`.
 
 ```yo ignore
-// CORRECT — the inner closure is the RIGHT operand, grouped:
-(x : i32) => ((y : i32) => ((x + y)))
-
-// WRONG — parses as ((x) => (y)) => (x + y), an error at evaluation:
-(x : i32) => (y : i32) => ((x + y))
+next : (fn(self : &mut Self) -> Option(Self.Item)) // `:` vs `->`: wrap the fn type
+FuncType :: (fn() -> void)                         // `::` vs `->`
+(err1 : AnyError) = dyn(Box.new(ErrA(`error A`))); // `:` vs `=`: wrap the typed binding
+is_neg := ((a == "-") && (b == 1));                // `:=` vs `&&`
 ```
+
+### Prefix operators bind exactly ONE postfix expression
+
+`plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md` Rule 1. A bare prefix operator (`-` `!` `~` `&` `*` `?`)
+binds one postfix expression — the primary plus its dot-chains and calls — and nothing more. A
+no-whitespace `(` after the operator is the call form (`-(x)`, `!(ready)`). Prefer the bare form.
+
+```yo ignore
+x := -1;
+assert(!d.is_empty(), "bare prefix binds the whole call chain");
+show(&x);       // lends x to a `&T` parameter
+t :: ?*u8;      // = ?(*(u8)) — Option of raw pointer
+y := 3 - -3;    // infix minus, then prefix minus
+-(1 + 2)        // an INFIX operand needs parens; -1 + 2 is (-1) + 2
+!x && y         // (NOT x) AND y
+!(x && y)       // NOT (x AND y)
+call(&x, y)     // lends x, passes y (same as call(&(x), y))
+```
+
+- `&x` is only a borrow marker (decision 33); a raw pointer is `addr_of(x)`.
+- **`*T(x)` is not a pointer cast**: `*void(p)` parses as `*(void(p))` and is rejected
+  (`src/evaluator/calls/pointer.yo`). Write `(*void)(buf)`; `yo fmt` rewrites any prefix call in callee
+  position to this form (`*(u8)(s)` → `(*u8)(s)`, `*(*(u8))(p)` → `(**u8)(p)`, `-(x)(y)` → `(-x)(y)`;
+  `plans/reference/FMT_CALLEE_PREFIX_CANONICALIZATION.md`). In type position `**i32` is pointer-to-pointer
+  and `?*u8` the optional pointer.
+- Tight forms stay tight: `?T`, `?*T`, `T <: !Runtime` (never `? T` / `! Runtime`); fmt keeps `- -1`
+  spaced and never tightens a pair that would re-lex as one token (`& &x`).
+- Pointer dereference is `ptr.*`.
+
+### The operator token set is closed
+
+A run of operator characters is split greedily against the fixed table in `src/lexer.yo`
+(`_is_two_char_operator` / `_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as
+`*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && ||`, ranges) can never be bound or overloaded
+(`is_reserved_operator_name`, `src/token.yo`). A new operator is a deliberate lexer-table edit.
+
+### Paren hygiene: what `yo fmt` elides and keeps
+
+`yo fmt` elides provably redundant parens and keeps every load-bearing group (a re-parse AST-equality gate
+guards it; `plans/archive/FMT_PAREN_ELISION.md`). Write the bare forms directly.
+
+- **Elided:** prefix calls (`-x`, `!flag`, `?*T`, `**T`, `-p.a`, `-f(x)`); atom-like operands
+  (`x + y`, `y := -x`); left same-operator chains (`a + b + c`); a whole call argument (`f(a + b)`,
+  `if(x == y, { ... })`, `assert(a == b, "m")`); lambda parameters (`err -> { ... }`).
+- **Kept:** an operator's infix RHS (`y := (1 + 2)`, `true => (x / y)`, `.{ x : (1 + 2), y : 3 }`);
+  mixed-operator groups (`(a + b) * c`); right operands (`3 + (4 - 5)` and `3 + (4 + 5)`); prefix calls
+  with infix arguments (`-(1 + 2)`); the operand call of an operator with no bare prefix form
+  (`...(entries)`); multi-argument operator calls (`-(a, b)`) and operator atoms (`(!)`).
+- Single-line collection and tuple literals stay compact inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
+
+## Reserved and discard names
+
+- **Builtin-dispatch names cannot be bound** at any binding site (`::`, `:=`, `(x : T) =`, a destructuring
+  rename): E0407 "… names a builtin: every call with this name dispatches to the builtin, so a user binding
+  could never run". The set is `is_reserved_builtin_binding_name` (`src/token.yo`): `type_of` `size_of`
+  `align_of` `type_id` `addr_of` `runtime` `unwind` `recur` `consume` `unsafe` `pragma` `asm` `global_asm`
+  `macro_expand` `va_start` `comptime_assert` `comptime_fn` `comptime_print` `comptime_eval`
+  `comptime_read_file` `comptime_json_parse` `comptime_toml_parse` `requires` `ensures` `invariant`
+  `decreases` `assumed` `___drop` `___dup` `dyn` `the` `as` `clone` `quote` `downcast` `upcast` `ref_count`
+  `begin` `tuple` `array` `mut` `__yo_cell` `__yo_atomic_cell`. `std/prelude.yo` is exempt.
+- **`__yo_` is the compiler's namespace** (VERDICTS-72): an `extern(...)` member of either ABI, or a
+  `c_include(...)` member labelled with one, named `__yo_…` and declared outside the std tree is E0407;
+  `pragma(Pragma.AllowUnsafe)` does not unlock it, and `src/`/`tests/` are user code (errno is
+  `std/libc/errno`'s `last_errno()`, the I/O backend teardown `std/sys/process`'s `reset_io_backend()`; a
+  white-box runtime test lives beside its std module). Calling a builtin by name without declaring it is
+  legal. Other binders of the prefix (`::`, `:=`, parameters) are not rejected yet, apart from `__yo_cell` /
+  `__yo_atomic_cell` (`issues/2026-11-21-a-user-binding-named-in-the-yo-namespace-hijacks-or-is-hijacked.md`).
+  The rejection goes through `raise_flow_violation`: `yo compile` and `yo test` enforce it, while a plain
+  `yo check` whose only error is this one still exits 0.
+- `size_of`, `align_of`, `type_of`, `type_id` are the only spellings (`sizeof` etc. were deleted).
+- Grammar words (`type`, `trait`, `match`, `fn`, `for`, …), `panic`, `assert`, `imm` are ordinary
+  identifiers. `Origin` is a reserved type name like `Type`.
+- `___` (discard) cannot be bound twice in one scope (no shadowing). Prefer the bare call `foo();` when
+  the result is unused. Keep a discard binding only where it is load-bearing: drop/borrow fixtures that
+  count `ref_count(...)` or test the discard's scope-end drop, and compile-error fixtures whose diagnostic
+  fires only on the value-evaluation path a binding forces.
+
+## Functions
+
+- `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return(expr); })` — a normal call: no space
+  before `({`, never `(fn(...) -> T) { body }`.
+- A function-type alias needs the group: `Callback :: (fn(x : i32) -> i32);`.
+- Methods in `impl`: `name : (fn(self : Self) -> ReturnType)({ body })`.
+- Use `Self` in method signatures and in `struct(...)`/`enum(...)` definitions: a type's own name is not
+  available inside its definition (`Rc(Expr)` inside `Expr :: enum(...)` fails). In a generic type
+  constructor `Self` is the current instantiation (`Tree(T)` inside `Tree`); `recur(i32)` there names a
+  DIFFERENT instantiation.
+- `struct(...)` is the record/effect-record type; `module(...)`, `Module` and `SelfModule` are gone (an
+  imported file is a namespace struct; reflect it as `TypeInfo.Struct(...)`; compile-time type parameters
+  and results are `Type`).
+- **Recursion:** a free function may call itself (and other functions) by name, async ones included
+  (`tests/async/fusion.test.yo`). `recur(args)` calls the NEAREST enclosing `fn` with matching argument
+  types — inside `io.async((io : Io) => ...)` that is the async lambda, not the outer function. For a
+  method, pass the receiver explicitly: `recur(self.left())`.
+- **Struct construction takes named fields**: `Point(x : i32(1), y : i32(2))`; positional
+  `Point(i32(1), i32(2))` is not supported. Enum variant construction is positional: `.Some(i32(42))`.
+
+```yo
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Rc(Self), right : Rc(Self)) // NOT Rc(Tree(T))
+  )
+);
+```
+
+### Default parameter values (`?=`)
+
+- A `?=` default must be a compile-time-known VALUE: `i32(18)` and a payload-free variant (`.None`, even
+  of `Option(Allocator)`) qualify; `Allocator.global()` (a global's address) and `seven()` (a call) do
+  not — a runtime-call default is E1105. For a runtime default use `(p : Option(T)) ?= .None` and branch
+  in the body; callers pass `.Some(x)` (no implicit `T` → `Option(T)` wrap: E0601).
+- Names in a default resolve where the function is defined, not in the caller's module.
+- A struct FIELD default follows the same rule: `(root_decl : String) ?= String.new()` is rejected, so a
+  `String` or collection field is spelled at every construction site.
+
+### Return-slot modifiers: `comptime` goes on the label; a borrow result is a projection
+
+| Form                                                              | Verdict                                                                                            |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `-> comptime(T)` (unlabeled), `-> (comptime(name) : T)` (labeled) | valid                                                                                              |
+| `-> &T`, `-> &mut T`, `-> (name : &mut T)`                        | a projection (decision 24): the body yields `&place` / `&mut place` rooted at a borrow parameter   |
+| `-> (name : comptime(T))`                                         | rejected — the modifier goes on the label                                                          |
+
+Enforced in `src/evaluator/types/function.yo`; `tests/ref-return-ban.test.yo`. Projections: see
+"Borrows" below.
 
 ## Return value rules
 
-- The last expression in a block `{ ...; e }` (no semicolon after it) is the block's value; `{ e }` alone yields `e`.
-- With semicolon, like `{ expr; }`, the return value is `unit`.
-- **`()` is the unit VALUE; `unit` is the TYPE.** Never write `unit;` — that evaluates the type as a
-  comptime value. To yield unit, either end the block with `()` as the last expression (no semicolon),
-  or omit the tail entirely: a block whose statements all end in `;` already evaluates to unit. An
-  empty arm is `()` or the empty block `{}` (both unit since v0.2.78); `.{}` is the empty RECORD.
+- The last expression of a block `{ ...; e }` (no `;`) is its value; `{ e }` yields `e`; `{ expr; }` is
+  `unit`.
+- **`()` is the unit VALUE; `unit` is the TYPE.** Never write `unit;` (it evaluates the type as a comptime
+  value). To yield unit, end with `()` or omit the tail. An empty arm is `()` or `{}`; `.{}` is the empty
+  RECORD.
 
-## Enum definition syntax
+## Enums
 
-Enum variants are defined **without** the `.` prefix. The `.` prefix is only used when **constructing** or **pattern matching** enum values.
-
-**Use `Self` to refer to the enum type itself** inside the `enum(...)` definition — the type name is not yet available during the definition. This applies to recursive types using `Rc(Self)`, `ArrayList(Self)`, etc.:
+Variants are defined WITHOUT the `.`; the `.` is for construction and patterns.
 
 ```yo
-// CORRECT — use Self for recursive references:
-Expr :: enum(
-  Atom(id : ExprId, token : Token),
-  FnCall(id : ExprId, func : Rc(Self), args : ArrayList(Self), token : Token)
-);
-
-// WRONG — type name not available inside its own definition:
-Expr :: enum(
-  Atom(id : ExprId, token : Token),
-  FnCall(id : ExprId, func : Rc(Expr), args : ArrayList(Expr), token : Token)
-);
-
-// CORRECT — no dots in definition:
-Color :: enum(Red, Green, Blue);
+Color :: enum(Red, Green, Blue); // NOT enum(.Red, .Green, .Blue)
 Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(None, Some(value : T))
 );
 
-// WRONG — dots in definition:
-Color :: enum(.Red, .Green, .Blue);
-
-// Dots are used when constructing values:
 (c : Color) = .Red;
 (x : Option(i32)) = .Some(i32(42));
-
-// Dots are used in match branches:
 match(
   c,
   .Red => println(`red`),
@@ -220,330 +252,23 @@ match(
 );
 ```
 
-If a `match`/`cond` branch returns an enum variant and the evaluator reports
-"Failed to infer enum variant type", qualify the variant explicitly, e.g.
-`TypeValue.Unit` instead of `.Unit`.
+- "Failed to infer enum variant type" from a `match`/`cond` arm: qualify the variant (`TypeValue.Unit`).
+- In large enum matches, do not bind a pattern variable with the same name as a variant field (prefer
+  `struct_field_types` over `field_types`): some codegen paths emit invalid C for that shadowing shape.
 
-When writing large enum matches, avoid binding a pattern variable with the same
-name as a variant field (for example, prefer `struct_field_types` over
-`field_types`). Some self-hosted codegen paths can currently emit invalid C for
-those shadowing-shaped bindings.
+### GADT variants
 
-## All function and keyword calls require immediate `(...)`
-
-- Write `func(arg1, arg2)`, not `func arg1, arg2`.
-- Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
-- Control-flow keywords follow the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`.
-- In `(exn : Exception) = Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves. (`unwind` requires the handler's lambda to be typed as `ctl(...) -> R`, which it is when bound to a `ctl`-typed field like `Exception.throw`.)
-- Prefix operators may use the call form (`&(x)`, `!(ready)`) or bind one bare postfix expression (`&x`, `!ready`, `-value` — plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1; see "Unary (prefix) operators" below, including the src/std seed constraint). A no-whitespace `(` after the operator is always the call form.
-- Inside `quote(...)`, unquote with `unquote(expr)` and splice with `unquote_splicing(exprs)`: words, the only spellings. The operator spellings `#(expr)` and `...#(exprs)` were deleted 2026-10-10; the lexer rejects them with a message naming the word.
-- **The operator token set is CLOSED** (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md): a run of operator characters is split greedily against the fixed table in `src/lexer.yo` (`_is_two_char_operator`/`_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as `*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && ||`, ranges) can never be bound or overloaded (`is_reserved_operator_name` in `src/token.yo`, gated in `evaluator/exprs/binding.yo`). Adding a new operator = editing the lexer table deliberately, like a keyword.
-- **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/reference/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std has no exemption: each std file that defines a macro declares the pragma too (`is_macro_def_capable_file` in `src/evaluator/memory-safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
-- **Builtin dispatch names are reserved for bindings** (2026-09-27): a user definition of any plain-named builtin is rejected at every binding site (`::`, `:=`, `(x : T) =`, destructuring rename) with E0407 `"…" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run`. The set (`is_reserved_builtin_binding_name`, `src/token.yo`): `type_of` `size_of` `align_of` `type_id` `addr_of` `runtime` `unwind` `recur` `consume` `unsafe` `pragma` `asm` `global_asm` `macro_expand` `va_start` `comptime_assert` `comptime_fn` `comptime_print` `comptime_eval` `comptime_read_file` `comptime_json_parse` `comptime_toml_parse` `requires` `ensures` `invariant` `decreases` `assumed` `___drop` `___dup` `dyn` `the` `as` `clone` `quote`. A name that starts with `__yo_` is the compiler's namespace (VERDICTS-72, v0.2.80): an `extern(...)` member of either ABI or a `c_include(...)` member labelled with one, declared outside the std tree, is E0407 — `pragma(Pragma.AllowUnsafe)` does not unlock it and `src/`/`tests/` are user code (errno is `std/libc/errno`'s `last_errno()`, the I/O backend teardown `std/sys/process`'s `reset_io_backend()`; a white-box runtime test lives beside its std module). Calling a builtin by name without declaring it stays legal. Other binders of the prefix (`::`, `:=`, parameters) are not rejected yet, apart from the two private cell primitives `__yo_cell` and `__yo_atomic_cell` (plans/VALUES_BY_DEFAULT.md §3.5): `issues/2026-11-21-a-user-binding-named-in-the-yo-namespace-hijacks-or-is-hijacked.md`. Probed motivation: a user `consume` was silently hijacked (the call never ran, the argument was marked consumed, its reference leaked); everything except `as`/`clone` hijacked the same way, and `as`/`clone` only fragilely deferred. `std/prelude.yo` is exempt (its `unsafe` namespace module predates the rule). The rejection goes through `raise_flow_violation`: `yo compile` and the test runner enforce it; a plain `yo check` of a file whose only error is this rejection still exits 0 (known check-driver gap).
-- Dynamic field access with unquote requires grouping after the dot: `value.(unquote(field_expr))`.
-
-Note how the prefix rule disambiguates `&x, y`: a bare `&` binds ONE
-postfix expression, so `call(&x, y)` lends `x` (to a `&T` parameter) and
-passes `y`. `&x` is only a borrow marker (decision 33); a raw pointer is
-`addr_of(x)`:
-
-```yo ignore
-// Lends x, plus y (bare prefix binds one postfix expression):
-call(&x, y)      // same as call(&(x), y)
-
-// A raw pointer to x (unsafe code):
-call_ptr(addr_of(x), y)
-```
-
-Parens are also required for zero-argument control flow:
-
-```yo
-if(arch == Arch.Wasm32, {
-  return();
-});
-```
-
-## No operator precedence
-
-Yo has **no operator precedence**. Two rules:
-
-1. **A chain of the SAME operator is left-associative** — no parentheses needed.
-   `a + b + c` parses as `(a + b) + c`; `(A | B | C | D)` is fine as-is.
-2. **Adjacent DIFFERENT operators require explicit parentheses** — otherwise a
-   parse error: _"Adjacent different operators need parentheses to clarify
-   grouping."_
-   This includes `:=` / `=` and a struct-literal field's `:` next to a binary
-   operator: `x := a + b;` is E0003 — write `x := (a + b);`, `ok := (p && q);`,
-   `end : (j + usize(1))`.
-
-```yo ignore
-// CORRECT — same operator, no nesting needed:
-(A | B | C | D)
-1 + 2 + 3        // ⇒ (1 + 2) + 3
-
-// WRONG — different operators with no parentheses:
-a + b * c
-// CORRECT — choose the grouping explicitly:
-(a + b) * c      // or: a + (b * c)
-```
-
-**Source layout no longer affects grouping.** There is NO newline-based
-associativity (an earlier rule let a leading/trailing newline pick
-associativity; it has been removed — see `plans/archive/OPERATOR_ASSOCIATIVITY.md`).
-
-`:`, `:=`, `=`, `::`, and `->` are ordinary operators with no precedence, so a
-type/value containing a _different_ top-level operator must be parenthesized:
-
-```yo ignore
-// `:` vs `->` — wrap the fn type:
-next : (fn(self : &mut Self) -> Option(Self.Item))
-
-// `::` vs `->` — wrap a fn-type alias:
-FuncType :: (fn() -> void)
-
-// `:` vs `=` — wrap the typed binding:
-(err1 : AnyError) = dyn(Box.new(ErrA(`error A`)));
-
-// `:=` vs `&&` — wrap the operator RHS:
-is_neg := ((a == "-") && (b == 1));
-```
-
-Formatter-specific syntax preservation:
-
-- Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
-- Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
-
-Special tight syntaxes must stay immediate: Option sugar `?T` / nullable pointers `?*T`, and negated trait constraints `T <: !Runtime` must not be formatted as `? T` or `T <: ! Runtime`.
-
-Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
-
-## Unary (prefix) operators bind exactly ONE postfix expression
-
-Since 2026-08-21 (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1), a bare
-prefix operator (`-` `!` `~` `&` `*` `?`) followed by a primary is
-valid: it binds exactly one postfix expression — the primary plus its
-dot-chains and calls — and nothing more.
-
-```yo ignore
-// Valid, and preferred in NEW user code:
-x := -1;
-assert(!d.is_empty(), "bare prefix binds the whole call chain");
-show(&x);       // lends x to a `&T` parameter
-t :: ?*u8;      // = ?(*(u8)) — Option of raw pointer
-y := 3 - -3;    // infix minus, then prefix minus
-
-// An INFIX operand still needs parens (one postfix expression only):
--(1 + 2)        // NOT -1 + 2, which is (-1) + 2
-```
-
-The formatter emits bare prefix forms tight (`-1`, `!x`, `?*i32`),
-keeps `- -1` spaced (a tight `--1` reads as a C decrement), and never
-tightens a pair that would re-lex as one token (`& &x` stays spaced —
-`&&` is a token). The historical seed constraint (parenthesized
-spellings until a seed carried the rule) was lifted 2026-09-02 —
-v0.2.21 ships it — and the 2026-09-02 tree sweep converted `src/`,
-`std/`, and `tests/` to the bare spellings.
-
-**`!x && y` groups as `(!x) && y`** — the prefix operator binds only the
-one postfix expression. Since unary and infix are _different operators
-with no precedence_, write the other intent with parens:
-
-```yo ignore
-// (NOT x) AND y:
-!x && y
-
-// NOT (x AND y):
-!(x && y)
-```
-
-**Shared data** is an `Rc(S)`, whose payload is read-only (E0919), or an `Rc(RefCell(S))` when handles write it through the door; there are no user-declared reference-semantics types since the v0.2.79 parser drop (`ref(...)` / `atomic(...)` are E0009). A second handle is an explicit `Rc.clone(h)`. Keep raw `*(T)` pointers for FFI.
-
-## Parameter form by type kind
-
-The right shape for a function parameter depends on what kind of type the value is:
-
-| Type kind                                                          | Shape                                                     | Why                                                                                                                 |
-| ------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `Rc(S)` / `Rc(RefCell(S))` shared cell                            | `name : &Rc(S)`                                           | Reads the payload, or writes through the door. A callee that keeps the handle takes it by value; the caller passes `Rc.clone(h)` or moves it. |
-| `struct(...)` value type (read-only)                               | `name : Type`                                             | Pass by value. Cheap if small; consider `&T` for large structs.                                                   |
-| `struct(...)` value type (need mutation)                           | `name : &mut Type`                                      | Caller's binding sees in-place writes. See [`&mut` section](#name--mut-t-parameters-for-in-place-mutation) below. |
-| `enum(...)` (read-only)                                            | `name : Type`                                             | Same as struct.                                                                                                     |
-| `enum(...)` (need mutation)                                        | `name : &mut Type`                                      | Same as struct.                                                                                                     |
-| Primitive (`i32`, `bool`, …)                                       | `name : Type` for read, `name : &mut Type` for mutation | Same rule.                                                                                                          |
-| Receiver of mutating method on value type (trait or inherent)      | `self : &mut Self`                                      | Caller-side writes propagate. Established for `Hasher`, `Iterator`. A method that only reads its receiver takes `self : &Self` (`Clone.clone`, `ToString.to_string`, `Hash.hash`, `Hasher.finish`, `Debug.debug_string`, `Format.format`, `ToJson.to_json`, `Error.source`, as in Rust). |
-| A std collection (`ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`, `PriorityQueue`, `OrderedMap`, `HeaderMap`, `StringBuilder`) the callee writes | `name : &mut Type` | They are uniquely owned values (`plans/VALUES_BY_DEFAULT.md` V2b; a copy is an explicit `.clone()`); their mutators take `self : &mut Self`. |
-| Raw FFI pointer (legitimate `*(T)`)                                | `name : *(T)`                                             | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.             |
-
-**Anti-patterns to avoid:**
-
-```yo ignore
-// ✗ A raw pointer where a borrow will do
-foo : (fn(ctx : *(EvalContext)) -> unit)({ ctx.*.method() })
-
-// ✓ A borrow: `&mut` when the callee writes, `&` when it only reads
-foo : (fn(ctx : &mut EvalContext) -> unit)({ ctx.method() })
-```
-
-The same applies at call sites: pass `&obj` / `&mut obj` to a borrowing parameter, never `addr_of(obj)`.
-
-When choosing between `self : &mut Self` and `self : Self` for a method receiver:
-
-- A receiver the method writes is `self : &mut Self`; there are no user-declared reference-semantics types since the v0.2.79 parser drop (`ref(...)` / `atomic(...)` are E0009), and data shared on purpose is an `Rc(S)` whose payload is read-only (E0919; mutate through an `Rc(RefCell(S))` door). **The std collections** (the list in the table above) are values: every mutator takes `self : &mut Self` and every helper that writes one takes it as a `&mut` parameter (VALUES_BY_DEFAULT V2a). `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists the writes through a borrowed copy that the V2b flip would lose.
-- Trait declarations should match the dominant case of their impl targets. A method that writes its receiver (`Hasher.write*`, `Iterator.next`) takes `self : &mut Self`; one that only reads it takes `self : &Self`, as Rust's `Clone::clone(&self)`, `ToString::to_string(&self)` `Hash::hash(&self, ..)` and `Hasher::finish(&self)` do: `Clone.clone`, `ToString.to_string`, `Hash.hash`, `Hasher.finish`, `Debug.debug_string`, `Format.format`, `ToJson.to_json`, `Error.source` (`issues/fixed/clone-and-to-string-take-their-receiver-mutably.md`, `issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md`), so an element reached through a `&` borrow can still be cloned, hashed or rendered. `log.Sink.write_line` writes (a sink accumulates) and keeps `&mut Self`.
-
-## Recursion requires `recur`
-
-Yo does **not** allow a function to call itself by name. Use the `recur` keyword instead:
-
-```yo
-// WRONG — "Variable 'factorial' not found":
-factorial :: (fn(n : i32) -> i32)(
-  cond(
-    (n <= i32(1)) => i32(1),
-    true => (n * factorial(n - i32(1)))
-  )
-);
-
-// CORRECT — use recur:
-factorial :: (fn(n : i32) -> i32)(
-  cond(
-    (n <= i32(1)) => i32(1),
-    true => (n * recur(n - i32(1)))
-  )
-);
-```
-
-For methods, pass `self` explicitly as the first argument:
-
-```yo
-impl(
-  Tree,
-  depth : (fn(self : Self) -> i32)(
-    cond(
-      self.is_leaf() => i32(0),
-      true => (i32(1) + recur(self.left()))
-    )
-  )
-)
-```
-
-`recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
-
-### Async recursion — `recur` does NOT work inside `io.async`
-
-`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((io : Io) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
-
-**Pattern for async recursion**: Replace recursion with an iterative worklist:
-
-```yo
-// WRONG — "Variable 'walk_dir' not found" inside io.async:
-walk_dir :: (fn(path : Path, io : Io) -> Impl(Future(unit, Io)))(
-  io.async((io : Io) => {
-    entries := io.await(read_dir(path, io), io);
-    // CANNOT call walk_dir recursively here
-  })
-);
-
-// CORRECT — bundle the needed effects into one struct and iterate with a stack:
-WalkCtx :: struct(io : Io, exn : Exception);
-
-walk_dir :: (fn(root : Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
-  io.async((ctx : WalkCtx) => {
-    mut(stack) := ArrayList(Path).new();
-    {
-      stack.push(root);
-    };
-    while(stack.len() > usize(0), {
-      cur := match(stack.pop(), .Some(p) => p, .None => return());
-      entries := ctx.io.await(read_dir(cur, ctx.io), ctx.io);
-      // process entries, push subdirs to stack…
-    });
-  })
-);
-```
-
-### `Self` in generic type constructors
-
-`Self` works inside generic type constructor functions too — it refers to the current type instantiation (e.g., `Tree(T)` inside `Tree`):
-
-```yo
-// CORRECT — Self refers to Tree(T):
-Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(
-    Leaf(value : T),
-    Node(left : Rc(Self), right : Rc(Self))
-  )
-);
-
-// WRONG — Tree is not available inside its own body:
-Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(
-    Leaf(value : T),
-    Node(left : Rc(Tree(T)), right : Rc(Tree(T)))
-  )
-);
-```
-
-Use `recur(args)` only when calling the type constructor with **different** type arguments than the current instantiation (e.g., `recur(i32)` inside `Tree(T)` to get `Tree(i32)`).
-
-### Calling a method through its type: `T.m(x)` and `G.m(x)`
-
-`Point.norm(p)` calls `norm` with `p` as the receiver, the same call as `p.norm()`. A generic type works with its arguments written (`Rc(i32).clone(w)`) or left out (`Rc.clone(w)`, `Pair.first(p)`). Left out, they are inferred from the FIRST argument, which must itself be an instance of the constructor. It is plans/VALUES_BY_DEFAULT.md decision 32's spelling for a wrapper's own member (`Rc.clone(w)`).
-
-- A static method (first parameter not `Self`) infers them from EVERY argument whose parameter's declared type mentions the impl's binders (plans/archive/STATIC_ARGUMENT_INFERENCE.md §2): `Pair.make(i32(1), true)` is `Pair(i32, bool).make(...)`, `Rc.new(x)` is `Rc(X).new(x)` (also when `x` is itself an `Rc`: `Rc(Rc(X))`), `Rc.new(42)` is `Rc(i32)`. Not consulted: a closure literal, an enum shorthand `.X`, a `dyn(...)` value (its type is the expected `Dyn`), a defaulted argument, the expected type. So `Rc.new(.None)`, `ArrayList.new()` and a binder no argument mentions are E0613 (write `Rc(Option(i32)).new(.None)`); two arguments disagreeing are E0601; two fitting impls an ambiguous E0613; a failed impl bound the bound's E0602.
-- A first argument of another type (`Rc.clone(b)` for `b : Rc(i32)`; no payload search, so `Rc.clone(w)` for `w : Rc(Rc(i32))` too) is E0613, and the message names its type. A method the instance lacks is E0610, as with any receiver.
-- The match is by constructor identity. An alias (`IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))`) or a partial application (`Pair(i32, _)`) is a constructor of its own, so `IntPair.first(q)` for `q : Pair(i32, u8)` is E0613: write `Pair.first(q)` or `IntPair(u8).first(q)`. A labeled receiver (`Pair.first(self : p)`) and a module-qualified constructor (`m.Pair.first(p)`) work.
-- **Seed gate:** the seed compiles `src/` and `std/` (`plans/backlog/SEED_VERSION_AUTOMATION.md`), so they use the inferred form only once `SEED_VERSION` carries it. v0.2.72 does, and static-argument inference B2 swept their `rc`/`box`/`arc` calls to `Rc.new`/`Box.new`/`Arc.new`.
-
-## Module imports
-
-Use destructured imports for files in the same directory:
-
-```yo
-// CORRECT — destructured import with relative path:
-{ RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
-
-// CORRECT - Named module
-node_module :: import("./node.yo");
-
-// CORRECT — named import for std library modules:
-{ ArrayList } :: import("std/collections/array-list");
-{ String } :: import("std/string");
-
-// CORRECT — glob destructure when you really want every export in scope
-// (there is no `open(...)` builtin: it was removed 2026-09-10):
-{ ... } :: import("std/string");
-
-// WRONG — `import "path" as name` does NOT work for .yo files:
-// import "./node.yo" as node;  // causes "Invalid function call on type: comptime_str"
-
-// WRONG — absolute-style paths from within a subdirectory:
-// import "std/regex/node" as node;  // module resolution fails
-```
-
-For files within the same directory, always use relative paths (`./file.yo`). For std library modules, use the standard `"std/module"` path.
-
-**Module file, directory and `[modules]` key names are kebab-case** (`plans/backlog/KEBAB_CASE_NAMES.md` Part C): `array-list.yo`, `std/collections/hash-map`, `import("markdown-yo/block-parser")` — one separator per import string. A module path is only ever a string, never an identifier, so nothing derives a name from it; a whole-module binding is still an identifier (`array_list :: import("std/collections/array-list");`). `-` and `_` are different names (a wrong guess is a hard resolve failure), and a name must not start or end with `-`. `check`/`compile` warn on a project-local module file or directory with `_` or an upper-case letter in its name (a warning, never an error; `yo fmt` never renames), and `yo fix <path> --module-names` renames them and rewrites every `import(...)`, `[modules]` entry and `build.yo` `root :` path that resolves to them (`--dry-run` prints the rename map). It does not see paths in comments, shell scripts or strings that are not `import(...)` arguments.
-
-**Do NOT import `std/prelude`** — the prelude is automatically loaded for every file. Explicitly importing it (`import "std/prelude"` or `import "std/prelude.yo"`) will produce a compile error. Third-party modules named `prelude.yo` are fine — only the std prelude is blocked.
-
-## GADT enum syntax
-
-GADT constructors use `-> recur(Type1, Type2, ...)` after fields to specify the return type:
+`-> recur(Type1, ...)` after the fields fixes the constructed type; with a discriminant, group the variant:
 
 ```yo
 Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     IntVal(i : i32) -> recur(i32), // constructs Value(i32)
-    BoolVal(b : bool) -> recur(bool), // constructs Value(bool)
+    BoolVal(b : bool) -> recur(bool),
     MGeneric(v : T) // no annotation = unconstrained
   )
 );
-```
 
-With discriminants, wrap the variant in parentheses:
-
-```yo
 Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     (TagInt(i : i32) -> recur(i32)) = 10,
@@ -552,33 +277,881 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 );
 ```
 
-## Other syntax notes
+## Bindings and mutability
 
-- `unit` is a type not value, `()` is the unit value.
-- **`Rc`/`Arc` auto-dereference** (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3): `b.x`, `b.x = v`, `b.m()` and `b.items.push(v)` on a `Rc(P)` mean `b.*.x`, `b.*.x = v`, `b.*.m()`, `b.*.items.push(v)`; nested wrappers recurse (`bb.x` on `Rc(Rc(P))`). A name the wrapper and its payload both have is E0616: `b.clone()` on an `Rc(P)` with `P : Clone` must be written `Rc.clone(b)` (the Rc's) or `b.*.clone()` (the payload's). In a safe file a write through an `Arc` is still D3 (`a.n = v`, `a.bump()` with `self : &mut Self`). Callee position forwards too: `b.items(i)` indexes `b.*.items`, `b.f(x)` calls a function-typed payload field; a wrapper method against a payload field of the same name is E0616 too. Every seed since v0.2.52 (#1191) knows auto-deref, so `std/`/`src/` may rely on it: `Environment.frames : Rc(ArrayList(Frame))` is read as `env.frames.len()` / `env.frames.get(i)` throughout `src/` (checked with the v0.2.66 seed, 2026-10-20). Older code that spells `data.*.x` is equally valid.
-- **`Deref` owners** (VERDICTS-63, v0.2.79): `Deref` carries `deref : fn(self : &Self) -> &Self.Target` and `DerefMut` carries `deref_mut`, chosen as `Index`/`IndexMut` are (a write, a `&mut` lend, a `&mut self` receiver and `addr_of` call `deref_mut`). `Box`/`Rc`/`Arc` are handles whose `.*` is read natively; every other `Deref` type is an owner (`Array(T, N)` with `Target : [T]`, a user type over a `[T]`), whose `x.*` is its `deref` projection's place: `v := &x.*` binds `x.deref()` (rooted at `x`), `w := &mut x.*` binds `x.deref_mut()`. An owner's own member wins over its view's (`a.len()` is the array's); E0616 is the handles' rule. Nothing dereferences at a parameter: pass the view as `f(&s.*)`, never `f(&s)` (E0601, whose help names `&s.*`). Outside the prelude a `Deref`/`DerefMut` impl needs an unsized `Target` (`[T]`, `str`, a `Dyn`), else E0622. `ArrayList`/`String` gain `Deref` in v0.2.80 (the v0.2.78 seed rejects an impl outside the prelude).
-- **Copying an `Rc`/`Arc` needs `.clone()`** (plans/VALUES_BY_DEFAULT.md decision 17, V2c): `Rc(T)`'s and `Arc(T)`'s `Clone` is a second handle to the same cell (a count bump, no bound on `T`), spelled through the type, `Rc.clone(h)` / `Arc.clone(h)` (decision 32: `h.clone()` would also name the payload's). A handle's last use moves it; an implicit copy whose source is used again (`b := a` then `a.*`), and any copy out of a borrow, a field or a module-level binding (`return(h)` of a `&Rc(T)` parameter, `n.label`), is E0901. A value holding a handle (a struct field, `Option(Rc(T))`, a tuple) is explicit-copy too: `x.clone()` (derive `Clone`). A closure that needs its own handle lists it, `{ h : Rc.clone(h) }() => ...`; an implicit capture moves the handle in. `&Rc(T)` parameters borrow without a copy. A generic body's copy of a `T` that is a handle stays implicit (`ArrayList(Rc(T)).get(i)`, `Option(T)` combinators) until B6's accessors. E0901's help names the `Rc.clone(h)`. A deep copy is `Rc.new(h.*.clone())`. `TypeValue` and `SharedList(T)` (`src/types/definitions.yo`) use the prelude's impl; `Token`/`Frame` are `ref` types and still copy implicitly until V5. (A generic impl's `where` clause is still not consulted when its method is resolved: `issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md`.)
-- **Writing through an `Rc` of a collection** (decision 46, E0919): `h.*.push(x)`, `h.*(i).f = v` and `addr_of(h.*(i))` are all writes into the payload. Route list writes through `Rc.make_mut(&mut h).push(x)`, which needs the payload `Clone`, or hold the list in an `Rc(RefCell(...))` and write it through the door.
-- **A tuple TYPE is `Tuple(A, B)`**, e.g. `(fn(x : i32) -> Tuple(String, usize))`. `(A, B)` in a type position is a tuple VALUE holding two types and fails with `Cannot store a type value in tuple, please use module instead`. Tuple values are `(a, b)`.
-- **`(a, b) := expr` bindings are immutable**: a later `a = ...` is E0902 `Cannot reassign "a"`. Bind each name with an annotation (`(a : usize) = ...;`) when it must be reassigned.
-- **A bare `import("std/fmt");` binds no names.** It evaluates the module (its impls and derive rules register), but `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401 `Variable "eprintln" not found` otherwise).
-- There is no `loop` function. Use `while(true, body)` for a runtime infinite loop.
-- **`while(cond, body)` is always a runtime loop**, regardless of whether `cond` is compile-time known.
-- **A `while` condition is always a runtime expression: write `while(true, …)` for an infinite loop; `runtime(...)` is never needed there.** `while(runtime(cond), body)` is redundant; write `while(cond, body)`. (`runtime(...)` only matters in a `::`/comptime context to force runtime evaluation; a `while` condition is never that context.)
-- **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`unwind`).
-- If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
-- **A compile-time function body declares its locals with compile-time forms** (E1104, 2026-10-01): in the body of a function declared to return a compile-time value (`-> comptime(T)`, `-> Type`, `-> Expr`, …) write `x :: v`, `(comptime(x) : T) = v`, `comptime(x) := v` or `comptime(x) : T`, never `x := v`, `(x : T) = v`, `x : T` or `y := &mut x`. Compile-time locals are still mutable (`x = (x + 1)` in a `while(comptime(...), ...)` loop). A runtime fn literal nested in such a body (a method of the struct a `-> comptime(Type)` fn returns, a closure) and a runtime fn evaluated at compile time (`comptime_fn(f)`) keep their runtime locals. `yo fix` applies the rewrite.
-- **Runtime code cannot assign a `::` binding** (E0918, 2026-10-15): a runtime function, closure or test body that writes a module-level `::` (`G = v`, `G.x = v`) or a `::` of an enclosing function, or writes a runtime value to its own `::` local, is rejected; every use of the constant was folded while compiling. Declare a binding the program writes with `:=` (`mut(G) := i32(1);` at module level: a written global needs `mut`, decision 47). Compile-time writes stay legal: module level, `-> comptime(...)`/`-> Type` bodies, CTFE, a `while(comptime(...))` counter, and a body's own `mut(a) :: 1; a = 2;` (decision 47: an unmarked `a :: 1` is not reassignable, E0917).
-- `assert`/`panic` live in `std/assert` (`{ assert, panic } :: import("std/assert");`) — not prelude-ambient. Messages accept any `ToString` type (template strings OK); `assert(cond)` uses a default message. The diverging builtin for value-position arms is `__yo_panic("str only")`.
-- Pointer comparison is plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic is METHODS: `p.add(n)`, `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance → `isize`). Comparisons are safe; arithmetic methods require `unsafe(...)`.
-- **A `?=` default must be a compile-time known VALUE** (DESIGN §Default parameter values): `i32(18)` and `.None` (a payload-free variant, even of `Option(Allocator)`) qualify; `Allocator.global()` (holds a global's address) and `seven()` (a call) do not. For a runtime default, use `(p : Option(T)) ?= .None` and branch in the body; callers pass `.Some(x)` (no implicit `T` → `Option(T)` wrap: E0601). A runtime-call default is rejected at the definition as E1105 (`issues/fixed/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`); names in a default resolve where the function is defined, not in the caller's module (`issues/fixed/a-default-parameter-value-resolves-names-in-the-callers-module.md`). A struct FIELD default follows the same rule: `(root_decl : String) ?= String.new()` is rejected ("`(String.new)()` is a runtime call"), so a `String` or collection field is spelled at every construction site.
-- **Associated-type binding syntax works only on BARE trait names, not parameterized trait constructors.** `where(Self <: Iterator(Item := A))` is fine (`Iterator` is a bare trait); `where(T <: Add(T, Output := T))` is REJECTED ("Argument count mismatch: expected 1, got 2") because `Add` is a trait CONSTRUCTOR (`Add(Rhs)`) and the binding parses as a second argument. Use the plain bound (`where(T <: (Add(T), Default))`) and let per-call specialization resolve `Output` — measured working end-to-end (prelude `Iterator.sum`).
-- **A module-level `NAME :: <backtick String literal>` is REJECTED** ("Expected compile-time value for NAME"): `::` constants must be comptime values, and a backtick literal (like `String.from(...)`) constructs a runtime RC `String`. Double-quoted `str` (`app_name :: "yo-demo";`) and numeric constants (`_COMMA :: u8(44);`) are fine — `str` is static. For big `String` data (e.g. an embedded table), put the backtick literal INSIDE the function that consumes it (`data := ` + blob) — it is one C string literal there; a module-level `:=` global also works but runs at module init and module globals get unmangled C names (alias hazard). Precedent: `std/encoding/html-entities.yo`.
-- **A leading UTF-8 BOM (U+FEFF) in a `.yo` file is skipped by the lexer** (byte 0 only; a U+FEFF elsewhere is an ordinary identifier rune). Row/column/`character` are as if the file had no BOM; `Token.byte_offset` still counts the 3 BOM bytes. Files written by Windows PowerShell 5.1's `Set-Content -Encoding UTF8` carry such a BOM (PS 7 does not add one), which is how `scripts/install.ps1`'s verification step once failed with `Variable "<BOM>open" not found` (`issues/fixed/lexer-rejects-leading-utf8-bom.md`). When a script must write `.yo` source BOM-less on BOTH PowerShell generations, use `[System.IO.File]::WriteAllText` (UTF-8 without BOM by default).
+- **Every binding is immutable unless declared `mut(name)`** (decision 47; Rust's `let mut` / `static mut`):
+  `mut(x) := v`, `(mut(x) : T) = v`, `(mut(x) : T);`, `mut(x) :: v`, `comptime(mut(x)) := v`,
+  `.Some(mut(v))` / `(mut(w) := p)` in a pattern, `{ a, mut(b) }` / `{ x : mut(b) }` / `(mut(a), b)` in a
+  destructuring. A write to an unmarked binding is E0917: reassignment (the first assignment of a
+  `(x : T);` declared without a value initializes it, per branch), a field or `Array` element write of its
+  own storage, `&mut x` (argument, receiver, `y := &mut x`, `match(&mut x, …)`, capture). `(a, b) := expr`
+  binds immutable names too: write `(mut(a), b) := expr` to reassign `a`.
+- Writes through a door (`r.with_mut(...)` on a `RefCell`) need no marker; reassigning the binding does.
+  `String` is a value, so `s.push_str(..)` needs `mut(s)`. A borrow (`x : &mut T`, `y := &mut p`, a `&mut`
+  match binding) is written THROUGH, not written; re-pointing a local borrow (`cur = &mut n.next`) is not
+  checked by this rule.
+- Parameters (and closure parameters, capture entries, `for` element bindings) take no marker: writing one
+  is E0917 naming a rebind `mut(p_m) := p;` (no shadowing, so a new name); reassigning one is E0902;
+  `mut(x) : T` as a parameter is E0009.
+- A malformed marker (`mut(x.f)`) is rejected; a run-time write of a `mut(x) ::` binding is still E0918.
+- The marker is recorded by the name's token (`register_mut_binding` / `is_mut_binding`, `src/expr.yo`;
+  checks `binding_require_mut` / `place_require_mut`, `src/evaluator/utils.yo`). The rule for bindings
+  below module level is not enforced in `src/`, `scripts/`, the root `build.yo`, fetched dependencies and
+  macro expansions (`is_global_mut_rule_exempt`, `src/evaluator/memory-safety.yo`). `yo fix <path>` wraps
+  one written binding per pass; `YO_AUDIT_MUT_BINDINGS=1` prints every write without rejecting.
+- **Module-level runtime bindings:** `mut(G) := v`, `(mut(G) : T) = v`, `thread_local(mut(x)) := v`,
+  `(thread_local(mut(x)) : T) = v`. A write to an unmarked global is E0917 (reassignment, a field/element
+  write, `&mut G` / `&mut G.f`, a `&mut self` method). Door globals (`RefCell`, `std/sync`) are written
+  through without the marker. Lending a `mut(...)` global or a place under it to a call (`f(&G)`,
+  `G.get()`, `G == x`, `` `${G}` ``, `for(&G, …)`, `for(&mut G, …)`) is E0916: copy it out
+  (`v := G; f(&v)`) and write it back after a `&mut` call. An unmarked global is lent freely except two
+  handle conflicts: `&G(i)` when a `&mut self` method is called on `G` anywhere, and `&H.f` when `H.f` is
+  written anywhere (lend `&H` and read the field in the callee). A place rooted in a `mut(G)` /
+  `thread_local(mut(x))` binding lent to a borrowing future is E0909. `YO_AUDIT_GLOBAL_LEND=1` prints the
+  sites without rejecting.
+- A collection global the program writes is an unmarked `RefCell(T)` global:
+  `(G : RefCell(ArrayList(i32))) = RefCell(ArrayList(i32)).new(ArrayList(i32).new());`, written with
+  `G.with_mut(xs => xs.push(x))`, read with `G.with(xs => xs.len())`. Evaluate an argument that reaches `G`
+  before the access: any access inside a `with_mut` body of the same cell, and a `with_mut` inside its
+  `with` body, panics.
+- **Runtime code cannot assign a `::` binding** (E0918): a runtime function, closure or test body writing a
+  module-level `::` (`G = v`, `G.x = v`), an enclosing function's `::`, or a runtime value into its own `::`
+  local. Every use of the constant was folded. Compile-time writes stay legal (module level,
+  `-> comptime(...)` / `-> Type` bodies, CTFE, a `while(comptime(...))` counter, a body's
+  `mut(a) :: 1; a = 2;`); an unmarked `a :: 1` is not reassignable (E0917).
+- **A compile-time function body declares compile-time locals** (E1104): in a fn returning `-> comptime(T)`,
+  `-> Type`, `-> Expr`, … write `x :: v`, `(comptime(x) : T) = v`, `comptime(x) := v` or `comptime(x) : T`,
+  never `x := v`, `(x : T) = v`, `x : T` or `y := &mut x`. A runtime fn literal nested inside (a method of
+  the returned struct, a closure) and a runtime fn evaluated by `comptime_fn(f)` keep runtime locals.
+  `yo fix` applies the rewrite.
+- **Module level `::` vs `:=`:** `::` needs a compile-time value. A backtick literal is a runtime `String`,
+  so ``NAME :: `…` `` is rejected ("Expected compile-time value"): use a `"..."` `str` constant, or put a big
+  backtick blob inside the function that consumes it (precedent: `std/encoding/html-entities.yo`; a
+  module-level `:=` global runs at module init and gets an unmangled C name). Conversely a comptime-known
+  value bound with `:=` at module level is rejected ("Expected "::" instead of ":=""): untyped
+  `arr := [1, 2, 3];` is `Array(comptime_int, N)`, so write `arr :: [1, 2, 3];` or type the elements
+  (`arr := [i32(1), i32(2)];`). `Array(T, n).fill(v)` is a runtime value: bind it with `:=`.
+- **A tuple TYPE is `Tuple(A, B)`** (`(fn(x : i32) -> Tuple(String, usize))`); `(A, B)` in type position is
+  a tuple value holding types ("Cannot store a type value in tuple"). Tuple values are `(a, b)`.
 
-## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
+## Parameters and call-site markers
 
-User code is memory-safe by default. To use raw pointers, a `.yo` file must declare `pragma(Pragma.AllowUnsafe);` at the top — this opts the entire file into unsafe-capability. Without the pragma, `unsafe(...)` itself is a compile error and pointer ops are forbidden.
+`plans/VALUES_BY_DEFAULT.md` decisions 30, 33, 42.
+
+| Spelling | Means | Notes |
+| --- | --- | --- |
+| `x : T` | by value: a `Copy` argument is copied, anything else MOVED (the caller's binding ends; a later use is E0901) | the callee owns it (may write, store, return it; drops it otherwise). Copy explicitly with `x.clone()` / `Rc.clone(h)` |
+| `sink(x) : T` | by value, always a move | the same type as `x : T` |
+| `x : &T`, `self : &Self` | read-only borrow | writing it is E0908 |
+| `x : &mut T`, `self : &mut Self` | exclusive borrow | |
+| `comptime(x) : &T`, `comptime(x) : &mut T` | compile-time borrow | the binding time wraps the name, the mode prefixes the type; erased at run time |
+| `f(&x)` | lends `x` to a `&T` param, a generic one included | to a by-value param: E0914 naming `x` / `x.clone()`; to `*(T)`: naming `addr_of(x)`; to `&mut T`: naming `&mut x` |
+| `f(&mut x)`, `f(&mut s.items)` | lends the place to a `&mut T` param | `&mut` is one prefix token; to any other param it is an error |
+| `f(x)`, `x` a named place, param `&T`/`&mut T` | E0914 naming `&x` / `&mut x` | required for every type, `Copy` too. Exempt: receivers, temporaries/literals/closures, operator operands, a reference binding passed whole (`f(r)`), `::` constants and function names, ghost code |
+| `addr_of(x)` | raw-pointer address-of → `*(T)` | unsafe-capable files only (see "unsafe") |
+| `imm(x)`, `mut(x)`, `inout(x)`, `own(x)` as a parameter mode | deleted | E0009 naming `x : &T` / `x : &mut T` / `sink(x)` |
+
+- **The mode is part of the function type for every type**: `fn(x : &i32)` and `fn(x : i32)` differ; an impl
+  writes exactly the trait's modes. `Eq`/`Ord` (and `ComptimeEq`/`ComptimeOrd`) take `lhs : &Self, rhs : &Rhs`;
+  arithmetic, bitwise and unary traits (and their `Comptime*` twins) take `lhs : Self, rhs : Rhs` /
+  `self : Self` by value (decision 34). A by-value `self` has no vtable slot, so `Dyn(LogicalNot)` is E0614.
+  Types print `x : T` / `x : &T` / `x : &mut T`.
+- A NAMED function value (or a written `(fn(y : i32) -> i32)(…)` literal) fits a function-typed slot only
+  with the slot's modes, wherever it goes (E0601 "a parameter's mode is part of the function type"):
+  a callback for `f : (fn(e : &E) -> T)` is `(fn(raise : &Raise) -> i32)`; a `Refine(T, p)` predicate is
+  `ghost_fn((fn(x : &i32) -> bool)(…))`. A lambda `(lhs, rhs) => …` takes its modes from the expected
+  type; an annotated one spells them (`(v : &mut i32) => …`).
+- `fn` and `Fn` parameters always need labels: `Fn(s : &String) -> usize`, never `Fn(&String)`.
+- `&mut` cannot combine with `sink(...)` or with `generic`/`using` parameters (erased at run time).
+- Effect records (`io : Io`, `exn : Exception`, `e : IoExn`) and `Copy` scalars are passed by value, never
+  `&`.
+- The storing std APIs take their value by value (`push(value : T)`, `insert(key : K, value : V)`, `send`,
+  `Mutex.new`).
+- A value moved in SOME arms of a `cond`/`match` is dropped at the end of the others (E0907 only for loop
+  exits, or when a `match` pattern in the branch binds the same name). An assignment drops an explicit-copy
+  old value right after the store (`old := (x = y)` keeps it).
+- Compiler-generated source (backtick templates) must spell `self : &Self` where it borrows: migrations do
+  not see inside strings.
+
+**Choosing a parameter shape:**
+
+| Value | Shape |
+| --- | --- |
+| read-only struct/enum/primitive | `name : T` (consider `&T` for a large struct) |
+| caller's value the callee writes | `name : &mut T` |
+| a std collection (`ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`, `PriorityQueue`, `OrderedMap`, `HeaderMap`, `StringBuilder`) the callee writes | `name : &mut T` (collections are uniquely owned values; their mutators take `self : &mut Self`) |
+| shared `Rc(S)` / `Rc(RefCell(S))` the callee only uses | `name : &Rc(S)`; a callee that keeps the handle takes it by value and the caller passes `Rc.clone(h)` or moves it |
+| receiver a method writes / only reads | `self : &mut Self` / `self : &Self` |
+| raw FFI pointer | `name : *(T)` (needs `pragma(Pragma.AllowUnsafe);`) |
+
+- Never a raw pointer where a borrow will do: `ctx : &mut EvalContext`, not `ctx : *(EvalContext)`; pass
+  `&obj` / `&mut obj`, never `addr_of(obj)`.
+- Trait declarations follow the dominant impl: a method that writes its receiver (`Hasher.write*`,
+  `Iterator.next`, `Index`/`IndexMut`, `ComptimeIndex`, `log.Sink.write_line`) takes `self : &mut Self`; one
+  that only reads it takes `self : &Self`, as in Rust: `Clone.clone`, `ToString.to_string`, `Hash.hash`,
+  `Hasher.finish`, `Debug.debug_string`, `Format.format`, `ToJson.to_json`, `Error.source`, `Reader`,
+  `Writer`.
+- `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists writes through a borrowed copy.
+
+### Two-phase argument rules (decision 28, E0910)
+
+- A later argument may not move, assign to, or lend `&mut` a place an earlier argument lends:
+  `f(&mut a, eat(a))`, `f(&a, { k := eat(a); k })`, `a.peek(eat(a))`, `a == make(eat(a))`,
+  `peek(&p.s, { p = q; k })`, `peek(&p.s, reset(&mut p))` are errors. A read or `&` relend later is fine
+  (`xs.push(xs.len())`), as is a write to a disjoint field. Move a copy (`eat(a.clone())`) or compute the
+  later argument first (`k := reset(&mut p); peek(&p.s, k)`).
+- Two lends of one call may not overlap when one is `&mut` and both are rooted at the same value local
+  (either order): `s.push_string(&s)`, `f(&mut p, &p.name)`, `f(&mut p.name, &p)` — copy one side first
+  (`t := s.clone(); s.push_string(&t)`). Two `&` lends and disjoint fields pass; an `Rc` root is not a value
+  root (`_check_call_value_root_overlap`, `src/evaluator/calls/function.yo`).
+
+### `&mut` parameters
+
+```yo
+swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
+});
+
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  mut(y) := i32(2);
+  swap(&mut x, &mut y); // the call site lends each place with `&mut`
+  assert(x == i32(2), "swapped");
+});
+```
+
+- Inside the callee the parameter is a reference binding: the whole value is `a.*` (read and write);
+  receivers, fields and indexing stay bare (`a.f`, `a.m()`, `a(i)`). See "Reference bindings".
+- Pass a reference binding on to another reference parameter bare: `inner(x)`, or `inner(&mut x.*)`.
+  `inner(&mut x)` lends the reference itself (`&mut &mut T`) and is E0601.
+- `comptime(name) : &mut T` mutates a compile-time binding (the prelude's `ComptimeIndex` uses it); zero
+  codegen impact.
+
+## Borrows
+
+### Reference bindings: `.*` is the deref (E0926)
+
+`.*` on a reference binding (`v : &T` / `&mut T` parameter, `y := &x`, a `for(&xs, x => …)` element, a
+`match(&x, …)` binding, a reference field `v.f`) is the reference's own deref:
+
+- A whole-value read or write of the referent is `v.*` / `v.* = e`. The bare name in a by-value position
+  (an operand, a by-value argument, an initializer, a return, `v = e`) is E0926.
+- Bare stays legal for: receivers (`v.f`, `v.m()`, `v(i)`), `f(v)` into a reference parameter, the
+  re-point `v = &place`, and a `match(v, …)` scrutinee (it matches through the reference; bindings borrow
+  the payload). `match(&v, …)` on a reference is E0926.
+- Through a reference to a `Box`/`Rc`/pointer the payload is `v.*.*`. Reading a reference field is
+  `v.at.*`.
+- An `io.async` capture of a reference parameter borrows it whole as `{ p : &p.* }` (`{ &p }` is E0926); a
+  by-value capture entry `{ r }` of a reference binding copies the reference (`{ r : r.* }` copies the
+  referent).
+- An assignment's operator RHS stays grouped: `r.* = (a + b)`.
+- `yo fix <path> --migrate deref` rewrites older code.
+
+### Local borrows (decision 18)
+
+- `y := &mut x;` names x's slot (`y.* = v` writes x; `c := y.*` copies); `y := &x;` (or `(y : &T) = &x;`) is
+  read-only — writing through it, passing it to `&mut`, a writing method or `z := &mut y.f` is E0908.
+- **Live until LAST USE, and it freezes its place** (E0911): under `&` no write/move of the place, a place
+  inside it or one containing it; under `&mut` no access except through the borrow. Sibling fields are free
+  (`a := &mut p.x; b := &mut p.y;`); below an `Rc`/`Arc` the CELL is the unit; a loop that mentions the
+  borrow keeps it live for the whole loop; a borrow of a borrow keeps its source live; a borrow of a
+  module-level place may not be live across a call, and one through a cell or module-level place not across
+  an `await`.
+- **Accepted places:** a whole variable, a field path rooted at a value struct, a field path through an
+  `Rc`/`Arc` handle (`h.n`; the innermost object is pinned for the binding's scope). **Rejected:** element
+  places (`xs(i)`, `p.*` — iterate with `for(&coll, …)` or read in place with `match(&xs(i), …)`), rvalues,
+  `Type.member`, compile-time roots, `::`, module-level declarations, and moving the root while the borrow
+  lives.
+- **Re-point** with `cur = &mut place` / `cur = &place` (decision 25): the place is a field of `cur`'s
+  target, a field of a binding of a bare `match` over `cur`
+  (`match(cur, .Some(n) => { cur = &mut n.next; }, .None => ())`; a unique `Box` on the way is a free step,
+  so the mutable list is `Option(Box(Node))`; an `Rc` list walks only with `&`, E0919), or a place of another
+  variable (`cur = &mut other.f`, a new loan: `mut(other)` for `&mut`; `cur` used after `other`'s scope is
+  E0911). Rejected: a call result, an index, a `.*` step, a binding of a by-value `match(cur.*, …)`. `n` is
+  frozen after `cur = &mut n.next`; a re-point is E0911 while a borrow derived from `cur` lives.
+- **A local borrow never crosses the function boundary** (E0912): `return(y)`, `return(y.f)`, or a body
+  result that is the borrow. Copy out (`v := y.*; v`); `y.len()`, `xs(i)` and operations produce values and
+  are fine.
+- Inside an `io.async` body a borrow works across awaits (reference, pin and root live in task slots).
+- A `&mut` ARGUMENT is a simple place: a variable or `var.field` rooted at a local/param; bind
+  intermediate handles to a local first.
+
+### Projections (`-> &T` / `-> &mut T`, decision 24)
+
+- The body yields a place written with the result's sigil (`&self.a`, `&mut self.rows(i)`; every
+  `cond`/`match` arm and `return(...)` likewise) or a reference binding (`x` for `x : &T`; `&x.*` stays
+  legal; a field read or projection call is not a bare leaf: `&h.r.*`, `&r.get()`), rooted at one of the
+  projection's borrow parameters (a `&mut` result needs a `&mut` parameter). Its `&T` parameters are passed
+  by pointer.
+- Reached through the subscript (`x(i)`: `Index.index` reads, `IndexMut.index_mut` writes) or a direct
+  call by name (`t.index(i)`, `Trio.index(&t, i)`, `first(&t)`; not through a function value).
+- A direct call's result is the PLACE: an operand (`t.index(i) + 1`), a receiver
+  (`n.name_mut(0).push_str("!")`), a bare argument to a reference parameter (`f(t.index(i))`), a local
+  borrow (`r := t.index(i)`, freezing the borrowed arguments until its last use, E0911; `(v : T) = t.index(i)`
+  copies), and for `&mut` the left of `=` (`t.index_mut(i) = v`). A `&` projection's place is read-only
+  (E0908). A projection call whose borrowed argument is a temporary cannot be bound. A projection may yield
+  another's result (`&g.index(i).a`) rooted at its own parameters (`docs/en-US/INDEX_TRAIT.md`).
+
+### Origins (decision 43)
+
+- A parameter may spell its reference's origin: `x : &(T, p)` / `x : &mut(T, p)` with `generic(p : Origin)`
+  (a union is `&(T, (p, q))`). Same function type and C as `x : &T`; an origin binder does not make the
+  function generic. A non-origin second argument (a type, an undeclared name, another parameter) is E0922
+  (a reference to a tuple is `&Tuple(A, B)`).
+- A projection's result may spell its origin: `-> &(T, p)`, `-> &(T, xs)` (the reference parameter `xs`), a
+  union `-> &(T, (p, xs))`; a by-value parameter there is E0912. A call freezes only the arguments the
+  result origin names (elided = every reference parameter; an E0911 conflict on an elided call names the
+  `-> &(T, keep)` spelling). A body yielding a place from a parameter the origin does not name is E0923
+  (from a local or by-value parameter E0912); an impl's result origin must lie within its trait method's
+  (E0923); a `Dyn` call uses the trait's origin. A reference-returning method with a callback slot spells
+  its origin (`OnceCell.get_or_init : (fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> &(T, self))`).
+- `Fn(s : &T) -> &U` is a closure trait returning a reference (origin per call, never spelled; `-> &(U, o)`
+  there is an error): filled by a named projection or a closure yielding `&place` from its own parameters
+  (a captured place is E0923). A projection is callable through a `fn(...) -> &T` value, an
+  `Impl`/`Dyn(Fn(...) -> &T)` and a `ctl(...) -> &T` operation, whose handler resumes with
+  `return(&place)`.
+- Outside a parameter slot `&T` / `&(T, o)` is a reference TYPE: a field, a type argument
+  (`Option(&(i32, x))`), an alias. A type constructor takes `comptime(p) : Origin` and is applied to an
+  origin by name (`View(x)` with `x` a local, parameter or module-level binding; an origin parameter; a
+  union `(x, y)`). A field naming its own type's fields (`&(i32, self.value)`) is E0924; an `extern`
+  signature or module-level binding whose type carries an origin is E0909. Origins are erased from identity
+  (`View(x)` and `View(y)` are one C type).
+- INLINE COMPOSITES over reference types have values: a value struct/enum (`Option(&mut i32).None`), a
+  tuple, an array. A constructor call lends each reference field's place (`at : &x`), freezing the lent roots
+  (E0911); returning one whose origin names a local is E0912. A `&T` field is `Copy`; a `&mut T` field makes
+  the holder move-only unless it derives `Copy, Clone`. A reference inside a container or cell
+  (`ArrayList(&T)`, `Rc`, `RefCell`) is an error naming N2c/N2d.
+
+## Values: moves, `Copy`, `Clone`, `Drop`
+
+### Move-only and explicit-copy values
+
+- A plain-data type WITHOUT `Copy` is copied only explicitly: `q := p` moves it (a later `p` is E0901, whose
+  note names `derive(T, Copy, Clone)`). `String`, the collections and `Rc`/`Arc` handles are explicit-copy
+  too (`s.clone()`, `xs.clone()`, `Rc.clone(h)`). A `&T` parameter or `match`/`for` binding of such a value
+  borrows, so storing or returning it is E0901: take the parameter by value.
+- A value type with `Drop`, or one that is neither `Copy` nor `Clone` (decision 36), is MOVE-ONLY, as is any
+  aggregate holding one (`Option(Fd)`, `Tuple(Fd, i32)`, a field, a closure capture). Every copy point
+  moves it (`:=`, `=`, `sink`, a field/element store, a constructor argument, a return, a capture). It
+  cannot be copied out of a `&T` parameter or `match`/`for` binding, a `&mut` borrow, a module-level
+  binding, a field (`h.fd`: no partial moves — `std/mem`'s `take(&mut h.fd)` / `replace(&mut h.fd, v)`) or a
+  dereference. Lend it (`f(&fd)`).
+- To split an OWNED holder, match it with a struct pattern: `match(e, { key : _, value : v } => v)` moves
+  `v` out and drops `key` (`{ a, b } := e` only borrows).
+- Unsafe container code moves a slot bitwise: `__yo_ptr_read(p)` takes the value out, `__yo_ptr_write(p, v)`
+  puts one in without dropping the old bits; compare in place (`p.*.key == key`) rather than binding `p.*`.
+- A shared cell (`Rc`, `Arc`) is never move-only. `Drop` on a primitive, tuple or pointer is rejected at
+  the `impl`.
+- A recursive enum with `Box(Self)` children is move-only even with `Clone`. `xs.get(i)` of such an element
+  is E0901: read it in place with `xs(i)`, copy with `xs.get_cloned(i)` / `xs(i).clone()`, write with
+  `xs.with(i, …)`, lend with `f(&xs(i))`, walk with `for(&xs, …)` / `for(&mut xs, …)`, own with
+  `pop`/`remove`. A local element borrow `e := &xs(i)` is rejected: match in place with
+  `match(&xs(i), …)` (bindings borrow, nothing is copied). `match(&mut xs(i), …)` is rejected (a temporary).
+- `YO_FLIP_REPORT=1 yo check <path>` prints each plain-data type that is explicit-copy (`[flip] <type>`)
+  once, so one pass names every type that still needs a derive.
+
+### `Copy` (decision 36)
+
+- `Copy :: trait(id := "Copy", where(Self <: Clone))` requires `Clone`. Integers, floats, `bool`, `char`, the
+  C number types, `unit`, `str` and `*(T)` are `Copy`; `Option(T)`/`Result(T, E)` under `where(T <: Copy)`.
+- Opt in with `derive(T, Copy, Clone)` (also for function-local types), or `impl(T, Copy())` beside a
+  `Clone` impl. Generic: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` plus
+  `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`. `derive(T, Copy)` alone is an error naming
+  the pair; the compiler never writes a `Clone` impl. `where(T <: Copy)` gives `T <: Clone`.
+- The impl is checked: a `Clone` impl covers it, every field/payload is `Copy` (the error names the first
+  that is not), no `Drop` (either order), never a reference type. Tuples, arrays, closures, anonymous
+  records and `fn` pointers cannot declare it: they are `Copy`/`Clone` exactly when all parts are
+  (`Type.impls(Tuple(i32, bool), Copy)`; the prelude has tuple `Clone` impls for arities 1–12; `.clone()` on
+  a `Copy` record/closure/fn pointer is the copy, on a `Clone`-not-`Copy` one it clones field-wise).
+- A CLOSURE's parts are its capture record: a by-value capture (listed, or implicit — a closure bound to a
+  name owns what it captures) counts with its type, a `&` capture is `Copy`, a `&mut` capture makes it
+  neither `Copy` nor `Clone`. A non-`Copy` closure is explicit-copy: `d := c` moves `c` (E0901 names
+  `c.clone()`); `where(T <: Copy)` rejects it (E0602).
+- `derive(T, Clone)` is always allowed. A HAND-WRITTEN `Clone` is an error only where every instantiation it
+  serves is `Copy`.
+- A raw pointer's `p.clone()` copies the pointer. A member name both the pointer and its pointee have (a
+  pointee field named `clone`, `add`, `sub`, `offset_from`) makes `p.m(...)` an error naming `p.*.m(...)`
+  (or the copy `q := p`).
+- Exempt from the explicit-copy rule: compile-time-only types, control-bound records (`Exception`, effect
+  records), unions, C opaque types, refinements of a `Copy` type, types still mentioning a type variable
+  (judged per instantiation).
+- Iterator consumers/adapters take `sink(self)`.
+
+### `Drop` (decision 45)
+
+- `impl(T, Drop(drop : (fn(self : &mut Self) -> unit)(...)))` — Rust's receiver: the destructor may take a
+  field out (`self.f = .None`); fields drop after it returns. `self : &Self` does not conform. `Dispose` is
+  not recognized.
+- **Never call the destructor by hand**: `x.drop()`, `T.drop(&x)`, `(T <: Drop).drop(&x)` are E0915. A
+  destructor never calls a field's destructor.
+- End a value early with the prelude's `drop(x)` (moves `x`). A resource released while other references
+  live gets an inherent method its destructor delegates to (`TcpStream.close_sync()`).
+- `drop_in_place(p)` (prelude, `p : *(T)`, unsafe): see "unsafe".
+
+### `Rc` / `Arc` handles
+
+- **Shared data** is an `Rc(S)` (payload read-only, E0919) or an `Rc(RefCell(S))` written through the door.
+  There are no user-declared reference-semantics types (`ref(...)` / `atomic(...)` are E0009). Raw `*(T)` is
+  for FFI.
+- **A second handle is `Rc.clone(h)` / `Arc.clone(h)`** (decisions 17, 32: `h.clone()` would also name the
+  payload's): a count bump, no bound on `T`. A handle's last use moves it; a copy whose source is used again,
+  or any copy out of a borrow, a field or a module-level binding (`return(h)` of a `&Rc(T)` parameter,
+  `n.label`), is E0901 (its help names `Rc.clone(h)`). A value holding a handle is explicit-copy too
+  (`x.clone()`, derive `Clone`). A deep copy is `Rc.new(h.*.clone())`. `&Rc(T)` parameters borrow without a
+  copy.
+- **Auto-deref** (`Deref`): `b.x`, `b.x = v`, `b.m()`, `b.items.push(v)` on `Rc(P)` mean `b.*.x`, …; nested
+  wrappers recurse; callee position forwards (`b.items(i)`, `b.f(x)` for a function-typed field). A name the
+  wrapper and payload both have is E0616: `Rc.clone(b)` (the handle's) or `b.*.clone()` (the payload's). In
+  a safe file a write through an `Arc` is still rejected (`a.n = v`, a `&mut self` method). `data.*.x` is
+  equally valid.
+- **Writes through an `Rc` payload are E0919** (decision 46): `h.*.push(x)`, `h.*(i).f = v`,
+  `addr_of(h.*(i))`. Use `Rc.make_mut(&mut h).push(x)` (payload `Clone`) or an `Rc(RefCell(...))`.
+- **`Deref` owners** (VERDICTS-63): `Deref` carries `deref : fn(self : &Self) -> &Self.Target`, `DerefMut`
+  carries `deref_mut`, chosen like `Index`/`IndexMut` (a write, a `&mut` lend, a `&mut self` receiver and
+  `addr_of` call `deref_mut`). `Box`/`Rc`/`Arc` are handles whose `.*` is native; any other `Deref` type is
+  an owner (`Array(T, N)` with `Target : [T]`, a user type over `[T]`) whose `x.*` is its projection:
+  `v := &x.*` binds `x.deref()`, `w := &mut x.*` binds `x.deref_mut()`. An owner's own member wins over its view's. Nothing derefs at a parameter:
+  pass `f(&s.*)`, never `f(&s)` (E0601 naming `&s.*`). Outside the prelude a `Deref` impl needs an unsized
+  `Target` (`[T]`, `str`, a `Dyn`), else E0622. `ArrayList`/`String` do not implement `Deref` yet.
+- A generic impl's `where` is not consulted when its method is resolved
+  (`issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md`).
+
+## `match`
+
+### How a `match` takes its scrutinee (decision 26)
+
+- **Bare scrutinee of a non-`Copy` type** (owned local, by-value parameter, temporary): MOVED into the
+  match. The chosen arm's bindings own their parts; parts the arm does not bind are dropped when it is
+  entered; guards see bindings as borrows. Below an `Rc` payload bindings borrow. A later use of the
+  scrutinee is E0901 naming `match(&x, …)`.
+- **`match(&x, …)`**: read-only borrows; each binding is a reference into `x`'s place (freezing `x` while
+  live, E0911). `&temp` borrows a temporary held in a C local.
+- **`match(&mut x, …)`** or a bare `&mut` binding scrutinee: bindings are `mut` PLACES (`v = …` writes the
+  part, dropping the old value). While a binding lives, `x` is reached only through it;
+  `cur = &mut n.next` is the one statement that may name `cur`. `&mut` of a `&` binding is E0908, of a
+  temporary an error. Bindings below a cell stay copies. A place lives across an `await` unless its scrutinee passes through a cell or a
+  module-level place (E0911).
+- **A `Copy` value**: copied.
+- **E0901 naming the borrow:** a by-value match of a module-level binding, a closure capture, a field
+  `x.f`, an element `xs(i)` or a dereference `p.*` of a non-`Copy` type — write `match(&x.f, …)`.
+  `(name := p)` in a consuming match needs `Copy` sub-bindings (none in a `mut` match); an or-pattern of a
+  consuming match may not leave a part with a drop unbound (split the arm).
+- The desugar peels the marker and records it (`borrowed_match_scrutinee_kind`).
+
+### Pattern forms
+
+Patterns compile to a pattern IR (`src/pattern.yo`, `plans/reference/MATCH_PATTERN_MATCHING.md`). Every
+infix pattern needs its own parentheses.
+
+| form | example | meaning |
+| --- | --- | --- |
+| `_` | `_ => …` | wildcard |
+| identifier | `other => (other + 1)` | binds — unless it names a `::` constant holding a literal or enum value, which is COMPARED (`TEN => …`) |
+| constant | `0`, `-1`, `true`, `'a'`, `"lit"`, `i32(5)`, `Color.Red` | compared with `==`; a `str` literal matches a `String` or `str` |
+| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | sub-patterns at any depth: `.Ok(.Some(v))`, `.Of((48..=57))` |
+| or | `(.Red \| .Green) => …`, `.Some((.A \| .B))` | alternatives bind the same names |
+| range | `(0..10) => …`, `(10..=19) => …` | compile-time bounds |
+| whole-value binding | `(whole := .Some(v)) => …` | binds the value AND matches |
+| guard | `(.Some(v) && (v > i32(100))) => …` | runs when the pattern matches and the guard is true |
+| struct | `Point(x : 0, y)`, `{ x, y }` (struct scrutinee) | bare names bind, unlisted fields match anything |
+| tuple | `(a, b)` | exact arity |
+| wrapper | `Rc(p)`, `Arc(p)`, `Box(p)`, `(c := Rc(p))` | looks through the cell; `Rc(x)` binds the payload (a borrow), `(c := Rc(p))` the cell |
+
+```yo
+Shape :: enum(
+  Circle(radius : i32),
+  Rectangle(width : i32, height : i32),
+  Triangle(base : i32, height : i32, label : str)
+);
+
+area :: (fn(s : Shape) -> i32)(
+  match(
+    s,
+    .Triangle({ base, height : h }) => (base * h), // preferred: curly, order-free, partial
+    .Circle(radius : r) => (r * r), // labeled pairs: also fine
+    .Rectangle(w, h) => (w * h) // positional: only for one- or two-field variants
+  )
+);
+```
+
+- **Prefer the curly form** `.Variant({ field1, field2 : alias })`: adding a field never shifts positions.
+  `{ a }` binds `a`; `{ a : x }` renames; `{ a : _ }` asserts the field and ignores it; partial lists are
+  fine; `.Variant({})` and bare `.Variant` match without binding (even with fields); a bare `{ _ }` is
+  rejected (`tests/match-curly.test.yo`, `tests/match-bind-nothing.test.yo`).
+- In a VARIANT payload, a nested struct sub-pattern uses the NAMED form: `.Holding(Outer(inner : { a, b }, tag))`;
+  `.Holding({ inner : { a, b } })` is E0406 (its labels are read against the variant). Otherwise nesting is
+  free: `.Foo({ a : .Some(x) })`, `.V((0, y))`, `.V(Point(x : 0, y))`.
+- An `Rc(T)`/`Arc(T)` position takes ONLY the wrapper spelling (decision 31): `.Cons(h, .Cons(n, _))` through
+  `tail : Rc(Self)` is E0609 naming `Rc(p)`; write `.Cons(h, Rc(.Cons(n, _)))`. A bare binding there binds the
+  cell. A `Box` position is also looked through implicitly.
+- **Exhaustiveness is structural** (E0607): `.Some(true), .None` reports `Missing case: .Some(false)`; a
+  guarded arm never covers. Integer constants and ranges are intervals of the fixed-width type (`(0..=255)`
+  covers `u8`; gaps print as ranges). `usize`/`isize`, floats and strings need a `_` or binding arm.
+- **An arm that can never run is E0608**: a duplicate variant/literal, any arm after a catch-all, a range
+  inside an earlier one, `(1 | 1)`, an empty range `(5..5)`, a GADT variant the scrutinee excludes. An arm
+  the earlier arms cover only TOGETHER is a warning. Invalid pattern: E0609.
+- Every form works in an `io.async` arm that awaits, and `io.await(...)` may appear anywhere in an arm
+  (`tests/match-async-arms.test.yo`).
+
+### `match` pitfalls
+
+- Never lend a match binding `&mut` when the arm can drop the last reference to its cell: `f(&mut n)` plants
+  a borrow assert on the cell, and unlinking first frees it (ASan heap-use-after-free; the shape of a doubly
+  linked `pop_front`). Read/write the fields you need BEFORE the assignments that drop handles.
+- `Option(&T).unwrap()` cannot reach the payload's methods yet (E0601 inside `unwrap`;
+  `issues/2026-11-05-an-option-of-a-reference-cannot-reach-its-payloads-methods.md`). Use a `match`:
+  `match(h.get(), .Some(p) => p.len(), .None => usize(0))`.
+
+## Loops
+
+### `while`
+
+- No `loop` function: `while(true, body)` is the infinite loop.
+- `while(cond, body)` is always a run-time loop and its condition always a run-time expression: never
+  `while(runtime(cond), …)`.
+- `while(comptime(cond), body)` opts into compile-time unrolling; `cond` must be compile-time known, and an
+  evident infinite loop (`while(comptime(true), ...)` with no `break`/`return`/`unwind`) is an error.
+- A comptime-only (`::`) variable in a bare `while` condition is an error (it could never change).
+
+### `for(coll, x => body)`
+
+`for` is desugared at parse time (`_desugar_for_call`, `src/expr.yo`) into a `while` over `.into_iter()`; a
+user function named `for` is never called by it.
+
+```yo
+for(list, x => {
+  process(x);
+}); // value form: consumes list
+for(&mut names, s => {
+  s.push_str("!");
+}); // borrowed form: writes in place
+for(chain.map(f), y => println(&y)); // an iterator chain as the source
+```
+
+- **Value form `for(coll, x => …)`**: `coll.into_iter()` (`self : Self`), so it CONSUMES `coll` (a later use
+  is E0901: use the read walk or `coll.clone()`). `chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/
+  `chunks`/`windows` consume their receiver too. `iter()` yields raw pointers (unsafe-capable code only).
+- **Borrowed form `for(&mut coll, x => …)`** (decision 39): the value form over `(&mut coll).into_iter()`,
+  whose cursor (`ArrayListCursorMut(T, p)`, …) holds the `&mut(C, p)` lend; `x` is a `&mut(T, p)` item
+  (`x.* = …`; struct fields write in place). The hidden iterator carries the `for` position
+  (`for_desugar_site_of`), so the body may NOT name `coll` at all (E0911, Rust's `iter_mut` rule). `x` is
+  second-class (`return(x)` is E0912; `v := x.*`). To read or grow a list while walking it, walk positions:
+  `for(xs.indices(), i => …)` with `xs(i)`. A non-place source is held by a hidden local; behind an `Rc` lend
+  the payload: `for(&xs.*, …)`. Maps: `for(&mut m, (k, v) => …)` (key read-only; a single name binds the
+  tuple). `HashSet`/`PriorityQueue` have no `&mut` form. A `mut(G)` global source is E0911.
+- **Read walk `for(&coll, x => …)`**: over `(&coll).into_iter()`, each element a `&(T, p)` reference,
+  nothing copied. `x.* = …` / `x.f = …` are E0908; the body may read `coll` but not write it (E0911).
+  `return(x)` is E0912. Maps: `for(&map, (k, v) => …)`. Every std collection is a read-walk source. Works in
+  an `io.async` body with awaits in the loop.
+- A user type is a source by `impl(generic(p : Origin), &(C, p), IntoIterator(Item : &(T, p), IntoIter : MyCursor(p), …))`
+  over a cursor struct holding `&(C, p)`.
+- `for(x, arr, { body })` (3 arguments) is not valid source.
+- **Async iteration is the written-out loop** (`std/async/stream.yo`):
+  `mut(s) := stream; while(true, { n := io.await(s.next(io), io); match(n, .Some(x) => body, .None => { break; }) });`.
+  An `io.await` inside a function the task calls BLOCKS instead of suspending, so there is no named loop
+  form.
+
+## Indexing: `xs(i)`
+
+`ArrayList(T)` implements `Index`/`IndexMut` (projections, `self : &Self` / `&mut Self` → `&Output`):
+
+```yo ignore
+val := list(usize(0));    // read (panics out of bounds)
+list(usize(0)) = i32(99); // write in place
+o := list.get(usize(0));  // Option(T): a bounds-checked copy (E0901 for a non-Copy element: use get_cloned)
+```
+
+Prefer `xs(i)` / `xs(i) = v` over spelling `.index(i)` / `.index_mut(i)` or `addr_of(xs(i))`; keep
+`addr_of(xs(i))` (unsafe-capable code) only when the raw `*(T)` itself is needed.
+
+## Closures and function values
+
+### `=>` closures vs `fn` literals
+
+- A `=>` closure infers parameter types from the expected `Fn(...)` signature. A `: Type` on a parameter is
+  documentation only (the adopted signature wins; a mismatch is not diagnosed); it is the idiom in
+  `io.async((io : Io) => ...)`.
+- Use the full `fn(...)` form for a standalone signature:
+
+```yo
+pred :: (fn(x : &i32) -> bool)(x.* > i32(2));
+
+main :: (fn() -> unit)({
+  a := (i32(0) .. i32(5)).filter(x => (x.* > i32(2))); // inferred
+  b := (i32(0) .. i32(5)).filter((x : &i32) => (x.* > i32(2))); // annotated
+  c := (i32(0) .. i32(5)).filter(pred); // named fn
+});
+```
+
+- **Nested `=>` needs a right group**: `(x : i32) => (y : i32) => ((x + y))` is a same-operator chain and
+  parses as `((x) => (y)) => …` (an "Expected a function type" error later). Write
+  `(x : i32) => ((y : i32) => ((x + y)))`.
+- **Binding a closure to a local needs the expected type** and parentheses:
+  `(cb : Impl(Fn(x : i32) -> i32)) = (x => (x + base));`; `cb := (x => ...)` fails with "Expected a function
+  type, got: …".
+- **A `fn` literal does NOT capture**: naming an enclosing local inside `(fn(...) -> T)(body)` is E0401
+  `Variable "m" not found` at the use. Pass the value in as a parameter, or use a `=>` closure.
+- **Closures capture BY VALUE**: an implicit capture copies a `Copy` value (an `i32` counter mutated inside
+  never comes back out) and moves anything else. To share state, capture a second handle:
+
+```yo
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
+
+main :: (fn() -> unit)({
+  calls := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  (f : Impl(Fn() -> i32)) = ({ c : Rc.clone(calls) }() => {
+    c.with_mut(xs => xs.push(i32(1)));
+    i32(7)
+  });
+  f();
+});
+```
+
+- **Result-type inference:** when an argument's return type must be inferred into a type variable
+  (`o.map((x) -> ...)`, any `Impl(Fn(..) -> R)` / `where(F <: Fn(..) -> R)` parameter), a capture-free `->`
+  literal and a `=>` closure both bind `R`; pick `=>` only to capture. `->` stays required for effect
+  handlers (their result is the per-call-site `ResumeType`).
+- A closure's body is checked against the `Fn(...) -> R` it adopts (E0604). A `comptime(x) : T` parameter
+  needs a compile-time argument (E1101).
+
+### Capture lists: `{ x, &y, z : &mut w }(params) => body` (decisions 35, 38)
+
+- `x` / `x : e` — by value (copy, or move). `&y` / `name : &place` — read-only borrow; `&mut z` /
+  `name : &mut place` — writing borrow (the puns stand for `y : &y`, `z : &mut z`).
+- The list is EXHAUSTIVE: the body reads only listed names and module-level items (`{}()` captures
+  nothing).
+- A borrow names a place rooted at a local: no temporary, no module-level binding, nothing through an
+  `Rc`/`Arc` or `p.*` (capture the handle and re-derive); a `&mut` place must be writable.
+- Captured borrows are reference bindings: read and write them with `.*`.
+- A borrowing closure is SECOND-CLASS (E0909): bind it, call it, pass it to a plain parameter — never return,
+  store, `dyn`, `sink`, capture in `io.async`, or name it in a type argument. A `&mut` capture makes it
+  move-only; `&` captures keep it `Copy`. A non-`Copy` by-value capture makes it explicit-copy. Its places
+  are frozen until the binding's scope ends (E0910): wrap the closure and its calls in a `{ …; }` block to
+  use the place afterwards.
+- `&f` to an `f : &Impl(Fn(...))` parameter lends the closure; to a by-value one it is an error naming `f`
+  (a closure argument always moves). Passing a closure bare, `apply(f, 1)`, is legal.
+- A capture list on an `io.async` body is not supported yet.
+
+```yo
+main :: (fn() -> unit)({
+  mut(total) := i32(0);
+  (i32(1) .. i32(4)).for_each({ &mut total }(x : &i32) => {
+    total.* = (total.* + x.*);
+  });
+  k := i32(1);
+  w := i32(2);
+  (h : Impl(Fn(m : i32) -> i32)) = ({ k, &w }(m : i32) => (m + k + w.*));
+});
+```
+
+### `Fn`, `FnMut`, `FnOnce` (decision 37)
+
+`Fn` implies `FnMut` implies `FnOnce`: an `Fn` closure fills any slot, an `FnMut` one an `FnMut`/`FnOnce`
+slot. A value typed `FnMut` at an `Fn(...)` slot or boxed as `Dyn(Fn(...))`, or `FnOnce` at an `Fn`/`FnMut`
+slot, is E0913. A closure literal takes the trait of its slot.
+
+**`FnOnce`** — call-once:
+
+- A call consumes the closure: a second call or later use is E0901 pointing at the first call.
+- Only capture-list BY-VALUE entries are owned by the body: it may move one out (a `sink` argument, a
+  binding, the tail); the rest drop when the call ends. Moving out of an implicit capture, or of any capture
+  in an `Fn` closure, is E0913.
+- Call it from an API it escapes into: `sink(f) : Impl(FnOnce(...))`. Calling through a borrowed
+  `f : Impl(FnOnce(...))` is E0901. A `sink` closure called on one `cond`/`match` arm is dropped uncalled at
+  the end of the others; ways out of a loop must agree (E0907). A generic callee may call its own `FnOnce`
+  parameter once.
+- `io.async` takes `Impl(FnOnce(e : E) -> T)`. Run-once std bodies take `sink(body) : Impl(FnOnce(...))`
+  (`RefCell.with_mut`, `HashMap.entry`, `ArrayList.with`, `Deque.with`), so the body may move its captures:
+  `cell.with_mut({ t }(xs) => xs.push(t))`.
+
+**`FnMut`** — call repeatedly with state:
+
+- A call borrows the closure exclusively. Its body may write its BY-VALUE capture entries (state kept
+  across calls) and its `&mut` captures:
+  `(mut(tick) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => { n = (n + i32(1)); n });`. Under
+  `Fn`/`FnOnce` an entry write is E0917. Storing a reference to the call's parameter into the state is
+  E0923, to a body local or another by-value entry E0912; a borrow capture
+  (`{ o : &x, last : Option(&T).None }`, `last = .Some(o)`) is fine.
+- An IMPLICIT capture is writable only in an `FnMut`/`FnOnce` closure that owns its record; in an `Fn`
+  closure or a literal lent to a borrowing parameter (`run(&(() => …))`) it is E0913. Spell `{ &mut s }`.
+  Calling an `FnMut` closure through a `&` capture (`{ r : &f }`) is E0908.
+- An `FnMut` closure's implicit captures are owning moves: an implicit capture of a borrowed place is
+  E0901. Spell `{ &p }` / `{ p }` (copies the `&T`) / `{ m : &mut m.* }` (reborrow) / `{ v : p.clone() }`.
+- While a closure's `&` capture of `x` is in scope, every `&mut` lend of `x` is E0910; a `&mut` capture
+  entry, `consume(x)` and a moving implicit capture count as accesses (E0911).
+- Call it through `mut(f)`, `f : &mut Impl(FnMut(...))`, `(mut(d) : Dyn(FnMut(...)))` or a temporary; an
+  unmarked binding or by-value parameter is E0917 (rebind `mut(g) := f;`), `f : &Impl(FnMut(...))` is
+  E0908, a call while a borrow of it lives E0911. A literal passed to `&mut Impl(FnMut(...))` needs no
+  marker.
+- A literal that HOLDS a `&mut` capture is `FnMut` by its captures alone, so at an `Fn(...)` slot it is
+  E0913.
+- An `FnMut` closure (and `Dyn(FnMut(...))`) is move-only. A `Sync` slot (`Impl(Fn(...), Sync)`) rejects a
+  closure that writes a `&mut` capture or its state.
+- Every std non-escaping callback takes `&mut Impl(FnMut(...))` (the `Option`/`Result` combinators,
+  `RefCell.with`, `with_lock` bodies, `Once.call`, the `*_lazy` loggers). `Fn` remains only where the
+  callback is shared, stored, or called from another thread (`thread.spawn_blocking`'s `sink(cb)`, the http
+  `handler`).
+
+### Function-pointer slots
+
+- **A `=>` closure never fills a bare `fn(...)` slot** (E0605): a `fn(...) -> R` parameter or field is a C
+  function pointer; it takes a named `fn` or a capture-free `->` literal. Declare `Impl(Fn(...))` or
+  `Dyn(Fn(...))` for closures.
+- **A bare `fn(...)` slot type never mentions `Impl(Fn(...))`**: a parameter, field or result typed
+  `(fn(x : i32) -> Impl(Fn() -> i32))` or `(fn(f : &Impl(Fn() -> i32)) -> i32)` is rejected at `check`
+  (each `Impl` return is its own closure struct). Take the function generically
+  (`mk : &Impl(Fn(x : i32) -> Impl(Fn() -> i32))`, or `generic(G : Type), mk : &Impl(Fn(x : i32) -> G), where(G <: (Fn() -> i32))`)
+  or return `Dyn(Fn(...))`. Still valid: `fn(...) -> Impl(Future(...))`, a `comptime(f)` parameter, a local
+  annotation.
+- **An `Impl(Fn(...))` parameter accepts only a CALLABLE** (E0606 "Argument for parameter "f" is not
+  callable"): a closure, an arrow literal, a named `fn`, a `(fn(...) -> T)(...)` literal, a
+  `ClosureType({...})` value, a closure forwarded from another `Impl(Fn)`/`Dyn(Fn)` slot, or an unresolved
+  type variable. `io.async` follows the same rule, so a bare block is an error:
+
+```yo ignore
+io.async({ w := i32(5); w })     // WRONG — a block is not a closure
+io.async(e => { w := i32(5); w }) // CORRECT — name the bundle parameter
+```
+
+## `Dyn`
+
+### `Dyn` is unsized: `Box(Dyn(T))`, `Rc(Dyn(T))`, `&Dyn(T)` (decision 49)
+
+`docs/en-US/DYN_DESIGN.md`.
+
+- `Dyn(T)`, `[T]` and a struct with an unsized last field live behind a pointer, and the owner is spelled:
+  `dyn(Box.new(v))` → `Box(Dyn(T))`, `dyn(Rc.new(v))` → `Rc(Dyn(T))`, `dyn(&v)` / `dyn(&mut v)` →
+  `&Dyn(T)` / `&mut Dyn(T)` (no allocation); `&b.*` lends an owned one.
+- `downcast(&b.*, V)` gives `Option(&V)`; `upcast(p, Dyn(A))` keeps the pointer kind.
+- An unsized type by value is E0619; `unsize(a)` of a value and `dyn(v)` of a plain value are E0620
+  (`yo fix <path> --migrate unsized` rewrites older spellings).
+- `generic(T : ?Sized)` opts a generic in; a trait's associated type opts in the same way
+  (`Target : ?Sized`; `Self.Target` then lives only behind a pointer).
+- `AnyError` is `Box(Dyn(Error, Clone))` (`std/error.yo`); `d.clone()` copies a `Dyn(Trait, Clone)`. `throw`
+  takes the error by value, so a handler owns what it catches.
+
+### A callable into a `Dyn(Fn(...))` slot is always spelled (E0618)
+
+A named closure, a named `fn`, an `Impl(Fn(...))` parameter or a closure literal passed BARE into a
+`Dyn(Fn(...))` binding, reassignment, field, argument, variant payload or result is E0618; its help names the
+erasure for the slot's pointer: `dyn(Box.new(f))`, `dyn(Rc.new(f))` or `dyn(&f)` (`Box.new` moves `f`, so one
+closure fills one slot). `yo fix <path>` writes it for a named callable. An `Impl(Fn(...))` slot takes the
+closure bare. `dyn(Box.new(nine))` of a named `fn` boxes its code pointer. A generic type's function taken
+as a value (`ArrayList(i32).new`) is not emitted yet
+(`issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`): wrap it,
+`dyn(Box.new(() => ArrayList(i32).new()))`.
+
+## Generics and traits
+
+### Generic calls
+
+- Two arguments binding one `generic(A)` to different types is E0601; a literal and the type it adopts are
+  one binding (`pair_same(i32(3), 4)` is fine).
+- A `=>` closure or `->` literal argument is matched AFTER the others, against the solved parameter type:
+  `apply((x) => (x + i32(1)), i32(3))` works; a body disagreeing with the solved result is E0604.
+- A binder only the RESULT mentions (`mk :: fn(generic(T)) -> Option(T)`) comes from the expected type
+  (`(x : Option(i32)) = mk()`) or `generic(...)`; `x := mk()` is E0613.
+- A kind-annotated binder is inferred from an instantiation: `x : F(A)` given `Option(i32)` binds `F = Option`,
+  `A = i32`.
+- `where(I <: Iterator(Item := A))` binds `A` from the argument's impl; `J` in `F <: (Fn(item : A) -> J)`
+  comes from the closure's body; `Dyn(Fn(x : A) -> B)` parameters infer `A`/`B` too.
+- **Associated-type bindings work only on BARE trait names**: `where(Self <: Iterator(Item := A))` is fine;
+  `where(T <: Add(T, Output := T))` is E0603 (`Add(Rhs)` is a trait constructor). Use the plain bound
+  (`where(T <: (Add(T), Default))`) and let specialization resolve `Output`.
+
+### Calling a method through its type: `T.m(x)`
+
+- `Point.norm(p)` is `p.norm()`. A generic type works with its arguments written (`Rc(i32).clone(w)`) or
+  left out (`Rc.clone(w)`, `Pair.first(p)`): inferred from the FIRST argument, which must be an instance of
+  the constructor (decision 32).
+- A static method (first parameter not `Self`) infers them from every argument whose parameter type
+  mentions the impl's binders: `Pair.make(i32(1), true)`, `Rc.new(x)`, `Rc.new(42)` is `Rc(i32)`. Not
+  consulted: a closure literal, an enum shorthand `.X`, a `dyn(...)` value, a defaulted argument, the
+  expected type — so `Rc.new(.None)` and `ArrayList.new()` are E0613 (write `Rc(Option(i32)).new(.None)`);
+  disagreeing arguments are E0601; two fitting impls an ambiguous E0613; a failed impl bound E0602.
+- A first argument of another type (`Rc.clone(b)` for `b : Rc(i32)`; no payload search) is E0613; a missing
+  method E0610.
+- The match is by constructor identity: an alias or a partial application (`Pair(i32, _)`) is its own
+  constructor, so `IntPair.first(q)` for `q : Pair(i32, u8)` is E0613 (write `Pair.first(q)` or
+  `IntPair(u8).first(q)`). A labeled receiver (`Pair.first(self : p)`) and a module-qualified constructor
+  (`m.Pair.first(p)`) work.
+
+### Trait method dispatch
+
+```yo
+use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
+  return(self.get_number()); // implicit: dispatches to T1.get_number
+});
+
+use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
+  return((T <: T2).get_number(self)); // explicit trait selection
+});
+```
+
+Use the explicit form when a type has several traits with the same method name, or the receiver type does
+not determine the trait.
+
+### Partial application with `_`
+
+`_` as an argument partially applies a COMPTIME function (one with a `comptime` return type); the argument
+count must match; runtime functions do not take `_`.
+
+```yo
+IntResult :: Result(_, i32); // fn(comptime(T) : Type) -> comptime(Type)
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
+add1 :: add(i32(1), _);
+result :: add1(i32(2)); // 3
+```
+
+### Derives
+
+- The prelude registers derive rules for `Eq`, `Hash`, `Clone`, `Ord`, `Default` only. `derive(X, ToString)`
+  needs `{ ToString } :: import("std/fmt");` first (rule in `std/fmt/to_string.yo`), `derive(X, Error(...))`
+  `std/error`; otherwise "derive: trait 'ToString' does not have a derive rule".
+- A top-level `derive(T, …)` is order-independent like `impl(T, …)`.
+
+## Modules
+
+### Module imports
+
+```yo
+{ RegexNode, CharRange, GroupNameEntry } :: import("./node.yo"); // same directory: relative path
+node_module :: import("./node.yo"); // whole module
+{ ArrayList } :: import("std/collections/array-list"); // std: "std/<module>"
+{ ... } :: import("std/string"); // glob destructure (there is no `open(...)`)
+```
+
+- Files in the same directory import each other with relative paths (`./file.yo`); std modules with
+  `"std/module"`. There is no `import "path" as name` form.
+- **Module file, directory and `[modules]` key names are kebab-case** (`plans/backlog/KEBAB_CASE_NAMES.md`):
+  `array-list.yo`, `import("markdown-yo/block-parser")`. A path is only a string; a whole-module binding is
+  still an identifier (`array_list :: import("std/collections/array-list");`). `-` and `_` are different
+  names (a wrong guess fails to resolve); a name must not start or end with `-`. `check`/`compile` warn on a
+  project-local module name with `_` or an upper-case letter; `yo fix <path> --module-names` renames them and
+  rewrites every `import(...)`, `[modules]` entry and `build.yo` `root :` path (`--dry-run` prints the map;
+  comments, scripts and non-import strings are not rewritten).
+- **Never import `std/prelude`**: it is loaded automatically and an explicit import is an error (a
+  third-party `prelude.yo` is fine).
+- **A bare `import("std/fmt");` binds no names**: it registers the module's impls and derive rules, but
+  `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401).
+- `assert`/`panic` come from `std/assert` (`{ assert, panic } :: import("std/assert");`). Messages take any
+  `ToString` (template strings included); `assert(cond)` has a default message. The diverging builtin for
+  value-position arms is `__yo_panic("str only")`.
+
+### Definition order
+
+`::` definitions, `impl(...)` registrations and `derive(T, ...)` at module level are **order-independent**
+(`docs/en-US/DEFINITION_ORDER.md`): a body may use a later function, type, constant, method or trait
+default; self- and mutual recursion work; `export(...)` may name a later definition. A pending definition is
+forced on the first lookup that would miss.
+
+- **Ordered:** imports, `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the
+  `comptime(x) : T; x = v` spelling, `comptime_assert`, bare expression statements, and bindings inside an
+  `impl({ ... })` block. Using one before it is bound is `forward reference to "X" (bound at line N) —
+  imports, pragmas and runtime bindings are evaluated in order …`. Keep imports at the top.
+- A forced definition sees only the statements before the reference that forced it: if `f` reads a global
+  `(g : T) = v` and an earlier definition calls `f`, `g` is unbound (E0906, or E0610). Define ordered globals
+  above the first definition that transitively reaches them.
+- Cycles between constants or types are `cyclic definition: a (line N) → b (line M) → a`; a failure while
+  forced adds `note: … was evaluated here because it is referenced before its definition`.
+- Inside one `impl(...)` block, siblings call each other through `self.method()` / `Self.method()` (bare
+  names are not forward-bound). A method in a LATER `impl(T, …)` block is not reachable from an earlier
+  `impl(T, …)` block: keep mutually calling methods in one block.
+- **Seed rule:** `yo build` compiles `src/` and `std/` with the seed, so a newer compiler feature is usable
+  there only once `SEED_VERSION` carries it (`plans/backlog/SEED_VERSION_AUTOMATION.md`); `tests/` are
+  compiled by the tree's stage-1.
+
+## Strings
+
+- `"hello"` is `str` (the builtin view of static bytes) at run time and `comptime_str` at compile time.
+  `comptime_str` does not convert to `str` in a return: use `str.from_raw_parts((*u8)("..."), usize(N))`.
+- **A `"..."` literal is never a `String`**: it widens to `str`, `*(u8)` and `*(char)` only, so passing one
+  to a `String` parameter is E0601 (likewise `1.5` to an integer). Write `` `hello` `` (preferred) or
+  `String.from("hello")`.
+- `(*u8)("literal")` is valid; only pointer-to-pointer and `comptime_str`-to-pointer casts exist
+  (`(*void)(usize(0))` is not supported).
+- **An interpolation body is code**: inside `${...}` a string literal keeps its own escapes and braces or
+  backticks in it are not delimiters (`` `${s.concat("\n")}` ``, `` `${f("}")}` ``, nested
+  `` `${`in${x}`}` ``).
+- **Escapes:** `\n \t \r \\ \" \' \0 \b \f \v` in both forms; `` \` `` and `\$` only in templates; `\uXXXX`
+  (exactly four hex digits) and `\u{...}` (one to six, max 10FFFF, no surrogates) in both, a high+low
+  `\uXXXX` pair combines (shared `scan_unicode_escape`, `src/utils.yo`; a malformed `\u` is a lex error).
+  An unknown escape is silently literal; `\xNN` does not exist. Write a control byte with `push_byte`.
+- **Indexing is BYTE-based**: `len()` is the byte count (O(1)); `at`, `substring`, `s(a..b)`, `index_of` and
+  every positional argument are byte offsets, at compile time and run time. `substring` panics inside a rune
+  (`try_substring` does not); rune work goes through `chars()` / `char_indices()`, the rune count is
+  `s.chars().count()` (`docs/en-US/STRINGS.md`).
+- Range indexing COPIES: `arr(a..b)` is a new `ArrayList(T)`, `s(a..b)` on `String` a new `String`; `str`
+  ranges are zero-copy static windows. There is no aliasing view type (`Slice(T)`, `String.as_str()`,
+  `ArrayList.as_slice()`, `ListView(T)` and `RawSlice(T)` are gone).
+
+## Integers
+
+- `+`, `-`, `*` overflow, `-MIN`, `/`/`%` by zero or `MIN / -1`, and a shift count outside `[0, width)`
+  abort at run time with `file:line:col` (`docs/en-US/DESIGN.md`, "Arithmetic and Failure Semantics").
+  Arithmetic that wraps by design calls `wrapping_add` / `wrapping_sub` / `wrapping_mul`.
+- On compile-time constants the same expressions are E1102; a left shift wraps the bits it shifts out as
+  at run time. A test asserting wrap-around therefore needs `wrapping_*` on run-time values.
+
+```yo
+y := (i32(2147483647) + i32(1)); // ERROR E1102: Integer overflow in compile-time evaluation
+z :: (i32(1) << 31); // OK: i32(-2147483648), like the run time
+w :: (i32(1) << 40); // ERROR E1102: shift count 40 is out of range for i32 (0..32)
+v :: -i8(-128); // ERROR E1102: -(-128) does not fit in i8
+x := i32(2147483647);
+q := (x + i32(1)); // runtime add: ABORTS (use x.wrapping_add(i32(1)) to wrap)
+```
+
+- **A `comptime_int` must fit the slot it enters** (E1102): a literal, `::` constant or folded expression
+  takes a fixed-width type only in a slot of that type (binding, assignment, argument, field, return, joined
+  arm, `T(x)`): `(y : u8) = 300`, `f(200 + 100)` for `a : u8`, `u8(300)` are errors; `(y : i8) = -128` and
+  `k :: 3; (y : u8) = k` are fine. A conversion between two TYPED integers (`u8(some_i32)`) truncates
+  unchecked. `1 << 40` fails because a bare literal receiver defaults to `i32`: write `u64(1) << u64(40)`.
+
+## `unsafe`, raw pointers and FFI
+
+### `pragma(Pragma.AllowUnsafe);` and `unsafe(...)`
+
+- User code is memory-safe by default. Raw pointers need `pragma(Pragma.AllowUnsafe);` at the top of the
+  file (after its leading `//` comments; several `pragma(...)` calls are allowed). Without it `unsafe(...)`
+  is itself an error.
+- Safe code cannot even HOLD a raw pointer: an expression whose type is or directly carries `*(T)`
+  (`Option(*(T))`) is an error outside an unsafe-capable file (std is exempt); naming a raw pointer type, or
+  a type whose representation carries one, in a parameter annotation needs the pragma too. Borrow elements
+  with `for(&mut coll, x => …)`. A struct wrapping a pointer is not automatically gated, so a std API that
+  hands out storage returns the POINTER (`ArrayList.ptr()`, `String.ptr()`), never a ptr+len struct.
+- `unsafe(expr)` is a one-argument builtin call (a compile-time marker; lowers to its inner expression). It
+  does NOT propagate through calls: a body with pointer ops wraps them locally; callers need nothing
+  (`docs/en-US/MEMORY_SAFETY.md`).
+- In an unsafe-capable file these are wrapped in `unsafe(...)`. The compiler enforces the wrap only on
+  `extern "c"` calls; elsewhere it is the audit convention `yo unsafe-report` keys on:
+  - pointer dereference `p.*` / `p.* = v` (on a raw pointer; `.*` on a reference binding is safe);
+  - pointer arithmetic `p.add(n)`, `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (→ `isize`);
+  - `consume(p.* = v)` (deref-and-init);
+  - `drop_in_place(p)` (prelude, `p : *(T)`): the slot is dead afterwards; re-initialize it with
+    `consume(p.* = v)` or free it. Its body's `___drop(place)` builtin is an error in a file without the
+    pragma, even inside a pragma'd caller's `unsafe(...)`;
+  - every `extern "c"` call site (required).
+- Safe without a wrap: `addr_of(x)`, passing/storing/returning pointers, pointer comparison (`==`, `<`, …:
+  address identity), pointer-type casts (`(*u8)(p)`), and `asm(...)` / `extern(...)` / `c_include(...)`
+  declarations (the declaration is the marker; the pragma is the file gate). `auto-generated://` code
+  (macro and derive expansions) bypasses the per-call wrap.
+- **`addr_of` of a `&T` parameter** (`self : &Self` included), or of a place inside it, is E0921: the
+  parameter is passed as a copy (`fn_param_is_ptr_borrow`), so the pointer would dangle. Take `x : *T` (the
+  caller passes `addr_of(place)`) or `x : &mut T`. A projection's `&T` parameter is a pointer and keeps
+  `addr_of`; so do places behind a raw pointer or a `Box` (`addr_of(self.*)`; `addr_of(self._slot.*)` on std's `Atomic*` types, `addr_of(self._state.*…)` on its locks). `&x` anywhere that is
+  not a lending argument, scrutinee, local borrow or capture entry (a field store, `(&x).m()`, a variadic C
+  argument) is an error naming `addr_of(x)`.
+- **`addr_of(K)` of a compile-time constant** (`K :: P(...)`, `addr_of(A(i))`, `addr_of(K.f)`) points at
+  static storage and may be returned and stored; a constant holding reference-counted values cannot be
+  addressed (bind it with `:=`).
+- Raw slices: `*[T]` (decision 49), read with `__yo_slice_ptr` / `__yo_slice_len`, built with
+  `__yo_slice_from_raw_parts`. A safe buffer parameter is a borrowed slice `buf : &mut [u8]`, passed as
+  `unsize(&mut arr)`. The `&`/`&mut` rules (freeze, liveness, re-pointing, origins)
+  are in `docs/en-US/OWNERSHIP_AND_BORROWING.md`; `tests/flowability-comprehensive.test.yo` pins them.
 
 ```yo
 pragma(Pragma.AllowUnsafe);
@@ -586,64 +1159,33 @@ pragma(Pragma.AllowUnsafe);
 main :: (fn() -> unit)({
   x := i32(42);
   p := addr_of(x);
-  v := unsafe(p.*); // OK
+  v := unsafe(p.*); // single expression
+  unsafe(p.* = i32(12)); // assignment
+  n := unsafe({
+    p.* = i32(1);
+    p.* + i32(2)
+  }); // multi-statement block
 });
 ```
 
-Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(&mut coll, x => …)` instead. A struct WRAPPING a pointer is not automatically gated (public pointer field does not decide safety: `HashMap`'s `ctrl` is public by accident and safe; `Allocator` is a public function-pointer table and safe), so the std rule is per-API: anything that hands out storage returns the POINTER (`ArrayList.ptr()`, `String.ptr()` — the gate rejects that in safe files), never a ptr+len struct — a `RawSlice` handout was measured passing through safe code into `random_bytes`, a UAF WRITE (2026-10-01).
-
-Inside an unsafe-capable file, the following operations are wrapped in `unsafe(...)` (so the unsafe surface stays greppable). The compiler enforces the wrap only on `extern "c"` call sites; on the rest it is the audit convention `yo unsafe-report` keys off, and the pragma alone is what admits them (`docs/en-US/MEMORY_SAFETY.md`):
-
-- Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a REFERENCE binding (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`, a `for(&xs, x => …)` element, a `match(&x, …)` binding) is the reference's own deref (N1e-1; std, src and fetched dependencies too since the deref flip, v0.2.79): a whole-value read or write of the referent is spelled `v.*` / `v.* = e`, and the bare name in a by-value position (an operand, a by-value argument, an initializer, a return, `v = e`, `&v`) is E0926; receivers (`v.f`, `v.m()`, `v(i)`), `f(v)` into a reference parameter, the re-point `v = &place` and a `match(v, …)` scrutinee (it matches through the reference; its bindings borrow the payload) stay bare, and `match(&v, …)` on a reference is E0926 (the marker is redundant; the migration drops it). Through a reference to a `Box`/`Rc`/pointer the payload is `v.*.*`. An `io.async` capture of a reference parameter borrows it whole as `{ p : &p.* }` (`{ &p }` is E0926), and a by-value capture entry `{ r }` of a reference binding copies the reference (`{ r : r.* }` copies the referent). Only compiler-synthesized code keeps the old reading. `yo fix <path> --migrate deref` rewrites code written before the rule (v0.2.79 is its last release). Note `r.* = (a + b)`: an assignment's right-hand side operator chain is parenthesized, as everywhere (E0003)
-- `addr_of(x)` of a `&T` parameter (`self : &Self` included), or of a place inside it (a field of a value struct or tuple, an element of an array it holds), is E0921: codegen passes every `&T` parameter of a non-projection function as a copy (`fn_param_is_ptr_borrow`, whatever the size of `T`), so the pointer is the callee's copy and dangles once the call returns. The caller's address comes from a `x : *T` parameter (the caller passes `addr_of(place)`) or `x : &mut T` (passed as a pointer). Not E0921: a field of a counted cell or anything behind a raw pointer (`addr_of(self.*)`, `addr_of(self._slot.*)` on std's `Atomic*` types and `addr_of(self._state.*…)` on its locks, which reach the state behind a `Box`), and a projection's (`-> &T`) `&T` parameter, which is passed as a pointer (`issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`)
-- Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
-- `consume(p.* = v)` (deref-and-init)
-- Destroying a value in place: `drop_in_place(p)` (prelude, `p : *(T)`; Rust's `ptr::drop_in_place`). The slot is dead afterwards: re-initialize it with `consume(p.* = v)` or free it. Its body, the std-internal `___drop(place)` builtin, is a compile error in a file without the pragma, even inside a pragma'd caller's `unsafe(...)` around a call into that file
-
-Operations that stay safe (no wrap needed): `addr_of(x)` to take an address, passing/storing/returning pointers, pointer comparison (`==`, `<`, etc.), and pointer-type casts (`(*u8)(p)`).
-
-`addr_of(K)` of a compile-time constant (`K :: P(...)`, an element `addr_of(A(i))`, a field
-`addr_of(K.f)`, a `::`-bound pointer) points at STATIC storage and may be returned
-and stored: codegen emits the constant, or the whole aggregate it lives in,
-as one file-scope static shared by every site. A constant holding
-reference-counted values cannot be addressed (it has no static initializer);
-bind it with `:=`. Before 2026-09-29 every such `addr_of(K)` emitted
-`/* skip generating value */` and failed in the C compiler
-(`issues/fixed/address-of-a-module-level-constant-emits-a-placeholder.md`).
-A std module the compiler imports must still use a `:=` global for an
-address, because the seed predates that fix.
-
-`unsafe(expr)` is a regular builtin call taking exactly one argument — the same shape as `return(...)`, `consume(...)`. It's a compile-time marker only; at codegen it lowers to its inner expression.
-
-`pragma(...)` is also a regular builtin call. The argument `Pragma.AllowUnsafe` is recognized at the AST level; you can place the pragma anywhere at the top of the file (after the file's leading `//` comments). Multiple `pragma(...)` declarations are allowed.
+- **`// SAFETY:` comments:** every non-obvious `unsafe(...)` site in std explains its contract (why the
+  access is in bounds and the pointer live); `yo unsafe-report` shows the comment from the ~8 lines above
+  each site.
 
 ```yo
-// Single expression:
-v := unsafe(p.*);
-
-// Assignment:
-unsafe(p.* = i32(12));
-
-// cond / match wrapped directly:
-result := unsafe(
-  cond(
-    (n > i32(0)) => p.*,
-    true => i32(0)
-  )
-);
-
-// Multi-statement begin-block (semicolons required):
-n := unsafe({
-  p.* = i32(1);
-  p.* + i32(2)
-});
+match(
+  self._ptr,
+  // SAFETY: idx bounds-checked above (idx < self._length);
+  // _ptr points at the Rc-managed heap buffer.
+  .Some(_ptr) => _ptr.add(idx),
+  .None => __yo_panic("ArrayList: empty")
+)
 ```
 
-`unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/reference/MEMORY_SAFETY.md`; user-facing version: `docs/en-US/MEMORY_SAFETY.md`.
+### `extern` / `c_include`
 
-### Extern "c" calls also require an `unsafe(...)` wrap
-
-Even inside a pragma'd file, every `extern "c"` call site must be wrapped in `unsafe(...)`. The pragma authorizes DECLARING the FFI symbol (via `extern(...)` / `c_include(...)`); the wrap is the per-call audit marker that lets `yo unsafe-report` line up with the actual UB-capable lines.
+- Every `extern "c"` call site needs `unsafe(...)`, even in a pragma'd file: the pragma authorizes
+  DECLARING the symbol; the wrap marks each UB-capable call.
 
 ```yo
 pragma(Pragma.AllowUnsafe);
@@ -656,678 +1198,57 @@ copy :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
 len :: (fn(s : *char) -> usize)(unsafe(strlen(s))); // wrap required
 ```
 
-`asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
+- `c_include(...)` and `extern(...)` evaluate to a module value: bind it (`c :: c_include(...)` then
+  `c.fputs(...)`), select and rename (`{ strlen : c_strlen } :: c_include(...)`), or glob
+  (`{ ... } :: c_include(...)`). A bare statement `c_include(...);` / `extern("Yo", …);` is sugar for the
+  glob. Destructuring applies the no-shadowing rule (`docs/en-US/FFI.md`,
+  `plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md`).
+- **Cast a `c_include`-typed integer (`ssize_t`, `off_t`, …) to a Yo integer at the binding**: comparing it
+  directly can emit `// Failed to transpile` in condition position (invisible to `yo check`;
+  `issues/cinclude-int-comparison-fails-to-transpile.md`):
 
-### `c_include(...)` / `extern(...)` are module values
-
-Both evaluate to a module value (a source-namespace struct, like `import(...)`), so their names enter scope only through a binding — `c :: c_include(...)` then `c.fputs(...)`, `{ strlen : c_strlen } :: c_include(...)` (select + rename), or the glob `{ ... } :: c_include(...)`. A bare statement `c_include(...);` / `extern("Yo", …);` is parse-time sugar for the glob, so the existing declaration style keeps working and is what `std/` and `src/` must keep using until the seed carries the feature. Destructuring runs the no-shadowing rule, so a declared name that is already in scope is an error whichever came first: qualify or rename. User docs: `docs/en-US/FFI.md`; design: `plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md`.
-
-### `*T(x)` is NOT a pointer cast — write `(*T)(x)`
-
-A bare prefix operator binds ONE postfix expression, and a call is one postfix
-expression (same rule as `-f(x)` ⇒ `-(f(x))`). So `*void(p)` parses as
-`*(void(p))` — `*` applied to the VALUE `void(p)` — and the evaluator rejects it
-(`*(val)` where val is not a type → error, `src/evaluator/calls/pointer.yo`). The
-pointer-type constructor must get a TYPE as its operand, then the resulting
-pointer type is called with the value:
-
-```yo
-free(.Some((*void)(buf))); // CANONICAL — grouped type, then the value
-free(.Some((*void)(buf))); // same AST, but yo fmt rewrites it to the above
-```
-
-`(*void)(buf)` and `*(void)(buf)` parse identically; the grouped form is the one
-canonical spelling (DECIDED 2026-09-06, `plans/reference/FMT_CALLEE_PREFIX_CANONICALIZATION.md`):
-`yo fmt` moves the parens for ANY prefix operator call in callee position —
-`*(u8)(s)` → `(*u8)(s)`, `*(*(u8))(p)` → `(**u8)(p)`, `-(x)(y)` → `(-x)(y)` —
-and never touches the broken bare spellings (`*void(p)` stays: fmt cannot invent
-a cast). In type position the chain rule applies: `**i32` = `*(*(i32))` is the
-pointer-to-pointer type, `?*u8` the optional pointer.
-
-### c_include-typed integers: cast to a Yo int before comparing
-
-Values typed by a `c_include` type alias (`ssize_t`, `off_t`, …) can fail to
-transpile in comparisons (`n <= isize(0)` emits `// Failed to transpile` in
-condition position — a class `yo check` cannot see; the C compiler then
-errors). Casts DO emit correctly, so bind through a cast at the call site:
-
-```yo
-// WRONG — may emit "// Failed to transpile n <= isize(0)":
-n := unsafe(write(int(fd), (*void)(p), count)); // n : ssize_t
-if(n <= isize(0), { ... });
-
-// CORRECT — cast to a Yo integer at the binding:
-n := i64(unsafe(write(int(fd), (*void)(p), count)));
+```yo ignore
+n := i64(unsafe(write(int(fd), (*void)(p), count))); // not: n := unsafe(write(...)); n <= isize(0)
 if(n <= i64(0), { ... });
 ```
 
-See `issues/cinclude-int-comparison-fails-to-transpile.md`.
+### Public std boundary: no raw pointer leaks
 
-`auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
+Every public top-level `fn(...)` in `std/` takes and returns values or `&`/`&mut` parameters. Raw `*(T)` in a
+public signature is allowed only (a) in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`,
+`sync/`) or (b) when the name says so (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, `raw_*`). Otherwise
+use `ArrayList(u8)`/`String`, `name : &mut T`, or a borrowed slice. A parameter named `witness`, `written`
+or `spare` is exempt (a safe-mode privilege token). Check with `yo public-safe-report ./std` (or `./src`;
+`src/public-safe-report.yo`); keep the finding count from growing.
 
-### Raw views and the static-str model (post slice-rework)
+## Design-by-contract: `requires` / `ensures` / `invariant` / `ghost`
 
-The builtin `Slice(T)` and the view methods `String.as_str()` /
-`ArrayList.as_slice()` are DELETED (plans/archive/SLICE_REWORK.md). The model:
+Backed by the Z3 verifier (`plans/backlog/FORMAL_VERIFICATION.md`). Without a verify pragma contracts lower
+to run-time `assert(...)` (`comptime_assert(...)` in comptime fns); `yo verify <path>` discharges them (see
+the yo-verification skill).
 
-- `str` is the builtin view of STATIC string bytes (literals / template
-  segments) — immortal backing, freely storable/returnable, no flow
-  constraints.
-- Range indexing COPIES: `arr(a..b)` → new `ArrayList(T)`, `s(a..b)` on
-  `String` → new `String`; `str` ranges stay zero-copy static windows.
-- There is no aliasing view type: `ListView(T)` was deleted (no `Index`, no
-  iteration, no consumers — superseded by the copying range forms above). If a
-  real view type is ever needed it comes back with iteration and `Index`.
-- Privileged ptr+len plumbing is a raw slice pointer `*[T]` (decision 49;
-  `RawSlice(T)` was deleted in S2), read with `__yo_slice_ptr`/`__yo_slice_len`
-  and built with `__yo_slice_from_raw_parts`. A safe buffer parameter is a
-  borrowed slice, `buf : &mut [u8]`, passed as `unsize(&mut arr)`. Naming a
-  raw pointer type — or any type whose representation carries one — in a
-  parameter annotation requires `pragma(Pragma.AllowUnsafe);` (a
-  representation-based gate, not just the `*(T)` syntax gate).
-- The `&`/`&mut` rules (freeze, liveness, re-pointing, origins) are in
-  `docs/en-US/OWNERSHIP_AND_BORROWING.md`; `tests/flowability-comprehensive.test.yo`
-  pins them.
-
-### Return-slot modifiers: a borrow is BANNED; `comptime` goes on the label
-
-**A function returns a borrow only as a projection** (`-> &T` / `-> &mut T`, decision 24, V2b): the body yields a place written with the result's sigil (`&self.a`, `&mut self.rows(i)`, every `cond`/`match` arm and `return(...)` likewise) or a reference binding (`x` for `x : &T`, VERDICTS-45: the result is a reference slot, the bare read is the reference; `&x.*` stays legal; a field read or projection call is not yet a bare leaf, write `&h.r.*` / `&r.get()`), rooted at one of the projection's own borrow parameters (a `&mut` result needs a `&mut` parameter); a projection's `&T` parameters are passed by pointer. It is reached through the subscript (`x(i)` dispatching `Index.index` for a read, `IndexMut.index_mut` for every write) or called directly by name (`t.index(i)`, `Trio.index(&t, i)`, `first(&t)`; through a function value is an error). A direct call's result is the PLACE, not a copy: an operand (`t.index(i) + 1`), a receiver (`n.name_mut(0).push_str("!")`), a bare argument to a `&T`/`&mut T` parameter (`f(t.index(i))`), a local borrow (`r := t.index(i)` is a `&`/`&mut` borrow like `y := &place`, freezing the call's borrowed arguments, receiver included, until its last use, E0911; `(v : T) = t.index(i)` copies instead), and for a `&mut` projection the left of `=` (`t.index_mut(i) = v`; `.*` arrives with decision 43). A `&` projection's place is read-only (a write, a `&mut self` method or a `&mut` argument through it is E0908); a projection call whose borrowed argument is a temporary cannot be bound; a projection may yield another's result (`&g.index(i).a`) rooted at its own parameters (`docs/en-US/INDEX_TRAIT.md`). A borrow is second-class and exists in parameter position and as a LOCAL BINDING (`plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md`): `y := &mut x;` names x's slot (`y = v` writes x; `copy := y` copies the pointee), and `y := &x;` is the read-only form (a write through it, passing it to a `&mut` parameter or calling a writing method on it, or `z := &mut y.f` is E0908; the annotated form is `(y : &T) = &x;`). **A local borrow is live until its LAST USE and freezes its place for that range** (`plans/VALUES_BY_DEFAULT.md` decision 18, E0911): under `&` no write/move of the place, a place inside it or one containing it; under `&mut` no access at all except through the borrow. Sibling fields are free (`a := &mut p.x; b := &mut p.y;`); below a `ref` object/`Rc`/`Arc` the CELL is the unit (`h.n` and `h.s` overlap); a loop that mentions the borrow keeps it live for the whole loop; a borrow of a borrow keeps its source live; a borrow of a module-level place may not be live across a call, and one through a cell or a module-level place not across an `await`. So `x = v` while `y` is still used later is an error: read or write the root after the borrow's last use. **Re-point** a borrow along a linked structure with `cur = &mut place` / `cur = &place` (decision 25, widened by P1): the place is a field of `cur`'s target, a field of a binding of a bare `match` over `cur` (`match(cur, .Some(n) => { cur = &mut n.next; }, .None => ())`; the binding is a place in `cur`'s target, and a unique `Box` on the way is a free value step, so the mutable list is `Option(Box(Node))`; an `Rc` list walks only with `&`, since its payload is read-only, E0919), or a place of another variable (`cur = &mut other.f`: a new loan with a declaration's checks, `mut(other)` for `&mut`; `cur` used after `other`'s scope ends is E0911 at the re-point, and writing `other` while `cur` is live is E0911); a call result, an index, a `.*` step (not yet admitted) or a binding of a by-value `match(cur.*, …)` is rejected, `n` is frozen after `cur = &mut n.next`, the declared place stays frozen while `cur` is live, and a re-point is E0911 while a borrow derived from `cur` is live. The sigil on the right decides: a bare `cur = v` never re-points, it WRITES `v` through a `&mut` borrow into the lent place. **A local borrow never crosses the function boundary** (decision 18 rule 1, decision 38 A): `return(y)` / `return(y.f)` and a body whose result expression is the borrow — a block tail that yields one, including a nested block the body's result ends in — are E0912 (the spelling names the borrow, not the value it reads through; `v := y;` then `v` is the way out; `y.len()`, `xs(i)` and operations like `y + i32(0)` produce values and are fine; a `&mut` PARAMETER is a different mechanism and still returns the pointee copy). Accepted places: a whole variable of any scope, a field path rooted at a value struct, or a field path through a reference-semantics value (`h.n`, `a.b.n`) — that innermost object is then PINNED for the binding's scope (a hidden owning local; released on break/return/unwind). Rejected: element places (`xs(i)`, `p.*` — borrow elements with the `for` macro), rvalues, `Type.member`, compile-time roots, `::`, module-level declarations, and MOVING the root while a binding is live (`sink(sink(x))`). A binding inside an `io.async` body works across its awaits: the reference, its pin and the place's root live in task slots (`src/` and `std/` are built by the seed, so they may use this only once `SEED_VERSION` carries it). Return the value instead of a borrow (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `name : &mut T`. A `&mut` ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected for ARGUMENTS (bind the value to a local first: `b := a.b`, or use a local `&mut` borrow, which pins).
-
-| Form                                                              | Verdict                                       |
-| ----------------------------------------------------------------- | --------------------------------------------- |
-| `-> comptime(T)` (unlabeled), `-> (comptime(name) : T)` (labeled) | ✅ valid                                      |
-| `-> &T`, `-> &mut T`, `-> (name : &mut T)`                        | ✅ a projection (decision 24): the body yields `&place` / `&mut place` rooted at a borrow parameter |
-| `-> (name : comptime(T))`                                         | ❌ rejected — modifier goes on the label      |
-
-Enforced at function-type evaluation (`src/evaluator/types/function.yo`). See `tests/ref-return-ban.test.yo`.
-
-### Integer overflow TRAPS at run time and is a compile error on constants
-
-Integer `+`, `-`, `*` overflow, `-MIN`, `/`/`%` by zero or `MIN / -1`, and a shift count outside
-`[0, width)` abort at run time with `file:line:col` (safe mode, #837 — `docs/en-US/DESIGN.md`,
-"Arithmetic and Failure Semantics"). Arithmetic that wraps BY DESIGN calls `wrapping_add` /
-`wrapping_sub` / `wrapping_mul`. (This section used to say `-fwrapv` makes signed overflow wrap;
-that predates the traps.)
-
-On compile-time constants the same expressions are compile errors (E1102), and a left shift
-wraps the bits it shifts out exactly as at run time:
+- **Clauses go in the parameter list in this enforced order**: `generic(...)`, parameters, `where(...)`,
+  `requires(...)`, `ensures(...)`, `decreases(...)`, `assumed()`. Out of order is a syntax error ("X appears
+  after Y in the function signature").
+- At most ONE `requires(...)` and ONE `ensures(...)`: put several predicates in one call
+  (`requires(a, b, c)`). Zero-argument `requires()` / `ensures()` is an error — omit the clause.
+- In `ensures`, the return value is the name a LABELED return binds (`-> (result : i32)`); there is no magic
+  `result` (E0401 with a "label the return" hint). `old(expr)` is `expr` at entry.
+- `where(P)` with a `bool` predicate acts as `requires(P)`: `where` for type intent, `requires` for value
+  intent.
 
 ```yo
-y := (i32(2147483647) + i32(1)); // ERROR E1102: Integer overflow in compile-time evaluation
-z :: (i32(1) << 31); // OK: i32(-2147483648), like the run time
-w :: (i32(1) << 40); // ERROR E1102: shift count 40 is out of range for i32 (0..32)
-v :: -i8(-128); // ERROR E1102: -(-128) does not fit in i8
-x := i32(2147483647);
-q := (x + i32(1)); // runtime add: ABORTS (use x.wrapping_add(i32(1)) to wrap)
-```
-
-A test that asserts wrap-around therefore needs `wrapping_*` on runtime values; a folded
-expectation fails the compile. Until 2026-09-24 comptime folding CLAMPED instead
-(`issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md`).
-
-### A `comptime_int` must fit the slot it enters (E1102)
-
-A literal, a `::` constant or a folded `comptime_int` expression takes a fixed-width type only in
-a slot of that type (binding, assignment, argument, field, return, joined arm, `T(x)`), and
-must fit: `(y : u8) = 300`, `f(200 + 100)` for `a : u8`, `u8(300)` are E1102; `(y : i8) = -128`
-and `k :: 3; (y : u8) = k` are fine. A conversion between two TYPED integers (`u8(some_i32)`)
-truncates and is not checked. `1 << 40` is an error because a bare literal receiver of an
-operator `comptime_int` lacks defaults to `i32` — write `u64(1) << u64(40)`.
-
-### `// SAFETY:` comment convention
-
-Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment explaining the contract (what invariant guarantees the deref/arith is in bounds and the pointer is live). `yo unsafe-report` scans the previous ~8 lines preceding each unsafe site and surfaces the comment in the report.
-
-```yo
-match(
-  self._ptr,
-  // SAFETY: idx bounds-checked above (idx < self._length);
-  // _ptr points at the Rc-managed heap buffer.
-  .Some(_ptr) => _ptr.add(idx),
-  .None => __yo_panic("ArrayList: empty")
-)
-```
-
-## A plain parameter `x : T` is BY VALUE
-
-Since V3b Generation B's flip (plans/VALUES_BY_DEFAULT.md decision 30), a plain parameter takes its argument by value: a `Copy` argument is copied, an explicit-copy argument (a move-only value, plain data without `Copy`) is MOVED into the callee (the caller's binding ends at the call; a later use is E0901), and a still implicitly copyable kind (`String`, a collection, `Rc`) is SHARED (+1) exactly as `t := s` shares it (a `Dyn`, or a value holding one, is uniquely owned, decision 7: its copy MOVES it — std and src included since B13 — a later use of the source is E0901, and `d.clone()` copies a `Dyn(Trait, Clone)`; `AnyError` is `Dyn(Error, Clone)` for v0.2.73 only, an interim until v0.2.74 makes it a move-only `Dyn(Error)`; `throw` takes the error by value, so a handler owns the error it catches and keeps it by moving it), so the caller keeps using it — and, like `t := s`, the share aliases: a callee writing a by-value `String`/collection writes the caller's (clone first). A `sink(x)` parameter and a closure/`fn` argument always move. The callee owns its by-value parameter either way (it may write, store or return it, and drops it otherwise). The storing std APIs take their value this way (`push(value : T)`, `insert(key : K, value : V)`, `send`, `Mutex.new`, …). A value moved in SOME arms of a `cond`/`match` is dropped at the end of the others (E0907 only for loop exits, or when a `match` pattern in the branch binds the same name); an assignment statement drops an explicit-copy old value right after the store (`old := (x = y)` keeps it). `x : &T` is the read-only borrow (writing it is E0908) and `x : &mut T` the exclusive one. Effect records (`io : Io`, `exn : Exception`, `e : IoExn`) and other implicitly copied values (`Copy` scalars) are passed BY VALUE, never `&`: borrowing a value that copies implicitly only adds an indirection. The mode words `imm(x)` / `mut(x)` / `inout(x)` and `own(x)` are E0009 naming the new spelling (older code: `--migrate borrow-spelling` and `--migrate modes` on v0.2.76, the last release that ships them). The mode is part of the function type for EVERY type: `fn(x : &i32)` and `fn(x : i32)` differ, and an impl writes exactly the trait's modes (decision 34 as amended 2026-10-11: `Eq`/`Ord` and their `Comptime` twins take `lhs : &Self, rhs : &Rhs`; the arithmetic, bitwise and unary traits take `lhs : Self, rhs : Rhs` / `self : Self` BY VALUE, as in Rust, so `a + b` copies a `Copy` operand, shares a `String` and moves a move-only one; an impl writing the other mode is "as written"; a by-value `self` is no vtable slot, so `Dyn(LogicalNot)` is E0614 for every payload, decision 49). Types print `x : T` / `x : &T` / `x : &mut T`. A `sink(x)` parameter is the same type as plain `x` (the move is decided at the caller), and stays until each kind's values-by-default phase makes plain move it. Compiler-generated source (codegen glue in backtick templates) must spell `self : &Self` where it borrows: the migration tool does not see inside strings. A lambda `(lhs, rhs) -> …` takes its modes from the expected `Fn`/trait type. A NAMED function value (or a written `(fn(y : i32) -> i32)(…)` literal, whose modes are as spelled) fits a function-typed slot only with the slot's modes — however it gets there: binding, a `fn(...)`/`Impl(Fn(...))` argument, a field, a result or `dyn(...)` (E0601 "a parameter's mode is part of the function type"); `sink(x)` and plain `x` are one mode. So a callback for `f : (fn(e : &E) -> T)` is written `(fn(raise : &Raise) -> i32)`, and a predicate for `Refine(T, p)` is `ghost_fn((fn(x : &i32) -> bool)(…))`.
-
-**A later argument may not move, assign to, or lend `&mut` a place an earlier argument lends** (decision 28, E0910; Rust's two-phase borrow rule): the borrow starts when the argument is evaluated, so `f(&mut a, eat(a))`, `f(&a, { k := eat(a); k })`, `a.peek(eat(a))` (a borrowed receiver), `a == make(eat(a))` (an operand `Eq`/`Ord` borrow), `peek(&p.s, { p = q; k })` and `peek(&p.s, reset(&mut p))` would hand the callee a dropped value. A read or a `&` relend in a later argument is fine (`xs.push(xs.len())`), and so is a write to a disjoint field. Move a copy (`eat(a.clone())`) or compute the later argument first (`k := reset(&mut p); peek(&p.s, k)`). **Two lends of one call may not overlap when one is `&mut` and both are rooted at the same value local** (decision 28's value-root rule, E0910, either order): `s.push_string(&s)`, `f(&mut p, &p.name)`, `f(&mut p.name, &p)` are errors; copy one side first (`t := s.clone(); s.push_string(&t)`). Two `&` lends and disjoint fields pass; a root that is a reference cell (`Rc`, `ref` object, today's collections) is not a value root (`_check_call_value_root_overlap`, `src/evaluator/calls/function.yo`).
-
-## Move-only values (`Drop` on a value type, or neither `Copy` nor `Clone`)
-
-A value type (`struct`/`enum`/`newtype`) that implements `Drop`, or a plain one that is neither `Copy` nor `Clone` (decision 36; the `MoveOnly` marker is deleted), is move-only, and so is any value aggregate holding one (`Option(Fd)`, `Tuple(Fd, i32)`, a struct field, a closure capture). Every copy point MOVES it (`:=`, `=`, a `sink` argument, a field/element store, a constructor argument, a return, a closure capture); a later read is E0901. It cannot be copied out of a `&T` parameter or `match`/`for` binding (they borrow), a `&mut` borrow, a module-level binding, a field (`h.fd`: no partial moves; `std/mem`'s `take(&mut h.fd)` or `replace(&mut h.fd, v)` moves it out and leaves a value behind) or a dereference. Pass it to a `&T` parameter to lend it (`f(&fd)`). To split an OWNED holder, `match` it with a struct pattern: `match(e, { key : _, value : v } => v)` moves `v` out and drops `key` (a `{ a, b } := e` destructure only borrows). Unsafe container code moves a slot bitwise: `__yo_ptr_read(p)` takes the value out (the slot no longer owns it) and `__yo_ptr_write(p, v)` puts one in without dropping the old bits; compare a slot in place (`p.*.key == key`) rather than binding `p.*` (std's collections, issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md). A shared cell (`Rc`, `Arc`) is never move-only. `Drop` on a primitive, tuple or pointer is rejected at the `impl`.
-
-A recursive value enum with `Box(Self)` children (`Pattern`, `UBoxTree`) is move-only even with a `Clone` impl: `Box` implements `Drop`. Its pitfalls, measured on v0.2.63 and develop (2026-10-17):
-- `derive(T, Clone)` and `derive(T, Eq(T))` fail when the enum ALSO has an `ArrayList(Self)` child: the list's `clone`/`==` copy elements out through `get`. Write `impl(T, Clone(...))` by hand, cloning each `Box` with `Box.clone(b)` and each list with an index loop (`out.push(xs(i).clone())`).
-- `ArrayList(T)`'s `get`, `clone` and the value form `for(xs, x => …)` copy the element and are E0901 (`issues/fixed/arraylist-clone-copies-elements-out-through-get.md`); a `HashMap` cannot hold such a value at all (`issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`). The read walk `for(&xs, x => …)` copies nothing in a compiler that carries B7a; `src/`/`std/` may write it only once `SEED_VERSION` does (an older seed reads it as the value form).
-- What works: lend an element to a parameter (`f(&xs(i))`, `recur(&subs(i), out)`), clone it in place (`xs(i).clone()`), borrow-iterate with `for(&mut xs, x => …)` (or, with B7a, read with `for(&xs, x => …)`), and own it with `pop`/`remove`.
-- What does not: a local element borrow `e := &xs(i)` — match the element IN PLACE instead: `match(&xs(i), …)` reads it in place, bindings borrow, nothing is copied or dropped (`issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md`); `match(&mut xs(i), …)` is still the "lends a place / temporary" error (a `mut` element place is not a lendable root).
-
-**The destructor is `Drop`** (plans/VALUES_BY_DEFAULT.md decision 45): `impl(T, Drop(drop : (fn(self : &mut Self) -> unit)(...)))`, with Rust's receiver (`drop(&mut self)`: the destructor may take a field out, `self.f = .None`, and the field drops after it see that; `self : &Self` on a `drop` does not conform). Its old name `Dispose` is no longer recognized (older code: `--migrate drop-trait` on v0.2.76). **Never call the destructor by hand**: `x.drop()`, `T.drop(&x)` and `(T <: Drop).drop(&x)` are E0915 (it would run twice). A destructor never calls a field's destructor (fields drop after it returns). End a value early with the prelude's `drop(x)` (moves `x`; a later use is E0901). A resource that must be released while other references live gets an inherent method its destructor delegates to (`TcpStream.close_sync()`, `TlsStream.close_sync()`).
-
-**A module-level runtime binding is immutable unless declared `mut(name)`** (plans/VALUES_BY_DEFAULT.md decision 47; Rust's `static` / `static mut`): `mut(G) := v`, `(mut(G) : T) = v`, `thread_local(mut(x)) := v`, `(thread_local(mut(x)) : T) = v`, at module level (below module level the same marker makes a local mutable, next paragraph). A write to an unmarked global is E0917: reassigning it, a field or element write of a value it holds, `&mut G` / `&mut G.f`, a `&mut self` method on it. A door global (`RefCell`, the `std/sync` doors) is written through without the marker; only reassigning the binding needs it. Lending a `mut(...)` global or a place under it to a call (`f(&G)`, `G.get()`, `G == x`, `` `${G}` ``, `for(&G, …)`, `for(&mut G, …)`) is E0916: copy it out (`v := G; f(&v)`) and write it back after a `&mut` call. An unmarked global is lent freely, except two handle conflicts (each reported at whichever site is seen second): `&G(i)` when a `&mut self` method is called on `G` anywhere, and `&H.f` when `H.f` is written anywhere (lend `&H` and read the field inside the callee). Both errors apply everywhere, `std/` and `src/` included. Lending `&G` of an unmarked global to a borrowing future is allowed too; only a place rooted in a `mut(G)` or `thread_local(mut(x))` binding is E0909 there. `YO_AUDIT_GLOBAL_LEND=1` prints the sites without rejecting. A collection global that the program writes and that must stay legal once collections are values (V2b) is an unmarked `RefCell(T)` global, `(G : RefCell(ArrayList(i32))) = RefCell(ArrayList(i32)).new(ArrayList(i32).new());`, written with `G.with_mut(xs => xs.push(x))` and read with `G.with(xs => xs.len())` (the shape `src/` uses since V2b B5); evaluate an argument that reaches `G` again before the access, since any access inside a `with_mut` body of the same cell, and a `with_mut` inside its `with` body, panics.
-
-## `Copy` (decision 36)
-
-`Copy :: trait(id := "Copy", where(Self <: Clone))` is a prelude marker that REQUIRES `Clone` (Rust's `Copy: Clone`): the integers, floats, `bool`, `char`, the C number types, `unit`, `str` and `*(T)` implement it, each beside its `Clone` impl, and `Option(T)`/`Result(T, E)` do under `where(T <: Copy)`. Opt a named type in with `derive(T, Copy, Clone)` (the derive registers `Clone` first whatever the order), or `impl(T, Copy())` beside a `Clone` impl; a generic one with `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound — + `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`. `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`; the compiler never writes a `Clone` impl. `where(T <: Copy)` gives `T <: Clone` in a generic body (`x.clone()` needs no second bound). The impl is checked: a `Clone` impl covers it, every field/payload `Copy` (the error names the first that is not: `its field \`name\` has type \`String\``), no `Drop` (rejected in either order), never a reference type, and a tuple/array/closure/anonymous record/`fn` pointer cannot declare it (they are `Copy`, and `Clone`, exactly when all parts are, `Type.impls(Tuple(i32, bool), Copy)`; the prelude writes tuple `Clone` impls for arities 1 to 12, so `t.clone()` works; `.clone()` on a `Copy` anonymous record, closure or `fn` pointer is the copy, and on one that is `Clone` but not `Copy` it clones field-wise, `issues/fixed/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`). A CLOSURE's parts are its capture record, as in Rust: a by-value capture (listed `{ s }`, OR implicit — a closure bound to a name owns what it captures) counts with its type, a `&` capture is `Copy`, a `&mut` capture makes it neither `Copy` nor `Clone`. A closure that is not `Copy` is explicit-copy NOW, ahead of V2b: `(c : Impl(Fn() -> usize)) = ({ s }() => s.len()); d := c;` moves `c` (E0901 on a later use, naming `c.clone()`), though `t := s` on the `String` still shares; `where(T <: Copy)` rejects it (E0602). `derive(T, Clone)` is always ALLOWED. A HAND-WRITTEN `Clone` is an error only where every instantiation it serves is `Copy` (a concrete `Copy` type, an unbounded generic `Copy` impl), in either order; a generic one also serving non-`Copy` types (`Option(T)`'s `where(T <: Clone)`) is fine. A raw pointer's `p.clone()` copies the pointer (a method call through a pointer never reaches the pointee's methods); a member name the pointer and its pointee BOTH have — a pointee field named like one of the pointer's own methods (`clone`, `add`, `sub`, `offset_from`) — makes `p.m(...)` an error naming `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`. THE COPY RULE (Generation B, the flip): a plain-data type WITHOUT `Copy` is copied only explicitly. `q := p` moves it (a later `p` is E0901, whose note names `derive(T, Copy, Clone)`), and a `&T` parameter or `match`/`for` binding of it borrows, so storing or returning it there is E0901: take the parameter by value (`x : T`). Give plain data `derive(T, Copy, Clone)` (a function-local type too, since #1270), and a generic one the conditional pair. Exempt (still implicit): compile-time-only types, control-bound records (`Exception`, effect records), unions, C opaque types, refinements of a `Copy` type, and any type still mentioning a type variable (judged per instantiation). Iterator consumers/adapters take `sink(self)`. A top-level `derive(T, …)` is order-independent like `impl(T, …)` (a method or trait miss on `T` forces it, `issues/fixed/2026-10-27-a-derive-is-not-order-independent-like-an-impl.md`); in `std/` and `src/` keep each derive above its first use until `SEED_VERSION` carries the release with that fix; `impl(T, Copy())` is order-independent for its fields' `Copy` impls. `YO_FLIP_REPORT=1 yo check <path>` turns the flip off and prints each plain-data type it would make explicit-copy (`[flip] <type>`), once, so one pass names every type that still needs a derive.
-
-## `name : &mut T` parameters for in-place mutation
-
-For mutating a caller's variable without raw pointers, prefix the parameter's type with `&mut`. On a parameter the sigil is a MODE, not part of the type. Where a type stands on its own (`T :: &i32`, `Option(&T)`, a field `f : &T`) it is a reference TYPE (decision 43 step 3, N2a). An INLINE COMPOSITE over reference types has values (N2b): a value-semantics struct/enum, a tuple, an array — a constructor call lends each reference field's place (`at : &x` / `at : &mut x`), the binding freezes the lent roots (E0911), and a `return` of one whose origin names a local of the same function is E0912; reading a reference field (`v.f`) is a phase error until N1e, `&&T` is not accepted (N1e), and a reference inside a container or a cell (`ArrayList(&T)`, `ref(...)`, `Rc`, `RefCell`) still has no values (N2c/N2d). It gives second-class reference semantics — reads/writes through the parameter access the caller's storage. `x : &T` is the read-only form.
-
-```yo
-swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a.*;
-  a.* = b.*;
-  b.* = tmp;
-});
-
-main :: (fn() -> unit)({
-  x := i32(1);
-  y := i32(2);
-  swap(&mut x, &mut y); // the call site lends each place with `&mut`
-  assert(x == i32(2), "swapped");
-});
-```
-
-Rules:
-
-- `&mut` cannot combine with `sink(...)` (opposite calling conventions) or with `generic`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
-- `&mut` CAN combine with `comptime` as `comptime(name) : &mut T` (the binding time wraps the name, the mode prefixes the type). The parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path. The prelude `ComptimeIndex` trait uses this form (`index : (fn(comptime(self) : &mut Self, comptime(idx) : Idx) -> comptime(*(Self.Output)))`) to let comptime index methods mutate the caller's value without a raw pointer parameter.
-- Inside the callee, the `&mut` parameter's identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
-- Calls through `&mut` params chain naturally: `outer(x : &mut T)` calling `inner(p : &mut T)` passes `x` bare, `inner(x)` (a `&mut` binding already holds a borrow; `inner(&mut x)` is the accepted reborrow).
-- At codegen, `name : &mut T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. For interior-ref arguments (`xs(i)`, `self->_inner(i)`), the codegen emits `__yo_borrow_acquire/release` bracketing the call (a same-cache-line counter increment/decrement on the container's RC header — ~0% overhead). Container growth operations (realloc/free inside a reference-semantics method) auto-assert the counter is zero, turning the one statically-unprovable interior-ref shape into a deterministic panic. `comptime(name) : &mut T` has zero codegen impact (the parameter is erased).
-
-### Parameter modes and call-site markers (V3b)
-
-`plans/VALUES_BY_DEFAULT.md` V3b (decisions 30 and 33) and decision 42 (the sigil spelling). The flip has landed (a plain parameter is by value), and Generation B step 3 deleted `inout`, `own` and `&x` as the address-of. `sink` stays until each kind's values-by-default phase makes plain move it.
-
-**Every binding below module level is immutable unless declared `mut(name)` too** (decision 47 step 2, Generation A; Rust's `let mut`): `mut(x) := v`, `(mut(x) : T) = v`, `(mut(x) : T);`, `mut(x) :: v` and `comptime(mut(x)) := v` (mutable at compile time; at module level `mut(x) :: v` takes a compile-time reassignment `x = v2;` there too, and whether module level keeps `mut(x) ::` at all is decision 47's open point), `.Some(mut(v))` / `(mut(w) := p)` in a `match` pattern, `{ a, mut(b) }` / `{ x : mut(b) }` / `(a, mut(b))` in a destructuring. The marker is stripped at desugar (`desugar_if_calls`) and recorded by the name's token (`register_mut_binding`/`is_mut_binding`, `src/expr.yo`); a parameter, a closure parameter, a named argument, a guard and a `quote` body keep it, and a malformed one (`mut(x.f)`) is rejected where the binding is evaluated. A write to an unmarked binding is E0917 (`binding_require_mut` / `place_require_mut`, `src/evaluator/utils.yo`): reassignment (the first assignment of a `(x : T);` declared without a value is its initialization, per branch), a field or `Array` element write of its own storage (`place_root_binding`), a `&mut x` argument or `&mut self` receiver (`_check_call_global_lends`), `y := &mut x`, `match(&mut x, …)` and a `&mut x` capture. A door (`r.with_mut(...)` on a `RefCell`) is written through without the marker, its reassignment needs it; `String` is a value, so `s.push_str(..)` needs `mut(s)`. A borrow (`x : &mut T`, `y := &mut p`, a `&mut` match binding) is written through, not written; re-pointing a local borrow (`cur = &mut n.next`) is not checked yet. Parameters (closure parameters, capture-list entries and `for` element bindings too: a pattern binding a desugared `for` or a macro expansion introduces around a caller's name, `mark_macro_pattern_binding`) take no marker: a write is E0917 naming the rebind `mut(p_m) := p;` (no shadowing, so a new name), reassigning one stays E0902, and `mut(x) : T` in a parameter is still E0009. A runtime write of a `mut(x) ::` is still E0918. Enforced everywhere except `src/`, `scripts/` and the root `build.yo` until the src half of Generation B (v0.2.72; `is_global_mut_rule_exempt`): `std/` is swept (v0.2.71), so a written std local must be `mut` too; `yo fix <path>` wraps the declared name of one written binding per pass, `YO_AUDIT_MUT_BINDINGS=1` prints every write (`[mut-binding] how=… kind=… marked=…`) without rejecting.
-
-**Old spelling.** Decision 42 spells every borrow with the sigils of the call site, and Generation B deleted the mode words: `imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `-> imm(T)`, `imm(y) := place`, `{ imm(y) }` captures and `for(xs, mut(x) => …)` are error E0009, which names the sigil spelling (`mut(y) := v` is now decision 47's mutable local, not a borrow). Older code is upgraded with `--migrate borrow-spelling` on v0.2.76, the last release that ships it. `mut` is a reserved word (a binding or parameter named `mut` is an error); `imm` is an ordinary identifier.
-
-| Spelling | Means | Notes |
-| --- | --- | --- |
-| `x : T` | by value: copied (`Copy`), moved, or shared (a still implicitly copyable kind) | the callee owns it |
-| `x : &T`, `self : &Self` | a read-only borrow | a different function type from the by-value `x : T`, for every `T`; a MODE on the slot (outside a slot `&T` is a reference type; an inline composite over one has values since N2b) |
-| `x : &mut T`, `self : &mut Self` | an exclusive borrow | types print `x : &mut T` |
-| `sink(x) : T` | by value, and always a move | the same type as `x : T`; the caller decides the move |
-| `comptime(x) : &T` | a compile-time borrow | the binding time is outermost; the `ComptimeEq`/`ComptimeOrd` traits take `comptime(lhs) : &Self`; the arithmetic, bitwise and unary `Comptime*` traits take `comptime(lhs) : Self` (decision 34) |
-| `y := &mut place`, `y := &place`, `(y : &T) = &place` | local borrows (decision 18) | re-point with `cur = &mut place` / `cur = &place`; a bare `cur = v` writes through the borrow |
-| `(v : &T) => …`, `Fn(s : &String) -> usize`, `fn(n : &mut i32) -> unit` | closure params and function types carry the modes | fn-type params still need labels (`Fn(&T)` is not accepted) |
-| `{ y : &y, z : &mut z }`, `{ &y, &mut z }` | capture-list borrows (decision 35) | the puns name the captured place |
-| `for(&xs, x => …)`, `for(&mut xs, x => …)` | the borrowed loop | the sigil goes on the source; the element mode follows |
-| `f(&mut x)`, `f(&mut s.items)` | lends the place to a `&mut T` param | `&mut` is ONE prefix token; to any other param it is an error |
-| `f(&x)` | lends `x` to a `&T` param, a generic one included | to a by-value (plain or `sink`) param: an error naming `x` / `x.clone()`; to a `*(T)` param: an error naming `addr_of(x)`; to a `&mut T` param: an error naming `&mut x` (all E0914) |
-| `f(x)` with `x` a named place (variable, field path, element `xs(i)`) and a `&T`/`&mut T` param | E0914 naming `&x` / `&mut x` | the marker is required for every type, `Copy` too (`peek(&n)`); exempt: receivers, temporaries/literals/closures, operator operands, a borrow binding passed whole (`&p` is an accepted reborrow), `::` constants and function names, ghost code (contract predicates, `ghost_fn` bodies). Always on, std included (the tree is swept) |
-| `match(&x, …)`, `match(&mut x, …)` | (decision 26) a borrowing / `&mut`-place match | the desugar peels the marker and records it (`borrowed_match_scrutinee_kind`); a bare scrutinee is taken BY VALUE (see "How a `match` takes its scrutinee" below) |
-| `addr_of(x)` | the raw-pointer address-of → `*(T)` | unsafe-capable files only. Of a `&T` parameter (`self : &Self` too), or a place inside one (`addr_of(x.f)`, an element of an array it holds), it is E0921: the parameter is passed as a copy, so the address is the callee's copy; take `x : *T` (the caller passes `addr_of(place)`) or `x : &mut T` (a pointer). A projection's (`-> &T`) `&T` parameter is a pointer and keeps `addr_of` (the prelude's `Array` `Index`). `&x` anywhere that is not a lending argument, scrutinee, local borrow or capture entry (a field store, a receiver `(&x).m()`, a variadic C argument) is an error naming `addr_of(x)` |
-| `imm(x)`, `mut(x)`, `inout(x)`, `own(x)` | (deleted) | E0009 naming `x : &T` / `x : &mut T` / `sink(x)`; older code: `--migrate borrow-spelling`, `--migrate modes` and `--migrate addr-of` on v0.2.76, the last release that ships them |
-| `size_of`, `align_of`, `type_of`, `type_id` | (deleted in Generation B) `sizeof`, `alignof`, `typeof`, `typeid` | the only spellings; `std/term.yo`'s `size_of` became `term_size` |
-
-Origins (decision 43 step 2, N1a): a PARAMETER may spell its reference's origin, `x : &(T, p)` / `x : &mut(T, p)`, with `p` declared as `generic(p : Origin)` (a union is `&(T, (p, q))`). It is the same function type and the same C as `x : &T` (the origin is carried, checked from N1c), and an origin binder does not make the function generic. The second argument must be an origin: a type there, an undeclared name or another parameter's name is E0922 (a reference to a tuple is `&Tuple(A, B)`; `(A, B)` is never a type). N1b: a projection's RESULT may spell its origin too, `-> &(T, p)` (an origin parameter), `-> &(T, xs)` (the reference parameter `xs`'s place) or a union `-> &(T, (p, xs))`; a by-value parameter there is E0912 (its place is the callee's frame), and the function type, its key and its C are the `-> &T` form's. N1c checks it: a call freezes only the arguments the result origin names (elided = every reference parameter; an E0911 conflict on an elided call notes the parameter and the `-> &(T, keep)` spelling that releases it), a body yielding a place reached from a parameter the origin does not name is E0923 (from a local or by-value parameter E0912), an impl's result origin must be within its trait method's (wider, or elided against a spelled trait origin, is E0923), and a `Dyn` call uses the trait's origin. N1c-3: `Fn(s : &T) -> &U` is a closure trait returning a reference (its origin is per call and never spelled; `-> &(U, o)` there is a phase error): a named projection or a closure whose body yields `&place` from its own parameters fills it (a captured place is E0923), and a projection is called through a `fn(...) -> &T` value, an `Impl`/`Dyn(Fn(...) -> &T)` and a `ctl(...) -> &T` operation, whose handler resumes with `return(&place)`. `&mut &(T, p)` and a local's annotation are still errors naming N1e. N2a (step 3): outside a slot `&T` / `&(T, o)` is a reference TYPE — a field, a type argument (`Option(&(i32, x))`), an alias; a type constructor takes `comptime(p) : Origin` and is applied to an origin read by name (`View(x)` with `x` a local, a parameter or a module-level binding; an origin parameter; a union `(x, y)`); a field naming its own type's fields (`&(i32, self.value)`) is E0924; an `extern` signature or a module-level binding whose type carries an origin is E0909; origins are erased from identity (`View(x)` and `View(y)` are one C type). N2b gives the first values: an INLINE COMPOSITE over reference types — a value-semantics struct/enum (`Option(&mut i32).None`), a tuple, an array — builds and passes by value (a constructor call lends each reference field's place, freezing the lent roots, E0911; a `return` of one whose origin names a local of the same function is E0912; a `&T` field is Copy, a `&mut T` field makes the holder move-only unless it derives `Copy, Clone`; C lowers the field as `const T*` / `T*`). Reading a reference field is a phase error until N1e, and a reference inside a container or a cell (`ArrayList(&T)`, `Rc`, `RefCell`) is an error naming N2c/N2d. `Origin` is a reserved type name like `Type`.
-
-A bare named place to a `&T`/`&mut T` parameter is E0914, always on (std included). An unannotated lambda param (`(lhs, rhs) => …`) takes its mode from the expected `Fn` type; an annotated one spells it (`(v : &mut i32) => …`). A borrow result `-> &T` / `-> &mut T` is a projection (decision 24), reached through the subscript or a direct call whose result is the place. Not yet: unlabeled fn-type params: `fn` and `Fn` parameters always need labels (`Fn(s : &String) -> usize`, never `Fn(&String)`), so the mode prefixes the labelled parameter's type.
-
-`&mut` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated: the ones that write their receiver take `(self : &mut Self)` — `Hasher.write*`, `Index`, `ComptimeIndex`, `Iterator`; the ones that only read it take `(self : &Self)` — `Clone`, `ToString`, `Hash`, `Hasher.finish`, `Debug`, `Format`, `ToJson`, `Error.source`, `Reader`, `Writer` (the for-loop redesign documented in `plans/archive/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/reference/MEMORY_SAFETY.md`).
-
-### Public stdlib boundary — no raw pointer leaks
-
-Every public top-level `fn(...)` in `std/` should take and return value types or take `&`/`&mut` parameters. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to owned collections (`ArrayList(u8)`/`String`) for buffers, `name : &mut T` for in-place mutation, or a borrowed slice (`buf : &mut [u8]`; `*[T]` for pragma'd internals).
-
-Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. A parameter NAMED `witness` / `written` / `spare` is exempt — a pointer-typed parameter with one of those names is a safe-mode privilege token (the gate itself: only unsafe-capable code can produce it), not API surface. Source: `src/public-safe-report.yo`. Keep the finding count from growing when adding new stdlib surface.
-
-## `for` loop macro — correct form
-
-`for(coll, handle)` is desugared at parse time (`desugar_if_calls` → `_desugar_for_call`, `src/expr.yo`; macro plan B1) into a `while` over `.into_iter()` (the prelude's `for` macro was deleted with G3). Because the rewrite runs before name resolution, a user function named `for` is never called by `for(a, b)`. The value form iterates BY VALUE (it expands to `coll.into_iter()`, and `IntoIterator.into_iter` takes `self : Self`, so the loop CONSUMES `coll`: a collection read again afterwards takes the read walk below or `coll.clone()`; `chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/`chunks`/`windows` consume their receiver the same way, and until each collection's V2b flip the by-value receiver shares, so a later use still compiles. `iter()` yields raw pointers and holds the storage, not the collection: `pragma(Pragma.AllowUnsafe)` code only, B7b); the BORROWED form `for(&mut coll, x => body)` / `for(&mut map, (k, v) => body)` binds each element as a `&mut` local borrow into the collection's storage, and the READ WALK `for(&coll, x => body)` / `for(&map, (k, v) => body)` as a `&` local borrow (the value form over `(&mut coll).into_iter()` / `(&coll).into_iter()`, whose cursor holds the lend):
-
-```yo
-for(list, x => {
-  process(x);
-}); // value form: list.into_iter()
-for(&mut names, s => {
-  s.push_str("!");
-}); // value elements (String, …): the borrowed form writes in place
-for(chain.map(f), y => println(&y)); // combinator chain: pass as the value-form iterator
-```
-
-- First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
-- Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for reference-semantics element types — mutating it mutates the element in place). A value element is borrowed: writing its RC data through `x` (a `String` element, a struct element's `String` field) is E0908 — use the borrowed form below.
-- **The borrowed form `for(&mut coll, x => body)`** (plans/VALUES_BY_DEFAULT.md decision 39, R-FOR): lowers to the VALUE form over `(&mut coll).into_iter()` — `impl(&mut C, IntoIterator)` returns a cursor (`ArrayListCursorMut(T, p)`, …) holding the `&mut(C, p)` lend, and `x` is the `&mut(T, p)` item binding (write `x.* = …`; struct fields write in place, RC elements are not dup'd, `bump(x)` passes the same reference). The hidden iterator `for_iter_var<N>` carries the `for` call's position (`for_desugar_site_of`), so its lend is live for the whole loop and the body may NOT name `coll` at all — `coll.push(x)`, `coll.len()`, `coll.clone()`, a nested `for(&mut coll, …)` — E0911 (Rust's `iter_mut` rule). `x` is second-class: `return(x)` is E0912 (`v := x.*; return(v)`). To read or grow a list while walking it, walk its positions: `for(xs.indices(), i => …)` with `xs(i)`. A source that is not a place is held by a hidden local. A source behind an `Rc` is lent through the payload: `for(&xs.*, …)`. Maps: `for(&mut m, (k, v) => body)` — Item `(&(K, p), &mut(V, p))`, key read-only; a single name binds the whole TUPLE (not a `MapEntry`). `HashSet`/`PriorityQueue` have no `impl(&mut C, IntoIterator)`: `for(&mut set, …)` is an error naming the missing impl. A user type is a source by `impl(generic(p : Origin), &(C, p), IntoIterator(Item : &(T, p), IntoIter : MyCursor(p), …))` over a cursor struct holding `&(C, p)`. A mutable module-level binding (`mut(G)`) as the source is E0911 at the loop.
-- **The read walk `for(&coll, x => body)`** (B7a): the same over `(&coll).into_iter()` — each element a `&(T, p)` reference binding, nothing is copied (no element dup). `x` is read-only: `x.* = …`, `x.f = …` are E0908. A `&` borrow freezes only writes, so the body MAY read `coll` (`coll.len()`, a nested `for(&coll, …)`) but not write it (`coll.push(…)` is E0911). `return(x)` is E0912. Maps: `for(&map, (k, v) => body)`, both borrowed read-only. Every std collection is a read-walk source, `HashSet` and `PriorityQueue` included. A seed without B7a reads `for(&xs, …)` as the value form (a copy per element), so `src/`/`std/` may write it only once `SEED_VERSION` carries B7a. Available inside an `io.async` body, with awaits in the loop body. The old spelling `ref(x) =>` is gone.
-- **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/fixed/eval-for-loop-3arg-vs-2arg.md`.)
-- **Async iteration is the written-out loop** `mut(s) := stream; while(true, { n := io.await(s.next(io), io); match(n, .Some(x) => body, .None => { break; }) });` (`std/async/stream.yo`): the body is ordinary loop code (`break`/`continue`/`return`), and the await suspends the enclosing task because it is written in the `io.async` body. An `io.await` inside a function the task calls BLOCKS instead of suspending, which is why std's `for_await` macro was deleted (2026-10-24) and no named loop form replaces it. The stream binding needs `mut(s)` (decision 47: `next` takes `self : &mut Self`).
-
-## Function call syntax — required immediate `(`
-
-In Yo, function calls must always use immediate parentheses:
-
-- `func(a, b)` — normal call with two arguments
-- `func (a, b)` — invalid whitespace before `(`
-- `func a, b, c` — invalid paren-less call
-- Prefix operators follow the same rule: `&(x)` (a borrow marker), `!(ready)`, `-(value)`
-- Control flow follows the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`
-
-Always use `func(a, b)` with no space. Never `func (a, b)` or `func a, b`.
-
-## Partial application with `_` placeholder
-
-Use `_` as a placeholder argument to partially apply any comptime function:
-
-```yo
-// Type constructors (return comptime(Type)):
-IntResult :: Result(_, i32); // fn(comptime(T) : Type) -> comptime(Type)
-(r : IntResult(bool)) = .Ok(true); // = Result(bool, i32)
-
-// Comptime value functions:
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
-add1 :: add(i32(1), _); // fn(comptime(y) : i32) -> comptime(i32)
-result :: add1(i32(2)); // 3
-```
-
-- `_` is only valid in arguments to **comptime functions** (functions with `comptime` return type)
-- The number of arguments must match the original function's parameter count
-- `_` cannot be used with runtime functions
-
-## `return` requires parentheses
-
-`return expr` is invalid. Use `return(expr)` or `return()` for unit. Inside match/cond branches, use begin blocks when you need early return:
-
-```yo ignore
-// WRONG — paren-less return:
-match(opt,
-  .Some(p) => return str.from_raw_parts(p, len),
-  .None => return ""
-)
-
-// CORRECT — explicit return calls:
-match(opt,
-  .Some(p) => {
-    return(str.from_raw_parts(p, len));
-  },
-  .None => {
-    return(str.from_raw_parts((*u8)(""), usize(0)));
-  }
-)
-```
-
-Better yet, if the entire function body is just a match/cond expression, use the expression form (no body block) to avoid needing `return` at all:
-
-```yo
-// BEST — expression form, no return needed:
-first_or_zero : (fn(self : &Self) -> u8)(
-  match(
-    self._bytes.first(),
-    .Some(b) => b.*,
-    .None => u8(0)
-  )
-)
-```
-
-## How a `match` takes its scrutinee (decision 26, 2026-10-10)
-
-A `match` takes its scrutinee the way a parameter takes its argument (Rust's default binding modes):
-
-- **By value** — an owned local, a by-value parameter or a temporary whose type is NOT implicitly copyable (a move-only value, plain data without `Copy`): the scrutinee is MOVED into the match. The selected arm's bindings own their parts (move them, return them, or they are dropped at the arm's end); the parts an arm does not bind (`_`, unlisted fields) are dropped when the arm is ENTERED; guards see the bindings as borrows and the move happens on selection; below a reference cell (an `Rc` payload the pattern looks through, a `ref` value) bindings borrow and the handle lives to the arm's end. A later use of the scrutinee is E0901 naming `match(&x, …)` (the guards and arms cannot name it either).
-- **`match(&x, …)`** — read-only borrows, `x` stays usable; the bindings freeze `x` while live (a write or move of `x` in the arm is E0911). Each binding is a reference INTO `x`'s place (a C pointer, as a `&mut` place is; below a cell too), so a reference an arm yields to it — `.Some(s)` returned as an `Option(&T)` — points into `x`, not into a copy that dies with the arm (`issues/fixed/2026-11-05-a-borrowed-match-binding-returned-in-an-option-of-a-reference-dangles.md`). `&temp` borrows the temporary for the match: it lives in a C local the bindings point into.
-- **`match(&mut x, …)`** or a bare `&mut` binding (a `&mut` param, `y := &mut …`) — `mut` PLACES: `v = …` in the arm writes the scrutinee's part (the old value is dropped), a writing method writes in place; `x` is reached only through the places while one is live (E0911). While a binding of a `&mut` match is live, the matched reference is reached only through that binding; `cur = &mut n.next` is the one statement that may name `cur`, because it re-points the binding and does not touch what it points at. `&mut` of a `&` binding is E0908, of a temporary an error. Bindings below a cell stay copies. A place lives across an `await` in an `io.async` body (its task slot holds the pointer; `issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md`), except one whose scrutinee passes through a reference cell or a module-level place (E0911, as for a local borrow).
-- **A bare `&` binding** (a `&` param, `y := &…`, a borrowing match's binding) — borrows.
-- **A `Copy` value or a still implicitly copyable kind** (`String`, collections, `Rc`: V2b/V2c/V5 flip them) — copies/shares, i.e. the old borrowing lowering, observably the same.
-- **Errors (E0901 naming the borrow):** a by-value match of a module-level binding, a closure capture, a field `x.f`, an element `xs(i)` or a dereference `p.*` of a non-implicitly-copyable type — write `match(&x.f, …)`; a projection never takes its root's mode. `(name := p)` in a consuming match needs `Copy` sub-bindings (in a `mut` match none); an or-pattern of a consuming match may not leave a part with a drop unbound (split the arm).
-
-### A match binding over a shared `ref` node: methods, `&mut` lends, the unlink order (std/collections pitfalls)
-
-- **A match payload binding's type is shell-resolved**: a self-referential producer's own field `Option(Self)` evaluates against the struct's empty SHELL, and the enum instance a match reads can be the one carrying that shell — until 2026-10-18 the binding then had 0 fields and a method call on it failed E0610 while a free function resolved (`issues/fixed/2026-10-18-a-method-on-a-self-referential-ref-struct-fails-to-resolve-through-a-match-binding.md`; `variant_field_types` now resolves every payload through `resolve_enum_shell(resolve_struct_shell(·))`). `match(self.head, .Some(n) => n.m())` resolves.
-- **Never lend a match binding `&mut` when the arm can drop the last reference to its cell**: `f(&mut n)` plants a borrow assert on the cell, and unlinking first frees the cell before the assert reads it (an ASan heap-use-after-free; the shape of a doubly linked `pop_front` that matches `.Some(n)` on the head and relinks `self.head` from `n.next`). Take what you need through direct field reads/writes BEFORE the assignments that drop handles.
-
-### Reference bindings: an open pitfall (decision 43, 2026-11-06)
-
-- **`Option(&T).unwrap()` cannot reach the payload's methods yet** (open S2, `issues/2026-11-05-an-option-of-a-reference-cannot-reach-its-payloads-methods.md`): `h.get().unwrap().len()` with `get -> Option(&P)` is E0601 inside the prelude's `unwrap`. Read through a `match` until it is fixed: `match(h.get(), .Some(p) => p.len(), .None => usize(0))`. The payload binding is a reference binding and auto-derefs.
-
-## Pattern forms in `match` (real pattern matching, 2026-09-19)
-
-Patterns are ordinary expressions the parser already produces; the evaluator
-compiles them into a pattern IR (`src/pattern.yo`, plans/reference/MATCH_PATTERN_MATCHING.md).
-Every infix pattern needs its own parentheses (no operator precedence):
-
-| form | example | meaning |
-| --- | --- | --- |
-| `_` | `_ => …` | wildcard |
-| identifier | `other => (other + 1)` | binds the value — unless the name is a `::` constant in scope holding a literal or enum value, which is then COMPARED (`TEN => …`, `RED => …`) |
-| constant | `0`, `-1`, `true`, `'a'`, `"lit"`, `i32(5)`, `Color.Red` | compared with the language's own `==`; a `str` literal matches a `String` or `str` scrutinee |
-| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | sub-patterns may be ANY pattern, at any depth: `.Ok(.Some(v))`, `.Tag("a")`, `.Of((48..=57))` |
-| or | `(.Red \| .Green) => …`, `(1 \| 2) => …`, `.Some((.A \| .B))` | alternatives must bind the same names |
-| range | `(0..10) => …`, `(10..=19) => …` | compile-time bounds; half-open / inclusive |
-| whole-value binding | `(whole := .Some(v)) => …` | binds the value AND matches the sub-pattern |
-| guard | `(.Some(v) && (v > i32(100))) => …` | the arm runs when the pattern matches and the guard (which sees the bindings) is true |
-
-Rules that follow:
-
-- **Exhaustiveness is structural** (usefulness check): `.Some(true), .None`
-  is rejected with `Missing case: .Some(false)`; a guarded arm never counts as
-  covering. Integer constants and ranges are INTERVALS of the scrutinee's
-  fixed-width type: `(0..=255)` alone covers `u8`, and a gap is reported as a
-  range (`Missing case: (101 ..= 149)`). `usize`/`isize` (target-dependent
-  range), floats and strings need a `_` or binding arm.
-- **An arm that can never run is an error** (`E0608`): a duplicate variant or
-  literal, any arm after a catch-all, a range inside an earlier range, an
-  or-alternative repeating an earlier one (`(1 | 1)`), an empty range
-  (`(5..5)`), a GADT variant the scrutinee's type excludes. An arm that the
-  earlier arms cover only TOGETHER (`.Some(_)` after `.Some(true)` and
-  `.Some(false)`) is a WARNING. A trailing `_`/binding arm is always accepted.
-- **Diagnostic codes:** `E0607` not exhaustive, `E0608` unreachable arm,
-  `E0609` invalid pattern (`yo explain E0607`).
-- **Inside an `io.async` arm that awaits, every pattern form is lowered**
-  (nested/or/guard/string/range/catch-all/`:=`/tuple/struct/`Rc`/`Rc(p)`;
-  `tests/match-async-arms.test.yo` is the spec). Bindings an arm reads after
-  an await are routed through the state machine's fields. Since #1018's
-  single-pass lowering, `io.await(...)` may appear anywhere in an arm —
-  including a cond condition (the old rejection,
-  `issues/fixed/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`,
-  is fixed).
-- Struct/tuple scrutinees and patterns through `Rc(...)` payloads are
-  supported (P4 landed; `tests/match_{tuples,structs,nested}.test.yo`).
-
-## Match destructuring forms
-
-Match arms support three destructuring shapes for enum variants. All three coexist (different arms can use different forms within the same `match`):
-
-```yo
-Shape :: enum(
-  Circle(radius : i32),
-  Rectangle(width : i32, height : i32),
-  Triangle(base : i32, height : i32, label : str)
-);
-
-match(
-  s,
-  // ✅ Preferred — Curly shorthand: `{a, b: c}` names only the fields
-  //    the arm uses. Order-free, partial matches allowed.
-  .Triangle({ base, height : h }) => (base * h),
-  // Also OK — Labeled `(label: var)` pairs. Order-free, partial matches OK.
-  .Circle(radius : r) => (r * r),
-  // ⚠️ Avoid for variants with 2+ fields — Positional ordering with `_`
-  //    padding is brittle (adding a field shifts every later position)
-  //    and hard to read (each `_` requires counting fields). Fine when
-  //    every field is named *and* the variant has one or two fields.
-  .Rectangle(w, h) => (w * h)
-)
-```
-
-**Preferred form: curly shorthand `.Variant({field1, field2: alias})`** —
-names only the fields the arm needs, so adding a new field to the variant
-later does not silently shift positions in every arm. The
-`tests/match-curly.test.yo` spec covers this form end-to-end.
-
-Curly destructuring rules:
-
-- `{a}` binds field `a` to a variable named `a` (label = name shortcut).
-- `{a: x}` binds field `a` to a variable named `x` (rename).
-- `{a: _}` asserts field `a` exists but ignores its value.
-- Partial matches are allowed: `{width}` on `Rectangle(width, height)` skips `height`.
-- Empty `{}` is allowed: `.Variant({})` matches the variant and binds NO fields
-  (the zero case of partial curly). Bare `.Variant` (no parens) does the same —
-  both work even for variants WITH fields ("ignore all fields"), so you don't
-  need `.Variant(_, _, …)`. (Intentionally more permissive than Rust.)
-  `tests/match-bind-nothing.test.yo` is the spec.
-- Bare `_` (e.g., `{_}`) is rejected — use `{label: _}` to ignore a specific field.
-- In a VARIANT payload the struct sub-pattern takes the NAMED form:
-  `.Holding(Outer(inner : { a, b }, tag))` — an anonymous curly directly in
-  a variant payload slot (`.Holding({ inner : { a, b } })`) is E0406 (its
-  labels are read against the variant, and available labels lists the
-  variant's own). Anonymous curlies belong to struct SCRUTINEES
-  (`match(p, { x, y } => ...)`). Nested sub-patterns otherwise compose
-  freely: `.Foo({ a : .Some(x) })` (variant in a curly slot),
-  `.V((0, y))` (tuple), `.V(Point(x : 0, y))` (named struct).
-- A struct SCRUTINEE takes struct patterns directly: `match(p, Point(x : 0, y) => …, {x, y} => …)` — the anonymous `{…}` form works like the variant curly form (bare field names bind, unlisted fields match anything). A tuple scrutinee takes `(a, b)` patterns with exact arity. A wrapper pattern `Rc(p)` / `Arc(p)` names the cell it looks through (decision 31): `.Node(Rc(.Leaf(a)), _)` matches through `l : Rc(Self)`, `Rc(x)` binds the payload (a borrow), `(c := Rc(p))` binds the cell; it counts toward exhaustiveness and works in every emitter. An `Rc(T)` or `Arc(T)` position takes ONLY the wrapper spelling (decision 31 Generation B): `.Cons(h, .Cons(n, _))` through `tail : Rc(Self)` is E0609 whose help names `Rc(p)`; write `.Cons(h, Rc(.Cons(n, _)))`. A missing case prints through the wrapper (`.Node(Rc(.Leaf(_)), _)`). A bare binding at an `Rc` position binds the cell (`b.*` on it). `Box(p)` looks through a unique `Box`; a `Box` position is still looked through implicitly too. The v0.2.63 seed carries `Box(p)`, so `src/` and `std/` spell it (`src/pattern.yo`'s `.At(_, _, _, Box(sub))`).
-
-The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)` pairs at parse time, so internally curly form is just a labeled-destructuring pattern wrapped in `_(...)`. The match evaluator unwraps that wrapper.
-
-## String literal types
-
-- Double-quoted strings `"hello"` return `str` (the BUILTIN view of static string bytes) at runtime, but `comptime_str` at compile time.
-- `comptime_str` does NOT automatically convert to `str` in return statements. Use `str.from_raw_parts((*u8)("..."), usize(N))` if you need a runtime `str`.
-- `(*u8)("literal")` works — casting `comptime_str` to pointer is valid.
-- Only pointer-to-pointer and `comptime_str`-to-pointer casts are allowed. Integer-to-pointer casts like `(*void)(usize(0))` are NOT supported.
-- **Template strings for constant `String` values**: Use `` `hello` `` instead of `String.from("hello")`. Template strings without interpolation produce the same `String` result in fewer characters.
-- **A `"..."` literal is never a `String`.** It widens to `str`, `*(u8)` and `*(char)` only, so passing one to a `String` (or any other non-string) parameter is E0601 — write `` `hello` `` or `String.from("hello")`. The same holds for `1.5` into an integer parameter. (Until 2026-09-23 a plain non-generic call skipped this check and miscompiled: `issues/fixed/comptime-literal-argument-not-checked-against-parameter.md`.)
-- **An interpolation body is code.** Inside `${...}` a string literal keeps its OWN escapes and a brace or backtick inside it is not a delimiter: `` `${s.concat("\n")}` ``, `` `${f("}")}` `` and nested `` `${`in${x}`}` `` all work, and a diagnostic inside a body points at its real file line and column. (Fixed 2026-09-23, `issues/fixed/template-interpolation-body-is-not-scanned-as-code.md`; a SEED older than that fix still mis-lexes these forms, so `src/` and `std/` avoid them until `SEED_VERSION` carries it.)
-- **The two string forms have DIFFERENT escape tables, and an unknown escape is silently literal in both.** `\n \t \r \\ \" \' \0 \b \f \v` work in both; `` \` `` and `\$` only in a template. `\u` now works in BOTH forms (shared `scan_unicode_escape`, `src/utils.yo`): `\uXXXX` takes exactly four hex digits and `\u{...}` one to six (max 10FFFF, surrogates rejected); a `\uXXXX` high surrogate directly followed by a `\uXXXX` low surrogate combines, JSON-style. The "" string decodes escapes at evaluation, the template at LEX time — but the scanner is shared, so the two cannot disagree. `\xNN` still exists nowhere. History: 2026-09-11 `` `x\u0041y` `` kept all 8 bytes while `"x\u0041y"` was `xAy`, and a malformed `"\uZZZZ"` decoded to NUL because each non-hex digit counted as 0 — the fix added the shared scanner AND made the lexer reject a malformed `\u` with a positioned diagnostic in both forms (`issues/fixed/unicode-escape-accepts-non-hex-digits.md`). Write a control byte with `push_byte`, never an escape.
-- **String indexing is BYTE-based** (D4, 2026-08-26): `len()` is the byte count (O(1)); `at` / `substring` / `s(a..b)` / `index_of` and every positional string argument speak byte offsets, at compile time (`comptime_str`) and at runtime alike. `substring` panics on an offset inside a rune (`try_substring` is the non-panicking form); rune work goes through `chars()` / `char_indices()`, and the rune count is `s.chars().count()`. Full contract and pitfalls: `docs/en-US/STRINGS.md`.
-
-## Trait method dispatch syntax
-
-### Implicit dispatch (via where-clause)
-
-When a generic function has `where(T <: Trait)`, calling `self.method()` on a parameter of type `T` dispatches to `Trait`'s method:
-
-```yo
-use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
-  return(self.get_number()); // Dispatches to T1.get_number
-});
-```
-
-### Explicit trait dispatch
-
-Use `(T <: Trait).method(self)` to explicitly select which trait's method to call:
-
-```yo
-use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
-  return((T <: T2).get_number(self)); // Explicitly calls T2.get_number
-});
-```
-
-This is necessary when:
-
-- A type implements multiple traits with the same method name
-- You want to be explicit about which trait's method is called
-- The `self` parameter type doesn't uniquely determine the trait
-
-## `impl(...)` requires a trailing semicolon
-
-`impl(...)` is a statement and requires a trailing `;` at the top level:
-
-```yo ignore
-// WRONG — missing semicolon causes "Invalid function call on type":
-impl(MyType,
-  get : (fn(self : Self) -> i32)(self.x)
-)
-
-// CORRECT:
-impl(MyType,
-  get : (fn(self : Self) -> i32)(self.x)
-);
-```
-
-## What actually rejects as a binding name
-
-Grammar words (`type`, `trait`, `match`, `fn`, ...) are NOT reserved as
-binding names — `type` works as a field or local (verified 2026-10-01;
-probes in the tree's audit trail). What rejects is:
-
-- the **builtin-dispatch names** the evaluator treats as calls, not
-  identifiers: `unwind`, `recur`, `consume`, `dyn`, ... — binding one
-  rejects with the clear "names a builtin: every call with this name
-  dispatches to the builtin ... Choose a different name" error. `panic`
-  and `assert` are NOT in the set — they bind cleanly as locals (verified
-  2026-10-01);
-- **`for`** (the live std macro) — still the old opaque "Failed to define
-  variable" that points at the binding and never mentions keywords, so it
-  reads like the RHS failed to type (the wrong place to look).
-
-When a name collides, rename the local (`ty` for `type` reads better
-anyway). `short`/`long`/`int`/`char` were once rejected as locals; they no
-longer are.
-
-## `___` (discard) cannot be used twice in the same scope
-
-Yo does not allow redeclaring `___` twice in the same begin-block scope. Each use is a fresh variable binding and shadowing is not allowed:
-
-```yo
-// WRONG — second `___` shadows the first, causing a compile error:
-___ := foo();
-___ := bar();
-
-// CORRECT — use unique names, or call without binding:
-_a := foo();
-_b := bar();
-
-// ALSO CORRECT — if you don't need the results:
-foo();
-bar();
-```
-
-**Prefer the bare call over `_ := foo();` / `___ := foo();` when the result is unused** (a 2026-09-11 tree sweep removed 45 such discard bindings). Two cases where the binding is load-bearing — leave it: drop/borrow fixtures that count `ref_count(...)` or test the discard's own scope-end drop, and compile-error fixtures whose diagnostic fires only on the value-evaluation path a binding forces (a bare statement can skip it — e.g. the `list(i).*` clear-error fixture in `tests/collections/array-list.test.yo` errors under `_ := bad_list(usize(0)).*;` but passes as a bare `bad_list(usize(0)).*;` statement).
-
-## ArrayList indexing via `arr(index)`
-
-`ArrayList(T)` implements the `Index` trait, so elements can be accessed with call syntax:
-
-```yo
-{ ArrayList } :: import("std/collections/array-list");
-
-mut(list) := ArrayList(i32).new();
-list.push(i32(10));
-list.push(i32(20));
-
-val := list(usize(0)); // → i32  (value copy)
-list(usize(0)) = i32(99); // mutate in place directly (preferred)
-
-// When you need the pointer explicitly:
-ptr := addr_of(list(usize(0))); // → *(i32)
-ptr.* = i32(100); // also works
-```
-
-- `list(i)` returns the value `T` directly (not a pointer)
-- `list(i) = val` mutates in place directly — preferred form
-- `addr_of(list(i))` returns `*(T)` for in-place mutation via pointer (explicit form)
-- `list.get(i)` returns `Option(T)` for safe bounds-checked access
-- Out-of-bounds access via `list(i)` panics at runtime
-
-### Don't write the verbose `(&(X)).index(i).*` form
-
-The Index trait method `.index(i)` returns `*(T)`. The verbose form
-
-```yo
-addr_of(self.field).index(i).* = value; // ✗ writes through raw pointer
-elem := addr_of(self.field).index(i).*; // ✗ same, but as a read
-v := list.get(i).unwrap(); // ✗ Option unwrap of safe form
-```
-
-requires `pragma(Pragma.AllowUnsafe);` because of the `.*` deref, and
-just clutters the call site. Use the call-syntax form everywhere it
-works:
-
-```yo
-self.field(i) = value; // ✓ same write, no `.*`
-elem := self.field(i); // ✓ same read
-v := list(i); // ✓ same panic-on-OOB semantics
-```
-
-Out-of-bounds panic is preserved — `list(i)` panics via the Index
-trait's bounds assertion, the same as `.unwrap()` on `.get(i)` would.
-
-Use the verbose form **only** when you need to keep the raw `*(T)` —
-e.g., to pass it to another routine that mutates through the pointer
-multiple times, or when borrowing through a non-Index trait method.
-
-## Module-level definition order
-
-`::` definitions, `impl(...)` registrations and `derive(T, ...)` statements at module level are **order-independent** (`docs/en-US/DEFINITION_ORDER.md`, landed 2026-09-05; derives since 2026-10-29 — the seed rule below applies to them in `std/`/`src/`): a body may call a function, name a type or constant, or use a method / trait default whose definition, `impl` or `derive` appears later in the same file; bare-name self-recursion and mutual recursion between free functions work; `export(...)` may name a later definition. The walker pre-scans the module and forces a pending definition on the first lookup that would otherwise miss, so order-correct programs evaluate exactly as before.
-
-```yo
-// OK — evaluate references eval_atom, defined below:
-evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
-  match(
-    e,
-    .Atom(tok) => eval_atom(tok, env),
-    _ => .None
-  )
-);
-eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
-```
-
-What stays **ordered**: imports (`{ a } :: import(...)`, `x :: import(...)`, `{ ... } :: import(...)`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, bare expression statements, and the bindings inside an `impl({ ... })` block. Referencing one of those before it is bound is still an error (`forward reference to "X" (bound at line N) — imports, pragmas and runtime bindings are evaluated in order …`). A definition forced early sees only the statements before the reference that forced it — keep imports at the top of the file. The same holds for module globals a forced **function** reads: if `f :: (fn …)` reads `(g : T) = v` and some earlier definition calls `f`, then `f` is forced at that call, `g` is not bound yet, and you get `E0906` (or `E0610` on `!g`, whose type is still unknown). Define the ordered globals above the first definition that (transitively) reaches `f`, not just above `f`. Cycles between constants or types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while being forced reports its own error plus a `note: … was evaluated here because it is referenced before its definition`.
-
-**Seed gate LIFTED (2026-09-05, `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P5):** `std/` and `src/` may use forward references — `SEED_VERSION` carries the feature (the first release after v0.2.24). The first uses in `src/` are `module-manager.yo`'s `_load_module_at_abs` referencing `demand_load_module` below it and `evaluator/types/synthesizer.yo`'s helpers calling `_synthesize_types_impl` directly; there is no need for global function-pointer slots, IIFE wiring or holder variables to express mutual recursion any more. The general seed rule still holds for any NEWER compiler feature: `yo build` compiles `std/` and `src/` with the seed, so a feature is usable there only once a release carrying it is `SEED_VERSION` (`plans/backlog/SEED_VERSION_AUTOMATION.md`); `tests/` are compiled by the tree's stage-1.
-
-Inside one `impl(...)` block, sibling methods reference each other through `self.method()` / `Self.method()`; bare-name sibling references are not forward-bound there (they would shadow same-named locals in other method bodies). From inside an `impl(T, …)` block, a method defined in a LATER `impl(T, …)` block is still not reachable (misses on `T` while one of its impls is being evaluated are the in-block sibling case, never a force) — put methods that call each other in one block; free functions, generic bodies and other types' impls may use any later block.
-
-## Named constructor arguments are required for `struct` types
-
-When constructing a `struct(...)` value, always use named field syntax:
-
-```yo
-Point :: struct(x : i32, y : i32);
-
-// CORRECT — named fields:
-p := Point(x : i32(1), y : i32(2));
-
-// WRONG — positional construction for a struct is not supported:
-p := Point(i32(1), i32(2));
-```
-
-`enum` variant construction is positional (fields are matched by order):
-
-```yo
-// CORRECT — enum variants use positional args:
-(v : Option(i32)) = .Some(i32(42));
-```
-
-Two traps measured 2026-09-24 while auditing the docs' code blocks:
-
-- **`derive(X, ToString)` / `derive(X, Error(...))` need their rule's module imported first.** The prelude registers derive rules for `Eq`, `Hash`, `Clone`, `Ord`, `Default` only; `ToString`'s rule is registered by `std/fmt` and `Error`'s by `std/error` (`derive_rule(ToString, ...)` in `std/fmt/to_string.yo`). Without `{ ToString } :: import("std/fmt");` above the call the derive fails with `derive: trait 'ToString' does not have a derive rule` (or, for `Error`, `Variable "ToString" not found`).
-- **A module-level `:=` of a comptime-known value demands `::`.** Array literals of untyped elements (`arr := [1, 2, 3];`) are `Array(comptime_int, N)` — comptime — so at module level they are rejected with `Expected "::" instead of ":="`; write `arr :: [1, 2, 3];` or type the elements (`arr := [i32(1), i32(2)];` is a runtime array and may use `:=`). Conversely `Array(T, n).fill(v)`'s RESULT is a runtime value: bind it with `:=` (`::` is rejected with `Got runtime value`), even though the fill argument is comptime.
-
-## Design-by-contract clauses (`requires` / `ensures` / `invariant` / `ghost`)
-
-The contract surface (`plans/backlog/FORMAL_VERIFICATION.md`, V1–V7 landed)
-is backed by the Z3 verifier. Without a verify pragma, contracts lower to
-runtime `assert(...)` (or `comptime_assert(...)` in comptime fns);
-`pragma(Pragma.Verify);` puts the file in proof mode and `yo verify <path>`
-discharges obligations with counter-examples on refutation. See the
-yo-verification skill for the loop, outcomes and `--strict` gating.
-
-### `requires` / `ensures` go in the function signature
-
-They are clauses in the parameter list, after regular params and
-`where(...)`. The clause order is **enforced** (not just conventional):
-`generic(...), ...params..., where(...), requires(...), ensures(...)`.
-A clause out of order — `ensures` before `requires`, `where` after
-`requires`, a regular param after `where`/`requires` — is a syntax
-error ("X appears after Y in the function signature").
-
-```yo
-// requires = precondition, ensures = postcondition. Name the return to use
-// it in `ensures` (labeled return type):
 divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> (result : i32))(
   x / y
 );
-```
 
-- **Single-call rule**: at most ONE `requires(...)` and ONE
-  `ensures(...)` per signature. Multiple predicates go inside one call:
-  `requires(a, b, c)`. Two `requires(...)` clauses is a syntax error.
-- **Zero-argument** `requires()` / `ensures()` is a syntax error — omit
-  the clause instead.
-- Inside `ensures(...)`: the return value is the name the LABELED return
-  type binds, `-> (result : i32)`. There is no magic `result` identifier:
-  with a plain `-> i32` the name `result` in `ensures` is E0401 with the
-  hint "to name the return value in 'ensures(...)', label the return".
-  `old(expr)` is the value of `expr` on function entry (correct for
-  mutated `name : &mut T` params).
-
-```yo
 increment :: (fn(n : &mut i32, requires(n.* < i32(100)), ensures(n.* == (old(n.*) + i32(1)))) -> unit)({
   n.* = (n.* + i32(1));
 });
 ```
 
-- `where(P)` with a `bool` predicate is treated like `requires(P)`;
-  choose `where` for type-intent, `requires` for value-intent.
-
-### `invariant(...)` is the FIRST statement of a `while` body
+- **`invariant(...)` is the FIRST statement of a `while` body**; anywhere else (later, inside a branch or a
+  nested block) is an error. There are no type invariants.
 
 ```yo
 while(i < n, {
@@ -1337,310 +1258,17 @@ while(i < n, {
 });
 ```
 
-Placing `invariant(...)` anywhere except the first non-comment statement
-of the loop body — a later statement, inside a `cond`/`match` branch, or
-a nested block — is a syntax error. (Type-body invariants are NOT
-implemented in Phase 0.)
+- `ghost(name := expr)` is a spec-only binding; `ghost_fn(fn_value)` declares a spec-only function — separate
+  builtins (never `ghost(some_fn)`):
+  `permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)( /* ... */));`
+- Pragmas: `pragma(Pragma.NoContracts);` erases all clauses; `pragma(Pragma.Verify);` proves them (a
+  refutation is a compile error); `pragma(Pragma.VerifyOrAssert);` proves and falls back to the run-time
+  assert when the solver budget runs out.
+- Refinement aliases live in `std/spec/` (`NonZero`, `Bounded`, `Positive`, …); run-time gates
+  (`check_non_zero`, `check_bounded`) construct them from unrefined values.
 
-### `ghost(...)` vs `ghost_fn(...)`
+## Source files
 
-- `ghost(name := expr)` — a spec-only binding (Phase 0: a no-op marker).
-- `ghost_fn(fn_value)` — declares a ghost (spec-only) function. These
-  are SEPARATE builtins; do not write `ghost(some_fn_value)`.
-
-```yo
-permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)( /* ... */));
-```
-
-### Pragmas
-
-- `pragma(Pragma.NoContracts);` erases all contract clauses (no asserts
-  emitted) — for release/benchmark builds.
-- `pragma(Pragma.Verify);` puts the file in verify mode: proofs replace
-  the `ensures` asserts and a refutation is a compile error.
-- `pragma(Pragma.VerifyOrAssert);` is verify+ — prove, fall back to the
-  runtime assert when the solver budget is exhausted.
-
-Refinement-type aliases live in `std/spec/` (`NonZero`, `Bounded`,
-`Positive`, …) and carry their predicate into every verified caller;
-runtime gates (`check_non_zero`, `check_bounded`) construct them from
-unrefined values.
-
-## "Frame level N has different number of values for different cases"
-
-Observed 2026-08-16 while adding temporary `eprintln` instrumentation. **The
-mechanism below is an inference from a controlled A/B, not a verified rule** —
-treat it as a debugging lead, not a language guarantee.
-
-What was measured, same file, same function, three builds:
-
-| instrumentation                                                | build  |
-| -------------------------------------------------------------- | ------ |
-| 2 × `eprintln` at **function-body** statement level            | **OK** |
-| + 1 × `eprintln` inside one `match` arm (sibling is `_ => ()`) | FAIL   |
-| + 3 × `eprintln` inside that same arm                          | FAIL   |
-
-The passing build included an `if(...)` inside a string interpolation, so
-interpolated conditionals are **not** the trigger. The only varying factor was
-whether the added statement sat **inside a `match` arm whose sibling was empty**.
-
-Inferred rule: sibling arms appear to need to agree on how many values they push
-onto the frame, so adding statements to one arm while another stays a bare `()`
-breaks it:
-
-```
-Error: Frame level 7 has different number of values for different cases.
-```
-
-This bites hardest when adding temporary instrumentation, because the edit looks
-completely innocuous:
-
-```yo
-// BEFORE — fine
-match(
-  t,
-  .SomeT({ id : rid }) => match(
-    lookup(rid),
-    .Some(g) => {
-      r = g;
-    },
-    .None => ()
-  ),
-  _ => ()
-);
-
-// AFTER — "Frame level N has different number of values"
-match(
-  t,
-  .SomeT({ id : rid }) => {
-    eprintln(`probe ${rid}`); // <-- extra frame value in THIS arm only
-    match(
-      lookup(rid),
-      .Some(g) => {
-        r = g;
-      },
-      .None => ()
-    );
-  },
-  _ => () // <-- sibling still empty
-);
-```
-
-Fixes, in order of preference:
-
-1. **Hoist the statement out of the `match` entirely** — put the `eprintln`
-   before or after, on a value the arms have already written. Usually the
-   instrumentation did not need to be inside the arm at all.
-2. Give every sibling arm the same shape (add a matching statement to `_ => { ...; }` — an empty arm is `()`).
-
-The error names a frame _level_, not a file or line, so it does not point at the
-arm you edited. If it appears right after you touched a `match`, assume this
-before hunting elsewhere.
-
-## Closure arguments: `->` literals and `=>` closures both infer the result type
-- **Either arrow binds an inferred result type.** When an argument's return type must be INFERRED into a type variable (`o.map((x) -> ...)`, `m.with_lock((v) => ...)`, any `Impl(Fn(..) -> R)` / `where(F <: Fn(..) -> R)` param), a capture-free `->` fn literal and a `=>` closure both bind `R` (fixed 2026-08-29, `issues/fixed/arrow-fn-literal-result-type-not-inferred.md`, C55). Pick `=>` only when the body needs to capture. `->` stays required for effect handlers, whose declared result is the per-call-site `ResumeType` and is never bound at the literal.
-
-## Generic calls: one type per binder, literals checked last, result-only binders need an expected type
-
-- Two arguments binding one `generic(A)` to different types is E0601 ("it is String from argument 1 but i32 from argument 2"); a literal and the type it adopts are one binding (`pair_same(i32(3), 4)` is fine).
-- A `=>` closure or `->` function literal argument is matched AFTER the other arguments, against the parameter type they solved — so `apply((x) => (x + i32(1)), i32(3))` works with the closure first, and a closure whose body disagrees with the solved result is E0604.
-- A binder only the RESULT mentions (`mk :: fn(generic(T)) -> Option(T)`) comes from the expected type (`(x : Option(i32)) = mk()`) or `generic(...)`; `x := mk()` is E0613.
-- A kind-annotated binder is inferred from an instantiation: `x : F(A)` given `Option(i32)` binds `F = Option`, `A = i32` (explicit `generic(Option, i32)` still works).
-- An associated-type binding in a `where` binds a binder: `where(I <: Iterator(Item := A))` fixes `A` from the argument's impl (a source or a chain), a self-referential `A <: Add(A)` is checked at that binding, blanket combinators (`it.fold(...)`, `s.collect(io)`) work on the parameter, and `J` in `F <: (Fn(item : A) -> J)` comes from the closure's body. `Dyn(Fn(x : A) -> B)` parameters infer `A`/`B` too.
-
-## A `fn` literal does NOT capture — only `=>` closures do
-
-A `(fn(...) -> T)(body)` literal is a plain function, not a closure. It cannot
-see the enclosing scope's locals, and referring to one is a hard error at the
-USE site, which reads as if the variable never existed:
-
-```yo
-test("...", {
-  m := BTreeMap(i32, i32).new();
-  // WRONG — `m` is not in scope inside a `fn` literal.
-  count := (fn(lo : i32, hi : i32) -> usize)({
-    it := m.range(lo .. hi); // error[E0401]: Variable "m" not found.
-    ...
-    });
-});
-```
-
-Two ways out, in order of preference:
-
-```yo
-// 1. Pass it in. Explicit, and it works for every value type.
-count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
-  it := mm.range(lo .. hi);
-  ...
-  });
-count(m, i32(3), i32(6));
-
-// 2. Use a closure, which does capture — BY VALUE. A list two places
-//    write on purpose is an explicit shared handle, `Rc(ArrayList(T))`, so a
-//    closure can be used as a recorder:
-calls := Rc.new(ArrayList(i32).new());
-f := (
-  () => {
-    calls.*.push(i32(1));
-    i32(7)
-  }
-);
-```
-
-That by-value rule is why an `i32` counter mutated inside a closure never comes
-back out. A captured bare `ArrayList` still shares its buffer today, but the
-collections become values (`plans/VALUES_BY_DEFAULT.md` V2b) and a push to the
-capture will then land in the closure's copy: record through an `Rc`, or have
-the closure return what it built. `YO_AUDIT_INOUT_BORROW=1 yo check` lists such
-writes as `[inout-borrow-capture]` — see the `&mut` audit note.
-
-## Closure capture lists: `{ x, &y, z : &mut w }(params) => body`
-
-`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38, Generation A (this compiler; `std/` and `src/` do not use it until the seed parses it). The `{…}` before the parameters is a field list (a binder, no dot) the closure literal reads as its captures:
-
-- `x` / `x : e` — a by-value field (copy, or move for a move-only value). `&y` / `name : &place` — a read-only borrow; `&mut z` / `name : &mut place` — a writing borrow. The sigil on the initializer carries the mode; the puns `&y` and `&mut z` stand for `y : &y` and `z : &mut z`.
-- The list is EXHAUSTIVE: the body may read only the listed names and module-level items (`{}()` captures nothing).
-- A borrow names a place rooted at a local binding: no temporary, no module-level binding, nothing through an `Rc`/`Arc`/`ref` object or `p.*` (capture the handle and re-derive), and a `&mut` place must be writable (not a plain parameter).
-- A borrowing closure is SECOND-CLASS (E0909): bind it, call it, pass it to a plain parameter — never return it, store it, `dyn` it, pass it to `sink`, capture it in `io.async`, or name it in a type argument. A `&mut` capture makes it move-only (neither `Copy` nor `Clone`); `&` captures alone keep it `Copy`. A by-value capture that is not `Copy` (`String`, `Rc`, a collection) makes the closure explicit-copy: `d := c` moves it, `c.clone()` clones each by-value capture. Its places are frozen until the binding's scope ends (E0910): wrap the closure and its calls in a `{ …; }` block when you need the place afterwards.
-- A binding needs the expected type and parentheses, as for any closure: `(h : Impl(Fn(m : i32) -> i32)) = ({ k, &w }(m : i32) => (m + k + w));`. A literal argument needs neither: `(i32(1) .. i32(4)).for_each({ &mut total }(x : i32) => { total = (total + x); });`.
-- `&f` to an `f : &Impl(Fn(...))` parameter lends the closure, like any `&x` to a `&T` parameter; to a by-value one it is an error naming `f` (a closure argument always moves). Passing a closure bare, `apply(f, 1)`, stays legal until the bare-argument mismatch error lands.
-- Not supported yet: a capture list on an `io.async` body (borrowing futures, §3.13 A2), and last-use ends of a freeze (decision 18's live ranges).
-
-## Call-once closures: `FnOnce(...) -> R`
-
-`plans/VALUES_BY_DEFAULT.md` decision 37, Generation A (this compiler; std's `Thread.spawn`/`io.async` signatures switch in Generation B, once the seed parses `FnOnce`):
-
-- An `FnOnce` call consumes the closure: a second call (or any later use) is E0901 pointing at the first call. A closure literal takes the trait of its slot, so `(f : Impl(FnOnce() -> R)) = ({ t }() => take(t))` is call-once.
-- Only a capture list's by-value entries are owned by an `FnOnce` body: it may move one out (`sink` argument, binding, tail), and the body drops the rest when the call ends. A move out of an implicit capture is E0913 ("captured implicitly"); a move out of a capture in an `Fn` closure is E0913 too.
-- `Fn` implies `FnMut`, which implies `FnOnce`: an `Fn` or `FnMut` closure fills an `FnOnce` slot; an `FnOnce` value passed to an `Fn(...)` or `FnMut(...)` parameter is E0913.
-- Call it once from an API it ESCAPES into: `sink(f) : Impl(FnOnce(...))`. Calling through a borrowed parameter (`f : Impl(FnOnce(...))`) is E0901. A `sink` closure called on one `cond`/`match` arm is dropped, uncalled, at the end of the other arms (as any value moved in some arms is); only the ways out of a loop must still agree (E0907).
-- In Generation A every `match` binding borrows, so a bare `match` on a capture cannot move out yet (decision 37's N5 `match` shapes land with V3b).
-- A GENERIC callee (free fn or impl method) may call its own `sink(f) : Impl(FnOnce(...))` / `f : Impl(FnOnce(...))` parameter once, and an `FnOnce` closure LITERAL passed to it — at a free-fn or a method call — moves in and releases its captures exactly once (fixed 2026-10-27: `issues/fixed/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md`, `issues/fixed/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md`). A SEED older than that fix (before v0.2.72) still rejects the callee's call (false E0901 "it is a borrowed parameter"), which is why std's run-once with-shapes took `sink(body) : Impl(FnOnce(...))` only on the v0.2.72 seed: `RefCell.with_mut`, `HashMap.entry`, `ArrayList.with` and `Deque.with` (2026-10-28). Their body may move its captures (`cell.with_mut({ t }(xs) => xs.push(t))`); `RefCell.with`, `Mutex.with_lock` and every other non-escaping std callback take `&mut Impl(FnMut(...))` (VERDICTS-28 Q1).
-
-## Call-repeatedly closures: `FnMut(...) -> R`
-
-`plans/VALUES_BY_DEFAULT.md` decision 37, decision 43 N1f/N3 (landed; VERDICTS-15, VERDICTS-28 Q1):
-
-- An `FnMut` call borrows the closure exclusively (`self : &mut Self`). Its body may write its capture-list BY-VALUE entries (own state, kept across calls) and its `&mut` captures: `(mut(tick) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => { n = (n + i32(1)); n });`. Under `Fn`/`FnOnce` an entry write stays E0917. The state outlives the call: storing a reference to the call's parameter into it is E0923, to a body local or another by-value entry E0912 (audit A35); a borrow capture (`{ o : &x, last : Option(&T).None }`, `last = .Some(o)`) is fine. Through a `&mut` capture, `s.* = .Some(&owned)` of a by-value entry `owned` is E0912 too: the entry dies with the closure or future (A50).
-- An IMPLICIT capture is written (`s = …`, `s.push_str(…)`, `grow(&mut s)`, `for(&mut s, …)`) only in an `FnMut`/`FnOnce` closure that owns its record; in an `Fn` closure or a literal lent to a borrowing parameter (`run(&(() => …))`) it is E0913 (the record holds a copy, a bitwise alias in a borrowed literal: the write would free what the caller owns). Spell `{ &mut s }` at an `FnMut` slot. A `&` capture entry is read-only: calling an `FnMut` closure through `{ r : &f }` is E0908 (audit A46/A47).
-- While a closure's `&` capture of `x` is in scope, every `&mut` lend of `x` is E0910 — a `&mut` argument or receiver (whatever the callee does), `w := &mut x`, `match(&mut x, …)`, `for(&mut x, …)`, another closure's `{ m : &mut x }`; a capture-list `&mut` entry, `consume(x)` and an implicit capture that moves `x` are accesses against live local borrows too (E0911).
-- Call it through `mut(f)`, `f : &mut Impl(FnMut(...))`, `(mut(d) : Dyn(FnMut(...)))` or a temporary; an unmarked binding or a by-value parameter is E0917 (rebind: `mut(g) := f;`), `f : &Impl(FnMut(...))` / `&Dyn(FnMut(...))` is E0908, a call while a borrow of it lives is E0911. A literal passed to `f : &mut Impl(FnMut(...))` needs no marker.
-- `Fn` fills an `FnMut` slot; a value TYPED `FnMut` at an `Fn(...)` slot or boxed as `Dyn(Fn(...))` is E0913; `FnOnce` at an `FnMut` slot is E0913.
-- A literal that merely HOLDS a `&mut` capture is `FnMut(...)` by its captures alone, so at an `Fn(...)` slot (a parameter, an annotation, a generic `F <: Fn(...)` bound, a `Dyn(Fn(...))`) it is E0913 too: the one-release exemption (`fn_slot_admits_capture_fnmut`) was deleted with N3. Every std non-escaping callback — call-repeatedly and call-once alike, the `Option`/`Result` combinators, `RefCell.with`/`replace_with`, the `with_lock` bodies, `Once.call`, the `*_lazy` loggers — takes `&mut Impl(FnMut(...))`. `OnceCell.get_or_init` returns `&T` into the cell and spells its result origin, `f : &mut Impl(FnMut() -> T)` with `-> &(T, self)` (VERDICTS-53; O2: the load-bearing ones spell), so the initializer is released at the call: a reference-returning method with a callback slot spells its origin rather than taking the callback by value. `Fn` survives only where the callback is shared, stored beyond the call, or called from another thread (`thread.spawn_blocking`'s `sink(cb)`, the http `handler`).
-- An `FnMut` closure's implicit captures are OWNING moves (its body owns its state): an implicit capture of a borrowed place (a `&T` parameter, a `&` binding) is E0901, and an implicit capture of an owned local moves it (later uses are use-of-moved). Spell the capture `{ &p }` (in std/src) / `{ p }` (in user code, deref rule: copies the `&T`; `{ m : &mut m.* }` reborrows a `&mut`) to lend it, or `{ v : p.clone() }` to own a copy.
-- An `FnMut` closure (and `Dyn(FnMut(...))`) is move-only: no `Copy`/`Clone` even over `Copy` captures.
-- A `Sync` slot (`Impl(Fn(...), Sync)`) rejects a closure that writes a `&mut` capture or its state, naming `FnMut`.
-
-## A `=>` closure never fills a bare `fn(...)` slot (E0605)
-
-A `fn(...) -> R` parameter or field is a C function pointer: it takes a named `fn` or a
-capture-free `->` literal. A `=>` closure there is E0605 ("a closure (`=>`) cannot be used where
-the function-pointer type ... is expected"); declare the slot `Impl(Fn(...))` or `Dyn(Fn(...))`.
-Before 2026-09-24 it passed `check` and emitted C that called a struct
-(`issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md`).
-
-A closure's body is checked against the `Fn(...) -> R` it adopts (E0604 when it does not
-match), and a `comptime(x) : T` parameter needs a compile-time argument (E1101 for a runtime
-value such as `c(i32.default())`).
-
-## `Dyn` is unsized: `Box(Dyn(T))`, `Rc(Dyn(T))`, `&Dyn(T)` (decision 49)
-
-`Dyn(T)`, `[T]` and a struct with an unsized last field have no size of their
-own and live behind a pointer (`plans/VALUES_BY_DEFAULT.md` decision 49;
-`docs/en-US/DYN_DESIGN.md`). The owner is spelled: `dyn(Box.new(v))` is a
-`Box(Dyn(T))`, `dyn(Rc.new(v))` an `Rc(Dyn(T))`, `dyn(&v)`/`dyn(&mut v)` a
-`&Dyn(T)`/`&mut Dyn(T)` with no allocation, and `&b.*` lends an owned one.
-`downcast(&b.*, V)` gives `Option(&V)`; `upcast(p, Dyn(A))` keeps the pointer
-kind. Using an unsized type by value is E0619; `unsize(a)` of a value is E0620,
-and so is `dyn(v)` of a plain value since v0.2.79 (decision 49 S3b: in v0.2.77
-and v0.2.78 it was the legacy alias of `dyn(Box.new(v))`; code written for
-v0.2.78 is migrated with `yo version install 0.2.78 && yo fix <path> --migrate unsized`);
-`generic(T : ?Sized)` opts a generic in, and a trait's associated type opts in
-the same way (`Target : ?Sized`; `Self.Target` then lives only behind a
-pointer).
-
-In v0.2.77 (S1) the older spellings are aliases: a bare `Dyn(T)` value type is
-`Box(Dyn(T))` and `dyn(v)` of a plain value is `dyn(Box.new(v))`.
-`yo fix <path> --migrate unsized` writes the type spellings the new way.
-**`src/` and `std/` keep the older spellings until v0.2.78's sweep**: the seed
-compiles them, and v0.2.76 predates the alias, so to it `Box(Dyn(T))` is a
-second box around the older value. Tests, docs and cli fixtures, which the
-tree binary compiles, use the new ones. Until v0.2.78 a
-`dyn(&v)` reference is a call argument only (binding or storing it is E0911,
-returning it E0912), `Rc(Dyn(T))` costs two allocations, and an owned
-`downcast(d, V)` keeps the copying `Option(V)` form.
-
-## A callable into a `Dyn(Fn(...))` slot is always `dyn(Box.new(f))` (E0618)
-
-Every erasure into a `Dyn` is spelled (`plans/VALUES_BY_DEFAULT.md` decision 44,
-amended 2026-10-12): a named closure, a named `fn`, an `Impl(Fn(...))` parameter
-or a closure literal passed BARE into a `Dyn(Fn(...))` binding, reassignment,
-field (constructor or write), argument, variant payload or result (a body tail or
-`return(f)`) is `error[E0618]`, whose help names the erasure over the pointer
-the slot takes: `dyn(Box.new(f))` for a `Box(Dyn(Fn(...)))`, `dyn(Rc.new(f))`
-for an `Rc`, `dyn(&f)` for a reference (`Box.new` moves `f`, so one closure
-fills one slot); `yo fix <path>` writes it for a named callable. An `Impl(Fn(...))` slot is the
-closure's own type, not an erasure, and still takes it bare. Until 2026-10-13 a
-named closure flowed bare and three of the four sites emitted invalid C
-(`issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`).
-`dyn(Box.new(nine))` of a named `fn` (top-level, imported, or an `Impl(Fn(...))`
-parameter bound to one) boxes the function's code pointer, and the `Dyn`'s
-call goes through it; no closure wrapper is needed
-(`issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md`). A generic
-type's function taken as a value (`ArrayList(i32).new`) is not emitted yet,
-with or without `dyn` (`issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`):
-wrap it in a closure, `dyn(Box.new(() => ArrayList(i32).new()))`.
-
-## A bare `fn(...)` slot type never mentions `Impl(Fn(...))`
-
-A runtime parameter, a struct/enum/tuple/union field or a function result typed
-`(fn(x : i32) -> Impl(Fn() -> i32))` (or `(fn(f : &Impl(Fn() -> i32)) -> i32)`)
-is rejected at `check` ("cannot be the type of parameter ..."): a function type is
-one function pointer, and each function returning `Impl(Fn(...))` returns its own
-closure struct by value. Until 2026-10-10 it compiled and the call crashed (SIGBUS,
-`issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md`).
-Take the function generically instead, `mk : &Impl(Fn(x : i32) -> Impl(Fn() -> i32))`
-or `generic(G : Type), mk : &Impl(Fn(x : i32) -> G), where(G <: (Fn() -> i32))`,
-or return `Dyn(Fn(...))`. Still valid: `fn(...) -> Impl(Future(...))` (one pointer
-representation), a `comptime(f)` parameter, a local annotation (it takes the
-initializer's own function type).
-
-## An `Impl(Fn(...))` parameter only accepts a CALLABLE argument (E0606)
-
-Since 2026-09-05 (C67, `issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md`)
-the evaluator enforces the `Fn` constraint at the call site. Before that the
-constraint lived on the parameter's `SomeT` and both call routes bound the
-ARGUMENT's type into that type variable before anything tested it, so
-`apply(i32(5))` against `f : Impl(Fn(x : i32) -> i32)` passed `yo check`, linked,
-and the emitted C cast the integer to a function pointer and jumped through it.
-
-What still binds: a closure (`x => ...`), an arrow literal (`(x) -> ...`), a
-named `fn` passed BY NAME, an explicit `(fn(x : i32) -> i32)(...)` literal, a
-`ClosureType({...})` value, a closure forwarded from another `Impl(Fn)` /
-`Dyn(Fn)` slot, and an unresolved type variable. Anything else — an integer,
-`bool`, `str`/`String`, a pointer, an array, a tuple, an enum or an ordinary
-struct — is rejected as `error[E0606]: Argument for parameter "f" is not
-callable`.
-
-`io.async` is the same rule, not a special case: its `action` parameter is an
-ordinary `Impl(Fn(e : E) -> T)` slot, so a bare block is now an error.
-
-```yo ignore
-// WRONG — a block is not a closure. This used to type-check, run EAGERLY in
-// the enclosing function, and return no future at all:
-io.async({
-  w := i32(5);
-  w
-})
-
-// CORRECT — name the bundle parameter:
-io.async(e => {
-  w := i32(5);
-  w
-})
-```
-
-Binding a closure to a local still needs the expected type on the binding
-(`(cb : Impl(Fn(x : i32) -> i32)) = (x => (x + base));`); a bare
-`cb := (x => ...)` fails with "Expected a function type, got: …" — that is a
-separate, pre-existing limitation.
+- A leading UTF-8 BOM (U+FEFF at byte 0 only) is skipped by the lexer; positions are as if absent, but
+  `Token.byte_offset` counts its 3 bytes. Windows PowerShell 5.1's `Set-Content -Encoding UTF8` writes one;
+  write `.yo` files BOM-less with `[System.IO.File]::WriteAllText`.

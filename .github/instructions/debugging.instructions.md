@@ -4,419 +4,111 @@ description: "Use when debugging the Yo evaluator, C codegen output, or runtime 
 
 # Debugging the Yo Compiler
 
+## Probe before you fix
+
+A mechanism that convincingly explains a symptom is wrong about half the time: five sound-looking explanations on this tree were each refuted by one gated print. A print costs one build; a wrong fix survives review and changes nothing.
+
+1. **Probe before you fix.** Print at the predicate you believe decides, on BOTH a failing and a working case, and compare. A trace without a control is not evidence.
+2. **When a probe is ambiguous, widen the probe; do not go back to reading.** When several sites could be the one, tag them all in one build (distinct `eprintln` markers) instead of bisecting by inference.
+3. **Do not count one signal twice** (two views of the same layer are one confirmation), and **a green exit code can mean "nothing ran"**: `yo compile` exits 0 on a body emitted as an abort stub, and `yo check` never runs codegen.
+
 ## Evaluator debugging
 
-Use these functions to print debug information:
-
-- `type_to_string` (`src/types/string.yo`) — print types
-- `ast_expr_to_string` (`src/expr.yo`) — print expressions
-- `value_to_string` (`src/value.yo`) — print values
-- `are_types_compatible` (`src/types/compatibility.yo`) — check type compatibility
-
-Key facts:
-
-- An expr-info whose value is `.None` means the value is a **runtime value**, not an `UnknownVal`.
-- `EvalValue.UnknownVal(ty, is_runtime_only)` is a compile-time value where we only know its type but not the real value.
-
-## A plausible mechanism is roughly a coin flip — probe before you fix
-
-Measured over 2026-09-16/17: **five** mechanisms that convincingly explained a
-symptom on this tree were refuted by a gated print, each after the reasoning
-behind it looked sound enough to start writing a fix.
-
-| defect | mechanism that "obviously" explained it | verdict |
-| --- | --- | --- |
-| prelude +2 lines breaks `check ./std` | TypeValue interning wrong-merge | refuted — identical with interning disabled |
-| same | a trait-id collision (two traits DO share an id) | refuted — breaking the collision changed nothing |
-| inherent assoc const not resolving as an `Array` length | lazy binding, fix with `force_in_flight_field` | refuted — that forcer returns false unless an impl is IN FLIGHT |
-| `Array.fill` rejects `T.default()` | the comptime-value specialization mint | refuted — traces byte-identical across failing and working cases |
-| evaluator diagnostics never reach the typed stash | the pending-definition path | refuted — every message on that path carries a note this error lacks |
-
-Each fix would have been written, reviewed and merged looking correct, and
-changed nothing. **A gated print costs one build. A wrong fix costs a review
-cycle and survives it.**
-
-Two rules follow, and the second is the one that actually gets missed:
-
-1. **Probe before you fix.** Add a print at the predicate you believe is
-   deciding, run it on BOTH a failing and a WORKING case, and compare. A trace
-   with no control is not evidence — three of the five above showed the
-   suspicious value in the working case too.
-2. **When a probe comes back ambiguous, WIDEN THE PROBE — do not resume
-   reading.** The expensive failure is not skipping the print, it is bisecting
-   by inference between prints. Eliminating candidate sites by reading can be
-   individually sound and still cost several builds without finding the site;
-   instrumenting every candidate at once costs one.
-
-Corollaries worth keeping:
-
-- **Do not count one signal twice.** "Unreachable by message" and "absent from
-  the agent list" are the same messaging layer observed twice, not two
-  independent confirmations — that pair nearly produced a wrong conclusion
-  about a peer session being dead.
-- **A successful send proves the transport, not agreement**, and a green exit
-  code can mean "nothing ran" rather than "nothing is wrong" — `yo compile`
-  exits 0 on an FTT stub that aborts at runtime, and `yo check` never
-  evaluates bodies at all.
+- Print helpers: `type_to_string` (`src/types/string.yo`), `ast_expr_to_string` (`src/expr.yo`), `value_to_string` (`src/value.yo`); `are_types_compatible` (`src/types/compatibility.yo`).
+- `ExprInfo.value == .None` is a runtime value; `EvalValue.UnknownVal(ty, is_runtime_only)` is a compile-time value whose type is known but whose value is not.
+- Use `yo check <path>` for type-error loops (evaluator only, no C).
+- Faster debug-trace builds of the compiler: `yo compile src/main.yo --emit-chunks auto --jobs 16 --optimize 1 -o /tmp/yo-dbg` (host: a stage 1). Gate on a real `yo build --std-path ./std`.
 
 ## Swallowed definition-time errors (`YO_DEBUG_SWALLOW=1`)
 
-The evaluator evaluates function and closure bodies at DEFINITION time behind a
-"def-eval wall": a failing body is swallowed so a yo-self porting gap cannot
-reject valid code. The cost is that a body which fails to evaluate produces NO
-diagnostic — codegen simply has no `ExprInfo`s for it and emits
-`// Failed to transpile` markers (rewritten to `abort()` since PR #275). That is
-the single most common cause of a hollow function, and `YO_DEBUG_SWALLOW=1` is
-the fastest way to see which body failed and why:
+Function and closure bodies are trial-evaluated at DEFINITION time; a failing trial is swallowed, so the body emits no diagnostic and codegen emits a `// Failed to transpile` abort stub. That is the most common cause of a hollow function. `YO_DEBUG_SWALLOW=1` shows which body failed and why:
 
 | line | emitted by | covers |
 | --- | --- | --- |
 | `[trial] <pos>` / `[swallow] <err>` | `evaluator/calls/function-type.yo` | named `fn`/`ctl` bodies |
-| `[anon-trial] <pos>` / `[anon-swallow] <err>` | `evaluator/values/anonymous-function.yo` | closure (`=>`) and `->` bodies, including every `io.async` closure |
-| `[mat-default-swallow] <err>` | `evaluator/values/impl.yo` | the per-impl materialization of a trait `?=` default |
-| `[reeval-swallow] <err>` | `evaluator/calls/helper.yo` | a closure body re-evaluated at a specialization with its parameter types substituted |
-| `[kept] site=<s> code=<c> owner=<pos>` | each of the above | the swallow above it was NOT re-raised, and why: `dg`/`dgc` (a generic fn/closure trial: the error waits for a call and is recorded against the body), `anon-abstract`/`anon-ct` (a closure with type-variable or `comptime(x)` parameters), `fn-fwd` (a concrete fn waiting for a forward comptime fn), `reeval-concrete`/`reeval-abstract`, `mat-default` |
-| `[ftt-stub] kind=<k> fn=<c name> site=<pos> spec=<b> recorded=<b>` | `codegen/functions/generation.yo` | a body emitted as an abort stub: `superseded` (a dead generic original), `value`/`unit` (live); `spec` = a specialization a call requested, `recorded` = its generic trial kept an error |
+| `[anon-trial] <pos>` / `[anon-swallow] <err>` | `evaluator/values/anonymous-function.yo` | `=>` and `->` bodies, including every `io.async` closure |
+| `[mat-default-swallow] <err>` | `evaluator/values/impl.yo` | per-impl materialization of a trait `?=` default |
+| `[reeval-swallow] <err>` | `evaluator/calls/helper.yo` | a closure body re-evaluated at a specialization |
+| `[kept] site=<s> code=<c> owner=<pos>` | each of the above | why the swallow was NOT re-raised: `dg`/`dgc` (generic fn/closure trial; error recorded against the body, waits for a call), `anon-abstract`/`anon-ct` (type-variable or `comptime(x)` parameters), `fn-fwd` (waits for a forward comptime fn), `reeval-concrete`/`reeval-abstract`, `mat-default` |
+| `[ftt-stub] kind=<k> fn=<c name> site=<pos> spec=<b> recorded=<b>` | `codegen/functions/generation.yo` | a body emitted as an abort stub: `superseded` (dead generic original) or `value`/`unit` (live); `spec` = a requested specialization, `recorded` = its generic trial kept an error |
 
-A specialization that reaches emission hollow with `spec=true recorded=true`
-fails the compile: codegen reports the recorded error with a note at the call
-that requested the specialization (Phase 6 step 3,
-`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
-`scripts/soundness/swallow-census.sh` counts the `[kept]` lines by site.
+- A `[…swallow]` line belongs to the nearest `[…trial]` line above it. Output is large: `YO_DEBUG_SWALLOW=1 yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2 2>swallow.txt; grep -n swallow swallow.txt | tail`.
+- A specialization that reaches emission hollow with `spec=true recorded=true` fails the compile with the recorded error, noted at the requesting call. `scripts/soundness/swallow-census.sh` counts `[kept]` lines by site.
+- `YO_DEBUG_LAZY=1` traces out-of-order evaluation: `[force] <def>` (`evaluator/context.yo`) per `::` definition or `impl` forced by a lookup miss; `[force-field] <type>.<member>` (`evaluator/values/impl.yo`) per sibling method forced inside its own impl (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`).
 
-`YO_DEBUG_LAZY=1` is the companion for out-of-order evaluation: `[force] <def>`
-(`evaluator/context.yo`) for every `::` definition or `impl` forced by a lookup
-miss, and `[force-field] <type>.<member>` / `[force-field] phase-A …`
-(`evaluator/values/impl.yo`) for a sibling method forced from inside its own
-impl block (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`).
+### The reported error is not always the first
 
-A `[…swallow]` line belongs to the most recent `[…trial]` line above it (the
-swallow handlers are capture-free `->` effect handlers, so they cannot print the
-owner themselves). Output is large — redirect stderr and grep:
+After a swallowed trial, a later pass over the now-hollow body can raise a DERIVED error through the real `exn`, pointed at correct code (`issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md`). Tells:
 
-```bash
-YO_DEBUG_SWALLOW=1 yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2 2>swallow.txt
-grep -n 'swallow' swallow.txt | tail
-```
+- A `[swallow]` whose message is a deliberate rejection, followed by an unrelated error: the rejection is the answer.
+- A `[trial]` with no matching post-trial marker (`[flow-post]` for the `function-type.yo` site): something after the trial threw for real; look there.
+- `check` reports the rejection and `compile` does not: suspect a sentinel key collision. A failed evaluation returns `make_err_expr()` and callers test "no ExprInfo"; ids start at 1 and `expr_info_table_set` refuses id 0 for that reason. A sentinel must never be a key real data can occupy. To find which handler ate an error, instrument every `throw : (...)` handler at once.
 
-### A swallowed error can be MASKED by a derived one — the reported error is not always the first
+### Other `YO_DEBUG_*` channels
 
-`YO_DEBUG_SWALLOW` shows you the swallow. It does **not** tell you whether the
-error you were shown is that swallow's consequence. When a body's trial fails,
-the caller keeps going, and a LATER pass over the same (now hollow) body can
-raise its own error through the REAL `exn`. That derived error is raised before
-the fatal re-raise, so it is what reaches the user — pointed at whatever node it
-happened to fail on, which is usually code the author wrote correctly.
+- `YO_DEBUG_CTFE` / `YO_DEBUG_CTFE2`: CTFE call failures. `YO_DEBUG_DISPATCH`: method dispatch. `YO_DEBUG_BIND=<name>`: type-variable binding.
+- `YO_DEBUG_RRE=1`: return-type re-evaluation, `[rre] callee=… hkt=… resolved_ret=…`. On E0613 for a call whose `T` should come from a closure, `hkt=T` means no forall binding reached the re-evaluation.
+- `YO_DEBUG_FRESHEN`: per-call freshening of a generic callee's forall binders (`before-ids=` / `after-ids=`). Identical ids mean the freshening fired and changed nothing: `substitute` matches a `SomeT` on (name, frame_level) and the declaration's `forall_types` entry carries a different level.
+- `YO_DEBUG_PARAMCHECK`: `[param-check] declared=… final=…`. Only a callee with no `FuncVal` (an `extern`, a builtin) goes through `try_to_call_function_with_arguments` → `check_if_function_parameter_matches_argument`; a Yo callee binds its own parameters in `evaluate_function_call`'s FuncVal arm (`[abstract-spec]`). "The same call with a Yo callee works" says nothing about the extern route. A `final` still naming the callee's binder means the re-evaluation lost a binding (`issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`).
+- `YO_DEBUG_BORROW_MASK=1`: `[borrow-all]` lines, for a borrowed-`for` panic or "Strict borrow: … may mutate" on a method that only reads. An unresolvable call (an indirect call through a function-pointer field) counts as mutating everything.
+- `YO_DEBUG_ASYNC_LAYOUT=1`: per `io.async` block, each closure parameter's declaration sites and each captured local's id, site and whether it got a state-machine field.
+- `YO_DEBUG_BODY_SUMMARY=1`: `[body-summary] <module> offered=N summarized=M` (see below).
+- `YO_DEBUG_CAPTURE=1`: the closure-capture pipeline (below).
 
-Measured (`issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md`):
-a contracted `ghost_fn` called from a runtime body correctly threw "callable only
-from ghost context"; the trial swallowed it; `prepare_callsite_contracts` then ran
-on the hollow body, evaluated the callee's predicates against unbound parameters,
-and reported `Cannot unify incompatible types: "unit" and "i32"` at the ghost
-fn's own `requires` clause.
+## Evaluator facts that mislead
 
-Two tells, both cheap:
+- **A struct's `id` does not contain its name**: `struct_decl_<module stem>_<anchor>_r<row>c<col>` (`stable_position_id`, `src/utils.yo`). Recognize a std type by `name` plus the module-stem prefix.
+- **Which predicate makes a definition defer** (body checked per call): `should_defer_ft` (`src/evaluator/calls/function-type.yo`), reading `type_contains_some_type_for_codegen_param`, not `get_all_some_types`.
+- **`check` gives each module its own ExprInfo table and drops it at module end** (`compile` and `test` share one). A walk over another module's body reads the memo `summarize_function_bodies` (`src/evaluator/effects/mutation-summary.yo`) took at that module's end. A `check`-only E0906 "never evaluated" on code `compile` accepts means a body was not summarized (`YO_DEBUG_BODY_SUMMARY=1`).
+- **`Variable.is_module_level` means a RUNTIME global** (`g := …`); a `::` function has it `false`. A module's definitions are `finished_walk_for(module).defs`.
+- **A func id does not name one body**: `stable_func_id(module, row, column)` survives a `--watch`/LSP re-evaluation that mints a new body. Key per-function memos by the body's `ExprId` too.
+- **Environment frames**: `variable.frame_level` is the defining frame index; a function type's captured env is its definition-site env (minus the parameters frame); an impl's definition env is captured AFTER the generic frame is popped. `_reject_runtime_write_of_comptime_binding` (`src/evaluator/exprs/assignment.yo`) compares `frame_level` against the body's `eval_env` frame count to detect "declared outside this body", so a frame-count mismatch between the two envs gives false positives there.
 
-- **A `[swallow]` whose message is a deliberate REJECTION** (a rule the compiler
-  means to enforce), followed by an unrelated error. The rejection is the real
-  answer; whatever came after is fallout.
-- **A missing post-trial marker.** Each trial site prints something after the
-  call returns (`[flow-post]` for the `function-type.yo` flow site). A `[trial]`
-  with no matching post-line means control left between them — i.e. something
-  after the trial threw for real. That is where to look, not inside the body.
+## `YO_DEBUG_CAPTURE=1`: the closure-capture channels
 
-A third tell: **`check` reports the rejection and `compile` does not.** A
-failed evaluation returns `make_err_expr()` (id 0), and callers test for
-failure by that node having no ExprInfo. `compile` shares one ExprInfoTable
-across every module, so anything stored at id 0 anywhere turns that test into
-a false success. Ids now start at 1 and `expr_info_table_set` refuses id 0
-(`issues/fixed/compile-reports-a-derived-error-instead-of-the-safe-code-raw-pointer-rejection.md`).
-The general form is: a sentinel value must not be a key that real data can
-also occupy. To find which handler ate an error, instrument every
-`throw : (...)` handler at once; the traced handler list was the fix.
+stderr only:
 
-When several call sites could be the one, **tag them all in one build** rather
-than bisecting: four `_trial_eval_fn_body` sites, four distinct `eprintln`
-markers, one rebuild. Guessing which site runs cost four wrong hypotheses on the
-bug above (missing registration; empty `param_types`; a suppressed
-flow-violation flag; a silent-acceptance case that did not exist), each argued
-from symptoms and each plausible. The tagged build settled it in one run.
+- `[cap-fb]` (`exprs/identifer-and-operator.yo`): each FunctionBody-arm capture classification (name, frame found at, ctx frame count, stamped level, inner verdict, env top-frame ids).
+- `[cap-track]` (`context.yo`): `track_variable_usage` gate decisions (re-found frame, own-param exclusion, compile-time-only flag).
+- `[cap-enr]` (`utils/closure.yo`): enrichment input per name.
+- `[cap-reg]` / `[fid-src]` (`function-value.yo`): capture-struct registrations and fid→source-key mints.
+- `[fbctx-closure-call]` / `[fbctx-fnty-rp]` / `[fbctx-fnty-flow]` (`calls/closure-type.yo`, `calls/function-type.yo`): which site created a FunctionBody context.
 
-Sibling channels, same shape: `YO_DEBUG_CTFE` / `YO_DEBUG_CTFE2` (CTFE call
-failures), `YO_DEBUG_DISPATCH` (method dispatch), `YO_DEBUG_BIND=<name>`
-(type-variable binding), `YO_DEBUG_RRE` (return-type re-evaluation),
-`YO_DEBUG_FRESHEN` (per-call freshening of a generic callee's forall binders —
-prints the callee type plus its binder ids `before-ids=` / `after-ids=`).
+A name `inner=false` in `[cap-fb]` that survives `[cap-track]`, appears in `[cap-enr]` and misses the `[cap-reg]` field list was dropped at capture-struct creation; a name missing from `[cap-track]` was never tracked (classifier); `cto=true` in `[cap-track]` against a runtime binding is a mis-classified UnknownVal argument.
 
-`YO_DEBUG_FRESHEN` exists because of a specific failure mode worth knowing:
-a freshening can FIRE at every call and change nothing, because `substitute`
-matches a `SomeT` on **(name, frame_level)** and the declaration's
-`forall_types` entry carries a different level from the occurrence that
-matters. Identical `before-ids` and `after-ids` is that bug; identical emitted
-C is the same bug seen later and more expensively.
+## Codegen and generated C
 
-**A Yo-function callee and an `extern` callee are checked by different code.**
-A `FuncVal` callee goes through the FuncVal arm of `evaluate_function_call`,
-which binds its own parameters (`[abstract-spec]` in a trial). A callee with no
-FuncVal, such as an `extern` or a builtin, goes through
-`try_to_call_function_with_arguments` → `check_if_function_parameter_matches_argument`,
-the only route that prints `YO_DEBUG_PARAMCHECK`'s `[param-check]` lines. So "the
-same call with a Yo callee works" says nothing about the extern route. Compare
-`[param-check] declared=… final=…`: a `final` that still names the callee's
-binder means Step 7's re-evaluation lost a binding that Step 6 made
-(`issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`).
+- **Two C types for one Yo type** (clang: `initializing '__yo_t_A' with an expression of incompatible type '__yo_t_B'`, same layout): `type_key` (`src/types/type-key.yo`) is history-dependent (`g_tk_visited` renders a seen node id-only; `g_struct_cfid_keys` poisons a shared id to `!AMBIG`). Print the `type_key` of each collected type whose `type_to_string` matches (gated `eprintln` at the top of `collect_type`, `src/codegen/types/collection.yo`) and diff the keys token by token; the differing token names the nested type whose rendering split.
+- **`YO_SCOPE_RELEASE`**: `compile` releases a body's recorded envs at scope exit and answers codegen name lookups from records (rules in `c-codegen.instructions.md`). `=off` keeps every env: right with `off`, wrong by default means a record is missing or wrong. `=shadow` checks each `scope_variables` answer against the records and prints `[scope-release] ... mismatch=N` and `[scope-release-kind] <count> <kind>` (`sv`, `rec`, or `fallback`). Branch `wip/scope-release-sitetag` (one commit; rebase it) tags each call site with `file:line`.
+- **`yo compile -v` prints every C-compiler invocation** (`Compiling with: <cc> <argv…>`); `yo test -v` forwards it. Grep it to prove a flag (a sanitizer, an include path) reached cc.
 
-## Pitfalls learned on the explicit-allocators stack (2026-09-30)
+### Naming `yo_id_…` frames: `YO_DEBUG_FN_ORIGIN=1`
 
-- **A struct's `id` does not contain its name.** It is
-  `struct_decl_<module stem>_<anchoring definition>_s<n>_r<row>c<col>`
-  (`stable_position_id`, `src/utils.yo`), e.g.
-  `struct_decl_std__allocator_aligned_free_s2_r14c19` for `AllocatorVTable`.
-  To recognize a std type, match `name` plus the module-stem prefix.
-- **A borrowed-`for` panic or a "Strict borrow: … may mutate" on a method that
-  only reads**: run `YO_DEBUG_BORROW_MASK=1 yo compile …` and read the
-  `[borrow-all]` lines. An unresolvable call, such as an indirect call through
-  a function-pointer field, counts as "mutates everything"
-  (`issues/fixed/an-allocator-vtable-call-counts-as-mutating-everything.md`).
-- **E0613 on a call whose `T` should come from a closure**: `YO_DEBUG_RRE=1`
-  prints `[rre] callee=… hkt=… resolved_ret=…`. `hkt=T` means no forall binding
-  reached the return re-evaluation.
-- **Which predicate decides that a definition defers** (its body is checked
-  per call instead of at definition): `should_defer_ft`,
-  `src/evaluator/calls/function-type.yo`. It reads
-  `type_contains_some_type_for_codegen_param`, not `get_all_some_types`.
-- **Evaluator changes rebuild in ~12–17 min, not ~25**, with
-  `yo compile src/main.yo --emit-chunks auto --jobs 16 --optimize 1 -o /tmp/yo-dbg`
-  (host: a stage-1). Use it for debug-trace rounds; gate on a real
-  `yo build --std-path ./std`.
-- **A `cond`/`if` guard `comptime_const && runtime` (or `comptime_const ||
-  runtime`) folded to the constant** in compilers up to v0.2.60 when the
-  constant does not short-circuit (`true && x`, `false || x`): the arm was
-  always taken, or never taken. FIXED in the tree
-  (`issues/fixed/comptime-identity-operand-folds-and-or-to-a-constant.md`):
-  `evaluate_and_or` keeps a compile-time value only for an all-constant
-  operand list or a short circuit that comes before every runtime operand
-  (`rt && false` stays runtime so `rt` still runs,
-  `issues/fixed/and-or-short-circuit-after-a-runtime-operand-drops-its-side-effects.md`).
-  std is still built by the seed until a release carries the fix, so a std
-  guard whose arm MUST run keeps the nested-`cond` form
-  (`ArrayList.ensure_total_capacity`). When a seed-built binary shows an empty
-  emitted `if/else`, suspect this first.
-- **Never `git stash` in a worktree.** Worktrees share the stash list with the
-  main checkout, so a failed `stash push` followed by `stash pop` applies a peer
-  session's stash. Compare before/after states with file copies (a copy of
-  `std/` must sit in a directory named `std`, or the prelude is not recognized).
-- **A seed-built stage 1 that dies at startup with `Box.new: out of memory`**
-  after a struct gained a field: the seed (v0.2.75 and older) sizes an enum
-  whose payload aligns below 4 (`Option(bool)`) with a one-byte tag, so its
-  `size_of(T)` for a struct holding such fields is short of C's `sizeof`
-  (`issues/fixed/2026-11-05-an-enum-with-a-payload-aligned-below-4-is-sized-with-a-one-byte-tag.md`).
-  `Box.new` then writes past its block. `Box(ExprInfoRare)` is already 16 bytes
-  short (464 against 480) and survives only because mimalloc rounds the
-  request up to a 512-byte size class; one more 24-byte field crosses it and
-  corrupts the heap. Until `SEED_VERSION` carries the fix, keep such a boxed
-  struct's size where it is (a side table instead of a new field, as
-  `g_skipped_operand_drops` in `src/expr-info.yo` does) and compare the seed's
-  number (`grep` the `Box.new` specialization in the emitted `yo.c` for its
-  `NNNULL` constant) against C's `sizeof`.
+Emitted C names are position hashes (`yo_id_<hash><occurrence>`). With `YO_DEBUG_FN_ORIGIN=1` every definition is preceded by `/* yo-origin <module>:<line> <c name> */`; `scripts/bootstrap/fid_name_map.py fresh.c fidmap.tsv` turns those into `fidmap.tsv` (`<c name>\t<file>:<line>\t<name>`) for `sample` profiles and rc-event reports.
 
-## `check`-only rejections from a body in another module (2026-10-01)
+### Leaks
 
-- **`check` gives each module its own ExprInfo table and drops it when the module
-  finishes** (`compile` and `test` share one). A walk over a callee's evaluated
-  body (rule D1's reach walk, the parameter mutation masks) therefore reads another
-  module's function through the memo `summarize_function_bodies`
-  (`src/evaluator/effects/mutation-summary.yo`) took at that module's end. A
-  `check`-only E0906 "never evaluated" on code
-  `compile` accepts means a body was not summarized: `YO_DEBUG_BODY_SUMMARY=1`
-  prints `[body-summary] <module> offered=N summarized=M` per load
-  (`issues/fixed/check-cannot-see-function-bodies-from-other-modules.md`).
-- **`Variable.is_module_level` means a RUNTIME global** (`g := …`), not "defined
-  at module level": a `::` function is compile-time and has it `false`. A
-  module's definitions are its finished walk's `PendingDef`s
-  (`finished_walk_for(module).defs`).
-- **A func id does not name one body.** Definition ids are
-  `stable_func_id(module, row, column)`; a `--watch` / LSP re-evaluation keeps
-  the id and mints a new body. Key anything memoized per function by the body's
-  `ExprId` too (`issues/fixed/mutation-summary-memos-answer-for-a-re-evaluated-body.md`).
+- Reproducing an RC leak and writing a test that observes one: `testing.instructions.md` ("Writing a test that observes a LEAK"). LeakSanitizer does not work on macOS arm64; use `leaks --atExit -- ./repro_bin` ("0 leaks for 0 total leaked bytes" = clean).
+- RC-dispose bugs: `__yo_decr_rc` frees fields only when `header->type_id != 0` (or `dispose_fn` under cycle GC); check that the constructor stamps a dispose id and `__yo_dispose_dispatch` has a case that drops the fields (`issues/fixed/ref-enum-missing-dispose-leak.md`).
+- Leak roots: `scripts/bootstrap/alloc_site_census_t.py IN.c OUT.c dump.txt "<Type>" --rc-events` keeps each root's first and last 8 refcount events, plus `rc_event_report.py`.
+- **An object referenced from everywhere** (an `ExprInfoTable`, an `Environment`): `--rc-balance` instead keeps each object's NET refcount change per call site, folding disposed objects into a "freed" histogram (the control) and survivors into "live". `rc_balance_report.py dump.txt <bin> fidmap.tsv` sums both per function: the missing release is in the function whose live net is positive while its freed net is about 0 (`issues/fixed/a-closure-typed-slot-never-releases-its-captures.md`).
 
-## Two C types for one Yo type: diff the two `type_key`s
+## GDB and hangs
 
-`type_key` (`src/types/type-key.yo`) is history-dependent. Its cycle guard
-(`g_tk_visited`, reset per top-level call) renders an already-seen node
-id-only, and `g_struct_cfid_keys` poisons a shared struct id to `!AMBIG`.
-So the same Yo type can key two ways, depending on the copy and the moment.
-When clang reports `initializing '__yo_t_A' with an expression of
-incompatible type '__yo_t_B'` for two structs with one layout, print the
-`type_key` of each collected type whose `type_to_string` matches (a
-temporary `eprintln` gated by a `debug_knob`, at the top of `collect_type`)
-and diff the two keys token by token. The differing token names the nested
-type whose rendering split. For example, a recursive enum's
-`ArrayList(ArrayList(Self))` keyed once expanded and once id-only, because
-`_tk_arg_id` spelled the self-shell apart from its final
-(issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md).
+- `gdb ./a.out` on the generated C (C11, no GNU extensions). With `ptrace_scope=1`, `gdb -p` is refused: start under gdb (`gdb -batch -ex run -ex "thread apply all bt" --args …`; the nix shell has gdb), or sample a spinning thread with `perf record -e cpu-clock -g -t <tid>`.
+- **A compiler that prints its result and then spins is a double free until shown otherwise.** mimalloc's release build leaves a cycle in a page free list and the thread-exit walk never ends. Recompile the emitted C against glibc malloc (`clang … -I scripts/bootstrap/libc_mimalloc`) and run under gdb: it dies at the bad `free`.
+- **A CLI golden with `rc=124` is not evidence of a slow case.** If its kept stdout reaches the summary, the run finished and the process did not exit; a larger `timeout=` only waits longer.
 
-## Naming `yo_id_…` frames: `YO_DEBUG_FN_ORIGIN=1`
+## Workflow
 
-Emitted C function names are position hashes (`yo_id_<hash><occurrence>`), so a
-`sample` profile or an rc-event log (`scripts/bootstrap/alloc_site_census_t.py
---rc-events` + `rc_event_report.py`) prints frames nobody can read.
-Emit the C with `YO_DEBUG_FN_ORIGIN=1`: every definition is preceded by
-`/* yo-origin <module>:<line> <c name> */`. `scripts/bootstrap/fid_name_map.py
-fresh.c fidmap.tsv` turns those comments into the report's `fidmap.tsv`
-(`<c name>\t<file>:<line>\t<name>`, the nearest `name ::` at or above the
-line). That is how the Phase 3 scrutinee leak was found
-(`issues/fixed/nullable-pointer-match-never-releases-its-scrutinee.md`).
-
-## A leak of an object referenced from everywhere: `--rc-balance`
-
-`--rc-events` keeps each leak root's first and last 8 refcount events, which
-says nothing about an object dup'd thousands of times: an `ExprInfoTable`, an
-`Environment`, a shared list. For those,
-`alloc_site_census_t.py IN.c OUT.c dump.txt "<Type>" --rc-balance` keeps each
-object's NET change per call site. A disposed object folds into a "freed"
-histogram, the control group, and a survivor into the "live" one.
-`rc_balance_report.py dump.txt <bin> fidmap.tsv` sums both per function. The
-missing release belongs to the function whose live net is positive while its
-freed net is about 0. The 2026-09-28 run on `HashMap(usize, ExprInfo)` named
-`analyze_await_points` and a closure in `evaluate_anonymous_function_implementation`
-(+236 each over 38 leaked tables, 0 over 3,571 freed ones). That is how
-`issues/fixed/a-closure-typed-slot-never-releases-its-captures.md` was found
-in the compiler's own code. The full recipe is in
-`plans/EVALUATOR_MEMORY_REDUCTION_HANDOVER.md` §4.
-
-## GDB for generated C code
-
-- Run `gdb` on `./a.out` to debug generated C code.
-- Stick with C11 standard — no GNU extensions.
-- On a Linux box with `ptrace_scope=1`, `gdb -p` is refused. Start the process
-  under gdb instead (`gdb -batch -ex run -ex "thread apply all bt" --args …`;
-  the repo's nix shell has gdb), or sample a spinning thread with
-  `perf record -e cpu-clock -g -t <tid>`, which needs neither ptrace nor a PMU.
-- **A compiler that prints its result and then spins is a double free, until
-  shown otherwise.** mimalloc's release build does not detect one; it leaves a
-  cycle in a page's free list, and the walk of that list at thread exit
-  (`mi_theap_collect_ex`) never ends. Recompile the emitted C on glibc's malloc
-  (`clang … -I scripts/bootstrap/libc_mimalloc`) and run it under gdb: it dies
-  at the bad `free`
-  (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md).
-- **A CLI golden with `rc=124` is not evidence of a slow case.** Read its stdout
-  diff first: a kept stdout that reaches the summary means the run finished and
-  the process did not exit, and a larger `timeout=` only waits longer for it.
-
-## Output debugging
-
-- Always use `| head` or `| tail` to limit command output.
-- If a command produces no output for a long time, redirect: `yo compile tmp/fixme.yo --optimize 2 &> compile_output.txt`
-- **`yo compile -v` prints every C-compiler invocation** (`Compiling with: <cc> <argv…>`) as it is about to run, and `yo test -v` forwards its own `--verbose` to the batch compile so the line reaches the runner's log. Grep that line to prove a flag (a sanitizer, an include path) actually reached cc — a silently dropped `-fsanitize=…` otherwise passes exactly like an instrumented run (`issues/fixed/yoself-missing-compiling-with-print.md`).
-
-## Evaluator-only checking
-
-When you only need to surface evaluator/type errors (no codegen, no C compile), use `yo check <path>`. It runs the evaluator on a single file or every `.yo` file in a directory and prints any errors. Much faster than `compile` for "does this still type-check?" loops, and it's the right tool for bulk sanity passes (`yo check ./src` or `yo check std/` after touching a swathe of files).
-
-## Memory-leak debugging (macOS has no LeakSanitizer)
-
-LeakSanitizer works on Linux but **not on macOS arm64** — an RC leak that fails
-CI's ubuntu job with `Direct leak of N byte(s)` is invisible in a local macOS
-ASan run. Reproduce locally with the macOS `leaks` tool instead:
-
-```bash
-yo compile repro.yo --optimize 2 -o repro_bin
-leaks --atExit -- ./repro_bin   # "0 leaks for 0 total leaked bytes" = clean
-```
-
-For RC-dispose bugs specifically, also read the emitted C: `__yo_decr_rc` only
-frees fields when `header->type_id != 0` (or `dispose_fn` under cycle GC), so
-check that the type's constructor stamps a dispose id and that
-`__yo_dispose_dispatch` has a case that drops the fields
-(see `issues/fixed/ref-enum-missing-dispose-leak.md` for a worked example).
+- Limit output with `| head` / `| tail`; redirect long-running commands to a file (`&> out.txt`).
+- **Never `git stash` in a worktree**: worktrees share the stash list with the main checkout, so `stash pop` can apply a peer's stash. Compare states with file copies (a copied `std/` must sit in a directory named `std`, or the prelude is not recognized).
+- **Bisecting a regression**: confirm the test passes on `origin/develop` in a throwaway worktree (`git worktree add $HOME/Workspace/Yo-wt/bisect origin/develop`), then `git bisect` and read the first bad diff. Put debug info in error messages, not `println`: the test runner captures each test binary's stdout.
+- **Editor errors on `.yo` files** come from the installed `yo lsp`, which can lag the tree; trust `yo check` with the tree binary. Rebuild the extension with `cd vscode-extension && npm run package`.
 
 ## Design docs for context
 
-- Drop glue and the cell runtime: `.github/instructions/c-codegen.instructions.md` ("Drop glue and the cell runtime")
-- Async/await concurrency: `docs/en-US/ASYNC_AWAIT.md`
-- Parallelism: `docs/en-US/PARALLELISM.md`
+- Drop glue and the cell runtime: `c-codegen.instructions.md` ("Drop glue and the cell runtime")
+- Async/await: `docs/en-US/ASYNC_AWAIT.md`; parallelism: `docs/en-US/PARALLELISM.md`; effects: `docs/en-US/ALGEBRAIC_EFFECTS.md`
 - Low-level sys module: `docs/en-US/STD_SYS_MODULE.md`
-- Algebraic Effects: `docs/en-US/ALGEBRAIC_EFFECTS.md`
 - Reference cycles (they leak; `Weak` breaks them): `docs/en-US/MEMORY_SAFETY.md`, `docs/en-US/WEAK.md`
-
-## VS Code extension
-
-- Ignore editor errors for `.yo` files — the extension may not use updated grammar/evaluator code.
-- To rebuild: `cd vscode-extension && npm run package` (the extension is the one npm-based tree in the repo — everything else is built with `yo build`)
-
-## Debugging regressions with git bisect
-
-When a test fails after a series of commits:
-
-1. First confirm the test passes on `origin/develop`, in a throwaway worktree (the main checkout is shared — never `stash`/`checkout` it; see AGENTS.md): `git worktree add $HOME/Workspace/Yo-wt/bisect origin/develop && cd $HOME/Workspace/Yo-wt/bisect && yo test <file> --bail --std-path ./std`
-2. Use `git bisect` or manually check individual commits to find the first failing commit
-3. Read the diff of that commit to understand what changed
-4. Embed debug info in **error messages** (not `println`) — each test binary runs as a separate process and its stdout is captured by the runner
-
-## Environment frame debugging
-
-The evaluator uses frame-based environments. Key debugging facts:
-
-- `variable.frame_level` = the frame index where the variable was defined
-- `env.frames.len()` = total number of frames in the environment
-- a function type's captured env is the env at the function's **definition site** (minus parameters frame)
-- an impl's definition env is captured AFTER the generic frame is popped
-- The check in `src/evaluator/exprs/assignment.yo` (~line 1075) compares `updated_variable.frame_level < eval_env.frames.len()` to detect "variable defined outside the function body"
-- Frame count mismatches between the function type's captured env and the actual evaluation env cause false positives in this check
-
-## A codegen difference that depends on released envs: `YO_SCOPE_RELEASE`
-
-`compile` releases each function body's recorded envs at scope exit and answers
-codegen's name lookups from records (`plans/backlog/CODEGEN_MEMORY_REDUCTION.md` §6.1;
-the rules are in `c-codegen.instructions.md`). When generated C looks wrong
-around a variable lookup:
-
-- `YO_SCOPE_RELEASE=off` keeps every env. If the C is right with `off` and
-  wrong by default, a record is missing or wrong.
-- `YO_SCOPE_RELEASE=shadow` keeps every env, but checks each `scope_variables`
-  answer against what the records would have said. It prints
-  `[scope-release] ... mismatch=N` and `[scope-release-kind] <count> <kind>`
-  lines at the end of the compile. A kind reads `<path>/<temp|named>/...`:
-  `sv` (the atom's `source_variable`), `rec` (a recorded list), or `fallback`
-  (the husk answered because no record named it).
-- To find WHICH call site produced a mismatch, branch
-  `wip/scope-release-sitetag` tags every `scope_variables` call with its
-  `file:line` and prints up to six samples per site, with the truth and record
-  variable ids. Rebase its one commit onto the current tree to use it.
-
-## Test file conventions
-
-Each `.test.yo` file has its own import set. Check whether a test file imports `std/fmt` before using `println`:
-
-- Files that import `println` from `std/fmt` have it available
-- Files without it → use `assert` only, or add the import
-- Match the existing style of the test file when adding new tests
-
-## `YO_DEBUG_CAPTURE=1` — the closure-capture pipeline channels
-
-Added 2026-08-26 while fixing the generic-fn async-closure capture loss
-(issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
-All are stderr prints, active only with `YO_DEBUG_CAPTURE` set:
-
-- `[cap-fb]` (exprs/identifer-and-operator.yo) — every FunctionBody-arm
-  capture classification: name, the frame the lookup found it at, the ctx
-  snapshot's frame count, the stamped frame level, the inner verdict, plus
-  the eval_env/current-env top-frame ids (generation mismatches show here).
-- `[cap-track]` (context.yo) — track_variable_usage's gate decisions:
-  re-found frame, own-param top-frame exclusion, compile-time-only flag.
-- `[cap-enr]` (utils/closure.yo) — enrichment input per name: recorded
-  level, env frame count, how many same-named bindings were found and how
-  many are comptime.
-- `[cap-reg]` / `[fid-src]` (function-value.yo) — every capture-struct
-  registration (fid, source key, field list) and every fid→source-key mint.
-- `[fbctx-closure-call]` / `[fbctx-fnty-rp]` / `[fbctx-fnty-flow]`
-  (calls/closure-type.yo, calls/function-type.yo) — which site created a
-  FunctionBody evaluation context.
-
-Read them together: a name that is `inner=false` in `[cap-fb]`, survives
-`[cap-track]`, appears in `[cap-enr]`, and still misses the `[cap-reg]`
-field list pins the drop to capture-struct creation; a name missing from
-`[cap-track]` was never tracked (classifier); `cto=true` in `[cap-track]`
-against a runtime binding was the UnknownVal-argument mis-port this channel
-was built to catch.
