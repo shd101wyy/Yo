@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
   is_never_type
 } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
-{ type_contains_some_type, type_contains_some_type_deep, type_mentions_impl_fn_or_future, type_requires_comptime_modifier } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep, type_mentions_impl_fn_or_future, type_requires_comptime_modifier, join_static_bit } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env-lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -638,6 +638,15 @@ evaluate_cond :: (
                       value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty()), env : body_einfo.env()));
                     },
                     .Some(vt) => {
+                      // VERDICTS-74 rule 4: the join of `static` and a
+                      // non-static origin is the non-static one — the first
+                      // arm's static type never wins the join.
+                      if(are_types_compatible(&body_einfo.ty(), &vt.ty), {
+                        vt_joined := join_static_bit(&vt.ty, &body_einfo.ty(), u32(0));
+                        if(!__yo_ptr_eq(&vt_joined, &vt.ty), {
+                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : vt_joined, env : Rc.clone(vt.env)));
+                        });
+                      });
                       if(!are_types_compatible(&body_einfo.ty(), &vt.ty), {
                         // The join is symmetric for the comptime numerics: a
                         // PREVIOUS `comptime_int`/`comptime_float` arm that

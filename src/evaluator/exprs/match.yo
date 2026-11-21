@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
   is_never_type,
   is_unit_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_carries_origin, is_static_view_slot } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_carries_origin, is_static_view_slot, join_static_bit } :: import("../../types/utils.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { E_USE_OF_MOVED_VALUE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { with_code } :: import("../../error.yo");
@@ -2166,6 +2166,15 @@ evaluate_match :: (
               result_type_em = Option(TypeValue).Some(Rc.clone(body_info.ty()));
             },
             .Some(rt) => {
+              // VERDICTS-74 rule 4: the join of `static` and a non-static
+              // origin is the non-static one — the first arm's static type
+              // never wins the join.
+              if(are_types_compatible(&body_info.ty(), &rt), {
+                rt_joined := join_static_bit(&rt, &body_info.ty(), u32(0));
+                if(!__yo_ptr_eq(&rt_joined, &rt), {
+                  result_type_em = Option(TypeValue).Some(rt_joined);
+                });
+              });
               if(!(are_types_compatible(&body_info.ty(), &rt)), {
                 rt_rt := convert_comptime_type_to_runtime_type(&rt, &env);
                 // Symmetric comptime-numeric join, as in exprs/cond.yo: a

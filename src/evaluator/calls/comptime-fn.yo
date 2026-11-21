@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
-{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, type_is_sized, unsized_by_value_error, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
+{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, type_is_sized, unsized_by_value_error, is_legacy_value_str, legacy_value_str, static_origin_marks_differ } :: import("../../types/utils.yo");
 {
   EvalValue,
   EvalValueNode,
@@ -303,6 +303,14 @@ _ctfe_args_equal :: (
       Rc(.TypeVal(bty_b)) => {
         aty := Rc.clone(aty_b);
         bty := Rc.clone(bty_b);
+        // VERDICTS-74 rule 1: a reference's origin enters type identity as
+        // one bit, static or not. `Option(&(X, static))` and `Option(&X)`
+        // are two instantiations (named origins stay erased), or the first
+        // one written decides every origin-dependent fact (`Escapable`,
+        // `type_carries_origin`) for both.
+        if(static_origin_marks_differ(&aty, &bty), {
+          return(false);
+        });
         a_is_some := is_some_type(&aty);
         b_is_some := is_some_type(&bty);
         // Type values are copies, not shared objects, so cached type args

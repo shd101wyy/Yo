@@ -75,7 +75,6 @@ json :: import("std/encoding/json");
   E_RC_PAYLOAD_WRITE,
   E_DEREF_OF_BORROW,
   E_ADDR_OF_BORROW_PARAM,
-  E_ORIGIN_NOT_DECLARED,
   E_ORIGIN_MISMATCH,
   E_ORIGIN_NAMES_ITSELF,
   E_REFERENCE_READ_WITHOUT_DEREF,
@@ -775,27 +774,12 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   );
   out.push(
     _mk_explain(
-      E_ORIGIN_NOT_DECLARED,
-      "an origin that is not declared",
-      "未声明的 origin",
-      "The second argument of a reference type `&(T, o)` or `&mut(T, o)` is not an origin: a name no `generic(o : Origin)` declares, a type, or a parameter's place in a parameter type.",
-      "引用类型 `&(T, o)` 或 `&mut(T, o)` 的第二个参数不是 origin：它是没有被任何 `generic(o : Origin)` 声明的名字、一个类型，或出现在参数类型中的某个参数的位置。",
-      "An origin is a set of places a reference may point into (decision 43). A signature spells it as the trailing argument of a reference type, and every origin it names is declared before use, in the signature's `generic(...)` clause, as a type parameter is: `generic(p : Origin)`. A union of declared origins is written as a tuple, `&(T, (p, q))`. The second argument is read by its kind: a type there is an error rather than a tuple, because Yo spells a tuple type `Tuple(A, B)` (a reference to one is `&Tuple(A, B)`). A parameter's own place (`xs` in `xs : &T`) is an origin in the RESULT type only (`-> &(T, xs)`); in a parameter type, declare an origin parameter and use it in both positions.",
-      "origin 是引用可能指向的位置集合（决策 43）。签名把它写成引用类型的末尾参数；它所命名的每个 origin 都必须先声明后使用，与类型参数一样写在签名的 `generic(...)` 子句中：`generic(p : Origin)`。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。第二个参数按其种类解读：那里出现类型是错误而不是元组，因为 Yo 把元组类型写作 `Tuple(A, B)`（指向元组的引用是 `&Tuple(A, B)`）。参数自身的位置（`xs : &T` 中的 `xs`）只在结果类型中是 origin（`-> &(T, xs)`）；在参数类型中，请声明一个 origin 参数并在两处使用它。",
-      "first :: (fn(v : &(i32, q)) -> i32)(v.*);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
-      "first :: (fn(generic(q : Origin), v : &(i32, q)) -> i32)(v.*);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
-      "`q` names no origin; `generic(q : Origin)` declares it, and the call instantiates it with the place `&x` lends.",
-      "`q` 没有命名任何 origin；`generic(q : Origin)` 声明了它，调用时用 `&x` 借出的位置实例化它。"
-    )
-  );
-  out.push(
-    _mk_explain(
       E_ORIGIN_MISMATCH,
       "a reference outside its declared origin",
       "引用超出其声明的 origin",
-      "A projection whose result spells its origin, `-> &(T, o)`, yields a place reached from a parameter the origin does not name; or a trait impl declares a method result origin wider than the trait's.",
-      "结果写出 origin 的投影 `-> &(T, o)` 产出的位置来自该 origin 未列出的参数；或 trait 的 impl 为方法结果声明了比 trait 更宽的 origin。",
-      "A result origin is the set of places the returned reference may point into (decision 43). Elided, it is every reference parameter (O2); spelled, it names the parameters (`-> &(T, xs)`) or origin parameters (`-> &(T, p)`) the result borrows, and a call freezes only those arguments. The body is checked against it: the place a projection yields must be reached from a parameter the origin names. An impl of a trait method may declare a narrower origin than the trait (a subset), never a wider one: callers through the trait, a `Dyn` included, rely on the trait's.",
+      "A projection whose result spells its origin, `-> &(T, o)`, yields a place reached from a parameter the origin does not name; a trait impl declares a method result origin wider than its trait's; or a holder, result or parameter declared over the empty origin `static` receives a value that borrows a place.",
+      "结果写出 origin 的投影 `-> &(T, o)` 产出的位置来自该 origin 未列出的参数；trait 的 impl 为方法结果声明了比 trait 更宽的 origin；或声明为空 origin `static` 的持有者、结果或参数收到了借用某个位置的值。",
+      "A result origin is the set of places the returned reference may point into (decision 43). Elided, it is every reference parameter (O2); spelled, it names the parameters (`-> &(T, xs)`) or origin parameters (`-> &(T, p)`) the result borrows, and a call freezes only those arguments. The body is checked against it: the place a projection yields must be reached from a parameter the origin names. An impl of a trait method may declare a narrower origin than the trait (a subset), never a wider one: callers through the trait, a `Dyn` included, rely on the trait's. The empty origin `static` names no place, so only values that borrow no place flow into it: a literal, a read of a `static`-typed place, or `&G` of an immutable module-level binding.",
       "结果 origin 是返回的引用可能指向的位置集合（决策 43）。省略时它是所有引用参数（O2）；写出时它列出结果借用的参数（`-> &(T, xs)`）或 origin 参数（`-> &(T, p)`），调用只冻结这些实参。函数体按它检查：投影产出的位置必须来自 origin 列出的参数。trait 方法的 impl 可以声明比 trait 更窄的 origin（子集），不能更宽：通过 trait 调用的代码（包括 `Dyn`）依赖 trait 的 origin。",
       "Pair :: struct(a : i32, b : i32);\npick :: (fn(s : &Pair, t : &Pair) -> &(i32, s))(&t.a);\nmain :: (fn() -> unit)({\n  p := Pair(a : i32(1), b : i32(2));\n  _ := pick(&p, &p);\n});\nexport(main);\n",
       "Pair :: struct(a : i32, b : i32);\npick :: (fn(s : &Pair, t : &Pair) -> &(i32, s))(&s.a);\nmain :: (fn() -> unit)({\n  p := Pair(a : i32(1), b : i32(2));\n  _ := pick(&p, &p);\n});\nexport(main);\n",
