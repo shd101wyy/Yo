@@ -146,6 +146,9 @@
   generate_state,
   generate_join_handle_await,
   emit_io_spawn_effect_injection,
+  io_call_receiver,
+  io_vtable_lowering_code,
+  io_vtable_entry_statement,
   join_handle_is_value_struct,
   join_handle_future_field_c_type
 } :: import("./await.yo");
@@ -407,13 +410,25 @@ _generate_io_spawn :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
   // Inject the bundle into the future's SM before cold-starting it (a cold
   // future only: see emit_io_spawn_effect_injection).
   emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
-  is_io_future := match(context.base.get_expr_info(&future_arg), .Some(ei) => is_io_future_type(&ei.ty()), .None => false);
-  if(!is_io_future, {
-    context.base.emitter.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->vt && ${spawn_var.clone()}->vt->resume) {`);
-    context.base.emitter.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
-    context.base.emitter.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->vt->resume((void*)${spawn_var.clone()});`);
-    context.base.emitter.emit_string_line(`${indent.clone()}}`);
-  });
+  // An interface-shaped Io starts the task through its table's `spawn`
+  // (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2.1); the four-field Io
+  // keeps the inline cold start.
+  spawn_io_expr := io_call_receiver(expr);
+  match(
+    io_vtable_lowering_code(&spawn_io_expr, indent, context),
+    .Some(io_code) => {
+      context.base.emitter.emit_string_line(`${indent.clone()}${io_vtable_entry_statement(&spawn_io_expr, &io_code, "spawn", &spawn_var, context)}`);
+    },
+    .None => {
+      is_io_future := match(context.base.get_expr_info(&future_arg), .Some(ei) => is_io_future_type(&ei.ty()), .None => false);
+      if(!is_io_future, {
+        context.base.emitter.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->vt && ${spawn_var.clone()}->vt->resume) {`);
+        context.base.emitter.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
+        context.base.emitter.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->vt->resume((void*)${spawn_var.clone()});`);
+        context.base.emitter.emit_string_line(`${indent.clone()}}`);
+      });
+    }
+  );
   // OWNERSHIP. `io.spawn` consumes its future (decision 13, §3.13 A1): the
   // caller's reference moves into the handle, which keeps the task and its
   // result alive and releases it in its Drop — a dropped, never-awaited

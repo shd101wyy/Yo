@@ -226,6 +226,26 @@ _SaiMemo :: struct(epoch : u64, arg_keys : ArrayList(Option(String)), receiver :
 /// The receiver slot types R-PROBE tried for a `.` callee whose lookup found
 /// no method, by the callee's id: E0610's "probed" line.
 (g_probed_receiver_slots : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
+/// The io builtin a resolved method IS: the marker of an `extern("Yo")`
+/// `__yo_io_async` / `__yo_io_await` / `__yo_io_state` / `__yo_io_spawn` the
+/// method is bound to (`impl(Io, async : __yo_io_async, ...)`), `.None` for
+/// any other method. (`JoinHandle.await`'s builtin takes its handle as
+/// `self` and stays an ordinary method.)
+_io_builtin_method_marker :: (fn(method_ty : &TypeValue) -> Option(String))(
+  match(
+    method_ty,
+    Rc(.Func({ meta : ibm_m })) => match(
+      &ibm_m.extern_name,
+      .Some(ibm_en) => if(
+        (ibm_en.* == "__yo_io_async") || (ibm_en.* == "__yo_io_await") || (ibm_en.* == "__yo_io_state") || (ibm_en.* == "__yo_io_spawn"),
+        Option(String).Some(ibm_en.clone()),
+        Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    _ => Option(String).None
+  )
+);
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
@@ -15334,7 +15354,19 @@ Fix: wrap the call:
           .None => ()
         );
       });
-      method_info_opt0 := _try_find_receiver_method(&evaluated_callee, &callee_env, ctx);
+      // A method that IS an io builtin (`impl(Io, await : __yo_io_await,
+      // ...)`, the interface-shaped `Io`,
+      // plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2) is not dispatched as
+      // a method: the property access typed the callee as the builtin itself
+      // (`_io_builtin_method_type`), with no receiver, and the call takes the
+      // valueless-callee path below exactly as the four-field `Io`'s field
+      // does. The receiver only names the `Io` codegen lowers `io.spawn` and
+      // a sync-context await through.
+      method_info_opt0 := match(
+        _try_find_receiver_method(&evaluated_callee, &callee_env, ctx),
+        .Some(fm0) => if(_io_builtin_method_marker(&fm0.method_ty).is_some(), Option(ReceiverMethodResult).None, Option(ReceiverMethodResult).Some(fm0)),
+        .None => Option(ReceiverMethodResult).None
+      );
       // A payload retry records the callee as rewritten (`w.m` → `w.*.m`,
       // `note_rewritten_node`): the rest of the call reads it so.
       m_callee := ast_rewritten_node(&evaluated_callee);
