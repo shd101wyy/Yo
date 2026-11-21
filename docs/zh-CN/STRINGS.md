@@ -151,8 +151,7 @@ export(main);
 绑定或字段、`impl(str, ...)` 方法的接收者都可以直接传入。闭包按值捕获 `&str` 绑定（`{ s }`）时捕获的是该引用。
 
 **值写法。** 在持有值的位置（按值参数、返回值、带类型的局部变量、结构体字段、数组元素、类型实参如
-`ArrayList(str)`）写出的 `str` 表示 `&(str, static)`：静态字节的视图。这样的位置请写作
-`&(str, static)`（`(name : &(str, static))`、`ArrayList(&(str, static))`），参数则可写作 `&str`。
+`ArrayList(str)`）写出的 `str` 表示 `&(str, static)`：静态字节的视图。
 `&str` 与 `String` 或 `str` 的比较（`name == "lit"`、`"lit" == name`）两个方向都可用。
 
 ## 副本、克隆与字节列表
