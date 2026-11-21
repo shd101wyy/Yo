@@ -1,0 +1,10 @@
+// A reference captured by a `Thread.spawn` closure: E0909, shown as `&i32`
+// (issues/fixed/2026-11-21-a-reference-captured-by-a-thread-closure-is-uncoded-and-shown-as-a-raw-pointer.md).
+{ Thread } :: import("std/thread");
+main :: (fn() -> unit)({
+  x := i32(1);
+  r := &x;
+  t := Thread(i32).spawn({ r }(io : Io) => r.*);
+  _n := t.join();
+});
+export(main);
