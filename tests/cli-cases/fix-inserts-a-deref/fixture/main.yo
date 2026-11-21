@@ -1,0 +1,14 @@
+{ println } :: import("std/fmt");
+P :: struct(n : i32);
+impl(P, get : (fn(self : &Self) -> i32)(self.n));
+read :: (fn(b : &Box(P)) -> i32)(b.n);
+main :: (fn() -> unit)({
+  p := Rc.new(P(n : i32(1)));
+  println(p.get().to_string());
+  pp := Rc.new(Rc.new(P(n : i32(2))));
+  println(pp.n.to_string());
+  mut(b) := Box.new(P(n : i32(3)));
+  println(read(&b).to_string());
+  println(b.n.to_string());
+});
+export(main);

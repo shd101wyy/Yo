@@ -263,12 +263,13 @@ find_first_field_index :: (fn(labels : &ArrayList(String), name : &String) -> Op
   result
 });
 // ---------------------------------------------------------------------------
-// Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3)
+// The synthesized `.*` (R-PROBE's reference step and the E0623 probe)
 // ---------------------------------------------------------------------------
 /// `.(obj, *)` — the explicit payload place of a `Deref` wrapper, built by
-/// the field and method auto-dereference hooks. Fresh ids; the tokens copy
-/// `at`'s position and module path, so a diagnostic on the synthesized node
-/// still points at the user's access.
+/// R-PROBE's reference step (`_find_receiver_method_of`) and the E0623
+/// probe that spells a member the receiver's `.*` chain has. Fresh ids; the
+/// tokens copy `at`'s position and module path, so a diagnostic on the
+/// synthesized node still points at the user's access.
 make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr)({
   star_tok := Rc.new(
     TokenData(
@@ -290,8 +291,8 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
   Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(dot_tok.*))), Rc.new(args), true, Rc.clone(dot_tok.*)))
 });
 /// Whether the `*` atom `star` of a `.*` is written (in the source, or in a
-/// batch the test runner printed from it as `.(*)`): the auto-deref hooks
-/// synthesize `w.*` (`make_deref_expr`), which keeps the payload's reading.
+/// batch the test runner printed from it as `.(*)`): the reference step and
+/// the E0623 probe synthesize `w.*` (`make_deref_expr`).
 _is_written_star :: (fn(star : &AstExpr) -> bool)(
   !is_synthesized_deref_star(ast_expr_id(star))
 );
@@ -686,7 +687,7 @@ evaluate_property_access :: (
     exn : Exception
   ) -> AstExpr
 )(
-  // A field read the auto-dereference below rewrote reads as rewritten
+  // A node recorded as rewritten reads as its rewrite
   // (`ast_rewritten_node`), so a re-evaluation does not rewrite it again.
   match(
     ast_rewritten_node(expr),
