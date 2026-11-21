@@ -10984,6 +10984,18 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
     },
     .None => ()
   );
+  // VERDICTS-74 rule 2: a holder whose type spells the empty origin at a
+  // checked position (`type_spells_checked_static`) accepts only values
+  // that borrow no place — `bind` is the `:=`/typed-declaration chokepoint,
+  // reached whatever `type_carries_origin` says of a static-only holder.
+  match(
+    get_variables_from_env(env, var_name.clone()).last_cloned(),
+    .Some(sb_v) => if(type_spells_checked_static(&variable_value_type(&sb_v)), {
+      sb_pv := byvalue_param_origin_names(rhs, env, ctx);
+      _static_join_subset_check(&sb_v, &variable_value_type(&sb_v), &roots, &sb_pv, rhs, env, ctx, exn);
+    }),
+    .None => ()
+  );
   match(
     get_variables_from_env(env, var_name.clone()).last_cloned(),
     .Some(bv) => if(!variable_is_reference_binding(&bv), {
@@ -13560,9 +13572,24 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
     eprintln(`[n2b] return-check ${ast_expr_to_string(e)}`);
   });
   stripped := ast_expr_strip_borrow_marker(e);
+  // VERDICTS-74 rule 2: a result spelled over the empty origin — the flag of
+  // a spelled `-> &(T, static)` (`fn_result_spells_static`) or a result type
+  // holding a static reference over a sized pointee — enters the check even
+  // when the value's own type carries no origin (every origin it holds is
+  // `static`, which `type_carries_origin` rightly does not count).
+  rc_ft := match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(cr_fb0) => match(cr_fb0.kind, .FunctionBody => match(&cr_fb0.func_type, .Some(cr_t0) => Option(TypeValue).Some(Rc.clone(cr_t0)), .None => Option(TypeValue).None), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
+  rc_static := match(
+    &rc_ft,
+    .Some(cr_t0) => (fn_result_spells_static(&cr_t0.*) || type_spells_checked_static(&fn_result_slot(&cr_t0.*))),
+    .None => false
+  );
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
-    .Some(ri) => if(type_carries_origin(&ri.ty()), {
+    .Some(ri) => if(type_carries_origin(&ri.ty()) || rc_static, {
       // A root that is a `&` match binding stands for the place it points
       // into, the scrutinee's roots: `return(.Some(items.index(i)))` inside
       // the arm is judged as the tail form of the same value is
@@ -13573,26 +13600,11 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
       });
       // A result type that spells its origins (`-> V(a)`) names only those
       // places: a root at another parameter is outside it (E0923).
-      cr_ft := match(
-        &ctx.is_evaluating_function_body_or_async_block,
-        .Some(cr_fb) => match(cr_fb.kind, .FunctionBody => match(&cr_fb.func_type, .Some(cr_t) => Option(TypeValue).Some(Rc.clone(cr_t)), .None => Option(TypeValue).None), _ => Option(TypeValue).None),
-        .None => Option(TypeValue).None
-      );
-      cr_names := match(&cr_ft, .Some(cr_t) => fn_result_composite_origin_names(&cr_t.*), .None => Option(SharedList(String)).None);
-      // VERDICTS-74 rule 2: a result spelled over the empty origin —
-      // `-> &(T, static)` (`fn_result_spells_static`, the by-value slot
-      // decision 49 builds) or a result type holding a static reference over
-      // a sized pointee or a static future origin
-      // (`type_spells_checked_static`) — accepts only static values (rule
-      // 3): a parameter root the result holds is E0923 as it is for a named
-      // origin, unless the parameter's own slot spells `static` (a caller
-      // that was checked to pass a static value). A module-level root is
-      // static (rule 3's `&G`).
-      cr_static := match(
-        &cr_ft,
-        .Some(cr_t) => (fn_result_spells_static(&cr_t.*) || type_spells_checked_static(&fn_result_slot(&cr_t.*))),
-        .None => false
-      );
+      cr_names := match(&rc_ft, .Some(cr_t) => fn_result_composite_origin_names(&cr_t.*), .None => Option(SharedList(String)).None);
+      // VERDICTS-74 rule 2 (cr_static, hoisted above): a parameter root the
+      // result holds is E0923 as it is for a named origin, unless the
+      // parameter's own slot spells `static` (a caller that was checked to
+      // pass a static value). A module-level root is static (rule 3's `&G`).
       (oi : usize) = usize(0);
       while(oi < roots.len(), {
         match(
@@ -13619,7 +13631,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
               );
             });
             match(
-              &cr_ft,
+              &rc_ft,
               .Some(cr_t) => match(
                 &cr_names,
                 .Some(cr_n) => {
@@ -13647,7 +13659,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
               ),
               .None => ()
             );
-            if(cr_static && !_static_slot_param(&rv, env, ctx), {
+            if(rc_static && !_static_slot_param(&rv, env, ctx), {
               raise_flow_violation(
                 with_code(
                   format_error_message_with_help(
@@ -13715,7 +13727,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
       if(is_future_value_type(&ri.ty()), {
         _note_fn_future_result_roots(&roots, env, ctx);
       });
-      match(&cr_ft, .Some(cr_t) => _return_check_invariant_origins(e, &fn_result_slot(&cr_t.*), &ri.ty(), ctx, exn), .None => ());
+      match(&rc_ft, .Some(cr_t) => _return_check_invariant_origins(e, &fn_result_slot(&cr_t.*), &ri.ty(), ctx, exn), .None => ());
     }),
     .None => ()
   );

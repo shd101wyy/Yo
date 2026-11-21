@@ -93,7 +93,8 @@
   type_carries_origin,
   no_origin_position_error,
   type_is_sized,
-  unsized_by_value_error
+  unsized_by_value_error,
+  type_spells_checked_static
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env-lookup.yo");
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
@@ -2351,7 +2352,7 @@ Use \`::\` for compile-time definitions inside impl.`
     // bound to a value whose type carries an origin freezes the places those
     // origins name, from its initialization to its last use — the E0911
     // machinery sees the contract exactly as a `y := &x` binding's.
-    if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&final_lhs_type), {
+    if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some() && (type_carries_origin(&final_lhs_type) || type_spells_checked_static(&final_lhs_type)), {
       bind(expr, &rhs, &var_name, &actual_lhs_tok, &env, ctx, exn);
     });
     if(!effective_is_compile_time_only && type_carries_origin(&final_lhs_type), {
