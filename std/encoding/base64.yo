@@ -49,7 +49,7 @@ _PAD :: u8(61); // '='
 // ============================================================================
 // Encoding
 // ============================================================================
-_encode_with :: (fn(data : &ArrayList(u8), alpha : &(str, static), pad : bool) -> String)({
+_encode_with :: (fn(data : &ArrayList(u8), alpha : &str, pad : bool) -> String)({
   n := data.len();
   mut(out) := ArrayList(u8).with_capacity(((n + usize(2)) / usize(3)) * usize(4));
   mut(i) := usize(0);
@@ -92,7 +92,7 @@ export(encode, encode_url);
 // ============================================================================
 // Decoding
 // ============================================================================
-_decode_char_res :: (fn(c : u8, alpha : &(str, static), pos : usize) -> Result(u8, EncodingError))({
+_decode_char_res :: (fn(c : u8, alpha : &str, pos : usize) -> Result(u8, EncodingError))({
   mut(i) := usize(0);
   while(i < usize(64), i = (i + usize(1)), {
     cond(
@@ -104,7 +104,7 @@ _decode_char_res :: (fn(c : u8, alpha : &(str, static), pos : usize) -> Result(u
   });
   .Err(EncodingError.InvalidChar(ch : c, pos : pos))
 });
-_decode_with_res :: (fn(s : &String, alpha : &(str, static)) -> Result(ArrayList(u8), EncodingError))({
+_decode_with_res :: (fn(s : &String, alpha : &str) -> Result(ArrayList(u8), EncodingError))({
   // Strip trailing padding
   mut(len) := s.len();
   while((len > usize(0)) && (s.byte_at(len - usize(1)) == _PAD), len = (len - usize(1)), ());

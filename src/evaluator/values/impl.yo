@@ -2191,7 +2191,7 @@ _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), recei
   if(cell_handle_view(receiver_ty).is_some() && is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
     return(());
   });
-  _is_prelude_trait :: (fn(tt : &TypeValue, name : str, env : &Environment) -> bool)(
+  _is_prelude_trait :: (fn(tt : &TypeValue, name : &(str, static), env : &Environment) -> bool)(
     match(get_trait_type_from_env(env, String.from(name)), .Some(p_tt) => (get_trait_key(&tt.*) == get_trait_key(&p_tt)), .None => false)
   );
   trait_name := match(
@@ -7040,7 +7040,7 @@ move_only_declaring_trait_name :: (fn(trait_ty : &TypeValue, env : &Environment)
     true => String.new()
   )
 });
-_named_trait_key_is :: (fn(env : &Environment, name : str, key : &String) -> bool)(
+_named_trait_key_is :: (fn(env : &Environment, name : &(str, static), key : &String) -> bool)(
   match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(&t) == key.*), .None => false)
 );
 /// The `MoveOnlyNominalFn` answer: the trait through which the value nominal

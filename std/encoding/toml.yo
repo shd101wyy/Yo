@@ -951,7 +951,7 @@ _parse_key_path :: (fn(p : &mut _Parser) -> Result(ArrayList(String), TomlError)
 // Numbers
 // ============================================================================
 /// Do the bytes from `at` to the end of `b` spell exactly `s`?
-_rest_is :: (fn(b : &ArrayList(u8), at : usize, s : &(str, static)) -> bool)({
+_rest_is :: (fn(b : &ArrayList(u8), at : usize, s : &str) -> bool)({
   cond(
     ((b.len() - at) != s.len()) => {
       return(false);
@@ -2347,7 +2347,7 @@ _push_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
     out.push(b.byte_at(i));
   });
 });
-_push_lit :: (fn(s : &(str, static), out : &mut ArrayList(u8)) -> unit)({
+_push_lit :: (fn(s : &str, out : &mut ArrayList(u8)) -> unit)({
   mut(i) := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
     out.push(s.bytes(i));

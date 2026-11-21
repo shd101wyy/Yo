@@ -119,7 +119,7 @@ create_dir :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   })
 });
 /// Create a directory (`str` path variant).
-create_dir_str :: (fn(path : &(str, static), io : Io) -> Impl(Future(unit, IoExn)))(
+create_dir_str :: (fn(path : &str, io : Io) -> Impl(Future(unit, IoExn)))(
   create_dir(Path.new(String.from(path)), io)
 );
 /// Create a directory and all missing parent directories.
@@ -207,7 +207,7 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   })
 });
 /// Create a directory and all missing parents (`str` path variant).
-create_dir_all_str :: (fn(path : &(str, static), io : Io) -> Impl(Future(unit, IoExn)))(
+create_dir_all_str :: (fn(path : &str, io : Io) -> Impl(Future(unit, IoExn)))(
   create_dir_all(Path.new(String.from(path)), io)
 );
 /// Remove an empty directory. Throws if the directory is not empty.
@@ -230,7 +230,7 @@ remove_dir :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   })
 });
 /// `remove_dir` (`str` path variant).
-remove_dir_str :: (fn(path : &(str, static), io : Io) -> Impl(Future(unit, IoExn)))(
+remove_dir_str :: (fn(path : &str, io : Io) -> Impl(Future(unit, IoExn)))(
   remove_dir(Path.new(String.from(path)), io)
 );
 /// Remove a file at the given path.
@@ -245,7 +245,7 @@ remove_file :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   })
 });
 /// `remove_file` (`str` path variant).
-remove_file_str :: (fn(path : &(str, static), io : Io) -> Impl(Future(unit, IoExn)))(remove_file(Path.new(String.from(path)), io));
+remove_file_str :: (fn(path : &str, io : Io) -> Impl(Future(unit, IoExn)))(remove_file(Path.new(String.from(path)), io));
 /// Rename or move a file or directory from `from` to `to`.
 rename :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   from_owned := from.clone();
@@ -261,7 +261,7 @@ rename :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   })
 });
 /// `rename` (`str` path variant).
-rename_str :: (fn(from : &(str, static), to : &(str, static), io : Io) -> Impl(Future(unit, IoExn)))(rename(Path.new(String.from(from)), Path.new(String.from(to)), io));
+rename_str :: (fn(from : &str, to : &str, io : Io) -> Impl(Future(unit, IoExn)))(rename(Path.new(String.from(from)), Path.new(String.from(to)), io));
 /// Create a hard link from `src` to `dst`.
 hard_link :: (fn(src : &Path, dst : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   src_owned := src.clone();
@@ -277,7 +277,7 @@ hard_link :: (fn(src : &Path, dst : &Path, io : Io) -> Impl(Future(unit, IoExn))
   })
 });
 /// `hard_link` (`str` path variant).
-hard_link_str :: (fn(src : &(str, static), dst : &(str, static), io : Io) -> Impl(Future(unit, IoExn)))(hard_link(Path.new(String.from(src)), Path.new(String.from(dst)), io));
+hard_link_str :: (fn(src : &str, dst : &str, io : Io) -> Impl(Future(unit, IoExn)))(hard_link(Path.new(String.from(src)), Path.new(String.from(dst)), io));
 /// Create a symbolic link at `dst` pointing to `src`.
 symlink :: (fn(src : &Path, dst : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   src_owned := src.clone();
@@ -293,7 +293,7 @@ symlink :: (fn(src : &Path, dst : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   })
 });
 /// `symlink` (`str` path variant).
-symlink_str :: (fn(src : &(str, static), dst : &(str, static), io : Io) -> Impl(Future(unit, IoExn)))(symlink(Path.new(String.from(src)), Path.new(String.from(dst)), io));
+symlink_str :: (fn(src : &str, dst : &str, io : Io) -> Impl(Future(unit, IoExn)))(symlink(Path.new(String.from(src)), Path.new(String.from(dst)), io));
 /// Read a symlink's target (`std::fs::read_link`). Throws for a path that is
 /// not a symlink (EINVAL) — like Rust.
 read_link :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))({
@@ -322,7 +322,7 @@ read_link :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))({
   })
 });
 /// `read_link` (`str` path variant).
-read_link_str :: (fn(path : &(str, static), io : Io) -> Impl(Future(Path, IoExn)))(read_link(Path.new(String.from(path)), io));
+read_link_str :: (fn(path : &str, io : Io) -> Impl(Future(Path, IoExn)))(read_link(Path.new(String.from(path)), io));
 
 // ============================================================================
 // File type by path
@@ -504,7 +504,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
   })
 });
 /// `read_dir` (`str` path variant).
-read_dir_str :: (fn(path : &(str, static), io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))(read_dir(Path.new(String.from(path)), io));
+read_dir_str :: (fn(path : &str, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))(read_dir(Path.new(String.from(path)), io));
 export(
   create_dir,
   create_dir_str,

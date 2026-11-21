@@ -90,7 +90,7 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
 // ---------------------------------------------------------------------------
 _eval_arg :: (
   fn(
-    fn_name : str,
+    fn_name : &(str, static),
     expr : &AstExpr,
     env : &Environment,
     ctx : &mut EvalContext,
@@ -126,7 +126,7 @@ _eval_arg :: (
 /// outside an unsafe-capable file, as `___drop` is: on a field the place
 /// stays readable after its storage is freed
 /// (`is_destroying_builtin_call_capable`).
-_require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn : Exception) -> unit)({
+_require_destroying_builtin_capable :: (fn(builtin : &(str, static), expr : &AstExpr, exn : Exception) -> unit)({
   tok := ast_expr_token(expr);
   if(!is_destroying_builtin_call_capable(Option(String).Some(tok.module_path.*.clone())), {
     name := String.from(builtin);

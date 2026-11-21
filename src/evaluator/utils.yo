@@ -1891,7 +1891,7 @@ _is_handle_own_field_step :: (fn(step : &AstExpr, base_ty : &TypeValue) -> bool)
 /// The message names the doors. No-op for any other place, while a call's
 /// candidates are trial-checked, and in ghost (spec) code, which never
 /// writes.
-reject_write_through_rc :: (fn(place : &AstExpr, kind : str, param_ty : Option(TypeValue), ctx : &EvalContext, exn : Exception) -> unit)({
+reject_write_through_rc :: (fn(place : &AstExpr, kind : &(str, static), param_ty : Option(TypeValue), ctx : &EvalContext, exn : Exception) -> unit)({
   if(ctx.is_in_function_call_checking_phase || ctx.is_ghost_context, {
     return(());
   });
@@ -3073,7 +3073,7 @@ reject_malformed_pattern_mut_markers :: (fn(pat : &AstExpr, exn : Exception) -> 
 );
 /// The binding a write lands on, for diagnostics: `local`, `comptime`,
 /// `parameter` or `pattern` (a `match` or destructuring binding).
-_mut_binding_kind :: (fn(v : &Variable) -> str)(
+_mut_binding_kind :: (fn(v : &Variable) -> &(str, static))(
   cond(
     v.is_compile_time_only() => "comptime",
     v.is_parameter() => "parameter",
@@ -3439,7 +3439,7 @@ audit_record_copy_trait :: (
   fn(
     site_tok : &Token,
     ty : &TypeValue,
-    copy_path : str,
+    copy_path : &(str, static),
     env : &Environment,
     source : &AstExpr,
     ctx : &EvalContext,
@@ -3738,7 +3738,7 @@ set_expr_as_needs_to_call_dup :: (
     exn : Exception,
     /// The store kind, for the implicit-copy recorder only: `binding`, `assign`,
     /// `field-store`, `element`, `param`, `return` or `dyn`.
-    (copy_path : str) ?= "dup"
+    (copy_path : &(str, static)) ?= "dup"
   ) -> unit
 )({
   // YO_AUDIT_COPY_TRAIT: a plain-data copy, before any early return (a
@@ -7650,8 +7650,8 @@ _lb_live_at_activation :: (fn(info : &LocalBorrowInfo, tok : &Token, live_tok : 
   false
 });
 _lb_place_text :: (fn(p : &LocalBorrowPlace) -> String)(p.text.clone());
-_lb_mode :: (fn(info : &LocalBorrowInfo) -> str)(cond(info.is_mut => "&mut", true => "&"));
-_lb_verb :: (fn(kind : &LocalBorrowAccess) -> str)(
+_lb_mode :: (fn(info : &LocalBorrowInfo) -> &(str, static))(cond(info.is_mut => "&mut", true => "&"));
+_lb_verb :: (fn(kind : &LocalBorrowAccess) -> &(str, static))(
   match(
     kind,
     .Read => "read",
@@ -9620,14 +9620,14 @@ origin_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayL
 /// `depth`, one cut at the recursion bound. `scripts/check-origin-sinks.sh`
 /// counts the distinct lines; the gate is 0.
 origin_totality_audit_on :: (fn() -> bool)(g_audit_origin_totality);
-_audit_origin_totality_report :: (fn(kind : str, what : str, e : &AstExpr) -> unit)({
+_audit_origin_totality_report :: (fn(kind : &(str, static), what : &(str, static), e : &AstExpr) -> unit)({
   at := ast_expr_token(e);
   eprintln(`[origin-totality] ${kind} ${what} ${at.module_path.*}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${ast_expr_to_string(e)}`);
 });
 /// G-E at a sink: `e`, stored at the sink `what`, must have its origin
 /// computed when its type carries one (`origin_of`'s memo). Free unless the
 /// knob is set.
-audit_origin_totality :: (fn(what : str, e : &AstExpr, ctx : &EvalContext) -> unit)({
+audit_origin_totality :: (fn(what : &(str, static), e : &AstExpr, ctx : &EvalContext) -> unit)({
   if(!g_audit_origin_totality, {
     return(());
   });
@@ -9643,7 +9643,7 @@ audit_origin_totality :: (fn(what : str, e : &AstExpr, ctx : &EvalContext) -> un
 /// G-E at a call argument: an argument whose type spells every origin it
 /// carries is its own record (O3 step 1 reads the type); only an elided
 /// position needs `origin_of`.
-audit_origin_totality_elided :: (fn(what : str, e : &AstExpr, ctx : &EvalContext) -> unit)({
+audit_origin_totality_elided :: (fn(what : &(str, static), e : &AstExpr, ctx : &EvalContext) -> unit)({
   if(!g_audit_origin_totality, {
     return(());
   });
@@ -12263,7 +12263,7 @@ _capture_state_store :: (fn(variable : &Variable, roots : &ArrayList(OriginRootP
     gi = (gi + usize(1));
   });
 });
-_raise_capture_state_local :: (fn(variable : &Variable, place_text : &String, what : str, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+_raise_capture_state_local :: (fn(variable : &Variable, place_text : &String, what : &(str, static), at : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
   raise_flow_violation(
     with_code(
       format_error_message_with_help(

@@ -4806,14 +4806,14 @@ unknown_field_message :: (fn(label : &String, base_ty : &TypeValue, fields : &Ar
 });
 /// The code of `unknown_field_message`'s error: E0403 when the base is a
 /// module (it does not export the name), E0406 otherwise.
-unknown_field_code :: (fn(base_ty : &TypeValue) -> str)(
+unknown_field_code :: (fn(base_ty : &TypeValue) -> &(str, static))(
   cond(is_module_type(base_ty) => E_MODULE_FIELD_NOT_FOUND, true => E_FIELD_NOT_FOUND)
 );
 /// The sentence E0406/E0610 add when auto-dereference also misses
 /// (plans/VALUES_BY_DEFAULT.md §3.3): `` `b` is an Rc(P); its payload P has
 /// no field "x" either.`` — `payload_ty` is the innermost payload the
 /// auto-dereference reached, `what` is `field` or `field or method`.
-deref_miss_note :: (fn(wrapper_text : &String, wrapper_ty : &TypeValue, payload_ty : &TypeValue, what : str, label : &String) -> String)(
+deref_miss_note :: (fn(wrapper_text : &String, wrapper_ty : &TypeValue, payload_ty : &TypeValue, what : &(str, static), label : &String) -> String)(
   `\`${wrapper_text}\` is a ${type_to_string(wrapper_ty)}; its payload ${type_to_string(payload_ty)} has no ${what} "${label}" either.`
 );
 /// E0406 for a field read that auto-dereference also misses: the wrapper has

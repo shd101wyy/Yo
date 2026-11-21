@@ -313,7 +313,7 @@ log :: (fn(generic(T : ?Sized), level : Level, msg : &T, where(T <: ToString)) -
   _emit(level, String.new(), msg.to_string())
 );
 /// Log a `ToString` value at `level`, tagged with a `target`/module string.
-log_target :: (fn(generic(T : ?Sized), level : Level, target : &(str, static), msg : &T, where(T <: ToString)) -> unit)(
+log_target :: (fn(generic(T : ?Sized), level : Level, target : &str, msg : &T, where(T <: ToString)) -> unit)(
   _emit(level, String.from(target), msg.to_string())
 );
 /// Log at `level`, building the message from `make` ONLY when it passes the
@@ -349,15 +349,15 @@ export(trace, debug, info, warn, error);
 ///
 /// The tag is caller-supplied text; nothing derives or checks it, and it does
 /// not participate in filtering (the level is the only filter).
-trace_target :: (fn(generic(T : ?Sized), target : &(str, static), msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Trace, target, msg));
+trace_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Trace, target, msg));
 /// `debug` with a subsystem tag; see `trace_target`.
-debug_target :: (fn(generic(T : ?Sized), target : &(str, static), msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Debug, target, msg));
+debug_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Debug, target, msg));
 /// `info` with a subsystem tag; see `trace_target`.
-info_target :: (fn(generic(T : ?Sized), target : &(str, static), msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Info, target, msg));
+info_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Info, target, msg));
 /// `warn` with a subsystem tag; see `trace_target`.
-warn_target :: (fn(generic(T : ?Sized), target : &(str, static), msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Warn, target, msg));
+warn_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Warn, target, msg));
 /// `error` with a subsystem tag; see `trace_target`.
-error_target :: (fn(generic(T : ?Sized), target : &(str, static), msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Error, target, msg));
+error_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Error, target, msg));
 export(trace_target, debug_target, info_target, warn_target, error_target);
 /// `trace`, with the message built by `make` ONLY if `Trace` passes the
 /// filter — the form to use when rendering costs real work (a formatted dump,

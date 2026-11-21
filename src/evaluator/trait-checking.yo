@@ -179,7 +179,7 @@ _c_len_3 :: (fn(xs : &ArrayList(TypeValue)) -> usize)(xs.len());
 /// scope yet (rare — e.g. a struct defined before the marker trait), skip
 /// silently.
 /// Called during struct/enum/union construction by `evaluator/types/utils.yo`.
-register_type_trait :: (fn(type_id : &String, trait_name : str, env : &Environment) -> unit)({
+register_type_trait :: (fn(type_id : &String, trait_name : &(str, static), env : &Environment) -> unit)({
   match(
     get_trait_type_from_env(env, String.from(trait_name)),
     .Some(trait_ty) => {
@@ -2383,7 +2383,7 @@ type_implements_trait_bool :: (
 // ---------------------------------------------------------------------------
 /// True if `trait_type` is the prelude trait named `name` (by trait identity,
 /// the same comparison `type_implements_trait` makes).
-_is_prelude_trait_named :: (fn(trait_type : &TypeValue, name : str, env : &Environment) -> bool)(
+_is_prelude_trait_named :: (fn(trait_type : &TypeValue, name : &(str, static), env : &Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from(name)),
     .Some(t) => (_trait_type_id(&t) == _trait_type_id(trait_type)),
@@ -2640,7 +2640,7 @@ end_send_derivation :: (fn(type_id : &String) -> unit)({
 type_implements_send :: (fn(ty : &TypeValue, env : &Environment) -> bool)(_type_implements_thread_marker(ty, "Send", env));
 /// Check if a type implements the Sync trait.
 type_implements_sync :: (fn(ty : &TypeValue, env : &Environment) -> bool)(_type_implements_thread_marker(ty, "Sync", env));
-_type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Environment) -> bool)({
+_type_implements_thread_marker :: (fn(ty : &TypeValue, marker : &(str, static), env : &Environment) -> bool)({
   // Cycle break: if this type is currently being checked for marker derivation,
   // optimistically assume it implements the marker.
   ty_id := _type_id_for_trait_check(ty);
@@ -2688,7 +2688,7 @@ type_implements_dispose :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
 /// Escapable)` asked through the prelude's `Type.impls` answered `false`
 /// for every `T`
 /// (issues/fixed/2026-11-08-type-impls-answers-false-for-escapable-for-every-type.md).
-_is_prelude_marker_trait :: (fn(trait_type : &TypeValue, name : str, env : &Environment) -> bool)({
+_is_prelude_marker_trait :: (fn(trait_type : &TypeValue, name : &(str, static), env : &Environment) -> bool)({
   tid := _trait_type_id(trait_type);
   if(tid.is_empty(), {
     return(false);

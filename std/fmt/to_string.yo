@@ -92,11 +92,11 @@ Debug :: trait(
 );
 export(Debug);
 /// The one shared body behind every numeric `ToString` impl (audit fmt row:
-/// dedupe the snprintf helpers). `fmt` is a comptime `str` parameter, so it
+/// dedupe the snprintf helpers). `fmt` is a `comptime_str` parameter, so it
 /// forwards into the extern call as a literal — no runtime conversion.
 /// 32 bytes covers every `%g`-family rendering (compact, exponent form).
 _SNPRINTF_BUFFER_SIZE :: usize(32);
-_snprintf_to_string :: (fn(comptime(fmt) : str, comptime(T) : Type, v : &T) -> String)({
+_snprintf_to_string :: (fn(comptime(fmt) : comptime_str, comptime(T) : Type, v : &T) -> String)({
   buffer := Array(u8, _SNPRINTF_BUFFER_SIZE).fill(0);
   buffer_ptr := addr_of(buffer(0));
   unsafe(snprintf((*char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v.*));
@@ -374,16 +374,9 @@ impl(
 impl(
   str,
   ToString(
-    // SAFETY: `str.from_raw_parts` re-asserts the receiver's bytes as a
-    // static view only for the call: `String.from` and `push_str` copy them
-    // and keep no view. A `&str` receiver need not point at static bytes
-    // (decision 49 S2). S3b deletes the view once the copy-in parameters take
-    // `&str`.
-    to_string : (fn(self : &Self) -> String)({
-      // Convert byte array to String assuming UTF-8
-      return(String.from(str.from_raw_parts(self.ptr(), self.len())));
-    }),
-    append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str(str.from_raw_parts(self.ptr(), self.len())))
+    // `String.from` and `push_str` take `&str` and copy the bytes.
+    to_string : (fn(self : &Self) -> String)(String.from(self)),
+    append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str(self))
   )
 );
 // === Unit ===
