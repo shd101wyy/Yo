@@ -51,7 +51,8 @@ the collection's projection (`xs.index(i)`, `docs/en-US/OWNERSHIP_AND_BORROWING.
 
 ## Tests
 
-`tests/cli-cases/check-ownership-rejections-are-coded` (`copy-without-clone.yo`,
-`borrow-of-an-element.yo`): `error[E0602]` and `error[E0927]`; before the fix both lines read
-`error:`. `tests/cli-cases/explain-list` gains E0927. `tests/internal/diagnostics-registry.test.yo`
-checks the new entry's examples (the bad one reports E0927, the good one checks clean).
+`tests/cli-cases/copy-without-clone-is-e0602` and
+`tests/cli-cases/a-local-borrow-of-an-element-is-e0927`: `error[E0602]` and `error[E0927]`; before the fix
+both lines read `error:`. `tests/cli-cases/explain-list` gains E0927. `tests/internal/diagnostics-registry-examples.test.yo`
+compiles the new registry entry's examples (the bad one reports E0927, the good one checks clean);
+`tests/origins/corpus.tsv` row `index-mut-twice` records E0927 in its `today` column (previously `-`).

@@ -54,7 +54,7 @@ diagnostic shows is the reference the source wrote.
 
 ## Tests
 
-`tests/cli-cases/check-ownership-rejections-are-coded` (`reference-sent-to-a-thread.yo`,
-`borrow-captured-by-a-thread.yo`): `error[E0909]` naming `&i32`. Before the fix the first line was the
-uncoded `(type *(i32))` message above. `tests/origins/corpus.tsv` row `thread-send-origin` (a
-`RefCell(&i32)` captured by a thread closure) now records E0909 as its first error, its expected verdict.
+`tests/cli-cases/a-reference-sent-to-a-thread-is-e0909` and
+`tests/cli-cases/a-borrow-captured-by-a-thread-is-e0909`: `error[E0909]` naming `&i32`. Before the fix the
+first line was the uncoded `(type *(i32))` message above. `tests/origins/corpus.tsv` row `thread-send-origin`
+(a `RefCell(&i32)` captured by a thread closure) now records E0909 as its first error, its expected verdict.

@@ -46,9 +46,9 @@ reference). `yo explain E0909` lists the positions. Phase names are gone from th
 
 ## Tests
 
-- `tests/cli-cases/check-ownership-rejections-are-coded` (`reference-in-a-container.yo`,
-  `reference-in-a-cell.yo`): `error[E0909]` with the new text. Before the fix the golden's
-  first line was the uncoded message above.
+- `tests/cli-cases/a-reference-in-a-container-is-e0909` and
+  `tests/cli-cases/a-reference-in-a-cell-is-e0909`: `error[E0909]` with the new text. Before the fix the
+  golden's first line was the uncoded message above.
 - `tests/borrow-spelling.test.yo`'s two `comptime_expect_error` rows follow the new text.
 - `tests/origins/corpus.tsv`: the rows whose first error is this wall record `E0909` in their
   `today` column (previously `-`).
