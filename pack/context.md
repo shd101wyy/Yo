@@ -1,419 +1,523 @@
 # Yo — context pack for coding agents
 
-pack-version: 3 — shipped with the toolchain; yo context prints this file.
-It covers the LANGUAGE only. API listings come from the toolchain, never
-from here: yo context --list (modules), yo context <module> [name]
-(signatures + docs), yo context --search <query> (keywords are ANDed: "hash
-string" finds String.hash). Code blocks below are canonical, `yo fmt`-clean
-Yo; every example parses, and complete examples compile.
+pack-version: 4 — shipped with the toolchain; `yo context` prints this file.
+It covers the LANGUAGE only. APIs come from `yo context --list` (modules),
+`yo context <module> [name]` (signatures, docs) and
+`yo context --search <query>` (ANDed keywords). Examples are `yo fmt`-clean,
+complete programs compile and run, and rejected code names its error code.
 
 ## What Yo is
 
-A statically-typed, expression-oriented language that compiles to C11 and
-lets the system C compiler finish the job. Memory is compile-time RC with
-no collector — no borrow checker, no GC pauses. Async is single-threaded
-event-loop (C#-style); threads are a separate explicit runtime. Yo is
-designed for LLM authorship: regular syntax, no precedence table, no
-overloading, fast checker (`yo check`), errors that carry repairs.
+A statically typed, expression-oriented language compiled to C11. There is no garbage collector: every value
+has one owner, the last use of a value moves it, copies are explicit
+(`.clone()`) except for `Copy` types, and a compile-time borrow checker checks
+every reference (`&T`, `&mut T`), whose type carries an origin. `Rc(T)` and
+`Arc(T)` are the only shared handles. Async is single-threaded per thread (an
+event loop, like JavaScript's or tokio's `current_thread`); threads are a
+separate, explicit runtime. There is no operator precedence and no
+overloading, and diagnostics carry repairs.
 
 ## The toolchain loop
 
 ```bash
-yo check ./src            # type-check only — run after EVERY edit; fast
-yo compile main.yo -o app # full pipeline (emits C, invokes cc)
-yo build                  # project build via build.yo (yo.toml declares deps)
-yo test ./tests           # language tests; yo test ./std for std's own
-yo fmt file.yo            # format (yo fmt --check verifies)
-yo explain E0xxx          # offline diagnostic explanation
-yo fix file.yo            # apply structured repairs from diagnostics
+yo check main.yo           # type-check; run after EVERY edit
+yo fix main.yo             # apply the repairs the diagnostics carry
+yo explain E0901           # a diagnostic's full explanation, offline
+yo compile main.yo -o app  # full pipeline: emit C, run the C compiler
+yo test ./tests            # *.test.yo files; --test-name-pattern, --json
+yo fmt file.yo             # format; --check verifies
+yo build                   # a project: build.yo + yo.toml (yo init creates both)
 ```
 
-- `check` is evaluator-only: the hollow-`io.async`-body rule (E0905) fires in
-  codegen, so gate it with `yo compile main.yo --skip-c-compiler`. `--test-bodies`
-  makes `check` also type-check `test(...)` bodies (without it they are a
-  no-op for `check`).
-- Fast iteration: `yo check <dir> --watch` (or `--watch-once`) re-checks only
-  edited definitions in milliseconds; `yo compile main.yo --emit-chunks auto
-  --jobs 8` recompiles only dirty translation units.
-- Machine-readable output: `--error-format json|sarif` (structured spans +
-  repairs), `yo test --json` (one JSON event per test) and `--list`, `yo
-  effects <path> [--json]` (each exported fn's effect capabilities).
-- `yo compile` on a `*.test.yo` file compiles the Yo side but synthesizes no
-  `main` — the C link fails with `undefined reference to 'main'`.
-- A `-O0` binary that SIGSEGVs on deep recursion is stack exhaustion
-  (multi-MB `-O0` frames), not heap corruption: validate deep recursion with
-  `--optimize 2`.
+- `check` skips `test(...)` bodies unless given `--test-bodies`;
+  `--watch` re-checks only what changed; `--error-format json` emits spans
+  and repairs.
+- One rule fires only in codegen (a hollow `io.async` body, E0905): gate async
+  code with `yo compile main.yo --skip-c-compiler`.
 
-## Declarations and bindings
-
-```rust
-{ println } :: import("std/fmt"); // import (destructuring)
-name :: "yo"; // top-level binding, order-independent
-// fn def: TYPE then BODY
-main :: (fn() -> unit)({
-  x := i32(1); // local bind, inferred
-  (msg : str) = "hello"; // typed local bind
-  println(msg);
-});
-export(main); // only exported names are public
-```
-
-- Top-level `name :: value;` bindings and `impl` registrations are
-  order-independent within a module.
-- Function definition: `name :: (fn(a : T, b : U) -> R)(body);` — the fn
-  TYPE is parenthesized; the body is a second parenthesized group.
-- Methods are `impl` entries taking `self : Self`; call with `obj.m(args)`.
-- `main` returns `unit` and is `export`ed.
-
-## Braces: a record unless it has a `;`
-
-THE rule that breaks Rust instincts. A `{ ... }` group is a **record
-(struct-literal) when its top level is comma-separated `field : value`**,
-and a **block only when it contains semicolons**:
-
-```rust
-p := { x : i32(1), y : i32(2) }; // record literal (named fields)
-block := {
-  a := i32(1);
-  a + i32(2) // block: `;`-sequenced, value = tail
-};
-```
-
-`{ single_expr }` parses as a one-field record, not a block — and `yo fmt`
-accepts it silently. Run `yo check` on every edit. Struct literals want
-spaces around `:` and parenthesized infix values: `{ x : (a + b), y : c }`.
-
-## Operators: no precedence, parenthesize
-
-There is NO operator precedence table. Parenthesize wherever two different
-operators meet; `yo fmt` removes only redundant parens (a left
-same-operator group, a whole call argument, a bare prefix operand `-(x)`)
-and keeps the rest:
-
-```rust
-y := ((a + b) * c); // never  a + b * c
-ok := ((x > i32(0)) && (y < i32(9))); // parenthesize comparisons too
-```
-
-A binary right-hand side must be parenthesized (`E0003`): `x := (a + b);`,
-not `x := a + b;`. The operator set is closed and fixed. Mixing adjacent
-operators (`a && b || c`) needs explicit parens (`E0003`); a chain of ONE
-operator groups left at any length (`a - b - c - d` is
-`(((a - b) - c) - d)`).
-
-## Control flow: calls, not keywords
-
-```rust
-grade := cond(
-  (s >= i32(90)) => "A",
-  (s >= i32(60)) => "B",
-  true => "F" // `true` closes a cond
-);
-
-label := match(
-  opt,
-  .Some(v) => v,
-  .None => "none"
-);
-
-if(done, println("yes"), println("no")); // sugar over cond
-```
-
-- `cond(...)` arms are `predicate => value`; `match(...)` arms are
-  `pattern => value`. Arms are VALUES: sibling arms must agree in type.
-- `if(a, b)` / `if(a, b, c)` desugar to `cond` at parse time.
-- A bare `cond(p, a, b)` STATEMENT is a parse error — statement-position
-  `cond` takes arms, so bind the value first (`r := cond(p, a, b); r`).
-  `match(...)` and `if(...)` may appear as statements directly.
-- `return(v)` and `unwind(v)` are always called, never bare.
-
-## Pattern matching (match on values, not just primitives)
-
-```rust
-// int scrutinee: ranges, guards, whole-value bindings
-category := match(
-  n,
-  (0 .. 10) => "small",
-  (v && (v < i32(0))) => "negative",
-  // guard sees the binding
-  (big := 100) => "exactly a hundred",
-  // whole-value binding
-  _ => "large"
-);
-// variant scrutinee: payloads bind, or-patterns group
-text := match(
-  shape,
-  .Circle(r) => `r=${r}`,
-  (.Rect(_, _) | .Unit) => `other`,
-  _ => `?`
-);
-```
-
-Nested variants, literals, ranges `(0..10)`, string scrutinees, or-patterns
-`(.Err(.A) | .Err(.B))`, and guards are supported. Exhaustiveness is
-enforced: a non-exhaustive match is E0607 (with a structural witness),
-unreachable arms E0608. Prefer matching `.Some(v)` once and branching inside
-the arm over `.Some(true)`/`.Some(false)` sibling arms.
-
-## Types
-
-```rust
-Point :: struct(x : i32, y : i32); // value semantics
-Node :: struct(next : Option(Rc(Self)), v : i32); // `Rc(T)`: shared, counted
-Shape :: enum(Circle(r : f64), Rect(w : f64, h : f64), Unit);
-// generic TYPE = type-fn:
-Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(Leaf, Node2(l : Rc(Self), v : T, r : Rc(Self)))
-);
-
-Counter :: trait(
-  count : (fn(self : Self) -> i32)
-);
-
-impl(Point, Counter(count : (fn(self : Self) -> i32)(self.x)));
-{ ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
-derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
-```
-
-- `struct` = value semantics (moved, or copied if it derives `Copy`);
-  sharing is `Rc(T)` / `Arc(T)`, and `Rc.clone(h)` is a second handle. `Self`
-  refers to the type being defined.
-- Constructors take named fields: `Point(x : i32(1), y : i32(2))`.
-- Generic types are TYPE-FUNCTIONS:
-  `Name :: (fn(comptime(T) : Type) -> comptime(Type))(...);`. Generic
-  FUNCTIONS bind a type variable the arguments determine:
-  `(fn(generic(T : Type), x : T, where(T <: ToString)) -> String)`, called
-  as `show(x)`. Generic impls pair with a type: `impl(generic(T),
-  where(T <: ToString), Box(T), m : ...)`.
-- Derivable: `Eq`, `Hash`, `Clone`, `Ord`, `ToString`, `Debug`, `Default`
-  (Eq/Ord take the type: `Eq(Point)`). The prelude registers Eq/Hash/Clone/
-  Ord/Default; `ToString`'s and `Debug`'s rules come with `std/fmt` and
-  `Error`'s with `std/error` — import the module before the `derive`.
-- NO overloading: not for functions, not for inherent methods. Trait
-  methods may share names — dispatch picks by argument types.
-- NO operator precedence (above) and a closed operator set; traits implement
-  `(==)`, `(<)`, `(+)` etc.
-
-## Strings, numbers, templates
-
-- `str` = static, immutable view of literal bytes. `String` = owned growable
-  UTF-8. EVERY backtick literal is a `String`, with or without `${...}`:
-  `` `hi ${name}` ``, `` `hi` ``. A `"..."` literal is a `str` and never
-  becomes a `String` implicitly — pass `` `hi` `` or `String.from("hi")`
-  where a `String` is expected.
-- No `String + str` operator. Build strings with a `StringBuilder`-style
-  buffer or template strings.
-- A real newline inside `"..."` is a parse error. Inside `${...}` write
-  ordinary code: its string literals keep their own escapes, and nested
-  backtick templates interpolate (`` `outer ${`inner ${x}`} end` `` works).
-  In a template's TEXT a backtick ends the template (write `` \` ``) — never
-  emit a raw markdown fence from code that builds Yo source.
-- Integer literals are polymorphic and often need a cast or typed binding:
-  `x := i32(1);` or `(x : i32) = 1;`. Distinct integer types do not mix
-  implicitly: `(i32(1) + usize(1))` is an error.
-- Fixed arrays: `[i32; 3]`, literal `[1, 2, 3]` (a 1-element literal needs
-  a trailing comma: `[7,]`). No slice type exists: range indexing copies
-  (`xs(a..b)` on an ArrayList yields a new list; a `str` range is a
-  zero-copy static window).
-
-## Option, Result, errors
-
-```rust
-(maybe : Option(i32)) = Option(i32).Some(i32(7)); // .Some(v) | .None
-{ String } :: import("std/string");
-{ Path } :: import("std/path");
-{ read_to_string } :: import("std/fs/file");
-{ Exception, IoExn } :: import("std/error"); // brings the Error derive rule
-{ ToString } :: import("std/fmt"); // Error's derive needs ToString
-DivError :: enum(DivByZero); // recoverable: Error enum
-derive(DivError, Error(.DivByZero => `division by zero`));
-(res : Result(i32, DivError)) = .Ok(i32(6));
-
-// Exception-style: Exception + throw; awaited IO rethrows via an exn
-read :: (fn(p : Path, io : Io) -> String)({
-  swallow := Exception(throw : (_e -> unwind(String.from(""))));
-  io.await(read_to_string(p, io), IoExn(io : io, exn : swallow))
-});
-```
-
-- `unwrap`/`expect` and the panic vocabulary are COMPILE ERRORS in safe
-  files (a call may not discard failure information the type carries):
-  match the `Option`/`Result`, or use checked indexing (`xs.get(i)`).
-- `AnyError` is `Dyn(Error)`; `dyn(err_type_value)` boxes an error into it;
-  `downcast(any, MyError)` recovers (`.None` if not that type).
-- Safe code traps, never UB: array/str indexing is bounds-checked, integer
-  `/` `%` by zero and `MIN / -1` abort with a diagnostic, overflow traps
-  (`wrapping_*` methods are the escape hatch), float→integer casts saturate.
-
-## Ownership and references
-
-- Values are reference-counted at compile time (dup/drop inserted by the
-  compiler). You do not write refcounts. A reference cycle leaks, as with
-  Rust's `Rc`: put a `Weak(T)` on the back edge (`Rc.downgrade(&h)`).
-- A plain parameter `x : T` takes its argument BY VALUE: a `Copy` value is
-  copied, a move-only or explicit-copy value is MOVED (using it afterwards
-  is a `use of moved value` error), and a still implicitly copyable kind
-  (`String`, a collection, `Rc`, a `ref` handle) is shared, so both handles
-  stay valid. A `sink(x)` parameter always moves. `.clone()` when you need
-  an independent copy.
-- `x : &T` borrows read-only and `x : &mut T` exclusively; the call
-  lends with a marker: `show(&s)`, `swap(&mut a, &mut b)`. A local borrow
-  is `y := &place` / `y := &mut place`. `&T` is a mode a slot spells, not
-  a type: `ArrayList(&T)`, `T :: &i32` and a field `f : &T` are errors. A
-  raw pointer is `addr_of(x)` (unsafe files), and `&x` to a by-value
-  parameter is an error naming `x` / `x.clone()`.
-- NO lifetimes/borrow types. Shared mutation goes through `&mut` parameters
-  or `ref` semantics types; a runtime exclusivity backstop guards
-  violations.
-- `_` is the discard pattern; `___` is a named discard usable once per
-  scope. A name starting with `_` is MODULE-PRIVATE (compiler-enforced,
-  E0405).
-- Methods take the receiver explicitly: `self : &Self` to read,
-  `self : &mut Self` for mutation, `self : Self` to consume.
-- Allocation is placement, RC is lifetime: a creation is global unless an
-  argument places it (`Rc.new(v, alloc : .Some(a))`, `ArrayList(T).new(alloc : .Some(a))`);
-  a block is always released to the allocator that made it.
-
-## Async (single-threaded) and effects
-
-- All async I/O runs on ONE event-loop thread. Never add mutexes/atomics to
-  async-runtime state; use `spawn_blocking` for CPU/blocking work.
-- Inside an `io.async` body, `io.await(...)` may appear anywhere an
-  expression may — a scrutinee, a condition, an operand, a `while` step, a
-  `cond`/`match` arm — and suspends at that point in source order. An
-  `io.await` inside a function the task calls BLOCKS instead of suspending.
-  Async iteration over a `Stream` is the written-out loop: `mut(s) := stream;`
-  then `while(true, …)` around `io.await(s.next(io), io)` and a
-  `match` whose `.None` arm breaks.
-- Effects: a handler's `return(expr)` RESUMES the awaited continuation;
-  `unwind(expr)` DISCARDS it and exits the enclosing fn. An unwound async
-  task enters the Aborted state. C's `abort()` (panic) is a different,
-  process-level thing.
-
-## Modules and projects
-
-```rust
-{ String, StringBuilder } :: import("std/string"); // named destructuring
-{ ... } :: import("std/assert"); // glob
-```
-
-- Dependencies live in `yo.toml` (`yo add user/repo`), fetched by
-  `yo install` / `yo build`; `import("dep/...")` resolves through the
-  nearest manifest.
-- An anonymous module (a file with no exports) evaluates for side effects.
-- Module doc comments are `//!` at the top of the file; item docs are `///`.
-
-## Tests
-
-```rust
-{ assert } :: import("std/assert"); // REQUIRED — assert is not in the prelude
-{ ArrayList } :: import("std/collections/array-list");
-
-test("push then len", {
-  xs := ArrayList(i32).new();
-  xs.push(i32(1));
-  assert(xs.len() == usize(1));
-});
-```
-
-Tests live in sibling `*.test.yo` files (or `test("name", body)`
-declarations inside them); `{ assert } :: import("std/assert");` at the top
-is required — `assert` is not in the prelude. Iterate one file with
-`yo test file.test.yo --test-name-pattern "Name" --parallel 1 -v`; `--list`
-enumerates and `--json` streams one event per test. (`test(...)` bodies are
-a no-op for `yo check` unless `--test-bodies` is passed.)
-
-## Threads (separate runtime)
-
-`Thread(T)`, `ThreadPool`, `Channel` with `Send` bounds live in
-`std/thread` — this is the multi-threaded story, distinct from async. Don't
-reach for it to parallelize I/O; that's the event loop's job.
-
-The `std/sync` types (`Mutex(T)`, `RwLock(T)`, `WaitGroup`, the `Atomic*`
-types, ...) are move-only values, as in Rust: a copy is E0901. Share one
-across threads as `Arc(Mutex(T))`: create it with `Arc.new(...)`, give each
-thread its own `Arc.clone(...)` and capture that clone by value.
-`Channel(T)` already holds an `Arc` of its queue: `ch.clone()` is another
-handle.
+## Syntax essentials
 
 ```yo
+{ assert } :: import("std/assert");
+
+grade :: (fn(s : i32) -> str)(
+  cond(
+    (s >= i32(90)) => "A",
+    (s >= i32(60)) => "B",
+    true => "F" // `true` closes a cond
+  )
+);
+
+main :: (fn() -> unit)({
+  a := i32(2);
+  b := i32(3);
+  y := ((a + b) * i32(4)); // no precedence: group mixed operators
+  z := (a - b - i32(1)); // one operator chains left: ((a - b) - 1)
+  r := .{ x : a, y : b }; // `.{ ... }` is a record value
+  { x, y : ry } := r; // `{ names }` on a binding side picks fields
+  v := {
+    t := (x + ry);
+    t * i32(2) // any other `{ ... }` is a block; it yields its tail
+  };
+  if(z < i32(0), assert((v == i32(10)) && (grade(y) == "F"), "cond"));
+});
+export(main);
+```
+
+- A function is `name :: (fn(a : A) -> R)(body);`: the parenthesized type,
+  then the body. `::` binds at compile time, `:=` at run time; module-level
+  `::`, `impl` and `derive` are order-independent. Only `export`ed names leave
+  a module; `main` returns `unit` and is exported.
+- Parenthesize wherever two different operators meet, including the right side
+  of `:=`, `=` and a field's `:` (`x := (a + b);`, `.{ x : (a + b) }`), or it
+  is E0003.
+- A bare `{ ... }` in expression position is a block (`{}` is unit); a `,` or
+  `label : value` inside one is E0007. `(a, b)` is a tuple, `Tuple(A, B)` its
+  type.
+- Control flow is calls: `cond(...)`, `match(...)`, `while(c, body)`,
+  `return(v)`, `return()`, `unwind(v)`; `break`/`continue` are bare; `if(c, a)`
+  and `if(c, a, b)` are sugar for `cond`. Sibling arms have one type (a block
+  ending in `;` is `unit`).
+- Integer literals take their type from the slot; otherwise write `i32(1)`.
+  Distinct integer types never mix implicitly; `usize(n)` converts. Overflow,
+  division by zero and out-of-bounds indexing trap (`wrapping_add` wraps).
+
+## Types, traits, generics
+
+```yo
+{ assert } :: import("std/assert");
+{ ToString } :: import("std/fmt"); // brings the ToString derive rule
+{ String } :: import("std/string");
+
+Point :: struct(x : i32, y : i32);
+derive(Point, Copy, Clone, Eq(Point), ToString);
+
+Norm :: trait(
+  norm1 : (fn(self : &Self) -> i32)
+);
+impl(
+  Point,
+  Norm(norm1 : (fn(self : &Self) -> i32)((self.x.abs() + self.y.abs())))
+);
+impl(
+  Point,
+  flip : (fn(self : Self) -> Self)(Point(x : self.y, y : self.x)) // inherent
+);
+
+// A generic function: T is inferred from the argument.
+describe :: (fn(generic(T : Type), x : &T, where(T <: ToString)) -> String)(
+  `<${x.to_string()}>`
+);
+
+main :: (fn() -> unit)({
+  p := Point(x : i32(3), y : i32(-4));
+  q := p; // Copy: p stays usable
+  assert((p == q) && (p.flip().norm1() == i32(7)), "copied; methods");
+  assert(describe(&p).len() > usize(2), "generic call");
+});
+export(main);
+```
+
+- Constructors take named fields. Variants are declared without a dot
+  (`enum(Leaf, Node(v : i32))`) and built or matched with one (`.Some(v)`). A
+  type names itself `Self` in its definition (`next : Option(Box(Self))`).
+- No overloading; operators are trait methods (`Eq`, `Ord`, `Add`, ...).
+- Derivable: `Copy` (with `Clone`), `Clone`, `Eq(T)`, `Ord(T)`, `Hash`,
+  `Default`, `ToString` and `Debug` (import `std/fmt` first), `Error` (import
+  `std/error`).
+- `impl(...)` statements end with `;`. A generic impl:
+  `impl(generic(T : Type), where(T <: ToString), Box(T), ...)`.
+- A generic type is a compile-time function, used as `Pair(i32)`:
+  `Pair :: (fn(comptime(A) : Type) -> comptime(Type))(struct(a : A, b : A));`
+
+## Ownership: values by default
+
+- **Three kinds of type.** `Copy` (integers, floats, `bool`, `&T`, `str`,
+  and types you `derive(T, Copy, Clone)`) copies bit for bit. Explicit-copy
+  (`String`, collections, `Box`, `Rc`, `Arc` and types holding them) copies
+  only through `x.clone()`. Move-only (no `Clone`, or a `Drop` impl: files,
+  locks, `&mut T`) never copies.
+- **The last use moves.** `y := x`, a by-value argument, a store, a capture
+  and a return move a non-`Copy` value; a later use is E0901, whose help names
+  the repair. There are no partial moves: copy the field, borrow it, or move
+  the whole value through a `match` struct pattern.
+- **Bindings are immutable** unless declared `mut(x) := v` /
+  `(mut(x) : T) = v` (module-level ones too). Reassigning, lending `&mut`,
+  calling a `&mut self` method or writing a field of an unmarked binding is
+  E0917.
+- **Drops** run at scope end, early exit and reassignment; a destructor is
+  `impl(T, Drop(drop : (fn(self : &mut Self) -> unit)(...)))`. `drop(x)` ends
+  a value early (`x.drop()` is E0915).
+
+```yo
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+
+Account :: struct(name : String, balance : i64);
+derive(Account, Clone); // String is Clone, not Copy
+
+balance_of :: (fn(a : &Account) -> i64)(a.balance); // reads
+deposit :: (fn(a : &mut Account, amount : i64) -> unit)({
+  a.balance = (a.balance + amount); // writes the caller's value
+});
+// Takes ownership; a struct pattern moves the field out of the owned value.
+close :: (fn(a : Account) -> String)(
+  match(a, { name, balance : _ } => name)
+);
+
+main :: (fn() -> unit)({
+  mut(acct) := Account(name : `ada`, balance : i64(10));
+  deposit(&mut acct, i64(5)); // the call site marks the lend
+  b := balance_of(&acct);
+  backup := acct.clone(); // an explicit copy
+  name := close(acct); // last use of acct: moved
+  assert((b == backup.balance) && (name == `ada`), "lent, then moved");
+});
+export(main);
+```
+
+## References and the borrow checker
+
+- **Parameters**: `x : T` by value (copy or move), `x : &T` read-only,
+  `x : &mut T` exclusive. The call site repeats the sigil, `f(&x)`,
+  `f(&mut x)` (a mismatch is E0914); receivers, temporaries and a reference
+  passed whole take none.
+- **`.*` names the referent**: `r.*` reads, `r.* = v` writes. Operators do not
+  look through references (`n + 1` with `n : &i32` is E0926); fields, methods
+  and indexing do (`r.x`, `r.len()`, `r(i)`).
+- **Local borrows**: `y := &place`, `y := &mut place`. A borrow is live until
+  its last use and freezes its place meanwhile: no write or move under `&`,
+  no access at all except through it under `&mut` (E0911). Sibling fields
+  borrow independently.
+- Writing through `&` is E0908. A later argument may read what an earlier one
+  lends (`xs.push(xs.len())`) but not move or `&mut`-lend it; overlapping
+  lends with a `&mut` (`s.push_string(&s)`) are E0910.
+- A function may return `&T`/`&mut T` rooted at a reference parameter (the
+  argument stays frozen while the result lives); a reference to a local cannot
+  escape (E0912).
+- **Origins** are Yo's lifetimes, usually elided: `-> &(i32, s)` borrows
+  only from parameter `s`; `generic(p : Origin)` declares one, and a struct
+  holding a reference takes `comptime(p) : Origin`. Collection elements, heap
+  cells, globals and other threads hold no references (E0909).
+
+```yo
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+
+Grid :: struct(a : i32, b : i32);
+
+// A returned reference is rooted at a reference parameter.
+larger :: (fn(g : &mut Grid) -> &mut i32)(
+  cond((g.a >= g.b) => &mut g.a, true => &mut g.b)
+);
+
+main :: (fn() -> unit)({
+  mut(g) := Grid(a : i32(1), b : i32(2));
+  r := larger(&mut g); // g is frozen until r's last use
+  r.* = i32(20); // `.*` reads and writes the referent
+  assert(g.b == i32(20), "written through the reference");
+
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(xs.len())); // a later argument may read xs
+  for(&mut xs, x => {
+    x.* = (x.* + i32(1)); // each element in place
+  });
+  xs(usize(0)) = i32(100); // indexing is a place
+  assert((xs(usize(0)) + xs(usize(1))) == i32(102), "walked");
+});
+export(main);
+```
+
+- `for(&xs, x => ...)` reads (the body may read `xs`), `for(&mut xs, x => ...)`
+  writes in place (the body may not name `xs`), `for(xs, x => ...)` consumes
+  `xs`; `for(xs.indices(), i => ...)` walks positions. Maps:
+  `for(&m, (k, v) => ...)`.
+- `xs(i)` copies out a `Copy` element; `xs.get(i)` is the checked form
+  (`Option`); a non-`Copy` element is cloned with `xs.get_cloned(i)` or
+  borrowed with `r := xs.index(i)`.
+- Rejected:
+
+```yo ignore
+mut(x) := i32(1);
+y := &x;
+x = i32(2); // E0911: `y` borrows `x` and is used below
+z := y.*;
+peek(x); // E0914 for `peek :: (fn(n : &i32) -> i32)`: write peek(&x)
+```
+
+Full rules: `docs/en-US/OWNERSHIP_AND_BORROWING.md`
+(`yo context --doc OWNERSHIP_AND_BORROWING`).
+
+## Pattern matching
+
+```yo
+{ assert } :: import("std/assert");
+
+Shape :: enum(Circle(r : i32), Rect(w : i32, h : i32), Empty);
+
+area :: (fn(s : &Shape) -> i32)(
+  match(
+    s, // matching through a reference: bindings are references
+    .Circle(r) => (r.* * r.* * i32(3)),
+    (.Rect({ w, h }) && (w.* > i32(0))) => (w.* * h.*), // pick fields; guard
+    .Rect(_, _) => i32(0),
+    .Empty => i32(0)
+  )
+);
+
+main :: (fn() -> unit)({
+  s := Shape.Rect(w : i32(2), h : i32(3));
+  assert(area(&s) == i32(6), "rect");
+  o := Option(Shape).Some(Shape.Circle(r : i32(1)));
+  k := match(&o, .Some(.Circle(_) | .Empty) => i32(1), _ => i32(2)); // borrows o
+  m := match(o, .Some(sh) => area(&sh), .None => i32(0)); // consumes o
+  assert((k == i32(1)) && (m == i32(3)), "nested or-pattern");
+});
+export(main);
+```
+
+- A match takes its scrutinee like a parameter: an owned non-`Copy` value is
+  consumed, `match(&x, ...)` borrows, `match(&mut x, ...)` binds writable
+  places (`v.* = ...`), a reference scrutinee binds references.
+- Forms: literals, `_`, bindings, nested variants, or-patterns `(a | b)`,
+  ranges `(0 .. 10)` / `(0 ..= 9)`, guards `(p && (cond))`, `(whole := p)`,
+  tuples, struct patterns, `Rc(p)`, `Box(p)`.
+- Exhaustiveness is checked (E0607 names the missing case); an arm that can
+  never run is E0608. A bare name binds unless it is a `::` constant in scope.
+
+## Closures
+
+```yo
+{ assert } :: import("std/assert");
+
+apply_twice :: (fn(f : Impl(Fn(x : i32) -> i32), x : i32) -> i32)(f(f(x)));
+
+main :: (fn() -> unit)({
+  k := i32(10);
+  // No capture list: the closure captures what it names, by value.
+  assert(apply_twice(x => (x + k), i32(1)) == i32(21), "captured k");
+
+  mut(total) := i32(0);
+  (i32(1) .. i32(3)).for_each({ &mut total }(x) => {
+    total.* = (total.* + x.*); // a &mut capture writes the caller's local
+  });
+  assert(total == i32(3), "1 + 2");
+});
+export(main);
+```
+
+- A capture list names every capture: `x` (by value), `&y`, `&mut z`,
+  `name : expr` (`{ h : Rc.clone(&h) }`); `{}` captures nothing. Captured
+  places stay frozen while the closure lives.
+- `Fn` reads its captures, `FnMut` writes them (call it through a `mut`
+  binding or `&mut Impl(FnMut(...))`), `FnOnce` moves one out (`Thread.spawn`
+  and `io.async` bodies).
+- Only `=>` closures capture, and one cannot fill a bare `fn(...)` slot
+  (E0605): take `Impl(Fn(...))`.
+
+## Strings, Option, Result, errors
+
+- `"..."` is a reference to static UTF-8 bytes: a parameter takes
+  `s : &str`; a function returning a literal is typed `-> str`. A backtick
+  literal is an owned `String` with `${expr}` interpolation (`ToString`).
+  `String` is a value (`mut(s)` to `push_str`, `.clone()` to copy); indices
+  are byte offsets.
+- `Option(T)` (`.Some(v)` / `.None`) is absence; `Result(T, E)` is a
+  recoverable failure with a real error enum (`derive(E, Error(...))`), never
+  `Result(_, String)`. I/O reports failure through the `exn : Exception`
+  effect.
+- `unwrap`/`expect` are E0611 outside unsafe and test files: `match`, or use
+  `unwrap_or`, `map`, ... (`assert`/`panic` from `std/assert` are for bugs).
+
+```yo
+{ assert } :: import("std/assert");
+{ ToString } :: import("std/fmt");
+{ Error } :: import("std/error"); // brings the Error derive rule
+
+ParseError :: enum(Empty, BadDigit(at : usize));
+derive(
+  ParseError,
+  Error(
+    .Empty => `empty input`,
+    .BadDigit => `bad digit at ${at}`
+  )
+);
+
+first_digit :: (fn(s : &str) -> Result(u8, ParseError))({
+  if(s.len() == usize(0), return(.Err(.Empty)));
+  c := s.bytes(usize(0));
+  cond(
+    ((c >= u8(48)) && (c <= u8(57))) => .Ok(c - u8(48)),
+    true => .Err(.BadDigit(at : usize(0)))
+  )
+});
+
+main :: (fn() -> unit)({
+  v := match(first_digit("7"), .Ok(n) => n, .Err(_) => u8(0));
+  e := match(first_digit("x"), .Ok(_) => `ok`, .Err(err) => err.to_string());
+  assert((v == u8(7)) && (e == `bad digit at 0`), "parsed, rendered");
+});
+export(main);
+```
+
+## Sharing: Box, Rc, Arc, Weak, RefCell, std/sync
+
+- `Box(T)` is a unique heap cell (`Option(Box(Self))`). `Rc(T)` (one thread) and `Arc(T)` (threads) share one cell; a second handle
+  is `Rc.clone(&h)`. Members forward (`h.x`, `h.len()`; `h.*` is the
+  payload), which is read-only (E0919): mutate through `RefCell(T)` (`with`,
+  `with_mut`), `Rc.make_mut(&mut h)` or `Rc.get_mut(&mut h)`.
+- A cycle of strong handles leaks; put a `Weak` on the back edge
+  (`Rc.downgrade(&h)`, `w.upgrade()`).
+- `Mutex(T)`, `RwLock(T)`, `WaitGroup`, the `Atomic*` types and the other
+  `std/sync` types are move-only values. Share one across threads as
+  `Arc(Mutex(T))`: give each thread its own `Arc.clone(&a)`, captured by
+  value. `RefCell` is single-threaded.
+- `Dyn(Trait)` lives behind `Box`, `Rc` or `&`: `dyn(Box.new(v))`.
+
+```yo
+{ assert } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
 { Mutex } :: import("std/sync/mutex");
 { Thread } :: import("std/thread");
 
-total := Arc.new(Mutex(i32).new(i32(0)));
-mine := Arc.clone(total);
-t := Thread(unit).spawn({ mine }(io : Io) => {
-  mine.with_lock(v => {
-    v.* = (v.* + i32(1));
+main :: (fn() -> unit)({
+  shared := Rc.new(RefCell(i32).new(i32(0)));
+  other := Rc.clone(&shared); // a second handle to the same cell
+  other.with_mut(v => {
+    v.* = (v.* + i32(1)); // written through the RefCell door
   });
+  seen := shared.with(v => v.*);
+
+  total := Arc.new(Mutex(i32).new(i32(0)));
+  mine := Arc.clone(&total); // the spawned thread's own handle
+  t := Thread(unit).spawn({ mine }(io : Io) => {
+    mine.with_lock(v => {
+      v.* = (v.* + i32(1));
+    });
+  });
+  t.join();
+  assert((seen == i32(1)) && (total.with_lock(v => v.*) == i32(1)), "shared");
 });
-t.join();
+export(main);
 ```
 
-## Verification (optional, gradual)
+## Effects, async, threads
 
-- `requires(...)`/`ensures(...)` clauses (name the return to use it in
-  `ensures`: `-> (result : i32)`), `invariant(...)`/`decreases(...)` loops,
-  ghost values, `yo verify` with a Z3 backend and concrete counter-examples
-  on refutation. `pragma(Pragma.Verify);` selects the mode per file;
-  `yo verify --explain <id-substring>` prints every obligation's goal
-  term — ids are `fn@<file>:<row>`, so match the file path or line.
-- `name :: law(fn(x : T, requires(p), ensures(q)) -> unit);` states a claim
-  OUTSIDE the code, proved from the callee's CONTRACT alone (never its
-  body). Laws verify only when the callee lives in the SAME file today (an
-  imported callee reports `cannot verify: untyped expression`), so keep
-  laws beside the contracted code for now.
-- `assumed()` marks a contract whose body is outside the verified subset —
-  a plain `yo verify` PASSES on `assumed`/`outside-subset`, and on
-  `unproven` in a `verify+` file (in a `verify` file it fails), so a
-  green run is not "everything proved". Gate specs with
-  `yo verify ./spec --strict`, which fails on those outcomes and always
-  prints the seven-outcome summary line.
+- An effect is a `ctl(...) -> R` value passed as an ordinary parameter. In its
+  handler, `return(v)` RESUMES the caller with `v`; `unwind(v)` DISCARDS the
+  continuation and returns `v` from the function that installed the handler.
+  (C's `abort()` is unrelated: it ends the process.)
 
-## Naming and sharp edges (rapid fire)
+```yo
+{ assert } :: import("std/assert");
 
-- Names that are only strings are kebab-case: `.yo` files, directories,
-  `[modules]` keys and packages (`std/collections/array-list`,
-  `import("markdown-yo/block-parser")`); identifiers keep `snake_case` /
-  `PascalCase` / `UPPER_SNAKE_CASE`, so a whole-module binding is
-  `array_list :: import("std/collections/array-list");`. `-` and `_` are
-  different names. `yo fix <path> --module-names` renames offending files
-  and rewrites the imports that reach them; `check` warns on them.
+Fail :: (ctl(code : i32) -> i32);
 
-- Grammar words are NOT reserved as binding names (`type` works as a field
-  or local); what rejects is the builtin-dispatch set (`unwind`, `recur`,
-  `consume`, ...) and `for`. Avoid Windows macro names (`near`, `far`,
-  `IN`, `OUT`) in FFI-facing code.
-- `impl(...)` blocks need the trailing semicolon.
-- ArrayList indexing is CALL syntax: `xs(i)` reads, `xs(i) = v` writes,
-  `xs.get(i)` is the checked form.
-- Match/cond arms are VALUES and sibling arms must have one type: an arm
-  ending in `xs.push(v)` is `unit`, one ending in `xs.try_push(v)` is a
-  `Result` — make a statement arm a block ending in `;`, and every arm the
-  same type.
-- Loops over a collection: `for(xs, (x) => { ... })` by value;
-  `for(&mut xs, x => { ... })` borrows each element in place (growing or
-  shrinking `xs` inside the body panics); maps: `for(&mut m, (k, v) => ...)`.
-- Only a `=>` closure captures enclosing locals: `(x) => (x + base)`. A
-  `(fn(...) -> T)(body)` literal and a named fn capture nothing.
-- Recursive enums + `derive(Eq/Clone)` + `ArrayList` fields can form a
-  circular derive dependency — derive on the `ref` wrapper or order manually.
-- Template `${...}` interpolations call `to_string()` implicitly only for
-  `ToString` types; a `\\` immediately before `${` kills the interpolation.
-- Template strings are `String`, `"..."` literals are `str` — sibling
-  match/cond arms must agree: mix them and the arm-type error points at the
-  literal.
-- Doc comments: `///` items, `//!` modules; `yo doc ./std` renders the API.
+checked_div :: (fn(a : i32, b : i32, fail : Fail) -> i32)(
+  cond((b == i32(0)) => fail(i32(1)), true => (a / b))
+);
+
+or_minus_one :: (fn(b : i32) -> i32)({
+  (fail : Fail) = (code -> unwind(i32(-1))); // or_minus_one returns -1
+  checked_div(i32(6), b, fail) + i32(100)
+});
+
+main :: (fn() -> unit)({
+  (zero : Fail) = (code -> return(i32(0))); // the call fail(...) yields 0
+  assert(checked_div(i32(6), i32(0), zero) == i32(0), "resumed");
+  assert(or_minus_one(i32(0)) == i32(-1), "unwound");
+});
+export(main);
+```
+
+- std's exception effect: `exn := Exception(throw : (e -> unwind(.None)));`
+  catches what `exn.throw(dyn(Box.new(err)))` raises (`std/error`).
+- Async runs on ONE event-loop thread per thread and a task never migrates:
+  async state needs no mutexes or atomics (blocking work goes to
+  `spawn_blocking`). `io.async((io : Io) => body)` builds a lazy future that
+  `io.await(f, io)` runs once or `io.spawn(f, io)` starts. `io.await`
+  suspends only when written in the `io.async` body itself; in a function the
+  task calls, it blocks.
+
+```yo
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+
+double_later :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io); // suspends this task; others run
+    n * i32(2)
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  a := io.spawn(double_later(i32(1), io), io); // a JoinHandle
+  b := io.await(double_later(i32(5), io), io);
+  ra := match(a.await(io), .Some(v) => v, .None => i32(0)); // .None: aborted
+  assert((ra == i32(2)) && (b == i32(10)), "both tasks ran");
+});
+export(main);
+```
+
+- Threads (`Thread` and `ThreadPool` in `std/thread`, `Channel` in
+  `std/sync/channel`) are for CPU parallelism; only `Send` values cross. Each
+  thread has its own event loop.
+
+## Unsafe code and FFI
+
+Only a file declaring `pragma(Pragma.AllowUnsafe);` may hold raw pointers
+(`addr_of(x)` gives `*(T)`; `&x` never does), dereference them or call C.
+Wrap each such operation in `unsafe(...)` (required for C calls) with a
+`// SAFETY:` comment.
+
+```yo
+pragma(Pragma.AllowUnsafe);
+{ strlen } :: import("std/libc/string");
+{ assert } :: import("std/assert");
+
+main :: (fn() -> unit)({
+  mut(x) := i32(41);
+  p := addr_of(x);
+  // SAFETY: p points at x, which is live for this whole block.
+  unsafe(p.* = (p.* + i32(1)));
+  n := unsafe(strlen((*char)("four")));
+  assert((x == i32(42)) && (n == usize(4)), "wrote through p");
+});
+export(main);
+```
+
+## Modules, projects, tests
+
+- `{ a, b } :: import("std/...")` picks names, `m :: import("./m.yo")` binds
+  the module, `{ ... } :: import("m")` takes everything; a bare `import("m");`
+  binds nothing. The prelude is implicit.
+- File, directory and package names are kebab-case
+  (`std/collections/array-list`); identifiers are `snake_case`/`PascalCase`.
+- A field or method named `_x` is private to its module (E0405).
+- Dependencies live in `yo.toml` (`yo add user/repo`); `yo install` fetches
+  them, and `import("dep/...")` resolves through the nearest manifest.
+- Doc comments: `//!` for the module, `///` for items; fence Yo code as `yo`.
+- Tests live in `*.test.yo` files (`unwrap` is allowed there). `assert` is not
+  in the prelude:
+
+```yo
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+
+test("push then len", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  assert(xs.len() == usize(1), "one element");
+});
+```
 
 ## Where to look next
 
-- `yo context --list` then `yo context <module>` — the real API surface.
-- `yo explain E0xxx` for any diagnostic; `yo fix` for machine-applicable
-  repairs.
-- The in-depth manuals ship with the toolchain, matching its version:
-  `yo context --docs` lists them, `yo context --doc MEMORY_SAFETY` prints one
-  (GRAMMAR, DESIGN, ASYNC_AWAIT, MEMORY_SAFETY, EXPLICIT_ALLOCATORS,
-  ALGEBRAIC_EFFECTS, FORMAL_VERIFICATION, …). zh-CN translations live in the
-  repository under `docs/zh-CN/`.
-- The LSP (`yo lsp`, VS Code extension) gives hover/completion/go-to-def in
-  editors.
+- `yo context --list`, then `yo context <module>`: the real API surface.
+- `yo explain E0xxx` for any diagnostic; `yo fix` applies its repair.
+- The manuals ship with the toolchain: `yo context --docs` lists them,
+  `yo context --doc STRINGS` prints one (`docs/en-US/` in the repository).
+- Contracts (`requires`, `ensures`, `invariant`) are proved by `yo verify`:
+  `yo context --doc FORMAL_VERIFICATION`.
+- `yo lsp` (and the VS Code extension) gives hover, completion and go-to.
