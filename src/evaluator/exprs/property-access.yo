@@ -447,6 +447,33 @@ member_behind_deref_error :: (
     E_MEMBER_BEHIND_DEREF
   )
 });
+/// SWEEP RECORDER (unmerged, VERDICTS-73 F1): under `YO_SWEEP_RECORD`, a
+/// site that is an error in the deletion is recorded and keeps its old
+/// meaning, so one evaluation records every site. Each row is
+/// `[sweep] <code>\t<path>\t<row>\t<col>\t<len>\t<replacement>` (the
+/// error's structured repair: 0-based row, 0-based rune column), or
+/// `[sweep-manual] <code>\t<path>:<row>:<col>\t<message>` when it has none.
+/// The code column lets later rewrite kinds share the applier.
+sweep_recording :: (fn() -> bool)(debug_knob(`YO_SWEEP_RECORD`).is_some());
+sweep_record :: (fn(err : &YoError) -> unit)({
+  match(
+    err.diagnostics.get_cloned(usize(0)),
+    .Some(d) => {
+      code := match(&d.code, .Some(c) => c.clone(), .None => String.from("?"));
+      match(
+        &d.repair,
+        .Some(rp) => {
+          eprintln(`[sweep] ${code}\t${rp.span.path}\t${rp.span.row.to_string()}\t${rp.span.col.to_string()}\t${rp.span.len.to_string()}\t${rp.replacement}`);
+        },
+        .None => {
+          first := match(d.message.index_of(`\n`), .Some(nl) => d.message.substring(usize(0), nl), .None => d.message.clone());
+          eprintln(`[sweep-manual] ${code}\t${d.span.path}:${(d.span.row + usize(1)).to_string()}:${(d.span.col + usize(1)).to_string()}\t${first}`);
+        }
+      );
+    },
+    .None => ()
+  );
+});
 /// Build the path_collection for a field-access node.
 ///
 /// If the object already has a non-empty path_collection, each path is
@@ -631,6 +658,8 @@ _try_resolve_associated_type :: (
 /// evaluating (N1e-1): its own `.*` arm decides whether the inner `.*` is an
 /// old payload read or the reference's deref an earlier run wrote.
 (mut(g_deref_chain_object_id) : usize) = usize(0);
+/// SWEEP RECORDER: the field hook's re-evaluations in progress.
+(mut(g_sweep_inner_depth) : usize) = usize(0);
 evaluate_property_access :: (
   fn(
     expr : &AstExpr,
@@ -2531,8 +2560,35 @@ Raw pointer operations may dereference invalid memory.`
               match(
                 _deref_chain_has_field(&base_ty, label_str.clone(), &env),
                 .Ok((pa_stars, pa_landed)) => if(!pa_is_callee || (get_receiver_methods_by_name_from_env(&env, label_str.clone(), &base_ty, false).len() == usize(0)), {
-                  exn.throw(dyn(Box.new(member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pa_stars, &pa_landed, pa_is_callee, false))));
-                  return(Rc.clone(expr.*));
+                  pa_err := member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pa_stars, &pa_landed, pa_is_callee, false);
+                  if(!sweep_recording(), {
+                    exn.throw(dyn(Box.new(pa_err)));
+                    return(Rc.clone(expr.*));
+                  });
+                  // SWEEP RECORDER: record, then the old rewrite `w.*.field`.
+                  // The re-evaluation of the rewritten access reaches this arm
+                  // again for a nested handle; the outer record already
+                  // spells the whole chain.
+                  if(g_sweep_inner_depth == usize(0), {
+                    sweep_record(&pa_err);
+                  });
+                  orig_obj := match(
+                    all_args.get_cloned(usize(0)),
+                    .Some(a) => cond(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)).is_some() => a, true => object_expr),
+                    .None => object_expr
+                  );
+                  pa_deref_args := ArrayList(AstExpr).new();
+                  pa_deref_args.push(make_deref_expr(&orig_obj, ast_expr_token(expr), ast_expr_token(&property_expr)));
+                  pa_deref_args.push(property_expr.clone());
+                  pa_rewritten := match(expr, Rc(.FnCall(pa_id, pa_f, _, pa_infix, pa_tok)) => Rc.new(AstExprNode.FnCall(pa_id.*, Rc.clone(pa_f.*), Rc.new(pa_deref_args), pa_infix.*, Rc.clone(pa_tok.*))), Rc(.Atom(_, _)) => expr.clone());
+                  note_rewritten_node(&pa_rewritten);
+                  obj_id := ast_expr_id(&orig_obj);
+                  mark_node_preevaluated(obj_id);
+                  g_sweep_inner_depth = (g_sweep_inner_depth + usize(1));
+                  rewritten := recur(&pa_rewritten, env_in, ctx, exn);
+                  g_sweep_inner_depth = (g_sweep_inner_depth - usize(1));
+                  unmark_node_preevaluated(obj_id);
+                  return(rewritten);
                 }),
                 .Err(innermost) => if(!pa_is_callee, {
                   exn.throw(
@@ -2617,8 +2673,13 @@ Raw pointer operations may dereference invalid memory.`
                 pp_cur = match(Rc.clone(pp_cur), Rc(.Pointer(pt)) => Rc.clone(pt), _ => t_unit());
                 pp_stars = (pp_stars + usize(1));
               });
-              exn.throw(dyn(Box.new(member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pp_stars, &base_ty, is_dot_callee(ast_expr_id(expr)), false))));
-              return(Rc.clone(expr.*));
+              pp_err := member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pp_stars, &base_ty, is_dot_callee(ast_expr_id(expr)), false);
+              if(!sweep_recording(), {
+                exn.throw(dyn(Box.new(pp_err)));
+                return(Rc.clone(expr.*));
+              });
+              // SWEEP RECORDER: record, then read through the pointer as before.
+              sweep_record(&pp_err);
             });
             ft_lbl := _reference_field_read_type(&match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);
             field_origin_lbl := match(
@@ -3101,4 +3162,4 @@ _io_builtin_method_type :: (fn(env : &Environment, label : &String, io_ty : &Typ
   Option(TypeValue).None
 });
 
-export(evaluate_property_access, make_deref_expr, note_projection_call_deref, member_behind_deref_error, strip_synthesized_stars);
+export(evaluate_property_access, make_deref_expr, note_projection_call_deref, member_behind_deref_error, strip_synthesized_stars, sweep_recording, sweep_record);

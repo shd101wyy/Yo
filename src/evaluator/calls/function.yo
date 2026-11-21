@@ -149,7 +149,7 @@ pragma(Pragma.AllowUnsafe);
   type_clone_runs_no_user_code
 } :: import("../trait-checking.yo");
 { get_trait_type_from_env } :: import("../../types/env-lookup.yo");
-{ make_deref_expr, member_behind_deref_error, strip_synthesized_stars } :: import("../exprs/property-access.yo");
+{ make_deref_expr, member_behind_deref_error, strip_synthesized_stars, sweep_recording, sweep_record } :: import("../exprs/property-access.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
 { try_to_implement_module_with_arguments_by_module_type } :: import("./record-type.yo");
 {
@@ -1753,9 +1753,13 @@ _find_receiver_method_of :: (
                 written_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&written)), .Some(wi) => Rc.clone(wi.ty()), .None => Rc.clone(receiver_type));
                 landed_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&deref_hit.receiver_expr)), .Some(li) => Rc.clone(li.ty()), .None => Rc.clone(receiver_type));
                 mb_err := member_behind_deref_error(&written, &written_ty, &method_tok, mb_stars, &landed_ty, true, for_desugar_site_of(&ast_expr_token(callee)).is_some());
-                mb_key := ast_expr_id(&method_name_expr);
-                g_member_behind_deref.with_mut({ mb_key, mb_err }(m) => m.insert(mb_key, mb_err.clone()));
-                return(Option(ReceiverMethodResult).None);
+                if(!sweep_recording(), {
+                  mb_key := ast_expr_id(&method_name_expr);
+                  g_member_behind_deref.with_mut({ mb_key, mb_err }(m) => m.insert(mb_key, mb_err.clone()));
+                  return(Option(ReceiverMethodResult).None);
+                });
+                // SWEEP RECORDER: record, then forward as before.
+                sweep_record(&mb_err);
               });
               rw_args := ArrayList(AstExpr).new();
               rw_args.push(deref_hit.receiver_expr.clone());
