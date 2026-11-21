@@ -79,10 +79,10 @@ Node :: struct(
 
 root := Rc.new(RefCell(Node).new(Node(value : i32(1), parent : Weak(RefCell(Node)).new(), children : ArrayList(Rc(RefCell(Node))).new())));
 leaf := Rc.new(RefCell(Node).new(Node(value : i32(2), parent : Rc.downgrade(&root), children : ArrayList(Rc(RefCell(Node))).new())));
-root.with_mut({ leaf }(n) => {
+root.*.with_mut({ leaf }(n) => {
   n.children.push(leaf);
 });
-parent_value := leaf.with(n => match(n.parent.upgrade(), .Some(p) => p.with(pn => pn.value), .None => i32(0)));
+parent_value := leaf.*.with(n => match(n.parent.upgrade(), .Some(p) => p.*.with(pn => pn.value), .None => i32(0)));
 assert(parent_value == i32(1), "the leaf reaches its parent");
 ```
 

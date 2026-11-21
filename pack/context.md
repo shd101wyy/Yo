@@ -343,7 +343,7 @@ handle.
 total := Arc.new(Mutex(i32).new(i32(0)));
 mine := Arc.clone(total);
 t := Thread(unit).spawn({ mine }(io : Io) => {
-  mine.with_lock(v => {
+  mine.*.with_lock(v => {
     v.* = (v.* + i32(1));
   });
 });

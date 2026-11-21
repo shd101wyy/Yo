@@ -3107,13 +3107,13 @@ test_capture :: (fn() -> unit)({
 
   (mut(closure) : Impl(FnMut(increment : i32) -> i32)) = ({ counter, data : Rc.clone(data) }(increment) => {
     counter = (counter + increment); // 修改闭包自己的副本
-    data.replace_with(v => (v.* + increment)); // 修改共享单元
+    data.*.replace_with(v => (v.* + increment)); // 修改共享单元
     return(counter);
   });
 
   closure(5);
   // counter 仍然是 0（闭包有自己的副本）
-  // data.with(v => v.*) 现在是 47（共享单元）
+  // data.*.with(v => v.*) 现在是 47（共享单元）
 });
 ```
 
@@ -3312,10 +3312,10 @@ l1.push(k2); // 错误：k2 是另一种闭包类型
 
 make_incrementer :: (fn(start : Rc(RefCell(i32))) -> Impl(Fn() -> i32))({
   return(() => {
-    start.with_mut((n : &mut i32) => {
+    start.*.with_mut((n : &mut i32) => {
       n.* = (n.* + 1);
     });
-    start.with((n : &i32) => n.*)
+    start.*.with((n : &i32) => n.*)
   });
 });
 
@@ -3325,7 +3325,7 @@ test :: (fn() -> unit)({
 
   assert(inc() == 1);
   assert(inc() == 2);
-  assert(counter.with((n : &i32) => n.*) == 2);
+  assert(counter.*.with((n : &i32) => n.*) == 2);
 });
 ```
 
@@ -3579,8 +3579,8 @@ test("Rc reference counting", {
   { RefCell } :: import("std/sync/refcell");
   log := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(log); // 指向同一个单元的第二个句柄
-  other.replace_with(n => (n + i32(1)));
-  assert(log.with(n => n) == i32(1), "seen through the first handle");
+  other.*.replace_with(n => (n + i32(1)));
+  assert(log.*.with(n => n) == i32(1), "seen through the first handle");
   ```
 
 - **`Rc.make_mut(&mut h)`**（`T <: Clone`）是被写入的载荷：若另一个句柄共享该单元，`h` 先移到一个持有载荷克隆的新单元，因此其他句柄永远看不到这次写入。若 `h` 是唯一句柄，则就地写入。即 Rust 的 `Rc::make_mut`；克隆体现在名字里。
@@ -3589,7 +3589,7 @@ test("Rc reference counting", {
   a := Rc.new(Point(x : 1, y : 2));
   b := Rc.clone(a);
   Rc.make_mut(&mut b).x = 10; // b 得到自己的单元
-  assert((a.x == 1) && (b.x == 10), "a is unchanged");
+  assert((a.*.x == 1) && (b.*.x == 10), "a is unchanged");
   ```
 
 - **`Rc.try_unwrap(h)`** 消耗该句柄：若它是唯一句柄，返回 `.Ok(payload)`（单元被释放），否则返回 `.Err(h)`，即原句柄。它不需要 `Clone`。
@@ -3795,7 +3795,7 @@ Shape :: trait(area : (fn(self : &Self) -> f64));
 mut(shapes) := ArrayList(Box(Dyn(Shape))).new();
 shapes.push(dyn(Box.new(Circle(r : f64(1.0)))));
 shapes.push(dyn(Box.new(Square(side : f64(2.0)))));
-for(&shapes, s => println(s.area()));
+for(&shapes, s => println(s.*.*.area()));
 ```
 
 trait 必须是对象安全的（接收者是 `&Self` 或 `&mut Self`、签名中没有其他

@@ -3234,13 +3234,13 @@ test_capture :: (fn() -> unit)({
 
   (mut(closure) : Impl(FnMut(increment : i32) -> i32)) = ({ counter, data : Rc.clone(data) }(increment) => {
     counter = (counter + increment); // Modifies the closure's own copy
-    data.replace_with(v => (v.* + increment)); // Modifies the shared cell
+    data.*.replace_with(v => (v.* + increment)); // Modifies the shared cell
     return(counter);
   });
 
   closure(5);
   // counter is still 0 (the closure has its own copy)
-  // data.with(v => v.*) is now 47 (the shared cell)
+  // data.*.with(v => v.*) is now 47 (the shared cell)
 });
 ```
 
@@ -3483,10 +3483,10 @@ A closure that captures a shared cell owns a handle to it; the cell's payload ch
 
 make_incrementer :: (fn(start : Rc(RefCell(i32))) -> Impl(Fn() -> i32))({
   return(() => {
-    start.with_mut((n : &mut i32) => {
+    start.*.with_mut((n : &mut i32) => {
       n.* = (n.* + 1);
     });
-    start.with((n : &i32) => n.*)
+    start.*.with((n : &i32) => n.*)
   });
 });
 
@@ -3496,7 +3496,7 @@ test :: (fn() -> unit)({
 
   assert(inc() == 1);
   assert(inc() == 2);
-  assert(counter.with((n : &i32) => n.*) == 2);
+  assert(counter.*.with((n : &i32) => n.*) == 2);
 });
 ```
 
@@ -3799,8 +3799,8 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
   { RefCell } :: import("std/sync/refcell");
   log := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(log); // a second handle to the same cell
-  other.replace_with(n => (n + i32(1)));
-  assert(log.with(n => n) == i32(1), "seen through the first handle");
+  other.*.replace_with(n => (n + i32(1)));
+  assert(log.*.with(n => n) == i32(1), "seen through the first handle");
   ```
 
 - **`Rc.make_mut(&mut h)`** (`T <: Clone`) is the payload, written: when
@@ -3813,7 +3813,7 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
   a := Rc.new(Point(x : 1, y : 2));
   b := Rc.clone(a);
   Rc.make_mut(&mut b).x = 10; // b gets a cell of its own
-  assert((a.x == 1) && (b.x == 10), "a is unchanged");
+  assert((a.*.x == 1) && (b.*.x == 10), "a is unchanged");
   ```
 
 - **`Rc.try_unwrap(h)`** consumes the handle and returns `.Ok(payload)`
@@ -4031,7 +4031,7 @@ Shape :: trait(area : (fn(self : &Self) -> f64));
 mut(shapes) := ArrayList(Box(Dyn(Shape))).new();
 shapes.push(dyn(Box.new(Circle(r : f64(1.0)))));
 shapes.push(dyn(Box.new(Square(side : f64(2.0)))));
-for(&shapes, s => println(s.area()));
+for(&shapes, s => println(s.*.*.area()));
 ```
 
 The trait must be object-safe (a `&Self` or `&mut Self` receiver, no other

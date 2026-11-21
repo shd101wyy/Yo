@@ -169,7 +169,7 @@ Node :: struct(value : i32, next : Option(Rc(RefCell(Self))));
 test("a cycle of strong handles is never freed", {
   a := Rc.new(RefCell(Node).new(Node(value : i32(1), next : .None)));
   b := Rc.new(RefCell(Node).new(Node(value : i32(2), next : .Some(Rc.clone(a)))));
-  a.with_mut((n : &mut Node) => {
+  a.*.with_mut((n : &mut Node) => {
     n.next = .Some(Rc.clone(b)); // a -> b -> a: both counts stay above zero
   });
 });

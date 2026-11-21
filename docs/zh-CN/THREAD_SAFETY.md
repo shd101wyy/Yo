@@ -70,10 +70,10 @@ local_data := MyList.new(); // 值：只有一个所有者，留在本线程
 ready := Arc.new(AtomicBool.new(false));
 mine := Arc.clone(ready); // 被派生线程的句柄
 t := Thread(unit).spawn({ mine }(io : Io) => {
-  mine.store(true, MemoryOrder.Release);
+  mine.*.store(true, MemoryOrder.Release);
 });
 t.join();
-assert(ready.load(MemoryOrder.Acquire), "the thread stored true");
+assert(ready.*.load(MemoryOrder.Acquire), "the thread stored true");
 ```
 
 `Channel(T)` 本身就是句柄：它持有队列的 `Arc`，所以 `ch.clone()` 是同一个队列上的另一个句柄，队列随最后一个句柄释放。隐式复制在这里同样是 E0901。`Sender(T)` 的克隆会挂上一个被计数的生产者，而 `Receiver(T)` 既不能克隆也不能复制（[PARALLELISM.md](PARALLELISM.md)）。
@@ -201,7 +201,7 @@ new_value := counter.with_lock(v => (v.* + i32(1)));
 total := Arc.new(Mutex(i32).new(i32(0)));
 mine := Arc.clone(total);
 t := Thread(unit).spawn({ mine }(io : Io) => {
-  mine.with_lock(v => {
+  mine.*.with_lock(v => {
     v.* = (v.* + i32(1));
   });
 });

@@ -160,7 +160,7 @@ Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 
 a := Arc.new(Mutex(Node).new(Node(id : i32(1), peer : .None)));
 b := Arc.clone(a);
-a.with_lock(v => {
+a.*.with_lock(v => {
   v.peer = .Some(b); // a -> mutex -> node -> a：这个单元永远不会被释放
 });
 ```

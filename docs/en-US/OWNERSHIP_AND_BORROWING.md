@@ -441,7 +441,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next; // re-point to the next slot
+        cur = &mut n.*.*.next; // re-point to the next slot
       },
       .None => ()
     );
@@ -456,8 +456,8 @@ sum :: (fn(list : &List) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.value);
-        cur = &n.next;
+        total = (total + n.*.*.value);
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -903,10 +903,10 @@ names the doors:
 main :: (fn() -> unit)({
   count := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(&count); // a second handle to the same cell
-  other.with_mut(v => {
+  other.*.with_mut(v => {
     v.* = (v.* + i32(1)); // checked at run time: no other access is running
   });
-  assert(count.with(v => v.*) == i32(1), "both handles see the write");
+  assert(count.*.with(v => v.*) == i32(1), "both handles see the write");
 
   mut(h) := Rc.new(i32(1));
   a := Rc.clone(&h);
@@ -936,12 +936,12 @@ main :: (fn() -> unit)({
   total := Arc.new(Mutex(i32).new(i32(0)));
   mine := Arc.clone(&total); // the spawned thread's handle
   t := Thread(unit).spawn({ mine }(io : Io) => {
-    mine.with_lock(v => {
+    mine.*.with_lock(v => {
       v.* = (v.* + i32(1));
     });
   });
   t.join();
-  assert(total.with_lock(v => v.*) == i32(1), "the thread's write is visible");
+  assert(total.*.with_lock(v => v.*) == i32(1), "the thread's write is visible");
 });
 export(main);
 ```

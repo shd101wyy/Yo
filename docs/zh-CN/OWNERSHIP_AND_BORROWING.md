@@ -378,7 +378,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next; // 重新指向下一个槽位
+        cur = &mut n.*.*.next; // 重新指向下一个槽位
       },
       .None => ()
     );
@@ -393,8 +393,8 @@ sum :: (fn(list : &List) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.value);
-        cur = &n.next;
+        total = (total + n.*.*.value);
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -783,10 +783,10 @@ export(main);
 main :: (fn() -> unit)({
   count := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(&count); // 指向同一单元的第二个句柄
-  other.with_mut(v => {
+  other.*.with_mut(v => {
     v.* = (v.* + i32(1)); // 运行时检查：没有其他访问正在进行
   });
-  assert(count.with(v => v.*) == i32(1), "两个句柄都看到这次写入");
+  assert(count.*.with(v => v.*) == i32(1), "两个句柄都看到这次写入");
 
   mut(h) := Rc.new(i32(1));
   a := Rc.clone(&h);
@@ -815,12 +815,12 @@ main :: (fn() -> unit)({
   total := Arc.new(Mutex(i32).new(i32(0)));
   mine := Arc.clone(&total); // 派生线程的句柄
   t := Thread(unit).spawn({ mine }(io : Io) => {
-    mine.with_lock(v => {
+    mine.*.with_lock(v => {
       v.* = (v.* + i32(1));
     });
   });
   t.join();
-  assert(total.with_lock(v => v.*) == i32(1), "线程的写入可见");
+  assert(total.*.with_lock(v => v.*) == i32(1), "线程的写入可见");
 });
 export(main);
 ```

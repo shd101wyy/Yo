@@ -30,7 +30,7 @@ main :: (fn() -> unit)({
   (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(4)))); // owned
   m := speak_via(&b.*); // lend the boxed object
   (s : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(5)))); // shared
-  total := (a + m + s.speak() + c.n);
+  total := (a + m + s.*.speak() + c.n);
   println(&total);
 });
 export(main);
@@ -135,8 +135,8 @@ Only these methods get a vtable slot. Calling one of the others through a `Dyn` 
 ```yo ignore
 Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));
 (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
-d.speak(); // OK: `Self` only as the receiver
-d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
+d.*.speak(); // OK: `Self` only as the receiver
+d.*.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
 A blanket inherent method over a trait bound (`impl(generic(E), where(E <: Named), E, shout : ...)`)
@@ -313,10 +313,10 @@ impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
 main :: (fn() -> unit)({
   (d : Box(Dyn(Speak, Clone))) = dyn(Box.new(Cat(n : i32(3))));
   e := d.clone(); // an independent payload: d and e share nothing
-  both := (d.speak() + e.speak());
+  both := (d.*.speak() + e.*.speak());
   println(&both);
   f := d; // the last use of d: a move
-  one := f.speak();
+  one := f.*.speak();
   println(&one);
 });
 export(main);
@@ -332,7 +332,7 @@ source afterwards is the use of a moved value:
 ```yo ignore
 (d : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(3))));
 e := d; // value moved here
-d.speak(); // error[E0901]: use of moved value: `d`
+d.*.speak(); // error[E0901]: use of moved value: `d`
 ```
 
 A copy out of storage that cannot give the value away (a field or element, a dereference, a

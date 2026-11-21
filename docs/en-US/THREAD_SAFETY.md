@@ -96,10 +96,10 @@ local_data := MyList.new(); // a value: one owner, on this thread
 ready := Arc.new(AtomicBool.new(false));
 mine := Arc.clone(ready); // the spawned thread's handle
 t := Thread(unit).spawn({ mine }(io : Io) => {
-  mine.store(true, MemoryOrder.Release);
+  mine.*.store(true, MemoryOrder.Release);
 });
 t.join();
-assert(ready.load(MemoryOrder.Acquire), "the thread stored true");
+assert(ready.*.load(MemoryOrder.Acquire), "the thread stored true");
 ```
 
 `Channel(T)` is itself a handle: it holds an `Arc` of its queue, so `ch.clone()` is another
@@ -254,7 +254,7 @@ A `Mutex(T)` is a move-only value; to lock it from several threads, share it as
 total := Arc.new(Mutex(i32).new(i32(0)));
 mine := Arc.clone(total);
 t := Thread(unit).spawn({ mine }(io : Io) => {
-  mine.with_lock(v => {
+  mine.*.with_lock(v => {
     v.* = (v.* + i32(1));
   });
 });
