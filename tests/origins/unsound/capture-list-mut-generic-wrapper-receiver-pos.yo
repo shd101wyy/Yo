@@ -1,0 +1,29 @@
+// expect: accept
+// Positive control: the closure clears a second wrapper's list.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &mut Impl(FnMut() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(items : ArrayList(T)));
+impl(generic(T : Type), Wrap(T), head : (fn(self : &Self) -> &T)(&self.items(usize(0))));
+main :: (fn() -> unit)({
+  mut(items) := ArrayList(Rc(W)).new();
+  items.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  mut(w) := Wrap(Rc(W))(items : items);
+  mut(others) := ArrayList(Rc(W)).new();
+  others.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  mut(v) := Wrap(Rc(W))(items : others);
+  w.head().peek(
+    &mut ({ &mut v }() => {
+      v.items.clear();
+    })
+  );
+});
+export(main);
