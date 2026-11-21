@@ -81,7 +81,7 @@ pragma(Pragma.AllowUnsafe);
 { some_t_bounds, t_static_str_ref, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await-analysis.yo");
-{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
+{ Substitution, subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str, TokenData } :: import("../../token.yo");
 { EvalValue, EvalValueNode, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid, shared_values, value_cell_new } :: import("../../value.yo");
@@ -7973,6 +7973,132 @@ _funcval_bind_foralls :: (
     });
   });
 });
+/// The callee's `generic(...)` binders as a partial application must type
+/// its minted function. A `_` hole and the result are typed by the callee's
+/// parameter and result types, which can name a binder (`A` in
+/// `fn(generic(A : Type), comptime(x) : A, comptime(y) : A) -> comptime(A)`).
+/// The captured arguments are inferred against their parameters exactly as
+/// a call infers them (`_funcval_bind_foralls`, holes contributing nothing):
+/// a binder they fix to a concrete type goes into `out_subst`
+/// (`Wrap(i32(7), _)` takes and returns `i32`), and every other binder's
+/// index goes into `out_free`, a binder of the minted function that its own
+/// call infers from the hole arguments. Copied unbound, the binder was a type
+/// variable nothing in the minted function binds, and the comptime result of
+/// calling it was an unknown of that variable
+/// (issues/fixed/2026-11-21-partial-application-through-a-generic-binder-loses-the-comptime-value.md).
+_partial_application_binders :: (
+  fn(
+    callee_ty : &TypeValue,
+    forall_names : &ArrayList(String),
+    param_type_names : &ArrayList(String),
+    param_ct : &ArrayList(bool),
+    // Parallel to the callee's parameters; a hole's entry is a placeholder
+    // (blanked name, unit declared type) that can never bind a binder.
+    arg_infos : &ArrayList(ExprInfo),
+    is_hole : &ArrayList(bool),
+    args : &ArrayList(AstExpr),
+    cap_src : &FvCaptureSource,
+    cap_vals : &SharedList(EvalValue),
+    recv_type_args : &SharedList(TypeValue),
+    env : &Environment,
+    exn : Exception,
+    out_subst : &mut Substitution,
+    out_free : &mut ArrayList(usize)
+  ) -> unit
+)({
+  pts := match(callee_ty, Rc(.Func({ param_types : ppt })) => Rc.clone(ppt), _ => no_types());
+  kinds := match(callee_ty, Rc(.Func({ forall_types : fts })) => Rc.clone(fts), _ => no_types());
+  // A hole names no binder, has no declared type to synthesize against, and
+  // supplies no argument.
+  b_ptn := ArrayList(String).new();
+  b_decl := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < pts.len(), {
+    if(match(is_hole.get(i), .Some(h) => h, .None => false), {
+      b_ptn.push(String.new());
+      b_decl.push(t_unit());
+    }, {
+      b_ptn.push(match(param_type_names.get_cloned(i), .Some(n) => n, .None => String.new()));
+      b_decl.push(match(pts.get(i), .Some(t) => t, .None => t_unit()));
+    });
+    i = (i + usize(1));
+  });
+  scratch := new_environment(Rc.clone(env.module_path()));
+  bound_names := ArrayList(String).new();
+  bound_types := ArrayList(TypeValue).new();
+  conflicts := ArrayList(String).new();
+  conflict_args := ArrayList(usize).new();
+  _funcval_bind_foralls(
+    forall_names,
+    &b_ptn,
+    arg_infos,
+    cap_src,
+    cap_vals,
+    recv_type_args,
+    &scratch,
+    env,
+    forall_names.len(),
+    &mut bound_names,
+    &mut bound_types,
+    &ArrayList(TypeValue).new(),
+    &shared_list(b_decl),
+    param_ct,
+    &kinds,
+    &ArrayList(String).new(),
+    &ArrayList(EvalValue).new(),
+    &ArrayList(TypeValue).new(),
+    &mut conflicts,
+    &mut conflict_args
+  );
+  if(conflicts.len() > usize(0), {
+    c_arg := match(conflict_args.get(usize(0)), .Some(a) => a, .None => usize(0));
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(match(args.get_cloned(c_arg), .Some(a) => a, .None => make_err_expr())),
+            match(conflicts.get_cloned(usize(0)), .Some(m) => m, .None => String.new())
+          )
+        )
+      )
+    );
+  });
+  // Every occurrence of the binders in the types the minted function keeps.
+  somes := ArrayList(TypeValue).new();
+  (s_i : usize) = usize(0);
+  while(s_i < pts.len(), {
+    match(pts.get(s_i), .Some(t) => somes.extend(get_all_some_types(&t_slot_pointee(&t))), .None => ());
+    s_i = (s_i + usize(1));
+  });
+  match(callee_ty, Rc(.Func({ result : r })) => somes.extend(get_all_some_types(&t_slot_pointee(&r.*))), _ => ());
+  (f_i : usize) = usize(0);
+  while(f_i < forall_names.len(), {
+    f_name := match(forall_names.get_cloned(f_i), .Some(n) => n, .None => String.new());
+    match(
+      cond(
+        bound_names.contains(&f_name) => _scratch_concrete_binding(&scratch, &f_name),
+        true => Option(TypeValue).None
+      ),
+      .Some(f_ty) => {
+        (k : usize) = usize(0);
+        while(k < somes.len(), {
+          match(
+            somes.get_cloned(k),
+            .Some(Rc(.SomeT(_, st_name, st_lvl, _, _, _, _))) => if(st_name == f_name, {
+              subst_add(out_subst, &f_name, st_lvl, &f_ty);
+            }),
+            _ => ()
+          );
+          k = (k + usize(1));
+        });
+      },
+      .None => {
+        out_free.push(f_i);
+      }
+    );
+    f_i = (f_i + usize(1));
+  });
+});
 /// Extracted runtime-return branch of the FuncVal arm of
 /// `evaluate_function_call`. Pulling this ~200-line block (incl. the 16-field Func
 /// destructuring) out of `evaluate_function_call` removes its many -O0 stack slots
@@ -12845,6 +12971,12 @@ Fix: wrap the call:
             pa_ptn := ArrayList(String).new();
             pa_body_args := ArrayList(AstExpr).new();
             pa_orig_ct := get_func_param_comptime(func_id_fv.clone());
+            // Per callee parameter: the captured argument's info (a hole's is
+            // a placeholder) and whether it is a hole, for the binder pass.
+            pa_arg_infos := ArrayList(ExprInfo).new();
+            pa_is_hole := ArrayList(bool).new();
+            pa_hole_ptys := ArrayList(TypeValue).new();
+            pa_hole_idx := ArrayList(usize).new();
             (pa_i2 : usize) = usize(0);
             while(pa_i2 < n_a, {
               pa_arg := match(args.get_cloned(pa_i2), .Some(a) => a, .None => make_err_expr());
@@ -12852,10 +12984,11 @@ Fix: wrap the call:
               if(ast_expr_is_atom_of(&pa_arg, "_"), {
                 pa_pname := `__pa_${pa_i2}_${pa_id}`;
                 pa_new_labels.push(pa_pname.clone());
-                // A partial application's remaining parameters borrow.
-                pa_new_types.push(t_reference(&pa_pty, false));
+                pa_hole_ptys.push(pa_pty);
+                pa_hole_idx.push(pa_i2);
                 pa_new_ct.push(match(pa_orig_ct.get(pa_i2), .Some(f) => f, .None => true));
-                pa_ptn.push(String.new());
+                pa_arg_infos.push(new_expr_info(env, t_unit()));
+                pa_is_hole.push(true);
                 pa_body_args.push(Rc.new(AstExprNode.Atom(alloc_global_expr_id(), synthetic_token(&pa_pname, &env.module_path().*))));
               }, {
                 pa_cname := `__pa_cap_${pa_i2}_${pa_id}`;
@@ -12868,10 +13001,62 @@ Fix: wrap the call:
                 pa_cap_names.push(pa_cname.clone());
                 pa_cap_tys.push(Rc.clone(pa_info.ty()));
                 pa_cap_vals.push(match(pa_info.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnknownVal(Rc.clone(pa_info.ty()), false))));
+                pa_arg_infos.push(pa_info);
+                pa_is_hole.push(false);
                 pa_body_args.push(Rc.new(AstExprNode.Atom(alloc_global_expr_id(), synthetic_token(&pa_cname, &env.module_path().*))));
               });
               pa_i2 = (pa_i2 + usize(1));
             });
+            // The callee's binders: substitute the ones the captured arguments
+            // fix, keep the rest as the minted function's own binders
+            // (`_partial_application_binders`).
+            pa_subst := subst_new();
+            pa_free := ArrayList(usize).new();
+            if(forall_names.len() > usize(0), {
+              _partial_application_binders(
+                &pa_fty,
+                &forall_names,
+                &param_type_names,
+                &pa_orig_ct,
+                &pa_arg_infos,
+                &pa_is_hole,
+                &args,
+                &fv_capture_source(&__fvm7.*),
+                &cap_vals,
+                &match(
+                  _static_dot_receiver_self_type(&func_expr, ctx),
+                  .Some(Rc(.Struct({ type_arguments : pa_rta }))) => Rc.clone(pa_rta),
+                  _ => no_types()
+                ),
+                env,
+                exn,
+                &mut pa_subst,
+                &mut pa_free
+              );
+            });
+            pa_forall_names := ArrayList(String).new();
+            pa_forall_kinds := ArrayList(TypeValue).new();
+            pa_fkinds := match(&pa_fty, Rc(.Func({ forall_types : pa_fts })) => Rc.clone(pa_fts), _ => no_types());
+            (pa_fi : usize) = usize(0);
+            while(pa_fi < pa_free.len(), {
+              pa_fx := match(pa_free.get(pa_fi), .Some(x) => x, .None => usize(0));
+              pa_forall_names.push(match(forall_names.get_cloned(pa_fx), .Some(n) => n, .None => String.new()));
+              pa_forall_kinds.push(match(pa_fkinds.get(pa_fx), .Some(k) => k, .None => Rc.new(TypeValueNode.TypeUni(usize(0)))));
+              pa_fi = (pa_fi + usize(1));
+            });
+            (pa_hi : usize) = usize(0);
+            while(pa_hi < pa_hole_ptys.len(), {
+              pa_hty := match(pa_hole_ptys.get_cloned(pa_hi), .Some(t) => t, .None => t_unit());
+              // A partial application's remaining parameters borrow.
+              pa_new_types.push(t_reference(&substitute(&mut pa_subst, &pa_hty), false));
+              // A hole spelled by a binder the minted function keeps infers it
+              // by name, as the callee's own parameter would.
+              pa_hptn := match(param_type_names.get_cloned(match(pa_hole_idx.get(pa_hi), .Some(x) => x, .None => usize(0))), .Some(n) => n, .None => String.new());
+              pa_ptn.push(cond(pa_forall_names.contains(&pa_hptn) => pa_hptn, true => String.new()));
+              pa_hi = (pa_hi + usize(1));
+            });
+            pa_res_closed := substitute(&mut pa_subst, &pa_res);
+            pa_forall_labels := shared_list(pa_forall_names.clone());
             pa_body := Rc.new(
               AstExprNode.FnCall(
                 alloc_global_expr_id(),
@@ -12884,14 +13069,14 @@ Fix: wrap the call:
             pa_new_labels_s := shared_list(pa_new_labels);
             pa_new_ty := Rc.new(
               TypeValueNode.Func(
-                no_types(),
+                shared_list(pa_forall_kinds),
                 shared_list(pa_new_types),
                 no_types(),
                 no_types(),
-                pa_res,
+                pa_res_closed,
                 Rc.new(
                   FuncMeta(
-                    forall_labels : no_labels(),
+                    forall_labels : pa_forall_labels,
                     param_labels : pa_new_labels_s.clone(),
                     implicit_labels : no_labels(),
                     result_is_comptime_only : true,
@@ -12913,7 +13098,7 @@ Fix: wrap the call:
               EvalValueNode.FuncVal(
                 Rc.new(
                   FuncValData(
-                    forall_names : ArrayList(String).new(),
+                    forall_names : pa_forall_names,
                     params : pa_new_labels_s.items.clone(),
                     param_type_names : pa_ptn,
                     evidence_params : ArrayList(String).new(),
