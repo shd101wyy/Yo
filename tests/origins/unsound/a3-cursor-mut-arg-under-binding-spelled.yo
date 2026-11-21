@@ -1,0 +1,22 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)), spelled `match(&mut cur.*, …)`: `cur` passed to a `&mut` parameter while the arm binding `n` is live; the callee drops the node under `n`.
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+clear :: (fn(s : &mut Option(Box(BNode))) -> unit)({
+  s.* = .None;
+});
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .None))));
+  cur := &mut l1.head;
+  match(
+    &mut cur.*,
+    .Some(n) => {
+      clear(cur);
+      (v : i32) = n.value;
+      println(&v);
+    },
+    .None => ()
+  );
+});
+export(main);

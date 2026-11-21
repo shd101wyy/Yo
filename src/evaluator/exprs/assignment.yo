@@ -1237,11 +1237,15 @@ _d3_judge_borrow_errors :: (
 /// The local-borrow half of `d3_check_pending` (decision 18): a place the
 /// callee writes is a write at the call, and so is a `&mut` reference value
 /// made of the place for a by-value slot (`lends_mut` entries, VERDICTS-57
-/// §3.1), whatever the callee does. The callee's mask decides for a `&mut`
-/// parameter: it writes the parameter, or makes a `&mut` reference value of
-/// storage rooted in it (its `lends_mut` bit: a cursor, a holder or a write
-/// walk the body builds over it). Not trusted by file either: std's
-/// mutators are the writes at stake. Two-phase
+/// §3.1), whatever the callee does. Rule G (VERDICTS-57 §3.4, audit A6's
+/// open half): a `&mut` argument is an exclusive access of its place at the
+/// call's ACTIVATION whatever the callee's body does — every entry here is
+/// one (both recorders run on `fn_param_mut_ref_flags` slots only), so the
+/// body's mask no longer gates the activation: a callee that only reads
+/// its `&mut` parameter (`peek`) is a write at the call like one that
+/// writes it, because the contract may not live in the body (an edit inside
+/// `peek` would silently change what its callers may do). Not trusted by
+/// file either: std's mutators are the writes at stake. Two-phase
 /// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9): the `&mut`
 /// argument is RESERVED where it is written, a read, and ACTIVATED when the
 /// call begins, a write judged against the borrows still live then: a `&`
@@ -1267,7 +1271,7 @@ _d3_judge_local_borrows :: (
           // a live closure borrows, whatever the callee's body does
           // (`cap_conflict`, audit A32).
           match(&entry.cap_conflict, .Some(cc) => raise_capture_freeze_conflict(cc, LocalBorrowAccess.Exclusive, ast_expr_token(&entry.place), ctx, exn), .None => ());
-          if(entry.lends_mut || match(borrow_mask, .Some(bm) => (param_mutation_mask_hits(bm, entry.param_index) || param_mutation_mask_lends_mut(bm, entry.param_index)), .None => false), {
+          {
             local_borrow_require_writable(&lbp.*, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
             if(!carriers_ready, {
               carriers = call_origin_operands(call, ctx);
@@ -1283,7 +1287,7 @@ _d3_judge_local_borrows :: (
               exn
             );
             local_borrow_access(&lbp.*, LocalBorrowAccess.Read, ast_expr_token(&entry.place), ctx, exn);
-          });
+          }
         },
         .None => ()
       ),

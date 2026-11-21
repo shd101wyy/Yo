@@ -1,0 +1,56 @@
+// expect: accept
+// Audit A3 (VERDICTS-71 rule (c)), bare `match(cur, …)`: decision 25's `&mut` cursor walk. `cur = &mut n.next` re-points the
+// binding without touching what it points at, so the arm binding it goes through is not left behind.
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+append :: (fn(list : &mut BList, v : i32) -> unit)({
+  cur := &mut list.head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        cur = &mut n.next;
+      },
+      .None => ()
+    );
+  });
+  cur.* = .Some(Box.new(BNode(value : v, next : .None)));
+});
+over_slot :: (fn(slot : &mut Option(Box(BNode)), v : i32) -> unit)({
+  cur := &mut slot.*;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        n.value = (n.value + i32(10));
+        cur = &mut n.next;
+      },
+      .None => ()
+    );
+  });
+  cur.* = .Some(Box.new(BNode(value : v, next : .None)));
+});
+sum :: (fn(list : &BList) -> i32)({
+  (mut(total) : i32) = i32(0);
+  cur := &list.head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        total = (total + n.value);
+        cur = &n.next;
+      },
+      .None => ()
+    );
+  });
+  total
+});
+main :: (fn() -> unit)({
+  mut(l) := BList(head : .None);
+  append(&mut l, i32(1));
+  append(&mut l, i32(2));
+  over_slot(&mut l.head, i32(3));
+  println(`OUT: ${sum(&l).to_string()}`);
+});
+export(main);

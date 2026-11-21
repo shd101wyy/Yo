@@ -83,7 +83,7 @@ read-only handle's deref has the handle's place as its origin" (`&h.*.x : &(X, h
 `.*` on a reference or a raw pointer leaves the frame, and then the origin is the reference's." The root rule must
 continue to the base when the dereferenced value is a `Box`, `Rc` or `Arc` (a `Deref` handle), and stop only for a
 reference or a raw pointer. The same reading belongs to R-LEND and R-TEMP (see
-`issues/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`).
+`issues/fixed/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`).
 
 ## Fix
 
@@ -99,7 +99,7 @@ anything else (a reference, a raw pointer) keeps its old meaning, the place is w
   the root is that parameter, as before, and the result is accepted.
 - **R-TEMP** (`is_temporary_operand`, the same file as the predicate): `long().*.s` and `Box.new(…).*` are fields
   of the temporaries `long()` / `Box.new(…)`, so `v = mkv(&long().*.s)` past the statement is E0911. This is the
-  `.*` half of `issues/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`
+  `.*` half of `issues/fixed/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`
   (A23); its inner-projection-call half (`mkv(mkx().get())`) is a different exit and stays open there.
 
 Every row of the family table with a reference result (`-> &T` / `-> &mut T`) now gives E0912. The spelled-holder
@@ -107,7 +107,7 @@ row (`-> V(b)` over a by-value `b : Box(X)`) does not change, and it is not this
 `b.*.s` at `b` (the composite rows were rejected before this fix for a LOCAL handle), and then lets the by-value
 parameter `b` through because the result's spelled origin names it. The plain-struct form `-> V(x)` with
 `V(x)(r : &x.s)` over a by-value `x : X` is accepted the same way, with no handle in it. That is
-`issues/2026-11-11-a-composite-result-that-holds-a-reference-into-a-by-value-parameter-is-accepted.md` (A10),
+`issues/fixed/2026-11-11-a-composite-result-that-holds-a-reference-into-a-by-value-parameter-is-accepted.md` (A10),
 whose family table now carries the row.
 
 ## Test

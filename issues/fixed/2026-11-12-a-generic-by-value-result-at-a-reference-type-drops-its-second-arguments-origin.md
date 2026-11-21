@@ -54,7 +54,7 @@ The checker already rejected two shapes: the method form (`impl(Picker, pick : (
 The tuple form (`-> Tuple(T, T)` with the body `(b, a)`) is E0911 now, like the others; building the tuple itself emitted
 invalid C: `issues/fixed/2026-11-12-a-tuple-of-by-value-reference-parameters-emits-invalid-c.md` (S2, fixed by #1920). A local closure
 `(fn(a : &i32, b : &i32) -> &i32)(&b.*)` drops its second argument too, by another path, and v0.2.76 already had that hole:
-`issues/2026-11-12-a-local-closure-returning-a-reference-borrows-only-its-first-reference-argument.md` (S1).
+`issues/fixed/2026-11-12-a-local-closure-returning-a-reference-borrows-only-its-first-reference-argument.md` (S1).
 
 ## Fix
 

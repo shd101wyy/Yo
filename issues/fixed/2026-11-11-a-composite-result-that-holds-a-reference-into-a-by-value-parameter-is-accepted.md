@@ -1,5 +1,13 @@
 # A composite result that holds a reference into a by-value parameter is accepted
 
+**Status: FIXED in v0.2.79.** `return_check` (`src/evaluator/utils.yo`) now rejects a result root at a parameter
+whose slot is not a reference — a by-value parameter's place is the callee's own frame, which the call ends — with
+E0912 and the `-> &(T, xs)` signature rule's message, whatever the result's origin spells (elided or spelled); only
+a reference-typed parameter's place may be named. The signature-side rejection (`_result_origin_names_into`,
+`src/evaluator/types/function.yo`) already had the distinction; the value side now mirrors it. G-B rows:
+`tests/origins/unsound/a10-ret-byvalue-param-composite.yo`, `a10-ret-byvalue-param-self.yo` (E0912) and
+`a10-ret-byvalue-param-composite-pos.yo` (accept).
+
 **Severity:** S1. A function whose result is an `Option(&T)` (any composite with an elided origin) may return a
 reference into a BY-VALUE parameter or a by-value `self`: `pick :: (fn(a : &String, xs : ArrayList(String)) ->
 Option(&String))(.Some(xs.index(usize(0))))` passes `yo check`, the list is dropped when `pick` returns, and the

@@ -471,6 +471,11 @@ comptime_expect_error(
   }),
   "re-points a local borrow"
 );
+// `d := &cur.*` inside the arm reads through `cur` while the `&mut` binding
+// `n` is live, so it is E0911 one statement before the re-point: the arm
+// binding is an exclusive borrow of `cur`'s place (VERDICTS-71 rule (c), audit
+// A3; q5's read-through rule). Decision 38 A's re-point check is pinned by
+// the case after it, where the derived borrow is taken outside an arm.
 comptime_expect_error(
   repoint_while_a_derived_borrow_is_live_rejected :: (fn() -> unit)({
     mut(l1) := List(head : .None);
@@ -484,6 +489,17 @@ comptime_expect_error(
       },
       .None => ()
     );
+  }),
+  "Cannot read `cur.*` here: `n` borrows `cur`"
+);
+comptime_expect_error(
+  repoint_while_a_derived_borrow_outside_an_arm_is_live_rejected :: (fn() -> unit)({
+    mut(l1) := List(head : .None);
+    mut(l2) := List(head : .None);
+    cur := &mut l1.head;
+    d := &cur.*;
+    cur = &mut l2.head;
+    _b := d.is_some();
   }),
   "Cannot re-point `cur` here"
 );
@@ -885,6 +901,9 @@ comptime_expect_error(
   }),
   "Cannot write `l1.head` here"
 );
+// As above: the read through `cur` under the live `&mut` binding `n` is
+// E0911 before the re-point (VERDICTS-71 rule (c)); the outside-an-arm twin
+// pins decision 38 A.
 comptime_expect_error(
   box_walk_repoint_while_a_derived_borrow_is_live_rejected :: (fn() -> unit)({
     mut(l1) := BList(head : .None);
@@ -898,6 +917,17 @@ comptime_expect_error(
       },
       .None => ()
     );
+  }),
+  "Cannot read `cur.*` here: `n` borrows `cur`"
+);
+comptime_expect_error(
+  box_walk_repoint_while_a_derived_borrow_outside_an_arm_is_live_rejected :: (fn() -> unit)({
+    mut(l1) := BList(head : .None);
+    mut(l2) := BList(head : .None);
+    cur := &mut l1.head;
+    d := &cur.*;
+    cur = &mut l2.head;
+    _b := d.is_some();
   }),
   "Cannot re-point `cur` here"
 );

@@ -39,5 +39,10 @@ The fix belongs where O-6 put the `origin_of` fallback for an elided position, e
 
 ## Status
 
-Open, not fixed by the O-6 PRs. The corpus row `bare-reference-store-widen` records `today = accept`; its `expect` is
-ORIGIN_MISMATCH.
+**FIXED** on `v0280/clusters` (2026-11-20). The O-6 PRs did not fix it. The cluster lane's A56 change (`b4df91033`, "a
+closure call's reference result freezes its reference arguments") did: `_origin_of_into`'s R-NONE gate
+(`src/evaluator/utils.yo`) now continues for an atom that is a reference binding instead of returning ∅ at its
+pointee-typed node. So `origin_of(r)` is `{(yb, &)}` at the store, and `_store(&mut slot, r)` is E0923 (`r` carries
+origin `yb`, outside `x`), like the `&yb` form. The doc lists no other variant. The corpus row
+`bare-reference-store-widen` pins the fix: its `today` column is re-recorded from `accept` to
+`E0923|carries origin \`yb\`, outside \`x\``, which matches its `expect` (ORIGIN_MISMATCH).

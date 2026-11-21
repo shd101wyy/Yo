@@ -1,5 +1,59 @@
 # A `match` arm binding over a reference bound from a call result does not keep the root frozen
 
+**Status: FIXED on `v0280/clusters` (VERDICTS-71 rule (c), 2026-11-20).** The wall the branch first carried, which
+made a bare `&mut` reference binding scrutinee E0910, is removed. It closed nothing: `match(&mut r.*, …)`, the spelling
+its help recommended, is the same program to the checker (`local_borrow_scrutinee_source` cuts a place at `.*`). The
+wall's own fixture, respelled that way, passed `check` and was a heap-use-after-free (VERDICTS-71 p9, p3). The fix
+registers each place binding of a `&mut` match as an exclusive local borrow of the scrutinee's place, derived from
+the local borrow it is reached from, in either spelling (`src/evaluator/exprs/match.yo`, the `mut_places` arm loop).
+Parameters were already registered this way. Two refinements keep decision 25's re-point walk legal:
+
+- the re-point's name is no access of `cur`'s place (`evaluate_local_borrow_repoint`);
+- `local_borrow_require_no_live_derived` skips the binding the re-point goes through, unconditionally: the re-point
+  freezes it whole for `cur`'s live range, so a later mention is E0911 while `cur` lives (VERDICTS-71 addendum B).
+  A binding that one is derived from (a nested walk's outer `n`) is skipped only when its last mention is inside the
+  right-hand side, because nothing freezes it.
+
+The binding's own loan of `cur`'s place is not ended at the re-point. It runs to the binding's last mention, extended
+by borrows derived from it, and it is what rejects b1 (`d := &n.next; cur = &mut n.next; cur.* = .None; use(d)`)
+and b2 (`cur = &mut n.next; l1.head = .None; n.value = i32(7);`, a memory error before the fix).
+
+`local_borrow_scrutinee_source` reads a binding's pattern source first, so a nested walk's re-point still names
+`cur`.
+
+While a binding lives, `cur` is reached only through it. A write, read or call through `cur`, or a write to `cur`'s
+root, is E0911 with the existing text ("Cannot write `cur` here: `n` borrows `cur` with `&mut`…"). This covers a
+local and a parameter alike, including r2: a `&mut` parameter matched bare with a nested `&mut` match over its
+binding, which was accepted and a heap-use-after-free. G-B rows, each bare and spelled
+(`tests/origins/unsound/a3-*.yo`):
+
+- E0911: the wall fixture (m20) with its `.None` arm added, the write through `cur` (p3), the read through `cur` (q5),
+  the root write (q7), `cur` passed to a `&mut` parameter (r6), the variant switch (m04), and r2.
+- Accepted and ASan-clean: the walk, the two-step walk, the walk over a parameter's referent, and the write after the
+  binding's last use.
+
+`check ./src` and `check ./std` stay green without the parameter exclusion the wall needed for `std/log.yo`.
+
+VERDICTS-71's p5 probe ("same text" for the pinned walk diagnostics) was measured before rule (c). On the rule-(c)
+tree, two pinned cases in `tests/local-borrows.test.yo` fire one statement earlier: `d := &cur.*` under a live arm
+binding is now the read-through E0911 ("Cannot read `cur.*` here: `n` borrows `cur`"), for the plain list and its
+`Box` twin. Decision 38 A's "Cannot re-point `cur` here" is pinned twice. New twins take the derived borrow outside an
+arm. A sibling binding inside an arm is pinned too, through self-recursion via a generic constructor
+(`Pair(T) = enum(Two(l : Option(Box(T)), tag : i32))`, `PNode :: struct(v, kids : Pair(Self))`): sib1 is
+"Cannot re-point `cur` here: `tag` borrows from `cur`'s current target", and sib2 (no later use of `tag`) is accepted.
+
+Known conservative rejections, all sound and all accepted by Rust (a2, a7, c2, the sibling case, and b3's message)
+are tracked as one S3 family in
+`issues/2026-11-21-a-re-point-through-a-match-binding-keeps-the-binding-and-the-cursor-exclusive-longer-than-needed.md`
+(VERDICTS-71 addendum 2: a loan per definition of `cur` is the fix, not a separate freeze range).
+
+G-B rows for the addendum: `a3-repoint-in-loop-binding-write.yo` (a3), `a3-nested-repoint-ancestor-write.yo` (a5),
+`a3-conditional-repoint-binding-write.yo` (a6), `a3-repoint-write-through-cur-then-binding.yo` (a7),
+`a3-repoint-derived-shared-then-drop.yo` (b1), `a3-repoint-root-write-then-binding.yo` (b2),
+`a3-nested-repoint-binding-read.yo` (b3), `a3-repoint-live-sibling-binding.yo` (sib1, all E0911) and
+`a3-repoint-live-sibling-binding-pos.yo` (sib2, accepted), `a3-repoint-then-binding-write.yo` (a2, E0911) with its
+`-pos` twin (c4), and `a3-repoint-on-one-branch-binding-write-on-another.yo` (c2, E0911) with its `-pos` twin (c2b).
+
 **Severity:** S1. `b := idr(&x); match(b, .Some(p) => { x = .None; p.*.s.len() }, …)` passes `yo check`: the arm
 overwrites the root while the payload binding `p` still points into it, and the read is a use-after-free (ASan:
 SEGV through the freed cell). Present in the released v0.2.76 as well as on develop.

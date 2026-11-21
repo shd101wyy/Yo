@@ -1,0 +1,26 @@
+// expect: accept
+// Audit A3 (VERDICTS-71 rule (c)): the workaround for c2: put the branch that writes `n` before the branch that re-points (issues/2026-11-21-a-re-point-through-a-match-binding-keeps-the-binding-and-the-cursor-exclusive-longer-than-needed.md; VERDICTS-71 addendum 2, c2b).
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  match(
+    cur,
+    .Some(n) => {
+      cond(
+        (n.value > i32(0)) => {
+          n.value = i32(7);
+        },
+        true => {
+          cur = &mut n.next;
+        }
+      );
+    },
+    .None => ()
+  );
+  cur.* = .None;
+});
+export(main);

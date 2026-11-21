@@ -1,0 +1,22 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)): `cur = &mut n.next; cur.* = .None; n.value = i32(7);`: `n`'s loan of `cur`'s place runs to its last mention, so the write through `cur` is E0911. A known conservative rejection: Rust accepts it (VERDICTS-71 addendum B, a7).
+// A conservative rejection that Rust accepts, tracked by issues/2026-11-21-a-re-point-through-a-match-binding-keeps-the-binding-and-the-cursor-exclusive-longer-than-needed.md.
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  match(
+    cur,
+    .Some(n) => {
+      cur = &mut n.next;
+      cur.* = .None;
+      n.value = i32(7);
+    },
+    .None => ()
+  );
+  println(&l1.head.is_some());
+});
+export(main);

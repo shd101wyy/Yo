@@ -1,0 +1,26 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)): in a nested walk a later mention of the direct binding `m` extends its ancestor `n`, so the re-point is E0911 naming `n` (VERDICTS-71 addendum B, b3).
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  (mut(seen) : i32) = i32(0);
+  match(
+    cur,
+    .Some(n) => match(
+      &mut n.next,
+      .Some(m) => {
+        cur = &mut m.next;
+        seen = m.value;
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  cur.* = .None;
+  println(&seen);
+});
+export(main);

@@ -7753,14 +7753,18 @@ local_borrow_pattern_source :: (fn(name : &String, decl : &Token) -> Option(Loca
   Option(LocalBorrowInfo).None
 });
 /// The local borrow a `match` scrutinee is reached from: a place rooted at a
-/// local borrow, or at a `match` binding over one.
+/// local borrow, or at a `match` binding over one. A binding of a `&mut`
+/// match over a local borrow is a registered borrow too (VERDICTS-71 rule
+/// (c)), so its pattern source is read first: a nested walk
+/// (`match(&mut n.next, .Some(m) => { cur = &mut m.next; })`) goes through
+/// `n` to `cur`, the borrow its re-point names.
 local_borrow_scrutinee_source :: (fn(scrutinee : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(LocalBorrowInfo))(
   match(
     local_borrow_place_of(scrutinee, env, ctx),
     .Some(p) => match(
-      local_borrow_info_of(p.root_name.clone(), &p.root_decl),
+      local_borrow_pattern_source(p.root_name.clone(), &p.root_decl),
       .Some(info) => Option(LocalBorrowInfo).Some(info),
-      .None => local_borrow_pattern_source(p.root_name.clone(), &p.root_decl)
+      .None => local_borrow_info_of(p.root_name.clone(), &p.root_decl)
     ),
     .None => Option(LocalBorrowInfo).None
   )
@@ -8857,15 +8861,56 @@ local_borrow_update :: (fn(info : &LocalBorrowInfo) -> unit)({
     });
   });
 });
+/// `d` is on the chain a re-point goes through: the binding it names
+/// (`chain(0)`), which the re-point freezes whole for `cur`'s live range, so
+/// a later mention of it is judged there ("Cannot read `n`"), or a binding
+/// that one is derived from (a nested walk's outer `n`), which nothing
+/// freezes, so it must not be mentioned after the right-hand side, which
+/// ends at `rhs_end`.
+_lb_repoint_goes_through :: (fn(d : &LocalBorrowInfo, chain : &ArrayList(LocalBorrowInfo), rhs_end : &Token) -> bool)({
+  (ci : usize) = usize(0);
+  while(ci < chain.len(), ci = (ci + usize(1)), {
+    match(
+      chain.get_cloned(ci),
+      .Some(c) => if(_lb_same_decl(c.name.clone(), &c.decl, d.name.clone(), &d.decl), {
+        return((ci == usize(0)) || !_lb_tok_after(&d.last_use, rhs_end));
+      }),
+      .None => ()
+    );
+  });
+  false
+});
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
-/// derived from its current target is live.
-local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+/// derived from its current target is live. `through` is the `match`
+/// binding the re-point goes through (`cur = &mut n.next`), and `rhs_end`
+/// the right-hand side's last token: that binding is not left behind (the
+/// re-point freezes it whole for `cur`), and a binding it is derived from on
+/// the way to `info` (a nested walk's outer `n`) is not either when its last
+/// mention is inside the right-hand side (VERDICTS-71 rule (c), refinement
+/// 2). Any other live derived borrow still rejects the re-point.
+local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, through : &Option(Variable), rhs_end : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  chain := ArrayList(LocalBorrowInfo).new();
+  match(
+    through,
+    .Some(tv) => match(
+      local_borrow_info_of(tv.name.clone(), &tv.token),
+      .Some(ti) => {
+        chain.push(ti.clone());
+        (ci : usize) = usize(0);
+        while(ci < ti.parents.len(), ci = (ci + usize(1)), {
+          match(ti.parents.get_cloned(ci), .Some(tp) => chain.push(tp), .None => ());
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
   (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
       g_local_borrows.with(xs => xs.get_cloned(i)),
-      .Some(d) => if(match(d.parents.get_cloned(usize(0)), .Some(p) => _lb_same_decl(p.name.clone(), &p.decl, info.name.clone(), &info.decl), .None => false) && _lb_live_at(&d, tok), {
+      .Some(d) => if(match(d.parents.get_cloned(usize(0)), .Some(p) => _lb_same_decl(p.name.clone(), &p.decl, info.name.clone(), &info.decl), .None => false) && _lb_live_at(&d, tok) && !_lb_repoint_goes_through(&d, &chain, rhs_end), {
         entries := ArrayList(TokenAndError).new();
         entries.push(
           TokenAndError(
@@ -9291,7 +9336,18 @@ generic_result_binder_modes :: (fn(call : &AstExpr, ft : &Option(TypeValue), n :
       ft,
       .Some(f) => match(
         _method_call_receiver(call, ctx),
-        .Some(_) => Option(TypeValue).None,
+        .Some(_) => match(
+          // A METHOD call's declared type: the dispatch records the
+          // definition's own function value, whose slots keep the binders
+          // the specialization elided. Without it, a generic method's
+          // by-value parameter the result holds (`IterZip(Self, J)`'s
+          // `other : J`) was read as mode 0 and its argument's origins
+          // dropped out of the call's result (the 2026-11-18 zip chain,
+          // `issues/fixed/2026-11-18-origins-are-lost-through-an-inline-temporary-receiver-chain-so-a-copied-zip-item-escapes.md`).
+          lookup_method_callee_value(ast_expr_id(call)),
+          .Some(Rc(.FuncVal(grm, _))) => Option(TypeValue).Some(get_func_type(&grm.*.func_id)),
+          _ => Option(TypeValue).None
+        ),
         .None => Option(TypeValue).Some(Rc.clone(f))
       ),
       .None => Option(TypeValue).None
@@ -9763,16 +9819,81 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       // root's place — as the marker form's `_origin_push_lend` does.
       match(
         _lend_crossed_reference(&stripped, ctx),
-        .Some(crossed) => _origin_of_into(&crossed, env, ctx, out, (depth + u32(1))),
-        .None => _origin_push_place(&stripped, rec_mut, env, ctx, out)
+        .Some(crossed) => {
+          _origin_of_into(&crossed, env, ctx, out, (depth + u32(1)));
+          return(());
+        },
+        .None => ()
       );
-      return(());
+      // A recorded PLACE (a projection's, an index's, a reference-valued
+      // field's): its root. A COMPUTED reference — a call's result,
+      // `first(&xs)`, a method call over a temporary, `mkx().get()` — is no
+      // place: reading it as a lend of itself pushed nothing, so the value
+      // froze no one (audit A5, and A23's inner-projection half). A call OF
+      // a closure or fn value (`pick(rx, ry)`, a local binding) computes its
+      // result too: the walk reads the callee's name as the place, which
+      // would freeze the closure instead of the places its reference
+      // arguments lend (audit A56). Both fall through to the call's own
+      // origin (R-CALL below) instead of returning that set.
+      (callee_is_value : bool) = match(
+        &stripped,
+        Rc(.FnCall(_, cr_callee, _, _, _)) => match(
+          cr_callee,
+          Rc(.Atom(_, _)) => match(
+            get_variables_from_env(env, ast_expr_token(cr_callee).value.*.clone()).last_cloned(),
+            .Some(sv) => !sv.is_compile_time_only(),
+            .None => false
+          ),
+          _ => false
+        ),
+        _ => false
+      );
+      if(!callee_is_value && local_borrow_place_of(&stripped, env, ctx).is_some(), {
+        _origin_push_place(&stripped, rec_mut, env, ctx, out);
+        return(());
+      });
     },
     _ => ()
   );
-  // R-NONE: an expression whose type carries no origin has no set.
+  // R-NONE: an expression whose type carries no origin has no set — EXCEPT a
+  // call whose callee's result IS a reference: a reference VALUE in an
+  // argument or binding position (a call's result passed bare to a `&`
+  // parameter, `wrap(first(&xs))`, a method's `mkx().get()`, a closure call
+  // `pick(rx, ry)`) is read at its POINTEE's type there (the read rule), so
+  // `fi.ty()` names the pointee while the value the position receives is the
+  // reference — R-CALL below computes its roots from the callee's own
+  // result (audit A5, A23's inner-projection half, A56). A result whose
+  // declared type carries an origin or holds binders (a generic
+  // specialization, `IterZip(Self, B)`) continues too: its specialization
+  // may carry what the recorded node-level type dropped.
   if(!type_carries_origin(&fi.ty()), {
-    return(());
+    (callee_result_may_carry : bool) = match(
+      &stripped,
+      Rc(.FnCall(_, _, _, cnr_infix, _)) => (
+        !cnr_infix.* && match(
+          projection_call_callee_type(&stripped, ctx),
+          .Some(cnr_ft) => (fn_result_is_ref(&cnr_ft) || (fn_result_is_mut_ref(&cnr_ft) || (type_carries_origin(&fn_result_slot(&cnr_ft)) || (get_all_some_types(&fn_result_slot(&cnr_ft)).len() > usize(0))))),
+          .None => false
+        )
+      ),
+      _ => false
+    );
+    // An ATOM naming a reference binding is read at its POINTEE's type in
+    // the same positions (`pick(rx, ry)` with `rx := xs.index(0)`, audit
+    // A56): the binding's registered places are the value's origin (the
+    // atom branch below), never the pointee's empty set.
+    (root_is_ref_binding : bool) = match(
+      &stripped,
+      Rc(.Atom(_, _)) => match(
+        get_variables_from_env(env, ast_expr_token(&stripped).value.*.clone()).last_cloned(),
+        .Some(cnr_sv) => variable_is_reference_binding(&cnr_sv),
+        .None => false
+      ),
+      _ => false
+    );
+    if(!callee_result_may_carry && !root_is_ref_binding, {
+      return(());
+    });
   });
   // R-ASYNC: a borrowing future's recorded roots.
   if(is_future_value_type(&fi.ty()), {
@@ -10537,7 +10658,19 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
           }, if(ast_expr_is_atom(&recv_place), _holder_roots_into(&recv_place, env, ctx, out))),
           .None => ()
         ),
-        (recv_mode == u8(2)) => if(ast_expr_is_atom(&recv_place), _holder_roots_into(&recv_place, env, ctx, out)),
+        (recv_mode == u8(2)) => if(
+          ast_expr_is_atom(&recv_place),
+          _holder_roots_into(&recv_place, env, ctx, out),
+          // A pointee-carrying receiver that is no atom — a temporary
+          // cursor, `(&xs).into_iter().next()`, an adapter's
+          // `.skip(…).next()` — contributes what the receiver EXPRESSION
+          // holds: the cursor a call made holds the places that call lent
+          // (R-CALL over the receiver), exactly as a bound cursor's
+          // registered entries do (audit A14; without this the item
+          // `next()` returns froze nothing and the collection could be
+          // reallocated under it).
+          _origin_of_into(&recv_place, env, ctx, out, u32(1))
+        ),
         true => ()
       );
     },
@@ -13373,8 +13506,27 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
       while(oi < roots.len(), {
         match(
           get_variables_from_env(env, roots(oi).place.root_name.clone()).last_cloned(),
-          .Some(rv) => if(
-            rv.is_parameter(),
+          .Some(rv) => if(rv.is_parameter(), {
+            // A by-value parameter's slot is a local of this function — the
+            // callee's own frame, which the call ends — so a result holding
+            // a root at it is E0912 whatever the result spells (audit A10;
+            // the signature's `_result_origin_names_into` rejects the
+            // spelled `-> &(T, xs)` form, this is the value side, and only
+            // a reference-typed parameter's place may be named).
+            if(!t_slot_is_borrow(&variable_slot_type(&rv)), {
+              raise_flow_violation(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(e),
+                    `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the origin names the by-value parameter \`${rv.name}\`, whose place is the callee's own frame, which the call ends, so no reference into it outlives the call (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                    Option(String).Some(`take it by reference, \`${rv.name} : &T\`, and name it in the result's origin, or return an owned value`)
+                  ),
+                  E_LOCAL_BORROW_ESCAPES
+                ),
+                ctx,
+                exn
+              );
+            });
             match(
               &cr_ft,
               .Some(cr_t) => match(
@@ -13403,22 +13555,21 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
                 .None => ()
               ),
               .None => ()
-            ),
-            if(!rv.is_module_level(), {
-              raise_flow_violation(
-                with_code(
-                  format_error_message_with_help(
-                    ast_expr_token(e),
-                    `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
-                    Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
-                  ),
-                  E_LOCAL_BORROW_ESCAPES
+            );
+          }, if(!rv.is_module_level(), {
+            raise_flow_violation(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(e),
+                  `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                  Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
                 ),
-                ctx,
-                exn
-              );
-            })
-          ),
+                E_LOCAL_BORROW_ESCAPES
+              ),
+              ctx,
+              exn
+            );
+          })),
           // R-ARM's scope rule: a result over a binding of the block or arm
           // that produced it (its own local, gone before the caller reads).
           .None => if(roots(oi).place.root_name == ORIGIN_LOST_ROOT, {

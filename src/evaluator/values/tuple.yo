@@ -69,6 +69,7 @@ import("std/fmt");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
+{ check_tuple_element_lends } :: import("../calls/function.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 // Local comptime-only check covering the primitive cases the evaluator
 // actually hits for tuple element types today.
@@ -372,6 +373,11 @@ evaluate_tuple_value :: (
     return(Rc.clone(expr.*));
   });
   result := evaluate_tuple_elements_value(&args, env, ctx, exn);
+  // Decision 28's argument exclusivity over the literal's own elements
+  // (audit A17): a later element may not move, overwrite or lend `&mut` a
+  // place an earlier element lends — `(&x, x)`, `(&mut x, &mut x)` — as a
+  // call's later argument may not.
+  check_tuple_element_lends(&args, &result.env, ctx, exn);
   // Build the resulting tuple type and (if all elements known) tuple value.
   tuple_ty := Rc.new(TypeValueNode.Tuple(shared_list(result.field_labels.clone()), shared_list(result.field_types.clone())));
   (all_known : bool) = true;

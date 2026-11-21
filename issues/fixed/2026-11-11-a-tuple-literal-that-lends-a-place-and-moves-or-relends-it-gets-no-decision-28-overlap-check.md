@@ -1,5 +1,13 @@
 # A tuple literal that lends a place and moves or relends it gets no decision-28 overlap check
 
+**Status: FIXED in v0.2.79.** `check_tuple_element_lends` (`src/evaluator/calls/function.yo`, called from
+`evaluate_tuple_value`, `src/evaluator/values/tuple.yo`) runs decision 28's argument-exclusivity rule over a tuple
+literal's elements: a place an element lends (`&x`, `&mut x`) may not be moved (the root binding's
+`consumed_at_token`, as `_check_call_lent_place` reads it), overwritten or lent `&mut` by a later element
+(`_find_lent_place_access`) — E0910 with the tuple's message. Two `&` lends of one place still pass, as two `&`
+arguments do. G-B rows: `tests/origins/unsound/a17-tuple-lend-and-move-one-place.yo`,
+`a17-tuple-two-mut-lends-one-place.yo` (E0910) and `a17-tuple-two-lends-pos.yo` (accept).
+
 **Severity:** S1. `match((&x, x), (a, b) => { eat(b); use(a) })` passes `yo check`: one tuple both lends `x`
 and moves it, the arm drops the moved value through `b` and reads it through `a` (ASan: heap-use-after-free).
 `(&mut x, &mut x)` gives two live `&mut` references to one place. The same arguments in a call are E0910.

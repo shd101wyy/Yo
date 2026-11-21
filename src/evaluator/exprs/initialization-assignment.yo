@@ -137,6 +137,9 @@
   local_borrow_info_of_variable,
   local_borrow_pattern_source,
   local_borrow_require_no_live_derived,
+  _last_token_of,
+  local_borrow_mark_receiver,
+  local_borrow_clear_receiver,
   local_borrow_place_of_variable,
   local_borrow_info_placeholder,
   projection_call_mode_of,
@@ -980,9 +983,22 @@ _bind_projection_result :: (
       exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT))));
     });
     // A holder passed by value (N1e-2): the places its references point
-    // into, as its own binding froze them (`origin_of`).
+    // into, as its own binding froze them (`origin_of`). A reference
+    // BINDING passed bare (`pick(rx, ry)` with `rx := xs.index(0)`) is read
+    // at its POINTEE's type by the read rule, so the type gate alone misses
+    // it: its registered places — what `rx` itself borrows — are the
+    // result's roots (audit A56).
+    root_arg_is_ref_binding := match(
+      &root.arg,
+      Rc(.Atom(_, _)) => match(
+        get_variables_from_env(env, ast_expr_token(&root.arg).value.*.clone()).last_cloned(),
+        .Some(rarv) => variable_is_reference_binding(&rarv),
+        .None => false
+      ),
+      _ => false
+    );
     holder_roots := if(
-      !root.is_mut && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root.arg)), .Some(hri) => type_carries_origin(&hri.ty()), .None => false),
+      !root.is_mut && (root_arg_is_ref_binding || match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root.arg)), .Some(hri) => type_carries_origin(&hri.ty()), .None => false)),
       origin_of(&root.arg, env, ctx),
       ArrayList(OriginRootPlace).new()
     );
@@ -1196,9 +1212,15 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   });
   // The re-point uses the borrow: evaluate its name (codegen reads the
   // pointer from it).
-  // Not a whole-value read of the reference (E0926, N1e-1).
+  // Not a whole-value read of the reference (E0926, N1e-1), and no access
+  // of `cur`'s place either: the re-point writes the binding, not what it
+  // points at, and every borrow of that place is derived from `cur`, which
+  // `local_borrow_require_no_live_derived` judges below (a `&mut` match
+  // binding the re-point goes through is skipped there; VERDICTS-71).
   deref_exempt_mark(&name_expr);
+  local_borrow_mark_receiver(&name_expr);
   _evaluated_name := evaluate_expression_raw(&name_expr, &env, ctx, exn);
+  local_borrow_clear_receiver();
   deref_exempt_clear();
   // The new target: a field chain rooted at a variable.
   not_reached := `A re-point names a field path rooted at a variable: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), a field of a binding of a bare \`match\` over \`${name}\` (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`), or another variable's place (\`${name} = ${sig}other.field\`).`;
@@ -1326,8 +1348,11 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       )
     );
   });
-  // Decision 38 A: no borrow derived from the current target may be live.
-  local_borrow_require_no_live_derived(&info, &lhs_tok, ctx, exn);
+  // Decision 38 A: no borrow derived from the current target may be live,
+  // except the binding this re-point goes through, when the right-hand side
+  // is its last mention (VERDICTS-71 rule (c)).
+  (rp_through : Option(Variable)) = if(via_pattern, Option(Variable).Some(root_var.clone()), Option(Variable).None);
+  local_borrow_require_no_live_derived(&info, &lhs_tok, &rp_through, &_last_token_of(&rhs, &ast_expr_token(&rhs)), ctx, exn);
   // The step's cell: the innermost reference cell on the chain.
   (pin_expr : Option(AstExpr)) = Option(AstExpr).None;
   (pin_type : TypeValue) = t_unit();

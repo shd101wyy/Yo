@@ -1,7 +1,19 @@
 # A composite call result built over another call's reference result does not freeze the borrowed place
 
+**Status: FIXED in v0.2.79.** Measured with probes on a debug build: the "Root cause" hypothesis below was wrong
+in one detail — the T9/branch-8 path never fired for `first(&xs)` (its `expr_info_converted_runtime_type` is
+`.None`). The real loss: a reference VALUE in an argument position is read at its POINTEE's type (the read rule),
+so the inner call's `ExprInfo.ty()` records `String`, `type_carries_origin` is false, and `_origin_of_into`'s
+R-NONE returns the empty set before the R-CALL rule ever runs. R-NONE now continues past that gate when the node
+is a call whose callee's declared result is a reference (`fn_result_is_ref`/`fn_result_is_mut_ref` — or a result
+whose declared type carries an origin or holds binders, the generic-specialization case): the walk proceeds to
+R-CALL, whose root-argument recursion gives `wrap(first(&xs))` the origin `{(xs, &)}` (E0911 at `xs = …`).
+The same continuation covers an ATOM naming a reference binding (A56). G-B rows:
+`tests/origins/unsound/a5-composite-result-over-nested-call.yo`, `a5-holder-ctor-over-nested-call.yo` (E0911) and
+`a5-composite-result-over-nested-call-pos.yo` (accept).
+
 **Severity:** S1. `o := wrap(first(&xs))` (`wrap : &String -> Option(&String)`, `first : &ArrayList(String) ->
-&String`) binds an `Option(&String)` that points into `xs`, but `o` holds no loan of `xs`: `xs = …` is accepted while
+`&String`) binds an `Option(&String)` that points into `xs`, but `o` holds no loan of `xs`: `xs = …` is accepted while
 `o` is live and the read through `o` is a heap-use-after-free. The same holds for a holder built by a generic
 constructor, `h := mk(first(&xs))`. Pre-existing: v0.2.76 accepts both programs.
 
@@ -11,7 +23,7 @@ finding (a composite result over a lend of a FIELD or ELEMENT place, `o := wrap(
 c40, c45, c62, c61, c46, o06, o05) is fixed by lane o6 (call-result origin naming, `~/Workspace/Yo-wt/o6-m`): checked
 on 2026-11-11, its binary rejects all nine with E0911. Lane o6 does NOT cover the nested form this document
 describes (probe c39): both repros below are accepted by it. Related:
-`issues/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`
+`issues/fixed/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`
 (A23, an inner projection call over a TEMPORARY).
 
 ## Reproducers

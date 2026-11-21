@@ -1933,11 +1933,10 @@ evaluate_match :: (
         while(ci0 < cell_copy_vars.len(), ci0 = (ci0 + usize(1)), {
           match(
             cell_copy_vars.get_cloned(ci0),
-            .Some(cv) => match(
-              &lb_scr_source,
-              .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, &body_ast),
-              .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ())
-            ),
+            .Some(cv) => {
+              match(&lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, &body_ast), .None => ());
+              match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ());
+            },
             .None => ()
           );
         });
@@ -1955,20 +1954,22 @@ evaluate_match :: (
                 },
                 .None => ()
               );
-              // A scrutinee reached from a local borrow (decision 25's
-              // cursor, `match(cur, .Some(n) => { mut(cur) = n.next; })`):
-              // its bindings are already tracked as places a re-point goes
-              // through (`local_borrow_note_pattern_binding`), and the
-              // re-point must not read as an access of `cur` while `n` lives.
+              // Each place binding is an exclusive borrow of the scrutinee's
+              // place (R-ARM), whatever the scrutinee is rooted at: while it
+              // lives, the scrutinee is reached only through it, so a write,
+              // read or call through `cur` (or its root) under it is E0911
+              // (audit A3; VERDICTS-71 rule (c)). Reached from a local borrow
+              // (decision 25's cursor, `match(cur, .Some(n) => { cur = &mut
+              // n.next; })`), it is also a place a re-point goes through
+              // (`local_borrow_note_pattern_binding`): the re-point names
+              // `cur` without touching what it points at, and skips the
+              // binding it goes through (`local_borrow_require_no_live_derived`).
               // In an `io.async` body the place may live across an await:
               // rule 4 rejects it there when the borrow it points through
               // passes through a cell or a module-level place, judged at
               // each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
-              match(
-                &lb_scr_source,
-                .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, &body_ast),
-                .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ())
-              );
+              match(&lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, &body_ast), .None => ());
+              match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ());
             },
             .None => ()
           );

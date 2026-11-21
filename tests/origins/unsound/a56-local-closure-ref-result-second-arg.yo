@@ -1,0 +1,24 @@
+// expect: E0911
+// A local closure returning a reference borrows only its first reference argument (audit A56):
+// `picked := pick(rx, ry)` with the body `&b.*` freezes nothing, so growing `ys` reallocates the
+// buffer `picked` points into: heap-use-after-free at the read.
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
+  xs.push(i32(1));
+  ys.push(i32(2));
+  rx := xs.index(usize(0));
+  ry := ys.index(usize(0));
+  pick := (fn(a : &i32, b : &i32) -> &i32)(&b.*);
+  picked := pick(rx, ry);
+  mut(i) := i32(0);
+  while(i < i32(1000), {
+    ys.push(i);
+    i = (i + i32(1));
+  });
+  (v : i32) = picked.*;
+  println(&v);
+});
+export(main);

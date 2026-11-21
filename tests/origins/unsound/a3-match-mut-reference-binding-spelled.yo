@@ -1,0 +1,30 @@
+// expect: E0911
+// Audit A3 (m20, VERDICTS-71 p9), spelled `match(&mut r.*, …)`: the same program as the bare row; `r.* = .None`
+// drops the list under `e` while it is live.
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(o) := Option(ArrayList(i32)).Some(ArrayList(i32).new());
+  match(
+    &mut o,
+    .Some(xs) => {
+      xs.push(i32(7));
+    },
+    .None => ()
+  );
+  r := &mut o;
+  match(
+    &mut r.*,
+    .Some(x) => match(
+      &x.*(usize(0)),
+      e => {
+        r.* = .None;
+        (v : i32) = e.*;
+        println(&v);
+      }
+    ),
+    .None => ()
+  );
+  ()
+});
+export(main);
