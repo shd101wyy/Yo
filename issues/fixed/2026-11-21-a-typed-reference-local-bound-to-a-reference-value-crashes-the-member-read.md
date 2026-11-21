@@ -2,7 +2,7 @@
 
 **Severity:** S3 (a broken diagnostic: an internal "Last expression in begin" error where a verdict belongs).
 
-**Status:** OPEN, filed 2026-11-21 by the P12 lane (VERDICTS-74 §"To file", probe t1).
+**Status:** FIXED 2026-11-21 by the P12 lane (the fix and the test land in the same PR).
 
 ## The repro (t1)
 
@@ -35,8 +35,20 @@ safe file) fail identically.
 
 ## The fix
 
-(filled in by the fixing PR)
+`m := r` binds through `_bind_projection_result` (the `:=` chain's every leaf read as a
+reference, R-TAIL), which stamps the reference-binding flags (`variable_set_is_ref`,
+`variable_set_reference_mut`). The typed declaration `(l : &X) = r` — whose
+expected-type read makes `r` a reference just the same — went through
+`evaluate_assignment`, which added the variable WITHOUT those flags: a plain local of
+reference type, a shape no reader of a receiver knows. `evaluate_assignment` now stamps
+the flags on a typed declaration whose declared slot is a borrow and whose
+right-hand side read is a reference read (`src/evaluator/exprs/assignment.yo`), making
+the binding exactly what `m := r` produces.
 
 ## The test
 
-(filled in by the fixing PR)
+`tests/local-borrows.test.yo`, "a typed reference local bound to a reference value
+reads through it" (`(l : &Point) = r; l.x`), plus the spelled-static row
+(`(l : &(Point, static)) = r` is the checked-origin rule's E0923). The row fails with
+`Last expression in "begin" is not evaluated correctly` before the fix and passes
+after.
