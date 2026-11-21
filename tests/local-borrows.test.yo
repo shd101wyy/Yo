@@ -1322,3 +1322,28 @@ comptime_expect_error(
   }),
   "`r` borrows `hs` with `&mut` and is still live"
 );
+// A typed reference local bound to a reference VALUE binds the reference, as
+// the `:=` chain does (R-TAIL): `(l : &T) = r` left the binding without the
+// reference-binding flags, so a member read `l.n` on it neither
+// auto-dereferenced nor reported the failure
+// (issues/fixed/2026-11-21-a-typed-reference-local-bound-to-a-reference-value-crashes-the-member-read.md).
+// The spelled `static` form is the checked-origin rule's typed-local site
+// (VERDICTS-74 rule 2): a parameter's place may not flow into it.
+test("a typed reference local bound to a reference value reads through it", {
+  p := Point(x : i32(1), y : i32(2));
+  read :: (fn(r : &Point) -> i32)({
+    (l : &Point) = r;
+    l.x
+  });
+  assert(read(&p) == i32(1), "the member read through the typed local");
+});
+comptime_expect_error(
+  lb_typed_static_local_from_param :: (fn() -> unit)({
+    read2 :: (fn(r : &Point) -> i32)({
+      (l : &(Point, static)) = r;
+      l.x
+    });
+    _ := read2;
+  }),
+  "declared over the empty origin `static`"
+);
