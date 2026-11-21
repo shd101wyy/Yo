@@ -13964,7 +13964,7 @@ invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
   });
   (slot : usize) = g_invariant_names_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
   if(g_invariant_names_handles.with({ ty : &ty.*, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
-    return(match(g_invariant_names_answers.with({ slot }(xs) => xs.get_cloned(slot))), .Some(a) => a, .None => ArrayList(String).new());
+    return(match(g_invariant_names_answers.with({ slot }(xs) => xs.get_cloned(slot)), .Some(a) => a, .None => ArrayList(String).new()));
   });
   names := _invariant_origin_names_walk(ty);
   // Record the answer only when the epoch it was computed in still holds:
