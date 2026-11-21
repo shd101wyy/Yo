@@ -8,152 +8,76 @@
 
 https://shd101wyy.github.io/Yo
 
-**LLM 友好地编写，人类友好地阅读。**
+**模型来写，编译器来查，人来读。**
 
-一种多范式、通用型、编译型编程语言。
-Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
+Yo 是一门编译型系统编程语言，其设计目标是让 LLM 写出安全、正确、快速的程序，并让人读得懂。
+它编译为 C11，由你的 C 编译器完成剩下的工作。编译器本身用 Yo 编写，并能自举。
 
-> `Yo` 这个名字来源于中文单词 `柚`（yòu），意为柚子，一种类似葡萄柚的大型柑橘类水果。这是我女儿的小名。
+<img src="../assets/yo-mascot.svg" alt="Yo 熊猫柚柚" width=120 align="right" />
 
-<img src="../assets/yo-mascot.svg" alt="Yo 熊猫柚柚" width=160 align="right" />
-
-**认识一下 Yo 的熊猫柚柚（Youyou）。** Rust 有螃蟹 Ferris，Yo 有柚柚，一只抱着半个柚子的熊猫。Logo 也是这个柚子：三瓣果肉之间的白色果络组成一个 **Y**，外面一圈圆圆的柚子皮就是 **o**。
+名字来自 `柚`（yòu），即柚子，也是我女儿的小名。吉祥物是柚柚（Youyou），一只抱着半个柚子的熊猫。
 
 <br clear="right" />
 
-📖 [我与编程语言的故事](./MY_STORY_WITH_PROGRAMMING_LANGUAGES.md) —— 从 16 岁学 Java 到构建 Yo 的旅程。
-
-<!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
-
-<!-- code_chunk_output -->
-
-- [特性](#特性)
-- [安装](#安装)
-  - [安装脚本（推荐）](#安装脚本推荐)
-- [快速开始](#快速开始)
-- [预导入模块（Prelude）](#预导入模块prelude)
-- [标准库](#标准库)
-- [代码示例](#代码示例)
-  - [Hello World](#hello-world)
-  - [示例项目](#示例项目)
-- [贡献](#贡献)
-- [编辑器支持](#编辑器支持)
-- [版本管理](#版本管理)
-- [AI Agent](#ai-agent)
-  - [在自己的项目中使用](#在自己的项目中使用)
-- [许可证](#许可证)
-
-<!-- /code_chunk_output -->
-
 ## 特性
 
-关于语言设计，请参阅 [DESIGN.md](./DESIGN.md)。
-
-以下是 Yo 支持的部分特性（非详尽列表）：
-
-- 一等类型（First-class types）。
-- 编译时求值（Compile-time evaluation）。
-- 同像性（Homoiconicity）和元编程（**Yo** 语法受 **Lisp** S 表达式启发。简单的语法规则，对人类和 AI 友好）。
-- 闭包（Closure）。
-- [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `return`/`unwind` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
-- [Async/Await](./ASYNC_AWAIT.md)（内置 `Io` 效应。无栈协程与合作式多任务。惰性 Future、多 await、通过状态机转换实现的单线程并发）。
-- [默认内存安全](./MEMORY_SAFETY.md) —— 用户代码无法在不显式声明 `pragma(Pragma.AllowUnsafe);` opt-in 的情况下写出 UB（无原始指针、无 FFI、无内联汇编）。原地修改使用 `name : &mut T` 参数；`yo unsafe-report` 用于审计 unsafe 表面。
 - [所有权与借用](./OWNERSHIP_AND_BORROWING.md) —— 默认是值：一个所有者，最后一次使用时移动，拷贝要显式写 `.clone()`；`&T`/`&mut T` 引用的类型带有它的来源，像 Rust 的借用检查器一样在编译期检查；共享用 `Rc`/`Arc` 显式表达。
-- [显式分配器](./EXPLICIT_ALLOCATORS.md) —— 与引用计数并存的 Zig 风格放置：默认使用全局分配器，在创建处传一个参数（`Rc.new(v, alloc : .Some(a))`、`ArrayList(T).new(alloc : .Some(a))`）就把内存块放进分配器 `a`；何时释放仍由 RC 决定，释放总是回到分配它的分配器。
-- 用 `Rc(T)` 与 `Arc(T)` 提供共享所有权，分别采用非原子与原子引用计数，与 Rust 相同：环会泄漏，除非用 [`Weak(T)`](./WEAK.md) 句柄打破它（[内存安全](./MEMORY_SAFETY.md#引用环会泄漏)）。
-- 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
-- [形式化验证](./FORMAL_VERIFICATION.md) —— 契约（`requires`/`ensures`/`decreases`）、精化类型（`refine(T, p)`）与 ghost/量词规格在编译期经固定版本的 Z3 证明（`yo verify`）：被驳倒的义务给出反例，附带缓存遥测、`--strict` 门禁、JSON 报告与 LSP 契约悬停。
-- 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、WASM 目标）。
-- **C** 语言互操作。
-- 等等。
+- [默认内存安全](./MEMORY_SAFETY.md) —— 裸指针、FFI 和内联汇编需要 `pragma(Pragma.AllowUnsafe);`；`yo unsafe-report` 列出 unsafe 表面。
+- [显式分配器](./EXPLICIT_ALLOCATORS.md) —— 默认使用全局分配器，也可以在创建处传一个参数指定。
+- [形式化验证](./FORMAL_VERIFICATION.md) —— `requires`/`ensures` 契约与精化类型在编译期由 Z3 证明（`yo verify`），不成立时给出反例。
+- [编译期求值](./CTFE.md) —— 类型是一等值，带 `comptime` 参数的函数在编译器中运行。
+- [代数效应](./ALGEBRAIC_EFFECTS.md)与 [async/await](./ASYNC_AWAIT.md) —— 一次性效应处理器；async 是内置的 `Io` 效应，运行在单线程事件循环上。
+- [并行](./PARALLELISM.md) —— 每核一线程的运行时，与 async 相互独立。
+- [C 互操作](./FFI.md) —— `c_include(...)` 与 `extern(...)` 绑定 C 头文件和符号。
+- [每件事只有一种写法](./GRAMMAR.md) —— 没有运算符优先级，没有函数重载。
+- [构建系统与包管理](./BUILD_SYSTEM.md) —— `yo init`、`yo build`，依赖写在 `yo.toml` 中，支持 [WebAssembly](./WASM.md) 目标。
+- [面向智能体的工具](./CONTEXT.md) —— `yo context`（与已安装版本一致的语言指南），带编号的[诊断](./ERROR_DIAGNOSTICS.md)，以及 `yo explain` 和 `yo fix`。
+- [语言服务器](./LSP.md) —— `yo lsp`，[VS Code 扩展](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang)使用它。
 
 <img width="855" alt="Yo 中的编译期阶乘；编辑器悬停在 result 上显示 comptime_int = 120" src="../assets/readme-code-example.png" />
 
 ## 安装
 
-### 安装脚本（推荐）
-
-安装原生预编译的编译器。
-
 ```bash
 # macOS / Linux
-$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
+curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
 ```
 
 ```powershell
 # Windows（PowerShell）
-> irm https://shd101wyy.github.io/Yo/install.ps1 | iex
+irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 ```
 
-安装到 `<prefix>/lib/yo/<tag>`，并在 `<prefix>/bin/yo` 创建链接，`prefix` 默认为
-`$HOME/.local`。常用选项：
+脚本安装预编译的编译器（位于 `~/.local`，Windows 上为 `%LOCALAPPDATA%\Yo`），缺少
+clang 和 git 时一并安装。`curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --help`
+列出全部选项：指定版本 `--version`、安装前缀 `--prefix`，以及在没有预编译包的平台（NixOS、Alpine）上使用的
+`--from-source`。手动配置：[Linux](./INSTALL_LINUX.md)、[macOS](./INSTALL_MACOS.md)、
+[Windows](./INSTALL_WINDOWS.md)、[WebAssembly](./INSTALL_WASM.md)。
 
-| 选项                     | 含义                                              |
-| ------------------------ | ------------------------------------------------- |
-| `-v, --version=<tag>`    | 安装指定版本（默认：最新版）                      |
-| `-p, --prefix=<dir>`     | 安装前缀 —— 系统级安装用 `/usr/local`（需 sudo）  |
-| `--from-source`          | 从发布的单文件 `yo.c` 构建                        |
-| `-cc, --c-compiler=<cc>` | 源码构建使用的 C 编译器（隐含 `--from-source`）   |
-| `-cflags, --c-flags=<f>` | 源码构建的额外 C 编译选项（隐含 `--from-source`） |
-| `-u, --uninstall`        | 卸载而非安装                                      |
-| `--dry-run`              | 仅显示将要执行的操作，不做任何改动                |
+### 让智能体安装
 
-```bash
-# 安装指定版本，系统级安装
-$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
+把下面这段话粘贴给 Claude Code、Codex、Cursor 或其他编程智能体：
 
-# 使用自己的工具链从源码构建
-$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
+```text
+用官方安装脚本安装 Yo 编程语言（https://github.com/shd101wyy/Yo）：
+  macOS/Linux:          curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
+  Windows (PowerShell): irm https://shd101wyy.github.io/Yo/install.ps1 | iex
+如果需要 sudo 安装系统软件包，先问我。然后确认 `yo` 在我的 PATH 中，并且 `yo --version` 能运行。
+写任何 Yo 代码之前，先运行 `yo context` 并完整阅读输出：它是与所安装版本一致的语言指南。
 ```
 
-**没有预编译包的平台** —— 使用 `--from-source`。安装脚本会下载该版本的单文件
-`yo.c`，并用你自己的 C 编译器编译，因此它链接的是你自己的 libc 和加载器。这正是
-NixOS 上的解决方案 —— 预编译二进制文件中硬编码的 ELF 解释器路径
-（`/lib64/ld-linux-x86-64.so.2`）在 NixOS 上并不存在。
-
-> **注意：** `--from-source` 需要发布版本中包含单文件 `yo.c`。截至 `v0.2.4` 的所有
-> 版本都早于该产物，因此该选项仅适用于此后发布的版本。安装脚本会明确提示这一点，
-> 而不会以晦涩的方式失败。
-
-> **内存：** 构建 Yo 本身（无论是 `--from-source`，还是在代码仓库中运行 `yo build`），
-> 在 v0.2.43 或更新的编译器下，一台 **8 GB** 内存的机器就足够。完整构建编译器的峰值约为
-> 4.3 GiB（在 Linux 上测得，包含 C 编译器），CI 在每次变更时都会在 8 GB、无 swap 的限制下
-> 构建它。更早的版本约需 10 GB。编译你自己的程序所需的内存要少得多。
-
-安装脚本会把 `yo` 命令放到你的 `PATH` 中。运行 `yo --help` 查看可用命令。
-
-Yo 将代码转换为 C，因此需要一个 **C 编译器**来生成机器码。上面的安装脚本会替你
-准备好；下面的指南用于手动配置工具链，或排查安装失败的问题。
-
-- **[Linux](./INSTALL_LINUX.md)**
-- **[macOS](./INSTALL_MACOS.md)**
-- **[Windows](./INSTALL_WINDOWS.md)**
-
-以 WebAssembly 为目标还需要 Emscripten —— 参见
-**[WASM 配置](./INSTALL_WASM.md)**。
+智能体会安装 Yo，并加载与所安装编译器一致的语言指南；Yo 不在模型的训练数据中，所以它需要这份指南。
 
 ## 快速开始
 
 ```bash
-$ yo init my-project        # 创建新项目
-$ cd my-project
-$ yo build run              # 构建并运行
-Hello, world!
+yo init my-project
+cd my-project
+yo build run          # 输出：Hello, world!
 ```
 
-`yo init` 生成一个包含构建文件、源代码和测试的项目：
-
-```
-my-project/
-├── build.yo              # 构建配置
-├── src/
-│   ├── main.yo           # 入口点
-│   └── lib.yo            # 库模块
-└── tests/
-    └── main.test.yo      # 单元测试
-```
-
-`src/main.yo`：
+`yo init` 生成清单文件（`yo.toml`）、`build.yo`、源码、测试，以及让编程智能体先运行 `yo context` 的
+`AGENTS.md`/`CLAUDE.md`。入口文件 `src/main.yo`：
 
 ```yo
 { println } :: import("std/fmt");
@@ -165,119 +89,21 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-常用构建命令：
+`yo build test` 运行测试，`yo fmt` 格式化代码，`yo --help` 列出所有命令。`yo --lang zh-CN`（或
+`YO_LANG=zh-CN`）把 CLI 切换为简体中文。
 
-```bash
-$ yo build                  # 构建所有产物
-$ yo build run              # 构建并运行可执行文件
-$ yo build test             # 运行测试
-$ yo build --list-steps     # 列出可用构建步骤
-$ yo build doc              # 生成 HTML 文档
-$ yo fmt                    # 格式化 Yo 源文件
-$ yo fmt --check            # 只检查格式，不写入变更
-```
+## 文档
 
-## 预导入模块（Prelude）
-
-每个 Yo 文件自动导入 **[std/prelude.yo](../../std/prelude.yo)**，它提供了无需任何显式导入即可使用的核心类型、trait 和内置函数：
-
-- **基本类型**：`bool`、`i8`–`i64`、`u8`–`u64`、`f32`、`f64`、`isize`、`usize`、`str`
-- **C 兼容类型**：`int`、`uint`、`short`、`long`、`longlong`、`char` 等
-- **核心 trait**：`Eq`、`Ord`、`Add`、`Sub`、`Mul`、`Div`、`Iterator`、`IntoIterator`、`TryFrom`、`TryInto`、`Drop`、`Send`、`Acyclic` 等
-- **元编程**：`Type`、`Expr`、`ExprList`
-- **异步**：`Io`、`FutureState`、`JoinHandle`
-- **工具函数**：`assert`、`unsafe`、`try`、`for`、`not`、`Rc.new`、`Arc.new`
-- 等等
-
-## 标准库
-
-_设计中_
-
-Yo 附带一个全面的标准库，涵盖字符串、集合、文件 I/O、网络、编码、正则表达式、加密等。完整模块参考，请参阅 **[标准库文档](https://shd101wyy.github.io/Yo/std)**。
-
-你可以使用 `yo doc` 为自己的项目生成文档：
-
-```bash
-$ yo doc ./src -o docs --title "我的项目"
-```
-
-或者在 `build.yo` 中添加文档步骤 — 详见 `yo doc --help`。
-
-## 代码示例
-
-查看 [./tests](../../tests/) 和 [./std](../../std/) 文件夹获取更多代码示例。
-
-### Hello World
-
-```yo
-// main.yo
-{ println } :: import("std/fmt");
-
-main :: (fn() -> unit)({
-  println("Hello, world!");
-});
-
-export(main);
-
-// $ yo compile main.yo --optimize 2 -o main
-// $ ./main
-```
-
-### 示例项目
-
-| 项目                                                                                                            | 描述                                                                                                                                                |
-| --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [raylib-yo](https://github.com/shd101wyy/raylib-yo)                                                             | 全面的 [raylib](https://www.raylib.com/) bindings —— 35 个结构体类型、535 个函数、227 个常量                                                        |
-| [tetris-yo](https://github.com/shd101wyy/tetris-yo) \| [在线演示](https://shd101wyy.github.io/tetris-yo/)         | 使用 raylib-yo 构建的经典俄罗斯方块游戏，展示 Yo 的构建系统和 C 互操作                                                                              |
-| [http-server-demo-yo](https://github.com/shd101wyy/http-server-demo-yo)                                         | 简单的 HTTP/1.1 服务器 —— 异步 I/O、代数效应、TCP 网络、请求解析与路由                                                                              |
-| [markdown-it-yo](https://github.com/shd101wyy/markdown-it-yo)                                                   | 将流行的 JavaScript markdown 解析器 [markdown-it](https://github.com/markdown-it/markdown-it) 直接移植到 Yo，展示了字符串处理能力和性能             |
-| [markdown-yo](https://github.com/shd101wyy/markdown-yo) \| [在线演示](https://shd101wyy.github.io/markdown-yo/) | 高性能 markdown 转 HTML 转换器 —— 原生比 markdown-it 快 5-7 倍，WASM 快 2-6 倍（≥1 MB）。[在浏览器中试用](https://shd101wyy.github.io/markdown-yo/) |
+- [语言设计](./DESIGN.md)
+- [标准库参考](https://shd101wyy.github.io/Yo/std)
+- 用 `.yo-version` [固定版本](./VERSION_MANAGEMENT.md)
+- 编辑器：[LSP 配置](./LSP.md)；Vim/Neovim 语法文件见 [vscode-extension/syntaxes](../../vscode-extension/syntaxes/README.md)
+- 示例：[raylib-yo](https://github.com/shd101wyy/raylib-yo)、[tetris-yo](https://github.com/shd101wyy/tetris-yo)（[在线试玩](https://shd101wyy.github.io/tetris-yo/)）、[http-server-demo-yo](https://github.com/shd101wyy/http-server-demo-yo)、[markdown-it-yo](https://github.com/shd101wyy/markdown-it-yo)、[markdown-yo](https://github.com/shd101wyy/markdown-yo)（[在线试用](https://shd101wyy.github.io/markdown-yo/)）
+- [我与编程语言的故事](./MY_STORY_WITH_PROGRAMMING_LANGUAGES.md)
 
 ## 贡献
 
-编译器用 Yo 编写并自举。开发环境、构建流程与测试运行方式见
-**[CONTRIBUTING.md](./CONTRIBUTING.md)** —— 也欢迎借助 LLM 完成的贡献。
-
-## 编辑器支持
-
-- VS Code 扩展可在 [这里](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) 获取，为 `.yo` 文件提供语法高亮和语言客户端。
-
-  语言服务器就是 `yo` 二进制本身（`yo lsp`，stdio）：诊断、悬停信息、自动补全、跳转到
-  定义、文档符号、查找引用、重命名、签名帮助、代码折叠和格式化，全部由 Yo 求值器提供。
-  只要 `PATH` 中有 `yo`（或设置了 `yo.binPath`），扩展就会启动它；其他支持 LSP 的编辑器
-  可以直接启动 `yo lsp`。设置方法与功能列表见 [docs/zh-CN/LSP.md](./LSP.md)。
-
-- Vim / Neovim：最小化的语法文件和使用说明位于 `vscode-extension/syntaxes/`。
-  详见 [vscode-extension/syntaxes/README.md](../../vscode-extension/syntaxes/README.md) 了解安装步骤、`ftdetect` 示例和 `home-manager` 片段。
-
-## 版本管理
-
-Yo 支持通过 `.yo-version` 文件进行项目级版本固定（类似 `.nvmrc` 或 `.python-version`）：
-
-```bash
-# 将项目固定到特定的 Yo 版本
-yo version pin 0.1.12
-
-# 显示当前版本和固定版本
-yo version
-
-# 安装、列出和清理缓存的版本
-yo version install 0.1.13
-yo version list
-yo version clean
-```
-
-当 `.yo-version` 文件存在时，`yo` CLI 会自动分发到固定的版本 —— 首次使用时下载并缓存对应的原生发布包。
-
-完整文档请参阅 [docs/zh-CN/VERSION_MANAGEMENT.md](./VERSION_MANAGEMENT.md)。
-
-## AI Agent
-
-Yo 不在任何模型的训练数据里，所以 Agent 需要从工具链本身获得这门语言的知识。`yo context` 会打印与版本匹配的语言指南包（规则、易错点、API 索引），`yo context --docs` 列出随工具链捆绑的手册。`yo init` 会写入 `AGENTS.md`（Codex、Cursor、Copilot、Gemini 原生读取）和只有一行的 `CLAUDE.md`（内容为 `@AGENTS.md`，供 Claude Code 使用），其命令块以 `yo context` 开头，让项目里的 Agent 知道从哪里开始。已存在的 `AGENTS.md` 或 `CLAUDE.md` 不会被覆盖。详见 [CONTEXT.md](./CONTEXT.md)。
-
-### CLI 输出语言
-
-CLI 帮助文本和用户可见消息支持双语（英语 + 简体中文）：`yo --lang zh-CN --help` 或 `export YO_LANG=zh-CN` 可将 CLI 切换为简体中文。默认为英语。
+开发环境、构建流程和测试套件见 [CONTRIBUTING.md](./CONTRIBUTING.md)。欢迎借助 LLM 完成的贡献。
 
 ## 许可证
 

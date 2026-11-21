@@ -1,7 +1,8 @@
 # 语言设计
 
 **Yo** 是一种多范式、通用、编译型编程语言。
-Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）。
+Yo 追求**简洁**与**高效**：它编译为 C11，目标是与 C 相当的速度。实测差距见
+[`CODEGEN_PERFORMANCE`](../../plans/backlog/CODEGEN_PERFORMANCE.md)。
 
 **Yo** 旨在成为一门对 C 和 JavaScript (TypeScript) 程序员来说**易于学习**的编程语言 😉。
 

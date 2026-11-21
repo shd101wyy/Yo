@@ -1,7 +1,9 @@
 # Language Design
 
 **Yo** is a multi-paradigm, general-purpose, compiled programming language.
-Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
+Yo aims to be **Simple** and **Fast**: it compiles to C11, and the goal is
+speed comparable to C. The measured gap is in
+[`CODEGEN_PERFORMANCE`](../../plans/backlog/CODEGEN_PERFORMANCE.md).
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
