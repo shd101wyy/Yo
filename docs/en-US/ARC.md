@@ -1,7 +1,7 @@
 # Arc(T) — Shared Ownership with Atomic Reference Counting
 
 `Arc(T)` provides shared ownership of a single value via atomic reference counting.
-It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
+`Arc` is defined
 in `std/prelude.yo` as a newtype over an atomically counted cell, so `Arc` and
 `Arc.new(...)` are available everywhere through the prelude. `Arc(T)` itself requires
 `T <: (Send, Sync)`, which keeps `Arc` from laundering non-thread-safe values into a
