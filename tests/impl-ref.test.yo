@@ -13,6 +13,8 @@
 { assert } :: import("std/assert");
 { ArrayList, ArrayListIter } :: import("std/collections/array-list");
 { String } :: import("std/string");
+{ DefaultHasher, hash_one } :: import("std/hash");
+{ ToString } :: import("std/fmt");
 // issues/fixed/2026-11-05-an-impl-over-a-reference-type-registers-nothing.md:
 // `impl(&Bag, …)` registered nothing, and a `&Bag` receiver silently called
 // `impl(Bag, …)`.
@@ -479,10 +481,9 @@ test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
 // (G2 piece 3, VERDICTS-49) The prelude's blanket `Eq`/`Ord` over a sized `&T`
 // (Rust's `impl PartialEq<&B> for &A`, `impl Ord for &A`): a reference
 // compares and orders as its referent, so generic code at `T := &U` has the
-// bounds. A move-only referent (`String`) shows nothing is copied. `Hash(&T)`
-// and `ToString(&T)` are not in std yet
-// (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md;
-// ToString's blocker was issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+// bounds. A move-only referent (`String`) shows nothing is copied. The
+// `Hash(&T)` and `ToString(&T)` blankets follow the same shape (tests at the
+// end of this file).
 _g3_same :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);
 _g3_less :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> bool)(a < b);
 _g3_max :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> T)(cond((a < b) => b, true => a));
@@ -610,4 +611,35 @@ test("the prelude's Ord(&T) leaves a generic impl's binder K when `a.cmp(b)` run
   y := i32(2);
   assert(m.lt(&x, &y), "1 < 2 through K.cmp");
   assert(m.entries(&y, &x).is_some(), "entries' element type is _BoEntry(i32)");
+});
+// The prelude's blanket `Hash(&T)` and std/fmt's blanket `ToString(&T)`
+// over a sized `&T` (VERDICTS-66's riders): a reference hashes and renders as
+// its referent, so generic code at `T := &U` has the bounds and agrees with
+// `Eq(&T)`. Their blockers are fixed
+// (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md,
+// issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+_rb_show :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> String)(v.to_string());
+_rb_hash :: (fn(generic(T : Type), v : &T, where(T <: Hash)) -> u64)({
+  mut(h) := DefaultHasher.new();
+  T.hash(v, &mut h);
+  h.finish()
+});
+test("(riders) ToString(&T): a reference renders as its referent", {
+  s := String.from("abc");
+  rs := &s;
+  assert(_rb_show(rs) == String.from("abc"), "ToString(&String) through a bound");
+  assert(`<${rs}>` == String.from("<abc>"), "a reference part renders its referent");
+  x := i32(42);
+  rx := &x;
+  assert(_rb_show(rx) == String.from("42"), "ToString(&i32) through a bound");
+  assert(s == "abc", "nothing was moved out of the referent");
+});
+test("(riders) Hash(&T): a reference hashes as its referent", {
+  a := String.from("key");
+  b := String.from("key");
+  ra := &a;
+  rb := &b;
+  assert(_rb_hash(&ra) == _rb_hash(&a), "&String hashes as String");
+  assert(_rb_hash(&ra) == _rb_hash(&rb), "equal referents, equal hashes");
+  assert(_rb_hash(&ra) == hash_one(&a), "agrees with hash_one");
 });
