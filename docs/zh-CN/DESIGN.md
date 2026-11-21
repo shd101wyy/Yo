@@ -300,15 +300,15 @@ yo fmt --check             # 只检查格式，不写入变更
 
 同一条规则还会去掉另外两类括号：包住整个调用参数的括号（`f((a + b))` 变为 `f(a + b)`，因为调用自身的括号已经完成了分组），以及包住单个前缀运算符操作数的括号（`-(x)` 变为 `-x`，`!(done)` 变为 `!done`）。以下括号会保留：加括号的右操作数（`a + (b + c)`）、前缀运算符的复合操作数（`-(x + x)`、`!(a > b)`）、分隔两个不同运算符的括号（`(a * b) + c`），以及 `:=` 或 `=` 右侧二元表达式外的括号——E0003 要求必须有它。`yo fmt` 从不添加括号，所以 E0003 需要的括号要自己写。格式化前后对比：
 
-```yo
+```yo ignore
 // 格式化前
-s1 := (a - b - c - x);
+s1 := (((a - b) - c) - x);
 s2 := (a + (b + c));
-s3 := f(a + b);
-s4 := -x;
+s3 := f((a + b));
+s4 := -(x);
 s5 := -(x + x);
 s6 := ((a * b) + c);
-ok := !done;
+ok := !(done);
 
 // `yo fmt` 之后
 s1 := (a - b - c - x);
@@ -1398,6 +1398,9 @@ float_ptr := (*f32)(ptr); // 将指针转换为 *(f32)
 指针算术使用方法 — `p.add(n)`、`p.sub(n)`、`p.offset_from(q)` — 需要 `unsafe(...)` 包装；指针比较使用普通运算符（`==`、`!=`、`<`、`<=`、`>`、`>=`，经由 `*(T)` 上的 `Eq`/`Ord` impl）并保持安全 — 比较地址本身不会破坏内存安全。注意 `*(T) ==` 比较的是地址（同一性），而 `Rc(T)` 这样的句柄通过自己的 `Eq` impl 比较值。
 
 ```yo
+pragma(Pragma.AllowUnsafe); // 原始指针需要 unsafe 能力的 pragma
+{ assert } :: import("std/assert");
+
 test("Pointer arithmetic", {
   x := 12;
   p := addr_of(x);
@@ -1444,7 +1447,7 @@ consume(ptr.* = some_value);
 
 对其他任何参数，`consume(x)` 会移动 `x`（之后再使用会报 "use of moved value"）；由于它返回 `unit`，它就是该值的最后一个所有者：被拥有的值在 consume 处释放，与 `drop(x)` 的释放完全相同。不拥有其值的绑定（`&T` 借用）只会被标记为已移动。
 
-更多指针示例请参阅 [ptr.test.yo](../tests/ptr.test.yo)。
+更多指针示例请参阅 `tests/ptr.test.yo`。
 
 ### 可空指针
 
@@ -1520,7 +1523,7 @@ write_and_read :: (fn(p : *i32, v : i32) -> i32)(
 
 如需一目了然地审计，运行 `yo unsafe-report`（或 `yo unsafe-report ./std` 仅扫描标准库）。它列出每一处 `unsafe(...)` 站点、`asm(...)` 块、`extern(...)` 声明以及声明 pragma 的文件，带 `file:line:col` 跳转格式以方便编辑器查看。`--json` 标志输出机器可读格式，便于 CI 集成。
 
-```yo
+```yo ignore
 // 没有 pragma 的文件 — `unsafe(...)` 被拒绝：
 main :: (fn() -> unit)({
   x := i32(42);
@@ -1528,7 +1531,9 @@ main :: (fn() -> unit)({
   //        To use raw pointer operations, declare at the top:
   //            pragma(Pragma.AllowUnsafe);
 });
+```
 
+```yo
 // 在文件顶部添加 pragma 即可启用：
 pragma(Pragma.AllowUnsafe);
 
@@ -1734,7 +1739,7 @@ assert(arr1(usize(0)) == i32(1), "arr1 未改变");
 assert(arr2(usize(0)) == i32(10), "arr2 已修改");
 ```
 
-更多数组示例请参阅 [array.test.yo](../tests/array.test.yo)。
+更多数组示例请参阅 `tests/array.test.yo`。
 
 ## 算术与失败语义
 
@@ -2833,7 +2838,7 @@ impl(Point, Format());
 
 ## 集合
 
-完整的集合类型及其 API 请参阅 [std/collections](../std/collections)。
+完整的集合类型及其 API 请参阅 `std/collections`。
 
 Yo 在标准库中提供了高效的、唯一所有的集合类型。
 
@@ -3042,7 +3047,7 @@ Yo 支持闭包（捕获其所在环境的匿名函数）。
 
 两种形式下，**被捕获的值**都遵循一般规则：被捕获的 `Rc` 句柄由该捕获结构体持有，并在其销毁时释放。
 
-更多闭包示例和用法请参阅 [closure.test.yo](../tests/closure.test.yo)。
+更多闭包示例和用法请参阅 `tests/closure.test.yo`。
 
 ### 基本闭包语法
 
@@ -3323,7 +3328,7 @@ test :: (fn() -> unit)({
 });
 ```
 
-更多示例请参阅 [closure.test.yo](../tests/closure.test.yo)。
+更多示例请参阅 `tests/closure.test.yo`。
 
 ## Box：唯一所有的单元
 
@@ -3875,7 +3880,7 @@ use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
 });
 ```
 
-更多示例请参阅 [impl.test.yo](../tests/impl.test.yo)。
+更多示例请参阅 `tests/impl.test.yo`。
 
 ## 代数效应与处理器
 
@@ -4039,7 +4044,7 @@ result := safe_divide(6, 3, exn); // result = 2
 result2 := safe_divide(10, 0, exn); // 处理器以 0 恢复续延，result2 = 0
 ```
 
-更多示例请参阅 [error.test.yo](../tests/error.test.yo)。
+更多示例请参阅 `tests/error.test.yo`。
 
 ## 异步/等待
 
@@ -4407,7 +4412,7 @@ Yo 测试文件通常使用 `.test.yo` 扩展名：
 - `async-await.test.yo` — 异步/等待特性
 - `collections/*.test.yo` — 集合类型
 
-完整的测试示例请参阅 [tests/](../tests/) 目录。
+完整的测试示例请参阅 `tests/` 目录。
 
 ## 元编程
 
@@ -4725,7 +4730,7 @@ increment :: (fn(x : i32) -> i32)(
 3. **泛型编程**：无运行时开销的类型级抽象
 4. **元编程**：基于编译时信息生成代码
 
-更多示例请参阅 [comptime.test.yo](../tests/comptime.test.yo)。
+更多示例请参阅 `tests/comptime.test.yo`。
 
 ## 内联汇编
 

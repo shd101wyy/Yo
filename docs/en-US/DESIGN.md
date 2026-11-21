@@ -306,15 +306,15 @@ When `yo fmt` would change a file, it first parses the original: a parse failure
 
 The same rule removes two more kinds of group: parentheses around a whole call argument (`f((a + b))` becomes `f(a + b)`, because the call's own parentheses already group it) and around a bare prefix operand (`-(x)` becomes `-x`, `!(done)` becomes `!done`). It keeps a parenthesized right operand (`a + (b + c)`), a prefix operator's compound operand (`-(x + x)`, `!(a > b)`), the parentheses between two different operators (`(a * b) + c`), and the group around a binary right-hand side of `:=` or `=`, which E0003 requires. `yo fmt` never adds parentheses, so write the E0003 ones yourself. Before and after:
 
-```yo
+```yo ignore
 // before
-s1 := (a - b - c - x);
+s1 := (((a - b) - c) - x);
 s2 := (a + (b + c));
-s3 := f(a + b);
-s4 := -x;
+s3 := f((a + b));
+s4 := -(x);
 s5 := -(x + x);
 s6 := ((a * b) + c);
-ok := !done;
+ok := !(done);
 
 // after `yo fmt`
 s1 := (a - b - c - x);
@@ -1435,6 +1435,9 @@ float_ptr := (*f32)(ptr); // Cast pointer to *(f32)
 Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while a handle such as `Rc(T)` compares VALUES via its own `Eq` impl.
 
 ```yo
+pragma(Pragma.AllowUnsafe); // raw pointers need the unsafe-capable pragma
+{ assert } :: import("std/assert");
+
 test("Pointer arithmetic", {
   x := 12;
   p := addr_of(x);
@@ -1483,7 +1486,7 @@ consume(ptr.* = some_value);
 
 On any other argument, `consume(x)` moves `x` (a later use is "use of moved value") and, since it returns `unit`, it is the value's last owner: an owned value is released at the consume, exactly as `drop(x)` releases it. A binding that does not own its value (a `&T` borrow) is only marked moved.
 
-For more pointer examples, see [ptr.test.yo](../tests/ptr.test.yo).
+For more pointer examples, see `tests/ptr.test.yo`.
 
 ### Nullable Pointers
 
@@ -1560,7 +1563,7 @@ The unsafe surface is greppable: every `unsafe(` token marks a place where raw m
 
 For an at-a-glance audit, run `yo unsafe-report` (or `yo unsafe-report ./std` for stdlib alone). It lists every `unsafe(...)` site, `asm(...)` block, `extern(...)` declaration, and pragma-declaring file, with `file:line:col` jumps for editors. The `--json` flag emits machine-readable output for CI integrations.
 
-```yo
+```yo ignore
 // File without pragma — `unsafe(...)` is rejected:
 main :: (fn() -> unit)({
   x := i32(42);
@@ -1568,7 +1571,9 @@ main :: (fn() -> unit)({
   //        To use raw pointer operations, declare at the top:
   //            pragma(Pragma.AllowUnsafe);
 });
+```
 
+```yo
 // Opt in by adding the pragma at the top of the file:
 pragma(Pragma.AllowUnsafe);
 
@@ -1785,7 +1790,7 @@ assert(arr1(usize(0)) == i32(1), "arr1 unchanged");
 assert(arr2(usize(0)) == i32(10), "arr2 modified");
 ```
 
-For more array examples, see [array.test.yo](../tests/array.test.yo).
+For more array examples, see `tests/array.test.yo`.
 
 ## Arithmetic and Failure Semantics
 
@@ -2955,7 +2960,7 @@ literal — `${parts.join(":")}` — is never mistaken for a separator.
 
 ## Collections
 
-Please check [std/collections](../std/collections) for the full list of collection types and their APIs.
+Please check `std/collections` for the full list of collection types and their APIs.
 
 Yo provides efficient, uniquely owned collection types in the standard library.
 
@@ -3165,7 +3170,7 @@ A closure compiles to a **capture struct** holding the variables it uses. How th
 
 In both cases the *captured values* follow the usual rules: a captured `Rc` handle is owned by the capture and released when the capture is dropped.
 
-Please check [closure.test.yo](../tests/closure.test.yo) for closure examples and usage.
+Please check `tests/closure.test.yo` for closure examples and usage.
 
 ### Basic Closure Syntax
 
@@ -3491,7 +3496,7 @@ test :: (fn() -> unit)({
 });
 ```
 
-For more examples, see [closure.test.yo](../tests/closure.test.yo).
+For more examples, see `tests/closure.test.yo`.
 
 ## Box: the Uniquely Owned Cell
 
@@ -4110,7 +4115,7 @@ use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
 });
 ```
 
-For more examples, see [impl.test.yo](../tests/impl.test.yo).
+For more examples, see `tests/impl.test.yo`.
 
 ## Algebraic Effects and Handlers
 
@@ -4283,7 +4288,7 @@ result := safe_divide(6, 3, exn); // result = 2
 result2 := safe_divide(10, 0, exn); // handler resumes with 0, result2 = 0
 ```
 
-For more examples, see [error.test.yo](../tests/error.test.yo).
+For more examples, see `tests/error.test.yo`.
 
 ## Async/Await
 
@@ -4667,7 +4672,7 @@ Yo test files typically use the `.test.yo` extension:
 - `async-await.test.yo` - Async/await features
 - `collections/*.test.yo` - Collection types
 
-For comprehensive test examples, see the [tests/](../tests/) directory.
+For comprehensive test examples, see the `tests/` directory.
 
 ## Meta-programming
 
@@ -4984,7 +4989,7 @@ increment :: (fn(x : i32) -> i32)(
 3. **Generic programming**: Type-level abstraction without runtime overhead
 4. **Metaprogramming**: Generate code based on compile-time information
 
-For more examples, see [comptime.test.yo](../tests/comptime.test.yo).
+For more examples, see `tests/comptime.test.yo`.
 
 ## Inline Assembly
 
