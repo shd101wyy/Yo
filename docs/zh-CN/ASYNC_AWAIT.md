@@ -64,26 +64,27 @@ Yo 的 async 使用**代数效应**和 `Io` 效应类型。异步任务是**惰�
 
 ```yo
 { yield } :: import("std/async");
+{ assert } :: import("std/assert");
 { RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
   // 惰性创建——两个任务都尚未启动
-  task1 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(1))); // 启动时执行
+  task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(1))); // 启动时执行
     io.await(yield(io), io); // 让出控制权给事件循环
-    counter.replace_with(v => (v + i32(1))); // 其他任务让出后恢复执行
+    counter.*.replace_with(v => (v.* + i32(1))); // 其他任务让出后恢复执行
   });
 
-  task2 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(10)));
+  task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
   });
 
   // 此时 counter 仍为 0——任务尚未启动
-  assert(counter.with(v => v) == i32(0), "tasks are lazy");
+  assert(counter.*.with(v => v.*) == i32(0), "tasks are lazy");
 
   // spawn 启动两个任务但不等待：
   // 1. task1 运行：counter=0→1，让出
@@ -97,7 +98,7 @@ main :: (fn(io : Io) -> unit)({
   handle1.await(io);
   handle2.await(io);
 
-  assert(counter.with(v => v) == i32(22), "both tasks interleaved and completed");
+  assert(counter.*.with(v => v.*) == i32(22), "both tasks interleaved and completed");
 });
 export(main);
 ```
@@ -160,6 +161,8 @@ r3 := handle3.await(io);
 异步操作需要 `Io` 效应，通过 `io : Io` 传递：
 
 ```yo
+{ yield } :: import("std/async");
+
 // main 函数接收 Io 效应
 main :: (fn(io : Io) -> unit)({
   task := io.async((io : Io) => {
@@ -203,7 +206,7 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 9. Future 只 await **一次**：第二次 `io.await`（或 `io.spawn` 之后再 await）是 E0901。`JoinHandle` 也一样：第二次 `await` 或 `join` 是 E0901。多个任务都需要的结果只 join 一次再共享（`Rc(T)`、channel）
 10. 任务 await 期间被中止的 Future 会把中止传播给该任务（见"已中止的 Future"），而中止任务也会中止它正在 await 的 Future
 11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
-12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下。由于一个包会启动许多 Future，包的每个字段都必须可以隐式复制：只能移动的字段、或没有 `Copy` 的纯数据字段，在 `io.await`/`io.spawn` 处报错（§3.13 A6），计数句柄（`Rc` 或 `Arc` 字段，决策 17）也一样：效应包不持有任何拥有的值。共享状态通过任务的捕获列表传给任务（`io.async({ st : Rc.clone(st) }(e : Io) => ...)`），或作为效应调用的参数传给处理器。
+12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下。由于一个包会启动许多 Future，包的每个字段都必须可以隐式复制：只能移动的字段、或没有 `Copy` 的纯数据字段，在 `io.await`/`io.spawn` 处报错（§3.13 A6），计数句柄（`Rc` 或 `Arc` 字段）也一样：效应包不持有任何拥有的值。共享状态通过任务的捕获列表传给任务（`io.async({ st : Rc.clone(st) }(e : Io) => ...)`），或作为效应调用的参数传给处理器。
 
 ### 执行模型
 
@@ -334,7 +337,7 @@ Io :: struct(
 
 ### Future 只 await 一次
 
-Future 是只能移动的值（`plans/VALUES_BY_DEFAULT.md` 决策 13）。`io.await(f, io)` 和 `io.spawn(f, io)` 会消耗 `f`，因此每个 Future 只能被 await 或 spawn 一次；`io.await` 把结果移出，所以结果类型也可以是只能移动的类型。第二次 await 是 E0901：
+Future 是只能移动的值。`io.await(f, io)` 和 `io.spawn(f, io)` 会消耗 `f`，因此每个 Future 只能被 await 或 spawn 一次；`io.await` 把结果移出，所以结果类型也可以是只能移动的类型。第二次 await 是 E0901：
 
 ```yo
 { assert } :: import("std/assert");
@@ -357,7 +360,7 @@ export(main);
 - 它可以在创建处被 await，作为 `io.await` 的操作数（直接作为操作数，或作为 `if`/`cond`/`match` 分支的值、块的末尾表达式）；
 - 它可以作为组合器的操作数，即按值参数和结果都是 Future 的泛型函数（`both(a, b, io)`，参数类型为 `Impl(Future(A, Io))` 和 `Impl(Future(B, Io))`）：组合器自己的 Future 随之借用其操作数所借用的位置，并同样遵守这些规则。操作数可以是已绑定的 Future：`s := select(f, g, io)` 会把 `f` 冻结的位置一直冻结到 `s` 的最后一次使用。同一调用的两个操作数在任一方为 `&mut` 时不能借出重叠的位置（E0910，决定 38 B）；对同一位置的两个 `&` 借用是允许的。结果不是 Future 的函数的按值 Future 参数，以及非泛型函数的按值 Future 参数（其函数体只在定义处检查一次，其 Future 无法携带操作数的借用），仍然拒绝它（E0909）。泛型组合器可以返回其操作数的值：仅通过 `Impl(Future(T, E))` 参数绑定的 `T` 会在调用的特化处解析，因此 `io.async({ op }(io : Io) => io.await(op, io))` 会以操作数自己的 `T` 交回其结果（`issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`）。`std/async` 的 `timeout` 和 `select` 就是这样的组合器（见[借用的 Future 上的超时与 select](#借用的-future-上的超时与-select)）；
 - 当它借用的每个位置都是某个函数自己的 `&`/`&mut` 参数时，该函数可以返回它，因为调用方借出的位置比它活得久。`&T` 参数要通过函数体自己的捕获列表借用（`{ &c }`）；只通过所捕获的闭包间接借用 `&T` 参数的 Future 被返回时是 E0909。函数经由 `&Impl(Fn(...))` 参数借到的借用闭包算作该参数（`m.with_lock({ &s }(v : &mut i64) => ..., io)`）；
-- 它可以用 `:=` 绑定。与局部借用一样，绑定从声明处到 Future 的最后一次使用冻结 Future 借用的每个位置，每个位置按其被借出时的方式冻结：`f := bump(&mut c, io);` 之后、`io.await(f, io)` 之前写 `c` 是 E0911，先 await 则没有问题（决策 43，`Future(T, E, p)`）。函数也可以返回另一个调用在其自身参数上创建的 Future（`f(c : &mut C, io)` 返回 `bump(&mut c.*, io)`）；
+- 它可以用 `:=` 绑定。与局部借用一样，绑定从声明处到 Future 的最后一次使用冻结 Future 借用的每个位置，每个位置按其被借出时的方式冻结：`f := bump(&mut c, io);` 之后、`io.await(f, io)` 之前写 `c` 是 E0911，先 await 则没有问题（Future 的类型是 `Future(T, E, p)`，`p` 是它所借用内容的 origin）。函数也可以返回另一个调用在其自身参数上创建的 Future（`f(c : &mut C, io)` 返回 `bump(&mut c.*, io)`）；
 - 它不能通过 `match` 分支的模式绑定、用 `=` 重新赋值、用 `_ := ...` 丢弃、存储、被逃逸的闭包捕获或被 spawn（E0909），借用了函数局部变量的 Future 不能被返回（E0912）；
 - 它所在 `io.await` 的效应包必须是一个位置（`io`、`self.io`），而不是会运行代码的表达式：效应包在 Future 创建之后求值，否则可能移动或覆盖 Future 借用的位置（E0910）；
 - 调用的接收者和各个参数一经求值，它们借出的位置就由 Future 持有，因此同一调用中靠后的参数不能移动被借出的位置、给它赋值或再次以 `&mut` 借出它（`bump_by(&mut c, take(c), io)`，以及 `touch` 为 `&mut self` 方法时的 `bump_by(&mut c, c.touch(), io)`，都是 E0910）。请在语句之前算好这样的参数。普通调用同样拒绝这三种写法，只是它的借用随调用结束（[OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#两阶段借用与参数重叠)）。
@@ -391,7 +394,7 @@ export(main);
 
 借给借用的 Future 的位置不能经过 `Rc`、指针或对集合的索引（`h` 为 `Rc` 时的 `io.await(count(&h.*.items, io), io)`，以及 `io.await(bump(&mut xs(i), io), io)`，都是 E0909）：这个借用跨越挂起点持续存在，期间另一个任务通过它自己的句柄写入或重新分配时没有任何检查能发现。改为借出句柄，在 Future 内每次使用时读取 `h.*.items`，或者让任务拥有这个值。固定大小数组的元素属于数组自身的存储，可以借出。
 
-对共享借用而言，`Rc` 与 `Arc` 解引用是例外：安全代码中没有任何句柄会写入 `Rc` 的载荷（E0919，决策 46）或 `Arc` 的载荷（它的状态只通过其内部的 `Mutex` 或原子类型改变，与 Rust 相同；`a.*.o.take()` 这类标准库修改方法与直接写入一样被拒绝，因为 D3 按每个被调用者实际写入的内容来判断），而任务自己的句柄让载荷保持存活。所以当 `a : Arc(Mutex(T))` 时，`io.await(a.*.lock(io), io)` 是允许的；`r : Rc(S)` 时的 `io.await(count(&r.*.items, io), io)`，以及只经过 `Rc` 和 `Arc` 解引用的路径（`Rc.new(Arc.new(m))`）也都允许。经由两者之一的 `&mut` 借用仍被拒绝：`Rc` 是 E0919，`Arc` 是 E0909。
+对共享借用而言，`Rc` 与 `Arc` 解引用是例外：安全代码中没有任何句柄会写入 `Rc` 的载荷（E0919）或 `Arc` 的载荷（它的状态只通过其内部的 `Mutex` 或原子类型改变，与 Rust 相同；`a.*.o.take()` 这类标准库修改方法与直接写入一样被拒绝，因为每个被调用者都按它实际写入的内容来判断），而任务自己的句柄让载荷保持存活。所以当 `a : Arc(Mutex(T))` 时，`io.await(a.*.lock(io), io)` 是允许的；`r : Rc(S)` 时的 `io.await(count(&r.*.items, io), io)`，以及只经过 `Rc` 和 `Arc` 解引用的路径（`Rc.new(Arc.new(m))`）也都允许。经由两者之一的 `&mut` 借用仍被拒绝：`Rc` 是 E0919，`Arc` 是 E0909。
 
 借出的位置也不能以可变的模块级绑定 `mut(G)` 或 `thread_local(mut(x))` 为根，经过 `Arc` 解引用也不例外（模块级 `mut(G) := ...` 时，`io.await(bump(&mut G, io), io)` 是 E0909，`io.await(tenfold(&G, io), io)` 也是；`mut(G) := Arc.new(...)` 时的 `io.await(peek(&G.*, io), io)` 同样如此）：同一线程上的任何任务都能按名字访问该绑定，并在本任务等待期间重新给它赋值，从而释放 Future 所借用的值。请借出一个局部副本，或在 Future 内按名字读取这个全局变量，每次使用都会读到它的当前值。未用 `mut` 声明的全局变量是不可变的（决策 47），因此它的 `&G` 可以借给借用的 Future；句柄全局变量背后存储中的位置仍遵循 E0916 的句柄规则。`::` 常量没有可改变的运行时存储，可以借出。
 
@@ -403,8 +406,7 @@ export(main);
 所以更上层的 `JoinHandle.await` 或 `join` 读出 `.None`。在普通 `fn` 中，正在等待的函数接管
 这次 unwind：若该函数自己安装了处理器则在此捕获，否则逃逸到调用方，一直到 `main`——逃逸到
 那里会打印 `unhandled effect unwind escaped to top level` 并终止。无论 Future 是在 await
-开始之前还是等待期间被中止，也无论它的类型是否带有效应包，规则都一样。（2026-10-03 之前，
-已中止的情形会 panic："attempted to await an aborted Future"。）
+开始之前还是等待期间被中止，也无论它的类型是否带有效应包，规则都一样。
 
 **使用 `handle.await`**：`JoinHandle.await` 返回 `Option(T)`——中止时返回 `.None`，安全地捕获 unwind：
 
@@ -521,12 +523,15 @@ main :: (fn(io : Io) -> unit)({
   // 启动前：Cold
   assert(io.state(&task) == FutureState.Cold, "cold future is Cold");
 
-  // spawn 消耗 Future；之后由它的句柄读取任务状态。
+  // spawn 消耗 Future，并把任务运行到它的 `yield`；之后由它的句柄读取任务状态。
   h := io.spawn(task, io);
-  _r := h.await(io);
+  assert(h.state() == FutureState.Running, "suspended task is Running");
 
-  // 完成后：Completed
+  // 任务结束后：Completed
+  io.await(yield(io), io);
   assert(h.state() == FutureState.Completed, "done task is Completed");
+  r := h.await(io);
+  assert(r == .Some(i32(42)), "the handle yields the result");
 });
 export(main);
 ```
@@ -646,7 +651,7 @@ export(main);
 ```
 
 每一层都是一个独立的 future，并且所有 future 都要存活到最内层那个完成为止，所以内存随深度
-线性增长。在 Linux x86-64 上用 v0.2.49 实测：100,000 层的峰值是 35 MB，1,000,000 层是
+线性增长。在 Linux x86-64 上实测：100,000 层的峰值是 35 MB，1,000,000 层是
 316 MB（每层约 310 字节；不会栈溢出，因为 future 分配在堆上）。
 
 当深度取决于数据时（目录树、图），改用显式的工作列表（worklist）：总共只有一个 future，
@@ -662,7 +667,7 @@ count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     mut(stack) := ArrayList(i32).new();
     stack.push(n);
-    (leaves : i32) = i32(0);
+    (mut(leaves) : i32) = i32(0);
     while(stack.len() > usize(0), {
       cur := match(stack.pop(), .Some(k) => k, .None => i32(0));
       io.await(yield(io), io); // 代表每一项的 I/O
@@ -717,7 +722,7 @@ spawned or awaited task. That nests the event loop and can deadlock. ...
 
 work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    (k : i32) = i32(0);
+    (mut(k) : i32) = i32(0);
     while(k < i32(3), {
       io.await(yield(io), io);
       k = (k + i32(1));
@@ -734,8 +739,8 @@ run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     handles.push(io.spawn(work(i32(2), io), io));
     // ✓ 真正的挂起点：这个任务等待期间其他任务照常运行
     outs := io.await(join_all(handles, io), io);
-    (sum : i32) = i32(0);
-    (i : usize) = usize(0);
+    (mut(sum) : i32) = i32(0);
+    (mut(i) : usize) = usize(0);
     while(i < outs.len(), {
       match(
         outs(i),
@@ -814,8 +819,8 @@ bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))
 );
 
 main :: (fn(io : Io) -> unit)({
-  a := Counter(n : i32(0));
-  b := Counter(n : i32(10));
+  mut(a) := Counter(n : i32(0));
+  mut(b) := Counter(n : i32(10));
   r := io.await(timeout(bump_after(&mut a, u64(500), io), Duration.from_millis(i64(5)), io), io);
   assert(r.is_err(), "截止时间先到；操作数被中止并被 join");
   s := io.await(select(bump_after(&mut a, u64(500), io), bump_after(&mut b, u64(1), io), io), io);
@@ -827,7 +832,7 @@ export(main);
 
 组合器的 Future 于是借用它的操作数所借用的东西，A2 的规则同样适用于它：在创建处被 await，
 不能绑定、存储或 spawn，并且它的 `io.await` 的效应包必须是一个位置。同一调用的两个操作数在
-任一方是 `&mut` 时不能借出重叠的位置（E0910，决策 38 B）：`select(s.next(io), s.next(io), io)`
+任一方是 `&mut` 时不能借出重叠的位置（E0910）：`select(s.next(io), s.next(io), io)`
 是错误，而对同一位置的两个 `&` 借用没有问题。
 
 这条规则是结构性的：任何按值参数和结果都是 Future 的函数都在该参数处接受借用的 Future，并且
@@ -1059,10 +1064,6 @@ void fn_id12345___drop(async_block_state_t* self) {
   if (self != NULL) { __yo_decr_rc((void*)self); };
 }
 ```
-
-**类型系统集成：**
-
-求值器的 `getMethodsByNameFromEnv` 函数对 Future 类型有特殊处理——它**不**使用 `resolvedConcreteType` 进行方法查找。这确保调用 `task.___drop()` 时使用的是 SomeType 自身的 `___drop` 方法（调用 `__yo_sometype_drop`），而非捕获结构体的 drop 函数。
 
 ### 状态机生命周期
 
@@ -1297,7 +1298,7 @@ impl(
 2. **循环直接写在任务体里。** 其中的 `io.await` 和其他 await 一样会挂起所在的
    任务，所以在 spawn 出去的任务里和在 `main` 里都能用。挂起点是写在 `io.async`
    体里的 `io.await`；任务所调用的函数内部的 `io.await` 会阻塞，而不是挂起，因此
-   std 不提供把 await 藏在名字后面的循环形式（`for_await` 宏已于 2026-10-24 删除）：
+   std 不提供把 await 藏在名字后面的循环形式：
 
    ```yo
    mut(s) := stream;
@@ -1355,18 +1356,18 @@ r2 := handle2.await(io);
 main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
-  task1 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(1)));
+  task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(1)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(1)));
-    return(counter.with(v => v));
+    counter.*.replace_with(v => (v.* + i32(1)));
+    return(counter.*.with(v => v.*));
   });
 
-  task2 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(10)));
+  task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(10)));
-    return(counter.with(v => v));
+    counter.*.replace_with(v => (v.* + i32(10)));
+    return(counter.*.with(v => v.*));
   });
 
   // 任务为冷状态——counter 仍为 0
@@ -1388,16 +1389,16 @@ export(main);
 main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
-  task1 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(1)));
+  task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(1)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(1)));
+    counter.*.replace_with(v => (v.* + i32(1)));
   });
 
-  task2 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(10)));
+  task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
   });
 
   // 不使用 spawn：任务顺序执行
@@ -1475,7 +1476,7 @@ io.await(
 
 main :: (fn(io : Io) -> unit)({
   m := Arc.new(Mutex(i64).new(i64(0)));
-  worker := m; // 同一把锁的另一个句柄（V2c 落地后写作 `m.clone()`）
+  worker := Arc.clone(m); // 同一把锁的另一个句柄
   h := io.spawn(
     io.async({ worker }(io : Io) => {
       io.await(worker.*.lock(io), io);
@@ -1495,7 +1496,7 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-单线程共享方式 `Rc(Mutex(T))`（Rust 的 `Rc<Mutex<T>>`）同样可用：`Rc` 的载荷经由句柄是只读的（决策 46），所以 `r : Rc(Mutex(T))` 时 `io.await(r.*.lock(io), io)` 是允许的。
+单线程共享方式 `Rc(Mutex(T))`（Rust 的 `Rc<Mutex<T>>`）同样可用：`Rc` 的载荷经由句柄是只读的，所以 `r : Rc(Mutex(T))` 时 `io.await(r.*.lock(io), io)` 是允许的。
 
 ### `yield_now`：不带定时器的公平让出
 
@@ -1503,13 +1504,6 @@ export(main);
 它的 future 创建时处于 pending 状态，由下一次就绪任务批处理在测量完自己的配额
 之后完成它，于是被恢复的任务在下一个轮次运行，中间正好有一次 I/O 轮询。两者
 之下都没有定时器。
-
-在 v0.2.32 之前，`yield` 停在一个 1 毫秒的定时器上，这给建立在它之上的一切都
-加上了毫秒级的下限（在一个 spawn 出来的任务里跑 400 个轮次的实测：`yield_now`
-0 毫秒，定时器版的 `yield` 603 毫秒）。推迟的原因是引导（bootstrap），而不是设计：
-`yield` 位于编译器自身的 import 路径上，而 seed 编译器生成的是它自己构建时的
-async 运行时，所以只有当某个已发布的 seed 带上新原语之后，`yield` 才能指向它。
-`yield_now` 作为 `std/async/waker` 导出的名字保留。
 
 ## 与其他语言的比较
 
