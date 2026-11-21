@@ -236,8 +236,11 @@ Syntax lives in `yo-syntax.instructions.md`; tests in `tests/fn.test.yo`. `_` wo
 functions (return type `comptime(...)`). `generic(...)` parameters are inferred, not positional, so `_`
 cannot stand for one (`F(_, a, b)` on `fn(generic(T : Type), comptime(a) : usize, comptime(b) : usize)` is
 "expected 2 argument(s), got 3"); a type constructor whose type argument should stay open takes
-`comptime(A) : Type`. A `_` slot typed by a generic binder currently loses the compile-time result
-(`issues/2026-11-21-partial-application-through-a-generic-binder-loses-the-comptime-value.md`).
+`comptime(A) : Type`. A `_` slot typed by a generic binder keeps it: a binder the captured arguments fix is
+substituted into the minted signature, and a binder only the hole names stays the minted function's own
+binder, inferred from the hole arguments (`issues/fixed/2026-11-21-partial-application-through-a-generic-binder-loses-the-comptime-value.md`).
+When testing one, read the result at run time (a typed local plus `assert`): `comptime_assert` on an
+unknown value passes vacuously.
 
 ## Writing a test that observes a LEAK (macOS: ASan does not arm)
 
