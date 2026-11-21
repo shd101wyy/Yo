@@ -4,7 +4,7 @@
 
 **Kind:** design question
 
-**Status:** OPEN. Filed 2026-11-16 by the d49-str lane. The branch implements option 3 (below) so that it is mergeable
+**Status:** RETIRED 2026-11-21 (see above). Filed 2026-11-16 by the d49-str lane. The branch implements option 3 (below) so that it is mergeable
 as it stands. The coordinator chooses between 3 and 1.
 
 ## What
