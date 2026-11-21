@@ -8,14 +8,14 @@ complete programs compile and run, and rejected code names its error code.
 
 ## What Yo is
 
-A statically typed, expression-oriented language compiled to C11. There is no garbage collector: every value
-has one owner, the last use of a value moves it, copies are explicit
-(`.clone()`) except for `Copy` types, and a compile-time borrow checker checks
-every reference (`&T`, `&mut T`), whose type carries an origin. `Rc(T)` and
-`Arc(T)` are the only shared handles. Async is single-threaded per thread (an
-event loop, like JavaScript's or tokio's `current_thread`); threads are a
-separate, explicit runtime. There is no operator precedence and no
-overloading, and diagnostics carry repairs.
+A statically typed, expression-oriented language compiled to C11, with no
+garbage collector: every value has one owner, the last use of a value moves
+it, copies are explicit (`.clone()`) except for `Copy` types, and a
+compile-time borrow checker checks every reference (`&T`, `&mut T`), whose
+type carries an origin. `Rc(T)` and `Arc(T)` are the only shared handles.
+Async is single-threaded per thread (an event loop, like JavaScript's or
+tokio's `current_thread`); threads are a separate, explicit runtime. There is
+no operator precedence and no overloading, and diagnostics carry repairs.
 
 ## The toolchain loop
 
@@ -24,12 +24,12 @@ yo check main.yo           # type-check; run after EVERY edit
 yo fix main.yo             # apply the repairs the diagnostics carry
 yo explain E0901           # a diagnostic's full explanation, offline
 yo compile main.yo -o app  # full pipeline: emit C, run the C compiler
-yo test ./tests            # *.test.yo files; --test-name-pattern, --json
+yo test ./tests            # run *.test.yo files
 yo fmt file.yo             # format; --check verifies
 yo build                   # a project: build.yo + yo.toml (yo init creates both)
 ```
 
-- `check` skips `test(...)` bodies unless given `--test-bodies`;
+- `check` reports errors in `test(...)` bodies only with `--test-bodies`;
   `--watch` re-checks only what changed; `--error-format json` emits spans
   and repairs.
 - One rule fires only in codegen (a hollow `io.async` body, E0905): gate async
@@ -132,8 +132,8 @@ export(main);
 
 ## Ownership: values by default
 
-- **Three kinds of type.** `Copy` (integers, floats, `bool`, `&T`, `str`,
-  and types you `derive(T, Copy, Clone)`) copies bit for bit. Explicit-copy
+- **Three kinds of type.** `Copy` (integers, floats, `bool`, `&T` and
+  types you `derive(T, Copy, Clone)`) copies bit for bit. Explicit-copy
   (`String`, collections, `Box`, `Rc`, `Arc` and types holding them) copies
   only through `x.clone()`. Move-only (no `Clone`, or a `Drop` impl: files,
   locks, `&mut T`) never copies.
@@ -197,8 +197,8 @@ export(main);
   escape (E0912).
 - **Origins** are Yo's lifetimes, usually elided: `-> &(i32, s)` borrows
   only from parameter `s`; `generic(p : Origin)` declares one, and a struct
-  holding a reference takes `comptime(p) : Origin`. Collection elements, heap
-  cells, globals and other threads hold no references (E0909).
+  holding a reference takes `comptime(p) : Origin`. No reference may live in a
+  collection element, a heap cell, a global or another thread.
 
 ```yo
 { assert } :: import("std/assert");
@@ -407,7 +407,6 @@ export(main);
 - An effect is a `ctl(...) -> R` value passed as an ordinary parameter. In its
   handler, `return(v)` RESUMES the caller with `v`; `unwind(v)` DISCARDS the
   continuation and returns `v` from the function that installed the handler.
-  (C's `abort()` is unrelated: it ends the process.)
 
 ```yo
 { assert } :: import("std/assert");
@@ -494,10 +493,11 @@ export(main);
   binds nothing. The prelude is implicit.
 - File, directory and package names are kebab-case
   (`std/collections/array-list`); identifiers are `snake_case`/`PascalCase`.
-- A field or method named `_x` is private to its module (E0405).
+- A field or method named `_x` is private to its module and its
+  same-directory siblings (E0405).
 - Dependencies live in `yo.toml` (`yo add user/repo`); `yo install` fetches
   them, and `import("dep/...")` resolves through the nearest manifest.
-- Doc comments: `//!` for the module, `///` for items; fence Yo code as `yo`.
+- Doc comments are `//!` (module) and `///` (item).
 - Tests live in `*.test.yo` files (`unwrap` is allowed there). `assert` is not
   in the prelude:
 
