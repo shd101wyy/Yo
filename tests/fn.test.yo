@@ -795,6 +795,48 @@ test("Partial application preserves return type", {
   comptime_assert(result2 == "Hi!", "greeting should be Hi!");
   ();
 });
+// A `_` hole or a result typed by a `generic(...)` binder: the binder is
+// substituted when the captured arguments fix it, and inferred from the hole
+// arguments otherwise. Each result is read at run time, so an unknown value
+// fails the C build (E1301) instead of passing a vacuous `comptime_assert`
+// (issues/fixed/2026-11-21-partial-application-through-a-generic-binder-loses-the-comptime-value.md).
+test("Partial application through a generic binder", {
+  // The reproducer: the captured argument fixes A.
+  Wrap :: (fn(generic(A : Type), comptime(x) : A, comptime(y) : A) -> comptime(A))(x);
+  g :: Wrap(i32(7), _);
+  r :: g(i32(9));
+  (v : i32) = r;
+  assert(v == i32(7), "Wrap(7, _)(9) = 7");
+  // Control: the same function over concrete parameters.
+  WrapI32 :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x);
+  gi :: WrapI32(i32(7), _);
+  (vi : i32) = gi(i32(9));
+  assert(vi == i32(7), "WrapI32(7, _)(9) = 7");
+  // Only the hole names A: the minted function keeps A as its own binder.
+  Second :: (fn(generic(A : Type), comptime(x) : i32, comptime(y) : A) -> comptime(A))(y);
+  s :: Second(i32(1), _);
+  (vs : u8) = s(u8(200));
+  assert(vs == u8(200), "Second(1, _)(200) = 200");
+  // The hole's binder decides a compile-time-only use of the result.
+  n :: s(usize(3));
+  (arr : Array(i32, n)) = Array(i32, n)(i32(4), i32(5), i32(6));
+  assert(arr.len() == usize(3), "Array(i32, 3)");
+  // Two holes, both typed by A.
+  both :: Wrap(_, _);
+  (vb : i64) = both(i64(-5), i64(8));
+  assert(vb == i64(-5), "Wrap(_, _)(-5, 8) = -5");
+  // A result typed by a binder only the captured argument names.
+  Keep :: (fn(generic(A : Type), comptime(x) : A, comptime(k) : usize) -> comptime(A))(x);
+  kept :: Keep(u16(41), _);
+  (vk : u16) = kept(usize(0));
+  assert(vk == u16(41), "Keep(41, _)(0) = 41");
+  // A runtime argument at a hole stays rejected, whether the captured
+  // argument fixed its binder or the hole infers it.
+  w := i32(9);
+  comptime_expect_error(g(w), "requires a compile-time argument");
+  comptime_expect_error(s(w), "requires a compile-time argument");
+  ();
+});
 test("Chained unwrap call on Option of function type", {
   MyStruct :: struct(x : i32);
   MyFn :: (fn(s : *MyStruct, a : i32) -> bool);
