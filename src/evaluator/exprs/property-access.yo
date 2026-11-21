@@ -22,6 +22,8 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   alloc_global_expr_id,
   BF_DOT,
+  BF_ADDRESS_OF,
+  BK_BORROW_MUT,
   note_owner_deref,
   make_owner_deref_call
 } :: import("../../expr.yo");
@@ -381,13 +383,55 @@ strip_synthesized_stars :: (fn(e : &AstExpr) -> Tuple(AstExpr, usize))({
 /// The repair replaces the member's name with `*.` per star and the name, so
 /// it holds for any object expression; it is attached only when the source
 /// at the name token reads the name (not inside generated code).
+/// The place inside a `for` head's borrow marker (`&coll` / `&mut coll`),
+/// with the marker's spelling: `.Some((inner, mark))` when `e` is that
+/// marker, else `.None`.
+strip_for_borrow_marker :: (fn(e : &AstExpr) -> Option(Tuple(AstExpr, String)))({
+  (mark : String) = cond(
+    ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))) => String.from("&mut "),
+    ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))) => String.from("&"),
+    true => String.new()
+  );
+  cond(
+    (mark.len() == usize(0)) => Option(Tuple(AstExpr, String)).None,
+    true => match(
+      e,
+      Rc(.FnCall(_, _, Rc(fm_args), _, _)) => match(
+        fm_args.get_cloned(usize(0)),
+        .Some(fm_inner) => Option(Tuple(AstExpr, String)).Some((fm_inner, mark)),
+        .None => Option(Tuple(AstExpr, String)).None
+      ),
+      Rc(.Atom(_, _)) => Option(Tuple(AstExpr, String)).None
+    )
+  )
+});
 member_behind_deref_error :: (
   fn(obj : &AstExpr, obj_ty : &TypeValue, name_tok : &Token, stars : usize, landed : &TypeValue, is_call : bool, for_head : bool) -> YoError
 )({
-  (written, synth) := strip_synthesized_stars(obj);
-  total := (stars + synth);
+  (mut(written), synth) := strip_synthesized_stars(obj);
+  (mut(total) : usize) = (stars + synth);
+  // A `for` head's receiver is the loop source's borrow marker (`&coll` /
+  // `&mut coll`, the desugar's `(&coll).into_iter()`): the message spells the
+  // place inside the marker, and the marker's own reference layer is not one
+  // of the stars (`for(&r.*, …)`, not `for(&r.*.*, …)`).
+  (shown_ty : TypeValue) = Rc.clone(obj_ty);
+  (for_mark_s : String) = String.new();
+  if(for_head, {
+    match(
+      strip_for_borrow_marker(&written),
+      .Some((fm_inner, fm_mark)) => {
+        written = fm_inner;
+        total = cond((total > usize(0)) => (total - usize(1)), true => usize(0));
+        for_mark_s = fm_mark;
+      },
+      .None => ()
+    );
+    if(t_slot_is_borrow(&shown_ty), {
+      shown_ty = t_slot_pointee(&shown_ty);
+    });
+  });
   written_s := ast_expr_to_string(&written);
-  written_ty_s := type_to_string(obj_ty);
+  written_ty_s := type_to_string(&shown_ty);
   name := name_tok.value.*.clone();
   (star_s : String) = String.new();
   (insert_s : String) = String.new();
@@ -409,15 +453,18 @@ member_behind_deref_error :: (
     true => (String.from("`.*`"), String.from("view"))
   );
   landed_phrase := cond(
-    (total == usize(1)) && (place_name == "view") => `the \`${type_to_string(landed)}\` its \`.*\` names`,
+    ((total == usize(1)) && (place_name == "view")) => `the \`${type_to_string(landed)}\` its \`.*\` names`,
     (total == usize(1)) => `its ${place_name} \`${type_to_string(landed)}\``,
     true => `the \`${type_to_string(landed)}\` that \`${place_s}\` names`
   );
   call_s := cond(is_call => String.from("(...)"), true => String.new());
+  // The help's marker: the source's own, or `&` when the loop consumed the
+  // handle by value (the payload cannot move out of it).
+  for_help_mark_s := cond((for_head && (for_mark_s.len() == usize(0))) => String.from("&"), true => for_mark_s);
   (msg, help_s) := cond(
     for_head => (
-      `\`for(&${written_s}, …)\` walks \`${written_s}\`, of type \`${written_ty_s}\`, which has no member "${name}"; ${landed_phrase} has one. \`.\` does not read through ${what}, and neither does a \`for\` head.`,
-      `write \`for(&${place_s}, …)\`: \`${place_s}\` names the ${place_name}`
+      `\`for(${for_mark_s}${written_s}, …)\` walks \`${written_s}\`, of type \`${written_ty_s}\`, which has no member "${name}"; ${landed_phrase} has one. \`.\` does not read through ${what}, and neither does a \`for\` head.`,
+      `write \`for(${for_help_mark_s}${place_s}, …)\`: \`${place_s}\` names the ${place_name}`
     ),
     true => (
       `\`${written_s}\` has type \`${written_ty_s}\`, which has no member "${name}"; ${landed_phrase} has one. \`.\` does not read through ${what}.`,
