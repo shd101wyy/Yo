@@ -72,19 +72,19 @@ main :: (fn(io : Io) -> unit)({
 
   // 惰性创建——两个任务都尚未启动
   task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(1))); // 启动时执行
+    counter.*.replace_with(v => (v.* + i32(1))); // 启动时执行
     io.await(yield(io), io); // 让出控制权给事件循环
-    counter.replace_with(v => (v.* + i32(1))); // 其他任务让出后恢复执行
+    counter.*.replace_with(v => (v.* + i32(1))); // 其他任务让出后恢复执行
   });
 
   task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
   });
 
   // 此时 counter 仍为 0——任务尚未启动
-  assert(counter.with(v => v.*) == i32(0), "tasks are lazy");
+  assert(counter.*.with(v => v.*) == i32(0), "tasks are lazy");
 
   // spawn 启动两个任务但不等待：
   // 1. task1 运行：counter=0→1，让出
@@ -98,7 +98,7 @@ main :: (fn(io : Io) -> unit)({
   handle1.await(io);
   handle2.await(io);
 
-  assert(counter.with(v => v.*) == i32(22), "both tasks interleaved and completed");
+  assert(counter.*.with(v => v.*) == i32(22), "both tasks interleaved and completed");
 });
 export(main);
 ```
@@ -1357,17 +1357,17 @@ main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
   task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(1)));
+    counter.*.replace_with(v => (v.* + i32(1)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(1)));
-    return(counter.with(v => v.*));
+    counter.*.replace_with(v => (v.* + i32(1)));
+    return(counter.*.with(v => v.*));
   });
 
   task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(10)));
-    return(counter.with(v => v.*));
+    counter.*.replace_with(v => (v.* + i32(10)));
+    return(counter.*.with(v => v.*));
   });
 
   // 任务为冷状态——counter 仍为 0
@@ -1390,15 +1390,15 @@ main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
   task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(1)));
+    counter.*.replace_with(v => (v.* + i32(1)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(1)));
+    counter.*.replace_with(v => (v.* + i32(1)));
   });
 
   task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
   });
 
   // 不使用 spawn：任务顺序执行

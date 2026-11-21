@@ -74,19 +74,19 @@ main :: (fn(io : Io) -> unit)({
 
   // Lazy creation — neither task starts yet
   task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(1))); // Runs when started
+    counter.*.replace_with(v => (v.* + i32(1))); // Runs when started
     io.await(yield(io), io); // Yields to event loop
-    counter.replace_with(v => (v.* + i32(1))); // Resumes after other tasks yield
+    counter.*.replace_with(v => (v.* + i32(1))); // Resumes after other tasks yield
   });
 
   task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
   });
 
   // counter is still 0 here — tasks haven't started
-  assert(counter.with(v => v.*) == i32(0), "tasks are lazy");
+  assert(counter.*.with(v => v.*) == i32(0), "tasks are lazy");
 
   // spawn starts both without waiting:
   // 1. task1 runs: counter=0→1, yields
@@ -100,7 +100,7 @@ main :: (fn(io : Io) -> unit)({
   handle1.await(io);
   handle2.await(io);
 
-  assert(counter.with(v => v.*) == i32(22), "both tasks interleaved and completed");
+  assert(counter.*.with(v => v.*) == i32(22), "both tasks interleaved and completed");
 });
 export(main);
 ```
@@ -1502,17 +1502,17 @@ main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
   task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(1)));
+    counter.*.replace_with(v => (v.* + i32(1)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(1)));
-    return(counter.with(v => v.*));
+    counter.*.replace_with(v => (v.* + i32(1)));
+    return(counter.*.with(v => v.*));
   });
 
   task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(10)));
-    return(counter.with(v => v.*));
+    counter.*.replace_with(v => (v.* + i32(10)));
+    return(counter.*.with(v => v.*));
   });
 
   // Tasks are cold — counter is still 0
@@ -1535,15 +1535,15 @@ main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
   task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(1)));
+    counter.*.replace_with(v => (v.* + i32(1)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(1)));
+    counter.*.replace_with(v => (v.* + i32(1)));
   });
 
   task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v.* + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
   });
 
   // Without spawn: tasks run sequentially

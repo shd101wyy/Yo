@@ -48,7 +48,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [recur](#recur)
   - [Shared Cells and Memory Management](#shared-cells-and-memory-management)
     - [Reference-Counted Cells](#reference-counted-cells)
-    - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
+    - [Choosing a value, a borrow or a shared cell](#choosing-a-value-a-borrow-or-a-shared-cell)
+    - [Reading the count](#reading-the-count)
     - [Explicit Allocators](#explicit-allocators)
     - [Move-only values](#move-only-values)
 - [Pointers](#pointers)
@@ -1583,6 +1584,8 @@ main :: (fn() -> unit)({
 For in-place mutation without raw pointers, use a `name : &mut T` parameter. The `&mut` prefixes the parameter's type, and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `name : &mut T` lowers to `T*` in C; the caller lends the place with `&mut x` and the compiler passes its address.
 
 ```yo
+{ assert } :: import("std/assert");
+
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   tmp := a.*;
   a.* = b.*;
@@ -1594,13 +1597,13 @@ increment :: (fn(n : &mut i32) -> unit)({
 });
 
 main :: (fn() -> unit)({
-  x := i32(1);
-  y := i32(2);
+  mut(x) := i32(1);
+  mut(y) := i32(2);
   swap(&mut x, &mut y); // the call site lends each place with `&mut`
   assert(x == i32(2), "swapped");
   assert(y == i32(1), "swapped");
 
-  counter := i32(0);
+  mut(counter) := i32(0);
   increment(&mut counter);
   increment(&mut counter);
   assert(counter == i32(2), "incremented");
@@ -2744,11 +2747,11 @@ main :: (fn() -> unit)({
   p := Two.Two(a : Fd(n : 3), b : Fd(n : 4));
   n := match(&p, .Two(a, _) => a.n, .Zero => i32(0)); // borrows; p stays
   r := first(p); // p moves into `first`
-  (o : Option(i32)) = .Some(i32(1));
+  (mut(o) : Option(i32)) = .Some(i32(1));
   match(
     &mut o,
     .Some(v) => {
-      v = (v + i32(1));
+      v.* = (v.* + i32(1));
     },
     .None => ()
   ); // o is .Some(2)
@@ -3731,6 +3734,8 @@ A reassignment needs a `mut` binding, and the assignment
 expression is the OLD value of the handle:
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Rc assignment behavior", {
   mut(x) := Rc.new(1);
   y := (x = Rc.new(2)); // y gets the old value
@@ -3744,6 +3749,8 @@ test("Rc assignment behavior", {
 `Rc(T)` uses automatic reference counting; a second handle is `Rc.clone`:
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Rc reference counting", {
   original := Rc.new(42);
   copy := Rc.clone(original); // RC increment
@@ -4534,6 +4541,8 @@ $ yo test ./tests --json
 #### Runtime Assertions
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Runtime assertions", {
   x := 42;
 

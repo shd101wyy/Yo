@@ -31,6 +31,7 @@ This is the default user experience. No pragma needed, no `addr_of(...)` calls, 
 
 ```yo
 { ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
   mut(list) := ArrayList(i32).new();
@@ -38,11 +39,11 @@ main :: (fn() -> unit)({
   list.push(i32(2));
   list.push(i32(3));
 
-  total := i32(0);
+  mut(total) := i32(0);
   for(list, item => {
     total = (total + item);
   });
-  println("total = ${total}");
+  println(`total = ${total}`);
 });
 ```
 
@@ -93,6 +94,8 @@ Exempt: `tests/*.test.yo` (a failed unwrap fails the test loudly — the test do
 The pattern C/Rust solve with a pointer or `&mut T` is solved in safe Yo with a `&mut T` parameter:
 
 ```yo
+{ assert } :: import("std/assert");
+
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   tmp := a.*;
   a.* = b.*;
@@ -100,8 +103,8 @@ swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
 });
 
 main :: (fn() -> unit)({
-  x := i32(1);
-  y := i32(2);
+  mut(x) := i32(1);
+  mut(y) := i32(2);
   swap(&mut x, &mut y); // the call site lends each place; no raw pointer
   assert(x == i32(2), "swapped");
 });

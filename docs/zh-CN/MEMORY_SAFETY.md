@@ -31,6 +31,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 
 ```yo
 { ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
   mut(list) := ArrayList(i32).new();
@@ -38,11 +39,11 @@ main :: (fn() -> unit)({
   list.push(i32(2));
   list.push(i32(3));
 
-  total := i32(0);
+  mut(total) := i32(0);
   for(list, item => {
     total = (total + item);
   });
-  println("total = ${total}");
+  println(`total = ${total}`);
 });
 ```
 
@@ -93,6 +94,8 @@ best := scores.max().unwrap_or_else(() => recompute());
 C / Rust 用指针或 `&mut T` 解决的模式，在安全 Yo 中由 `&mut T` 参数解决：
 
 ```yo
+{ assert } :: import("std/assert");
+
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   tmp := a.*;
   a.* = b.*;
@@ -100,8 +103,8 @@ swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
 });
 
 main :: (fn() -> unit)({
-  x := i32(1);
-  y := i32(2);
+  mut(x) := i32(1);
+  mut(y) := i32(2);
   swap(&mut x, &mut y); // 调用处借出每个位置；没有裸指针
   assert(x == i32(2), "swapped");
 });

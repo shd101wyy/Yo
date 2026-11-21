@@ -48,7 +48,8 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [recur](#recur)
   - [共享单元与内存管理](#共享单元与内存管理)
     - [引用计数单元](#引用计数单元)
-    - [编译期引用计数优化](#编译期引用计数优化)
+    - [选择值、借用还是共享单元](#选择值借用还是共享单元)
+    - [读取计数](#读取计数)
     - [显式分配器](#显式分配器)
     - [只能移动的值](#只能移动的值)
 - [指针](#指针)
@@ -1543,6 +1544,8 @@ main :: (fn() -> unit)({
 要在不使用原始指针的情况下实现原地修改，请使用 `name : &mut T` 参数。`&mut` 加在参数类型之前，参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `name : &mut T` 在 C 中降低为 `T*`；调用方用 `&mut x` 借出该位置，编译器传递它的地址。
 
 ```yo
+{ assert } :: import("std/assert");
+
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   tmp := a.*;
   a.* = b.*;
@@ -1554,13 +1557,13 @@ increment :: (fn(n : &mut i32) -> unit)({
 });
 
 main :: (fn() -> unit)({
-  x := i32(1);
-  y := i32(2);
+  mut(x) := i32(1);
+  mut(y) := i32(2);
   swap(&mut x, &mut y); // 调用点用 `&mut` 借出每个位置
   assert(x == i32(2), "swapped");
   assert(y == i32(1), "swapped");
 
-  counter := i32(0);
+  mut(counter) := i32(0);
   increment(&mut counter);
   increment(&mut counter);
   assert(counter == i32(2), "incremented");
@@ -2641,11 +2644,11 @@ main :: (fn() -> unit)({
   p := Two.Two(a : Fd(n : 3), b : Fd(n : 4));
   n := match(&p, .Two(a, _) => a.n, .Zero => i32(0)); // 借用；p 仍可用
   r := first(p); // p 移动进 `first`
-  (o : Option(i32)) = .Some(i32(1));
+  (mut(o) : Option(i32)) = .Some(i32(1));
   match(
     &mut o,
     .Some(v) => {
-      v = (v + i32(1));
+      v.* = (v.* + i32(1));
     },
     .None => ()
   ); // o 变为 .Some(2)
@@ -3535,6 +3538,8 @@ export(main);
 重新赋值要求绑定以 `mut` 声明，而赋值表达式的值是句柄的**旧值**：
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Rc assignment behavior", {
   mut(x) := Rc.new(1);
   y := (x = Rc.new(2)); // y 获得旧值
@@ -3548,6 +3553,8 @@ test("Rc assignment behavior", {
 `Rc(T)` 使用自动引用计数；第二个句柄写作 `Rc.clone`：
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Rc reference counting", {
   original := Rc.new(42);
   copy := Rc.clone(original); // 引用计数递增
@@ -4274,6 +4281,8 @@ $ yo test ./tests --json
 #### 运行时断言
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Runtime assertions", {
   x := 42;
 
