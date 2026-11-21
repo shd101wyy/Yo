@@ -10,9 +10,10 @@ Yo; every example parses, and complete examples compile.
 ## What Yo is
 
 A statically-typed, expression-oriented language that compiles to C11 and
-lets the system C compiler finish the job. Memory is compile-time RC with
-no collector — no borrow checker, no GC pauses. Async is single-threaded
-event-loop (C#-style); threads are a separate explicit runtime. Yo is
+lets the system C compiler finish the job. Memory is ownership: values
+move, borrows are checked, and sharing is an explicit reference-counted
+`Rc`/`Arc` — no GC, no collector. Async is a single-threaded event loop per
+thread (like JavaScript's); threads are a separate explicit runtime. Yo is
 designed for LLM authorship: regular syntax, no precedence table, no
 overloading, fast checker (`yo check`), errors that carry repairs.
 
@@ -46,13 +47,13 @@ yo fix file.yo            # apply structured repairs from diagnostics
 
 ## Declarations and bindings
 
-```rust
+```yo
 { println } :: import("std/fmt"); // import (destructuring)
 name :: "yo"; // top-level binding, order-independent
 // fn def: TYPE then BODY
 main :: (fn() -> unit)({
   x := i32(1); // local bind, inferred
-  (msg : str) = "hello"; // typed local bind
+  (msg : &str) = "hello"; // typed local bind
   println(msg);
 });
 export(main); // only exported names are public
@@ -62,26 +63,25 @@ export(main); // only exported names are public
   order-independent within a module.
 - Function definition: `name :: (fn(a : T, b : U) -> R)(body);` — the fn
   TYPE is parenthesized; the body is a second parenthesized group.
-- Methods are `impl` entries taking `self : Self`; call with `obj.m(args)`.
+- Methods are `impl` entries taking `self : &Self`, `self : &mut Self` or
+  `self : Self`; call with `obj.m(args)`.
 - `main` returns `unit` and is `export`ed.
 
-## Braces: a record unless it has a `;`
+## Braces: `.{ }` is a record, `{ }` is a block
 
-THE rule that breaks Rust instincts. A `{ ... }` group is a **record
-(struct-literal) when its top level is comma-separated `field : value`**,
-and a **block only when it contains semicolons**:
-
-```rust
-p := { x : i32(1), y : i32(2) }; // record literal (named fields)
+```yo
+p := .{ x : i32(1), y : i32(2) }; // record literal (named fields)
+{ x, y } := p; // binding side: pick fields
 block := {
   a := i32(1);
-  a + i32(2) // block: `;`-sequenced, value = tail
+  a + i32(2) // block: value = tail
 };
 ```
 
-`{ single_expr }` parses as a one-field record, not a block — and `yo fmt`
-accepts it silently. Run `yo check` on every edit. Struct literals want
-spaces around `:` and parenthesized infix values: `{ x : (a + b), y : c }`.
+In expression position a bare `{ ... }` is always a block: `{ e }` yields
+`e` and `{}` is unit. A `,` or a `field : value` directly inside a bare
+expression brace is E0007 (its repair inserts the dot). Record literals want
+spaces around `:` and parenthesized infix values: `.{ x : (a + b), y : c }`.
 
 ## Operators: no precedence, parenthesize
 
@@ -90,7 +90,7 @@ operators meet; `yo fmt` removes only redundant parens (a left
 same-operator group, a whole call argument, a bare prefix operand `-(x)`)
 and keeps the rest:
 
-```rust
+```yo
 y := ((a + b) * c); // never  a + b * c
 ok := ((x > i32(0)) && (y < i32(9))); // parenthesize comparisons too
 ```
@@ -103,7 +103,7 @@ operator groups left at any length (`a - b - c - d` is
 
 ## Control flow: calls, not keywords
 
-```rust
+```yo
 grade := cond(
   (s >= i32(90)) => "A",
   (s >= i32(60)) => "B",
@@ -129,7 +129,7 @@ if(done, println("yes"), println("no")); // sugar over cond
 
 ## Pattern matching (match on values, not just primitives)
 
-```rust
+```yo
 // int scrutinee: ranges, guards, whole-value bindings
 category := match(
   n,
@@ -157,7 +157,7 @@ the arm over `.Some(true)`/`.Some(false)` sibling arms.
 
 ## Types
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32); // value semantics
 Node :: struct(next : Option(Rc(Self)), v : i32); // `Rc(T)`: shared, counted
 Shape :: enum(Circle(r : f64), Rect(w : f64, h : f64), Unit);
@@ -167,10 +167,10 @@ Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
 );
 
 Counter :: trait(
-  count : (fn(self : Self) -> i32)
+  count : (fn(self : &Self) -> i32)
 );
 
-impl(Point, Counter(count : (fn(self : Self) -> i32)(self.x)));
+impl(Point, Counter(count : (fn(self : &Self) -> i32)(self.x)));
 { ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 ```
@@ -196,9 +196,10 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 
 ## Strings, numbers, templates
 
-- `str` = static, immutable view of literal bytes. `String` = owned growable
-  UTF-8. EVERY backtick literal is a `String`, with or without `${...}`:
-  `` `hi ${name}` ``, `` `hi` ``. A `"..."` literal is a `str` and never
+- `str` = an unsized run of UTF-8 bytes behind a pointer; a `"..."` literal
+  is a `&str` (`&(str, static)`). `String` = owned growable UTF-8. EVERY
+  backtick literal is a `String`, with or without `${...}`:
+  `` `hi ${name}` ``, `` `hi` ``. A `"..."` literal never
   becomes a `String` implicitly — pass `` `hi` `` or `String.from("hi")`
   where a `String` is expected.
 - No `String + str` operator. Build strings with a `StringBuilder`-style
@@ -212,13 +213,14 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
   `x := i32(1);` or `(x : i32) = 1;`. Distinct integer types do not mix
   implicitly: `(i32(1) + usize(1))` is an error.
 - Fixed arrays: `[i32; 3]`, literal `[1, 2, 3]` (a 1-element literal needs
-  a trailing comma: `[7,]`). No slice type exists: range indexing copies
-  (`xs(a..b)` on an ArrayList yields a new list; a `str` range is a
-  zero-copy static window).
+  a trailing comma: `[7,]`). `[T]` is the unsized slice, used behind a
+  pointer (`&[T]`; `&a.*` lends an array as one). Range indexing copies on
+  an ArrayList (`xs(a..b)` is a new list) and is a zero-copy window on a
+  `&str`.
 
 ## Option, Result, errors
 
-```rust
+```yo
 (maybe : Option(i32)) = Option(i32).Some(i32(7)); // .Some(v) | .None
 { String } :: import("std/string");
 { Path } :: import("std/path");
@@ -232,39 +234,48 @@ derive(DivError, Error(.DivByZero => `division by zero`));
 // Exception-style: Exception + throw; awaited IO rethrows via an exn
 read :: (fn(p : Path, io : Io) -> String)({
   swallow := Exception(throw : (_e -> unwind(String.from(""))));
-  io.await(read_to_string(p, io), IoExn(io : io, exn : swallow))
+  io.await(read_to_string(&p, io), IoExn(io : io, exn : swallow))
 });
 ```
 
 - `unwrap`/`expect` and the panic vocabulary are COMPILE ERRORS in safe
   files (a call may not discard failure information the type carries):
   match the `Option`/`Result`, or use checked indexing (`xs.get(i)`).
-- `AnyError` is `Dyn(Error)`; `dyn(err_type_value)` boxes an error into it;
-  `downcast(any, MyError)` recovers (`.None` if not that type).
+- `AnyError` (`std/error`) is `Box(Dyn(Error, Clone))`; `dyn(Box.new(err))`
+  boxes an error into it (its type derives `Clone`); `downcast(&e.*, MyError)`
+  borrows it back as `Option(&MyError)`, and `downcast(e, MyError)` moves it
+  into a `Result(Box(MyError), AnyError)`.
 - Safe code traps, never UB: array/str indexing is bounds-checked, integer
   `/` `%` by zero and `MIN / -1` abort with a diagnostic, overflow traps
   (`wrapping_*` methods are the escape hatch), float→integer casts saturate.
 
 ## Ownership and references
 
-- Values are reference-counted at compile time (dup/drop inserted by the
-  compiler). You do not write refcounts. A reference cycle leaks, as with
-  Rust's `Rc`: put a `Weak(T)` on the back edge (`Rc.downgrade(&h)`).
+- A binding owns its value and drops it at the end of its scope. Shared
+  ownership is explicit: `Rc(T)` (one thread) or `Arc(T)` (across threads),
+  reference-counted; `Rc.clone(h)` is a second handle. A reference cycle
+  leaks, as with Rust's `Rc`: put a `Weak(T)` on the back edge
+  (`Rc.downgrade(&h)`).
 - A plain parameter `x : T` takes its argument BY VALUE: a `Copy` value is
-  copied, a move-only or explicit-copy value is MOVED (using it afterwards
-  is a `use of moved value` error), and a still implicitly copyable kind
-  (`String`, a collection, `Rc`, a `ref` handle) is shared, so both handles
-  stay valid. A `sink(x)` parameter always moves. `.clone()` when you need
-  an independent copy.
+  copied, anything else (`String`, a collection, an `Rc` handle) is MOVED,
+  and using it afterwards is E0901 (`use of moved value`). A `sink(x)`
+  parameter always moves. `.clone()` (`Rc.clone(h)` for a handle) when you
+  need a second copy.
 - `x : &T` borrows read-only and `x : &mut T` exclusively; the call
   lends with a marker: `show(&s)`, `swap(&mut a, &mut b)`. A local borrow
-  is `y := &place` / `y := &mut place`. `&T` is a mode a slot spells, not
-  a type: `ArrayList(&T)`, `T :: &i32` and a field `f : &T` are errors. A
-  raw pointer is `addr_of(x)` (unsafe files), and `&x` to a by-value
-  parameter is an error naming `x` / `x.clone()`.
-- NO lifetimes/borrow types. Shared mutation goes through `&mut` parameters
-  or `ref` semantics types; a runtime exclusivity backstop guards
-  violations.
+  is `y := &place` / `y := &mut place`. A reference binding reads and
+  writes its referent with `.*` (`n.* + 1`, `r.* = v`); the bare name as a
+  whole value is E0926. A struct field `f : &T`, an `Option(&T)` and a tuple
+  may hold references; a collection or cell over one (`ArrayList(&T)`,
+  `Rc(&T)`) is an error. A raw pointer is `addr_of(x)` (unsafe files), and
+  `&x` to a by-value parameter is an error naming `x` / `x.clone()`.
+- A borrow freezes the place it borrows until its last use (E0911), and a
+  reference may not outlive its place (E0912). Origins are elided in most
+  signatures; spell one as `&(T, p)` with `generic(p : Origin)`. Shared
+  mutation goes through `&mut` parameters, `Rc(RefCell(T))` on one thread,
+  or `Arc(Mutex(T))` across threads.
+- Bindings are immutable unless the name is wrapped in `mut(...)`:
+  `mut(n) := 0; n = (n + 1);`. Writing an unmarked binding is E0917.
 - `_` is the discard pattern; `___` is a named discard usable once per
   scope. A name starting with `_` is MODULE-PRIVATE (compiler-enforced,
   E0405).
@@ -292,7 +303,7 @@ read :: (fn(p : Path, io : Io) -> String)({
 
 ## Modules and projects
 
-```rust
+```yo
 { String, StringBuilder } :: import("std/string"); // named destructuring
 { ... } :: import("std/assert"); // glob
 ```
@@ -305,7 +316,7 @@ read :: (fn(p : Path, io : Io) -> String)({
 
 ## Tests
 
-```rust
+```yo
 { assert } :: import("std/assert"); // REQUIRED — assert is not in the prelude
 { ArrayList } :: import("std/collections/array-list");
 
@@ -375,11 +386,9 @@ reach for it to parallelize I/O; that's the event loop's job.
   shrinking `xs` inside the body panics); maps: `for(&mut m, (k, v) => ...)`.
 - Only a `=>` closure captures enclosing locals: `(x) => (x + base)`. A
   `(fn(...) -> T)(body)` literal and a named fn capture nothing.
-- Recursive enums + `derive(Eq/Clone)` + `ArrayList` fields can form a
-  circular derive dependency — derive on the `ref` wrapper or order manually.
 - Template `${...}` interpolations call `to_string()` implicitly only for
   `ToString` types; a `\\` immediately before `${` kills the interpolation.
-- Template strings are `String`, `"..."` literals are `str` — sibling
+- Template strings are `String`, `"..."` literals are `&str` — sibling
   match/cond arms must agree: mix them and the arm-type error points at the
   literal.
 - Doc comments: `///` items, `//!` modules; `yo doc ./std` renders the API.

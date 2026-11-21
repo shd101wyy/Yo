@@ -110,14 +110,13 @@ $ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags
 NixOS 上的解决方案 —— 预编译二进制文件中硬编码的 ELF 解释器路径
 （`/lib64/ld-linux-x86-64.so.2`）在 NixOS 上并不存在。
 
-> **注意：** `--from-source` 需要发布版本中包含单文件 `yo.c`。截至 `v0.2.4` 的所有
-> 版本都早于该产物，因此该选项仅适用于此后发布的版本。安装脚本会明确提示这一点，
-> 而不会以晦涩的方式失败。
+> **注意：** `--from-source` 使用发布版本附带的单文件 `yo.c` 构建；截至 `v0.2.4` 的
+> 版本没有该文件，安装脚本会明确提示这一点。
 
 > **内存：** 构建 Yo 本身（无论是 `--from-source`，还是在代码仓库中运行 `yo build`），
-> 在 v0.2.43 或更新的编译器下，一台 **8 GB** 内存的机器就足够。完整构建编译器的峰值约为
+> 一台 **8 GB** 内存的机器就足够。完整构建编译器的峰值约为
 > 4.3 GiB（在 Linux 上测得，包含 C 编译器），CI 在每次变更时都会在 8 GB、无 swap 的限制下
-> 构建它。更早的版本约需 10 GB。编译你自己的程序所需的内存要少得多。
+> 构建它。编译你自己的程序所需的内存要少得多。
 
 安装脚本会把 `yo` 命令放到你的 `PATH` 中。运行 `yo --help` 查看可用命令。
 
@@ -185,7 +184,7 @@ $ yo fmt --check            # 只检查格式，不写入变更
 - **核心 trait**：`Eq`、`Ord`、`Add`、`Sub`、`Mul`、`Div`、`Iterator`、`IntoIterator`、`TryFrom`、`TryInto`、`Drop`、`Send`、`Acyclic` 等
 - **元编程**：`Type`、`Expr`、`ExprList`
 - **异步**：`Io`、`FutureState`、`JoinHandle`
-- **工具函数**：`assert`、`unsafe`、`try`、`for`、`not`、`Rc.new`、`Arc.new`
+- **工具函数**：`unsafe`、`for`、`not`、`Rc.new`、`Arc.new`
 - 等等
 
 ## 标准库
