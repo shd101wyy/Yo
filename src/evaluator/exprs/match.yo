@@ -395,16 +395,19 @@ _arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
 // ---------------------------------------------------------------------------
 /// Register the loans of a `mut` arm's places (decision 26): each copy below
 /// a cell (`cell_copy_vars`) and each place binding (`place_vars`) is an
-/// exclusive local borrow of the scrutinee's place `mut_place`, live from its
-/// binding to its last mention in the arm's `guard` and `body`. A scrutinee
-/// reached from a local borrow (decision 25's cursor, `match(cur, .Some(n) =>
-/// { mut(cur) = n.next; })`) has its bindings tracked as places a re-point
-/// goes through (`local_borrow_note_pattern_binding`) instead, and the
-/// re-point must not read as an access of `cur` while `n` lives. In an
-/// `io.async` body the place may live across an await: rule 4 rejects it
-/// there when the borrow it points through passes through a cell or a
-/// module-level place, judged at each await
-/// (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+/// exclusive local borrow of the scrutinee's place `mut_place` (R-ARM),
+/// whatever the scrutinee is rooted at, live from its binding to its last
+/// mention in the arm's `body`, else its `guard`: while it lives, the
+/// scrutinee is reached only through it, so a write, read or call through
+/// `cur` (or its root) under it is E0911 (audit A3; VERDICTS-71 rule (c)).
+/// Reached from a local borrow (decision 25's cursor, `match(cur, .Some(n) =>
+/// { cur = &mut n.next; })`), it is also a place a re-point goes through
+/// (`local_borrow_note_pattern_binding`): the re-point names `cur` without
+/// touching what it points at, and skips the binding it goes through
+/// (`local_borrow_require_no_live_derived`). In an `io.async` body the place
+/// may live across an await: rule 4 rejects it there when the borrow it
+/// points through passes through a cell or a module-level place, judged at
+/// each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
 _register_mut_arm_place_loans :: (
   fn(
     cell_copy_vars : &ArrayList(Variable),
@@ -419,11 +422,10 @@ _register_mut_arm_place_loans :: (
   while(ci < cell_copy_vars.len(), ci = (ci + usize(1)), {
     match(
       cell_copy_vars.get_cloned(ci),
-      .Some(cv) => match(
-        lb_scr_source,
-        .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, body, guard : guard.clone()),
-        .None => match(mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, body, true, guard : guard.clone()), .None => ())
-      ),
+      .Some(cv) => {
+        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, body, guard : guard.clone()), .None => ());
+        match(mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, body, true, guard : guard.clone()), .None => ());
+      },
       .None => ()
     );
   });
@@ -431,11 +433,10 @@ _register_mut_arm_place_loans :: (
   while(pi < place_vars.len(), pi = (pi + usize(1)), {
     match(
       place_vars.get_cloned(pi),
-      .Some(pv) => match(
-        lb_scr_source,
-        .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, body, guard : guard.clone()),
-        .None => match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, body, true, guard : guard.clone()), .None => ())
-      ),
+      .Some(pv) => {
+        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, body, guard : guard.clone()), .None => ());
+        match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, body, true, guard : guard.clone()), .None => ());
+      },
       .None => ()
     );
   });
@@ -1987,34 +1988,9 @@ evaluate_match :: (
         });
       });
       if(mut_places, {
-<<<<<<< HEAD
-        (ci0 : usize) = usize(0);
-        while(ci0 < cell_copy_vars.len(), ci0 = (ci0 + usize(1)), {
-          match(
-            cell_copy_vars.get_cloned(ci0),
-            .Some(cv) => {
-              match(&lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, &body_ast), .None => ());
-              match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ());
-            },
-            .None => ()
-          );
-||||||| parent of f7cea526a (WIP(evaluator): s1-calls - closure call slots, computed-reference roots, guarded arm loans)
-        (ci0 : usize) = usize(0);
-        while(ci0 < cell_copy_vars.len(), ci0 = (ci0 + usize(1)), {
-          match(
-            cell_copy_vars.get_cloned(ci0),
-            .Some(cv) => match(
-              &lb_scr_source,
-              .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, &body_ast),
-              .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ())
-            ),
-            .None => ()
-          );
-=======
         // A guarded arm registered its places' loans before its guard ran.
         if(!mut_place_loans_registered, {
           _register_mut_arm_place_loans(&cell_copy_vars, &place_vars, &lb_scr_source, &mut_place, &body_ast, &guard_ast);
->>>>>>> f7cea526a (WIP(evaluator): s1-calls - closure call slots, computed-reference roots, guarded arm loans)
         });
         (pi0 : usize) = usize(0);
         while(pi0 < place_vars.len(), {
@@ -2030,40 +2006,6 @@ evaluate_match :: (
                 },
                 .None => ()
               );
-<<<<<<< HEAD
-              // Each place binding is an exclusive borrow of the scrutinee's
-              // place (R-ARM), whatever the scrutinee is rooted at: while it
-              // lives, the scrutinee is reached only through it, so a write,
-              // read or call through `cur` (or its root) under it is E0911
-              // (audit A3; VERDICTS-71 rule (c)). Reached from a local borrow
-              // (decision 25's cursor, `match(cur, .Some(n) => { cur = &mut
-              // n.next; })`), it is also a place a re-point goes through
-              // (`local_borrow_note_pattern_binding`): the re-point names
-              // `cur` without touching what it points at, and skips the
-              // binding it goes through (`local_borrow_require_no_live_derived`).
-              // In an `io.async` body the place may live across an await:
-              // rule 4 rejects it there when the borrow it points through
-              // passes through a cell or a module-level place, judged at
-              // each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
-              match(&lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, &body_ast), .None => ());
-              match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ());
-||||||| parent of f7cea526a (WIP(evaluator): s1-calls - closure call slots, computed-reference roots, guarded arm loans)
-              // A scrutinee reached from a local borrow (decision 25's
-              // cursor, `match(cur, .Some(n) => { mut(cur) = n.next; })`):
-              // its bindings are already tracked as places a re-point goes
-              // through (`local_borrow_note_pattern_binding`), and the
-              // re-point must not read as an access of `cur` while `n` lives.
-              // In an `io.async` body the place may live across an await:
-              // rule 4 rejects it there when the borrow it points through
-              // passes through a cell or a module-level place, judged at
-              // each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
-              match(
-                &lb_scr_source,
-                .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, &body_ast),
-                .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ())
-              );
-=======
->>>>>>> f7cea526a (WIP(evaluator): s1-calls - closure call slots, computed-reference roots, guarded arm loans)
             },
             .None => ()
           );
