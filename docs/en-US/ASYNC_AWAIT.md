@@ -66,26 +66,27 @@ Yo's async uses **algebraic effects** with the `Io` effect type. Async tasks are
 
 ```yo
 { yield } :: import("std/async");
+{ assert } :: import("std/assert");
 { RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
   // Lazy creation — neither task starts yet
-  task1 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(1))); // Runs when started
+  task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(1))); // Runs when started
     io.await(yield(io), io); // Yields to event loop
-    counter.replace_with(v => (v + i32(1))); // Resumes after other tasks yield
+    counter.*.replace_with(v => (v.* + i32(1))); // Resumes after other tasks yield
   });
 
-  task2 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(10)));
+  task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
   });
 
   // counter is still 0 here — tasks haven't started
-  assert(counter.with(v => v) == i32(0), "tasks are lazy");
+  assert(counter.*.with(v => v.*) == i32(0), "tasks are lazy");
 
   // spawn starts both without waiting:
   // 1. task1 runs: counter=0→1, yields
@@ -99,7 +100,7 @@ main :: (fn(io : Io) -> unit)({
   handle1.await(io);
   handle2.await(io);
 
-  assert(counter.with(v => v) == i32(22), "both tasks interleaved and completed");
+  assert(counter.*.with(v => v.*) == i32(22), "both tasks interleaved and completed");
 });
 export(main);
 ```
@@ -162,6 +163,8 @@ r3 := handle3.await(io);
 Async operations require the `Io` effect, passed via `io : Io`:
 
 ```yo
+{ yield } :: import("std/async");
+
 // Main function receives Io effect
 main :: (fn(io : Io) -> unit)({
   task := io.async((io : Io) => {
@@ -209,7 +212,7 @@ yield(io)                     // Create a pending Future completed by the next l
 9. A Future is awaited **once**: a second `io.await` (or an await after `io.spawn`) is E0901. So is a `JoinHandle`: a second `await` or `join` is E0901. A result several tasks need is joined once and shared (`Rc(T)`, a channel)
 10. A Future aborted while a task awaits it propagates the abort to that task (see "Aborted Futures"), and aborting the task aborts the Future it awaits
 11. `io.spawn(future, e)` runs the task **inline up to its first suspension point** before returning; spawn is not itself a suspension point of the caller
-12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under. Because one bundle starts many futures, every bundle field must be implicitly copyable: a move-only field, or plain data without `Copy`, is an error at the `io.await`/`io.spawn` (§3.13 A6), and so is a counted handle (an `Rc` or `Arc` field, decision 17): a bundle holds no owned value. Shared state reaches a task through its capture list (`io.async({ st : Rc.clone(st) }(e : Io) => ...)`), or a handler as an argument of the effect call.
+12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under. Because one bundle starts many futures, every bundle field must be implicitly copyable: a move-only field, or plain data without `Copy`, is an error at the `io.await`/`io.spawn` (§3.13 A6), and so is a counted handle (an `Rc` or `Arc` field): a bundle holds no owned value. Shared state reaches a task through its capture list (`io.async({ st : Rc.clone(st) }(e : Io) => ...)`), or a handler as an argument of the effect call.
 
 ### Execution Model
 
@@ -343,7 +346,7 @@ This is an implementation choice, not a semantic requirement.
 
 ### A Future Is Awaited Once
 
-A Future is a move-only value (decision 13 of `plans/VALUES_BY_DEFAULT.md`).
+A Future is a move-only value.
 `io.await(f, io)` and `io.spawn(f, io)` consume `f`, so each Future is awaited
 or spawned exactly once, and `io.await` moves the result out, so a move-only
 result type works. A second await is E0901:
@@ -380,7 +383,7 @@ that borrows:
   Future then borrows what its operands borrow, and follows the same rules
   in turn. An operand may be a bound Future: `s := select(f, g, io)` keeps
   what `f` froze frozen until `s`'s last use. Two operands of one call may not lend overlapping places when
-  either side is `&mut` (E0910, decision 38 B); two `&` borrows of one place
+  either side is `&mut` (E0910); two `&` borrows of one place
   are fine. A by-value Future parameter of a function whose result is not a
   Future, or of a non-generic function (checked once, at its definition, so
   its Future could not carry the operand's borrows), still rejects one
@@ -401,8 +404,8 @@ that borrows:
 - it may be bound with `:=`. The binding freezes every place the Future
   borrows, each in the mode it was lent in, from the binding to the Future's
   last use, as a local borrow does: `f := bump(&mut c, io);` then a write of
-  `c` before `io.await(f, io)` is E0911, and awaiting first is fine (decision
-  43, `Future(T, E, p)`). A function may also return a Future that another
+  `c` before `io.await(f, io)` is E0911, and awaiting first is fine (the
+  Future's type is `Future(T, E, p)`, with `p` the origin of what it borrows). A function may also return a Future that another
   call made over its own parameters (`f(c : &mut C, io)` returning
   `bump(&mut c.*, io)`);
 - it is never bound by a `match` arm's pattern or re-assigned with `=`,
@@ -465,9 +468,9 @@ the task. An element of a fixed-size array is
 part of the array's own storage and may be lent.
 
 An `Rc` or `Arc` dereference is the exception for a shared borrow: no handle
-writes an `Rc`'s payload (E0919, decision 46) or an `Arc`'s in safe code (its state changes only through a `Mutex` or
+writes an `Rc`'s payload (E0919) or an `Arc`'s in safe code (its state changes only through a `Mutex` or
 an atomic inside it, as in Rust; a std mutator such as `a.*.o.take()` is
-rejected like a direct write, since D3 judges every callee by what it writes),
+rejected like a direct write, since every callee is judged by what it writes),
 and the task's own handle keeps the payload alive, so `io.await(a.*.lock(io), io)` with `a : Arc(Mutex(T))` is
 accepted, as are `io.await(count(&r.*.items, io), io)` with `r : Rc(S)` and a
 path that crosses only `Rc` and `Arc` dereferences (`Rc.new(Arc.new(m))`). A `&mut`
@@ -482,7 +485,7 @@ E0909, and so are `io.await(tenfold(&G, io), io)` and
 thread can reach the binding by name and reassign it while this one waits,
 releasing the value the Future borrows. Lend a local copy, or read the global
 by name inside the Future, where each use reads its current value. A global
-declared without `mut` is immutable (decision 47), so `&G` of one may be lent
+declared without `mut` is immutable, so `&G` of one may be lent
 to a borrowing Future; a place inside the storage behind a handle global still
 follows the handle rules of E0916. A `::` constant has no runtime storage to
 change and may be lent.
@@ -498,9 +501,7 @@ takes over the unwind: a handler installed in that function catches it, and
 otherwise it escapes to the caller, up to `main`, where an escape prints
 `unhandled effect unwind escaped to top level` and aborts. The rule is the
 same whether the Future was aborted before the await started or while it
-waited, and whether or not its type names an effect bundle. (Until
-2026-10-03 the already-aborted case was a panic, "attempted to await an
-aborted Future".)
+waited, and whether or not its type names an effect bundle.
 
 **With `handle.await`**: `JoinHandle.await` returns `Option(T)` — `.None` on abort, safely catching the unwind:
 
@@ -626,12 +627,16 @@ main :: (fn(io : Io) -> unit)({
   // Before starting: Cold
   assert(io.state(&task) == FutureState.Cold, "cold future is Cold");
 
-  // Spawning consumes the future; its handle reads the task's state from then on.
+  // Spawning consumes the future and runs it up to its `yield`; its handle
+  // reads the task's state from then on.
   h := io.spawn(task, io);
-  _r := h.await(io);
+  assert(h.state() == FutureState.Running, "suspended task is Running");
 
-  // After completion: Completed
+  // Once the task has finished: Completed
+  io.await(yield(io), io);
   assert(h.state() == FutureState.Completed, "done task is Completed");
+  r := h.await(io);
+  assert(r == .Some(i32(42)), "the handle yields the result");
 });
 export(main);
 ```
@@ -753,8 +758,8 @@ export(main);
 ```
 
 Every level is its own future, and all of them stay alive until the innermost
-one completes, so memory grows linearly with the depth. Measured with v0.2.49
-on Linux x86-64: 100,000 levels peak at 35 MB, 1,000,000 levels at 316 MB
+one completes, so memory grows linearly with the depth. Measured on Linux
+x86-64: 100,000 levels peak at 35 MB, 1,000,000 levels at 316 MB
 (about 310 bytes per level; no stack overflow, since the futures live on the
 heap).
 
@@ -771,7 +776,7 @@ count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     mut(stack) := ArrayList(i32).new();
     stack.push(n);
-    (leaves : i32) = i32(0);
+    (mut(leaves) : i32) = i32(0);
     while(stack.len() > usize(0), {
       cur := match(stack.pop(), .Some(k) => k, .None => i32(0));
       io.await(yield(io), io); // stands in for the per-item I/O
@@ -829,7 +834,7 @@ kind, so one spelling works in `main` and inside a task alike:
 
 work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    (k : i32) = i32(0);
+    (mut(k) : i32) = i32(0);
     while(k < i32(3), {
       io.await(yield(io), io);
       k = (k + i32(1));
@@ -846,8 +851,8 @@ run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     handles.push(io.spawn(work(i32(2), io), io));
     // ✓ a real suspension point: the other tasks run while this one waits
     outs := io.await(join_all(handles, io), io);
-    (sum : i32) = i32(0);
-    (i : usize) = usize(0);
+    (mut(sum) : i32) = i32(0);
+    (mut(i) : usize) = usize(0);
     while(i < outs.len(), {
       match(
         outs(i),
@@ -932,8 +937,8 @@ bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))
 );
 
 main :: (fn(io : Io) -> unit)({
-  a := Counter(n : i32(0));
-  b := Counter(n : i32(10));
+  mut(a) := Counter(n : i32(0));
+  mut(b) := Counter(n : i32(10));
   r := io.await(timeout(bump_after(&mut a, u64(500), io), Duration.from_millis(i64(5)), io), io);
   assert(r.is_err(), "the deadline fired; the operand was aborted and joined");
   s := io.await(select(bump_after(&mut a, u64(500), io), bump_after(&mut b, u64(1), io), io), io);
@@ -946,8 +951,8 @@ export(main);
 The combinator's Future then borrows what its operands borrow, so A2's rules
 apply to it: it is awaited where it is made, never bound, stored or spawned,
 and its `io.await` takes a bundle that is a place. Two operands of one call
-may not lend overlapping places when either side is `&mut` (E0910,
-decision 38 B): `select(s.next(io), s.next(io), io)` is an error, while two
+may not lend overlapping places when either side is `&mut` (E0910):
+`select(s.next(io), s.next(io), io)` is an error, while two
 `&` borrows of one place are fine.
 
 The rule is structural: any function whose by-value parameter and result are
@@ -1189,10 +1194,6 @@ void fn_id12345___drop(async_block_state_t* self) {
   if (self != NULL) { __yo_decr_rc((void*)self); };
 }
 ```
-
-**Type System Integration:**
-
-The evaluator's `get_receiver_methods_by_name_from_env` function has special handling for Future types - it does NOT use the `resolved_concrete` for method lookup. This ensures that when calling `task.___drop()`, it uses the SomeType's own `___drop` method which calls `__yo_sometype_drop`, rather than using the capture struct's drop function.
 
 ### State Machine Lifecycle
 
@@ -1441,8 +1442,7 @@ consumer needs no `Exception` handler.
    enclosing task like any other, so it works inside a spawned task as well as
    from `main`. A suspension point is an `io.await` written in the `io.async`
    body; an `io.await` inside a function the task calls blocks instead of
-   suspending, so std has no named loop form that would hide the await (the
-   `for_await` macro was deleted on 2026-10-24):
+   suspending, so std has no named loop form that would hide the await:
 
    ```yo
    mut(s) := stream;
@@ -1501,18 +1501,18 @@ r2 := handle2.await(io);
 main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
-  task1 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(1)));
+  task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(1)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(1)));
-    return(counter.with(v => v));
+    counter.*.replace_with(v => (v.* + i32(1)));
+    return(counter.*.with(v => v.*));
   });
 
-  task2 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(10)));
+  task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(10)));
-    return(counter.with(v => v));
+    counter.*.replace_with(v => (v.* + i32(10)));
+    return(counter.*.with(v => v.*));
   });
 
   // Tasks are cold — counter is still 0
@@ -1534,16 +1534,16 @@ export(main);
 main :: (fn(io : Io) -> unit)({
   counter := Rc.new(RefCell(i32).new(i32(0)));
 
-  task1 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(1)));
+  task1 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(1)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(1)));
+    counter.*.replace_with(v => (v.* + i32(1)));
   });
 
-  task2 := io.async((io : Io) => {
-    counter.replace_with(v => (v + i32(10)));
+  task2 := io.async({ counter : Rc.clone(counter) }(io : Io) => {
+    counter.*.replace_with(v => (v.* + i32(10)));
     io.await(yield(io), io);
-    counter.replace_with(v => (v + i32(10)));
+    counter.*.replace_with(v => (v.* + i32(10)));
   });
 
   // Without spawn: tasks run sequentially
@@ -1639,7 +1639,7 @@ longest waiter. It follows Rust's `tokio::sync::Mutex`:
 
 main :: (fn(io : Io) -> unit)({
   m := Arc.new(Mutex(i64).new(i64(0)));
-  worker := m; // another handle on the same mutex (`m.clone()` once V2c lands)
+  worker := Arc.clone(m); // another handle on the same mutex
   h := io.spawn(
     io.async({ worker }(io : Io) => {
       io.await(worker.*.lock(io), io);
@@ -1660,7 +1660,7 @@ export(main);
 ```
 
 `Rc(Mutex(T))`, the single-thread sharing (Rust's `Rc<Mutex<T>>`), works the
-same way: an `Rc`'s payload is read-only through its handle (decision 46), so
+same way: an `Rc`'s payload is read-only through its handle, so
 `io.await(r.*.lock(io), io)` with `r : Rc(Mutex(T))` is accepted.
 
 ### `yield_now`: a fairness yield with no timer
@@ -1670,14 +1670,6 @@ mechanism: the future is created pending and completed by the next ready-task
 drain, after that drain has measured its budget, so the resumed task runs on
 the following turn with exactly one I/O poll in between. There is no timer
 under either.
-
-Until v0.2.32 `yield` parked on a 1 ms timer, which put a millisecond floor
-under everything built on it (measured over 400 turns in a spawned task:
-`yield_now` 0 ms, the timer-backed `yield` 603 ms). The delay was a bootstrap
-constraint, not a design one: `yield` is on the compiler's own import path,
-and the seed compiler that builds the tree emits the async runtime it was
-built with, so `yield` could only point at the new primitive once a published
-seed carried it. `yield_now` stays as the name `std/async/waker` exports.
 
 ## Comparison with Other Languages
 

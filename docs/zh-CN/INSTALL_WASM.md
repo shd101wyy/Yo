@@ -4,7 +4,7 @@
 # 编译到 WebAssembly
 
 > Yo 会转译为 C，因此以 WebAssembly 为目标需要安装 Emscripten 并让 Yo 使用它。
-> 编译器本身的安装参见 [安装](../../README.md#安装)。
+> 编译器本身的安装参见 [安装](./README.md#安装)。
 
 
 Yo 可以使用 [Emscripten](https://emscripten.org/) 编译到 WebAssembly：
