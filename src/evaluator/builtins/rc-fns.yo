@@ -25,7 +25,6 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr-info.yo");
-{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { is_array_type, is_tuple_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
@@ -130,6 +129,13 @@ _require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn :
 });
 // ---------------------------------------------------------------------------
 // Simple 1-arg -> unit functions
+//
+// Each one changes a reference count at runtime, so its value is `.None` (a
+// runtime value), never a known `()`: a known value tells codegen the
+// expression has no runtime effect, and a block or tuple holding one was
+// folded to its value with the call deleted
+// (issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md).
+// The 2-arg element drops below follow the same rule.
 // ---------------------------------------------------------------------------
 evaluate_yo_decr_rc :: (
   fn(
@@ -142,7 +148,7 @@ evaluate_yo_decr_rc :: (
   _require_destroying_builtin_capable(BF_YO_DECR_RC, expr, exn);
   info := _eval_arg("evaluate_yo_decr_rc", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -157,7 +163,7 @@ evaluate_yo_decr_rc_atomic :: (
   _require_destroying_builtin_capable(BF_YO_DECR_RC_ATOMIC, expr, exn);
   info := _eval_arg("evaluate_yo_decr_rc_atomic", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -171,7 +177,7 @@ evaluate_yo_incr_rc :: (
 )({
   info := _eval_arg("evaluate_yo_incr_rc", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -185,7 +191,7 @@ evaluate_yo_incr_rc_atomic :: (
 )({
   info := _eval_arg("evaluate_yo_incr_rc_atomic", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -200,7 +206,7 @@ evaluate_yo_dyn_vtable_drop :: (
   _require_destroying_builtin_capable(BF_YO_DYN_DROP, expr, exn);
   info := _eval_arg("evaluate_yo_dyn_vtable_drop", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -214,7 +220,7 @@ evaluate_yo_dyn_vtable_dup :: (
 )({
   info := _eval_arg("evaluate_yo_dyn_vtable_dup", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -229,7 +235,7 @@ evaluate_yo_some_type_drop :: (
   _require_destroying_builtin_capable(BF_YO_SOMETYPE_DROP, expr, exn);
   info := _eval_arg("evaluate_yo_some_type_drop", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -243,7 +249,7 @@ evaluate_yo_some_type_dup :: (
 )({
   info := _eval_arg("evaluate_yo_some_type_dup", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -280,7 +286,7 @@ evaluate_yo_drop_array_element :: (
   info1 := _eval_arg("evaluate_yo_drop_array_element", expr, &info0.env(), ctx, usize(1), exn);
   info1;
   out := new_expr_info(&info0.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
@@ -297,7 +303,7 @@ evaluate_yo_drop_tuple_element :: (
   info1 := _eval_arg("evaluate_yo_drop_tuple_element", expr, &info0.env(), ctx, usize(1), exn);
   info1;
   out := new_expr_info(&info0.env(), t_unit());
-  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });
