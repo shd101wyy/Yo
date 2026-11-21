@@ -6312,8 +6312,9 @@ reject_dyn_place_by_value :: (fn(id : usize, position : &String, tok : &Token, e
 /// (`kind` 10), or only listed (`kind` 11) where the spelling would change the
 /// parameter's mode (`sink(s) : str`). Anything but the bare word `str` (an
 /// alias name, a `Self`) is the user's own spelling and is left alone. Only
-/// where the file may spell `static` (`_static_spellable_at`): elsewhere the
-/// rewrite would be E0922 while P12's rule is blocked, and the alias keeps
+/// where the file may spell `static` (`_static_spellable_at`): P12 checks the
+/// spelling in every file, but PR B (the alias deletion) re-decides the
+/// safe-file arm, so until then the alias keeps
 /// the written `str` meaning `&(str, static)`
 /// (issues/retired/2026-11-16-the-str-migration-writes-a-static-origin-that-safe-code-cannot-spell-while-p12-is-blocked.md).
 note_legacy_str_spelling :: (fn(te : &AstExpr, listed : bool, std_path : &String) -> unit)({
@@ -6338,8 +6339,10 @@ note_legacy_str_type_arg :: (fn(callee : &AstExpr, index : usize, std_path : &St
   });
 });
 /// The file at `tok` may spell the `static` origin: std or an unsafe-capable
-/// file, the exemption of E0922's wall (`_reject_empty_origin_in_safe_code`,
-/// VERDICTS-57 §1).
+/// file. VERDICTS-74 rule 5 checks the spelling in every file, so E0922's
+/// wall is gone; the gate keeps the `str` migration's safe-file arm as it is
+/// until PR B deletes the alias (the wall's old shape:
+/// `_reject_empty_origin_in_safe_code`).
 _static_spellable_at :: (fn(tok : &Token, std_path : &String) -> bool)({
   mp := tok.module_path.*.clone();
   is_implicitly_unsafe_capable_file(Option(String).Some(mp.clone())) || is_std_module_path(&mp, std_path)
