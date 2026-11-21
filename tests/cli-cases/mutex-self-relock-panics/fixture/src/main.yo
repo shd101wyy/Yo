@@ -2,7 +2,7 @@
 { println } :: import("std/fmt");
 main :: (fn() -> unit)({
   m := Mutex(i32).new(i32(1));
-  outer := m.with_lock(v => {
+  outer := m.with_lock({ &m }(v) => {
     println(`outer holds v=${v}`);
     m.with_lock(w => w.*)
   });

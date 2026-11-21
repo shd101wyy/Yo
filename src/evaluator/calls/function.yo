@@ -44,7 +44,11 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   AUTO_REF_RECEIVER_PATH,
   for_desugar_site_of,
-  ast_expr_is_infix_op_fn_call
+  ast_expr_is_infix_op_fn_call,
+  ast_expr_is_capture_mode_entry,
+  ast_expr_is_capture_list_params,
+  BK_MUT,
+  BK_COLON
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory-safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
@@ -226,6 +230,26 @@ _SaiMemo :: struct(epoch : u64, arg_keys : ArrayList(Option(String)), receiver :
 /// The receiver slot types R-PROBE tried for a `.` callee whose lookup found
 /// no method, by the callee's id: E0610's "probed" line.
 (g_probed_receiver_slots : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
+/// The io builtin a resolved method IS: the marker of an `extern("Yo")`
+/// `__yo_io_async` / `__yo_io_await` / `__yo_io_state` / `__yo_io_spawn` the
+/// method is bound to (`impl(Io, async : __yo_io_async, ...)`), `.None` for
+/// any other method. (`JoinHandle.await`'s builtin takes its handle as
+/// `self` and stays an ordinary method.)
+_io_builtin_method_marker :: (fn(method_ty : &TypeValue) -> Option(String))(
+  match(
+    method_ty,
+    Rc(.Func({ meta : ibm_m })) => match(
+      &ibm_m.extern_name,
+      .Some(ibm_en) => if(
+        (ibm_en.* == "__yo_io_async") || (ibm_en.* == "__yo_io_await") || (ibm_en.* == "__yo_io_state") || (ibm_en.* == "__yo_io_spawn"),
+        Option(String).Some(ibm_en.clone()),
+        Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    _ => Option(String).None
+  )
+);
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
@@ -5027,6 +5051,45 @@ _lent_places_overlap :: (fn(a : &_LentPlace, b : &_LentPlace, ctx : &EvalContext
 _lent_place_touched :: (fn(target : &AstExpr, lent : &_LentPlace, ctx : &EvalContext) -> bool)(
   match(_lent_place_of(target, ctx), .Some(tp) => _lent_places_overlap(&tp, lent, ctx), .None => false)
 );
+/// The borrows a closure literal's capture list takes
+/// (`{ &y, &mut z, q : &mut w.items }(params) => body`, decision 35), each as
+/// (the place, its mode is `&mut`, the entry). Each is a lend of an outer
+/// place, taken when the literal is evaluated and held by the closure value,
+/// so a call's argument checks judge it as the `&y` / `&mut z` an argument
+/// would hold. A pun's place is a fresh atom of its name: the parser rewrites
+/// the pun to the mode head `__yo_imm(y)` / `__yo_mut(z)`, whose atom also
+/// declares the capture binding, so the outer binding is resolved by name in
+/// the call's scope. A labeled entry's place is its `&p` / `&mut p`
+/// initializer's
+/// (issues/fixed/2026-11-21-a-closures-mut-capture-list-entry-is-not-checked-against-the-loans-of-the-calls-other-arguments.md).
+_closure_capture_lends :: (fn(e : &AstExpr) -> ArrayList(Tuple(AstExpr, bool, AstExpr)))({
+  out := ArrayList(Tuple(AstExpr, bool, AstExpr)).new();
+  if(!ast_expr_is_fn_call_of(e, "=>", Option(usize).Some(usize(2))), {
+    return(out);
+  });
+  lhs := match(e, Rc(.FnCall(_, _, Rc(cp_args), _, _)) => match(cp_args.get_cloned(usize(0)), .Some(a) => a, .None => return(out)), Rc(.Atom(_, _)) => return(out));
+  if(!ast_expr_is_capture_list_params(&lhs), {
+    return(out);
+  });
+  entries := match(lhs, Rc(.FnCall(_, cl_callee, _, _, _)) => match(cl_callee, Rc(.FnCall(_, _, Rc(cl_entries), _, _)) => cl_entries.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new()), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  (ei : usize) = usize(0);
+  while(ei < entries.len(), ei = (ei + usize(1)), {
+    en := match(entries.get_cloned(ei), .Some(x) => x, .None => return(out));
+    cond(
+      ast_expr_is_capture_mode_entry(&en) => {
+        name_atom := match(&en, Rc(.FnCall(_, _, Rc(en_args), _, _)) => match(en_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+        fresh := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), ast_expr_token(&name_atom)));
+        out.push((fresh, ast_expr_is_fn_call_of(&en, BK_MUT, Option(usize).Some(usize(1))), en.clone()));
+      },
+      ast_expr_is_fn_call_of(&en, BK_COLON, Option(usize).Some(usize(2))) => {
+        init := match(&en, Rc(.FnCall(_, _, Rc(lb_args), _, _)) => match(lb_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+        match(_lent_argument_place(&init), .Some(place) => out.push((place, ast_expr_is_fn_call_of(&init, "&mut", .Some(usize(1))), en.clone())), .None => ());
+      },
+      true => ()
+    );
+  });
+  out
+});
 /// The first access in `e` that writes or lends `&mut` a place overlapping
 /// `lent`: an assignment to it, a `&mut` of it, or a call of a `&mut self`
 /// method on it. Reads, `&` borrows and code that never names the place pass.
@@ -5036,6 +5099,15 @@ _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalCont
     .Some(expanded) => match(recur(&expanded, lent, ctx), .Some(hit) => return(Option(Tuple(AstExpr, String)).Some(hit)), .None => ()),
     .None => ()
   );
+  // A closure literal's `&mut` capture-list entry lends its place `&mut`
+  // as the literal is evaluated (`_closure_capture_lends`).
+  cpl := _closure_capture_lends(e);
+  (cpi : usize) = usize(0);
+  while(cpi < cpl.len(), cpi = (cpi + usize(1)), {
+    if(cpl(cpi).1 && _lent_place_touched(&cpl(cpi).0, lent, ctx), {
+      return(Option(Tuple(AstExpr, String)).Some((cpl(cpi).2.clone(), String.from("lends `&mut` (a capture-list entry of its closure)"))));
+    });
+  });
   (callee : AstExpr) = match(e, Rc(.FnCall(_, c, _, _, _)) => Rc.clone(c.*), Rc(.Atom(_, _)) => return(Option(Tuple(AstExpr, String)).None));
   c_args := match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   first := match(c_args.get_cloned(usize(0)), .Some(f) => f, .None => make_err_expr());
@@ -5487,6 +5559,9 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
     // A `dyn(&v)` / `dyn(&mut v)` argument lends `v` as the bare `&v` /
     // `&mut v` would, for as long as the statement (VERDICTS-43).
     lent := _dyn_lend_unwrapped(match(op_args.get_cloned(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr()));
+    // The capture-list borrows of a closure literal the argument passes
+    // (read before the match below moves `lent`).
+    cls := _closure_capture_lends(&match(_lent_argument_place(&lent), .Some(inner) => inner, .None => lent.clone()));
     match(
       _lent_argument_place(&lent),
       .Some(place) => {
@@ -5516,6 +5591,14 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
         )
       )
     );
+    // A closure literal the argument passes (`f(&mut ({ &mut xs }() => …))`)
+    // holds its capture-list borrows for the whole call: each is a lend of
+    // the argument's, against the call's other arguments in either order.
+    (ci : usize) = usize(0);
+    while(ci < cls.len(), ci = (ci + usize(1)), {
+      c_mut := cls(ci).1;
+      out.push(_CallLend(place : cls(ci).0.clone(), lent_arg : cls(ci).2.clone(), from : (ai + usize(1)), marked : true, exclusive : c_mut, form : if(c_mut, String.from("a `&mut` capture-list entry of a closure argument"), String.from("a `&` capture-list entry of a closure argument")), tag : if(c_mut, String.from("capture-mut"), String.from("capture-imm"))));
+    });
   });
   out
 });
@@ -5728,6 +5811,16 @@ _find_value_loan_access :: (fn(e : &AstExpr, lp : &LocalBorrowPlace, exclusive :
     .Some(expanded) => match(recur(&expanded, lp, exclusive, env, ctx), .Some(hit) => return(Option(Tuple(AstExpr, String)).Some(hit)), .None => ()),
     .None => ()
   );
+  // A closure literal's capture-list borrows lend their places as the
+  // literal is evaluated (`_closure_capture_lends`): `&mut` against any
+  // loan, `&` against a `&mut` one, as a `&mut p` / `&p` argument does.
+  vcpl := _closure_capture_lends(e);
+  (vci : usize) = usize(0);
+  while(vci < vcpl.len(), vci = (vci + usize(1)), {
+    if((vcpl(vci).1 || exclusive) && _value_loan_touched(&vcpl(vci).0, lp, env, ctx), {
+      return(Option(Tuple(AstExpr, String)).Some((vcpl(vci).2.clone(), if(vcpl(vci).1, String.from("lends `&mut` (a capture-list entry of its closure)"), String.from("lends `&` (a capture-list entry of its closure)")))));
+    });
+  });
   // A name or a field chain on one is a read of that place.
   if(_is_plain_place_expr(e), {
     return(if(exclusive && _value_loan_touched(e, lp, env, ctx), Option(Tuple(AstExpr, String)).Some((e.clone(), String.from("reads"))), Option(Tuple(AstExpr, String)).None));
@@ -15518,7 +15611,19 @@ Fix: wrap the call:
           .None => ()
         );
       });
-      method_info_opt0 := _try_find_receiver_method(&evaluated_callee, &callee_env, ctx);
+      // A method that IS an io builtin (`impl(Io, await : __yo_io_await,
+      // ...)`, the interface-shaped `Io`,
+      // plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2) is not dispatched as
+      // a method: the property access typed the callee as the builtin itself
+      // (`_io_builtin_method_type`), with no receiver, and the call takes the
+      // valueless-callee path below exactly as the four-field `Io`'s field
+      // does. The receiver only names the `Io` codegen lowers `io.spawn` and
+      // a sync-context await through.
+      method_info_opt0 := match(
+        _try_find_receiver_method(&evaluated_callee, &callee_env, ctx),
+        .Some(fm0) => if(_io_builtin_method_marker(&fm0.method_ty).is_some(), Option(ReceiverMethodResult).None, Option(ReceiverMethodResult).Some(fm0)),
+        .None => Option(ReceiverMethodResult).None
+      );
       // A payload retry records the callee as rewritten (`w.m` → `w.*.m`,
       // `note_rewritten_node`): the rest of the call reads it so.
       m_callee := ast_rewritten_node(&evaluated_callee);

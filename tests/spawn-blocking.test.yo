@@ -53,10 +53,12 @@ test("spawn_blocking carries a non-scalar result", {
   assert((pr.lo + pr.hi) == i32(7), "a value struct crossed back from the worker thread");
 });
 test("a sibling task keeps running while spawn_blocking blocks", {
-  progress := AtomicI32.new(i32(0));
+  // Shared by the sibling task, the blocking worker and this frame: an `Arc`,
+  // one clone per sharer.
+  progress := Arc.new(AtomicI32.new(i32(0)));
   // The sibling: an ordinary async task doing 40 turns of the loop.
   sib := io.spawn(
-    io.async((io : Io) => {
+    io.async({ progress : Arc.clone(progress) }(io : Io) => {
       (mut(i) : i32) = i32(0);
       while(i < i32(40), {
         io.await(yield(io), io);
@@ -71,7 +73,7 @@ test("a sibling task keeps running while spawn_blocking blocks", {
   // for the sibling to make progress. BOUNDED, so a stalled loop fails with a
   // zero reading instead of hanging the suite.
   observed := io.await(
-    spawn_blocking(() => {
+    spawn_blocking({ progress : Arc.clone(progress) }() => {
       (mut(spins) : i32) = i32(0);
       while((progress.load(MemoryOrder.Acquire) < i32(5)) && (spins < i32(200)), {
         sleep_blocking(Duration.from_millis(i64(5)));

@@ -1,0 +1,24 @@
+// expect: panic
+// guard-off: same
+// `replace_with` on a `RefCell` element reached through an outer `RefCell`'s
+// `with`, whose body clears the outer list through a second handle: the outer
+// cell's borrow flag panics.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  outer := Rc.new(RefCell(ArrayList(Rc(RefCell(String)))).new(ArrayList(Rc(RefCell(String))).new()));
+  outer.with_mut(v => v.push(Rc.new(RefCell(String).new(String.from("hello, a string long enough to live on the heap")))));
+  other := Rc.clone(outer);
+  old := outer.with(
+    v => v(usize(0)).replace_with(
+      &mut ({ &other }(s) => {
+        other.with_mut(v2 => v2.clear());
+        s.clone()
+      })
+    )
+  );
+  println(`OUT: ${old}`);
+});
+export(main);

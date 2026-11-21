@@ -1018,9 +1018,9 @@ test("statement-hidden mutation keeps the borrowed-projection dup", {
 });
 // Regression: aliasing a ref local must drop each object EXACTLY ONCE.
 //
-// `b := a` creates ONE deferred `___dup`, keyed under `a`. The dup/drop pair
-// optimizer cancels it against the scope-end drop of one variable in the alias
-// chain, and whichever it reaches first wins. yo-self walked the frame forwards
+// `b := a` created ONE deferred `___dup`, keyed under `a`. The dup/drop pair
+// optimizer (deleted in v0.2.80) cancelled it against the scope-end drop of one
+// variable in the alias chain, and whichever it reached first won. yo-self walked the frame forwards
 // and cancelled the wrong one; TS iterates `getVariablesNeedingDrop`, which is
 // already reversed (src/env.ts:2304). The same root cause showed up as a DOUBLE
 // FREE in one shape (tests/ref-local-binding.test.yo, which aborted under glibc
@@ -1280,9 +1280,9 @@ test("an alias whose &mut self method replaces it leaves the base its object", {
 // A local stored into a struct field that lives in a NESTED block keeps its
 // own count.
 //
-// `_optimize_dup_drop_pairs` cancels a local's single dup against its
-// scope-end drop and calls the result a move. That is sound only while the
-// container the dup fed OUTLIVES the local — and it does not when the
+// The dup/drop pair optimizer (deleted in v0.2.80) cancelled a local's single
+// dup against its scope-end drop and called the result a move. That is sound
+// only while the container the dup fed OUTLIVES the local — and it does not when the
 // container is declared in an inner block, because the inner block's scope end
 // releases the field first. The outer local was then dangling for the rest of
 // its own scope:
@@ -1346,12 +1346,10 @@ test("a container two blocks deep does not take the outer local either", {
   };
   assert(g_nested_disposed == (before + i32(1)), "and disposed exactly once");
 });
-// OVER-CANCELLATION CANARY. The gate above must not fire on a container in the
-// SAME scope: that cancellation is correct — drops run in reverse declaration
-// order, so the container is released before the local it borrowed from — and
-// keeping it is what stops every struct store from costing a dup/drop pair
-// again. If this ever reports two disposes the gate has gone too wide in the
-// other direction; if it reports none, a dup is unmatched.
+// A container in the SAME scope: drops run in reverse declaration order, so the
+// container is released before the local it took a handle from. If this ever
+// reports two disposes a handle is dropped twice; if it reports none, a dup is
+// unmatched.
 test("a container in the SAME scope still shares one count", {
   before := g_nested_disposed;
   {

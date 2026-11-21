@@ -41,6 +41,21 @@ _all_digits :: (fn(s : &String) -> bool)({
     ok
   })
 });
+/// The right side of a binding that declares no C variable (a unit or `void`
+/// value) still RUNS: some generators return their statement instead of
+/// emitting it (`_p := __yo_incr_rc(c)` renders `__yo_incr_rc(c)`,
+/// `_a := consume(f())` renders `f()`), and discarding that text deleted the
+/// call (issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md).
+/// Emits `code` as a statement and returns the binding's empty value code.
+_emit_unbound_rhs :: (fn(code : String, indent : &String, context : &mut FunctionGenerationContext) -> String)({
+  if(code.len() > usize(0), {
+    stmt := indent.clone();
+    stmt.push_string(&code);
+    stmt.push_str(";");
+    context.base.emitter.emit_string_line(&stmt);
+  });
+  String.from("")
+});
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// compile-time-only variable.
 _last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
@@ -625,6 +640,9 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         ),
         Rc(.Atom(_, _)) => false
       );
+      // Nothing is declared for a unit or `void` right side (the declaration
+      // below carries the same guard).
+      binds_no_value := (is_unit_type(&lhs_type) || rhs_is_void_call);
       rhs_code := match(
         context.base.get_expr_info(&rhs),
         .Some(rei) => match(
@@ -680,10 +698,16 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
           // matching +1. This arm is unreachable for state-machine bindings
           // (those return early above); it exists for parity with the three
           // sibling arms, which all already route through this helper.
-          .None => emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context)
+          .None => {
+            nv_code := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
+            if(binds_no_value, _emit_unbound_rhs(nv_code, indent, context), nv_code)
+          }
         ),
         // No ExprInfo at all — no deferred dups can exist.
-        .None => _call_generate_expr(&rhs, indent.clone(), context)
+        .None => {
+          ne_code := _call_generate_expr(&rhs, indent.clone(), context);
+          if(binds_no_value, _emit_unbound_rhs(ne_code, indent, context), ne_code)
+        }
       );
       // Raw-pointer-deref RHS (`(p &+ i).*` / `p.*`) of an RC-carrying type:
       // dup the copy AT THE DEREF SITE (`temp2 = Bucket___dup(temp);`) so the

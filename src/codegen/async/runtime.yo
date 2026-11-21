@@ -11,7 +11,7 @@
 //! supply.
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo, is_target_macos, is_target_linux, is_target_wasm, is_target_windows } :: import("../../target.yo");
-{ generate_async_runtime_core } :: import("./runtime-core.yo");
+{ generate_async_runtime_core, generate_async_runtime_io_entries } :: import("./runtime-core.yo");
 { generate_async_runtime_io_macos } :: import("./runtime-io-macos.yo");
 { generate_async_runtime_io_linux } :: import("./runtime-io-linux.yo");
 { generate_async_runtime_io_windows } :: import("./runtime-io-windows.yo");
@@ -47,5 +47,7 @@ generate_async_runtime :: (
   if(!is_target_wasm(target_info), {
     generate_async_runtime_io_common(emitter, target_info);
   });
+  // The native Io's executor entries call into the backend above.
+  generate_async_runtime_io_entries(emitter, target_info);
 });
 export(generate_async_runtime);

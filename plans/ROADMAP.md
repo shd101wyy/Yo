@@ -150,8 +150,8 @@ with at most four running at once:
   - The docs teach only the finished language, with a type-check gate on
     every block, and the skills are deleted
     ([`backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md`](backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md)).
-  - The ownership and borrowing guide
-    ([`backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md)).
+  - The ownership and borrowing guide: promoted in v0.2.80 to
+    [`docs/en-US/OWNERSHIP_AND_BORROWING.md`](../docs/en-US/OWNERSHIP_AND_BORROWING.md).
   - The evals corpus that measures agents writing Yo
     ([`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
     B4).

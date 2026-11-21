@@ -46,7 +46,21 @@ extern(
 /// `DnsError`. `io.state` reads an in-flight raw future as `Running`: it was
 /// submitted when it was created, so it is never `Cold`.
 IoFuture :: Impl(Concrete(__yo_io_future_t), Future(i32));
+// The native Io's executor entries and IoFuture.completed
+// (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2, §3, IO-1a). Declared here
+// because a `__yo_` extern member outside std is E0407.
+extern(
+  "Yo",
+  __yo_io_future_completed : (fn(result : i32) -> IoFuture),
+  __yo_io_spawn_task : (fn(fut : *void) -> unit),
+  __yo_io_run_until : (fn(fut : *void) -> unit),
+  __yo_io_now_ns : (fn() -> u64)
+);
 export(
   __yo_io_future_t,
-  IoFuture
+  IoFuture,
+  __yo_io_future_completed,
+  __yo_io_spawn_task,
+  __yo_io_run_until,
+  __yo_io_now_ns
 );

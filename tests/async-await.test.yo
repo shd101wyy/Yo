@@ -7345,13 +7345,16 @@ test("a closure argument inside an io.async body keeps the future's result type"
 // the io.async closure's capture struct without a dup:
 // issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md
 // ---------------------------------------------------------------------------
-_if_run_it :: (fn(f : &Impl(Fn() -> unit, Send)) -> unit)(f());
+// The helper takes a plain `Fn`, not a `Send` one: the inner closure borrows
+// its non-copyable `SyncChannel` handle (a literal argument of a borrowing
+// parameter keeps it in the caller's frame), and a borrow capture is never Send.
+_if_run_it :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 _if_relay :: (
   fn(generic(T : Type), cb : &Impl(Fn() -> T, Send), io : Io, where(T <: Send)) -> Impl(Future(T, Io))
 )(
   io.async((io : Io) => {
     chan := SyncChannel(T).new(usize(1));
-    sink := chan;
+    sink := chan.clone();
     _if_run_it(() => {
       _ := sink.send(cb());
       ()

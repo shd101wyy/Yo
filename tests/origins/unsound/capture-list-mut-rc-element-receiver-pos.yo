@@ -1,0 +1,25 @@
+// expect: accept
+// Positive control: the closure clears a different list than the receiver's.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &mut Impl(FnMut() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+main :: (fn() -> unit)({
+  mut(hs) := ArrayList(Rc(W)).new();
+  hs.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  mut(vs) := ArrayList(Rc(W)).new();
+  vs.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  hs(usize(0)).peek(
+    &mut ({ &mut vs }() => {
+      vs.clear();
+    })
+  );
+});
+export(main);
