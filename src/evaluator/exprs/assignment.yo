@@ -3141,9 +3141,15 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // - otherwise (real reassignment) → info carrying the OLD value/type plus an
   //   attached temp variable, so codegen saves the old value into the temp and
   //   drop-tracks it (balances the dup-on-store above).
+  //   Its value is a known `()` only for a compile-time variable: a runtime
+  //   store is a runtime effect, and a tuple holding a known `()` was folded
+  //   to its value with the store and its right side deleted
+  //   (issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md).
   if(!is_mutating_defined_variable || lhs_consumed_by_rhs, {
     expr_info := new_expr_info(&env, t_unit());
-    expr_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+    if(variable.is_compile_time_only(), {
+      expr_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+    });
     expr_info_set_is_compile_time_only_assignment(&expr_info, .Some(variable.is_compile_time_only()));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   }, {

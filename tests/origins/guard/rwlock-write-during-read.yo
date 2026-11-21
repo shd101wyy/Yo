@@ -1,0 +1,34 @@
+// expect: accept
+// guard-off: same
+// An `RwLock` shared as `Arc(RwLock(...))`: a receiver reached through an
+// element under `with_read`, whose closure tries to clear the list through a
+// second handle. The writer is excluded (`try_with_write` is `.None`).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ RwLock } :: import("std/sync/rwlock");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &mut Impl(FnMut() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+main :: (fn() -> unit)({
+  mut(init) := ArrayList(Arc(W)).new();
+  init.push(Arc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  lock := Arc.new(RwLock(ArrayList(Arc(W))).new(init));
+  lock2 := Arc.clone(lock);
+  lock.with_read(
+    &mut (
+      v => v(usize(0)).peek(
+        &mut ({ &lock2 }() => {
+          r := lock2.try_with_write(&mut (v2 => v2.clear()));
+          println(`OUT: excluded ${r.is_none()}`);
+        })
+      )
+    )
+  );
+});
+export(main);

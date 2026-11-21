@@ -3,20 +3,22 @@
 //! runner can enforce them. Run via scripts/io-budget-check.sh (which also
 //! drives it under both backends). Exits non-zero on any violation.
 pragma(Pragma.AllowUnsafe);
-extern(
-  "Yo",
-  __yo_io_stats_kernel_enters : (fn() -> u64),
-  __yo_io_stats_zero_timeout_enters : (fn() -> u64),
-  __yo_io_stats_io_syscalls : (fn() -> u64),
-  __yo_io_stats_recv_would_block : (fn() -> u64)
-);
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 { socketpair } :: import("std/sys/socketpair");
 tcp :: import("std/sys/tcp");
 { AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
 { O_NONBLOCK } :: import("std/sys/constants");
-{ __yo_async_send_start, __yo_async_recv_start, __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl } :: import("std/sys/externs");
+{
+  __yo_async_send_start,
+  __yo_async_recv_start,
+  __yo_sync_fcntl_getfl,
+  __yo_sync_fcntl_setfl,
+  __yo_io_stats_kernel_enters,
+  __yo_io_stats_zero_timeout_enters,
+  __yo_io_stats_io_syscalls,
+  __yo_io_stats_recv_would_block
+} :: import("std/sys/externs");
 { GlobalAllocator } :: import("std/allocator");
 { malloc } :: GlobalAllocator;
 { sleep } :: import("std/sys/timer");

@@ -190,12 +190,13 @@ test("Channel with usize type", {
   assert(val.unwrap() == usize(42), "value should be 42");
 });
 // ============================================================================
-// Thread integration (Channel is atomic object — no Arc wrapping needed)
+// Thread integration (Channel is a value with `Clone`: each thread gets its
+// own `ch.clone()`, another handle on the SAME queue — no Arc wrapping needed)
 // ============================================================================
 test("Channel single producer single consumer with Thread", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
-  producer := Thread(unit).spawn(io => {
+  producer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     mut(i) := i32(0);
     while(i < i32(5), {
       _ := ch.send(i);
@@ -222,7 +223,7 @@ test("Channel single producer single consumer with Thread", {
 test("Channel thread producer sends many values", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
-  t := Thread(unit).spawn(io => {
+  t := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     mut(i) := i32(0);
     while(i < i32(10), {
       _ := ch.send(i);
@@ -249,7 +250,7 @@ test("Channel thread producer sends many values", {
 test("Channel consumer thread blocks until producer sends", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
-  consumer := Thread(unit).spawn(io => {
+  consumer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     val := ch.recv();
     assert(val.is_some(), "consumer should receive a value");
     assert(val.unwrap() == i32(999), "value should be 999");
@@ -262,7 +263,7 @@ test("Channel consumer thread blocks until producer sends", {
 test("Channel close wakes blocked consumer Thread", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(5));
-  consumer := Thread(unit).spawn(io => {
+  consumer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     val := ch.recv();
     assert(val.is_none(), "recv should return None after close");
   });
@@ -282,7 +283,7 @@ test("Channel bounded capacity blocks producer", {
   _ := ch.send(i32(2));
   // Channel is now full
   // Producer thread will block because channel is full
-  producer := Thread(unit).spawn(io => {
+  producer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     _ := ch.send(i32(3)); // Blocks until consumer drains
   });
   // Sleep briefly to let producer block
@@ -302,7 +303,7 @@ test("Channel bounded capacity blocks producer", {
 test("Channel capacity 1 works as rendezvous", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
-  t := Thread(unit).spawn(io => {
+  t := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     _ := ch.send(i32(100));
     _ := ch.send(i32(200));
   });
@@ -315,15 +316,16 @@ test("Channel capacity 1 works as rendezvous", {
   t.join();
 });
 // ============================================================================
-// ThreadPool integration (Channel is atomic object — no Arc wrapping needed)
+// ThreadPool integration (the task gets its own `ch.clone()`; the WaitGroup is a
+// move-only value, shared through `Arc.clone`)
 // ============================================================================
 test("Channel send from pool task recv from main", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
-  wg := WaitGroup.new();
+  wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  spawn(&pool, io => {
+  spawn(&pool, { ch : ch.clone(), wg : Arc.clone(wg) }(io) => {
     _ := ch.send(i32(42));
     wg.done();
   });
@@ -335,10 +337,10 @@ test("Channel send from pool task recv from main", {
 test("Channel pool task sends multiple values", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
-  wg := WaitGroup.new();
+  wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  spawn(&pool, io => {
+  spawn(&pool, { ch : ch.clone(), wg : Arc.clone(wg) }(io) => {
     _ := ch.send(i32(10));
     _ := ch.send(i32(20));
     _ := ch.send(i32(30));
@@ -427,8 +429,10 @@ test("Sender/Receiver deliver values in send order", {
 });
 test("Channel.pair hands back both halves over one queue", {
   pair := Channel(i32).pair(usize(2));
-  tx := pair.0;
-  rx := pair.1;
+  // The halves are move-only and Yo has no partial moves, so the test lends
+  // them out of the tuple rather than copying a handle out of each field.
+  tx := &pair.0;
+  rx := &pair.1;
   assert(tx.send(i32(11)).is_ok(), "the pair's sender sends");
   assert(rx.recv().unwrap() == i32(11), "the pair's receiver receives the same queue");
   assert(tx.len() == usize(0), "both halves see one length");
@@ -512,7 +516,12 @@ test("dropping the last Sender wakes a Receiver already blocked in recv", {
   if(arch == Arch.Wasm32, return(()));
   rx := Channel(i32).receiver(usize(4));
   verdict := Channel(i32).new(usize(2));
-  consumer := Thread(unit).spawn(io => {
+  // The one sender is minted BEFORE the `Receiver` moves into the consumer
+  // (Rust's shape: a `Receiver` cannot be copied or cloned, so the thread
+  // owns it). A receiver with no sender yet is not closed, so this changes
+  // nothing about where the consumer parks.
+  tx := rx.sender();
+  consumer := Thread(unit).spawn({ rx, verdict : verdict.clone() }(io) => {
     // Parks here: the channel is empty and open. Only the auto-close can
     // wake it, and it must wake with Disconnected rather than a value.
     match(
@@ -525,13 +534,11 @@ test("dropping the last Sender wakes a Receiver already blocked in recv", {
       }
     );
   });
-  {
-    tx := rx.sender();
-    // Give the consumer time to be genuinely parked in `recv`, so this
-    // exercises the broadcast-under-the-mutex wake path and not the
-    // already-closed fast path.
-    sleep_blocking(Duration.from_millis(i64(50)));
-  };
+  // Give the consumer time to be genuinely parked in `recv`, so this
+  // exercises the broadcast-under-the-mutex wake path and not the
+  // already-closed fast path.
+  sleep_blocking(Duration.from_millis(i64(50)));
+  drop(tx);
   answer := _recv_within(&verdict, i64(3000));
   assert(
     match(answer, .Some(v) => (v == i32(-1)), .None => false),
@@ -543,7 +550,9 @@ test("buffered values reach a blocked Receiver before the disconnect", {
   if(arch == Arch.Wasm32, return(()));
   rx := Channel(i32).receiver(usize(4));
   verdict := Channel(i32).new(usize(4));
-  consumer := Thread(unit).spawn(io => {
+  // Minted before the `Receiver` moves into the consumer thread, as above.
+  tx := rx.sender();
+  consumer := Thread(unit).spawn({ rx, verdict : verdict.clone() }(io) => {
     (mut(going) : bool) = true;
     while(going, {
       match(
@@ -558,12 +567,10 @@ test("buffered values reach a blocked Receiver before the disconnect", {
       );
     });
   });
-  {
-    tx := rx.sender();
-    sleep_blocking(Duration.from_millis(i64(50)));
-    assert(tx.send(i32(21)).is_ok(), "sent while the consumer is parked");
-    assert(tx.send(i32(22)).is_ok(), "and a second one");
-  };
+  sleep_blocking(Duration.from_millis(i64(50)));
+  assert(tx.send(i32(21)).is_ok(), "sent while the consumer is parked");
+  assert(tx.send(i32(22)).is_ok(), "and a second one");
+  drop(tx);
   v1 := _recv_within(&verdict, i64(3000));
   v2 := _recv_within(&verdict, i64(3000));
   v3 := _recv_within(&verdict, i64(3000));
@@ -609,29 +616,22 @@ test("cloned Senders in several threads all fan in to one Receiver", {
 });
 test("a sender per thread: the last one to finish closes the channel", {
   if(arch == Arch.Wasm32, return(()));
-  // Each worker mints its OWN sender inside the thread, so the sender's
-  // lifetime IS the thread's work. `keeper` is minted BEFORE the workers
-  // start and holds the count above zero while they do: without it the first
-  // worker to finish would take the count 1 -> 0 and close the channel under
-  // the ones still minting (measured — this test failed exactly that way
-  // when the keeper was created after the spawns).
-  //
-  // This is the cross-thread shape that reaches zero today. A `Sender` moved
-  // into a `Thread.spawn` closure is captured by reference and that reference
-  // is never released (issues/fixed/spawn-closure-captures-never-dropped-leak.md),
-  // so its `dispose` — and with it the auto-close — would never run.
+  // Each worker OWNS its sender: minted for it as its closure is built and
+  // moved in (Rust's shape — the `Receiver` itself cannot be shared with the
+  // workers), so the sender's lifetime IS the thread's work and it drops
+  // when the thread finishes. `keeper` is minted BEFORE the workers start
+  // and holds the count above zero while they run, so the channel cannot
+  // close until the main thread lets go of it too.
   rx := Channel(i32).receiver(usize(16));
-  wg := WaitGroup.new();
+  wg := Arc.new(WaitGroup.new());
   wg.add(i32(2));
   {
     keeper := rx.sender();
-    w1 := Thread(unit).spawn(io => {
-      tx := rx.sender();
+    w1 := Thread(unit).spawn({ tx : rx.sender(), wg : Arc.clone(wg) }(io) => {
       _a := tx.send(i32(4));
       wg.done();
     });
-    w2 := Thread(unit).spawn(io => {
-      tx := rx.sender();
+    w2 := Thread(unit).spawn({ tx : rx.sender(), wg : Arc.clone(wg) }(io) => {
       _a := tx.send(i32(5));
       wg.done();
     });

@@ -1,0 +1,26 @@
+// expect: E0911
+// guard-off: same
+// `Rc.get_mut`'s `&mut T` is lent to a call whose closure reassigns the handle
+// it projects from.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+poke :: (fn(w : &mut W, act : &mut Impl(FnMut() -> unit)) -> unit)({
+  act();
+  w.s.push_str("!");
+  println(`OUT: ${w.s.clone()}`);
+});
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(W(s : String.from("hello, a string long enough to live on the heap")));
+  match(
+    Rc.get_mut(&mut h),
+    .Some(r) => poke(
+      r,
+      &mut ({ &mut h }() => {
+        h = Rc.new(W(s : String.from("replacement")));
+      })
+    ),
+    .None => ()
+  );
+});
+export(main);

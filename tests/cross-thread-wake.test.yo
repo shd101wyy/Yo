@@ -34,11 +34,11 @@
 test("a waker fired from another OS thread resumes its task on the owning loop", {
   p := Park.new();
   w := p.waker();
-  stamped := AtomicI32.new(i32(0));
-  resumed_on := AtomicUsize.new(usize(0));
+  stamped := Arc.new(AtomicI32.new(i32(0)));
+  resumed_on := Arc.new(AtomicUsize.new(usize(0)));
   main_tid := get_thread_id();
   h := io.spawn(
-    io.async({ p, resumed_on, stamped }(io : Io) => {
+    io.async({ p, resumed_on : Arc.clone(resumed_on), stamped : Arc.clone(stamped) }(io : Io) => {
       io.await(p.wait(io), io);
       resumed_on.store(get_thread_id(), MemoryOrder.Release);
       _a := stamped.fetch_add(i32(100), MemoryOrder.AcqRel);
@@ -46,7 +46,7 @@ test("a waker fired from another OS thread resumes its task on the owning loop",
     }),
     io
   );
-  t := Thread(unit).spawn((tio : Io) => {
+  t := Thread(unit).spawn({ stamped : Arc.clone(stamped), w }(tio : Io) => {
     // Genuinely blocking, on its own thread: the loop has no I/O and no
     // runnable task for these 50 ms, so it must wait rather than conclude
     // it has nothing left to do.
@@ -68,11 +68,11 @@ test("two parks woken from two different threads", {
   p2 := Park.new();
   w1 := p1.waker();
   w2 := p2.waker();
-  order := AtomicI32.new(i32(0));
+  order := Arc.new(AtomicI32.new(i32(0)));
   main_tid := get_thread_id();
-  both_on_main := AtomicI32.new(i32(0));
+  both_on_main := Arc.new(AtomicI32.new(i32(0)));
   h1 := io.spawn(
-    io.async({ p1, main_tid, both_on_main, order }(io : Io) => {
+    io.async({ p1, main_tid, both_on_main : Arc.clone(both_on_main), order : Arc.clone(order) }(io : Io) => {
       io.await(p1.wait(io), io);
       if(get_thread_id() == main_tid, {
         _x := both_on_main.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -83,7 +83,7 @@ test("two parks woken from two different threads", {
     io
   );
   h2 := io.spawn(
-    io.async({ p2, main_tid, both_on_main, order }(io : Io) => {
+    io.async({ p2, main_tid, both_on_main : Arc.clone(both_on_main), order : Arc.clone(order) }(io : Io) => {
       io.await(p2.wait(io), io);
       if(get_thread_id() == main_tid, {
         _y := both_on_main.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -122,9 +122,9 @@ test("a wake that arrives BEFORE the task suspends is not lost", {
     ()
   });
   t.join();
-  ran := AtomicI32.new(i32(0));
+  ran := Arc.new(AtomicI32.new(i32(0)));
   h := io.spawn(
-    io.async({ p, ran }(io : Io) => {
+    io.async({ p, ran : Arc.clone(ran) }(io : Io) => {
       io.await(p.wait(io), io);
       _a := ran.fetch_add(i32(1), MemoryOrder.AcqRel);
       i32(0)
@@ -199,10 +199,10 @@ test("the common ordering — owner drops its waker handle first, worker wakes l
 // drain failed to consume would now hang the loop instead of leaking silently
 // (issues/fixed/a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md).
 test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outlives the release posted into it", {
-  total := AtomicI32.new(i32(0));
+  total := Arc.new(AtomicI32.new(i32(0)));
   (mut(i) : i32) = i32(0);
   while(i < i32(2000), {
-    t := Thread(unit).spawn((io : Io) => {
+    t := Thread(unit).spawn({ total : Arc.clone(total) }(io : Io) => {
       v := io.await(spawn_blocking(() => i32(1), io), io);
       _n := total.fetch_add(v, MemoryOrder.AcqRel);
       ()

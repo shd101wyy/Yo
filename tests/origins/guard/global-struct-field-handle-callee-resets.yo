@@ -1,0 +1,22 @@
+// expect: E0916
+// guard-off: same
+// An `Rc` field of a module-level struct (`&G.h`, a projection the guard
+// marks) lent to a callee that replaces the field by name: decision 18's
+// global-lend rule.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+S :: struct(h : Rc(W));
+(mut(G) : S) = S(h : Rc.new(W(s : String.from("initial"))));
+reset :: (fn() -> unit)({
+  G.h = Rc.new(W(s : String.from("replacement, a string long enough to live on the heap")));
+});
+peek_handle :: (fn(h : &Rc(W)) -> unit)({
+  reset();
+  println(`OUT: ${h.*.s.clone()}`);
+});
+main :: (fn() -> unit)({
+  G.h = Rc.new(W(s : String.from("hello, a string long enough to live on the heap")));
+  peek_handle(&G.h);
+});
+export(main);

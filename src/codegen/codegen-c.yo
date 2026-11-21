@@ -20,7 +20,7 @@
 { Exception } :: import("std/error");
 { Environment } :: import("../env.yo");
 { EvalContext, force_pending_count } :: import("../evaluator/context.yo");
-{ CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, std_allocator_abi_is_v2 } :: import("./utils/index.yo");
+{ CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, std_allocator_abi_is_v2, std_io_type } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
 { collect_required_functions, collect_module_level_init_functions, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
 { collect_type, collect_required_types, collect_types_of_registered_functions, SkipEmissionFn, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
@@ -28,7 +28,7 @@
 { generate_type_declarations, generate_dyn_box_types, generate_struct_declaration, generate_enum_declaration, generate_tuple_declaration, generate_union_declaration, generate_future_trait_declaration } :: import("./types/generation.yo");
 { fixup_dyn_impl_keys, register_dyn_upcast_targets } :: import("./utils/fixup.yo");
 { generate_function_declarations, should_skip_function_codegen } :: import("./functions/declarations.yo");
-{ generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations, emit_thread_local_accessors } :: import("./functions/generation.yo");
+{ generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations, emit_thread_local_accessors, io_native_needs_reactor, emit_io_native_declarations } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_slot_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
 { register_impl_closure_call_mappings, set_sm_atom_resolver, set_deferred_dup_or_code } :: import("./exprs/closures.yo");
@@ -317,6 +317,9 @@ compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, targ
   // The allocator interface the runtime speaks, read off the shape of std's
   // `AllocatorVTable` (D30): version 1 until std moves (Generation B).
   base.alloc_abi_v2 = std_allocator_abi_is_v2(module_env, &eval_ctx.std_path);
+  // The prelude's `Io`, whose shape decides the native Io the program
+  // carries (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §6, IO-1a).
+  base.io_type = std_io_type(module_env, &eval_ctx.std_path);
   // The entry module's path decides which top-level exports get plain,
   // externally-linked C names (functions/collection.yo).
   base.current_module_path = Option(String).Some(module_env.module_path().*.clone());
@@ -474,6 +477,11 @@ typedef enum {
   // its constructor took the sync-future pointer
   // (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
   preregister_async_block_types(&mut ctx);
+  // An interface-shaped `Io` in the program's types links the reactor:
+  // `__yo_io_native()` builds it from the loop and the native table.
+  if(io_native_needs_reactor(&ctx.base), {
+    ctx.uses_async = true;
+  });
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(&mut ctx.base);
   raise_codegen_error(exn);
@@ -511,6 +519,9 @@ static Slice_uint8_t_u42_ __yo_args;
   });
   // Third pass: function declarations (prototypes).
   generate_function_declarations(&mut ctx.base);
+  // The native Io's prototype (and table), ahead of every entry point that
+  // calls `__yo_io_native()`.
+  emit_io_native_declarations(&mut ctx.base);
   raise_codegen_error(exn);
   profile_memory_mark("emit: function declarations");
   // Register Impl(Fn) closure → impl-fn mappings BEFORE function bodies, so a

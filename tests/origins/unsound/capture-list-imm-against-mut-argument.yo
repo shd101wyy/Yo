@@ -1,0 +1,23 @@
+// expect: E0910
+// A `&` capture-list entry of a list another argument lends `&mut`: the callee writes
+// the list while the closure holds a shared borrow of it
+// (issues/fixed/2026-11-21-a-closures-mut-capture-list-entry-is-not-checked-against-the-loans-of-the-calls-other-arguments.md)
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+grow :: (fn(xs : &mut ArrayList(W), act : &mut Impl(FnMut() -> unit)) -> unit)({
+  xs.clear();
+  act();
+});
+main :: (fn() -> unit)({
+  mut(ws) := ArrayList(W).new();
+  ws.push(W(s : String.from("hello, a string long enough to live on the heap")));
+  grow(
+    &mut ws,
+    &mut ({ &ws }() => {
+      println(`LEN: ${ws.len()}`);
+    })
+  );
+});
+export(main);

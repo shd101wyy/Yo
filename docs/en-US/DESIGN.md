@@ -1219,7 +1219,7 @@ no tail-call optimization is applied.
 
 ### Shared Cells and Memory Management
 
-Yo uses **reference-counted cells** (`Rc`, `Arc`) with [reference counting in the generated C](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
+Yo uses **reference-counted cells** (`Rc`, `Arc`) for shared ownership. `Rc(T)` counts its handles non-atomically, and `Arc(T)` counts them atomically. The non-atomic count is sound because an `Rc` is not `Send`: it never leaves its thread, so one thread touches its count ([PARALLELISM.md](./PARALLELISM.md)). Share across threads with `Arc` ([ARC.md](./ARC.md)).
 
 #### Reference-Counted Cells
 
@@ -1243,7 +1243,6 @@ s2 := Rc.clone(s1); // RC = 2 (both handles point to the same cell)
 s3 := Rc.clone(s2); // RC = 3
 // When s1, s2, s3 go out of scope, RC decrements
 // When RC reaches 0, the payload's `drop` runs and the cell is freed
-// In practice, the dup/drop pair optimizer eliminates many of these operations
 ```
 
 #### Replacing a `ref` declaration
@@ -1271,11 +1270,15 @@ std's former `ref` types show the method shapes. Each method has exactly one:
 - `HttpServer` is the shared one. Its `serve` future owns a `server.clone()`,
   and the kept clone calls `stop` from the handler or another task.
 
-#### Compile-Time Reference Counting Optimization
+#### Reading the count
 
-The compiler cancels paired reference-count operations at compile time, so a value moved at its last use carries no count traffic.
+The builtin `ref_count(x)` returns the number of handles to the cell `x` holds, as a `usize`; an `Arc(T)` is read with an atomic load. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. A `Box` has no count, so `ref_count(b)` is a compile error. The count is meant for uniqueness checks (copy-on-write) and tests, not for program logic.
 
-See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for what the generated C contains and which operations the optimizer removes.
+```yo
+a := Rc.new(i32(42));
+b := Rc.clone(a);
+assert(ref_count(b) == usize(2), "two handles, one cell");
+```
 
 #### Explicit Allocators
 
@@ -1352,7 +1355,7 @@ A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copi
 
 #### std's resources are move-only
 
-The resources in `std/` are move-only values: `File`, `TempDir`, `TempFile`, `Watcher`, `TcpStream`, `TcpListener`, `UdpSocket`, `UnixStream`, `UnixListener`, `TlsStream`, `HttpClient`, `Child` and its pipe handles (`ChildStdin`, `ChildStdout`, `ChildStderr`), `Thread`, and a `BufReader`/`BufWriter` that owns one of them ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), V3). Each is a struct whose state lives in a `Box`, so the handle can move while a future or the runtime holds the state's address. Dropping the handle releases the resource: the descriptor is closed, the temporary removed, the watch stopped, the thread detached. The atomic primitives (`Mutex`, `RwLock`, `Channel`, the `Atomic*` types and the rest of `std/sync`) are still shared reference types until a later step.
+The resources in `std/` are move-only values: `File`, `TempDir`, `TempFile`, `Watcher`, `TcpStream`, `TcpListener`, `UdpSocket`, `UnixStream`, `UnixListener`, `TlsStream`, `HttpClient`, `Child` and its pipe handles (`ChildStdin`, `ChildStdout`, `ChildStderr`), `Thread`, and a `BufReader`/`BufWriter` that owns one of them ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), V3). Each is a struct whose state lives in a `Box`, so the handle can move while a future or the runtime holds the state's address. Dropping the handle releases the resource: the descriptor is closed, the temporary removed, the watch stopped, the thread detached. The `std/sync` primitives (`Mutex`, `RawMutex`, `RwLock`, `Cond`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`, `OnceCell` and the `Atomic*` types) are move-only values the same way, shared across threads as `Arc(Mutex(T))`; `Channel(T)` is a value holding an `Arc` of its queue, and `ch.clone()` is another handle on it.
 
 - **A copy is E0901.** `g := f` moves the file, and a use of `f` afterwards is E0901 (use of moved value). Storing one handle twice, or capturing it in two closures, is E0901 as well. Before this change a `File` was a reference handle, and a copy shared its descriptor and position.
 - **Lend it.** Every method takes `self : &Self`, so `f.read_to_string(io)` borrows `f`. A function that only uses a resource takes `&File`.

@@ -1,0 +1,21 @@
+// expect: accept
+// Positive control: a `&` capture-list entry beside another `&` of the same list.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+peek :: (fn(w : &W, act : &mut Impl(FnMut() -> unit)) -> unit)({
+  act();
+  println(`OUT: ${w.s.clone()}`);
+});
+main :: (fn() -> unit)({
+  mut(ws) := ArrayList(W).new();
+  ws.push(W(s : String.from("hello, a string long enough to live on the heap")));
+  peek(
+    &ws(usize(0)),
+    &mut ({ &ws }() => {
+      println(`LEN: ${ws.len()}`);
+    })
+  );
+});
+export(main);

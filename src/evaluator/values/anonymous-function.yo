@@ -56,7 +56,6 @@ pragma(Pragma.AllowUnsafe);
   expr_info_capture_type,
   expr_info_set_capture_type,
   expr_info_deferred_dup_expressions,
-  mark_call_once_capture_dup,
   expr_info_set_deferred_dup_expressions,
   CaptureFieldInit,
   expr_info_set_capture_field_inits,
@@ -999,11 +998,7 @@ _evaluate_capture_list :: (
     raw_entries : &ArrayList(AstExpr),
     env : &Environment,
     ctx : &mut EvalContext,
-    exn : Exception,
-    /// The closure is typed `FnOnce(...)`: its capture struct dies at the
-    /// call, so every by-value entry's dup is marked uncancellable
-    /// (`mark_call_once_capture_dup`).
-    call_once : bool
+    exn : Exception
   ) -> ArrayList(_CapListEntry)
 )({
   out := ArrayList(_CapListEntry).new();
@@ -1331,24 +1326,6 @@ _evaluate_capture_list :: (
           fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(&init_e).value.*.clone()})`, exn);
           field_init = evaluate_expression_raw(&fd_dup, env, ctx, exn);
           ctx.expected_type = saved_fdexp;
-        });
-        if(call_once, {
-          mark_call_once_capture_dup(ast_expr_id(&field_init));
-          match(
-            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)),
-            .Some(co_ei) => match(
-              expr_info_deferred_dup_expressions(&co_ei),
-              .Some(co_ds) => {
-                (co_i : usize) = usize(0);
-                while(co_i < co_ds.len(), {
-                  match(co_ds.get_cloned(co_i), .Some(co_d) => mark_call_once_capture_dup(ast_expr_id(&co_d)), .None => ());
-                  co_i = (co_i + usize(1));
-                });
-              },
-              .None => ()
-            ),
-            .None => ()
-          );
         });
       });
       out.push(
@@ -1886,7 +1863,7 @@ evaluate_anonymous_function_implementation :: (
       // (an awaited future, §3.13 A1). A borrow entry makes the future
       // second-class (§3.13 A2): the io.async call registers the body's
       // borrows on the future's type.
-      entries := _evaluate_capture_list(&cl_raw.*, env, ctx, exn, closure_owns_captures);
+      entries := _evaluate_capture_list(&cl_raw.*, env, ctx, exn);
       entries
     },
     .None => ArrayList(_CapListEntry).new()

@@ -227,23 +227,28 @@ Channel（`std/sync/channel.yo`）提供有界的多生产者多消费者线程�
 // 创建一个有界 Channel（容量为 10）
 ch := Channel(i32).new(usize(10));
 
-// 生产者线程
-Thread(unit).spawn(io => {
-  ch.send(i32(42));
+// 生产者线程：持有自己的队列句柄
+tx := ch.clone();
+producer := Thread(unit).spawn({ tx }(io : Io) => {
+  _ := tx.send(i32(42));
 });
 
 // 消费者线程
-Thread(unit).spawn(io => {
-  val := ch.recv();
+rx := ch.clone();
+consumer := Thread(unit).spawn({ rx }(io : Io) => {
+  val := rx.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
     true => ()
   );
 });
+producer.join();
+consumer.join();
 ```
 
-当 `T` 是 `Send` 时，`Channel(T)` 是 `Send` 且 `Sync` 的（它建立在原子计数单元之上），因此可以直接跨线程共享，
-不再需要额外的 `Arc.new()` 包装。
+`Channel(T)` 是持有队列 `Arc` 的值，当 `T` 是 `Send` 时它是 `Send` 且 `Sync` 的。`ch.clone()` 是同一个
+队列上的另一个句柄（不需要额外的 `Arc.new()` 包装），队列随最后一个句柄释放。隐式复制（`ch2 := ch`
+之后仍使用 `ch`）是 E0901：为每个需要它的线程克隆一次，并按值捕获这个克隆。
 
 Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 阻塞；当 Channel 空时 recv 阻塞。
 
@@ -277,23 +282,28 @@ rx.recv(); // .Err(TryRecvError.Disconnected)
   持有两个句柄——所以提前丢弃 sender **并不会**关闭 Channel。只要流的结束时机重要，就优先使用
   `receiver()` + `sender()`。
 
-对于位于其他线程的生产者，请在线程内部创建该线程自己的 `Sender`，并在父线程中保留一个，
-直到工作线程都已启动：
+`Sender` 是持有自己 `Channel` 句柄的值：`tx.clone()` 挂上一个被计数的生产者，丢弃一个就摘下一个，
+隐式复制是 E0901（它会绕过计数）。`Receiver` 没有 `Clone`，复制它也是 E0901，因此唯一的消费者始终
+只有一个。对于位于其他线程的生产者，请把一个属于该线程的 `Sender` 移入它的闭包：
 
 ```yo
 rx := Channel(i32).receiver(usize(16));
 {
-  keeper := rx.sender(); // 保证计数不会归零
-  w := Thread(unit).spawn(io => {
-    tx := rx.sender(); // 本线程的生产者
-    tx.send(i32(7));
-  }); // 线程体结束时 tx 被丢弃
-  w.join();
-}; // keeper 被丢弃 -> Channel 关闭
+  tx := rx.sender();
+  tx2 := tx.clone(); // 第二个被计数的生产者
+  w1 := Thread(unit).spawn({ tx }(io : Io) => {
+    _ := tx.send(i32(7));
+  });
+  w2 := Thread(unit).spawn({ tx2 }(io : Io) => {
+    _ := tx2.send(i32(8));
+  });
+  w1.join();
+  w2.join();
+}; // 两个 sender 都随各自的线程被丢弃 -> Channel 关闭
 ```
 
-把 `Sender` **移入** `Thread(T).spawn` 闭包会正常关闭 Channel：线程体返回时，spawn 包装函数会
-释放该线程的捕获结构体，因此该 sender 的丢弃逻辑会执行
+**移入** `Thread(T).spawn` 闭包的 `Sender` 若是最后一个，就会关闭 Channel：线程体返回时，spawn
+包装函数会释放该线程的捕获结构体，因此该 sender 的丢弃逻辑会执行
 （issues/fixed/spawn-closure-captures-never-dropped-leak.md；捕获本身又是闭包的情况见
 issues/fixed/a-closure-typed-slot-never-releases-its-captures.md）。异步任务
 （`std/async/channel`，在单个事件循环上提供同样的 `receiver()`/`sender()`/`pair()` API）以同样的
@@ -303,7 +313,7 @@ issues/fixed/a-closure-typed-slot-never-releases-its-captures.md）。异步任�
 
 只有实现了 `Send` 的类型才能被移动到另一个线程，只有实现了 `Sync` 的类型才能在线程之间共享（`Arc` 的载荷、模块级全局变量）；见 `THREAD_SAFETY.md` 的“Send 与 Sync 特质”：
 
-- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、`String`、`T` 为 Send 时的 `ArrayList(T)` 与 `HashSet(T)`、`K` 与 `V` 为 Send 时的 `HashMap(K, V)`（各自唯一地拥有自己的缓冲区）、字段全部为 Sync 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Box(Dyn(Trait, Send))`（具体类型在 `dyn(...)` 处检查；在 v0.2.77 中，拥有型载荷仍使用原子引用计数），以及捕获值全部为 Send、且代码不触及任何非 Send 模块级全局变量的函数值（具名函数或闭包）—— 在编译器能看到该值的地方按值判断：派生闭包体、`Impl(Fn(...), Send)` 或 `Impl(FnOnce(...), Send)` 参数、泛型 `where(T <: Send)` 参数、被捕获的变量
+- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、`String`、`T` 为 Send 时的 `ArrayList(T)` 与 `HashSet(T)`、`K` 与 `V` 为 Send 时的 `HashMap(K, V)`（各自唯一地拥有自己的缓冲区）、`Arc(T)`（其载荷是 `Send` 且 `Sync` 的）、`std/sync` 的类型（`T` 为 Send 时的 `Mutex(T)` 与 `Channel(T)`、`Atomic*` 包装器以及其他锁）、`Box(Dyn(Trait, Send))`（具体类型在 `dyn(...)` 处检查；在 v0.2.77 中，拥有型载荷仍使用原子引用计数），以及捕获值全部为 Send、且代码不触及任何非 Send 模块级全局变量的函数值（具名函数或闭包）—— 在编译器能看到该值的地方按值判断：派生闭包体、`Impl(Fn(...), Send)` 或 `Impl(FnOnce(...), Send)` 参数、泛型 `where(T <: Send)` 参数、被捕获的变量
 - **不可发送**：`Rc(T)`（非原子引用计数）以及持有它的值、未选择加入的裸指针及持有裸指针的类型、约束中不含 `Send` 的 `Box(Dyn(Trait))`、`Io`、`JoinHandle`、借用其捕获的闭包，捕获了上述任一值或触及非 Send 全局变量的函数值，以及在该处不知道其值的裸 `fn(...)` 类型（结构体字段、`Channel(fn() -> unit)` 的载荷）—— 见 `THREAD_SAFETY.md` 的“跨线程的函数与闭包”
 
 `Rc` 对象图只属于它所在的线程（Rust 的规则）。`String`，以及元素为 `Send` 的集合，本身是 `Send` 的：按值移动到另一个线程；多个线程都要读取的数据则通过 `Arc` 共享。
@@ -379,7 +389,7 @@ thread.join();
 
 // 线程池任务
 pool := ThreadPool.new(usize(4));
-spawn(pool, (io : Io) => { /* 工作 */ });
+spawn(&pool, (io : Io) => { /* 工作 */ });
 pool.join_all();
 
 // 通信

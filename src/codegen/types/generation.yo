@@ -1135,7 +1135,7 @@ static inline void* __yo_rc_owner_vtable(void* p) {
 ${alloc_in_fn}`
   );
   // Whether the program runs on `--allocator debug` (allocator-debug.yo), as
-  // the program can read it (extern "Yo"): tests/debug-allocator.test.yo
+  // the program can read it (extern "Yo"): std/allocator.test.yo
   // checks the allocator's aborts only when they are armed.
   context.emitter.emit_declaration_line(
     cond(
@@ -1143,9 +1143,37 @@ ${alloc_in_fn}`
       true => "static inline bool __yo_debug_alloc_on(void) { return false; }"
     )
   );
-  // Generic Future + I/O Future struct types.
+  // Generic Future + I/O Future struct types, under the ABI comment block
+  // (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §3).
   context.emitter.emit_declaration_string_line(
     `
+// ============================================================================
+// THE ABI BETWEEN GENERATED STATE MACHINES AND AN EXECUTOR
+// (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §3)
+// ============================================================================
+// The stable contract between the state machines this compiler emits and
+// any executor, native or Yo-written. A change to anything below is a codegen
+// PR that updates §3 and the async suite in the same PR; std never reads
+// these offsets.
+//   * Future prefix: __YO_FUTURE_PREFIX = { header, state, vt,
+//     continuation_fn, continuation_sm }; the _Static_asserts below pin the
+//     four offsets every future kind shares.
+//   * Per-type future vtable: __yo_future_vtable_t = { resume, set_effect,
+//     cancel_pending, bundle_offset, bundle_size }, one static table per type.
+//   * Continuation protocol: an awaiter reads state, cold-starts a 0 and
+//     writes itself into the single continuation slot. Completion sets -1,
+//     schedules the continuation on its thread's queue and releases one
+//     reference. -2 is aborted, with cancel_pending(pre_state).
+//   * Bundle injection: __yo_future_set_bundle, at io.await(f, e) and
+//     io.spawn(f, e).
+//   * Waker token: __yo_waker_token_t and its ownership counter (the
+//     cross-thread inbox of __yo_loop_t).
+//   * IoFuture: __yo_io_future_t = the prefix plus int32_t result, cancel_fn
+//     and backend_link.
+//   * Executor entries: IoVTable.spawn, run_until, now, sleep and park
+//     (__yo_io_spawn_task, __yo_io_run_until, __yo_io_now_ns,
+//     __yo_async_sleep_start, __yo_async_park_start in the native Io).
+
 // The prefix EVERY future starts with: a state machine, a no-await
 // sync future, an I/O future, the erased \`Impl(Future)\` interface. The
 // runtime (JoinHandle, abort, waiter registration) reads only this, so it

@@ -52,12 +52,16 @@ places it on the global allocator (see [Placing the cell](#placing-the-cell)).
   captures and what its code reaches must be `Send` and `Sync` (rules D4 and D9,
   `THREAD_SAFETY.md`).
 
-Many standard-library types need no extra `Arc(...)` wrapper. For example, the
-`std/sync` primitives are built over an atomically counted cell and are `Send`
-and `Sync`, so they are directly shareable.
+The `std/sync` primitives are values, not handles, as in Rust: `Mutex(T)`,
+`RwLock(T)`, the `Atomic*` types and the other locks keep their state in a
+private `Box`, so a copy is E0901 and threads share one through an `Arc`. Create
+it with `Arc.new(...)` and give each sharer its own `Arc.clone(...)`.
+`Channel(T)` is the exception: it already holds an `Arc` of its queue, and
+`ch.clone()` is another handle on it.
 
 If you need shared mutable state, put it behind one of those primitives and
-share that: `Arc(Mutex(State))`, an `RwLock`, or an atomic.
+share that: `Arc(Mutex(State))`, an `Arc(RwLock(State))`, or an `Arc` of an
+atomic.
 
 ## Basic usage
 
@@ -167,7 +171,8 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 
 ## Semantics
 
-- **Atomic RC**: `Arc` uses atomic increment/decrement operations.
+- **Atomic RC**: `Arc` uses atomic increment/decrement operations, and `ref_count(a)` reads the
+  count with an atomic load ([DESIGN.md](./DESIGN.md#reading-the-count)).
 - **Shared ownership**: `Arc.clone(a)` shares the underlying allocation; an implicit copy of a
   handle whose source is used again is E0901.
 - **Borrowed deref**: `.*` gives borrowed access to the wrapped value.
