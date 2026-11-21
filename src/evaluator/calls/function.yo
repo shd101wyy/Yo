@@ -4094,14 +4094,13 @@ _names_list_contains :: (fn(names : &ArrayList(String), n : &String) -> bool)({
 /// `Future(T, E, p)` (decision 43 step 4, N3-1): the io.async result `t`
 /// (its per-call wrapper SomeT) with its `FutureTraitT`'s origin set to the
 /// places `names`; the wrapper keeps its id, so the registry still finds it.
-/// Stamp `names` on the future `t`'s origin. The names it already spells
-/// STAY: a stamp adds places, it never drops them. A combinator's future
-/// carries what its operands borrow, spelled through the operand parameters
-/// (§3.13 A4), beside the parameters its callee's return rule recorded
-/// (R-CALL, decision 43 step 4) — both are facts about one future, and
-/// dropping either would hide the operand's places from every reader of the
-/// origin (decision 38 B's overlap check `_check_future_operand_lends`, the
-/// binding freeze, the spawn rejection).
+/// The names the origin already spells STAY: a stamp adds places, it never
+/// drops them. A combinator's future carries what its operands borrow,
+/// spelled through the operand parameters (§3.13 A4), beside the parameters
+/// its callee's return rule recorded (R-CALL, decision 43 step 4) — both are
+/// facts about one future, and dropping either would hide the operand's
+/// places from every reader of the origin (decision 38 B's overlap check
+/// `_check_future_operand_lends`, the binding freeze, the spawn rejection).
 _stamp_future_origin :: (fn(t : &TypeValue, names : &ArrayList(String)) -> TypeValue)({
   if(names.len() == usize(0), {
     return(Rc.clone(t));
