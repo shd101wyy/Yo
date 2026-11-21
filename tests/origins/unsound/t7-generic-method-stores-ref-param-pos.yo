@@ -1,0 +1,17 @@
+// expect: accept
+// The positive twin of t7-generic-method-stores-ref-param: both parameters spell one origin `p`, so the store is
+// within the slot's origin and the caller's `&x2` is checked against `slot`'s.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+f :: (fn(generic(p : Origin), s : &mut Option(&(Rc(X), p)), v : &(Rc(X), p)) -> unit)({
+  _old := s.replace(v);
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  x2 := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  mut(slot) := Option(&Rc(X)).Some(&x);
+  f(&mut slot, &x2);
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

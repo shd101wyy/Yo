@@ -1,0 +1,20 @@
+// expect: E0923
+// `Option.replace` on a `&mut` PARAMETER over `p` stores a reference over another origin `q`: the direct store
+// `s.* = .Some(v)` is E0923, and the method's write-back into the parameter is the same store. The caller fixes
+// `p := x` from `slot` and leaves `q` free, so `&y` passes and `slot` holds it past `y`'s block.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+f :: (fn(generic(p : Origin, q : Origin), s : &mut Option(&(Rc(X), p)), v : &(Rc(X), q)) -> unit)({
+  _old := s.replace(v);
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(slot) := Option(&(Rc(X), x)).Some(&x);
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    f(&mut slot, &y);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

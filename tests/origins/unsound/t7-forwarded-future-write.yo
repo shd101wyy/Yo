@@ -1,0 +1,25 @@
+// expect: E0911
+// A write to `w` while the forwarded future is live (the future reads the old `w.s` after the resume).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+W :: struct(s : String);
+impl(
+  W,
+  show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
+    io.async({ self : &self.* }(io : Io) => {
+      io.await(yield(io), io);
+      println(`OUT: ${self.*.s}`);
+    })
+  )
+);
+fwd :: (fn(w : &W, io : Io) -> Impl(Future(unit, Io)))(w.show(io));
+eat :: (fn(w : W) -> unit)(());
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+main :: (fn(io : Io) -> unit)({
+  mut(w) := W(s : String.from(LONG));
+  f := fwd(&w, io);
+  w = W(s : String.from("b"));
+  io.await(f, io);
+});
+export(main);
