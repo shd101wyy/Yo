@@ -1869,11 +1869,12 @@ machinery.
 - **The RC runtime survives** for `Rc`/`Arc` cells, for the cycle collector
   (`Rc` only), for the compiler's trees, and for the futures' own counts
   until A1.
-- **The doc** is replaced, not rescoped (2026-10-13): its successor is drafted
-  in [`backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md),
-  kept current as each phase lands, and promoted to
-  `docs/en-US/OWNERSHIP_AND_BORROWING.md` and `docs/zh-CN/` at V5, when the
-  old page is deleted. The same edits reach
+- **The doc** is replaced, not rescoped (2026-10-13). Amended 2026-11-21
+  (VERDICTS-70 Q5): the old page is deleted with the pair optimizer in v0.2.80,
+  and its successor, decoupled from that deletion, was promoted in v0.2.80 to
+  [`docs/en-US/OWNERSHIP_AND_BORROWING.md`](../docs/en-US/OWNERSHIP_AND_BORROWING.md)
+  and `docs/zh-CN/`, without the draft's §15 on compile-time reference
+  counting; the draft was deleted. The same edits reach
   `README.md`, `docs/zh-CN/README.md` and the debugging and c-codegen
   instruction files.
 

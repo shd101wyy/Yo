@@ -777,7 +777,7 @@ show(&s); // s 仍可使用
 take(s); // 被移动
 ```
 
-`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [FLOWABILITY.md](./FLOWABILITY.md)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`，对所有代码生效，包括 std；临时值、字面量、闭包和运算符操作数不需要标记。早于这些标记的旧代码（裸的具名位置或作为取址的 `&x`）请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
+`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#局部借用)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`，对所有代码生效，包括 std；临时值、字面量、闭包和运算符操作数不需要标记。
 
 ### 命名参数
 
@@ -1484,6 +1484,8 @@ sz_tree :: size_of(Tree); // == size_of(*u8)   —— NULL 即 Empty
 
 面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`&mut T` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`、`unwrap` 禁令，以及整数算术规则（溢出、除以零和越界移位都会中止程序）。
 
+所有权、移动与拷贝、`&T`/`&mut T` 引用及其来源，以及编译器检查的借用规则，见 [OWNERSHIP_AND_BORROWING.md](OWNERSHIP_AND_BORROWING.md)。
+
 Yo 的安全模型是分层的（设计计划见 [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)）：
 
 - **`Rc(T)`** 是引用计数的单元，在最后一个句柄处自动释放（环会泄漏，除非用 `Weak` 打破），从构造上保证内存安全。
@@ -1637,8 +1639,8 @@ Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后�
   `s(a..b)` 是静态字节上的零拷贝窗口，永远不会悬空。
 - **元素访问只交出值，从不交出内部指针** —— `xs.get(i)` 返回元素
   （`Copy` 类型返回拷贝，用 `xs(i) = v` 写回；其余用
-  `xs.get_cloned(i)`，`Rc` 元素得到第二个句柄，容器增长后依然有效），受流动性
-  规则约束（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+  `xs.get_cloned(i)`，`Rc` 元素得到第二个句柄，容器增长后依然有效），见
+  [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#元素访问与迭代)。
 
 ### 使用 `..` 的区间
 
@@ -1923,7 +1925,7 @@ while(i < usize(3), {
 
 组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
-借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：写 `x.* = …` 即写入该元素。借用符号写在来源上，元素的模式随之而定。对映射，`for(&mut m, (k, v) => body)` 借出每个值（键为只读）。循环是基于 `(&mut coll).into_iter()` 的值形式：`impl(&mut C, IntoIterator)` 返回的游标在整个循环期间持有对集合的借出（`plans/VALUES_BY_DEFAULT.md` 决策 39，`plans/backlog/REFERENCES_AND_ORIGINS.md` 的 R-FOR），因此循环体只能通过 `x` 触及集合：在循环体中提到集合本身是 E0911。只读遍历 `for(&coll, x => body)`（映射为 `for(&m, (k, v) => body)`）同样作用于 `(&coll).into_iter()`，并把每个元素绑定为只读的 `&` 引用：不复制任何东西，经由 `x` 写入是 E0908，循环体可以读取集合但不能写入它（E0911）。每个 std 集合都支持只读遍历；`HashSet` 与 `PriorityQueue` 没有原地遍历，`String` 两者都没有（请遍历 `s.chars()`）。若要在遍历列表时读取或扩充它，请遍历它的位置：`for(xs.indices(), i => …)` 配合 `xs(i)`。经由 `Rc` 触及的来源写成 `for(&xs.*, …)`（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：写 `x.* = …` 即写入该元素。借用符号写在来源上，元素的模式随之而定。对映射，`for(&mut m, (k, v) => body)` 借出每个值（键为只读）。循环是基于 `(&mut coll).into_iter()` 的值形式：`impl(&mut C, IntoIterator)` 返回的游标在整个循环期间持有对集合的借出（`plans/VALUES_BY_DEFAULT.md` 决策 39，`plans/backlog/REFERENCES_AND_ORIGINS.md` 的 R-FOR），因此循环体只能通过 `x` 触及集合：在循环体中提到集合本身是 E0911。只读遍历 `for(&coll, x => body)`（映射为 `for(&m, (k, v) => body)`）同样作用于 `(&coll).into_iter()`，并把每个元素绑定为只读的 `&` 引用：不复制任何东西，经由 `x` 写入是 E0908，循环体可以读取集合但不能写入它（E0911）。每个 std 集合都支持只读遍历；`HashSet` 与 `PriorityQueue` 没有原地遍历，`String` 两者都没有（请遍历 `s.chars()`）。若要在遍历列表时读取或扩充它，请遍历它的位置：`for(xs.indices(), i => …)` 配合 `xs(i)`。经由 `Rc` 触及的来源写成 `for(&xs.*, …)`（见 [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#迭代)）。
 
 ```yo
 mut(xs) := ArrayList(i32).new();

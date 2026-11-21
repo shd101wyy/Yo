@@ -323,7 +323,7 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
   错误 E0009，并给出符号写法。`imm` 是普通标识符。
 - `own(x)` 是 `sink(x)` 更早的写法，同样是错误 E0009。旧代码请在
   最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
-- 语义见 [FLOWABILITY.md](./FLOWABILITY.md)。
+- 语义见 [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md)。
 
 在调用处，被借出的实参带有与参数匹配的标记：
 
