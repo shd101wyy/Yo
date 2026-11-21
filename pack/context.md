@@ -10,9 +10,8 @@ Yo; every example parses, and complete examples compile.
 ## What Yo is
 
 A statically-typed, expression-oriented language that compiles to C11 and
-lets the system C compiler finish the job. Memory is unique ownership with
-no collector: values move at their last use, references are checked at
-compile time as in Rust, and only `Rc`/`Arc` count. Async is single-threaded
+lets the system C compiler finish the job. Memory is compile-time RC with
+no collector — no borrow checker, no GC pauses. Async is single-threaded
 event-loop (C#-style); threads are a separate explicit runtime. Yo is
 designed for LLM authorship: regular syntax, no precedence table, no
 overloading, fast checker (`yo check`), errors that carry repairs.
@@ -248,33 +247,24 @@ read :: (fn(p : Path, io : Io) -> String)({
 
 ## Ownership and references
 
-Full guide: `yo context --doc OWNERSHIP_AND_BORROWING`.
-
-- Every value has one owner and is dropped when the owner goes away. A
-  binding is immutable unless declared `mut(x) := v` (writes, `&mut` lends
-  and `&mut self` calls need it, E0917).
-- The last use of a value moves it: `y := x`, a by-value argument, a store,
-  a capture, a return. A later use is E0901. `Copy` types (integers, `bool`,
-  `&T`, `derive(T, Copy, Clone)` types) copy bitwise; everything else is
-  copied explicitly with `x.clone()` (`String`, collections, `Box`) or not at
-  all (a `Drop` type, a type with neither `Copy` nor `Clone`).
-- A plain parameter `x : T` is BY VALUE (copy or move). `x : &T` borrows
-  read-only and `x : &mut T` exclusively, and the call site marks it:
-  `show(&s)`, `swap(&mut a, &mut b)` (a mismatch is E0914).
-- A reference is a value of type `&T`/`&mut T`: read or write the referent
-  with `r.*` (`n.* + 1`, `r.* = v`; a bare `n + 1` is E0926); `r.field`,
-  `r.method()` and `r(i)` auto-dereference. A local borrow is
-  `y := &place` / `y := &mut place`; while it is live its place is frozen
-  (E0911). References may be returned (`fn(xs : &T) -> &(U, xs)`), stored in
-  a struct whose type declares an origin
-  (`View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(T, p)))`),
-  a tuple or an `Option`; not in a collection element, a `Box`/`Rc` payload,
-  a module-level binding or another thread (E0909).
-- Sharing is explicit: `Rc(T)`/`Arc(T)`, copied with `Rc.clone(&r)`. The
-  payload is read-only through the handle (E0919): mutate through
-  `Rc(RefCell(T))` (`with_mut`) or `Arc(Mutex(T))` (`with_lock`). A cycle
-  leaks: put a `Weak(T)` on the back edge (`Rc.downgrade(&h)`).
-- Closures name their captures: `{ x, &y, &mut z }(args) => body`.
+- Values are reference-counted at compile time (dup/drop inserted by the
+  compiler). You do not write refcounts. A reference cycle leaks, as with
+  Rust's `Rc`: put a `Weak(T)` on the back edge (`Rc.downgrade(&h)`).
+- A plain parameter `x : T` takes its argument BY VALUE: a `Copy` value is
+  copied, a move-only or explicit-copy value is MOVED (using it afterwards
+  is a `use of moved value` error), and a still implicitly copyable kind
+  (`String`, a collection, `Rc`, a `ref` handle) is shared, so both handles
+  stay valid. A `sink(x)` parameter always moves. `.clone()` when you need
+  an independent copy.
+- `x : &T` borrows read-only and `x : &mut T` exclusively; the call
+  lends with a marker: `show(&s)`, `swap(&mut a, &mut b)`. A local borrow
+  is `y := &place` / `y := &mut place`. `&T` is a mode a slot spells, not
+  a type: `ArrayList(&T)`, `T :: &i32` and a field `f : &T` are errors. A
+  raw pointer is `addr_of(x)` (unsafe files), and `&x` to a by-value
+  parameter is an error naming `x` / `x.clone()`.
+- NO lifetimes/borrow types. Shared mutation goes through `&mut` parameters
+  or `ref` semantics types; a runtime exclusivity backstop guards
+  violations.
 - `_` is the discard pattern; `___` is a named discard usable once per
   scope. A name starting with `_` is MODULE-PRIVATE (compiler-enforced,
   E0405).
@@ -380,10 +370,9 @@ reach for it to parallelize I/O; that's the event loop's job.
   ending in `xs.push(v)` is `unit`, one ending in `xs.try_push(v)` is a
   `Result` — make a statement arm a block ending in `;`, and every arm the
   same type.
-- Loops over a collection: `for(xs, x => { ... })` by value;
-  `for(&xs, x => ...)` reads each element as `x.*`; `for(&mut xs, x => { x.* = ...; })`
-  writes each element in place (the body cannot name `xs`, E0911); maps:
-  `for(&mut m, (k, v) => ...)`.
+- Loops over a collection: `for(xs, (x) => { ... })` by value;
+  `for(&mut xs, x => { ... })` borrows each element in place (growing or
+  shrinking `xs` inside the body panics); maps: `for(&mut m, (k, v) => ...)`.
 - Only a `=>` closure captures enclosing locals: `(x) => (x + base)`. A
   `(fn(...) -> T)(body)` literal and a named fn capture nothing.
 - Recursive enums + `derive(Eq/Clone)` + `ArrayList` fields can form a
@@ -402,7 +391,7 @@ reach for it to parallelize I/O; that's the event loop's job.
   repairs.
 - The in-depth manuals ship with the toolchain, matching its version:
   `yo context --docs` lists them, `yo context --doc MEMORY_SAFETY` prints one
-  (GRAMMAR, DESIGN, OWNERSHIP_AND_BORROWING, ASYNC_AWAIT, MEMORY_SAFETY, EXPLICIT_ALLOCATORS,
+  (GRAMMAR, DESIGN, ASYNC_AWAIT, MEMORY_SAFETY, EXPLICIT_ALLOCATORS,
   ALGEBRAIC_EFFECTS, FORMAL_VERIFICATION, …). zh-CN translations live in the
   repository under `docs/zh-CN/`.
 - The LSP (`yo lsp`, VS Code extension) gives hover/completion/go-to-def in
