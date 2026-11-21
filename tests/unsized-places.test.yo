@@ -118,3 +118,36 @@ test("an unsized projection call result is read where the call may unwind", {
   assert(_up_row_name(&r).len() == usize(4), "a free &str projection");
   assert(_up_any_view(&r.a.*).len() == usize(3), "a generic projection at T = [i32]");
 });
+// ---------------------------------------------------------------------------
+// `static` becomes a checked origin (VERDICTS-74, 2026-11-21): a reference's
+// origin enters type identity as one bit (static or not), the empty origin is
+// spelled in any file, and only values that borrow no place flow into it.
+// ---------------------------------------------------------------------------
+_UpX :: struct(n : i32);
+_UpOptStatic :: Option(&(_UpX, static));
+_UpOptElided :: Option(&_UpX);
+test("Option(&(X, static)) and Option(&X) are two instances, static written first", {
+  comptime_assert(Type.impls(_UpOptStatic, Escapable), "Option of a static reference is Escapable");
+  comptime_assert(!Type.impls(_UpOptElided, Escapable), "Option of an elided-origin reference is not Escapable");
+});
+test("Option(&(X, static)) and Option(&X) are two instances, elided written first", {
+  comptime_assert(!Type.impls(_UpOptElided, Escapable), "Option of an elided-origin reference is not Escapable");
+  comptime_assert(Type.impls(_UpOptStatic, Escapable), "Option of a static reference is Escapable");
+});
+_UpStaticFn :: (fn(a : &(str, static), b : &(str, static)) -> &(str, static))(cond(true => a, true => b));
+_UpStaticHolder :: struct(name : &(str, static));
+test("a -> &(str, static) function over two literals", {
+  s := _UpStaticFn("hello", "world");
+  assert(s.len() == usize(5), "the static result reads");
+});
+test("a &(str, static) field and an ArrayList(&(str, static)) element", {
+  h := _UpStaticHolder(name : "abc");
+  mut(xs) := ArrayList(&(str, static)).new();
+  xs.push("def");
+  assert((h.name.len() == usize(3)) && (xs(usize(0)).len() == usize(3)), "static slots hold literals");
+});
+test("a static value passed to a &str parameter", {
+  takes :: (fn(s : &str) -> usize)(s.len());
+  (lit : &(str, static)) = "static";
+  assert(takes(lit) == usize(6), "a static value widens into every origin position");
+});
