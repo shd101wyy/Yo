@@ -1275,7 +1275,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`String` 字段：`holds a move-only value in its field \`name\``）。实现了 `Drop` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；是 `Clone` 但不是 `Copy` 的记录或闭包按字段克隆：`Copy` 的部分被复制，其余部分被克隆。闭包的组成部分就是它的捕获记录，与 Rust 相同：按值捕获按其自身类型计算（列出的 `{ s }`，以及隐式捕获——绑定到名字的闭包拥有它捕获的东西），`&` 捕获是指针，因此是 `Copy`，`&mut` 捕获使闭包既不是 `Copy` 也不是 `Clone`。所以拥有 `String` 的闭包是 `Clone` 而不是 `Copy`：`d := c` 会移动它，`c.clone()` 则得到持有自己 `String` 的第二个闭包。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
+这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`String` 字段：`holds a move-only value in its field \`name\``）。实现了 `Drop` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；是 `Clone` 但不是 `Copy` 的记录或闭包按字段克隆：`Copy` 的部分被复制，其余部分被克隆。闭包的组成部分就是它的捕获记录，与 Rust 相同：按值捕获按其自身类型计算（列出的 `{ s }`，以及隐式捕获——绑定到名字的闭包拥有它捕获的东西），`&` 捕获是指针，因此是 `Copy`，`&mut` 捕获使闭包既不是 `Copy` 也不是 `Clone`。所以拥有 `String` 的闭包是 `Clone` 而不是 `Copy`：`d := c` 会移动它，`c.clone()` 则得到持有自己 `String` 的第二个闭包。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值：`p.m(...)` 总是指针自身的成员，被指向值的成员写作 `p.*.m(...)`。
 
 `Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。`&T` 参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请按值接受参数（`p : Point`，不写 `&`）。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
 
@@ -3353,11 +3353,11 @@ assert(sum(&t) == 3);
 ```
 
 - **`Box.new(v)`** 把 `v` 移入一个新单元。`b.*` 是载荷的位置，在安全代码中同样可用：
-  `b.* = v` 替换载荷，`b.field` / `b.method()` 通过自动解引用访问载荷。模式用 `Box(p)`
+  `b.* = v` 替换载荷，`b.*.field` / `b.*.method()` 访问载荷的成员。模式用 `Box(p)`
   穿过 `Box` 的载荷进行匹配，与用 `Rc(p)` 穿过 `Rc` 相同；目前不写 `Box(…)` 也会穿透。
 - **显式复制。** `Box` 永远不是 `Copy`。当 `c := b` 是 `b` 的最后一次使用时，它移动
-  `b`；其他任何复制都是 E0901。`Box.clone(b)` 是深拷贝：一个持有载荷克隆的新单元
-  （`b.clone()` 是 E0616，因为载荷可能有自己的 `clone`）。`T` 实现 `Clone` 时
+  `b`；其他任何复制都是 E0901。`Box.clone(b)` 是深拷贝：一个持有载荷克隆的新单元，
+  `b.clone()` 是同一个调用（`b.*.clone()` 是载荷自身的 `clone`）。`T` 实现 `Clone` 时
   `Box(T)` 才实现 `Clone`，所以装着仅可移动值的 `Box` 也是仅可移动的。
 - **一次释放。** 丢弃 `Box` 时会丢弃其载荷并释放单元。`ref_count(b)` 是编译错误：
   它没有计数。
@@ -3396,8 +3396,8 @@ Yo 提供了 `Rc`（用 `Rc.new` 构造）用于将值类型堆分配并自动�
 > 使用 `a`）；源值之后仍被使用的隐式拷贝是 E0901，其提示写出 `Rc.clone(a)`。
 > `&Rc(T)` 形参借用句柄而不拷贝。持有句柄的值（结构体字段、`Option(Rc(T))`）
 > 用 `.clone()` 拷贝，它会克隆每个句柄；闭包在捕获列表里取得第二个句柄：
-> `{ a : Rc.clone(a) }() => a.*`。克隆通过类型来写（`Rc.clone(a)`），因为 `a.clone()` 可能指
-> 负载自己的 `clone`（决定 32）。`Rc(T)` 和 `Arc(T)` 对任何 `T` 都实现 `Clone`，
+> `{ a : Rc.clone(a) }() => a.*`。`a.clone()` 是句柄自身的 `clone`，与 `Rc.clone(a)`
+> 是同一个调用；载荷的 `clone` 写作 `a.*.clone()`。`Rc(T)` 和 `Arc(T)` 对任何 `T` 都实现 `Clone`，
 > 克隆总是第二个句柄；深拷贝写作 `Rc.new(h.*.clone())`。泛型函数体按每个实例化检查，所以当 `T` 是
 > 句柄时，在那里拷贝 `T` 同样要写 `.clone()`（`where(T <: Clone)`）。std 的泛型
 > 读取方法也同样检查：`ArrayList(Rc(T)).get(i)`、`HashMap.get` 通过 `T` 拷贝元素，
@@ -3447,7 +3447,7 @@ Rc.make_mut(&mut m) = i32(20); // 原地写入：m 是唯一的句柄
 assert(m.* == 20);
 ```
 
-### 自动解引用
+### 解引用
 
 prelude 中的 `Deref` trait 给出 `w.*` 所代表的位置，`DerefMut` 是它的写入半边：
 
@@ -3460,45 +3460,70 @@ DerefMut :: trait(Target : Type, deref_mut : (fn(self : &mut Self) -> &mut Self.
 `&mut` 借出、`self : &mut Self` 接收者以及 `addr_of` 调用 `deref_mut`。只有
 `Deref` 而没有 `DerefMut` 的类型，其 `.*` 是只读的；两个实现共用同一个 `Target`。
 
+`x.*` 是唯一的解引用：引用的被引用值、裸指针的被指向值、句柄的载荷、所有者的
+`deref` 视图。`Deref` 和 `DerefMut` 只定义 `.*`，不定义别的。`x.name` 是 `x`
+自身类型的成员，可以穿过任意多层 `&` 与 `&mut` 读取：引用没有自己的成员，因此
+`r : &T` 上的 `r.x`、`r.m()` 和 `r(i)` 访问的是 `T` 的成员。
+
 `Box`、`Rc` 和 `Arc` 是**句柄**：`w.*` 是其指针所指的载荷，由编译器直接读取，
 它们的 `deref` 是 `&self.*.*`。`Rc` 和 `Arc` 没有 `DerefMut`，因为通过句柄
-访问的载荷是只读的。对 `Deref` 类型，包装器自身没有的字段或方法会到载荷上查找：
-`w.field` 即 `w.*.field`，`w.method()` 即 `w.*.method()`。
+访问的载荷是只读的。载荷的成员每穿过一层写一个星号：
 
 ```yo
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
 p := Rc.new(Point(x : 3, y : 4));
-assert(p.x == 3); // p.*.x
-assert(p.norm1() == 7); // p.*.norm1()
+assert(p.*.x == 3);
+assert(p.*.norm1() == 7);
 pp := Rc.new(Rc.new(Point(x : 1, y : 2)));
-assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
+assert(pp.*.*.y == 2); // 每个句柄一个星号
 mut(b) := Box.new(Point(x : 3, y : 4));
-b.x = 5; // 是一个位置：写入 b.*.x —— 只有 Box 有 DerefMut
-assert(b.norm1() == 9);
+b.*.x = 5; // 是一个位置：只有 Box 有 DerefMut
+assert(b.*.norm1() == 9);
 ```
 
-- **两者都有的名字是错误（E0616）。** `Point` 派生了 `Clone`，`Rc` 也实现了
-  `Clone`，因此 `p.clone()` 两种含义都有可能。用 `Rc.clone(p)` 调用 `Rc`
-  自己的 `clone`（得到一个新的 `Rc`），用 `p.*.clone()` 调用载荷的（得到一个
-  `Point`）；`yo fix` 会把调用改写为 `Rc.clone(p)`。只有一方拥有的名字无需
-  选择，`p.*` 永远就是载荷本身。泛型函数体中的调用，例如
-  `where(T <: Clone)` 下的 `x.clone()`，即使 `T` 是 `Rc` 也是约束提供的方法。
-- **位置。** 在 `Box` 上，转发得到的字段是一个位置：`b.x = v` 以及
-  `&mut self` 调用（如 `b.items.push(v)`）都写入载荷。通过 `Rc` 的同样写法
+- **只用 `.` 读取载荷的成员是错误 E0623。** 其帮助信息写出完整的链
+  （`pp.*.*.y`、`x.*.*.value`），`yo fix` 会插入这些星号：
+
+  ```yo expect=E0623
+  Point :: struct(x : i32, y : i32);
+  impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
+  main :: (fn() -> unit)({
+    p := Rc.new(Point(x : 3, y : 4));
+    n := p.norm1();
+  });
+  export(main);
+  ```
+
+  ```text
+  error[E0623]: `p` has type `Rc(Point)`, which has no member "norm1"; its payload `Point` has one. `.` does not read through a handle.
+  help: write `p.*.norm1(...)`: `p.*` names the payload (`yo fix` applies this)
+  ```
+
+  当链上没有任何类型拥有这个名字时，错误信息会说明这一点：
+  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
+  field "z" either.``（E0406；方法则为 E0610）。
+- **`w.clone()` 是句柄自身的 `clone`**，在泛型函数体内外都一样：对 `Rc` 和
+  `Arc` 得到第二个句柄，对 `Box` 得到一个新单元。`Rc.clone(w)` 是同一个调用，
+  `w.*.clone()` 调用载荷的 `clone`。
+- **被调用位置。** `h.*.items(i)` 对载荷的 `items` 进行索引，`h.*.f(x)` 调用
+  载荷中保存函数的字段。
+- **指向句柄的引用要写两个星号。** `x : &Box(Node)`，例如 `for(&xs, x => …)`
+  的元素或 `match(&self.next, .Some(b) => …)` 的绑定，以 `x.*.*.value` 访问
+  载荷：第一个星号属于引用，第二个属于句柄。惯用写法是 `Box(n)` 模式
+  （`.Some(Box(n)) => n.total()`）和 `x.as_ref().value`。
+- **裸指针。** 在不安全代码中，`q.*.x` 读取 `q : *P` 所指值的字段；`q.add(1)`
+  是指针自身的方法。
+- **位置。** 在 `Box` 上，载荷的成员是一个位置：`b.*.x = v` 以及
+  `&mut self` 调用（如 `b.*.items.push(v)`）都写入载荷。通过 `Rc` 的同样写法
   是 E0919（见下文）：`Rc` 没有 `DerefMut`，其载荷通过句柄只读。在没有
   `pragma(Pragma.AllowUnsafe)` 的文件中，通过 `Arc` 写入同样会被拒绝
-  （`a.n = v`，或 `self : &mut Self` 的 `a.bump()`）：请通过 `Mutex` 或原子
+  （`a.*.n = v`，或 `self : &mut Self` 的 `a.*.bump()`）：请通过 `Mutex` 或原子
   类型修改 `Arc` 的载荷。
 - **在 prelude 之外，`Deref` 需要非定长的 `Target`。** prelude 之外的 `Deref`
   或 `DerefMut` 实现，只有当 `Target` 是 `[T]`、`str`、`Dyn(...)` 或尾部非定长的
   结构体时才被接受。定长的 `Target` 和开放的类型变量是错误 E0622：包装定长
   载荷的类型应通过自己的字段和方法暴露它。
-- 当包装器和载荷都没有这个名字时，错误信息会说明这一点：
-  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
-  field "z" either.``（E0406；方法则为 E0610）。
-- **被调用位置。** `p.items(i)` 对载荷的 `items` 进行索引，`p.f(x)` 调用载荷中
-  保存函数的字段。包装器的方法与载荷的同名字段同样是 E0616。
 - **把整个载荷当作引用：`as_ref`。** `Rc`、`Box` 和 `Arc` 都有
   `as_ref : (fn(self : &Self) -> &T)`（沿用 Rust 的名字）：在需要 `&T` 的地方
   （例如传给 `&T` 参数，`takes_point(p.as_ref())`），`h.as_ref()` 把载荷借出；
@@ -3519,9 +3544,9 @@ main :: (fn() -> unit)({
   mut(r) := Ring(items : Array(i32, 3)(1, 2, 3));
   v := &r.*; // r.deref()：以 r 为根的视图
   assert(count(v) == usize(3));
-  assert(r.len() == usize(30)); // 所有者自己的 len
+  assert(r.len() == usize(30)); // Ring 的 len
   assert(r.*.len() == usize(3)); // 视图的 len
-  assert(!r.is_empty()); // 只有视图有它：r.*.is_empty()
+  assert(!r.*.is_empty()); // 只有视图拥有的成员
   w := &mut r.*; // r.deref_mut()：w 存活期间独占
   assert(count(w) == usize(3));
 });
@@ -3531,12 +3556,12 @@ export(main);
 - `&w.*` 即 `w.deref()`，`&mut w.*` 即 `w.deref_mut()`，其他位置的 `w.*` 是该
   调用的位置。视图借用所有者，因此视图存活期间，所有者不能被写入、移动或以
   `&mut` 借出（E0911）。
-- **所有者自己的成员优先。** 只有视图拥有的成员通过 `.*` 访问；所有者拥有的
-  成员属于所有者，因此上例中 `r.len()` 是 `Ring` 的，`r.*.len()` 是视图的。
-  决策 32 的 E0616 是句柄的规则。因此，给所有者新增成员会让原先访问视图同名
-  成员的调用改为解析到所有者。
+- 上例中 `r.len()` 是 `Ring` 的，`r.*.len()` 是视图的。`r.is_empty()` 是
+  E0623：只有视图有 `is_empty`，而 `r.*` 指称视图。
 - **其他地方都不解引用。** `&Ring` 不能填入 `&[i32]` 形参：`count(&r)` 是
-  E0601，其帮助信息给出 `count(&r.*)`。运算符的操作数也从不解引用。
+  E0601，其帮助信息给出 `count(&r.*)`。运算符的操作数也从不解引用（`h.* + 1`）。
+  索引和迭代同样不解引用：`h : Rc(ArrayList(T))` 上的 `h(i)` 是 E0606，其帮助
+  信息给出 `h.*(i)`；`for(&h, …)` 是 E0623，其帮助信息给出 `for(&h.*, …)`。
 
 ### Rc 与赋值
 
@@ -3571,7 +3596,7 @@ test("Rc reference counting", {
 
 ### 修改共享载荷：`RefCell`、`Rc.get_mut`、`Rc.make_mut`、`Rc.try_unwrap`
 
-`Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同（[值默认计划的决策 46](../../plans/VALUES_BY_DEFAULT.md)）。通过 `Rc` 的写入（`h.n = v`、`h.* = v`、`bump(&mut h.n)`、`h.items.push(v)`）是错误 E0919，错误信息会列出下面这些入口（`yo explain E0919`）：
+`Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同（[值默认计划的决策 46](../../plans/VALUES_BY_DEFAULT.md)）。通过 `Rc` 的写入（`h.*.n = v`、`h.* = v`、`bump(&mut h.*.n)`、`h.*.items.push(v)`）是错误 E0919，错误信息会列出下面这些入口（`yo explain E0919`）：
 
 - **`RefCell(T)`**（`std/sync/refcell`）是共享修改的载荷：`Rc(RefCell(T))`。访问限定在闭包内，与 `Mutex(T)` 相同：`with(v => ...)` 借出 `v : &T`，`with_mut(v => ...)` 借出 `v : &mut T`，二者都返回闭包的结果。Rust 的按值移动方法不向调用者借出任何东西：`replace(v)` 和 `take()`（要求 `T <: Default`）存入新值并返回旧值，`replace_with(v => ...)` 存入闭包根据 `v : &T` 算出的新值并返回旧值，`into_inner()` 消耗这个单元。与 Rust 的 `replace_with`（闭包是 `FnOnce(&mut T) -> T`）不同，这里的闭包是借到 `&T` 的 `Fn`，与 `with` 闭包体相同。多个 `with` 闭包体可以同时运行；`with_mut`（以及 `replace_with` 的闭包）只能单独运行，运行期间的冲突访问会 panic，与 Rust 的 `RefCell::borrow_mut` 相同。闭包体返回或 unwind 时标记被释放。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝（跨线程请共享 `Arc(Mutex(T))`）。它也可以放在普通值中，此时可以通过 `&` 借用进行写入。
 
@@ -4109,8 +4134,8 @@ t.join();
 assert(shared.* == i32(42), "main still sees shared value");
 ```
 
-`Arc(T)` 实现了 `Deref`，因此读取会转发到载荷（`shared.field`、
-`shared.method()`；见[自动解引用](#自动解引用)）；在安全代码中通过它写入会被拒绝。
+`Arc(T)` 实现了 `Deref`：`shared.*` 是载荷，载荷的成员经由它读取（`shared.*.field`、
+`shared.*.method()`；见[解引用](#解引用)）；在安全代码中通过它写入会被拒绝。
 
 完整详情请参阅 [ARC.md](./ARC.md)。
 

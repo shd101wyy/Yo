@@ -94,7 +94,8 @@ copied := value.*;
 assert(copied == i32(42), "inner value is 42");
 ```
 
-`value.field` and `value.method()` reach the payload by auto-dereference.
+A payload member is reached through `.*`: `value.*.field`, `value.*.method()`.
+`.` alone reads only the `Arc`'s own members (`value.field` is E0623).
 `value.as_ref()` lends the whole payload as a `&T`, for a `&T` parameter
 (`Arc.as_ref(value)` is the same call through the type).
 
@@ -104,7 +105,8 @@ assert(copied == i32(42), "inner value is 42");
 same value. A second handle is spelled, as in Rust (decision 17 of
 [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)): an implicit copy whose source is
 used again is E0901, whose note names `Arc.clone(a)`, and a handle's last use moves it. `Arc(T)` is `Clone` for every `T`, and its clone is always a second
-handle; a deep copy of the value is spelled `Arc.new(a.*.clone())`.
+handle (`a.clone()` is the same call); a deep copy of the value is spelled
+`Arc.new(a.*.clone())`.
 
 ```yo
 a := Arc.new(i32(42));

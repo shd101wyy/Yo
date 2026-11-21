@@ -79,7 +79,8 @@ copied := value.*;
 assert(copied == i32(42), "inner value is 42");
 ```
 
-`value.field` 与 `value.method()` 通过自动解引用访问载荷。`value.as_ref()`
+载荷的成员经由 `.*` 访问：`value.*.field`、`value.*.method()`。单独的 `.` 只读取
+`Arc` 自身的成员（`value.field` 是 E0623）。`value.as_ref()`
 把整个载荷作为 `&T` 借出，用于 `&T` 参数（`Arc.as_ref(value)` 是通过类型写出的
 同一个调用）。
 
@@ -88,7 +89,7 @@ assert(copied == i32(42), "inner value is 42");
 `Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出
 （[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决定 17）：源值之后仍被使用的隐式拷贝是 E0901，其提示写出
 `Arc.clone(a)`，句柄的最后一次使用会移动它。`Arc(T)` 对任何 `T` 都实现
-`Clone`，它的克隆总是第二个句柄；值的深拷贝写作 `Arc.new(a.*.clone())`。
+`Clone`，它的克隆总是第二个句柄（`a.clone()` 是同一个调用）；值的深拷贝写作 `Arc.new(a.*.clone())`。
 
 ```yo
 a := Arc.new(i32(42));

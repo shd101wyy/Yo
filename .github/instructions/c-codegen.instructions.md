@@ -690,7 +690,7 @@ Every RC cell carries the one `__yo_ref_header_t` (`ref_count` u32, `type_id` u1
 `Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell
 pointer is the handle's "placed" bit (`Box`'s layout L1,
 `plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout"). Every
-projection of the payload (`b.*`, `b.field`, `b.method()`, `&b.*`,
+projection of the payload (`b.*`, `b.*.field`, `b.*.method()`, `&b.*`,
 `addr_of(b.*)`, a `Box(p)` pattern) is emitted through
 `box_payload_place_code` (`src/codegen/utils/index.yo`), which writes
 `(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`; never spell `(*b)` for a

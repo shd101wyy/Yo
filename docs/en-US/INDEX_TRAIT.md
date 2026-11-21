@@ -54,7 +54,7 @@ Values by default (V2b, decision 34) splits element access in two, as Rust does.
 - **Read-only elements.** A type that implements `Index` without `IndexMut` has read-only elements, and a write through `x(i)` is a compile error naming the missing `IndexMut`.
 - **A writable receiver.** `index_mut` takes `self : &mut Self`, so writing `x(i)` through a read-only borrow of `x` (a `x : &T` parameter) is E0908.
 - **One `Output`.** `Index` and `IndexMut` of the same index type must agree on `Output`.
-- **`Deref` and `DerefMut` are chosen the same way.** `w.*` on an owner (`Array(T, N)`, a user type over a `[T]`) is the place its `deref` projection yields, and every write through it calls `deref_mut` instead; a type with `Deref` and no `DerefMut` has a read-only `.*` ([Auto-dereference](DESIGN.md#auto-dereference)).
+- **`Deref` and `DerefMut` are chosen the same way.** `w.*` on an owner (`Array(T, N)`, a user type over a `[T]`) is the place its `deref` projection yields, and every write through it calls `deref_mut` instead; a type with `Deref` and no `DerefMut` has a read-only `.*` ([Dereference](DESIGN.md#dereference)).
 
 ### Projections
 

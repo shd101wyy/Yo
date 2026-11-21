@@ -54,7 +54,7 @@ p := addr_of(collection(idx));
 - **只读元素。** 只实现 `Index` 而不实现 `IndexMut` 的类型，其元素是只读的；通过 `x(i)` 写入会得到一个指出缺少 `IndexMut` 的编译错误。
 - **可写的接收者。** `index_mut` 接收 `self : &mut Self`，所以通过 `x` 的只读借用（一个 `x : &T` 参数）写 `x(i)` 是 E0908。
 - **同一个 `Output`。** 同一索引类型的 `Index` 与 `IndexMut` 必须给出相同的 `Output`。
-- **`Deref` 与 `DerefMut` 以同样的方式选择。** 所有者（`Array(T, N)`、持有 `[T]` 的用户类型）上的 `w.*` 是其 `deref` 投影给出的位置，经由它的每一次写入改为调用 `deref_mut`；只有 `Deref` 而没有 `DerefMut` 的类型，其 `.*` 是只读的（[自动解引用](DESIGN.md#自动解引用)）。
+- **`Deref` 与 `DerefMut` 以同样的方式选择。** 所有者（`Array(T, N)`、持有 `[T]` 的用户类型）上的 `w.*` 是其 `deref` 投影给出的位置，经由它的每一次写入改为调用 `deref_mut`；只有 `Deref` 而没有 `DerefMut` 的类型，其 `.*` 是只读的（[解引用](DESIGN.md#解引用)）。
 
 ### 投影
 

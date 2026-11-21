@@ -176,8 +176,10 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 ```
 
 - `struct` = value semantics (moved, or copied if it derives `Copy`);
-  sharing is `Rc(T)` / `Arc(T)`, and `Rc.clone(h)` is a second handle. `Self`
-  refers to the type being defined.
+  sharing is `Rc(T)` / `Arc(T)`, and `h.clone()` (`Rc.clone(h)`) is a second
+  handle. `h.*` is the payload: `.` never reads through a handle, so a payload
+  member is `h.*.x` / `h.*.m()` (`h.x` is E0623); a `&Box(T)` binding takes
+  two stars, `b.*.*.x`. `Self` refers to the type being defined.
 - Constructors take named fields: `Point(x : i32(1), y : i32(2))`.
 - Generic types are TYPE-FUNCTIONS:
   `Name :: (fn(comptime(T) : Type) -> comptime(Type))(...);`. Generic
@@ -332,7 +334,8 @@ reach for it to parallelize I/O; that's the event loop's job.
 The `std/sync` types (`Mutex(T)`, `RwLock(T)`, `WaitGroup`, the `Atomic*`
 types, ...) are move-only values, as in Rust: a copy is E0901. Share one
 across threads as `Arc(Mutex(T))`: create it with `Arc.new(...)`, give each
-thread its own `Arc.clone(...)` and capture that clone by value.
+thread its own `Arc.clone(...)` and capture that clone by value; `mine.*`
+names the `Mutex` (`mine.*.with_lock(v => ...)`).
 `Channel(T)` already holds an `Arc` of its queue: `ch.clone()` is another
 handle.
 

@@ -388,7 +388,7 @@ then. A few more rules decide liveness:
   is live, and freezes what it borrows, until the value's own last use.
 - Two references conflict only if one place is a prefix of the other.
   Sibling fields are independent: `&mut s.left` beside `&mut s.right`.
-- A `&` reference through an `Rc` or `Arc` (`r := &h.x`) borrows the handle:
+- A `&` reference through an `Rc` or `Arc` (`r := &h.*.x`) borrows the handle:
   `h` cannot be moved, reassigned or dropped while `r` lives.
 
 ### A `&` reference is read-only
@@ -873,11 +873,13 @@ and dropping the owner frees it.
 
 ### `Rc` and `Arc`
 
-- Members forward through the handle: `r.n` reads the payload's field and
-  `r.len()` calls the payload's method. `r.*` names the payload.
-- A member both the handle and its payload have is E0616, which names both
-  spellings: `Rc.clone(&r)` copies the handle, `r.*.clone()` the payload.
-  `Box` works the same way: `Box.clone(&b)`.
+- `r.*` names the payload, and a payload member is reached through it:
+  `r.*.n` reads the payload's field and `r.*.len()` calls the payload's
+  method. `.` alone reads only the handle's own members; `r.n` is E0623,
+  whose help spells `r.*.n`.
+- `r.clone()` is the handle's own `clone`, a second handle (`Rc.clone(&r)`
+  is the same call); `r.*.clone()` clones the payload. `Box` works the same
+  way: `b.clone()` is a new cell holding a clone of the payload.
 - A cycle of `Rc` handles leaks, as in Rust: put a `Weak` on the back edge
   ([WEAK.md](./WEAK.md)). `--allocator debug` reports the leak.
 
@@ -1054,7 +1056,7 @@ Run tests under `--sanitize address` when a change leans on the borrow rules.
 | default parameter | by value: copy if `Copy`, else move | by value (move) |
 | read-only borrow | `x : &T`, call `f(&x)` | `x: &T`, `f(&x)` |
 | exclusive borrow | `x : &mut T`, call `f(&mut x)` | `x: &mut T`, `f(&mut x)` |
-| dereference | `r.*`; fields, methods and indexing auto-dereference | `*r`; auto-deref on `.` |
+| dereference | `r.*`, the only dereference; `.` reads through `&`/`&mut` only (`h.*.x` on a handle) | `*r`; auto-deref on `.` |
 | lifetimes | origins: `&(T, p)`, `generic(p : Origin)`, `-> &(T, xs)`; elided by default | `&'a T`, `<'a>` |
 | a struct holding a reference | `View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(T, p)))` | `struct View<'a> { xs: &'a T }` |
 | implicit copy | `derive(T, Copy, Clone)` | `#[derive(Copy, Clone)]` |

@@ -1316,7 +1316,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (a `String` field: `holds a move-only value in its field \`name\``). A type that implements `Drop` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. When it is `Copy`, `x.clone()` is the copy, so `f.clone()` on a `fn` pointer works; a record or closure that is `Clone` but not `Copy` clones field-wise, copying each `Copy` part and cloning the rest. A closure's parts are its capture record, as in Rust: a by-value capture counts with its own type (a listed `{ s }`, and an implicit capture too, since a closure bound to a name owns what it captures), a `&` capture is a pointer and so `Copy`, and a `&mut` capture makes the closure neither `Copy` nor `Clone`. So a closure that owns a `String` is `Clone` but not `Copy`: `d := c` moves it, and `c.clone()` gives a second closure with its own `String`. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
+The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (a `String` field: `holds a move-only value in its field \`name\``). A type that implements `Drop` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. When it is `Copy`, `x.clone()` is the copy, so `f.clone()` on a `fn` pointer works; a record or closure that is `Clone` but not `Copy` clones field-wise, copying each `Copy` part and cloning the rest. A closure's parts are its capture record, as in Rust: a by-value capture counts with its own type (a listed `{ s }`, and an implicit capture too, since a closure bound to a name owns what it captures), a `&` capture is a pointer and so `Copy`, and a `&mut` capture makes the closure neither `Copy` nor `Clone`. So a closure that owns a `String` is `Clone` but not `Copy`: `d := c` moves it, and `c.clone()` gives a second closure with its own `String`. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee: `p.m(...)` is always the pointer's own member, and a pointee member is written `p.*.m(...)`.
 
 `Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. A `&T` parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter by value (`p : Point`, without `&`) to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
 
@@ -3525,14 +3525,14 @@ assert(sum(&t) == 3);
 ```
 
 - **`Box.new(v)`** moves `v` into a new cell. `b.*` is the payload place, in safe
-  code too: `b.* = v` replaces it, and `b.field` / `b.method()` reach it by
-  auto-dereference. A pattern looks through a `Box` payload with `Box(p)`,
+  code too: `b.* = v` replaces it, and `b.*.field` / `b.*.method()` reach
+  its members. A pattern looks through a `Box` payload with `Box(p)`,
   as through an `Rc`'s with `Rc(p)`; for now a `Box` is also looked through
   without it.
 - **Explicit copies.** A `Box` is never `Copy`. `c := b` moves `b` when it is
   `b`'s last use; any other copy is E0901. `Box.clone(b)` is a deep copy: a
-  new cell holding a clone of the payload (`b.clone()` is E0616, because the
-  payload may have a `clone` of its own). `Box(T)` implements `Clone` when `T`
+  new cell holding a clone of the payload, and `b.clone()` is the same call
+  (`b.*.clone()` is the payload's own `clone`). `Box(T)` implements `Clone` when `T`
   does, so a `Box` of a move-only value is move-only.
 - **One drop.** Dropping a `Box` drops its payload and frees the cell.
   `ref_count(b)` is a compile error: there is no count.
@@ -3581,9 +3581,9 @@ Yo provides `Rc` (built with `Rc.new`) for heap-allocating value types with auto
 > `&Rc(T)` parameter borrows the handle without a copy. A value holding a
 > handle (a struct field, an `Option(Rc(T))`) is copied with `.clone()`,
 > which clones each handle; a closure takes a second handle in its capture
-> list, `{ a : Rc.clone(a) }() => a.*`. The clone is spelled through the type,
-> `Rc.clone(a)`, because `a.clone()` could name the payload's own `clone`
-> (decision 32). `Rc(T)` and `Arc(T)` are `Clone` for every `T`, and the
+> list, `{ a : Rc.clone(a) }() => a.*`. `a.clone()` is the handle's own
+> `clone`, the same call as `Rc.clone(a)`; the payload's is `a.*.clone()`.
+> `Rc(T)` and `Arc(T)` are `Clone` for every `T`, and the
 > clone is always a second handle; a deep copy is `Rc.new(h.*.clone())`. A generic body is judged at each instantiation, so a copy
 > of a `T` that is a handle needs `.clone()` there too (`where(T <: Clone)`).
 > std's generic readers are judged the same way: `ArrayList(Rc(T)).get(i)`
@@ -3637,7 +3637,7 @@ Rc.make_mut(&mut m) = i32(20); // in place: m is the only handle
 assert(m.* == 20);
 ```
 
-### Auto-dereference
+### Dereference
 
 The prelude's `Deref` trait names the place `w.*` stands for, and
 `DerefMut` is its write half:
@@ -3652,50 +3652,76 @@ while a write, a `&mut` lend, a `self : &mut Self` receiver and `addr_of` call
 `deref_mut`. A type with `Deref` and no `DerefMut` has a read-only `.*`, and
 the two impls share one `Target`.
 
+`x.*` is the only dereference: a reference's referent, a raw pointer's
+pointee, a handle's payload, an owner's `deref` view. `Deref` and `DerefMut`
+define `.*` and nothing else. `x.name` is a member of `x`'s own type, read
+through any number of `&` and `&mut`: a reference has no members of its own,
+so `r.x`, `r.m()` and `r(i)` on `r : &T` reach `T`'s.
+
 `Box`, `Rc` and `Arc` are **handles**: `w.*` is the payload their pointer
 names, read natively, and their `deref` is `&self.*.*`. `Rc` and `Arc` have
-no `DerefMut`, because their payload is read-only through the handle. On a
-`Deref` type, a field or method the wrapper does not have is looked up on the
-payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
+no `DerefMut`, because their payload is read-only through the handle. A
+payload member is written with one star per layer:
 
 ```yo
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
 p := Rc.new(Point(x : 3, y : 4));
-assert(p.x == 3); // p.*.x
-assert(p.norm1() == 7); // p.*.norm1()
+assert(p.*.x == 3);
+assert(p.*.norm1() == 7);
 pp := Rc.new(Rc.new(Point(x : 1, y : 2)));
-assert(pp.y == 2); // nested wrappers: pp.*.*.y
+assert(pp.*.*.y == 2); // one star per handle
 mut(b) := Box.new(Point(x : 3, y : 4));
-b.x = 5; // a place: writes b.*.x — only Box has DerefMut
-assert(b.norm1() == 9);
+b.*.x = 5; // a place: only Box has DerefMut
+assert(b.*.norm1() == 9);
 ```
 
-- **A name both have is an error (E0616).** `Point` derives `Clone` and so
-  does `Rc`, so `p.clone()` could mean either. Write `Rc.clone(p)` for the
-  `Rc`'s own `clone` (a new `Rc`) or `p.*.clone()` for the payload's (a
-  `Point`); `yo fix` rewrites the call to `Rc.clone(p)`. A name only one of
-  them has needs no choice, and `p.*` is always the payload itself. A call
-  inside a generic body, `x.clone()` under `where(T <: Clone)`, is the
-  bound's method even when `T` is an `Rc`.
-- **Places.** On a `Box`, a forwarded field is a place: `b.x = v` and a
-  `&mut self` call such as `b.items.push(v)` write the payload. Through an
+- **A payload member read with `.` alone is error E0623.** Its help spells
+  the whole chain (`pp.*.*.y`, `x.*.*.value`), and `yo fix` inserts the
+  stars:
+
+  ```yo expect=E0623
+  Point :: struct(x : i32, y : i32);
+  impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
+  main :: (fn() -> unit)({
+    p := Rc.new(Point(x : 3, y : 4));
+    n := p.norm1();
+  });
+  export(main);
+  ```
+
+  ```text
+  error[E0623]: `p` has type `Rc(Point)`, which has no member "norm1"; its payload `Point` has one. `.` does not read through a handle.
+  help: write `p.*.norm1(...)`: `p.*` names the payload (`yo fix` applies this)
+  ```
+
+  When no type in the chain has the name, the error says so:
+  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
+  field "z" either.`` (E0406; E0610 for a method).
+- **`w.clone()` is the handle's own `clone`**, in and out of a generic body:
+  a second handle for `Rc` and `Arc`, a new cell for `Box`. `Rc.clone(w)` is
+  the same call, and `w.*.clone()` is the payload's.
+- **Callee position.** `h.*.items(i)` indexes the payload's `items`, and
+  `h.*.f(x)` calls a payload field that holds a function.
+- **A reference to a handle takes two stars.** `x : &Box(Node)`, such as a
+  `for(&xs, x => …)` element or a `match(&self.next, .Some(b) => …)`
+  binding, reaches the payload as `x.*.*.value`: the first star is the
+  reference's, the second the handle's. The idiomatic forms are the `Box(n)`
+  pattern (`.Some(Box(n)) => n.total()`) and `x.as_ref().value`.
+- **Raw pointers.** `q.*.x` reads a field of the pointee of `q : *P` in
+  unsafe code; `q.add(1)` is the pointer's own method.
+- **Places.** On a `Box`, a payload member is a place: `b.*.x = v` and a
+  `&mut self` call such as `b.*.items.push(v)` write the payload. Through an
   `Rc` the same spellings are E0919 (below): an `Rc` has no `DerefMut`, so
   its payload is read-only through the handle. In a file without
   `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is likewise
-  rejected (`a.n = v`, `a.bump()` with `self : &mut Self`): mutate an
+  rejected (`a.*.n = v`, `a.*.bump()` with `self : &mut Self`): mutate an
   `Arc`'s payload through a `Mutex` or an atomic.
 - **Outside the prelude, `Deref` needs an unsized `Target`.** A `Deref` or
   `DerefMut` impl outside the prelude is accepted when its `Target` is
   `[T]`, `str`, a `Dyn(...)` or a tail-unsized struct. A sized `Target` and
   an open type variable are error E0622: a wrapper over a sized payload
   exposes it through its own fields and methods.
-- When neither the wrapper nor its payload has the name, the error says so:
-  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
-  field "z" either.`` (E0406; E0610 for a method).
-- **Callee position.** `p.items(i)` indexes the payload's `items`, and
-  `p.f(x)` calls a payload field that holds a function. A wrapper method
-  and a payload field of the same name are the same E0616.
 - **The whole payload as a reference: `as_ref`.** `Rc`, `Box` and `Arc`
   have `as_ref : (fn(self : &Self) -> &T)`, Rust's name: `h.as_ref()` lends
   the payload where a `&T` is wanted, such as an argument to a `&T`
@@ -3717,9 +3743,9 @@ main :: (fn() -> unit)({
   mut(r) := Ring(items : Array(i32, 3)(1, 2, 3));
   v := &r.*; // r.deref(): a view rooted at r
   assert(count(v) == usize(3));
-  assert(r.len() == usize(30)); // the owner's own len
+  assert(r.len() == usize(30)); // Ring's len
   assert(r.*.len() == usize(3)); // the view's
-  assert(!r.is_empty()); // only the view has it: r.*.is_empty()
+  assert(!r.*.is_empty()); // a member only the view has
   w := &mut r.*; // r.deref_mut(): exclusive while w lives
   assert(count(w) == usize(3));
 });
@@ -3729,14 +3755,14 @@ export(main);
 - `&w.*` is `w.deref()`, `&mut w.*` is `w.deref_mut()`, and anywhere else
   `w.*` is that call's place. The view borrows the owner, so while it is
   live the owner cannot be written, moved or lent `&mut` (E0911).
-- **The owner's own member wins.** A member only the view has is reached
-  through `.*`; a member the owner has is the owner's, so `r.len()` above is
-  `Ring`'s and `r.*.len()` the view's. Decision 32's E0616 is the handles'
-  rule. Adding a member to an owner therefore re-resolves calls that reached
-  the view's member of that name.
+- `r.len()` above is `Ring`'s and `r.*.len()` the view's. `r.is_empty()` is
+  E0623: only the view has `is_empty`, and `r.*` names the view.
 - **Nothing else dereferences.** A `&Ring` does not fill a `&[i32]`
   parameter: `count(&r)` is E0601, whose help names `count(&r.*)`. An
-  operator operand is never dereferenced either.
+  operator operand is never dereferenced (`h.* + 1`). Indexing and iteration
+  are not either: `h(i)` on `h : Rc(ArrayList(T))` is E0606, whose help
+  names `h.*(i)`, and `for(&h, …)` is E0623, whose help names
+  `for(&h.*, …)`.
 
 ### Rc with Assignments
 
@@ -3774,8 +3800,8 @@ test("Rc reference counting", {
 
 An `Rc`'s payload is shared, so it is **read-only through the handle**, as
 in Rust ([decision 46 of the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)).
-A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
-`h.items.push(v)`) is error E0919, which names the doors below
+A write through an `Rc` (`h.*.n = v`, `h.* = v`, `bump(&mut h.*.n)`,
+`h.*.items.push(v)`) is error E0919, which names the doors below
 (`yo explain E0919`):
 
 - **`RefCell(T)`** (`std/sync/refcell`) is the payload for shared mutation:
@@ -4360,9 +4386,9 @@ t.join();
 assert(shared.* == i32(42), "main still sees shared value");
 ```
 
-`Arc(T)` implements `Deref`, so a read forwards to the payload
-(`shared.field`, `shared.method()`; see [Auto-dereference](#auto-dereference));
-a write through it is rejected in safe code.
+`Arc(T)` implements `Deref`: `shared.*` is the payload, and a payload member
+is read through it (`shared.*.field`, `shared.*.method()`; see
+[Dereference](#dereference)); a write through it is rejected in safe code.
 
 See [ARC.md](./ARC.md) for full details.
 

@@ -58,7 +58,7 @@ Raw :: struct(p : ?*u8);
 
 ### 共享 `std/sync` 值
 
-`Mutex(T)`、`RawMutex`、`RwLock(T)`、`Cond`、`Barrier`、`Semaphore`、`WaitGroup`、`Once`、`OnceCell(T)` 和 `Atomic*` 类型与 Rust 一样是只能移动的值。它们的状态（操作系统原语、C11 原子量、受保护的数据）存放在私有的 `Box` 中，每个方法都以 `self : &Self` 为接收者：类型修改的是它自己的内部。会留下两个所有者的复制是 E0901。线程通过 `Arc` 共享它（`Arc(Mutex(T))`、`Arc(AtomicUsize)`）：用 `Arc.new(...)` 创建，给每个共享者一个它自己的 `Arc.clone(...)`，并在线程闭包中按值捕获这个克隆。方法调用经由自动解引用穿过 `Arc` 到达该值。
+`Mutex(T)`、`RawMutex`、`RwLock(T)`、`Cond`、`Barrier`、`Semaphore`、`WaitGroup`、`Once`、`OnceCell(T)` 和 `Atomic*` 类型与 Rust 一样是只能移动的值。它们的状态（操作系统原语、C11 原子量、受保护的数据）存放在私有的 `Box` 中，每个方法都以 `self : &Self` 为接收者：类型修改的是它自己的内部。会留下两个所有者的复制是 E0901。线程通过 `Arc` 共享它（`Arc(Mutex(T))`、`Arc(AtomicUsize)`）：用 `Arc.new(...)` 创建，给每个共享者一个它自己的 `Arc.clone(...)`，并在线程闭包中按值捕获这个克隆。`mine.*` 指称共享的值，其 `&Self` 接收者借用它：`mine.*.store(...)`、`total.*.with_lock(v => ...)`、`n.*.fetch_add(...)`。
 
 ```yo
 { AtomicBool, MemoryOrder } :: import("std/sync/atomic");
@@ -96,12 +96,12 @@ bump_by_ten(c.*); // 错误：不能传递以原子对象 'c' 为根的 &mut 参
 
 要修改共享状态，请组合正确的原语：
 
-| 想要...           | 使用                                                  |
-| ----------------- | ----------------------------------------------------- |
-| 共享原子计数器    | `Arc(AtomicI32)` → `counter.fetch_add(i32(1), ...)`   |
-| 共享锁定可变数据  | `Arc(Mutex(T))` → `arc.with_lock((v) => { ... })`     |
-| 共享多读/单写数据 | `Arc(RwLock(T))` → `arc.with_read` / `arc.with_write` |
-| 共享不可变配置    | `Arc(T)`（构造后只读）                                |
+| 想要...           | 使用                                                      |
+| ----------------- | --------------------------------------------------------- |
+| 共享原子计数器    | `Arc(AtomicI32)` → `counter.*.fetch_add(i32(1), ...)`     |
+| 共享锁定可变数据  | `Arc(Mutex(T))` → `arc.*.with_lock((v) => { ... })`       |
+| 共享多读/单写数据 | `Arc(RwLock(T))` → `arc.*.with_read` / `arc.*.with_write` |
+| 共享不可变配置    | `Arc(T)`（构造后只读）                                    |
 
 Pragma 代码（带有 `pragma(Pragma.AllowUnsafe)` 的文件）绕过此规则——这就是 `std/sync/` 原语在获取锁后修改其内部状态的方式。
 
