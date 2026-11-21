@@ -96,6 +96,8 @@ Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 ```
 
+- `derive(T, Copy)` without `Clone` is E0602: the compiler never writes the
+  `Clone` impl for you.
 - Every field must be `Copy`, and the type must not implement `Drop`.
 - Tuples, arrays and records are `Copy` exactly when all their parts are.
 - `String`, the collections, `Box`, `Rc`, `Arc` and every `Drop` type are
@@ -144,7 +146,7 @@ A field that is not `Copy` cannot be moved out of a value (E0901): the field
 is part of its holder. Instead:
 
 - copy the field: `p.name.clone()`;
-- move the whole value and destructure it: `{ name, age } := p`;
+- move the whole value apart with `match`: `match(p, { name, age } => …)`;
 - borrow it: `&p.name`, `match(&p.name, …)`.
 
 ### Mutable bindings
@@ -624,11 +626,11 @@ export(main);
 Some positions accept no reference, and a value that holds one there is
 rejected:
 
-- an element of a collection or the payload of a cell: `ArrayList(&T)` and
-  `RefCell(&T)` are rejected where the type is written, and an `Rc`/`Arc`
-  payload is E0909;
+- an element of a collection or the payload of a cell: `ArrayList(&T)`,
+  `RefCell(&T)`, `Box(&T)` and an `Rc`/`Arc` payload are E0909;
 - a module-level binding and an `extern` signature (E0909);
-- a value moved to another thread: a reference is never `Send`.
+- a value moved to another thread: a reference is never `Send`, so a
+  `Thread.spawn` closure that captures one is E0909.
 
 ## Element access and iteration
 
@@ -654,8 +656,8 @@ export(main);
   `.None` out of bounds. An element that is not `Copy` is copied with
   `xs.get_cloned(i)`, borrowed with `r := xs.index(i)`, or written in place
   with `xs.with(i, e => …)`.
-- `&xs(i)` is not a place you can bind; borrow an element with `xs.index(i)`
-  or through the borrowed `for` below.
+- `&xs(i)` is not a place you can bind (E0927); borrow an element with
+  `xs.index(i)` or through the borrowed `for` below.
 
 ### Iteration
 
@@ -1046,6 +1048,7 @@ Run tests under `--sanitize address` when a change leans on the borrow rules.
 | E0923 | a reference outside its declared origin |
 | E0924 | a type or binding that names itself as an origin |
 | E0926 | a reference read or written as a whole value without `.*` |
+| E0927 | a local borrow of something that is not a place, such as `&xs(i)` |
 
 ## Coming from Rust
 
