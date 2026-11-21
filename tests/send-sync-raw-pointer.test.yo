@@ -65,8 +65,8 @@ comptime_expect_error({
 _spawn_opt_in :: (fn() -> i32)({
   (n : i32) = i32(41);
   h := SrpOptIn(p : addr_of(n));
-  got := AtomicI32.new(i32(0));
-  t := Thread(unit).spawn(io => {
+  got := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ h, got : Arc.clone(got) }(io) => {
     got.store(h.p.*, MemoryOrder.Release);
     ()
   });

@@ -87,21 +87,22 @@ test("WaitGroup count reflects current state", {
   assert(wg.count() == i32(0), "count should be 0 after 10 dones");
 });
 // ============================================================================
-// Thread integration (atomic object — shared directly without Arc)
+// Thread integration (a WaitGroup is a move-only value: threads share it
+// through `Arc.clone`, one clone moved into each closure)
 // ============================================================================
 test("WaitGroup threads call done then main waits", {
   if(arch == Arch.Wasm32, return(()));
-  wg := WaitGroup.new();
+  wg := Arc.new(WaitGroup.new());
   wg.add(i32(3));
-  t1 := Thread(unit).spawn(io => {
+  t1 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(10)));
     wg.done();
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(20)));
     wg.done();
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(30)));
     wg.done();
   });
@@ -113,21 +114,21 @@ test("WaitGroup threads call done then main waits", {
 });
 test("WaitGroup add before spawn done in thread", {
   if(arch == Arch.Wasm32, return(()));
-  wg := WaitGroup.new();
+  wg := Arc.new(WaitGroup.new());
   wg.add(i32(5));
-  t1 := Thread(unit).spawn(io => {
+  t1 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  t4 := Thread(unit).spawn(io => {
+  t4 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  t5 := Thread(unit).spawn(io => {
+  t5 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
   wg.wait();
@@ -140,13 +141,13 @@ test("WaitGroup add before spawn done in thread", {
 });
 test("WaitGroup reuse across thread groups", {
   if(arch == Arch.Wasm32, return(()));
-  wg := WaitGroup.new();
+  wg := Arc.new(WaitGroup.new());
   // First group
   wg.add(i32(2));
-  t1 := Thread(unit).spawn(io => {
+  t1 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
   wg.wait();
@@ -155,13 +156,13 @@ test("WaitGroup reuse across thread groups", {
   assert(wg.count() == i32(0), "count should be 0 after first group");
   // Second group
   wg.add(i32(3));
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  t4 := Thread(unit).spawn(io => {
+  t4 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  t5 := Thread(unit).spawn(io => {
+  t5 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
   wg.wait();
@@ -171,20 +172,21 @@ test("WaitGroup reuse across thread groups", {
   assert(wg.count() == i32(0), "count should be 0 after second group");
 });
 // ============================================================================
-// ThreadPool integration (atomic object — shared directly without Arc)
+// ThreadPool integration (the same `Arc` sharing; the pool itself is still a
+// shared handle)
 // ============================================================================
 test("WaitGroup with pool tasks", {
   if(arch == Arch.Wasm32, return(()));
-  wg := WaitGroup.new();
+  wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(&pool, io => {
+  spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  spawn(&pool, io => {
+  spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
-  spawn(&pool, io => {
+  spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     wg.done();
   });
   wg.wait();
@@ -192,18 +194,18 @@ test("WaitGroup with pool tasks", {
 });
 test("WaitGroup with pool tasks and sleep", {
   if(arch == Arch.Wasm32, return(()));
-  wg := WaitGroup.new();
+  wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(&pool, io => {
+  spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(10)));
     wg.done();
   });
-  spawn(&pool, io => {
+  spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(20)));
     wg.done();
   });
-  spawn(&pool, io => {
+  spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(30)));
     wg.done();
   });

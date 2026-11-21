@@ -7,6 +7,10 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Duration } :: import("std/time/duration");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 
+// A `Barrier` and the atomics are move-only values: the threaded tests below
+// share them through `Arc`, one `Arc.clone` moved into each thread's closure
+// (Rust's shape), while the main thread keeps the original handle.
+
 // ============================================================================
 // Degenerate barriers — a single party never blocks
 // ============================================================================
@@ -40,20 +44,20 @@ test("Barrier of zero parties never blocks", {
 // ============================================================================
 test("Barrier holds every party until the last one arrives", {
   if(arch == Arch.Wasm32, return(()));
-  b := Barrier.new(i32(4));
-  arrived := AtomicI32.new(i32(0));
-  passed := AtomicI32.new(i32(0));
-  t1 := Thread(unit).spawn(io => {
+  b := Arc.new(Barrier.new(i32(4)));
+  arrived := Arc.new(AtomicI32.new(i32(0)));
+  passed := Arc.new(AtomicI32.new(i32(0)));
+  t1 := Thread(unit).spawn({ b : Arc.clone(b), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
     arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
     b.wait();
     passed.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ b : Arc.clone(b), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
     arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
     b.wait();
     passed.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ b : Arc.clone(b), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
     arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
     b.wait();
     passed.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -99,11 +103,16 @@ test("Barrier holds every party until the last one arrives", {
 // ============================================================================
 test("Barrier reused across generations releases exactly one leader per round", {
   if(arch == Arch.Wasm32, return(()));
-  b := Barrier.new(i32(4));
-  arrivals := AtomicI32.new(i32(0));
-  leaders := AtomicI32.new(i32(0));
-  early := AtomicI32.new(i32(0));
-  t1 := Thread(unit).spawn(io => {
+  b := Arc.new(Barrier.new(i32(4)));
+  arrivals := Arc.new(AtomicI32.new(i32(0)));
+  leaders := Arc.new(AtomicI32.new(i32(0)));
+  early := Arc.new(AtomicI32.new(i32(0)));
+  t1 := Thread(unit).spawn({
+    b : Arc.clone(b),
+    arrivals : Arc.clone(arrivals),
+    leaders : Arc.clone(leaders),
+    early : Arc.clone(early)
+  }(io) => {
     mut(r) := i32(0);
     while(r < i32(5), {
       arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -122,7 +131,12 @@ test("Barrier reused across generations releases exactly one leader per round", 
       r = (r + i32(1));
     });
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({
+    b : Arc.clone(b),
+    arrivals : Arc.clone(arrivals),
+    leaders : Arc.clone(leaders),
+    early : Arc.clone(early)
+  }(io) => {
     mut(r) := i32(0);
     while(r < i32(5), {
       arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -141,7 +155,12 @@ test("Barrier reused across generations releases exactly one leader per round", 
       r = (r + i32(1));
     });
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({
+    b : Arc.clone(b),
+    arrivals : Arc.clone(arrivals),
+    leaders : Arc.clone(leaders),
+    early : Arc.clone(early)
+  }(io) => {
     mut(r) := i32(0);
     while(r < i32(5), {
       arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -160,7 +179,12 @@ test("Barrier reused across generations releases exactly one leader per round", 
       r = (r + i32(1));
     });
   });
-  t4 := Thread(unit).spawn(io => {
+  t4 := Thread(unit).spawn({
+    b : Arc.clone(b),
+    arrivals : Arc.clone(arrivals),
+    leaders : Arc.clone(leaders),
+    early : Arc.clone(early)
+  }(io) => {
     mut(r) := i32(0);
     while(r < i32(5), {
       arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -202,10 +226,10 @@ test("Barrier reused across generations releases exactly one leader per round", 
 // ============================================================================
 test("Barrier survives a party re-entering before its partner leaves", {
   if(arch == Arch.Wasm32, return(()));
-  b := Barrier.new(i32(2));
-  leaders := AtomicI32.new(i32(0));
-  rounds := AtomicI32.new(i32(0));
-  t := Thread(unit).spawn(io => {
+  b := Arc.new(Barrier.new(i32(2)));
+  leaders := Arc.new(AtomicI32.new(i32(0)));
+  rounds := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ b : Arc.clone(b), leaders : Arc.clone(leaders), rounds : Arc.clone(rounds) }(io) => {
     mut(i) := i32(0);
     while(i < i32(500), {
       cond(

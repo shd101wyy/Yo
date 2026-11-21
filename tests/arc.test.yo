@@ -499,7 +499,7 @@ test("Arc.make_mut with an ArcWeak live on another thread moves the payload, not
   a := Arc.new(_ArcMmProbe(n : i32(1)), alloc : .Some(heap));
   w := Arc.downgrade(&a);
   go := Channel(i32).new(usize(1));
-  t := Thread(bool).spawn({ w, go }(io) => {
+  t := Thread(bool).spawn({ w, go : go.clone() }(io) => {
     _ := go.recv();
     w.upgrade().is_none()
   });

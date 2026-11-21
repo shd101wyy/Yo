@@ -329,20 +329,19 @@ comptime_expect_error({
   });
   _d4_generic_send_bound();
 });
-// Canary: a closure whose only capture is an atomic satisfies the bound, both
+// Canary: a closure whose only capture is an `Arc` of an atomic (its own
+// handle on the counter this frame reads afterwards) satisfies the bound, both
 // through a generic `where(T <: Send)` and through `Arc.new(...)` (the `arc` form
 // emitted two Arc instances for one type until P-26,
 // issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
 test("D4 canary: a closure over an atomic satisfies where(T <: Send), and Arc.new of it runs on a thread", {
-  hits := AtomicI32.new(i32(0));
-  (bump : Impl(Fn() -> unit)) = (
-    () => {
-      hits.fetch_add(i32(1), MemoryOrder.AcqRel);
-    }
-  );
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  (bump : Impl(Fn() -> unit)) = ({ hits : Arc.clone(hits) }() => {
+    hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+  });
   _needs_send(&bump);
   a := Arc.new(bump);
-  // Called in place: `bump` owns an atomic, so it is not `Copy`
+  // Called in place: `bump` owns an `Arc`, so it is not `Copy`
   // (decision 36) and `a.*` cannot be copied out of the Arc.
   t := Thread(unit).spawn((io : Io) => {
     a.*();
