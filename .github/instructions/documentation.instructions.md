@@ -18,6 +18,23 @@ When creating or updating a doc, always update both versions.
 
 Use ` ```yo ` for Yo code blocks, in Markdown files and in `///` / `//!` doc comments alike. `yo fmt` formats every ` ```yo ` block (`yo fmt docs`, and a `.yo` file's doc comments with the file), and CI runs `yo fmt --check` over `docs/`, `plans/`, `.github/`, `README.md` and the Markdown under `issues/` (not `issues/repros/`, whose `.yo` files may be unformatted on purpose), so a ` ```yo ` block must parse and be written the way `yo fmt` writes code. A snippet that is not a complete, parseable piece of Yo (a fragment, an intentionally invalid "WRONG:" example, an error demo such as `a + b * c`) is fenced ` ```yo ignore `, which keeps the language tag and skips the check. Never use ` ```rust ` for Yo code. `yo doc --format markdown` still emits ` ```rust ` in its generated pages (GitHub has no Yo highlighting); that is the renderer's translation, not a convention for hand-written docs.
 
+## The docs checks (`scripts/check-docs.py`)
+
+Three checks guard `docs/en-US`, `docs/zh-CN` and the READMEs. CI runs them in the `docs-checks` job of `test.yml`, REPORT-ONLY for now: the findings land in the job log and the run summary, and the job is not on merge-gate's needs. The docs plan's last step makes them blocking.
+
+- **examples**: a ` ```yo ` block whose code (comments aside) contains `export(`, `test(` or `main ::` is a complete program and must pass the compiler. A block with a top-level `test(` runs through `yo test`, because `yo check` swallows test-body errors (its `--test-bodies` mode stops that but has known false positives) and `yo test` also runs the body; every other program block runs through `yo check`. Each block is checked on its own in an empty directory against the tree's `std`, so a program block imports what it uses and cannot import a sibling file. A test block imports `assert` from `std/assert` like any test file. Other ` ```yo ` blocks are fragments: they are counted but not checked (`yo fmt --check` still makes them parse). A ` ```yo ignore ` block is skipped; the report counts these blocks, and a rising count gets questioned in review.
+- **Expected errors**: a block that demonstrates a compile error declares its codes in the fence, after `yo`: ` ```yo expect=E0917 `, or ` ```yo expect=E0917,E0901 ` for several. Such a block is always checked, even when it is not a complete program. It passes only if the compiler rejects it AND reports every listed code. The block must still parse, because `yo fmt` formats it. Keep ` ```yo ignore ` for a snippet that does not parse or cannot stand alone.
+- **links**: every relative link in `docs/**`, `README.md` and `CONTRIBUTING.md` resolves, and every `#anchor` names a heading of its target (GitHub's slug rules) or an `<a id>`. A link from `docs/en-US` to anything outside `docs/en-US` is flagged: only that directory ships in a release bundle, where `yo context --doc` prints it, so the link is dead there. Cite std as a code span (`std/collections/array-list`), and do not cite plans or issues.
+- **parity**: `docs/en-US` and `docs/zh-CN` hold the same pages, and each pair has the same number of ` ```yo ` blocks and of H2 headings. `docs/zh-CN/README.md` and `CONTRIBUTING.md` translate the root files and are compared with them.
+
+```bash
+python3 scripts/check-docs.py --checks links,parity        # seconds
+python3 scripts/check-docs.py --changed origin/develop     # the examples of the Markdown files your branch changed
+python3 scripts/check-docs.py --yo yo-out/x86_64-unknown-linux-gnu/bin/yo --jobs 6   # everything; take a heavy-lock slot
+```
+
+A run checks each distinct block once (the en/zh copies share one result), at about 10–20 s per block. Pass `--yo` a tree-built binary when the docs describe a language change the installed seed does not have.
+
 ## API Documentation Generation
 
 ### Doc comment syntax
