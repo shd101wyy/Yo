@@ -3568,15 +3568,6 @@ audit_record_copy_trait :: (
 /// `consume_case_body_temp_var`).
 /// `exn` is threaded because `generate_expr_from_code` /
 /// `evaluate_expression_raw` require an explicit exception handler.
-///
-/// Side-table: evaluated `___dup` call expr id → the USE SITE's source token
-/// (the token of the rhs whose dup it is). The dup expr itself is built from
-/// generated code (auto-generated token, not comparable with source tokens); the begin
-/// block's dup/drop pair optimizer needs the real source position of the
-/// ownership transfer to record an accurate consumed_at_token (early returns
-/// AFTER the transfer must not re-drop the moved value).
-(g_dup_use_site_tokens : RefCell(HashMap(usize, Token))) = RefCell(HashMap(usize, Token)).new(HashMap(usize, Token).new());
-get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_tokens.with(m => m.get_cloned(&id)));
 // ---------------------------------------------------------------------------
 // The unique `Dyn` (plans/VALUES_BY_DEFAULT.md decision 7, B12 and B13)
 // ---------------------------------------------------------------------------
@@ -3885,10 +3876,6 @@ set_expr_as_needs_to_call_dup :: (
           });
         }
       );
-      // Stamp the USE SITE's source token for the dup/drop pair optimizer.
-      du_id := ast_expr_id(&evaluated_dup);
-      du_tok := ast_expr_token(rhs);
-      g_dup_use_site_tokens.with_mut({ du_id, du_tok }(m) => m.insert(du_id, du_tok));
       // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
       dup_list := ArrayList(AstExpr).new();
       dup_list.push(Rc.clone(evaluated_dup));
@@ -3982,8 +3969,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           // bisected in issues/yo-self-dup-eval-inside-macro-generated-body-
           // corrupts-module-eval.md). A dup of a KNOWN temp needs no general
           // evaluation: mint the result temp OWNING in the rhs env (its
-          // scope-end drop is the balancing -1; the pair optimizer cannot
-          // cancel dup-of-SOURCE against drop-of-RESULT), and stamp the dup
+          // scope-end drop is the balancing -1), and stamp the dup
           // node + its arg atom with the ExprInfo codegen's deferred-dup
           // emitter reads (dei.variable_name / target atom env); the
           // nested eval is unsound in def-time contexts.
@@ -4037,15 +4023,8 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
             ),
             Rc(.Atom(_, _)) => ()
           );
-          du_id := ast_expr_id(&dup_expr);
-          du_tok := ast_expr_token(rhs);
-          g_dup_use_site_tokens.with_mut({ du_id, du_tok }(m) => m.insert(du_id, du_tok));
-          // The post-call drop below balances this +1, so it is never a
-          // dup/drop pair candidate: cancelling it against a forced source's
-          // scope-end drop (`f(&mut xs, &xs)`) skipped that drop and emitted
-          // neither half of the pair, so the source leaked and the `&`
-          // argument lost the +1 that keeps it alive
-          // (issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md).
+          // The post-call drop below balances this +1
+          // (`mark_call_scoped_share_dup`).
           mark_call_scoped_share_dup(ast_expr_id(&dup_expr));
           dup_list := ArrayList(AstExpr).new();
           dup_list.push(dup_expr);
@@ -6464,7 +6443,6 @@ export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed
 export(audit_copy_trait_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy);
 export(DynCopyPending, dyn_copy_rule_applies, check_dyn_copy, check_dyn_capture, note_dyn_copy_pending, dyn_copy_mark, dyn_copy_rollback, dyn_copy_pending_exists, take_dyn_copy_pending, dyn_copy_used_again_error);
-export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_is_future_operand_parameter, variable_id_in_scope);
 export(capture_place_crosses_cell, is_cell_handle_deref_step, place_rc_handle, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);

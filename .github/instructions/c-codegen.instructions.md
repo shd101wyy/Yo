@@ -772,13 +772,48 @@ If a C codegen bug is very hard to debug from the emitter source, modify the gen
 
 When you find a test that causes a C codegen bug, don't weaken the test. Create a new `.yo` file with minimal reproduction code, a `main` function, and `export(main);` at the end.
 
-## Reference counting
-
-`src/evaluator/exprs/begin.yo` performs reference counting optimization that cancels out dup/drop pairs when possible.
+## Drop glue and the cell runtime
 
 A VALUE literal with RC-typed fields that is passed straight to a call — a tuple `(i32(1), list)`, an array literal, a struct constructor — must carry an OWNING RESULT TEMP (`attach_temp_variable_to_expr` in its evaluator path): the callee stores its OWN dup of each RC field (std assignment semantics: `dst.* = src.*` dups) and never consumes the argument, so the CALLER's scope-end drop of the temp is the balancing release. A literal path that skips the attach (the tuple path's attach was a no-op stub until 2026-10-03) leaks one reference per RC field per call, visible only under LeakSanitizer or a fixed-heap loop (`issues/fixed/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`).
 
-For understanding the reference counting the compiler emits (`___dup`/`___drop`, the dup/drop pair optimizer, `ref_count`), read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`.
+### The cell runtime
+
+Every counted cell starts with `__yo_ref_header_t`, aliased `__yo_rc_prefix_t` (`src/codegen/types/generation.yo`): a `uint32_t` count at offset 0, whose top bit is the explicit-allocator tag (count reads mask it), then a 16-bit type id, then a 16-bit word that holds the `Weak` count on an `Rc`/`Arc` cell ([WEAK.md](../../docs/en-US/WEAK.md)). The runtime helpers are `static inline` functions emitted into every file (`src/codegen/functions/gc-runtime.yo`):
+
+- `__yo_incr_rc` / `__yo_decr_rc`, and `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic` for atomically counted cells (`Arc`);
+- `__yo_dyn_retain` / `__yo_dyn_release` / `__yo_dyn_clone`: a `Dyn` payload's count, through its vtable;
+- `__yo_rc_weak_retain` / `__yo_rc_weak_release` / `__yo_rc_weak_upgrade`: the `Weak` / `ArcWeak` handles;
+- `__yo_borrow_acquire` / `__yo_borrow_release` / `__yo_borrow_assert_unborrowed`, plus an `_atomic` trio: interior-borrow marks that the runtime text still defines and no compiled Yo code calls.
+
+When a decrement takes the count to zero, `__yo_dispose_dispatch` switches on the header's type id to the payload's `___dispose`, then the cell is freed. A cell whose type id is 0 is freed without a dispose, so a payload whose constructor stamps no id leaks its fields (`debugging.instructions.md`, "Memory-leak debugging").
+
+### Drop glue
+
+Per type the compiler derives `___dup` / `___drop` / `___dispose` helpers: a dup retains each counted field, a drop releases what the value owns, and a dispose runs the payload's `Drop` and then drops its fields (`_synthesize_and_register_dispose`, `src/codegen/functions/collection.yo`). `generate_drop_code_for_value` (`src/codegen/exprs/drop-dup.yo`) lowers a drop by the value's kind:
+
+- a value that owns a buffer or has a `Drop` impl (a `String`, an `ArrayList`, a `Box`, a user `Drop` type) runs its `___dispose`, then drops its fields inline;
+- an `Rc`/`Arc` handle decrements its cell;
+- a value aggregate that holds handles walks its fields, inline or through `__yo_venum_drop_<T>`;
+- a `Dyn` releases through its vtable.
+
+Under chunked emission (`--emit-chunks`) every translation unit gets its own `static` copy of these helpers: they are the hot path.
+
+The evaluator decides where each drop goes, and codegen emits it there:
+
+- **Scope end.** `_schedule_scope_end_drops` (`src/evaluator/exprs/begin.yo`) drops a block's owning, unconsumed locals in reverse declaration order. For a function body it then drops the by-value parameters.
+- **Early exit.** A local that the block moves later still owns its value on a `return`, `unwind`, `break` or `continue` taken before the move. The begin epilogue's M3 driver attaches that drop to each such exit, and to effect escapes through `consumed_variable_drop_expressions`. `attach_consumed_binding_exit_drops` does the same for a consuming `match` arm's bindings.
+- **Old value.** An assignment drops the value it replaced (`_drop_unused_old_value_now`). An explicit-copy value is dropped right after the store; a still implicitly copyable kind is dropped at the end of the block.
+
+### Where a `___dup` comes from
+
+A dup raises the count when a second owner of counted data is created: `Rc.clone(h)` and `Arc.clone(h)` (an explicit `___dup` in the prelude), an implicit copy of a value that is still implicitly copyable but holds a count, and the aliasing guard below. A value moved at its last use carries no count traffic. Plain data is copied with no count, and a `Box` moves and is never counted. `ref_count` reads a count ([DESIGN.md](../../docs/en-US/DESIGN.md#reading-the-count)).
+
+### The borrowed-argument aliasing guard
+
+A place inside an `Rc`/`Arc` payload passed to a borrowing (`&T`) parameter could dangle if the callee released the container that holds it through another handle during the call. Two stages close that hole (`consume_argument_for_parameter`, `src/evaluator/calls/helper.yo`):
+
+- **Stage 0.** An RC-typed field projection passed to a borrowing parameter gets a caller-owned +1 for the call (`set_expr_as_needs_to_call_dup_for_borrowed_projection`, `src/evaluator/utils.yo`), and the call's own post-call drop releases it (`mark_call_scoped_share_dup`). A place reached through a read-only handle takes the +1 on the handle (`borrowed_place_read_only_handle`). Plain locals stay +0, because the caller's binding keeps them alive; so do owned temps, `&mut` parameters, and extern or builtin callees, in which no Yo code runs.
+- **Stage 1.** A per-callee mutation summary (`function_may_mutate_rc_storage`, `src/evaluator/effects/mutation-summary.yo`) asks whether the call may transitively mutate RC container storage, and a read-only callee gets the +0 back. A callee may mutate if it (transitively) assigns to an RC-typed place, performs an explicit RC decrement (`___drop`, `__yo_decr_rc` and the like), calls a runtime or allocator extern or a libc `free`/`realloc`, takes a callback, yields to the event loop through an io builtin, is a control function, or calls anything the compiler cannot resolve. It is a MAY-analysis: anything unrecognised counts as mutating. Compiler-generated drops are not a hazard, because they only target variables that own their value, and a borrow owns nothing.
 
 ### Move-only values ride the RC machinery, without dups
 

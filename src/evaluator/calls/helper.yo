@@ -197,8 +197,6 @@ pragma(Pragma.AllowUnsafe);
   record_spec_instantiation,
   expr_info_deferred_dup_expressions,
   mark_by_value_param_share_dup,
-  mark_moved_container_dup,
-  expr_info_macro_expansion,
   expr_info_index_trait_ptr_type,
   note_lent_temporary,
   note_self_lend_operand,
@@ -270,7 +268,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../function-value.yo");
 { enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo, alias_closure_some_id, note_closure_for_some_id } :: import("../utils/closure.yo");
 { Exception, AnyError } :: import("std/error");
-{ debug_knob, is_temp_variable_name } :: import("../../utils.yo");
+{ debug_knob } :: import("../../utils.yo");
 { registration_owner } :: import("../values/type-trait-methods.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
@@ -1458,10 +1456,9 @@ closure_argument_owned_type :: (fn(arg_info : &ExprInfo, decl_pt : &TypeValue, b
     .None => Option(TypeValue).None
   )
 });
-/// Mark the dups a by-value parameter's share just put on `arg` so the
-/// dup/drop pair optimizer never cancels them against the caller's
-/// scope-end drop (that "move" would let the callee free a value the caller
-/// still reads).
+/// Mark the dups a by-value parameter's share just put on `arg`: the +1 is
+/// the callee's, so codegen emits it even for a state-machine slot argument,
+/// whose other deferred dups move with the slot (`_arg_carries_call_share`).
 _mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(arg)),
@@ -1479,52 +1476,6 @@ _mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
     .None => ()
   )
 );
-/// Mark the dups taken while building `arg`, a temporary a by-value parameter
-/// takes (`dyn(sink)`, `H(sink : sink)`), so the dup/drop pair optimizer never
-/// cancels them against the source local's scope-end drop: the callee drops
-/// the container at its return, and the cancelled pair would have moved the
-/// local's only count into it while the caller still reads the local
-/// (issues/fixed/2026-10-28-a-local-stored-in-a-temporary-passed-by-value-is-freed-by-the-callee.md).
-/// Only dups taken at the caller's own depth (`depth` frames) are marked: a
-/// nested block or a closure literal's body is a deeper frame with its own
-/// pairs (and a closure's capture dups are taken at the caller's depth).
-_mark_moved_temp_container_dups :: (fn(arg : &AstExpr, depth : usize, ctx : &EvalContext) -> unit)({
-  match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(arg)),
-    .Some(ai) => {
-      if(ai.env().frames_len() > depth, {
-        return(());
-      });
-      match(
-        expr_info_deferred_dup_expressions(&ai),
-        .Some(dl) => {
-          (i : usize) = usize(0);
-          while(i < dl.len(), i = (i + usize(1)), {
-            match(dl.get_cloned(i), .Some(d) => mark_moved_container_dup(ast_expr_id(&d)), .None => ());
-          });
-        },
-        .None => ()
-      );
-      match(
-        expr_info_macro_expansion(&ai),
-        .Some(mx) => recur(&mx, depth, ctx),
-        .None => ()
-      );
-    },
-    .None => ()
-  );
-  match(
-    arg,
-    Rc(.FnCall(_, f, Rc(fargs), _, _)) => {
-      recur(&f.*, depth, ctx);
-      (ai : usize) = usize(0);
-      while(ai < fargs.len(), ai = (ai + usize(1)), {
-        match(fargs.get_cloned(ai), .Some(a) => recur(&a, depth, ctx), .None => ());
-      });
-    },
-    Rc(.Atom(_, _)) => ()
-  );
-});
 /// The argument-side ownership rule, one call per argument:
 ///
 /// - 4a: the argument must not already be CONSUMED (moved). Unconditional.
@@ -1583,12 +1534,6 @@ consume_argument_for_parameter :: (
         arg_vars := get_variables_from_env(caller_env, &arg_var_name.*);
         if(arg_vars.len() > usize(0), {
           arg_var := match(arg_vars.last_cloned(), .Some(v) => v, .None => make_err_variable(caller_env));
-          // A temporary argument is moved into the callee, which drops it at
-          // its return: what its construction took from a local must stay
-          // a share (`_mark_moved_temp_container_dups`).
-          if(!arg_var.is_ref() && is_temp_variable_name(&caller_env.module_path().*, &arg_var_name.*), {
-            _mark_moved_temp_container_dups(evaled_arg, caller_env.frames_len(), ctx);
-          });
           cond(
             // An argument that is not implicitly copyable (a move-only one,
             // plans/VALUES_BY_DEFAULT.md §3.4) is moved
@@ -1618,15 +1563,11 @@ consume_argument_for_parameter :: (
                 set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
               }
             ),
-            // A kind that is still implicitly copyable (a `String`, a
-            // collection, an `Rc`, a `ref(...)` handle) is passed to a plain
-            // by-value parameter the way `t := s` binds it: a share (+1), and
-            // the caller keeps its value. The move/clone split for these kinds
-            // lands with their phase (V2b for `String` and the collections,
-            // V2c for `Rc`/`Arc`, V5 for `ref`), together with `t := s`
-            // (plans/VALUES_BY_DEFAULT.md §3.14). The share is never a
-            // dup/drop pair candidate: the callee drops it at its return, and
-            // the caller may still read its value after the call.
+            // A value that is still implicitly copyable but holds a count (a
+            // `std/sync` handle, for one) is passed to a plain by-value
+            // parameter the way `t := s` binds it: a share (+1), and the
+            // caller keeps its value. The callee drops the share at its
+            // return.
             true => {
               set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
               _mark_by_value_param_shares(evaled_arg, ctx);
@@ -4461,7 +4402,7 @@ create_specialized_function_inline :: (
               // begin frame, so without the snapshot body locals (frame_level
               // == entry count) look "outer" to trackVariableUsage's
               // outer-scope gate and pollute captured_variables
-              // (killing the dup/drop pair optimizer's captured gate — the
+              // (killing the begin epilogue's captured gate — the
               // cycle_collector mid-scope collect failure).
               eval_env : snapshot_env(callee_env)
             )

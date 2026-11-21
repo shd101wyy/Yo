@@ -1179,7 +1179,7 @@ lambda 中，`recur` 指代该 lambda，而不是外层函数。`recur` 是一�
 
 ### 共享单元与内存管理
 
-Yo 使用**引用计数单元**（`Rc`、`Arc`），配合[生成的 C 中的引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)来实现安全高效的内存管理。
+Yo 使用**引用计数单元**（`Rc`、`Arc`）实现共享所有权。`Rc(T)` 以非原子方式对句柄计数，`Arc(T)` 以原子方式计数。非原子计数是可靠的，因为 `Rc` 不是 `Send`：它从不离开自己的线程，所以只有一个线程会访问它的计数（[PARALLELISM.md](./PARALLELISM.md)）。跨线程共享请用 `Arc`（[ARC.md](./ARC.md)）。
 
 #### 引用计数单元
 
@@ -1203,7 +1203,6 @@ s2 := Rc.clone(s1); // RC = 2（两个句柄指向同一个单元）
 s3 := Rc.clone(s2); // RC = 3
 // 当 s1、s2、s3 离开作用域时，RC 递减
 // 当 RC 降为零时，载荷的 `drop` 运行并释放单元
-// 实践中，dup/drop 配对优化器会消除许多这样的操作
 ```
 
 #### 替换 `ref` 声明
@@ -1230,11 +1229,15 @@ std 原先的 `ref` 类型展示了方法的形态，每个方法只有一种形
 - `HttpServer` 是共享的那一个：它的 `serve` future 拥有一个 `server.clone()`，保留下来的
   克隆在处理函数或另一个任务中调用 `stop`。
 
-#### 编译期引用计数优化
+#### 读取计数
 
-编译器在编译期抵消成对的引用计数操作，因此在最后一次使用处移动的值不产生计数流量。
+内建函数 `ref_count(x)` 以 `usize` 返回 `x` 所持单元的句柄数；`Arc(T)` 以原子加载读取。对值类型（普通 `struct`、整数）它总是 `1`，在编译期已知。`Box` 没有计数，所以 `ref_count(b)` 是编译错误。计数用于唯一性检查（写时复制）和测试，不用于程序逻辑。
 
-生成的 C 里有什么、优化器消除哪些操作，详见 [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
+```yo
+a := Rc.new(i32(42));
+b := Rc.clone(a);
+assert(ref_count(b) == usize(2), "两个句柄，一个单元");
+```
 
 #### 显式分配器
 

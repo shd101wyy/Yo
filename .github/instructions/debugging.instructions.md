@@ -333,7 +333,7 @@ check that the type's constructor stamps a dispose id and that
 
 ## Design docs for context
 
-- Reference counting in the generated C: `docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`
+- Drop glue and the cell runtime: `.github/instructions/c-codegen.instructions.md` ("Drop glue and the cell runtime")
 - Async/await concurrency: `docs/en-US/ASYNC_AWAIT.md`
 - Parallelism: `docs/en-US/PARALLELISM.md`
 - Low-level sys module: `docs/en-US/STD_SYS_MODULE.md`

@@ -1219,7 +1219,7 @@ no tail-call optimization is applied.
 
 ### Shared Cells and Memory Management
 
-Yo uses **reference-counted cells** (`Rc`, `Arc`) with [reference counting in the generated C](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
+Yo uses **reference-counted cells** (`Rc`, `Arc`) for shared ownership. `Rc(T)` counts its handles non-atomically, and `Arc(T)` counts them atomically. The non-atomic count is sound because an `Rc` is not `Send`: it never leaves its thread, so one thread touches its count ([PARALLELISM.md](./PARALLELISM.md)). Share across threads with `Arc` ([ARC.md](./ARC.md)).
 
 #### Reference-Counted Cells
 
@@ -1243,7 +1243,6 @@ s2 := Rc.clone(s1); // RC = 2 (both handles point to the same cell)
 s3 := Rc.clone(s2); // RC = 3
 // When s1, s2, s3 go out of scope, RC decrements
 // When RC reaches 0, the payload's `drop` runs and the cell is freed
-// In practice, the dup/drop pair optimizer eliminates many of these operations
 ```
 
 #### Replacing a `ref` declaration
@@ -1271,11 +1270,15 @@ std's former `ref` types show the method shapes. Each method has exactly one:
 - `HttpServer` is the shared one. Its `serve` future owns a `server.clone()`,
   and the kept clone calls `stop` from the handler or another task.
 
-#### Compile-Time Reference Counting Optimization
+#### Reading the count
 
-The compiler cancels paired reference-count operations at compile time, so a value moved at its last use carries no count traffic.
+The builtin `ref_count(x)` returns the number of handles to the cell `x` holds, as a `usize`; an `Arc(T)` is read with an atomic load. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. A `Box` has no count, so `ref_count(b)` is a compile error. The count is meant for uniqueness checks (copy-on-write) and tests, not for program logic.
 
-See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for what the generated C contains and which operations the optimizer removes.
+```yo
+a := Rc.new(i32(42));
+b := Rc.clone(a);
+assert(ref_count(b) == usize(2), "two handles, one cell");
+```
 
 #### Explicit Allocators
 
