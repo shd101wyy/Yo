@@ -1476,6 +1476,14 @@ _mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
     .None => ()
   )
 );
+/// `YO_DEBUG_GUARD_OFF=1` turns the borrowed-argument guard (4c of
+/// `consume_argument_for_parameter`, Aliasing Stage 0) off: no caller-owned
+/// +1 is held for a projection or an `Rc`/`Arc` payload place lent to a
+/// call, so Stage 1 has nothing to elide. A debug knob for the evidence run
+/// that gates deleting the guard (VERDICTS-70 row 5): a program that is
+/// accepted and ASan-dirty only with it set is a hole the +1 masks
+/// (`tests/origins/guard/`, `scripts/guard-off-probes.sh`).
+(g_debug_guard_off : bool) = debug_knob(`YO_DEBUG_GUARD_OFF`).is_some();
 /// The argument-side ownership rule, one call per argument:
 ///
 /// - 4a: the argument must not already be CONSUMED (moved). Unconditional.
@@ -1490,6 +1498,7 @@ _mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
 ///   `xs(i).m(...)`) takes that +1 on the HANDLE instead
 ///   (`borrowed_place_read_only_handle`). Returns the share: its balancing
 ///   drop, and the node whose deferred dup takes it (what Stage 1 elides).
+///   `YO_DEBUG_GUARD_OFF` skips 4c (`g_debug_guard_off`).
 consume_argument_for_parameter :: (
   fn(
     evaled_arg : &AstExpr,
@@ -1577,7 +1586,7 @@ consume_argument_for_parameter :: (
       }
     );
   });
-  if(!param_is_owning && !param_is_ct && (!param_is_ref && !ctx.is_in_function_call_checking_phase) && !callee_is_extern, {
+  if(!param_is_owning && !param_is_ct && (!param_is_ref && !ctx.is_in_function_call_checking_phase) && !callee_is_extern && !g_debug_guard_off, {
     // A place in an `Rc`/`Arc` payload lives while the cell does: the share
     // goes on the handle, which a closure argument dropping the last other
     // handle would otherwise free under the callee. A payload share cannot

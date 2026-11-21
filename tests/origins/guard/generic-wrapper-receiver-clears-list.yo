@@ -1,0 +1,32 @@
+// expect: accept
+// guard-off: DIRTY heap-use-after-free
+// issue: issues/2026-11-21-a-closures-mut-capture-list-entry-is-not-checked-against-the-loans-of-the-calls-other-arguments.md
+// A receiver reached through a generic wrapper's method that returns a
+// reference into the wrapped list, with a closure argument whose capture list
+// lends the wrapper `&mut` and clears the list. Accepted; clean only because
+// the guard takes a +1 on the element's `Rc`. The right verdict is E0910 (the
+// issue).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &mut Impl(FnMut() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(items : ArrayList(T)));
+impl(generic(T : Type), Wrap(T), head : (fn(self : &Self) -> &T)(&self.items(usize(0))));
+main :: (fn() -> unit)({
+  mut(items) := ArrayList(Rc(W)).new();
+  items.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  mut(w) := Wrap(Rc(W))(items : items);
+  w.head().peek(
+    &mut ({ &mut w }() => {
+      w.items.clear();
+    })
+  );
+});
+export(main);

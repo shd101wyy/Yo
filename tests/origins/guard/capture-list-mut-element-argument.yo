@@ -1,0 +1,26 @@
+// expect: DIRTY heap-use-after-free
+// guard-off: same
+// issue: issues/2026-11-21-a-closures-mut-capture-list-entry-is-not-checked-against-the-loans-of-the-calls-other-arguments.md
+// Control for capture-list-mut-rc-element-receiver without an `Rc`: an
+// element lent `&` beside a closure argument whose capture list lends the list
+// `&mut` and clears it. No handle, so no guard: dirty either way. The right
+// verdict is E0910 (the issue).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+peek :: (fn(w : &W, act : &mut Impl(FnMut() -> unit)) -> unit)({
+  act();
+  println(`OUT: ${w.s.clone()}`);
+});
+main :: (fn() -> unit)({
+  mut(ws) := ArrayList(W).new();
+  ws.push(W(s : String.from("hello, a string long enough to live on the heap")));
+  peek(
+    &ws(usize(0)),
+    &mut ({ &mut ws }() => {
+      ws.clear();
+    })
+  );
+});
+export(main);

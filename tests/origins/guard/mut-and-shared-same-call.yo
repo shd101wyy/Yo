@@ -1,0 +1,22 @@
+// expect: E0910
+// guard-off: same
+// issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md:
+// one list lent `&mut` and `&` to one call (the guard's `force` arm).
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+clobber :: (fn(a : &mut ArrayList(i32), b : &ArrayList(i32)) -> unit)({
+  mut(i) := i32(0);
+  while(i < i32(3), {
+    a.* = ArrayList(i32).new();
+    a.push(i);
+    i = (i + i32(1));
+  });
+  println(`OUT: b.len = ${b.len()}`);
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  clobber(&mut xs, &xs);
+});
+export(main);
