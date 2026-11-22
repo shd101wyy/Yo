@@ -12141,7 +12141,7 @@ _static_offending_root :: (fn(roots : &ArrayList(OriginRootPlace), skip : &Strin
 /// import a calls/ module: helper imports this one).
 _svr_unlabeled :: (fn(arg : &AstExpr) -> AstExpr)(
   cond(
-    ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))) => match(
+    (ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))) || ast_expr_is_fn_call_of(arg, "=>", .Some(usize(2)))) => match(
       arg,
       Rc(.FnCall(_, _, Rc(su_args), _, _)) => match(su_args.get_cloned(usize(1)), .Some(a) => a, .None => Rc.clone(arg.*)),
       _ => Rc.clone(arg.*)
@@ -12171,6 +12171,30 @@ _static_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
         ),
         .None => true
       );
+      // A `cond(...)` VALUE holds what its arms hold (VERDICTS-74 rule 4:
+      // the join of the arms — a `static` arm never wins); each arm
+      // `p => v` contributes `v`'s roots. `cond` is a runtime call, so the
+      // R-CALL rule does not apply to it: the join is computed here.
+      if(!svr_is_ctor && ast_expr_is_fn_call_of(&svr_callee.*, "cond", Option(usize).None), {
+        (svr_ci2 : usize) = usize(0);
+        while(svr_ci2 < svr_args.len(), {
+          match(
+            svr_args.get_cloned(svr_ci2),
+            .Some(svr_ca0) => {
+              svr_ca := _svr_unlabeled(&svr_ca0);
+              match(
+                expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_ca)),
+                .Some(svr_cari) => if(type_carries_origin(&svr_cari.ty()) || type_spells_checked_static(&svr_cari.ty()), {
+                  _static_value_roots(&svr_ca, env, ctx, out, (depth + u32(1)));
+                }),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          svr_ci2 = (svr_ci2 + usize(1));
+        });
+      });
       if(svr_is_ctor, {
         (svr_ai : usize) = usize(0);
         while(svr_ai < svr_args.len(), {

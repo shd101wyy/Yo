@@ -1392,6 +1392,9 @@ _checked_static_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     Rc(.FutureTraitT(output : tcs_out, effect_types : tcs_ets, origin : tcs_fo)) =>
       (is_static_origin(&tcs_fo.*) || (_checked_static_inner(&tcs_out.*, seen, (depth + u32(1))) || _checked_static_list(&tcs_ets.*, seen, depth))),
     Rc(.SomeT({ resolution : tcs_res })) => match(tcs_res, .Some(tcs_r) => _checked_static_inner(&tcs_r.*, seen, (depth + u32(1))), .None => false),
+    // `Impl(Future(T, E, p))` (a TraitT whose `is_concrete` holds the
+    // future): the future's origin decides, as the bare FutureTraitT does.
+    Rc(.TraitT({ is_concrete : tcs_ic })) => match(&tcs_ic.*, .Some(tcs_icc) => _checked_static_inner(&tcs_icc.*, seen, (depth + u32(1))), .None => false),
     Rc(.Struct({ id : tcs_sid, field_types : tcs_fs, type_arguments : tcs_tas })) => cond(
       _checked_static_list(&tcs_tas.*, seen, depth) => true,
       ((tcs_sid.len() > usize(0)) && seen.contains(&tcs_sid.*)) => false,
