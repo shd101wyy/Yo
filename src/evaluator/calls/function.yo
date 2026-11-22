@@ -5165,6 +5165,33 @@ _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalCont
   });
   Option(Tuple(AstExpr, String)).None
 });
+/// The first sub-expression of `e` that names a place overlapping `lent`
+/// at all: a read, a `&` lend, a method receiver, as well as every access
+/// `_find_lent_place_access` reports. A place lent `&mut` is reachable only
+/// through that lend while it lives, so a tuple element after the `&mut`
+/// element may not name it (`(&mut x, &x)`).
+_find_lent_place_touch :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalContext) -> Option(AstExpr))({
+  match(
+    lookup_macro_expansion(ast_expr_id(e)),
+    .Some(expanded) => match(recur(&expanded, lent, ctx), .Some(hit) => return(Option(AstExpr).Some(hit)), .None => ()),
+    .None => ()
+  );
+  if(_lent_place_touched(e, lent, ctx), {
+    return(Option(AstExpr).Some(Rc.clone(e.*)));
+  });
+  match(
+    e,
+    Rc(.FnCall(_, c, Rc(c_args), _, _)) => {
+      match(recur(&c.*, lent, ctx), .Some(hit) => return(Option(AstExpr).Some(hit)), .None => ());
+      (ci : usize) = usize(0);
+      while(ci < c_args.len(), ci = (ci + usize(1)), {
+        match(c_args.get_cloned(ci), .Some(a) => match(recur(&a, lent, ctx), .Some(hit) => return(Option(AstExpr).Some(hit)), .None => ()), .None => ());
+      });
+    },
+    Rc(.Atom(_, _)) => ()
+  );
+  Option(AstExpr).None
+});
 /// The E0910-style conflict: `at` (`what`) touches the place `lp` an earlier
 /// argument (`lent_arg`) lends to the call's future.
 _reject_lent_place_conflict :: (fn(at : &AstExpr, what : &String, lp : &_LentPlace, lent_arg : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
@@ -5359,9 +5386,33 @@ check_tuple_element_lends :: (fn(elements : &ArrayList(AstExpr), env : &Environm
             },
             .None => ()
           );
+          lent_mut := ast_expr_is_fn_call_of(&lent_i, "&mut", Option(usize).Some(usize(1)));
           (aj : usize) = (li + usize(1));
           while(aj < elements.len(), aj = (aj + usize(1)), {
             elem_j := match(elements.get_cloned(aj), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+            // A place an earlier element lends `&mut` is reachable only
+            // through that lend for the tuple's life: a later element may
+            // not read it or lend it `&` either (`(&mut x, &x)`).
+            if(lent_mut, {
+              match(
+                _find_lent_place_touch(&elem_j, &lp, ctx),
+                .Some(at) => if(_find_lent_place_access(&elem_j, &lp, ctx).is_none(), {
+                  raise_flow_violation(
+                    with_code(
+                      format_error_message_with_help(
+                        ast_expr_token(&at),
+                        `This tuple literal's element reads or lends \`${root}\`, which an earlier element of the same literal lends \`&mut\` (\`${ast_expr_to_string(&lent_i)}\`): the tuple holds that exclusive borrow from the moment its element is evaluated, so no other element may reach the place, or a write through the \`&mut\` would change what the other element read or points into (decision 28's argument exclusivity, plans/VALUES_BY_DEFAULT.md).`,
+                        Option(String).Some(String.from("compute the later element before the tuple (`k := ...; t := (&mut x, k)`), or lend different places"))
+                      ),
+                      E_BORROW_CONFLICT
+                    ),
+                    ctx,
+                    exn
+                  );
+                }),
+                .None => ()
+              );
+            });
             match(
               _find_lent_place_access(&elem_j, &lp, ctx),
               .Some(hit) => {

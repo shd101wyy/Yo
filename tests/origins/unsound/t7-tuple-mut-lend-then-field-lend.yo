@@ -1,0 +1,18 @@
+// expect: E0910
+// `(&mut p, &p.b)`: the second element lends a field of the place the first holds exclusively; the write through
+// `a` replaces `p.b`, which `b` still points into.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+P :: struct(a : String, b : String);
+main :: (fn() -> unit)({
+  mut(p) := P(a : String.from("a"), b : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  t := (&mut p, &p.b);
+  match(
+    t,
+    (a, b) => {
+      a.* = P(a : String.from("q"), b : String.from("r"));
+      println(`OUT: ${b.*}`);
+    }
+  );
+});
+export(main);
