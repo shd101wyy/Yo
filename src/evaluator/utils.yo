@@ -153,7 +153,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message, type_key_epoch } :: import("../types/string.yo");
-{ type_identity_slot, type_identity_slot_holds, type_identity_cacheable, TYPE_IDENTITY_CACHE_CAP } :: import("../types/type-key.yo");
+{ type_identity_slot, type_identity_slot_holds, TYPE_IDENTITY_CACHE_CAP } :: import("../types/type-key.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
 { is_global_mut_rule_exempt, is_deref_swept_tree, is_implicitly_unsafe_capable_file, is_std_module_path } :: import("./memory-safety.yo");
@@ -13855,15 +13855,19 @@ _invariant_type_argument_pairs :: (
     match(rs.get(i), .Some(rt) => match(vs.get(i), .Some(vt) => _invariant_origin_pairs(&rt, &vt, inv, out_r, out_v, seen, (depth + u32(1))), .None => ()), .None => ());
   });
 });
-/// The parameter names of the type constructor whose call produced the
-/// instance `ty` (a struct's `constructor_func_id`, an enum's registered
-/// constructor), in order; empty for any other type.
-_ctor_param_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
+/// Constructor parameter `i`'s name for the type constructor whose call
+/// produced the instance `ty` (a struct's `constructor_func_id`, an enum's
+/// registered constructor); `.None` for any other type, an unregistered
+/// constructor, or an index it has no parameter at. Read per INDEX, not as
+/// a copied list: `_ctor_arg_is_invariant` asks for one position at a time,
+/// and cloning the constructor's whole `params` list per question was most
+/// of this family's allocation cost.
+_ctor_param_name_at :: (fn(ty : &TypeValue, i : usize) -> Option(String))({
   cfid := match(ty, Rc(.Struct({ constructor_func_id : cp_c })) => cp_c.clone(), Rc(.EnumT({ id : cp_e })) => lookup_enum_cfid(&cp_e.*), _ => String.new());
   if(cfid.len() == usize(0), {
-    return(ArrayList(String).new());
+    return(Option(String).None);
   });
-  match(lookup_type_ctor_value(&cfid), .Some(Rc(.FuncVal(cp_fv, _))) => cp_fv.*.params.clone(), _ => ArrayList(String).new())
+  match(lookup_type_ctor_value(&cfid), .Some(Rc(.FuncVal(cp_fv, _))) => cp_fv.*.params.get_cloned(i), _ => Option(String).None)
 });
 /// Type argument `i` of the constructor instance `inst` is invariant: the
 /// constructor's parameter there occurs below a `&mut` pointee in its
@@ -13877,8 +13881,7 @@ _ctor_arg_is_invariant :: (fn(inst : &TypeValue, i : usize, seen : &mut ArrayLis
   if(depth > u32(16), {
     return(false);
   });
-  names := _ctor_param_names(inst);
-  n := match(names.get_cloned(i), .Some(x) => x, .None => return(false));
+  n := match(_ctor_param_name_at(inst, i), .Some(x) => x, .None => return(false));
   cid := match(inst, Rc(.Struct({ id : ci_s })) => ci_s.clone(), Rc(.EnumT({ id : ci_e })) => ci_e.clone(), _ => String.new());
   key := `${cid}:${i.to_string()}`;
   if(seen.contains(&key), {
@@ -13947,15 +13950,29 @@ _name_occurs_invariant_args :: (fn(inst : &TypeValue, tas : &SharedList(TypeValu
 /// site of a function: the answer is memoized by the type's IDENTITY — the
 /// `type_key` memos' discipline (`types/type-key.yo`; also
 /// `g_lacks_copy_fast` in trait-checking.yo) — handles sorted by address, a
-/// parallel answer list, an answer recorded only for a handle that mentions
-/// no type variable (`type_identity_cacheable`: no part of it grows in
-/// place), both lists cleared whenever the type-key epoch moves (a
-/// registration may change what `_ctor_param_names` reads) or the list
-/// reaches `TYPE_IDENTITY_CACHE_CAP`. A miss runs the walk unchanged and
-/// records its own answer, so a served answer is the walk's by construction.
+/// parallel answer list, both lists cleared whenever the type-key epoch
+/// moves (a registration may change what `_ctor_param_name_at` reads) or
+/// the list reaches `TYPE_IDENTITY_CACHE_CAP`. EVERY handle is recorded,
+/// not only `type_identity_cacheable` ones: this walk reads no field that
+/// grows in place — a `SomeT`'s trait lists are why that gate exists, and
+/// no arm of the walk reads them (the `SomeT` arms read only the name) —
+/// so an answer cannot go stale the way a render's can.
+/// `YO_DEBUG_INV_NAMES_MEMO_CHECK=1` re-walks every hit and panics on a
+/// mismatch. A miss runs the walk unchanged and records its own answer, so
+/// a served answer is the walk's by construction.
 (g_invariant_names_handles : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
-(g_invariant_names_answers : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
+(g_invariant_names_answers : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String)).new(ArrayList(ArrayList(String)).new());
 (mut(g_invariant_names_epoch) : u64) = u64(0);
+(mut(g_inv_names_memo_check) : u8) = u8(0);
+/// `YO_DEBUG_INV_NAMES_MEMO_CHECK=1`: every identity-memo hit is re-walked
+/// and compared, and a mismatch aborts (the `type_key_memo_check` pattern).
+_inv_names_memo_check_enabled :: (fn() -> bool)({
+  if(g_inv_names_memo_check == u8(0), {
+    on := match(debug_knob(String.from("YO_DEBUG_INV_NAMES_MEMO_CHECK")), .Some(v) => (v == "1"), .None => false);
+    g_inv_names_memo_check = if(on, u8(2), u8(1));
+  });
+  g_inv_names_memo_check == u8(2)
+});
 invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
   if(g_invariant_names_epoch != type_key_epoch(), {
     g_invariant_names_handles.with_mut(xs => xs.clear());
@@ -13964,13 +13981,20 @@ invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
   });
   (slot : usize) = g_invariant_names_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
   if(g_invariant_names_handles.with({ ty : &ty.*, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
-    return(match(g_invariant_names_answers.with({ slot }(xs) => xs.get_cloned(slot)), .Some(a) => a, .None => ArrayList(String).new()));
+    served := match(g_invariant_names_answers.with({ slot }(xs) => xs.get_cloned(slot)), .Some(a) => a, .None => ArrayList(String).new());
+    if(_inv_names_memo_check_enabled(), {
+      again := _invariant_origin_names_walk(ty);
+      if(!_origin_name_sets_equal(&shared_list(again.clone()), &shared_list(served.clone())), {
+        __yo_panic(`YO_DEBUG_INV_NAMES_MEMO_CHECK: invariant_origin_names(${type_to_string(ty)}): the identity memo answers [${_origin_list_text(&shared_list(served.clone()))}], the walk [${_origin_list_text(&shared_list(again.clone()))}]`);
+      });
+    });
+    return(served);
   });
   names := _invariant_origin_names_walk(ty);
   // Record the answer only when the epoch it was computed in still holds:
-  // the walk reads the constructor registry (`_ctor_param_names`), and a
+  // the walk reads the constructor registry (`_ctor_param_name_at`), and a
   // registration since the lookup would change what it reads.
-  if(type_identity_cacheable(ty) && (g_invariant_names_epoch == type_key_epoch()), {
+  if(g_invariant_names_epoch == type_key_epoch(), {
     if(g_invariant_names_handles.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
       g_invariant_names_handles.with_mut(xs => xs.clear());
       g_invariant_names_answers.with_mut(xs => xs.clear());
