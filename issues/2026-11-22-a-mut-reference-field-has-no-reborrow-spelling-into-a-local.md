@@ -35,3 +35,8 @@ reference FIELD (`s.r.*`) has an owner: the reborrow freezes `s` (the holder, ex
 
 `a := &mut s.r.*` reborrows: `a`'s places are `s.r`'s origin plus `s` itself, `s` is frozen while `a`
 lives, and the E0901 help for `a := s.r` can then name this spelling.
+
+The bare `a := s.r` is rejected too, but as E0926 (a reference field read by value, "spelled `s.r.*`")
+rather than the partial-move E0901 the review's row 12 asks for; `s.r.*` then copies the referent. When
+the reborrow spelling lands, `a := s.r` should be E0901 with a help naming `a := &mut s.r.*`
+(`tests/origins/unsound/v76-mut-ref-field-move-out.yo` pins today's E0926).

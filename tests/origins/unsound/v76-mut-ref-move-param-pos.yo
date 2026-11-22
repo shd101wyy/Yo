@@ -1,0 +1,20 @@
+// expect: accept
+// VERDICTS-76 Q1 rows 4 and 21: a `&mut` parameter moved into a local is returned; the reborrow `&mut m.*` keeps `m` usable.
+{ println } :: import("std/fmt");
+fwd :: (fn(m : &mut i32) -> &mut i32)({
+  a := m;
+  a
+});
+keep :: (fn(m : &mut i32) -> unit)({
+  a := &mut m.*;
+  a.* = i32(1);
+  m.* = (m.* + i32(1));
+});
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  r := fwd(&mut x);
+  r.* = i32(5);
+  keep(&mut x);
+  println(`OUT: ${x.to_string()}`);
+});
+export(main);

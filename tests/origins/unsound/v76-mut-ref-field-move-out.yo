@@ -1,0 +1,10 @@
+// expect: E0926
+// VERDICTS-76 Q1 row 12: a `&mut` field is part of its holder and is never moved out (a partial move); today the bare read is E0926 (issues/2026-11-22-a-mut-reference-field-has-no-reborrow-spelling-into-a-local.md).
+S :: struct(r : &mut i32, n : i32);
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  s := S(r : &mut x, n : i32(0));
+  a := s.r;
+  a.* = i32(2);
+});
+export(main);

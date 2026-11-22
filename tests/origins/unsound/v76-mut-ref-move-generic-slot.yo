@@ -1,0 +1,11 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 17: a generic `T` slot with `T := &mut i32` moves the reference.
+id :: (fn(comptime(T) : Type, v : T) -> T)(v);
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  a := id(&mut i32, m);
+  a.* = i32(2);
+  m.* = i32(3);
+});
+export(main);
