@@ -221,7 +221,7 @@ read.
 - 2 C compile failures, filed as
   `issues/2026-11-23-a-with-body-returning-its-reference-parameter-is-accepted-and-emits-invalid-c.md`.
 - 2 `RefCell` re-entry panics: the `ref`-object probes, respelled as `Rc(RefCell(..))`.
-- 4 run clean. One of them, `gu10`, hides a sixth S1 that only a `Box` payload exposes under ASan:
+- 4 run clean. One of them, `gu10`, hides a fifth S1 issue that only a `Box` payload exposes under ASan:
   `issues/2026-11-23-a-projection-may-return-a-reference-read-through-a-temporary-guard-whose-drop-rewrites-the-place.md`.
 
 So (b) on the respelled corpus reports **5 blocking dirty programs**. The claim needs those four issues and the guard
