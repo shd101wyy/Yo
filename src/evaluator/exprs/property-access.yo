@@ -409,28 +409,23 @@ strip_for_borrow_marker :: (fn(e : &AstExpr) -> Option(Tuple(AstExpr, String)))(
 member_behind_deref_error :: (
   fn(obj : &AstExpr, obj_ty : &TypeValue, name_tok : &Token, stars : usize, landed : &TypeValue, is_call : bool, for_head : bool) -> YoError
 )({
-  (mut(written), synth) := strip_synthesized_stars(obj);
-  (mut(total) : usize) = (stars + synth);
+  // Every name below is bound once: a `mut` name destructured from a call's
+  // tuple is released twice at scope exit
+  // (issues/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md).
+  (stripped, synth) := strip_synthesized_stars(obj);
   // A `for` head's receiver is the loop source's borrow marker (`&coll` /
   // `&mut coll`, the desugar's `(&coll).into_iter()`): the message spells the
   // place inside the marker, and the marker's own reference layer is not one
   // of the stars (`for(&r.*, …)`, not `for(&r.*.*, …)`).
-  (shown_ty : TypeValue) = Rc.clone(obj_ty);
-  (for_mark_s : String) = String.new();
-  if(for_head, {
-    match(
-      strip_for_borrow_marker(&written),
-      .Some((fm_inner, fm_mark)) => {
-        written = fm_inner;
-        total = cond((total > usize(0)) => (total - usize(1)), true => usize(0));
-        for_mark_s = fm_mark;
-      },
-      .None => ()
-    );
-    if(t_slot_is_borrow(&shown_ty), {
-      shown_ty = t_slot_pointee(&shown_ty);
-    });
-  });
+  for_marker := cond(for_head => strip_for_borrow_marker(&stripped), true => Option(Tuple(AstExpr, String)).None);
+  written := match(&for_marker, .Some((fm_inner, _)) => Rc.clone(fm_inner), .None => Rc.clone(stripped));
+  for_mark_s := match(&for_marker, .Some((_, fm_mark)) => fm_mark.clone(), .None => String.new());
+  total := cond(
+    (for_marker.is_some() && ((stars + synth) > usize(0))) => ((stars + synth) - usize(1)),
+    for_marker.is_some() => usize(0),
+    true => (stars + synth)
+  );
+  shown_ty := cond((for_head && t_slot_is_borrow(obj_ty)) => t_slot_pointee(obj_ty), true => Rc.clone(obj_ty));
   written_s := ast_expr_to_string(&written);
   written_ty_s := type_to_string(&shown_ty);
   name := name_tok.*.*.value.*.clone();
