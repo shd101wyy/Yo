@@ -1,0 +1,12 @@
+// expect: accept
+// A projection call passed on to another one roots at the inner call's own roots (R-CALL), here `x`: there is no
+// temporary. The place walk read `id(&x)` as no place and rejected the binding as one over a temporary.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+id :: (fn(a : &String) -> &String)(a);
+main :: (fn() -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  r := id(id(&x));
+  println(`OUT: ${r.*}`);
+});
+export(main);

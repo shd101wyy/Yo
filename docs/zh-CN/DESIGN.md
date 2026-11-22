@@ -3506,8 +3506,9 @@ assert(b.norm1() == 9);
   再使用（`q := p.as_ref(); q.clone()` 调用的是载荷的 `clone`）。
 
 **所有者。** 其他所有 `Deref` 类型都是非定长内容的所有者，它们的 `.*` 是其
-`deref` 投影给出的位置。prelude 中的 `Array(T, N)` 就是一个所有者
-（`Target : [T]`），持有 `[T]` 的用户类型也是：
+`deref` 投影给出的位置。prelude 中的 `Array(T, N)` 和 std 中的
+`ArrayList(T)` 都是所有者（`Target : [T]`，并实现 `DerefMut`），因此
+`&list.*` 把列表的元素借出为 `&[T]`。持有 `[T]` 的用户类型也是：
 
 ```yo
 { assert } :: import("std/assert");
