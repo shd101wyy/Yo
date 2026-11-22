@@ -24,8 +24,8 @@ Only VALUES_BY_DEFAULT is in progress (until v0.2.80). Everything else is in
   value, `ref(...)`/`atomic(...)` leave the language, sharing is spelled
   `Rc(T)`/`Arc(T)`, references carry origins (decisions 1–50).
   - [`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) —
-    the release-by-release schedule (v0.2.76–v0.2.80) and every scheduling
-    decision.
+    what ships when: shipped releases, v0.2.80 (the claim release), v0.2.81
+    and v0.2.82 (implicit dup/drop deleted).
   - [`handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md`](handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md) —
     v0.2.79's retirements ledger and the draft text of the "VBD complete"
     claim.
@@ -85,7 +85,7 @@ the backlog:
 | E. Verification | [`SAFE_MODE`](backlog/SAFE_MODE.md), [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md), [`DEFAULT_ON_VERIFICATION`](backlog/DEFAULT_ON_VERIFICATION.md), [`SELF_VERIFICATION`](backlog/SELF_VERIFICATION.md), [`PROVEN_CORE`](backlog/PROVEN_CORE.md), [`FORMAL_VERIFICATION`](backlog/FORMAL_VERIFICATION.md), [`THEOREM_PROVING_DIRECTION`](backlog/THEOREM_PROVING_DIRECTION.md), [`THEOREM_PROVING_NEXT`](backlog/THEOREM_PROVING_NEXT.md), [`ADA_SPARK_LESSONS`](backlog/ADA_SPARK_LESSONS.md) |
 | F. std and reach | [`ASYNC_DEADLINE_COMBINATOR`](backlog/ASYNC_DEADLINE_COMBINATOR.md), [`ASYNC_LINES_NEEDS_A_NONTHROWING_READ`](backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md), [`RAW_AND_FENCED_STRING_LITERALS`](backlog/RAW_AND_FENCED_STRING_LITERALS.md), [`MODULE_PREFIX_STUTTER_REMAINDER`](backlog/MODULE_PREFIX_STUTTER_REMAINDER.md), [`LANGUAGE_FEATURE_CANDIDATES`](backlog/LANGUAGE_FEATURE_CANDIDATES.md), [`PACKAGE_MANAGER_DISTRIBUTION`](backlog/PACKAGE_MANAGER_DISTRIBUTION.md), [`SEED_VERSION_AUTOMATION`](backlog/SEED_VERSION_AUTOMATION.md) |
 | VBD tail (finishes by v0.2.79) | [`MACRO_AND_ISO_REMOVAL`](backlog/MACRO_AND_ISO_REMOVAL.md), [`KEBAB_CASE_NAMES`](backlog/KEBAB_CASE_NAMES.md) |
-| Candidate catalogues (pull-only) | [`RUST_ADOPTION_CANDIDATES`](backlog/RUST_ADOPTION_CANDIDATES.md), [`ZIG_ADOPTION_CANDIDATES`](backlog/ZIG_ADOPTION_CANDIDATES.md), [`JAI_ADOPTION_CANDIDATES`](backlog/JAI_ADOPTION_CANDIDATES.md), [`FSTAR_ADOPTION_CANDIDATES`](backlog/FSTAR_ADOPTION_CANDIDATES.md), [`LEAN_ADOPTION_CANDIDATES`](backlog/LEAN_ADOPTION_CANDIDATES.md), [`GOOSE_ADOPTION_CANDIDATES`](backlog/GOOSE_ADOPTION_CANDIDATES.md), [`K_FRAMEWORK_ENGINEERING_LESSONS`](backlog/K_FRAMEWORK_ENGINEERING_LESSONS.md) |
+| Candidate catalogues (pull-only) | [`RUST_ADOPTION_CANDIDATES`](backlog/RUST_ADOPTION_CANDIDATES.md), [`ZIG_ADOPTION_CANDIDATES`](backlog/ZIG_ADOPTION_CANDIDATES.md), [`JAI_ADOPTION_CANDIDATES`](backlog/JAI_ADOPTION_CANDIDATES.md), [`FSTAR_ADOPTION_CANDIDATES`](backlog/FSTAR_ADOPTION_CANDIDATES.md), [`LEAN_ADOPTION_CANDIDATES`](backlog/LEAN_ADOPTION_CANDIDATES.md), [`GOOSE_ADOPTION_CANDIDATES`](backlog/GOOSE_ADOPTION_CANDIDATES.md), [`K_FRAMEWORK_ENGINEERING_LESSONS`](backlog/K_FRAMEWORK_ENGINEERING_LESSONS.md), [`LOGIC_PROGRAMMING_ADOPTION_CANDIDATES`](backlog/LOGIC_PROGRAMMING_ADOPTION_CANDIDATES.md) |
 
 `archive/` holds closed records: landed campaigns, refuted or superseded
 proposals, and finished audits, each with a banner. Its numbers are frozen at

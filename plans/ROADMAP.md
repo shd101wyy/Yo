@@ -22,7 +22,7 @@ a borrow checker with Rust-parity expressiveness and no soundness holes
 claims the language migration and a checker that is sound on what it accepts,
 and the parity claim is made when `DIVERGENCES.tsv` has no row "rejected
 pending a parity item"
-([`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) §5g).
+([`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) §1).
 
 On top of that Yo adds algebraic effects, comptime and a built-in verifier. It
 aims at two niches the incumbents leave open: humane verified systems
@@ -95,13 +95,13 @@ programming, and a language designed for LLM authorship from day one.
   - decision 43's reference checker N0–N3
     ([`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)).
 
-## Now — only VALUES_BY_DEFAULT (v0.2.79 → v0.2.80)
+## Now — only VALUES_BY_DEFAULT (v0.2.80 → v0.2.82)
 
 Every declared type is a value, `ref(...)`/`atomic(...)` leave the language,
 references carry origins, and the checker is sound on what it accepts
 ([`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); release by release in
 [`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md), whose
-§5g defines the two claims "VBD complete" makes; what each v0.2.79 PR retired
+§1 names the two claims v0.2.80 makes; what each v0.2.79 PR retired
 and the claim's draft text are in
 [`handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md`](handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md)).
 What remains:
@@ -110,8 +110,10 @@ What remains:
 | --- | --- |
 | **v0.2.77** | **Published 2026-11-13.** The `yo fix` migrations retire (every mode except `deref`); G2's borrowing collections (`impl(&C, IntoIterator)`); decision 49 S1 (`?Sized`, `str`, `[T]`, `Dyn`, compiler half) with `Box` layout L1; brace groups Generation A; the borrow-checker stack O-1…O-6, P3, P8, P9 and the audit's cut-gate fixes. The parser's `ref`/`atomic` drop moved to v0.2.79 |
 | **v0.2.78** | **Published 2026-11-16.** The audit's clusters 1–9 closed by rule or wall; brace groups Generation B; decision 49 S2's `Dyn` flip (`Box(Dyn)` over a fat `*Dyn`, `Box` layout L2) with the `unsized` sweep; the `deref` sweep's text; the borrow-program generator and the rustc differential corpus. Kebab-case module files (Part C) did not land |
-| **v0.2.79** (cut 2026-11-17/18) | Landed so far: the `deref` flip (std, src and dependencies read a reference binding with `.*`), decision 49 S2's `str` flip and S3b-`Dyn`'s `dyn(v)` deletion. Still to come: `Deref` on owners (compiler half), the three-tree retype (`Token`, `AstExpr`, `EvalValue`), the `record-literal` retirement and the parser drop of `ref`/`atomic` (re-admitted behind 3e by the maintainer's second override, 2026-11-17); `Box` layout L3 and test 7 move to v0.2.80 (maintainer override, 2026-11-17). **The language migration is complete except the value spelling of `str`; the soundness claim is listed as pending and made in v0.2.80** |
-| **v0.2.80** (cut target 2026-12-11, latest 12-19) | **The claim release.** S3b-`str` (the value `str` alias and `slice_copy` deleted), `--migrate deref` retires, the std impls of `Deref` for `ArrayList` and `String`, and the moved items: `Box` layout L3, test 7 (maintainer override, 2026-11-17). **The language migration is complete** (claim L), beside claim (S) |
+| **v0.2.79** | **Published 2026-11-20.** The parser drop (`ref`/`atomic` are E0009); `str` unsized; the `deref` flip; the three-tree retype; kebab-case std module files with `yo fix --module-names` |
+| **v0.2.80** (forecast ~2026-11-28 to 12-02; cut by 12-11) | **The claim release.** S3b-`str` (the value `str` alias deleted), P12 (`static` a checked origin), `yo fix --migrate` deleted, `Deref` member forwarding deleted (`.*` only), the std `Deref` impls, test 7. **The language migration is complete** (claim L) and the checker is sound on what it accepts (claim S) |
+| **v0.2.81** | Implicit dup deleted (VERDICTS-70 rows 6–14: `___dup`, the guard, `strong_count`), owned destructuring consumes its source (VERDICTS-76 Q2), IO-1b |
+| **v0.2.82** | Implicit drop deleted (VERDICTS-70 row 15: `drop_in_place` Generation B, `___drop` gone); VBD closes |
 
 ## Next — after VBD (from v0.2.80)
 
