@@ -185,6 +185,48 @@ evaluate a program the checker rejects. In a whole-reference read or write, it c
 re-pointing or writing through, or copying the reference or the value. So each program needs its probe's intent
 read.
 
+**(c) on the candidate, 2026-11-23.** Run 45062393402 of `origins-generator.yml` ran on `369ff6491`, whose `src/` and
+`std/` are the candidate's. It is clean: 291 programs, 0 findings after minimization, 0 new, and
+`tests/origins/gen-known.tsv` has no rows. `--gd-verdict` also reads it CLEAN when given the short SHA.
+
+**Respell, 2026-11-23 (the pre-claim task).** All 352 drifted negatives were triaged one by one. Each has a row in
+`scripts/test7/respell-manifest.tsv` that records what was changed and why, or why the program was kept.
+
+- **137 respelled** to today's language, each keeping its probe's unsafe pattern:
+  - 73 of the 81 that stopped at a type, name or spelling diagnostic;
+  - 64 of the 271 borrow-coded or uncoded rows whose stopping diagnostic was unrelated to the probed hole: a
+    call-site `&` marker, an implicit capture that moves, a closure binding without its type, an incidental `static`
+    origin, `&&T` written for `&(&T)`, and similar.
+- The respelled files are in `scripts/test7/respelled/`, which `test7.sh` overlays on the frozen tarball.
+- **215 kept**:
+  - in 192, the stopping diagnostic is the probed hole or its wall under another code;
+  - 15 have no spelling today (a re-pointable reference field, `Dyn(T, p)`, shadowing, an array of lends, a
+    temporary-handle lend);
+  - 8 are malformed probes, or stop at a code their own header lists.
+
+**The 137 respelled programs, re-run** with `--only` on the same binary. 124 are rejected:
+
+- 96 with a code their header expects;
+- 28 with another code. Most of these stop at the probed hole or its wall. Four E0621s are a symptom of the with-body
+  issue below, and one is an internal evaluator error,
+  `issues/2026-11-23-a-generic-constructor-at-a-reference-type-argument-fails-with-an-internal-evaluator-error.md`.
+
+13 are accepted:
+
+- **5 ASan-dirty, all new S1.** Each is attributed in `scripts/test7/attribution.tsv`, and each blocks the claim:
+  - `issues/2026-11-23-a-binding-pattern-over-a-mut-match-may-overwrite-the-value-its-box-sub-pattern-binding-borrows.md` (`t06`);
+  - `issues/2026-11-23-a-tuple-literal-may-lend-a-place-shared-after-an-earlier-element-lends-it-mut.md` (`t09`, `t10`);
+  - `issues/2026-11-23-a-call-result-reference-argument-to-a-future-making-call-gives-the-future-no-origin.md` (`e04`);
+  - `issues/2026-11-23-an-fnmut-closure-stores-its-by-value-holder-parameter-through-a-mut-capture-unchecked.md` (`e07`).
+- 2 C compile failures, filed as
+  `issues/2026-11-23-a-with-body-returning-its-reference-parameter-is-accepted-and-emits-invalid-c.md`.
+- 2 `RefCell` re-entry panics: the `ref`-object probes, respelled as `Rc(RefCell(..))`.
+- 4 run clean. One of them, `gu10`, hides a sixth S1 that only a `Box` payload exposes under ASan:
+  `issues/2026-11-23-a-projection-may-return-a-reference-read-through-a-temporary-guard-whose-drop-rewrites-the-place.md`.
+
+So (b) on the respelled corpus reports **5 blocking dirty programs**. The claim needs those four issues and the guard
+projection fixed or walled first.
+
 ## 4. What is not decided here
 
 - **K7 and K4** (`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md`).
