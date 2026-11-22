@@ -12132,6 +12132,46 @@ _byvalue_param_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue,
     });
   });
 });
+/// A store into a holder that outlives the closure call — the outer place
+/// of a `&mut` capture (VERDICTS-37 Q3), or an `FnMut` literal's by-value
+/// state (audit A35) — of a value that holds an origin of one of the
+/// literal's BY-VALUE parameters (`byvalue_param_origin_names`: `.Some(h)`
+/// for `h : H`, `H`'s field origin elided). That origin is per call, so
+/// unless the holder's type names it (a slot type sharing an origin
+/// parameter of the enclosing function), the stored value could outlive
+/// what it points into: E0923, as `_capture_store` and
+/// `_capture_state_store` judge a reference parameter's root. `origin_of`
+/// gives a by-value parameter no root, so those two never see it
+/// (issues/fixed/2026-11-23-an-fnmut-closure-stores-its-by-value-holder-parameter-through-a-mut-capture-unchecked.md).
+_capture_store_param_origins :: (fn(variable : &Variable, holder_names : &ArrayList(String), pv_names : &ArrayList(String), value : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  through := match(borrow_capture_outer(variable.id()), .Some(bco) => if(bco.is_mut, Option(BorrowCaptureOuter).Some(bco), Option(BorrowCaptureOuter).None), .None => Option(BorrowCaptureOuter).None);
+  if(through.is_none() && !is_fnmut_capture_value_binding(variable.id()), {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < pv_names.len(), i = (i + usize(1)), {
+    n := pv_names(i).clone();
+    if(!holder_names.contains(&n), {
+      param := _rigid_origin_param(&n);
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            ast_expr_token(value),
+            match(
+              &through,
+              .Some(bco) => `Cannot store \`${ast_expr_to_string(value)}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: the value holds ${origin_name_phrase(&n)}, an origin of this literal's per-call parameter \`${param}\`, \`${bco.place.text}\` outlives the call, and a per-call origin cannot be named outside the literal (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2).`,
+              .None => `Cannot store \`${ast_expr_to_string(value)}\` into \`${variable.name}\`: \`${variable.name}\` is a by-value capture of this \`FnMut\` closure, kept in the closure across calls, and the value holds ${origin_name_phrase(&n)}, an origin of the literal's per-call parameter \`${param}\`, which a later call cannot name (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`
+            ),
+            Option(String).Some(`store an owned value, or declare one origin on the enclosing function's \`generic(p : Origin)\` and spell it in both the slot type and the holder's type`)
+          ),
+          E_ORIGIN_MISMATCH
+        ),
+        ctx,
+        exn
+      );
+    });
+  });
+});
 /// O-1's `=` join (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3, §5's
 /// place-write row): after a whole-holder assignment `h = v` succeeds, the
 /// holder's loan set becomes the join over reaching definitions — the value's
@@ -12173,6 +12213,7 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   );
   holder_names := ArrayList(String).new();
   origin_param_names_of(&holder_ty, &mut holder_names, u32(0));
+  _capture_store_param_origins(variable, &holder_names, &pv_names, value, ctx, exn);
   if(holder_names.len() > usize(0), {
     _bind_join_subset_check(variable, &holder_ty, &holder_names, &roots, value, env, ctx, exn);
     _byvalue_param_subset_check(variable, &holder_ty, &holder_names, &pv_names, value, env, ctx, exn);
