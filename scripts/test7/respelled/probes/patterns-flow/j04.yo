@@ -1,0 +1,21 @@
+// expect: E0911
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+HS :: struct(r : &String);
+flag :: (fn() -> bool)(String.from("a").len() == usize(1));
+main :: (fn() -> unit)({
+  mut(x) := Box.new(L());
+  mut(y) := Box.new(L());
+  (mut(r) : &String) = match(&y, Box(s) => &s.*);
+  mut(i) := 0;
+  while(i < 2, {
+    if(i == 1, { println(`OUT: ${r.*}`); });
+    match(&x, Box(s) => { r = &s.*; });
+    i = (i + 1);
+    if(i == 1, { x = Box.new(String.from("q")); });
+  });
+  ()
+});
+export(main);

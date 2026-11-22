@@ -1,0 +1,19 @@
+// expect: E0910/E0911 or panic
+{ String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
+{ OnceCell } :: import("std/sync/once");
+mem :: import("std/mem");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+X :: struct(s : String, n : i32);
+long :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"), n : i32(1))));
+longs :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  outer := RefCell(Option(Rc(RefCell(String)))).new(.Some(Rc.new(RefCell(String).new(longs()))));
+  n := outer.with(o => match(o, .Some(inner) => inner.with({ &outer }(v) => {
+    outer.replace(.None);
+    v.len()
+  }), .None => usize(0)));
+  println(`OUT: ${n.to_string()}`);
+});
+export(main);

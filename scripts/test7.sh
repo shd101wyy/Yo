@@ -6,7 +6,8 @@
 #   (a) G-A, G-B, G-E exactly as CI's origins-corpus job runs them (scripts/check-origin-sinks.sh,
 #       scripts/origins-corpus.sh today, scripts/origins-unsound.sh, check-origin-sinks.sh --totality).
 #   (b) the 2026-11-11 audit's probe corpus (scripts/test7/audit-corpus.tar.gz, frozen: the ten areas'
-#       probes, the audit's reproducer pairs, the re-probe's pass-2 programs) under ASan: each program is
+#       probes, the audit's reproducer pairs, the re-probe's pass-2 programs; scripts/test7/respelled/ overlays
+#       the probes respelled to today's language, scripts/test7/respell-manifest.tsv) under ASan: each program is
 #       rejected, accepted-clean, or accepted-and-dirty, and every dirty program is attributed to an audit
 #       row (scripts/test7/attribution.tsv) and so to a cluster of the audit's §9.
 #   (c) G-D: one clean origins-generator.yml run on the candidate SHA (`--gd-verdict <run-id>` reads one).
@@ -162,6 +163,10 @@ gd_verdict() {
   grep -oE 'valid programs: .*|[0-9]+ programs written' "$log" | head -2 | sed 's/^/  /'
   grep -E 'STILL-OPEN|FIXED' "$log" | sed 's/^.*Z //' | head -20 | sed 's/^/  known: /'
   rm -f "$log"
+  # --sha may be a prefix: resolve it in this clone, else compare by prefix.
+  local full
+  full=$(git rev-parse --verify --quiet "$SHA^{commit}" 2>/dev/null) || full=$SHA
+  case $head in "$full"*) SHA=$head ;; esac
   if [ "$head" = "$SHA" ] && [ "$concl" = success ] && [ "${new:-x}" = 0 ]; then
     echo "G-D: CLEAN on $SHA"
     return 0
@@ -229,6 +234,16 @@ corpus() {
     # module names) is followed: an import path that resolves to neither <p>.yo nor <p>/index.yo in the
     # candidate's std is rewritten to its kebab spelling when THAT resolves. Never hardcoded.
     python3 -I "$T7/respell_imports.py" "$c/audit-corpus" "$STD" | tee "$OUT/respell.txt"
+    # The respelled overlay (plan §3.6's pre-claim task): a probe the language changed under, rewritten to
+    # today's spelling so it reaches the hole it probes again, replaces its frozen original. Each one has a
+    # `respelled` row in scripts/test7/respell-manifest.tsv saying what changed and why; the tarball keeps
+    # the originals.
+    if [ -d "$T7/respelled" ]; then
+      (cd "$T7/respelled" && find . -name '*.yo' | sed 's#^\./##') | while read -r rel; do
+        cp "$T7/respelled/$rel" "$c/audit-corpus/$rel"
+      done
+      echo "overlay: $(find "$T7/respelled" -name '*.yo' | wc -l) respelled programs" | tee -a "$OUT/respell.txt"
+    fi
   fi
   list=$OUT/programs.list
   (cd "$c/audit-corpus" && find . -name '*.yo' | sed 's#^\./##' | LC_ALL=C sort) >"$list"

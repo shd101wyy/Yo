@@ -1,0 +1,19 @@
+// expect: E0911
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+grow :: (fn(xs : &mut ArrayList(i32)) -> unit)({
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(i32(7));
+    i = (i + usize(1));
+  });
+});
+f :: (fn(r : &i32, xs : &mut ArrayList(i32)) -> i32)({ grow(xs); r.* });
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  r := xs.index(usize(0));
+  v := f(r, &mut xs);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

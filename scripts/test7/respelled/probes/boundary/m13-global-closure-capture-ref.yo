@@ -1,0 +1,11 @@
+// expect: E0909 (a module-level closure binding capturing a reference to a block local)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+(G : Box(Dyn(Fn() -> usize))) = {
+  s := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  dyn(Box.new({ r : &s }() => r.len()))
+};
+main :: (fn() -> unit)({
+  println(`OUT: ${G().to_string()}`);
+});
+export(main);

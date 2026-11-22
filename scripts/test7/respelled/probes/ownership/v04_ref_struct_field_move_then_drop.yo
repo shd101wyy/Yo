@@ -1,0 +1,13 @@
+// expect: E0901 (moving a String field out of a shared Rc object leaves the object partly moved)
+// respelled 2026-11-23: the deleted ref(struct(...)) object is the Rc(H) handle (decision 46)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H :: struct(s : String);
+take :: (fn(s : String) -> usize)(s.len());
+main :: (fn() -> unit)({
+  h := Rc.new(H(s : String.from("payload-0123456789abcdefghijklmnop")));
+  h2 := Rc.clone(h);
+  n := take(h.s);
+  println(`OUT n=${n.to_string()} ${h2.s}`);
+});
+export(main);
