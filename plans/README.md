@@ -24,8 +24,8 @@ Only VALUES_BY_DEFAULT is in progress (until v0.2.80). Everything else is in
   value, `ref(...)`/`atomic(...)` leave the language, sharing is spelled
   `Rc(T)`/`Arc(T)`, references carry origins (decisions 1–50).
   - [`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) —
-    the release-by-release schedule (v0.2.76–v0.2.80) and every scheduling
-    decision.
+    what ships when: shipped releases, v0.2.80 (the claim release), v0.2.81
+    and v0.2.82 (implicit dup/drop deleted).
   - [`handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md`](handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md) —
     v0.2.79's retirements ledger and the draft text of the "VBD complete"
     claim.

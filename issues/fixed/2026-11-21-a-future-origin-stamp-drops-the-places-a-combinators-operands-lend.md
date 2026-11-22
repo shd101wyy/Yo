@@ -50,7 +50,7 @@ main :: (fn(io : Io) -> unit)({
   mut(c) := _A4Counter(n : i32(0));
   mut(d) := _A4Counter(n : i32(0));
   f := _a4_with(_a4_bump_after(&mut d, u64(9), io), &mut c, io);
-  d.n = i32(5);    // accepted after #2020; v0.2.79 rejects it
+  d.n = i32(5); // accepted after #2020; v0.2.79 rejects it
   io.await(f, io);
 });
 export(main);
