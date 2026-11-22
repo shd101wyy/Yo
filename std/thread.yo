@@ -4,9 +4,10 @@
 //! Two levels are available:
 //!
 //!   * `Thread.spawn` — one dedicated OS thread per call, joined explicitly.
-//!   * `ThreadPool`   — a reusable pool of worker threads that tasks are
-//!     handed to; tasks are distributed round-robin with thread affinity
-//!     (no work stealing).
+//!   * `ThreadPool`   — a pool that owns `n` worker threads. Tasks wait in
+//!     one queue shared by the workers and the first idle worker takes the
+//!     next one; `spawn_on` pins a task to one worker. A started task never
+//!     moves to another thread.
 //!
 //! `Thread(T).spawn` carries a value out of the thread: the body returns `T`
 //! and `join()` returns it.
@@ -28,14 +29,13 @@
 //! shapes they will keep, `Send` IS enforced at the spawn boundary
 //! (issues/fixed/send-was-not-enforced-at-spawn-boundaries.md), and D18's
 //! `join() -> T` has landed. What keeps this from freezing is `ThreadPool`,
-//! whose task type is still value-less and whose shutdown story is a separate
-//! decision.
+//! whose task type is still value-less.
 pragma(Pragma.AllowUnsafe);
 { RawMutex, __yo_thread_self } :: import("./sync/mutex");
 { AtomicBool, MemoryOrder } :: import("./sync/atomic");
 { Channel } :: import("./sync/channel");
 { WaitGroup } :: import("./sync/waitgroup");
-{ assert } :: import("./assert");
+{ assert, panic } :: import("./assert");
 { Park } :: import("./async/waker.yo");
 {
   __yo_async_loop_self_ptr,
@@ -66,10 +66,22 @@ extern(
 );
 extern(
   "Yo",
-  // `sink(cb)` for the same reason as `__yo_thread_spawn` above.
-  __yo_worker_spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit),
-  __yo_worker_get_num_threads : (fn() -> usize),
-  __yo_worker_set_num_threads : (fn(num : usize) -> unit)
+  // The pool handle behind a `ThreadPool` (src/codegen/parallelism/runtime.yo).
+  __yo_worker_pool_t : Type,
+  __yo_worker_pool_create : (fn(num_threads : usize) -> __yo_worker_pool_t),
+  __yo_worker_pool_worker_count : (fn(pool : __yo_worker_pool_t) -> usize),
+  // `sink(cb)` for the same reason as `__yo_thread_spawn` above. The task is
+  // the LAST argument: codegen lowers it to a wrapper and a heap copy of its
+  // captures, and passes the arguments before it through.
+  __yo_worker_pool_submit : (fn(pool : __yo_worker_pool_t, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit),
+  __yo_worker_pool_submit_to : (
+    fn(pool : __yo_worker_pool_t, worker : usize, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit
+  ),
+  __yo_worker_pool_shutdown_join : (fn(pool : __yo_worker_pool_t) -> unit),
+  __yo_worker_pool_destroy : (fn(pool : __yo_worker_pool_t) -> unit),
+  // The calling pool worker's index in its pool; `usize.MAX` on any other
+  // thread.
+  __yo_worker_current_index : (fn() -> usize)
 );
 /// The OS handle, the joined flag and the result channel behind a
 /// `Thread`'s `Box`. Dropping it detaches a thread that was never joined.
@@ -167,27 +179,34 @@ impl(
 );
 /// A pool of worker threads that tasks are handed to.
 ///
-/// Each task is pinned to one worker thread (round-robin, no work stealing),
-/// and every worker thread has its own async `Io` event loop (`Rc` counts are
-/// per-thread and non-atomic; `Arc` crosses threads). A worker runs one task
-/// at a time to completion, so a task that awaits delays the tasks queued
-/// behind it on its worker
-/// (issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md).
+/// A `ThreadPool` owns `n` worker threads, created by `new(n)` and joined when
+/// the pool is dropped or `shutdown`.
 ///
-/// The OS worker threads live in one process-global pool owned by the
-/// runtime, which starts it on the first `spawn` and tears it down at process
-/// exit. A `ThreadPool` value is the explicit handle on that pool: it decides
-/// the thread count, submits tasks, and drains them. Two consequences:
+/// Every worker has its own async event loop, so a task may use
+/// `io.async`/`io.await` on the `io` it is handed. A started task never moves
+/// to another thread: `Io` and `JoinHandle` are `!Send`, and the runtime's task
+/// objects are per-thread and non-atomic (`Rc` counts are per-thread; `Arc`
+/// crosses threads).
 ///
-///   * the `num_threads` passed to `new` is a request — it only takes effect
-///     while the runtime pool has not started yet, so the first `ThreadPool`
-///     created (before any task is spawned) fixes the count for the process;
-///   * the worker threads are shared by every `ThreadPool` value, but each
-///     pool counts ITS OWN tasks: `join_all` and `shutdown` wait for the work
-///     submitted through that pool (and for the tasks that work submits into
-///     it), not for another pool's.
+/// Unstarted tasks wait in one queue shared by the workers. `spawn(&pool, cb)`
+/// is taken by the first idle worker, so a slow task delays nothing queued
+/// behind it, and CPU-bound work balances itself.
 ///
-/// Uses atomic reference counting, so a pool may be shared across threads.
+/// A task that must run on a particular worker, because of shard-local state
+/// or a per-worker cache, is placed explicitly with `spawn_on(&pool, i, cb)`.
+/// Only that worker takes it (`pool.worker_count()`, `worker_id()`).
+///
+/// Each worker runs one task at a time to completion, including the async
+/// work that task spawned. `join_all` is a completion counter over the tasks
+/// this pool submitted.
+///
+/// There is no work stealing and no CPU affinity: the runtime never pins a
+/// thread to a core, and a started task never migrates.
+///
+/// A move-only value: lend it as `&pool`, or share it between threads and
+/// tasks as `Arc(ThreadPool)`. A pool held in a module global is never
+/// dropped, so its workers live until the process exits, and exit does not
+/// wait for them.
 ///
 /// ## Example
 ///
@@ -195,18 +214,18 @@ impl(
 /// { ThreadPool, spawn } :: import("std/thread");
 ///
 /// pool := ThreadPool.new(usize(4));
-/// spawn(pool, io => {
+/// spawn(&pool, io => {
 ///   // ... do work ...
 /// });
 /// pool.join_all(); // wait for everything submitted so far
-/// pool.shutdown(); // refuse new work, then drain
+/// // dropping `pool` here closes it, drains it and joins its workers
 /// ```
-_ThreadPoolState :: struct(
+ThreadPool :: struct(
+  _handle : __yo_worker_pool_t,
   /// Shared with every task's relay, which counts the task done.
   _tasks : Arc(WaitGroup),
   _closed : AtomicBool
 );
-ThreadPool :: struct(_cell : __yo_atomic_cell(_ThreadPoolState));
 /// The submission lock. It orders a submission's `_closed` check and its
 /// task-count increment against `shutdown` setting `_closed`, so a drain can
 /// never return with a task that passed the check still uncounted
@@ -218,92 +237,79 @@ ThreadPool :: struct(_cell : __yo_atomic_cell(_ThreadPoolState));
 _submissions := RawMutex.new();
 impl(
   ThreadPool,
-  /// Create a pool that requests `num_threads` worker threads.
+  /// Create a pool of exactly `num_threads` worker threads, owned by the
+  /// returned value.
   ///
-  /// `num_threads` must be > 0. It is a request, not a guarantee: see the
-  /// type-level note about the process-global runtime pool.
+  /// `num_threads` must be > 0. On a target with no OS threads (standalone
+  /// WASI) the pool has no worker, `worker_count()` is 0, and every task runs
+  /// inline on the thread that submits it.
   new : (fn(num_threads : usize) -> Self)({
     assert(num_threads > usize(0), "ThreadPool.new: num_threads must be > 0");
-    __yo_worker_set_num_threads(num_threads);
     Self(
-      _cell : __yo_atomic_cell(_ThreadPoolState)(
-        _ThreadPoolState(
-          _tasks : Arc.new(WaitGroup.new()),
-          _closed : AtomicBool.new(false)
-        ),
-        .None
-      )
+      _handle : __yo_worker_pool_create(num_threads),
+      _tasks : Arc.new(WaitGroup.new()),
+      _closed : AtomicBool.new(false)
     )
   }),
-  /// Create a pool sized to the runtime pool's current thread count, which
-  /// defaults to the number of hardware threads (CPU cores).
+  /// Create a pool with one worker per hardware thread (`get_hardware_threads()`).
   with_hardware_threads : (fn() -> Self)(
-    Self.new(__yo_worker_get_num_threads())
+    Self.new(__yo_thread_get_hardware_threads())
   ),
-  /// The number of worker threads the runtime pool is using (or will use).
-  num_threads : (fn(self : &Self) -> usize)(
-    __yo_worker_get_num_threads()
+  /// The number of worker threads this pool owns: the `num_threads` it was
+  /// created with, or 0 on a target with no OS threads.
+  worker_count : (fn(self : &Self) -> usize)(
+    __yo_worker_pool_worker_count(self._handle)
   ),
   /// Block until every task submitted to this pool so far has finished,
   /// including the tasks those tasks submitted into it before finishing.
-  /// The pool stays open — further `spawn` calls are still accepted.
+  /// The pool stays open: further `spawn` calls are still accepted.
   ///
   /// A completion counter: `spawn` counts the task in under the submission
-  /// lock and the task's wrapper counts it out after it returns. (Until
-  /// 2026-09-26 this was a barrier of one sentinel task per worker thread,
-  /// which leaned on the runtime's round-robin distribution and drained every
-  /// pool's work at once; a wrapper around the user's task closure was not
-  /// expressible before, issues/fixed/spawn-wrapper-forwarded-io-crosses-specializations.md.)
+  /// lock and the task's wrapper counts it out after it returns.
   ///
   /// Must not be called from inside a task of this pool: the task would be
   /// waiting for itself.
   join_all : (fn(self : &Self) -> unit)({
-    self._cell.*._tasks.wait();
+    self._tasks.*.wait();
   }),
-  /// Refuse new work, then block until every outstanding task has finished.
+  /// Refuse new work, run every task already submitted, and join the worker
+  /// threads. Idempotent, and what dropping the pool does.
   ///
-  /// Idempotent. The runtime's OS worker threads are process-global and are
-  /// reclaimed at process exit; `shutdown` closes *this* pool and drains the
-  /// work it submitted. Exit does NOT wait for tasks: work that is still
-  /// queued or running when `main` returns is abandoned, as a detached
-  /// `Thread` is, so a program that needs its tasks' effects calls
-  /// `join_all` or `shutdown` first.
-  shutdown : (fn(self : &Self) -> unit)({
-    // Under the submission lock, so a `spawn` that has not yet taken the lock
-    // sees `_closed` once it does and cannot queue behind the drain.
-    took := _lock_for_submission(self);
-    self._cell.*._closed.store(true, MemoryOrder.Release);
-    _unlock_after_submission(self, took);
-    self.join_all();
-  }),
+  /// Called from inside one of this pool's own tasks (for one, a task that
+  /// drops the last `Arc(ThreadPool)`), it cannot wait for the task it runs
+  /// in: it closes the pool and returns, and the workers still run what was
+  /// submitted, then exit.
+  shutdown : (fn(self : &Self) -> unit)(
+    _shutdown_pool(self)
+  ),
   /// Whether `shutdown` has been called (lock-free atomic load).
   is_shutdown : (fn(self : &Self) -> bool)(
-    self._cell.*._closed.load(MemoryOrder.Acquire)
+    self._closed.load(MemoryOrder.Acquire)
   )
 );
-/// Hand a task to `pool`. Returns immediately; the task runs on one of the
-/// worker threads, which supplies it with its own Io event loop.
-///
-/// Panics if the pool has been shut down.
-///
-/// ```yo
-/// spawn(pool, io => {
-///   // ... do work ...
-/// });
-/// ```
-//
-// IMPLEMENTATION NOTE — this is deliberately a module-level function and not
-// a `pool.spawn(cb)` method. A closure parameter that is forwarded into a
-// spawn primitive from inside an impl method with a `self` receiver is
-// specialized only once: with two or more differently-shaped task closures in
-// one program, every shape after the first is emitted as a
-// `// Failed to transpile` comment, so those tasks silently do nothing.
-// Static impl methods (`Thread.spawn`) and free functions are unaffected.
-// See issues/fixed/impl-method-self-receiver-hollows-forwarded-spawn-closures.md —
-// do not "tidy" this into a method until that is fixed.
+impl(
+  ThreadPool,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _shutdown_pool(self);
+      __yo_worker_pool_destroy(self._handle);
+    })
+  )
+);
+/// `ThreadPool.shutdown`, and the first half of its `Drop`.
+_shutdown_pool :: (fn(pool : &ThreadPool) -> unit)({
+  // Under the submission lock, so a `spawn` that has not yet taken the lock
+  // sees `_closed` once it does and cannot queue behind the drain.
+  took := _lock_for_submission(pool);
+  pool._closed.store(true, MemoryOrder.Release);
+  _unlock_after_submission(pool, took);
+  // A worker exits once the pool is closed and its queues are empty, so
+  // joining the workers is the drain.
+  __yo_worker_pool_shutdown_join(pool._handle);
+});
 /// Take the process-wide submission lock unless THIS thread already holds it,
 /// and say whether it was taken. The runtime's inline fallback (no worker
-/// thread could be created — standalone WASI, or thread creation failing)
+/// thread could be created: standalone WASI, or thread creation failing)
 /// runs a task on the submitting thread, INSIDE `spawn`'s critical section; a
 /// task that itself spawns would then block on the lock it already holds.
 /// `RawMutex.held_by_current_thread` is exact for the caller, which is all the
@@ -325,35 +331,106 @@ _unlock_after_submission :: (fn(pool : &ThreadPool, took : bool) -> unit)({
     true => ()
   );
 });
+/// Count a task in under the submission lock, after the `_closed` check, and
+/// return the relay's handle on the counter. The caller holds the lock (`took`)
+/// and releases it after the submission.
+_count_task_in :: (fn(pool : &ThreadPool, took : bool, what : str) -> Arc(WaitGroup))({
+  cond(
+    pool._closed.load(MemoryOrder.Acquire) => {
+      _unlock_after_submission(pool, took);
+      panic(`${what}: pool has been shut down`);
+    },
+    true => ()
+  );
+  tasks := Arc.clone(pool._tasks);
+  tasks.*.add(i32(1));
+  tasks
+});
+/// Hand a task to `pool`. Returns immediately; the first idle worker takes the
+/// task and runs it with its own `Io` event loop.
+///
+/// Panics if the pool has been shut down.
+///
+/// ```yo
+/// spawn(&pool, io => {
+///   // ... do work ...
+/// });
+/// ```
+///
 /// `sink(cb) : Impl(FnOnce(...), Send)`: the task closure is MOVED in and run
 /// exactly once (plans/VALUES_BY_DEFAULT.md decision 37), so it may move its
 /// captures out; an `Fn` closure is accepted too. (A plain `cb` borrowed a
 /// literal capturing a not-implicitly-copyable value, and a borrow capture is
 /// never `Send`, decision 38 E:
 /// issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md.)
+//
+// IMPLEMENTATION NOTE: this is deliberately a module-level function and not
+// a `pool.spawn(cb)` method. A closure parameter that is forwarded into a
+// spawn primitive from inside an impl method with a `self` receiver is
+// specialized only once: with two or more differently-shaped task closures in
+// one program, every shape after the first is emitted as a
+// `// Failed to transpile` comment, so those tasks silently do nothing.
+// Static impl methods (`Thread.spawn`) and free functions are unaffected.
+// See issues/fixed/impl-method-self-receiver-hollows-forwarded-spawn-closures.md;
+// do not "tidy" this into a method until that is fixed.
 spawn :: (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit)({
   // `_closed` is read and the task counted in UNDER the submission lock, so
   // `shutdown` (which sets `_closed` under the same lock, then drains) cannot
   // race a submission that already passed the check. The lock is held across
-  // `__yo_worker_spawn` because that call may run the task inline, so it must
-  // be re-entrant for the task's own spawns.
+  // the submission because the runtime may run the task inline, so it must be
+  // re-entrant for the task's own spawns.
   took := _lock_for_submission(pool);
-  cond(
-    pool._cell.*._closed.load(MemoryOrder.Acquire) => {
-      _unlock_after_submission(pool, took);
-      __yo_panic("thread.spawn: pool has been shut down");
-    },
-    true => ()
-  );
-  tasks := Arc.clone(pool._cell.*._tasks);
-  tasks.add(i32(1));
+  tasks := _count_task_in(pool, took, "thread.spawn");
   (relay : Impl(FnOnce(io : Io) -> unit, Send)) = ({ cb, tasks }(io : Io) => {
     cb(io);
-    tasks.done();
+    tasks.*.done();
     ()
   });
-  __yo_worker_spawn(relay);
+  __yo_worker_pool_submit(pool._handle, relay);
   _unlock_after_submission(pool, took);
+});
+/// Hand a task to worker `worker` of `pool`: only that worker takes it, after
+/// the tasks already pinned to it and before the shared queue. For shard-local
+/// state or a per-worker cache; `worker_id()` inside the task is
+/// `.Some(worker)`.
+///
+/// Panics if `worker >= pool.worker_count()` or the pool has been shut down.
+/// A pool with no worker (a target with no OS threads) runs the task inline,
+/// as `spawn` does.
+///
+/// ```yo
+/// i := usize(0);
+/// while(i < pool.worker_count(), {
+///   spawn_on(&pool, i, io => {
+///     // ... this worker's shard ...
+///   });
+///   i = (i + usize(1));
+/// });
+/// ```
+spawn_on :: (fn(pool : &ThreadPool, worker : usize, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit)({
+  n := pool.worker_count();
+  cond(
+    ((n > usize(0)) && (worker >= n)) => panic(`thread.spawn_on: worker ${worker.to_string()} is out of range for a pool of ${n.to_string()} workers`),
+    true => ()
+  );
+  took := _lock_for_submission(pool);
+  tasks := _count_task_in(pool, took, "thread.spawn_on");
+  (relay : Impl(FnOnce(io : Io) -> unit, Send)) = ({ cb, tasks }(io : Io) => {
+    cb(io);
+    tasks.*.done();
+    ()
+  });
+  __yo_worker_pool_submit_to(pool._handle, worker, relay);
+  _unlock_after_submission(pool, took);
+});
+/// The index of the pool worker running the calling task, in `0 ..
+/// pool.worker_count()`; `.None` on any thread that is not a pool worker.
+worker_id :: (fn() -> Option(usize))({
+  i := __yo_worker_current_index();
+  cond(
+    (i == usize.MAX) => Option(usize).None,
+    true => Option(usize).Some(i)
+  )
 });
 /// Run a BLOCKING call on its own OS thread and await the result, without
 /// stalling the event loop.
@@ -492,5 +569,7 @@ export(
   Thread,
   ThreadPool,
   spawn,
+  spawn_on,
+  worker_id,
   spawn_blocking
 );

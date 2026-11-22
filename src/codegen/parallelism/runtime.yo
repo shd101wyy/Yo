@@ -1,8 +1,9 @@
 //! C codegen for the parallelism runtime (Thread + Worker pool).
 //!
 //! Emits the `__yo_thread_*` (dedicated OS thread) and `__yo_worker_*`
-//! (thread-pool with thread affinity) C runtime. The thread/sync TYPES it references
-//! (`__yo_thread_t`, `__yo_thread_fn`, `__YO_THREAD_TYPE`, `__YO_COND_TYPE`,
+//! (`std/thread`'s `ThreadPool`: an owned pool handle, one shared queue plus a
+//! queue per worker) C runtime. The thread/sync TYPES it references
+//! (`__yo_thread_t`, `__yo_worker_pool_t`, `__yo_thread_fn`, `__YO_THREAD_TYPE`, `__YO_COND_TYPE`,
 //! `__yo_raw_thread_create`, `PARALLELISM_DEBUG`, …) are emitted separately by
 //! `codegen/types/generation.yo`. Wired into `generate_all_functions` (gated on
 //! `uses_parallelism`), beside `generate_async_runtime`.
@@ -20,15 +21,6 @@ generate_parallelism_runtime :: (
   fn(emitter : &mut Emitter, debug_parallelism : bool, target_info : &TargetInfo, uses_async : bool, debug_alloc : bool) -> unit
 )({
   debug_parallelism;
-  // `--allocator debug` (src/codegen/c/allocator-debug.yo): the worker array
-  // lives as long as the process (the atexit shutdown frees nothing, a worker
-  // may still be running against it), so it is a root of the exit report's
-  // reachability scan rather than a leak.
-  pool_root_line := if(
-    debug_alloc,
-    `  __yo_debug_alloc_root(&__yo_worker_threads, sizeof(__yo_worker_threads));\n`,
-    ``
-  );
   // `--allocator debug`: the program's threads are counted, so the exit
   // report can wait for them (a running thread's stack is no root). Counted
   // in before the thread is created, so a thread the report races cannot be
@@ -53,41 +45,6 @@ generate_parallelism_runtime :: (
     `static void* __yo_worker_thread_entry(void* arg) {`
   );
   worker_entry_return := if(is_windows, `${thread_leave_line}  return 0;`, `${thread_leave_line}  return NULL;`);
-  yield_call := if(is_windows, `      SwitchToThread();`, `      sched_yield();`);
-  pool_mutex_decl := if(
-    is_windows,
-    `static __YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex;        // Pool-level mutex (initialized in __yo_worker_init_mutex)
-static volatile LONG __yo_worker_pool_mutex_init_started = 0;
-static volatile LONG __yo_worker_pool_mutex_init_done = 0;`,
-    `static __YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex = __YO_THREAD_SYNC_INIT;  // Pool-level mutex`
-  );
-  windows_init_mutex := if(
-    is_windows,
-    `
-// Initialize the worker pool mutex on Windows (must be called before any use).
-// A CRITICAL_SECTION has no static initializer, and two threads can make their
-// first pool submission at once (a Thread.spawn'ed thread submitting into a
-// pool), so a check-then-init let both run InitializeCriticalSection and enter
-// the pool unserialized
-// (issues/fixed/windows-worker-pool-mutex-lazy-init-is-a-check-then-init-race.md).
-// Exactly one caller initializes; the others wait until it has published.
-static void __yo_worker_init_mutex(void) {
-  if (InterlockedCompareExchange(&__yo_worker_pool_mutex_init_done, 1, 1) == 1) {
-    return;
-  }
-  if (InterlockedCompareExchange(&__yo_worker_pool_mutex_init_started, 1, 0) == 0) {
-    InitializeCriticalSection(&__yo_worker_pool_mutex);
-    InterlockedExchange(&__yo_worker_pool_mutex_init_done, 1);
-  } else {
-    while (InterlockedCompareExchange(&__yo_worker_pool_mutex_init_done, 1, 1) == 0) {
-      Sleep(0);
-    }
-  }
-}
-`,
-    ``
-  );
-  init_mutex_call := if(is_windows, `  __yo_worker_init_mutex();`, ``);
   async_init_thread := if(
     uses_async,
     `
@@ -203,7 +160,7 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
 ${thread_enter_line}  int ret = __yo_raw_thread_create(&thread.handle, __yo_thread_entry, args);
   if (ret != 0) {
 ${creation_failed_leave_line}    PARALLELISM_DEBUG("[THREAD] Failed to create thread (ret=%d); running inline\\n", ret);
-    // Same contract as __yo_worker_spawn's inline fallback: with no OS thread
+    // Same contract as __yo_worker_pool_submit's inline fallback: with no OS thread
     // the closure would never run at all — its work silently dropped and its
     // reference-counted captures never released, since the wrapper that drops
     // and frees them IS the thread body
@@ -245,87 +202,120 @@ static void __yo_thread_detach(__yo_thread_t thread) {
   PARALLELISM_DEBUG("[THREAD] Detaching thread\\n");
   __yo_raw_thread_detach(thread.handle);
 }
-
+`
+  );
+  emitter.emit_string_line(
+    `// ============================================================================
+// Worker pool - std/thread's ThreadPool
 // ============================================================================
-// Worker - Thread Pool with Thread Affinity
-// ============================================================================
-// Worker spawns tasks on a thread pool. Each task has thread affinity:
-// tasks are distributed round-robin to worker threads and stay on their
-// assigned thread (no work stealing).
+// A pool is a value (__yo_worker_pool_t, a pointer to the struct below) that
+// owns exactly the worker threads __yo_worker_pool_create made. Every worker
+// has its own async event loop.
 //
-// Thread-per-core: By default, one worker thread per CPU core.
-// Thread affinity: Each task runs on a specific worker thread.
+// Unstarted tasks wait in ONE queue shared by the workers: an idle worker takes
+// the next one, so a task that awaits something slow delays nothing queued
+// behind it. A task submitted with __yo_worker_pool_submit_to(pool, i, ...)
+// goes on worker i's own queue instead, which only worker i takes, and which
+// it checks before the shared one. A worker runs one task at a time, to
+// completion, including the async work that task spawned
+// (__yo_async_wait_all after every task); a started task never moves to
+// another thread. No work stealing, no CPU affinity.
+//
+// Every queue, flag and counter of a pool is guarded by the pool's one mutex.
+// Each worker sleeps on its own condition variable, so a submission wakes
+// exactly the worker that should take the task.
 
-// Task node for per-thread task queue
+// Task node for the pool's queues
 typedef struct __yo_worker_task_t {
   __yo_thread_fn fn;                    // Task function
   void* closure;                        // Task closure data
   struct __yo_worker_task_t* next;      // Next task in queue
 } __yo_worker_task_t;
 
-// Per-worker-thread state
-typedef struct __yo_worker_thread_t {
-  __YO_THREAD_TYPE handle;                // OS thread handle
-  __YO_THREAD_SYNC_TYPE mutex;            // Mutex for task queue
-  __YO_COND_TYPE cond;                    // Condition variable for task availability
-  __yo_worker_task_t* queue_head;       // Head of task queue
-  __yo_worker_task_t* queue_tail;       // Tail of task queue
-  volatile int shutdown;                // Shutdown flag (guarded by worker->mutex)
-  volatile int running;                 // Thread running flag (main-thread only)
-  atomic_int started;                   // Thread has started — cross-thread, C11 atomic (release/acquire)
-} __yo_worker_thread_t;
+// One worker thread of a pool
+typedef struct __yo_worker_slot_t {
+  struct __yo_worker_pool_s* pool;      // The pool this worker belongs to
+  size_t index;                         // Its index in the pool, 0..count-1
+  __YO_THREAD_TYPE handle;              // OS thread handle (joinable)
+  __YO_COND_TYPE cond;                  // Its wake-up (guarded by pool->mutex)
+  __yo_worker_task_t* pinned_head;      // Tasks only this worker takes
+  __yo_worker_task_t* pinned_tail;
+  int waiting;                          // Asleep on cond with nothing to take
+} __yo_worker_slot_t;
 
-// Global worker pool state
-static __yo_worker_thread_t* __yo_worker_threads = NULL;  // Array of worker threads
-static size_t __yo_worker_num_threads = 0;                // Number of worker threads
-static size_t __yo_worker_next_thread = 0;                // Round-robin counter for task distribution`
+struct __yo_worker_pool_s {
+  __YO_THREAD_SYNC_TYPE mutex;          // Guards every field below
+  __yo_worker_task_t* shared_head;      // The shared intake queue
+  __yo_worker_task_t* shared_tail;
+  __yo_worker_slot_t* workers;          // count slots
+  size_t count;                         // Workers created; fixed after create
+  size_t live;                          // Workers whose loop has not ended
+  int closed;                           // A worker with no task left exits
+  int joining;                          // __yo_worker_pool_shutdown_join entered
+  int joined;                           // ... and returned
+  __YO_COND_TYPE joined_cond;           // Later shutdown_join callers wait here
+  int released;                         // __yo_worker_pool_destroy called
+};
+
+// The calling thread's worker slot, NULL on a thread that is not a pool
+// worker. Read by worker_id() and by the own-worker checks.
+static _Thread_local __yo_worker_slot_t* __yo_worker_self = NULL;
+
+static void __yo_worker_pool_free(struct __yo_worker_pool_s* pool) {
+  for (size_t i = 0; i < pool->count; i++) {
+    __yo_cond_destroy(&pool->workers[i].cond);
+  }
+  __yo_cond_destroy(&pool->joined_cond);
+  __yo_mutex_destroy(&pool->mutex);
+  __yo_free(pool->workers);
+  __yo_free(pool);
+}
+
+// Wake worker i if it is asleep. Caller holds pool->mutex. Clearing `waiting`
+// here, not in the worker, keeps a second submission from signalling the same
+// sleeper again while another worker sleeps on.
+static inline void __yo_worker_pool_wake(struct __yo_worker_pool_s* pool, size_t i) {
+  __yo_worker_slot_t* w = &pool->workers[i];
+  if (w->waiting) {
+    w->waiting = 0;
+    __yo_cond_signal(&w->cond);
+  }
+}
+
+// Worker thread entry point
+`
   );
-  emitter.emit_string_line(&pool_mutex_decl);
-  emitter.emit_string_line(`static volatile int __yo_worker_pool_initialized = 0;     // Pool initialization flag`);
-  emitter.emit_string_line(&windows_init_mutex);
-  emitter.emit_string_line(`// Worker thread entry point`);
   emitter.emit_string_line(&worker_entry_signature);
   emitter.emit_string_line(
-    `  __yo_worker_thread_t* worker = (__yo_worker_thread_t*)arg;
+    `  __yo_worker_slot_t* self = (__yo_worker_slot_t*)arg;
+  struct __yo_worker_pool_s* pool = self->pool;
+  __yo_worker_self = self;
 
-  PARALLELISM_DEBUG("[WORKER] Worker thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());`
+  PARALLELISM_DEBUG("[WORKER] Worker %zu started (tid=%zu)\\n", self->index, (size_t)__yo_get_thread_id());`
   );
   emitter.emit_string_line(&async_init_thread);
   emitter.emit_string_line(
     `
-  // Signal that this thread has started. Release so the main thread's
-  // acquire-load in __yo_worker_pool_init sees this thread's prior
-  // writes (scheduler init) happen-before it proceeds.
-  atomic_store_explicit(&worker->started, 1, memory_order_release);
-
-  while (1) {
-    __yo_worker_task_t* task = NULL;
-
-    // Wait for a task
-    __yo_mutex_lock(&worker->mutex);
-    while (worker->queue_head == NULL && !worker->shutdown) {
-      __yo_cond_wait(&worker->cond, &worker->mutex);
-    }
-
-    // Check for shutdown
-    if (worker->shutdown && worker->queue_head == NULL) {
-      __yo_mutex_unlock(&worker->mutex);
-      break;
-    }
-
-    // Dequeue task
-    task = worker->queue_head;
+  __yo_mutex_lock(&pool->mutex);
+  for (;;) {
+    // Own queue first, then the shared one.
+    __yo_worker_task_t* task = self->pinned_head;
     if (task != NULL) {
-      worker->queue_head = task->next;
-      if (worker->queue_head == NULL) {
-        worker->queue_tail = NULL;
+      self->pinned_head = task->next;
+      if (self->pinned_head == NULL) {
+        self->pinned_tail = NULL;
+      }
+    } else if (pool->shared_head != NULL) {
+      task = pool->shared_head;
+      pool->shared_head = task->next;
+      if (pool->shared_head == NULL) {
+        pool->shared_tail = NULL;
       }
     }
-    __yo_mutex_unlock(&worker->mutex);
 
-    // Execute task
     if (task != NULL) {
-      PARALLELISM_DEBUG("[WORKER] Executing task (tid=%zu)\\n", (size_t)__yo_get_thread_id());
+      __yo_mutex_unlock(&pool->mutex);
+      PARALLELISM_DEBUG("[WORKER] Worker %zu executing a task\\n", self->index);
       task->fn(task->closure);`
   );
   emitter.emit_string_line(&async_wait_worker);
@@ -333,10 +323,30 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
     `
       // Note: closure data is freed by the spawn wrapper (which handles RC cleanup)
       __yo_free(task);
+      __yo_mutex_lock(&pool->mutex);
+      continue;
     }
-  }
 
-  PARALLELISM_DEBUG("[WORKER] Worker thread exiting (tid=%zu)\\n", (size_t)__yo_get_thread_id());
+    // Both queues are empty: a closed pool's worker is done, an open pool's
+    // worker sleeps until a submission or the close wakes it.
+    if (pool->closed) {
+      break;
+    }
+    self->waiting = 1;
+    __yo_cond_wait(&self->cond, &pool->mutex);
+    self->waiting = 0;
+  }
+  // The last worker out frees a pool that was already released: the pool was
+  // dropped by one of its own tasks, which could not join the worker it ran on
+  // (see __yo_worker_pool_shutdown_join).
+  pool->live--;
+  int free_pool = (pool->live == 0 && pool->released);
+  __yo_mutex_unlock(&pool->mutex);
+  __yo_worker_self = NULL;
+  PARALLELISM_DEBUG("[WORKER] Worker exiting (tid=%zu)\\n", (size_t)__yo_get_thread_id());
+  if (free_pool) {
+    __yo_worker_pool_free(pool);
+  }
 `
   );
   // Release this worker's event loop. Deliberately at THREAD exit and not
@@ -350,194 +360,198 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
   emitter.emit_string_line(
     `}
 
-// Initialize the worker pool with the specified number of threads
-static void __yo_worker_pool_shutdown(void);  // Forward declaration
-static void __yo_worker_pool_init(size_t num_threads) {
-  if (__yo_worker_pool_initialized) {
-    return;
-  }
+// Create a pool of exactly num_threads workers. A worker the OS refuses to
+// create is not retried: the pool keeps the ones that started, and with none
+// (standalone WASI has no threads) every submission runs inline on the
+// submitting thread.
+static __yo_worker_pool_t __yo_worker_pool_create(size_t num_threads) {
+  PARALLELISM_DEBUG("[WORKER] Creating a pool of %zu workers\\n", num_threads);
+  struct __yo_worker_pool_s* pool = (struct __yo_worker_pool_s*)__yo_rc_alloc(sizeof(struct __yo_worker_pool_s));
+  __yo_mutex_init(&pool->mutex);
+  __yo_cond_init(&pool->joined_cond);
+  pool->shared_head = NULL;
+  pool->shared_tail = NULL;
+  pool->workers = (__yo_worker_slot_t*)__yo_rc_alloc(sizeof(__yo_worker_slot_t) * (num_threads == 0 ? 1 : num_threads));
+  pool->count = 0;
+  pool->live = 0;
+  pool->closed = 0;
+  pool->joining = 0;
+  pool->joined = 0;
+  pool->released = 0;
 
-  PARALLELISM_DEBUG("[WORKER] Initializing worker pool with %zu threads\\n", num_threads);
-
-  __yo_worker_threads = (__yo_worker_thread_t*)__yo_rc_alloc(sizeof(__yo_worker_thread_t) * num_threads);
-${pool_root_line}  __yo_worker_num_threads = num_threads;
-  __yo_worker_next_thread = 0;
-
+  // Held across the creations: a worker that starts at once blocks on it until
+  // count and live are final.
+  __yo_mutex_lock(&pool->mutex);
   for (size_t i = 0; i < num_threads; i++) {
-    __yo_worker_thread_t* worker = &__yo_worker_threads[i];
-    __yo_mutex_init(&worker->mutex);
-    __yo_cond_init(&worker->cond);
-    worker->queue_head = NULL;
-    worker->queue_tail = NULL;
-    worker->shutdown = 0;
-    worker->running = 1;
-    // Relaxed: set before the thread is created, so there is no
-    // concurrent access to order against yet.
-    atomic_store_explicit(&worker->started, 0, memory_order_relaxed);
-
-${worker_enter_line}    int ret = __yo_raw_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
-    if (ret == 0) {
-      // Detached at birth: the pool never joins a worker (see
-      // __yo_worker_pool_shutdown), and an unjoined, undetached thread is a
-      // leaked OS thread record — ThreadSanitizer's "thread leak"
-      // (issues/fixed/pool-workers-are-neither-joined-nor-detached.md).
-      __yo_raw_thread_detach(worker->handle);
-    }
-    if (ret != 0) {
-${worker_failed_leave_line}      PARALLELISM_DEBUG("[WORKER] Failed to create worker thread %zu (ret=%d)\\n", i, ret);
-      worker->running = 0;
-      // Relaxed: thread creation failed, so no worker thread exists to
-      // race with this store. Mark "started" to avoid waiting forever.
-      atomic_store_explicit(&worker->started, 1, memory_order_relaxed);
-    }
-  }
-
-  // Wait for all worker threads to start
-  for (size_t i = 0; i < num_threads; i++) {
-    __yo_worker_thread_t* worker = &__yo_worker_threads[i];
-    // Acquire: pairs with the worker's release store of 'started' so
-    // the worker's initialization is visible once we observe it.
-    while (!atomic_load_explicit(&worker->started, memory_order_acquire)) {
-      // Busy wait with yield to let threads start`
+    __yo_worker_slot_t* w = &pool->workers[i];
+    w->pool = pool;
+    w->index = i;
+    w->pinned_head = NULL;
+    w->pinned_tail = NULL;
+    w->waiting = 0;
+    __yo_cond_init(&w->cond);`
   );
-  emitter.emit_string_line(&yield_call);
+  emitter.emit_string_line(&worker_enter_line);
   emitter.emit_string_line(
-    `    }
+    `    int ret = __yo_raw_thread_create(&w->handle, __yo_worker_thread_entry, w);
+    if (ret != 0) {`
+  );
+  emitter.emit_string_line(&worker_failed_leave_line);
+  emitter.emit_string_line(
+    `      PARALLELISM_DEBUG("[WORKER] Failed to create worker %zu (ret=%d)\\n", i, ret);
+      __yo_cond_destroy(&w->cond);
+      break;
+    }
+    pool->count++;
+    pool->live++;
   }
-
-  __yo_worker_pool_initialized = 1;
-
-  // Register shutdown handler via atexit (runs LIFO, so registered last = runs first)
-  atexit(__yo_worker_pool_shutdown);
-
-  PARALLELISM_DEBUG("[WORKER] Worker pool initialized\\n");
+  __yo_mutex_unlock(&pool->mutex);
+  PARALLELISM_DEBUG("[WORKER] Pool has %zu workers\\n", pool->count);
+  return pool;
 }
 
-// Shut the worker pool down at process exit: tell every worker to stop, and
-// RETURN. Joining here hung the process for good whenever a worker was inside
-// a task that never finishes (blocked in a recv nobody feeds), and joined the
-// calling thread itself when exit() was called from a pool task
-// (issues/fixed/worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md).
-// A worker idle in its wait sees the flag and exits; a worker mid-task is
-// reclaimed by process teardown — every worker IS a detached thread (see
-// __yo_worker_pool_init). Nothing is destroyed or freed: a worker may still
-// be running against it.
-// ThreadPool.join_all / shutdown are the explicit "wait for my work" API.
-static void __yo_worker_pool_shutdown(void) {
-  if (!__yo_worker_pool_initialized) {
-    return;
-  }
-
-  PARALLELISM_DEBUG("[WORKER] Shutting down worker pool\\n");
-
-  for (size_t i = 0; i < __yo_worker_num_threads; i++) {
-    __yo_worker_thread_t* worker = &__yo_worker_threads[i];
-    __yo_mutex_lock(&worker->mutex);
-    worker->shutdown = 1;
-    __yo_cond_signal(&worker->cond);
-    __yo_mutex_unlock(&worker->mutex);
-  }
-
-  PARALLELISM_DEBUG("[WORKER] Worker pool shutdown signalled\\n");
+// The number of workers the pool has.
+static size_t __yo_worker_pool_worker_count(__yo_worker_pool_t pool) {
+  return pool->count;
 }
 
-// __yo_get_hardware_threads / __yo_get_cpu_id are emitted by the sys runtime
-// (always present) — see runtime-io-common.yo.
-
-// Set the number of worker threads (must be called before first spawn)
-static void __yo_worker_set_num_threads(size_t num) {`
-  );
-  emitter.emit_string_line(&init_mutex_call);
-  emitter.emit_string_line(
-    `  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
-  if (!__yo_worker_pool_initialized) {
-    // Pool not initialized yet, just set for later
-    __yo_worker_num_threads = num;
-    PARALLELISM_DEBUG("[WORKER] Set num_threads to %zu (pool not yet initialized)\\n", num);
+static void __yo_worker_pool_enqueue(__yo_worker_task_t** head, __yo_worker_task_t** tail, __yo_worker_task_t* task) {
+  if (*tail == NULL) {
+    *head = task;
   } else {
-    PARALLELISM_DEBUG("[WORKER] Warning: Cannot change num_threads after pool is initialized\\n");
+    (*tail)->next = task;
   }
-  __YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
+  *tail = task;
 }
 
-// Get the number of worker threads
-static size_t __yo_worker_get_num_threads(void) {`
-  );
-  emitter.emit_string_line(&init_mutex_call);
-  emitter.emit_string_line(
-    `  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
-  size_t num = __yo_worker_num_threads;
-  if (num == 0) {
-    num = __yo_get_hardware_threads();
-  }
-  __YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
-  return num;
-}
-
-// Spawn a task on the worker pool
-// Uses round-robin distribution for thread affinity
-static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {`
-  );
-  emitter.emit_string_line(&init_mutex_call);
-  emitter.emit_string_line(
-    `  // A pool worker can wake a loop on another thread just as a dedicated
-  // thread can (see __yo_threads_ever_spawned).
-  __yo_note_spawn();
-  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
-
-  // Initialize pool on first spawn if not already done
-  if (!__yo_worker_pool_initialized) {
-    size_t num = __yo_worker_num_threads;
-    if (num == 0) {
-      num = __yo_get_hardware_threads();
-    }
-    __yo_worker_pool_init(num);
-  }
-
-  // Select worker thread (round-robin for thread affinity)
-  size_t thread_idx = __yo_worker_next_thread % __yo_worker_num_threads;
-  __yo_worker_next_thread++;
-
-  __YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
-
-  PARALLELISM_DEBUG("[WORKER] Spawning task on worker thread %zu\\n", thread_idx);
-
-  // No OS thread was created for this slot — __yo_worker_pool_init already
-  // recorded that as running == 0 (standalone WASI: pthread_create fails).
-  // Enqueueing here would put the task on a queue nothing is waiting on, and
-  // ThreadPool.join_all's per-worker sentinels would then never run: its
-  // drained.recv() blocked FOREVER with no diagnostic (a CI leg spun 3.4 h on
-  // one test — issues/fixed/wasi-thread-pool-submit-deadlock.md). Run the task
-  // on the submitting thread instead, so the work still happens and a drain
-  // always terminates. The spawn wrapper is thread-agnostic (call the closure,
-  // drop its captures, free them) and the per-task epilogue below belongs to the
-  // worker's own event loop, so it is deliberately NOT run here: draining the
-  // caller's loop from inside a submission would re-enter it.
-  if (!__yo_worker_threads[thread_idx].running) {
-    PARALLELISM_DEBUG("[WORKER] No thread for slot %zu; running task inline\\n", thread_idx);
-    fn(closure);
-    return;
-  }
-
-  // Create task node
+static __yo_worker_task_t* __yo_worker_pool_task(__yo_thread_fn fn, void* closure) {
   __yo_worker_task_t* task = (__yo_worker_task_t*)__yo_rc_alloc(sizeof(__yo_worker_task_t));
   task->fn = fn;
   task->closure = closure;
   task->next = NULL;
+  return task;
+}
 
-  // Enqueue task to the selected worker's queue
-  __yo_worker_thread_t* worker = &__yo_worker_threads[thread_idx];
-  __yo_mutex_lock(&worker->mutex);
-  if (worker->queue_tail == NULL) {
-    worker->queue_head = task;
-    worker->queue_tail = task;
-  } else {
-    worker->queue_tail->next = task;
-    worker->queue_tail = task;
+// Submit a task to the shared queue; the first idle worker takes it.
+static void __yo_worker_pool_submit(__yo_worker_pool_t pool, __yo_thread_fn fn, void* closure) {
+  // A pool worker can wake a loop on another thread just as a dedicated
+  // thread can (see __yo_threads_ever_spawned).
+  __yo_note_spawn();
+  // No worker could be created (standalone WASI: pthread_create fails). Run
+  // the task on the submitting thread, so the work still happens and a drain
+  // always terminates (issues/fixed/wasi-thread-pool-submit-deadlock.md). The
+  // spawn wrapper is thread-agnostic (call the closure, drop its captures,
+  // free them); the per-task __yo_async_wait_all belongs to a worker's own
+  // loop, so it is deliberately NOT run here: draining the caller's loop from
+  // inside a submission would re-enter it.
+  if (pool->count == 0) {
+    PARALLELISM_DEBUG("[WORKER] Pool has no worker; running task inline\\n");
+    fn(closure);
+    return;
   }
-  __yo_cond_signal(&worker->cond);
-  __yo_mutex_unlock(&worker->mutex);
-}`
+  __yo_worker_task_t* task = __yo_worker_pool_task(fn, closure);
+  __yo_mutex_lock(&pool->mutex);
+  __yo_worker_pool_enqueue(&pool->shared_head, &pool->shared_tail, task);
+  // Wake one sleeping worker. None asleep means every worker is running a
+  // task, and each checks the shared queue before it sleeps again.
+  for (size_t i = 0; i < pool->count; i++) {
+    if (pool->workers[i].waiting) {
+      __yo_worker_pool_wake(pool, i);
+      break;
+    }
+  }
+  __yo_mutex_unlock(&pool->mutex);
+}
+
+// Submit a task to worker i's own queue; only worker i takes it. std/thread
+// checks i < count; a pool with no worker runs the task inline, as
+// __yo_worker_pool_submit does.
+static void __yo_worker_pool_submit_to(__yo_worker_pool_t pool, size_t i, __yo_thread_fn fn, void* closure) {
+  __yo_note_spawn();
+  if (pool->count == 0) {
+    PARALLELISM_DEBUG("[WORKER] Pool has no worker; running pinned task inline\\n");
+    fn(closure);
+    return;
+  }
+  __yo_worker_task_t* task = __yo_worker_pool_task(fn, closure);
+  __yo_mutex_lock(&pool->mutex);
+  __yo_worker_slot_t* w = &pool->workers[i];
+  __yo_worker_pool_enqueue(&w->pinned_head, &w->pinned_tail, task);
+  __yo_worker_pool_wake(pool, i);
+  __yo_mutex_unlock(&pool->mutex);
+}
+
+// True on a worker thread of this pool.
+static bool __yo_worker_pool_on_own_worker(__yo_worker_pool_t pool) {
+  return __yo_worker_self != NULL && __yo_worker_self->pool == pool;
+}
+
+// The calling pool worker's index in its pool, or SIZE_MAX on any other thread.
+static size_t __yo_worker_current_index(void) {
+  return __yo_worker_self != NULL ? __yo_worker_self->index : SIZE_MAX;
+}
+
+// Close the pool and join its workers. A worker exits once the pool is closed
+// and both its queues are empty, so the join is the drain of everything
+// already submitted. Idempotent and thread-safe: a later caller waits until
+// the first one has joined. Called on one of the pool's own workers (a task
+// shut its own pool down), it cannot join the thread it runs on: it closes the
+// pool and returns, and the workers exit once the queues are empty.
+static void __yo_worker_pool_shutdown_join(__yo_worker_pool_t pool) {
+  int on_own_worker = __yo_worker_pool_on_own_worker(pool);
+  __yo_mutex_lock(&pool->mutex);
+  pool->closed = 1;
+  for (size_t i = 0; i < pool->count; i++) {
+    __yo_worker_pool_wake(pool, i);
+  }
+  if (on_own_worker) {
+    __yo_mutex_unlock(&pool->mutex);
+    return;
+  }
+  if (pool->joining) {
+    while (!pool->joined) {
+      __yo_cond_wait(&pool->joined_cond, &pool->mutex);
+    }
+    __yo_mutex_unlock(&pool->mutex);
+    return;
+  }
+  pool->joining = 1;
+  __yo_mutex_unlock(&pool->mutex);
+
+  PARALLELISM_DEBUG("[WORKER] Joining %zu workers\\n", pool->count);
+  for (size_t i = 0; i < pool->count; i++) {
+    __yo_raw_thread_join(pool->workers[i].handle);
+  }
+
+  __yo_mutex_lock(&pool->mutex);
+  pool->joined = 1;
+  __yo_cond_broadcast(&pool->joined_cond);
+  __yo_mutex_unlock(&pool->mutex);
+}
+
+// Release the handle, after __yo_worker_pool_shutdown_join (std/thread's
+// ThreadPool drop). Dropped by its owner, the pool's workers are joined and it
+// is freed here. Dropped inside one of its own tasks (the task held the last
+// Arc(ThreadPool)), nothing will join the workers: they are detached, and the
+// last one to exit frees the pool.
+static void __yo_worker_pool_destroy(__yo_worker_pool_t pool) {
+  int on_own_worker = __yo_worker_pool_on_own_worker(pool);
+  __yo_mutex_lock(&pool->mutex);
+  if (on_own_worker) {
+    for (size_t i = 0; i < pool->count; i++) {
+      __yo_raw_thread_detach(pool->workers[i].handle);
+    }
+  }
+  pool->released = 1;
+  int free_now = (pool->live == 0);
+  __yo_mutex_unlock(&pool->mutex);
+  if (free_now) {
+    __yo_worker_pool_free(pool);
+  }
+}
+
+// __yo_get_hardware_threads / __yo_get_cpu_id are emitted by the sys runtime
+// (always present) - see runtime-io-common.yo.`
   );
 });
 export(generate_parallelism_runtime);

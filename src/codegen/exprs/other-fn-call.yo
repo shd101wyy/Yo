@@ -28,7 +28,7 @@
 { generate_yo_inline_function_call } :: import("./inline-fns.yo");
 { _call_generate_expr, call_projection_mode, unsized_lend_pair_code } :: import("./dispatch.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
-{ generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
+{ generate_thread_spawn_call, generate_worker_pool_submit_call, is_worker_pool_submit_name } :: import("./parallelism.yo");
 { get_c_include_for_extern } :: import("../../evaluator/exprs/c-include.yo");
 { assert, panic } :: import("std/assert");
 /// Monotonic counter for ref-spill temporaries (`__yo_ref_spill_N`). Must be
@@ -3146,8 +3146,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           if(sp_name.* == "__yo_thread_spawn", {
             return(generate_thread_spawn_call(expr, indent.clone(), context));
           });
-          if(sp_name.* == "__yo_worker_spawn", {
-            return(generate_worker_spawn_call(expr, indent.clone(), context));
+          if(is_worker_pool_submit_name(sp_name), {
+            return(generate_worker_pool_submit_call(expr, indent.clone(), context, sp_name.clone()));
           });
         }),
         .None => ()
