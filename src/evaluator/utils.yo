@@ -775,31 +775,31 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
     // A `&mut` reference moves where it is read by value; the reborrow
     // `&mut m.*` lends it instead and leaves it usable (VERDICTS-76 Q1).
     t_slot_is_mut_ref(ty) => Option(String).Some(_mut_reference_move_help(name)),
-    true =>   match(
-        // A `Box(Dyn(...))` is the owned `Dyn` (decision 49 S2): its note says
-        // how a `Dyn` copies (`Clone` in its trait list), not the box's `Drop`.
-        if(_is_box_of_dyn(ty), Option(String).None, move_only_reason(ty)),
-        .Some(why) => Option(String).Some(
-          `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it: create it with \`Arc.new(...)\` and give each sharer its own \`Arc.clone(...)\` (\`Rc.new\`/\`Rc.clone\` within one thread; an \`Rc(RefCell(...))\` to write it). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
+    true => match(
+      // A `Box(Dyn(...))` is the owned `Dyn` (decision 49 S2): its note says
+      // how a `Dyn` copies (`Clone` in its trait list), not the box's `Drop`.
+      if(_is_box_of_dyn(ty), Option(String).None, move_only_reason(ty)),
+      .Some(why) => Option(String).Some(
+        `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it: create it with \`Arc.new(...)\` and give each sharer its own \`Arc.clone(...)\` (\`Rc.new\`/\`Rc.clone\` within one thread; an \`Rc(RefCell(...))\` to write it). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
+      ),
+      .None => cond(
+        (type_holds_dyn_by_value(ty) || _is_box_of_dyn(ty)) => Option(String).Some(_dyn_copy_note(name, ty)),
+        (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
+          `\`${name}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, name.clone())}`
         ),
-        .None => cond(
-          (type_holds_dyn_by_value(ty) || _is_box_of_dyn(ty)) => Option(String).Some(_dyn_copy_note(name, ty)),
-          (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
-            `\`${name}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, name.clone())}`
-          ),
-          (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
-            `\`${name}\` has type \`${type_to_string(ty)}\`, which is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move it (\`sink(${name})\`).`
-          ),
-          (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
-            `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
-          ),
-          type_holds_counted_handle(ty) => Option(String).Some(_counted_handle_help(name, ty)),
-          type_requires_explicit_copy(ty) => Option(String).Some(
-            `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it to a \`&mut T\` parameter. A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
-          ),
-          true => Option(String).None
-        )
+        (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
+          `\`${name}\` has type \`${type_to_string(ty)}\`, which is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move it (\`sink(${name})\`).`
+        ),
+        (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
+          `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
+        ),
+        type_holds_counted_handle(ty) => Option(String).Some(_counted_handle_help(name, ty)),
+        type_requires_explicit_copy(ty) => Option(String).Some(
+          `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it to a \`&mut T\` parameter. A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
+        ),
+        true => Option(String).None
       )
+    )
   )
 );
 /// The E0901 note for a moved `&mut` reference `name`: the reborrow that

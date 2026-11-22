@@ -815,10 +815,12 @@ _chain_leaf_env :: (fn(leaf : &AstExpr, env : &Environment, ctx : &EvalContext) 
 _chain_leaf_moves_reference :: (fn(leaf : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)(
   ast_expr_is_atom(leaf) && !is_reference_deref_site(ast_expr_token(leaf)) && match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf)),
-    .Some(li) => t_slot_is_mut_ref(&li.ty()) && match(
-      get_variables_from_env(&li.env(), ast_expr_token(leaf).value.*.clone()).last_cloned(),
-      .Some(lv) => variable_is_reference_binding(&lv),
-      .None => false
+    .Some(li) => (
+      t_slot_is_mut_ref(&li.ty()) && match(
+        get_variables_from_env(&li.env(), ast_expr_token(leaf).value.*.clone()).last_cloned(),
+        .Some(lv) => variable_is_reference_binding(&lv),
+        .None => false
+      )
     ),
     .None => false
   )
