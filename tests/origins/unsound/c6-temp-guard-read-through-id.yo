@@ -1,0 +1,35 @@
+// expect: E0911
+// A reference read through a temporary guard (test 7, probe gl02): `get` returns a reference rooted at the guard
+// `c.borrow_mut()`, a temporary of the statement whose `Drop` replaces `c.xs` at the statement's end. Passed
+// through `id`, the inner projection call is a computed reference, not a place: its origin holds the temporary
+// (R-TEMP), so binding `r` past the statement is E0911. It was read as the place `c`, and `r.*` read freed memory.
+{ ArrayList } :: import("std/collections/array-list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+longs :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+Cell :: struct(xs : ArrayList(String));
+Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &mut(Cell, p)));
+impl(
+  generic(p : Origin),
+  Guard(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.c.xs = ArrayList(String).new();
+    })
+  )
+);
+impl(Cell, borrow_mut : (fn(self : &mut Self) -> Guard(self))(Guard(self)(c : self)));
+impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &String)(&self.c.xs(usize(0))));
+impl(generic(p : Origin), Guard(p), me : (fn(self : &Self) -> &Self)(self));
+id :: (fn(a : &String) -> &String)(a);
+mkc :: (fn() -> Cell)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(longs());
+  Cell(xs : xs)
+});
+main :: (fn() -> unit)({
+  mut(c) := mkc();
+  r := id(c.borrow_mut().get());
+  println(`OUT: ${r.*}`);
+});
+export(main);

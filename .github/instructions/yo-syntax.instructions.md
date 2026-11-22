@@ -614,7 +614,9 @@ main :: (fn() -> unit)({
   an owner (`Array(T, N)` with `Target : [T]`, a user type over `[T]`) whose `x.*` is its projection:
   `v := &x.*` binds `x.deref()`, `w := &mut x.*` binds `x.deref_mut()`. An owner's own member wins over its view's. Nothing derefs at a parameter:
   pass `f(&s.*)`, never `f(&s)` (E0601 naming `&s.*`). Outside the prelude a `Deref` impl needs an unsized
-  `Target` (`[T]`, `str`, a `Dyn`), else E0622. `ArrayList`/`String` do not implement `Deref` yet.
+  `Target` (`[T]`, `str`, a `Dyn`), else E0622. `ArrayList(T)` is an owner too (`Target : [T]`, with
+  `DerefMut`): `&list.*` is a `&[T]`, and `list.*.m()` calls a `[T]` method on the elements. `String` does
+  not implement `Deref`.
 - A generic impl's `where` is not consulted when its method is resolved
   (`issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md`).
 
