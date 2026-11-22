@@ -145,7 +145,7 @@ evaluate_size_of :: (
 /// pointer: a written lend `&place`/`&mut place` there is a reference over
 /// the place (its origin the place's root, as a tuple's lend element), and a
 /// bare reference binding is the reference, not a whole-value read (E0926).
-_eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : str, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Tuple(AstExpr, ArrayList(ExprInfo)))({
+_eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : &(str, static), env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Tuple(AstExpr, ArrayList(ExprInfo)))({
   args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   if(args.len() != n, {
     exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), `Expected "${name}" with ${n.to_string()} argument(s)`))));
