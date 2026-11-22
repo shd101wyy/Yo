@@ -221,7 +221,9 @@ pool.join_all();
 pool := Arc.new(ThreadPool.new(usize(4)));
 spawn(&pool.*, { pool : Arc.clone(pool) }(io : Io) => {
   // 向自己所在的线程池提交更多工作的任务
-  spawn(&pool.*, (io : Io) => { do_work(); });
+  spawn(&pool.*, (io : Io) => {
+    do_work();
+  });
 });
 ```
 

@@ -246,7 +246,9 @@ threads and tasks as `Arc(ThreadPool)`:
 pool := Arc.new(ThreadPool.new(usize(4)));
 spawn(&pool.*, { pool : Arc.clone(pool) }(io : Io) => {
   // a task that submits more work into its own pool
-  spawn(&pool.*, (io : Io) => { do_work(); });
+  spawn(&pool.*, (io : Io) => {
+    do_work();
+  });
 });
 ```
 
