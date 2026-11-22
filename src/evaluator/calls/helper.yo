@@ -8965,7 +8965,32 @@ try_to_call_function_with_arguments :: (
         s7_k = (s7_k + usize(1));
         s7_rt_before := rt_args.len();
         plabel := match(pl.get_cloned(pi), .Some(l) => l, .None => String.from(""));
-        ptype := match(slot_pointee_at(&pt.*, pi), .Some(t) => t, .None => t_unit());
+        // A reference VALUE argument fills a borrow slot as the slot's value
+        // (VERDICTS-75 row (b): "a receiver that is itself a reference value
+        // needs no borrow"): an argument already evaluated — a method call's
+        // receiver — whose recorded type IS the slot is judged against the
+        // slot itself, not its pointee. The pointee would re-evaluate it as a
+        // place of the referent and poison a reference-returning
+        // subexpression (`o.unwrap().len()`,
+        // issues/fixed/2026-11-10-a-method-call-on-a-call-result-typed-as-a-reference-is-e0610.md).
+        // An argument the check itself evaluates (a binding, a place) keeps
+        // the pointee: it reads as the place the call lends.
+        ptype := match(
+          pt.get(pi),
+          .Some(pv_slot) => match(
+            adjusted_args.get_cloned(pi),
+            .Some(pv_arg) => match(
+              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&pv_arg)),
+              .Some(pv_info) => cond(
+                (node_is_preevaluated(ast_expr_id(&pv_arg)) && t_slot_is_borrow(&pv_slot) && are_types_compatible(&pv_info.ty(), &pv_slot)) => Rc.clone(pv_slot),
+                true => match(slot_pointee_at(&pt.*, pi), .Some(t) => t, .None => t_unit())
+              ),
+              .None => match(slot_pointee_at(&pt.*, pi), .Some(t) => t, .None => t_unit())
+            ),
+            .None => match(slot_pointee_at(&pt.*, pi), .Some(t) => t, .None => t_unit())
+          ),
+          .None => t_unit()
+        );
         p_owning := match(pio.get(pi), .Some(o) => o, .None => false);
         p_sink := match(pis.get(pi), .Some(o) => o, .None => false);
         // Omitted optional parameter (no corresponding argument): clone the

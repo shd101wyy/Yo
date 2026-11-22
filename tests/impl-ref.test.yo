@@ -674,6 +674,19 @@ test("(riders) a user impl(&C, ToString) beside the blanket is E0612", {
 // (r2) — a receiver whose own type is the method's slot is the slot's value,
 // never a borrow minted once more.
 //
+// r1: a call result typed `&T` takes the referent's `self : &Self` method
+// directly (issues/fixed/2026-11-10-a-method-call-on-a-call-result-typed-as-a-reference-is-e0610.md).
+_pick_opt_ref :: (fn(s : &String) -> Option(&String))(.Some(s));
+_RrHolder :: struct(o : Option(&String));
+test("(r1) a method call on a call result typed &T reads through, as on a binding", {
+  y := String.from("hello");
+  assert(_pick_opt_ref(&y).unwrap().len() == usize(5), "the call result takes len at the slot &String");
+  m := _pick_opt_ref(&y).unwrap();
+  assert(m.len() == usize(5), "the same result bound with := takes len bare");
+  assert(m.*.len() == usize(5), "and spelled through the star");
+  h := _RrHolder(o : .Some(&y));
+  assert(h.o.unwrap().len() == usize(5), "a field's call result reads through the same way");
+});
 // r2: `rr.wh()` on `rr : &&C` resolves the blanket whose slot is `rr`'s own
 // type at step 0, before the referent's method one read-through away
 // (issues/fixed/2026-11-20-a-reference-to-reference-binding-lends-itself-to-a-blanket-method-whose-slot-is-its-own-type.md).

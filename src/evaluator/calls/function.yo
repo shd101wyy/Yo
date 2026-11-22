@@ -1857,9 +1857,10 @@ _find_receiver_method_of :: (
     });
     // A receiver that is a reference VALUE (`rr.*` with `rr : &&C`, a call
     // returning `&C`) is not a place of `C`: a method registered on `C`
-    // reaches it only through the deref step below (`rr.*.*.m()`). Only a
-    // method whose impl receiver is itself a reference answers the value
-    // directly.
+    // reaches it only through the deref step below (`rr.*.*.m()`), EXCEPT a
+    // method whose slot is the receiver's own reference type (probe step 0,
+    // rider r1): the reference is the slot's value and fills it directly,
+    // whatever impl family registered it.
     // A reference impl's candidate is kept only when no candidate of `C` it
     // drops has an earlier probe step: `C`'s `self : &Self` method has the
     // slot `&C` the value fills, so it wins over a blanket over `&T` (slot
@@ -1896,7 +1897,16 @@ _find_receiver_method_of :: (
         while(pf_i < probed.hits.len(), {
           is_ref_impl := match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true);
           pf_rank := match(probed.ranks.get(pf_i), .Some(r) => r, .None => usize(9));
-          keep := cond(is_ref_impl => (pf_rank <= dropped_min_rank), true => (tie_at_min && (pf_rank == dropped_min_rank)));
+          // r1 (VERDICTS-75): a candidate whose slot is the receiver's own
+          // reference type (probe step 0) is filled by the reference itself —
+          // "a receiver that is itself a reference value needs no borrow" —
+          // whatever impl family registered it; only the deeper steps of the
+          // base stay the deref retry's.
+          keep := cond(
+            is_ref_impl => (pf_rank <= dropped_min_rank),
+            (pf_rank == usize(0)) => true,
+            true => (tie_at_min && (pf_rank == dropped_min_rank))
+          );
           if(keep, {
             match(probed.hits.get_cloned(pf_i), .Some(h) => hits.push(h), .None => ());
             match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());
@@ -8603,7 +8613,17 @@ _evaluate_funcval_runtime_call :: (
                   // A `&str` value at a `&str` slot is the `str` it refers
                   // to (decision 49 S2, `check_argument_for_parameter`).
                   _ac_str_place := (is_str_reference_type(&_ac_aty) && is_legacy_value_str(&_ac_pty));
-                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime && !_ac_str_place
+                  // r1 (VERDICTS-75 row (b)): the argument IS the reference
+                  // the slot takes — a receiver or value typed `&String` at a
+                  // `&String` slot — so it is the slot's value, not a place
+                  // the slot lends ("a receiver that is itself a reference
+                  // value needs no borrow").
+                  _ac_slot_value := match(
+                    _ac_pts.get(_ac_i),
+                    .Some(_ac_sl) => (t_slot_is_borrow(&_ac_aty) && are_types_compatible(&_ac_aty, &_ac_sl)),
+                    .None => false
+                  );
+                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime && !_ac_str_place && !_ac_slot_value
                   && !are_types_compatible(&_ac_aty, &_ac_pty), {
                     // C19: a concrete/concrete argument-type mismatch (e.g. C
                     // `int` where `i32` is declared) is ALWAYS a hard error.
