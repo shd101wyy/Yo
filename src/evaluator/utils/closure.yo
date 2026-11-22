@@ -193,7 +193,7 @@ _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> O
         .Some(v) => match(
           v,
           Rc(.FuncVal(fvd, _)) => match(
-            get_closure_capture_info(fvd.func_id.clone()),
+            get_closure_capture_info(fvd.*.*.func_id.clone()),
             .Some(cci) => Option(TypeValue).Some(Rc.clone(cci.capture_type)),
             .None => Option(TypeValue).None
           ),
@@ -590,7 +590,7 @@ function_value_marker :: (
   match(
     witness,
     .Some(Rc(.FuncVal(wfvd, _))) => {
-      return(Option(Option(String)).Some(_function_value_offense(wfvd.func_id.clone(), Option(AstExpr).Some(Rc.clone(wfvd.body)), marker, env, ctx)));
+      return(Option(Option(String)).Some(_function_value_offense(wfvd.*.*.func_id.clone(), Option(AstExpr).Some(Rc.clone(wfvd.*.*.body)), marker, env, ctx)));
     },
     .Some(_) => (),
     .None => ()
@@ -616,7 +616,7 @@ function_value_marker :: (
               // value OF this type: it only shares the signature. Judging
               // every definition of the signature convicted `f := count`
               // for what an unrelated `fill` touches.
-              if(!(v.is_module_level() || v.is_compile_time_only()), {
+              if(!(v.*.is_module_level() || v.*.is_compile_time_only()), {
                 matches := if(
                   want_id.is_empty(),
                   is_function_type(&variable_value_type(&v)) && (type_to_string(&variable_value_type(&v)) == want_str),
@@ -624,7 +624,7 @@ function_value_marker :: (
                 );
                 if(matches, {
                   match(
-                    v.value().get(usize(0)),
+                    v.*.value().get(usize(0)),
                     .Some(vv) => match(
                       vv,
                       Rc(.FuncVal(fvd, _)) => {
@@ -792,7 +792,7 @@ validate_send_closure_global_reach :: (
   // parameter) reads it through `g_closure_fids_by_some`. Walking it there,
   // with no defining env, would not resolve the local closures it calls.
   _note_fid_for_some_id(_some_id_of(wrapper_type), closure_fid.clone());
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.*.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(error_token.*.*.module_path.*.clone())), {
     reach := function_reaches_non_send_global(closure_fid.clone(), closure_body, &ctx.expr_info_table, env);
     // Only a closure that really runs on another thread publishes its reads
     // (issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md).
@@ -980,7 +980,7 @@ enrich_captured_variables :: (
               while(enr_k < enr_found.len(), enr_k = (enr_k + usize(1)), {
                 match(
                   enr_found.get_cloned(enr_k),
-                  .Some(ev) => if(ev.is_compile_time_only(), {
+                  .Some(ev) => if(ev.*.is_compile_time_only(), {
                     enr_cto = (enr_cto + usize(1));
                   }),
                   .None => ()
@@ -997,15 +997,15 @@ enrich_captured_variables :: (
                   vars.get_cloned(j),
                   .None => (),
                   .Some(v) => {
-                    if(!v.is_compile_time_only(), {
+                    if(!v.*.is_compile_time_only(), {
                       enriched := FuncCapturedVarInfo(
                         frame_level : fl,
                         usage : cap_info.usage,
                         token : Rc.clone(cap_info.token),
                         ty : variable_value_type(&v),
-                        value : v.value().get(usize(0)),
-                        is_effect_param : v.is_effect_param(),
-                        decl_site : `${v.token.module_path.*}:${v.token.row.to_string()}:${v.token.column.to_string()}`
+                        value : v.*.value().get(usize(0)),
+                        is_effect_param : v.*.is_effect_param(),
+                        decl_site : `${v.*.token.*.module_path.*}:${v.*.token.*.row.to_string()}:${v.*.token.*.column.to_string()}`
                       );
                       result.insert(vn_copy.clone(), enriched);
                       ()
@@ -1176,13 +1176,13 @@ create_capture_type_and_value :: (
       // Stable capture-struct id (see g_capture_struct_ids note): keyed by the
       // closure's source position + capture field signature, reused across evals.
       cap_key := String.from("cap@");
-      cap_key.push_string(closure_tok.module_path.*.clone());
+      cap_key.push_string(closure_tok.*.*.module_path.*.clone());
       cap_key.push_str(":");
-      cap_key.push_string(usize(closure_tok.row).to_string());
+      cap_key.push_string(usize(closure_tok.*.*.row).to_string());
       cap_key.push_str(":");
-      cap_key.push_string(usize(closure_tok.column).to_string());
+      cap_key.push_string(usize(closure_tok.*.*.column).to_string());
       cap_key.push_str(":");
-      cap_key.push_string(usize(closure_tok.character).to_string());
+      cap_key.push_string(usize(closure_tok.*.*.character).to_string());
       cap_key.push_str("|sig:");
       cap_key.push_string(closure_signature.clone());
       cap_key.push_str("|");
@@ -1300,7 +1300,7 @@ create_capture_type_and_value :: (
       // Auto-derive trait markers for the capture struct.
       auto_derive_traits_for_struct_type(
         struct_id.clone(),
-        &field_types_s.items,
+        &field_types_s.*.items,
         false,
         false,
         env
@@ -1448,7 +1448,7 @@ generate_captured_variable_dup_expressions :: (
                 cap_vars := get_variables_from_env(env, var_name.clone());
                 match(
                   cap_vars.last_cloned(),
-                  .Some(cap_v) => if(!cap_v.is_compile_time_only(), {
+                  .Some(cap_v) => if(!cap_v.*.is_compile_time_only(), {
                     move_captured_explicit_copy_variable(&cap_v, closure_tok, env, ctx, exn);
                   }),
                   .None => ()
@@ -1535,7 +1535,7 @@ _clone_receiver_is_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
       // `ptr.*` over a pure address (`p.add(i)` with a place `p` and place
       // or literal offsets) is a place: the expansion reads it once per
       // field, and re-evaluating the address has no effect.
-      (ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(cr_args.get_cloned(usize(1)), .Some(Rc(.Atom(_, cr_deref_tok))) => (cr_deref_tok.value.* == "*"), _ => false)) => match(
+      (ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(cr_args.get_cloned(usize(1)), .Some(Rc(.Atom(_, cr_deref_tok))) => (cr_deref_tok.*.value.* == "*"), _ => false)) => match(
         cr_args.get_cloned(usize(0)),
         .Some(cr_addr) => (recur(&cr_addr, ctx) || _clone_address_is_pure(&cr_addr, ctx)),
         .None => false
@@ -1560,7 +1560,7 @@ _clone_address_is_pure :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
       && match(
         ca_callee,
         Rc(.FnCall(_, _, Rc(ca_dot_args), _, _)) => (
-          match(ca_dot_args.get_cloned(usize(1)), .Some(Rc(.Atom(_, ca_m))) => (ca_m.value.* == "add"), _ => false)
+          match(ca_dot_args.get_cloned(usize(1)), .Some(Rc(.Atom(_, ca_m))) => (ca_m.*.value.* == "add"), _ => false)
           && match(ca_dot_args.get_cloned(usize(0)), .Some(ca_p) => _clone_receiver_is_place(&ca_p, ctx), .None => false)
         ),
         Rc(.Atom(_, _)) => false
@@ -1767,7 +1767,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut
   // clone template that writes it is `auto-generated://` code
   // (issues/fixed/2026-11-21-the-rc-ownership-builtins-are-callable-outside-unsafe.md).
   cf_tok := ast_expr_token(expr);
-  if(!is_destroying_builtin_call_capable(Option(String).Some(cf_tok.module_path.*.clone())), {
+  if(!is_destroying_builtin_call_capable(Option(String).Some(cf_tok.*.module_path.*.clone())), {
     exn.throw(dyn(Box.new(format_error_message(&cf_tok, ownership_builtin_error_message(&String.from(BF_YO_CAPTURE_FIELD), &ast_expr_to_string(&recv))))));
   });
   idx_e := match(cf_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
@@ -1775,7 +1775,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut
   _ := evaluate_expression_raw(&idx_e, env, ctx, exn);
   recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => Rc.clone(ri.ty()), .None => t_unit());
   cap := resolve_cell_chain(match(closure_identity_of(&recv_ty), .Some(cl) => cl, .None => Rc.clone(recv_ty)));
-  idx := match(ast_expr_token(&idx_e).value.*.parse_i64(), .Some(n) => usize(n), .None => usize(0));
+  idx := match(ast_expr_token(&idx_e).*.value.*.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   field_ty := match(
     cap,
     Rc(.Struct({ field_types : cf_types })) => match(cf_types.get(idx), .Some(t) => t, .None => t_unit()),

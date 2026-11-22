@@ -209,7 +209,7 @@ _func_snippet :: (fn(name : &String, ty : &TypeValue) -> String)(
       (n : usize) = usize(0);
       (i : usize) = usize(0);
       while(i < param_types.len(), {
-        label := match(meta.param_labels.get(i), .Some(l) => l, .None => `arg${i}`);
+        label := match(meta.*.*.param_labels.get(i), .Some(l) => l, .None => `arg${i}`);
         if(label != "self", {
           n = (n + usize(1));
           if(n > usize(1), {
@@ -304,7 +304,7 @@ _type_member_items :: (
         vfields := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
         vlabels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
         if(vname.len() > usize(0), {
-          _push_variant(&vname, &vfields.items, &vlabels.items, false, out, seen);
+          _push_variant(&vname, &vfields.*.items, &vlabels.*.items, false, out, seen);
         });
         i = (i + usize(1));
       });
@@ -468,15 +468,15 @@ _receiver_at :: (
   // Env refinement (hover's shape): several bindings can share the name;
   // the nearest declaration wins, and a type-valued binding unwraps to the
   // type it names.
-  if(!unwrapped && (target.kind == TokenKind.Identifier), {
-    vars := get_variables_from_env(&info.env(), target.value.*.clone());
+  if(!unwrapped && (target.*.*.kind == TokenKind.Identifier), {
+    vars := get_variables_from_env(&info.env(), target.*.*.value.*.clone());
     if(vars.len() > usize(0), {
       match(
         _select_best_variable(&vars, target),
         .Some(sv) => {
           (var_unwrapped : bool) = false;
           match(
-            sv.value().get(usize(0)),
+            sv.*.value().get(usize(0)),
             .Some(Rc(.TypeVal(t2))) => {
               recv = Rc.clone(t2);
               var_unwrapped = true;
@@ -562,7 +562,7 @@ _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
         _,
         tok
       )
-    ) => (usize(tok.row) == line),
+    ) => (usize(tok.*.*.row) == line),
     Rc(
       .FnCall(
         _,
@@ -572,7 +572,7 @@ _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
         tok2
       )
     ) => {
-      if(usize(tok2.row) == line, {
+      if(usize(tok2.*.*.row) == line, {
         return(true);
       });
       if(recur(&func_box.*, line), {
@@ -607,7 +607,7 @@ _expected_enum_at :: (
     e,
     Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
-      head := match(func_box, Rc(.Atom(_, ht)) => ht.value.*.clone(), _ => String.new());
+      head := match(func_box, Rc(.Atom(_, ht)) => ht.*.*.value.*.clone(), _ => String.new());
       if((head == "=") && (args.len() >= usize(2)), {
         // NB: not named `near` — that is a legacy Windows macro (windef.h
         // defines it to nothing), and user locals keep their names in the
@@ -622,7 +622,7 @@ _expected_enum_at :: (
             .Some(lhs) => match(
               lhs,
               Rc(.FnCall(_, lhs_func, Rc(lhs_args), _, _)) => {
-                lhs_head := match(lhs_func, Rc(.Atom(_, lt)) => lt.value.*.clone(), _ => String.new());
+                lhs_head := match(lhs_func, Rc(.Atom(_, lt)) => lt.*.value.*.clone(), _ => String.new());
                 if((lhs_head == ":") && (lhs_args.len() >= usize(2)), {
                   match(
                     lhs_args.get_cloned(usize(1)),
@@ -724,7 +724,7 @@ _scan_idents :: (
   match(
     e,
     Rc(.Atom(_, tok)) => {
-      at_or_before := ((usize(tok.row) < line) || ((usize(tok.row) == line) && (usize(tok.column) <= character)));
+      at_or_before := ((usize(tok.*.*.row) < line) || ((usize(tok.*.*.row) == line) && (usize(tok.*.*.column) <= character)));
       match(
         expr_info_table_get(info_table, ast_expr_id(e)),
         .Some(info) => if(at_or_before, {
@@ -742,25 +742,25 @@ _scan_idents :: (
         }),
         .None => ()
       );
-      before := ((usize(tok.row) < line) || ((usize(tok.row) == line) && (usize(tok.column) < character)));
-      if((tok.kind == TokenKind.Identifier) && before, {
-        name := tok.value.*.clone();
+      before := ((usize(tok.*.*.row) < line) || ((usize(tok.*.*.row) == line) && (usize(tok.*.*.column) < character)));
+      if((tok.*.*.kind == TokenKind.Identifier) && before, {
+        name := tok.*.*.value.*.clone();
         match(
           name_index.get(name.clone()),
           .Some(idx) => {
             old_row := match(name_rows.get(idx), .Some(r) => r, .None => usize(0));
             old_col := match(name_cols.get(idx), .Some(c) => c, .None => usize(0));
-            later := ((usize(tok.row) > old_row) || ((usize(tok.row) == old_row) && (usize(tok.column) > old_col)));
+            later := ((usize(tok.*.*.row) > old_row) || ((usize(tok.*.*.row) == old_row) && (usize(tok.*.*.column) > old_col)));
             if(later, {
-              name_rows(idx) = usize(tok.row);
-              name_cols(idx) = usize(tok.column);
+              name_rows(idx) = usize(tok.*.*.row);
+              name_cols(idx) = usize(tok.*.*.column);
               name_expr_ids(idx) = ast_expr_id(e);
             });
           },
           .None => {
             names.push(name.clone());
-            name_rows.push(usize(tok.row));
-            name_cols.push(usize(tok.column));
+            name_rows.push(usize(tok.*.*.row));
+            name_cols.push(usize(tok.*.*.column));
             name_expr_ids.push(ast_expr_id(e));
             name_index.insert(name, names.len() - usize(1));
           }
@@ -910,9 +910,9 @@ _import_items :: (
 
 /// Trivia the import-list scan skips over.
 _is_trivia_token :: (fn(t : &Token) -> bool)(
-  (t.kind == TokenKind.Whitespace) ||
-    (t.kind == TokenKind.SingleLineComment) ||
-      (t.kind == TokenKind.MultiLineComment) || (t.kind == TokenKind.DocLineComment) || (t.kind == TokenKind.DocBlockComment)
+  (t.*.*.kind == TokenKind.Whitespace) ||
+    (t.*.*.kind == TokenKind.SingleLineComment) ||
+      (t.*.*.kind == TokenKind.MultiLineComment) || (t.*.*.kind == TokenKind.DocLineComment) || (t.*.*.kind == TokenKind.DocBlockComment)
 );
 /// The import path of a `{ … } :: import("path")` destructuring whose brace
 /// list holds the cursor (RUNE position `line`/`character`), or "" when the
@@ -927,7 +927,7 @@ _import_list_path :: (
   (ti : usize) = usize(0);
   while(ti < tokens.len(), {
     t := Rc.clone(tokens(ti));
-    starts_before := ((usize(t.row) < line) || ((usize(t.row) == line) && (usize(t.column) < character)));
+    starts_before := ((usize(t.*.row) < line) || ((usize(t.*.row) == line) && (usize(t.*.column) < character)));
     if(starts_before, {
       last_before = Option(usize).Some(ti);
     });
@@ -944,11 +944,11 @@ _import_list_path :: (
       while(scanning, {
         t := Rc.clone(tokens(k));
         cond(
-          (t.kind == TokenKind.LCurlyBracket) => {
+          (t.*.kind == TokenKind.LCurlyBracket) => {
             open_idx = Option(usize).Some(k);
             scanning = false;
           },
-          ((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Comma) || _is_trivia_token(&t)) => (),
+          ((t.*.kind == TokenKind.Identifier) || (t.*.kind == TokenKind.Comma) || _is_trivia_token(&t)) => (),
           true => {
             scanning = false;
           }
@@ -979,14 +979,14 @@ _import_list_path :: (
   while(walking && (j < tokens.len()), {
     t := Rc.clone(tokens(j));
     cond(
-      (t.kind == TokenKind.RCurlyBracket) => {
+      (t.*.kind == TokenKind.RCurlyBracket) => {
         close_idx = Option(usize).Some(j);
         walking = false;
       },
-      (t.kind == TokenKind.Identifier) => {
-        listed.push(t.value.*.clone());
+      (t.*.kind == TokenKind.Identifier) => {
+        listed.push(t.*.value.*.clone());
       },
-      ((t.kind == TokenKind.Comma) || _is_trivia_token(&t)) => (),
+      ((t.*.kind == TokenKind.Comma) || _is_trivia_token(&t)) => (),
       true => {
         walking = false;
       }
@@ -1013,11 +1013,11 @@ _import_list_path :: (
     return(String.new());
   });
   shape_ok := (
-    (tail(usize(0)).value.* == "::") && (tail(usize(1)).value.* == "import") &&
-      (tail(usize(2)).kind == TokenKind.LParen) && (tail(usize(3)).kind == TokenKind.StringLit)
+    (tail(usize(0)).*.value.* == "::") && (tail(usize(1)).*.value.* == "import") &&
+      (tail(usize(2)).*.kind == TokenKind.LParen) && (tail(usize(3)).*.kind == TokenKind.StringLit)
   );
   cond(
-    shape_ok => str_lit_unquote_bytes(&tail(usize(3)).value.*),
+    shape_ok => str_lit_unquote_bytes(&tail(usize(3)).*.value.*),
     true => String.new()
   )
 });
@@ -1195,26 +1195,26 @@ handle_completion :: (
         }
       );
       trivia := (
-        (t.kind == TokenKind.Whitespace) ||
-          (t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment)
+        (t.*.kind == TokenKind.Whitespace) ||
+          (t.*.kind == TokenKind.SingleLineComment) || (t.*.kind == TokenKind.MultiLineComment)
       );
       if(!trivia, {
         // `t.column` and `dot_col` are RUNE columns, so the token width added
         // to one has to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-        ends_at_dot := ((usize(t.row) == line) && ((usize(t.column) + t.value.*.clone().chars().count()) == dot_col));
-        if(ends_at_dot && (t.kind == TokenKind.Identifier), {
+        ends_at_dot := ((usize(t.*.row) == line) && ((usize(t.*.column) + t.*.value.*.clone().chars().count()) == dot_col));
+        if(ends_at_dot && (t.*.kind == TokenKind.Identifier), {
           receiver = Option(Token).Some(Rc.clone(t));
         });
-        before_dot := ((usize(t.row) < line) || ((usize(t.row) == line) && ((usize(t.column) + t.value.*.clone().chars().count()) <= dot_col)));
+        before_dot := ((usize(t.*.row) < line) || ((usize(t.*.row) == line) && ((usize(t.*.column) + t.*.value.*.clone().chars().count()) <= dot_col)));
         if(before_dot, {
           later := (
             prev_tok.is_none() ||
-              (usize(t.row) > prev_row) || ((usize(t.row) == prev_row) && (usize(t.column) >= prev_col))
+              (usize(t.*.row) > prev_row) || ((usize(t.*.row) == prev_row) && (usize(t.*.column) >= prev_col))
           );
           if(later, {
             prev_tok = Option(Token).Some(Rc.clone(t));
-            prev_row = usize(t.row);
-            prev_col = usize(t.column);
+            prev_row = usize(t.*.row);
+            prev_col = usize(t.*.column);
           });
         });
       });
@@ -1243,9 +1243,9 @@ handle_completion :: (
         trigger := match(
           prev_tok,
           .Some(pt) => (
-            (pt.value.* == "=") || (pt.value.* == "(") || (pt.value.* == ",") ||
-              (pt.value.* == "{") || (pt.value.* == ";") ||
-                (pt.value.* == "=>") || (pt.value.* == ":=") || (pt.value.* == "return")
+            (pt.*.value.* == "=") || (pt.*.value.* == "(") || (pt.*.value.* == ",") ||
+              (pt.*.value.* == "{") || (pt.*.value.* == ";") ||
+                (pt.*.value.* == "=>") || (pt.*.value.* == ":=") || (pt.*.value.* == "return")
           ),
           .None => true
         );
@@ -1271,7 +1271,7 @@ handle_completion :: (
                   vfields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
                   vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
                   if(vname.len() > usize(0), {
-                    _push_variant(&vname, &vfields.items, &vlabels.items, true, &mut items, &mut seen2);
+                    _push_variant(&vname, &vfields.*.items, &vlabels.*.items, true, &mut items, &mut seen2);
                   });
                   vi = (vi + usize(1));
                 });
@@ -1345,7 +1345,7 @@ handle_completion :: (
             match(
               frame.variable_at(vi2),
               .Some(v) => {
-                vname := v.name.clone();
+                vname := v.*.name.clone();
                 // The evaluator's discarded-binding temporaries
                 // (`_<path>_temp_N`, src/utils.yo) live in this frame too;
                 // they are internal and their spelling embeds the file's

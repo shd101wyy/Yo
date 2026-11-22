@@ -843,7 +843,7 @@ _ti_bind_variant_info_list :: (
     v_name := match(variant_names.get_cloned(i), .Some(nm) => nm, .None => String.from(""));
     v_fields := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
     v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
-    vi_val := _ti_build_variant_info(env_ptr, &v_name, &v_field_labels.items, &v_fields.items, enum_ty, i, ctx, exn);
+    vi_val := _ti_build_variant_info(env_ptr, &v_name, &v_field_labels.*.items, &v_fields.*.items, enum_ty, i, ctx, exn);
     vi_vals.push(vi_val);
     i = (i + usize(1));
   });
@@ -1221,12 +1221,12 @@ evaluate_yo_type_get_info :: (
       String.from("TypeInfo.ComptimeList(") + cn + String.from(")")
     },
     Rc(.Tuple(labels, types)) => {
-      fl_name := _ti_bind_type_field_list(&local_env, &labels.items, &types.items, ctx, exn);
+      fl_name := _ti_bind_type_field_list(&local_env, &labels.*.*.items, &types.*.*.items, ctx, exn);
       String.from("TypeInfo.Tuple(") + fl_name + String.from(")")
     },
     Rc(.Str) => String.from("TypeInfo.Str"),
     Rc(.Struct({ field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype })) => {
-      fl_name := _ti_bind_type_field_list(&local_env, &labels.items, &types.items, ctx, exn);
+      fl_name := _ti_bind_type_field_list(&local_env, &labels.*.*.items, &types.*.*.items, ctx, exn);
       kind_str := cond(
         is_newtype.* => String.from("StructKind.NewType"),
         is_atomic.* => String.from("StructKind.AtomicObject"),
@@ -1240,7 +1240,7 @@ evaluate_yo_type_get_info :: (
       String.from("TypeInfo.Enum(") + vl_name + String.from(")")
     },
     Rc(.Union(_, labels, types)) => {
-      fl_name := _ti_bind_type_field_list(&local_env, &labels.items, &types.items, ctx, exn);
+      fl_name := _ti_bind_type_field_list(&local_env, &labels.*.*.items, &types.*.*.items, ctx, exn);
       String.from("TypeInfo.Union(") + fl_name + String.from(")")
     },
     // === SomeType(name, required_traits, negative_traits, resolved_type) ===
@@ -1270,8 +1270,8 @@ evaluate_yo_type_get_info :: (
     },
     // === Dyn(required_traits, negative_traits) ===
     Rc(.DynT(dt_req, _, dt_neg, _)) => {
-      req_name := _ti_bind_trait_info_list(&local_env, &dt_req.items, String.from("req"), ctx, exn);
-      neg_name := _ti_bind_trait_info_list(&local_env, &dt_neg.items, String.from("neg"), ctx, exn);
+      req_name := _ti_bind_trait_info_list(&local_env, &dt_req.*.*.items, String.from("req"), ctx, exn);
+      neg_name := _ti_bind_trait_info_list(&local_env, &dt_neg.*.*.items, String.from("neg"), ctx, exn);
       {
         dc := String.from("TypeInfo.Dyn(");
         dc.push_string(&req_name);
@@ -1298,12 +1298,12 @@ evaluate_yo_type_get_info :: (
     Rc(.FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes)) => {
       fni_name := _ti_bind_function_info(
         &local_env,
-        &ft_plabels.items,
-        &ft_ptypes.items,
+        &ft_plabels.*.*.items,
+        &ft_ptypes.*.*.items,
         ArrayList(String).new(),
         ArrayList(TypeValue).new(),
-        &ft_ilabels.items,
-        &ft_itypes.items,
+        &ft_ilabels.*.*.items,
+        &ft_itypes.*.*.items,
         &ft_result.*,
         ArrayList(TypeValue).new(),
         String.from("..."),
@@ -1323,7 +1323,7 @@ evaluate_yo_type_get_info :: (
     },
     Rc(.FutureTraitT(_, fut_output, _, fut_etypes, _)) => {
       out_name := _ti_bind_type(&local_env, &fut_output.*, ctx);
-      eff_name := _ti_bind_trait_info_list(&local_env, &fut_etypes.items, String.from("eff"), ctx, exn);
+      eff_name := _ti_bind_trait_info_list(&local_env, &fut_etypes.*.*.items, String.from("eff"), ctx, exn);
       empty_fields := _ti_bind_comptime_list(&local_env, ArrayList(EvalValue).new(), String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn);
       {
         uc := String.from("TypeInfo.Trait(");
@@ -1340,16 +1340,16 @@ evaluate_yo_type_get_info :: (
     Rc(.Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts })) => {
       fni_name := _ti_bind_function_info(
         &local_env,
-        &fn_meta.param_labels.items,
-        &fn_pts.items,
-        &fn_meta.forall_labels.items,
-        &fn_fts.items,
-        &fn_meta.implicit_labels.items,
-        &fn_its.items,
+        &fn_meta.*.*.param_labels.*.items,
+        &fn_pts.*.*.items,
+        &fn_meta.*.*.forall_labels.*.items,
+        &fn_fts.*.*.items,
+        &fn_meta.*.*.implicit_labels.*.items,
+        &fn_its.*.*.items,
         &t_slot_pointee(&fn_res.*),
-        &fn_vts.items,
-        match(&fn_meta.variadic_label, .Some(vl) => vl.clone(), .None => String.from("...")),
-        fn_meta.variadic_comptime,
+        &fn_vts.*.*.items,
+        match(&fn_meta.*.*.variadic_label, .Some(vl) => vl.clone(), .None => String.from("...")),
+        fn_meta.*.*.variadic_comptime,
         ctx,
         exn
       );
@@ -2094,7 +2094,7 @@ evaluate_type_map_variants :: (
     v_fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
     v_field_labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
     // Build VariantInfo value.
-    vi_val := _ti_build_variant_info(&local_env, &v_name, &v_field_labels.items, &v_fields.items, &target_type, vi, ctx, exn);
+    vi_val := _ti_build_variant_info(&local_env, &v_name, &v_field_labels.*.items, &v_fields.*.items, &target_type, vi, ctx, exn);
     vi_type := match(&vi_declared_ty_opt, .Some(dt) => Rc.clone(dt), .None => type_of_eval_value(&vi_val));
     // Bind VariantInfo to temp var, then call mapper(vi_var_name).
     vi_name := stable_module_id(String.from("__dvi_"), &local_env.module_path().*);

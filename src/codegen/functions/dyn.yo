@@ -25,7 +25,7 @@
 { type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : &EvalValue) -> String)(
-  match(v, Rc(.FuncVal(__fvd1, _)) => __fvd1.func_id.clone(), _ => String.from(""))
+  match(v, Rc(.FuncVal(__fvd1, _)) => __fvd1.*.*.func_id.clone(), _ => String.from(""))
 );
 /// True for the reserved dyn-method labels (___dup/___drop/___dispose), and
 /// for the destructor trait's own method (`drop` of the prelude `Drop`,
@@ -300,7 +300,7 @@ generate_dyn_slot_functions :: (fn(context : &mut FunctionGenerationContext) -> 
         // clone_into, for a Dyn that lists Clone
         if(dyn_type_lists_clone(entry.dyn_type.clone()), {
           req_traits := match(entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => Rc.clone(required_trait_types), _ => no_types());
-          clone_fid := dyn_impl_clone_fid(&req_traits.items, &entry.trait_values);
+          clone_fid := dyn_impl_clone_fid(&req_traits.*.items, &entry.trait_values);
           context.base.emitter.emit_declaration_string_line(`static void __yo_cli_${key.clone()}(void* self_ptr, void* dst);`);
           context.base.emitter.emit_string_line(`static void __yo_cli_${key.clone()}(void* self_ptr, void* dst) {`);
           (clone_entry : Option(CodegenFunctionEntry)) = if(clone_fid.is_empty(), Option(CodegenFunctionEntry).None, context.base.get_function_entry(clone_fid.clone()));
@@ -1012,7 +1012,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
         });
         // Pass 3: the clone slot of a Dyn that lists Clone.
         if(dyn_type_lists_clone(impl_entry.dyn_type.clone()), {
-          _emit_dyn_clone_function(&impl_key, &req_traits.items, &impl_entry.trait_values, &data_type, &impl_entry.concrete_type, impl_entry.payload_convention, context);
+          _emit_dyn_clone_function(&impl_key, &req_traits.*.items, &impl_entry.trait_values, &data_type, &impl_entry.concrete_type, impl_entry.payload_convention, context);
         });
       },
       .None => ()

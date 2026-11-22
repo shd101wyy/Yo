@@ -117,14 +117,14 @@ test("a closure's `{ r : &mut r.* }` borrows the referent whole while it lives",
 // (issues/fixed/2026-11-15-the-deletion-binary-rejects-the-swept-lend-of-an-rc-handle-binding-in-src.md).
 _DerefCell :: struct(items : ArrayList(i32));
 _DerefNode :: enum(Leaf, Func(param_types : Rc(_DerefCell), n : i32));
-_deref_count_at :: (fn(l : &Rc(_DerefCell), i : usize) -> usize)(if(i < l.*.items.len(), usize(1), usize(0)));
+_deref_count_at :: (fn(l : &Rc(_DerefCell), i : usize) -> usize)(if(i < l.*.*.items.len(), usize(1), usize(0)));
 _deref_walk :: (fn(t : &Rc(_DerefNode)) -> usize)(
   match(
     t,
     Rc(.Func({ param_types : pts, n : _ })) => {
       mut(found) := usize(0);
       mut(i) := usize(0);
-      while(i < pts.*.items.len(), {
+      while(i < pts.*.*.items.len(), {
         found = (found + _deref_count_at(&pts.*, i));
         i = (i + usize(1));
       });

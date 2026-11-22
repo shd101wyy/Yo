@@ -56,28 +56,28 @@ handle_folding_ranges :: (fn(text : &String, doc_abs : &String) -> JsonValue)({
         return(JsonValue.Array(items : out));
       }
     );
-    is_open := ((t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.LParen));
-    is_close := ((t.kind == TokenKind.RCurlyBracket) || (t.kind == TokenKind.RParen));
+    is_open := ((t.*.kind == TokenKind.LCurlyBracket) || (t.*.kind == TokenKind.LParen));
+    is_close := ((t.*.kind == TokenKind.RCurlyBracket) || (t.*.kind == TokenKind.RParen));
     cond(
       is_open => {
-        open_rows.push(usize(t.row));
+        open_rows.push(usize(t.*.row));
       },
       is_close => {
         if(open_rows.len() > usize(0), {
-          open_row := match(open_rows.last(), .Some(r) => r, .None => usize(t.row));
+          open_row := match(open_rows.last(), .Some(r) => r, .None => usize(t.*.row));
           _p := open_rows.pop();
-          if(open_row < usize(t.row), {
-            _push_fold(&mut out, &mut seen, open_row, usize(t.row), "region");
+          if(open_row < usize(t.*.row), {
+            _push_fold(&mut out, &mut seen, open_row, usize(t.*.row), "region");
           });
         });
       },
       (
-        (t.kind == TokenKind.MultiLineComment) ||
-          (t.kind == TokenKind.DocBlockComment) || (t.kind == TokenKind.InnerDocBlockComment)
+        (t.*.kind == TokenKind.MultiLineComment) ||
+          (t.*.kind == TokenKind.DocBlockComment) || (t.*.kind == TokenKind.InnerDocBlockComment)
       ) => {
-        line_count := t.value.*.split(String.from("\n")).len();
+        line_count := t.*.value.*.split(String.from("\n")).len();
         if(line_count > usize(1), {
-          _push_fold(&mut out, &mut seen, usize(t.row), (usize(t.row) + line_count) - usize(1), "comment");
+          _push_fold(&mut out, &mut seen, usize(t.*.row), (usize(t.*.row) + line_count) - usize(1), "comment");
         });
       },
       true => ()
@@ -125,7 +125,7 @@ _semantic_walk :: (
         tok
       )
     ) => {
-      key := `${usize(tok.row)}:${usize(tok.column)}`;
+      key := `${usize(tok.*.*.row)}:${usize(tok.*.*.column)}`;
       if(!out.contains_key(key.clone()), {
         kind := _SEM_VARIABLE;
         if(roles.members.contains(&id.*) || roles.labels.contains(&id.*), {
@@ -270,11 +270,11 @@ handle_semantic_tokens :: (
       }
     );
     ti = (ti + usize(1));
-    if(t.kind == TokenKind.Whitespace, {
+    if(t.*.kind == TokenKind.Whitespace, {
       continue;
     });
     kind := match(
-      t.kind,
+      t.*.kind,
       TokenKind.StringLit => _SEM_STRING,
       TokenKind.TemplateString => _SEM_STRING,
       TokenKind.CharLit => _SEM_STRING,
@@ -294,7 +294,7 @@ handle_semantic_tokens :: (
           match(
             kws.get_cloned(ki),
             .Some(kw) => {
-              if(kw == t.value.*, {
+              if(kw == t.*.value.*, {
                 is_kw = true;
               });
             },
@@ -305,7 +305,7 @@ handle_semantic_tokens :: (
         cond(
           is_kw => _SEM_KEYWORD,
           true => match(
-            atom_kinds.get(`${usize(t.row)}:${usize(t.column)}`),
+            atom_kinds.get(`${usize(t.*.row)}:${usize(t.*.column)}`),
             .Some(k) => k,
             .None => usize(999)
           )
@@ -325,11 +325,11 @@ handle_semantic_tokens :: (
     match(
       tokens.get_cloned(ti),
       .Some(nx) => {
-        end_byte = usize(nx.byte_offset);
+        end_byte = usize(nx.*.byte_offset);
       },
       .None => ()
     );
-    start_byte := usize(t.byte_offset);
+    start_byte := usize(t.*.byte_offset);
     while((end_byte > start_byte) && _sem_is_ws_byte(text.byte_at(end_byte - usize(1))), {
       end_byte = (end_byte - usize(1));
     });
@@ -339,9 +339,9 @@ handle_semantic_tokens :: (
     // Walk the span's bytes, closing one segment per newline; rune columns
     // advance on UTF-8 LEAD bytes only (ASCII or >= 0xC0), never on
     // continuation bytes.
-    (seg_row : usize) = usize(t.row);
-    (seg_start : usize) = usize(t.column);
-    (cur_col : usize) = usize(t.column);
+    (seg_row : usize) = usize(t.*.row);
+    (seg_start : usize) = usize(t.*.column);
+    (cur_col : usize) = usize(t.*.column);
     (bi : usize) = start_byte;
     while(bi < end_byte, {
       b := text.byte_at(bi);

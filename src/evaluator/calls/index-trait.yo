@@ -180,7 +180,7 @@ _resolve_prelude_range_type :: (
     match(
       vars.get_cloned(vi),
       .Some(v) => match(
-        v.value().get(usize(0)),
+        v.*.value().get(usize(0)),
         .Some(fv) => if(is_func_val(&fv) && is_function_type(&variable_value_type(&v)), {
           _try_ctfe_range_ctor(&variable_value_type(&v), &fv, env, ctx, &mut out);
         }),
@@ -1073,19 +1073,19 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
   toks := ArrayList(Token).new();
   _atom_tokens_of(e, &mut toks);
   out := ArrayList(_MovedLocal).new();
-  module := Rc.clone(ast_expr_token(e).module_path);
-  (lo : u32) = ast_expr_token(e).character;
+  module := Rc.clone(ast_expr_token(e).*.module_path);
+  (lo : u32) = ast_expr_token(e).*.character;
   (hi : u32) = lo;
   (i : usize) = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     match(
       toks.get_cloned(i),
-      .Some(t) => if(t.module_path == module, {
-        if(t.character < lo, {
-          lo = t.character;
+      .Some(t) => if(t.*.module_path == module, {
+        if(t.*.character < lo, {
+          lo = t.*.character;
         });
-        if(t.character > hi, {
-          hi = t.character;
+        if(t.*.character > hi, {
+          hi = t.*.character;
         });
       }),
       .None => ()
@@ -1096,17 +1096,17 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
     match(
       toks.get_cloned(i),
       .Some(t) => match(
-        find_variable_in_env(env, &t.value.*),
+        find_variable_in_env(env, &t.*.value.*),
         .Some(v) => match(
-          v.consumed_at_token(),
+          v.*.consumed_at_token(),
           .Some(c) => {
-            inside := ((c.module_path == module) && (c.character >= lo) && (c.character <= hi));
+            inside := ((c.*.module_path == module) && (c.*.character >= lo) && (c.*.character <= hi));
             (seen : bool) = false;
             (j : usize) = usize(0);
             while(j < out.len(), j = (j + usize(1)), {
               match(
                 out.get_cloned(j),
-                .Some(o) => if(o.variable.id() == v.id(), {
+                .Some(o) => if(o.variable.*.id() == v.*.id(), {
                   seen = true;
                 }),
                 .None => ()
@@ -1185,7 +1185,7 @@ _specialize_index_method :: (
     match(
       moved.get_cloned(mi),
       .Some(m) => {
-        m.variable.set_consumed_at_token(Option(Token).None);
+        m.variable.*.set_consumed_at_token(Option(Token).None);
       },
       .None => ()
     );
@@ -1208,7 +1208,7 @@ _specialize_index_method :: (
     match(
       moved.get_cloned(mi),
       .Some(m) => {
-        m.variable.set_consumed_at_token(Option(Token).Some(Rc.clone(m.at)));
+        m.variable.*.set_consumed_at_token(Option(Token).Some(Rc.clone(m.at)));
       },
       .None => ()
     );
@@ -1460,12 +1460,12 @@ _try_comptime_custom_type_index :: (
   );
   ct_p0_label := match(
     &ct_fn_type,
-    Rc(.Func({ meta : __cifm2 })) => match(__cifm2.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")),
+    Rc(.Func({ meta : __cifm2 })) => match(__cifm2.*.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")),
     _ => String.from("self")
   );
   ct_p1_label := match(
     &ct_fn_type,
-    Rc(.Func({ meta : __cifm3 })) => match(__cifm3.param_labels.get(usize(1)), .Some(l) => l, .None => String.from("idx")),
+    Rc(.Func({ meta : __cifm3 })) => match(__cifm3.*.*.param_labels.get(usize(1)), .Some(l) => l, .None => String.from("idx")),
     _ => String.from("idx")
   );
   // Rebuild the method's definition-time scope from its capture snapshot, then
@@ -1921,10 +1921,10 @@ _record_index_unchecked_twin :: (
   ) -> unit
 )({
   tok := ast_expr_token(expr);
-  if(!_is_verify_target(&tok.module_path.*), {
+  if(!_is_verify_target(&tok.*.module_path.*), {
     return(());
   });
-  vmode := resolve_verify_mode(&tok.module_path.*);
+  vmode := resolve_verify_mode(&tok.*.module_path.*);
   if(!((vmode == "verify") || (vmode == "verify+")), {
     return(());
   });
@@ -1992,7 +1992,7 @@ _index_receiver_root :: (fn(recv : &AstExpr, env : &Environment, ctx : &EvalCont
     match(
       Rc.clone(cur),
       Rc(.Atom(_, rr_tok)) => {
-        return(get_variables_from_env(env, rr_tok.value.*.clone()).last_cloned());
+        return(get_variables_from_env(env, rr_tok.*.value.*.clone()).last_cloned());
       },
       Rc(.FnCall(_, rr_callee, Rc(rr_args), rr_infix, _)) => {
         cur = cond(
@@ -2093,12 +2093,12 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
                 // (issues/fixed/2026-11-05-addr-of-an-element-through-a-read-only-borrow-is-reported-as-a-write.md).
                 is_addr_of => format_error_message_with_help(
                   &tok,
-                  `Cannot take \`addr_of(${place_text})\`: it yields a \`*T\`, which can write the element, and \`${rv.name}\` is a read-only borrow.`,
-                  Option(String).Some(`to read the element, use it in place: index it (\`${place_text}.f\`), match it through \`&${place_text}\`, or pass \`&${place_text}\` to a \`&T\` parameter; to write it, declare \`${rv.name} : &mut T\` (or borrow it with \`&mut\`)`)
+                  `Cannot take \`addr_of(${place_text})\`: it yields a \`*T\`, which can write the element, and \`${rv.*.name}\` is a read-only borrow.`,
+                  Option(String).Some(`to read the element, use it in place: index it (\`${place_text}.f\`), match it through \`&${place_text}\`, or pass \`&${place_text}\` to a \`&T\` parameter; to write it, declare \`${rv.*.name} : &mut T\` (or borrow it with \`&mut\`)`)
                 ),
                 true => format_error_message(
                   &tok,
-                  `Cannot write \`${place_text}\`: \`IndexMut.index_mut\` takes \`self : &mut Self\`, and \`${rv.name}\` is a read-only borrow. Declare it \`${rv.name} : &mut T\` (or borrow it with \`&mut\`) to write its elements.`
+                  `Cannot write \`${place_text}\`: \`IndexMut.index_mut\` takes \`self : &mut Self\`, and \`${rv.*.name}\` is a read-only borrow. Declare it \`${rv.*.name} : &mut T\` (or borrow it with \`&mut\`) to write its elements.`
                 )
               ),
               E_WRITE_THROUGH_BORROW
@@ -2319,8 +2319,8 @@ _place_step_field_type :: (fn(t : &TypeValue, label : &String) -> Option(TypeVal
       ((r || sns) || cell_handle_view(t).is_some()) => Option(TypeValue).None,
       true => {
         (i : usize) = usize(0);
-        while(i < fl.items.len(), {
-          if(fl.items(i) == label.*, {
+        while(i < fl.*.items.len(), {
+          if(fl.*.items(i) == label.*, {
             return(ft.get(i));
           });
           i = (i + usize(1));
@@ -2330,8 +2330,8 @@ _place_step_field_type :: (fn(t : &TypeValue, label : &String) -> Option(TypeVal
     ),
     Rc(.Tuple(tl, tt)) => {
       (i : usize) = usize(0);
-      while(i < tl.items.len(), {
-        if(tl.items(i) == label.*, {
+      while(i < tl.*.items.len(), {
+        if(tl.*.items(i) == label.*, {
           return(tt.get(i));
         });
         i = (i + usize(1));
@@ -2371,9 +2371,9 @@ _place_chain_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -
   match(
     e,
     Rc(.Atom(_, pc_tok)) => match(
-      get_variables_from_env(env, pc_tok.value.*.clone()).last_cloned(),
+      get_variables_from_env(env, pc_tok.*.*.value.*.clone()).last_cloned(),
       .Some(pc_v) => cond(
-        pc_v.is_compile_time_only() => Option(TypeValue).None,
+        pc_v.*.is_compile_time_only() => Option(TypeValue).None,
         true => Option(TypeValue).Some(variable_value_type(&pc_v))
       ),
       .None => Option(TypeValue).None
@@ -2386,9 +2386,9 @@ _place_chain_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -
           .Some(pc_base) => cond(
             // A reference binding's type is its referent's (the mode is
             // the binding's): `r.*` reads that type.
-            ((pc_f.value.* == "*") && _is_reference_binding_atom(&pc_args(usize(0)), env)) => Option(TypeValue).Some(pc_base),
-            (pc_f.value.* == "*") => _place_step_pointee(&pc_base),
-            true => _place_step_field_type(&pc_base, &pc_f.value.*)
+            ((pc_f.*.value.* == "*") && _is_reference_binding_atom(&pc_args(usize(0)), env)) => Option(TypeValue).Some(pc_base),
+            (pc_f.*.value.* == "*") => _place_step_pointee(&pc_base),
+            true => _place_step_field_type(&pc_base, &pc_f.*.value.*)
           ),
           .None => Option(TypeValue).None
         ),
@@ -2431,7 +2431,7 @@ _is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> 
 _is_reference_binding_atom :: (fn(e : &AstExpr, env : &Environment) -> bool)(
   match(
     e,
-    Rc(.Atom(_, rb_tok)) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last_cloned(), .Some(rb_v) => variable_is_reference_binding(&rb_v), .None => false),
+    Rc(.Atom(_, rb_tok)) => match(get_variables_from_env(env, rb_tok.*.*.value.*.clone()).last_cloned(), .Some(rb_v) => variable_is_reference_binding(&rb_v), .None => false),
     Rc(.FnCall(_, _, _, _, _)) => false
   )
 );

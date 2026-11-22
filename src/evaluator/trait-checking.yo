@@ -1377,17 +1377,17 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
   );
   match(
     ty,
-    Rc(.Struct({ field_types : fields })) => (_clone_parts_run_no_user_code(&fields.items, clone_tt, visited, depth) && _clone_parts_run_no_user_code(&buffer_element_types(&fields.items), clone_tt, visited, depth)),
+    Rc(.Struct({ field_types : fields })) => (_clone_parts_run_no_user_code(&fields.*.items, clone_tt, visited, depth) && _clone_parts_run_no_user_code(&buffer_element_types(&fields.*.items), clone_tt, visited, depth)),
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), vi = (vi + usize(1)), {
-        if(!match(all_fields.get(vi), .Some(vf) => _clone_parts_run_no_user_code(&vf.items, clone_tt, visited, depth), .None => true), {
+        if(!match(all_fields.get(vi), .Some(vf) => _clone_parts_run_no_user_code(&vf.*.items, clone_tt, visited, depth), .None => true), {
           return(false);
         });
       });
       true
     },
-    Rc(.Tuple(field_labels : _, field_types : tfs)) => _clone_parts_run_no_user_code(&tfs.items, clone_tt, visited, depth),
+    Rc(.Tuple(field_labels : _, field_types : tfs)) => _clone_parts_run_no_user_code(&tfs.*.items, clone_tt, visited, depth),
     Rc(.Array(element : el, length : _, length_var : _)) => _clone_runs_no_user_code_inner(&el, clone_tt, visited, depth + u32(1)),
     Rc(.DynT(required_trait_types : _)) => false,
     Rc(.Func({ result : _ })) => false,
@@ -1568,7 +1568,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   // reach both (pushing onto the node's own list would grow the loop bound).
   parts := match(
     copy_structural_parts(&ty),
-    .Some(sp) => sp.items.clone(),
+    .Some(sp) => sp.*.items.clone(),
     .None => ArrayList(TypeValue).new()
   );
   if(is_value_nominal_type(&ty), {
@@ -3005,7 +3005,7 @@ _sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
   match(
     ty,
     Rc(.Func({ param_types : sm_pts, meta : sm_meta })) => Option(_SigModes).Some(
-      _SigModes(labels : sm_meta.param_labels.clone(), types : shared_list(slot_pointees(&sm_pts.*)), refs : fn_param_mut_ref_flags(ty), owns : fn_param_by_value_flags(ty), n : sm_pts.len(), complete : true)
+      _SigModes(labels : sm_meta.*.*.param_labels.clone(), types : shared_list(slot_pointees(&sm_pts.*)), refs : fn_param_mut_ref_flags(ty), owns : fn_param_by_value_flags(ty), n : sm_pts.len(), complete : true)
     ),
     _ => match(
       extract_fn_trait_from_type(ty),
@@ -3476,7 +3476,7 @@ type_contains_some_type_for_codegen_param :: (
       found
     },
     Rc(.Func({ param_types : param_types, result : result_box, meta : __fm1 })) => {
-      forall_labels := Rc.clone(__fm1.forall_labels);
+      forall_labels := Rc.clone(__fm1.*.*.forall_labels);
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !found, {

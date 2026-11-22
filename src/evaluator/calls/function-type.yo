@@ -204,7 +204,7 @@ _soft_evaluated_for_verify_inner :: (
   soft_exn := Exception(
     throw : (
       _err -> {
-        _flag_pred_eval_failed(_err.to_string());
+        _flag_pred_eval_failed(_err.*.to_string());
         unwind(Option(AstExpr).None);
       }
     )
@@ -384,15 +384,15 @@ _trial_eval_fn_body :: (
   // the most recent `[trial]` above it.
   if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
     dbg_tok := ast_expr_token(body);
-    eprintln(`[trial] ${dbg_tok.module_path.*}:${dbg_tok.row.to_string()}:${dbg_tok.column.to_string()}`);
+    eprintln(`[trial] ${dbg_tok.*.module_path.*}:${dbg_tok.*.row.to_string()}:${dbg_tok.*.column.to_string()}`);
   });
   inner_exn := Exception(
     throw : (
       _err -> {
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
-          eprintln(`[swallow] ${_err.to_string()}`);
+          eprintln(`[swallow] ${_err.*.to_string()}`);
         });
-        _flag_trial_swallow(_err.to_string());
+        _flag_trial_swallow(_err.*.to_string());
         _flag_trial_swallow_diags(&_err);
         unwind(());
       }
@@ -519,7 +519,7 @@ _ctor_binder_some_ids :: (
     ids.push(
       match(
         find_variable_in_env(env, &lbl),
-        .Some(v) => match(v.value().get(usize(0)), .Some(Rc(.TypeVal(Rc(.SomeT({ id : sid }))))) => sid.clone(), _ => String.from("")),
+        .Some(v) => match(v.*.value().get(usize(0)), .Some(Rc(.TypeVal(Rc(.SomeT({ id : sid }))))) => sid.clone(), _ => String.from("")),
         .None => String.from("")
       )
     );
@@ -639,8 +639,8 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
               keep := cond(
                 !strip => true,
                 (i == usize(0)) => true,
-                v.is_compile_time_only() => true,
-                v.is_module_level() => true,
+                v.*.is_compile_time_only() => true,
+                v.*.is_module_level() => true,
                 true => false
               );
               if(keep, {
@@ -734,7 +734,7 @@ _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
       });
       match(
         d,
-        Rc(.Atom(_, label_tok)) => if(label_tok.kind == TokenKind.Identifier, {
+        Rc(.Atom(_, label_tok)) => if(label_tok.*.kind == TokenKind.Identifier, {
           out.push(Rc.clone(label_tok));
         }),
         Rc(.FnCall(_, _, _, _, _)) => ()
@@ -750,7 +750,7 @@ _param_decl_token :: (fn(tokens : &ArrayList(Token), label : &String, module_pat
   (ti : usize) = usize(0);
   while(ti < tokens.len(), ti = (ti + usize(1)), {
     t := Rc.clone(tokens(ti));
-    if(t.value.* == label.*, {
+    if(t.*.value.* == label.*, {
       return(t);
     });
   });
@@ -860,7 +860,7 @@ _build_def_time_body_env :: (
             rk_frame.variable_at(rk_vi),
             .Some(rv) => {
               rv_bty := match(
-                rv.value().get(usize(0)),
+                rv.*.value().get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
                   Rc(.TypeVal(Rc(.SomeT(_, rv_sname, rv_slvl, _, _, _, _)))) =>
@@ -873,7 +873,7 @@ _build_def_time_body_env :: (
               (rk_at : Option(usize)) = Option(usize).None;
               (rk_si : usize) = usize(0);
               while(rk_si < rk_names.len(), {
-                if(match(rk_names.get_cloned(rk_si), .Some(n) => (n == rv.name), .None => false), {
+                if(match(rk_names.get_cloned(rk_si), .Some(n) => (n == rv.*.name), .None => false), {
                   rk_at = Option(usize).Some(rk_si);
                 });
                 rk_si = (rk_si + usize(1));
@@ -884,16 +884,16 @@ _build_def_time_body_env :: (
                 // recorded one — as a fresh re-kind hit or a cancellation.
                 .Some(at) => {
                   rk_tys(at) = rv_bty;
-                  rk_reassign(at) = rv.is_reassignable();
-                  rk_module_level(at) = rv.is_module_level();
+                  rk_reassign(at) = rv.*.is_reassignable();
+                  rk_module_level(at) = rv.*.is_module_level();
                 },
                 .None => match(
                   &rv_bty,
                   .Some(_) => {
-                    rk_names.push(rv.name.clone());
+                    rk_names.push(rv.*.name.clone());
                     rk_tys.push(rv_bty.clone());
-                    rk_reassign.push(rv.is_reassignable());
-                    rk_module_level.push(rv.is_module_level());
+                    rk_reassign.push(rv.*.is_reassignable());
+                    rk_module_level.push(rv.*.is_module_level());
                   },
                   // A non-hit with no recorded entry needs no cancellation.
                   .None => ()
@@ -938,7 +938,7 @@ _build_def_time_body_env :: (
           match(
             rk_var_opt,
             .Some(rk_var) => {
-              rk_var.set_is_module_level(rk_ml);
+              rk_var.*.set_is_module_level(rk_ml);
             },
             .None => ()
           );
@@ -1004,7 +1004,7 @@ _build_def_time_body_env :: (
   // Skipped when a parameter of the same name exists: the parameter loop is
   // authoritative for it (and runs after, so it would overwrite anyway).
   {
-    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => Rc.clone(__fa_m.forall_labels), _ => no_labels());
+    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => Rc.clone(__fa_m.*.*.forall_labels), _ => no_labels());
     fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => Rc.clone(__fa_t), _ => no_types());
     (fa_i : usize) = usize(0);
     while(fa_i < fa_labels.len(), {
@@ -1058,7 +1058,7 @@ _build_def_time_body_env :: (
     // as the origin naming itself, as the signature's env binds it.
     o_labels := match(
       fn_type_for_foralls,
-      Rc(.Func({ meta : __o_m })) => match(&__o_m.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels()),
+      Rc(.Func({ meta : __o_m })) => match(&__o_m.*.*.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels()),
       _ => no_labels()
     );
     (o_i : usize) = usize(0);
@@ -1165,7 +1165,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
                 body : make_err_expr(),
                 cap_names : ArrayList(String).new(),
                 cap_tys : ArrayList(TypeValue).new(),
-                func_id : stable_func_id(String.from(""), &rp_tok.module_path.*, usize(rp_tok.row), usize(rp_tok.column))
+                func_id : stable_func_id(String.from(""), &rp_tok.*.module_path.*, usize(rp_tok.*.row), usize(rp_tok.*.column))
               )
             ),
             no_values()
@@ -1187,7 +1187,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
         while(rp_fi < pd.fwd_vars.len(), {
           match(
             pd.fwd_vars.get_cloned(rp_fi),
-            .Some(fv) => if(match(fv.value().get(usize(0)), .Some(fvv) => is_unknown_val(&fvv), .None => true), {
+            .Some(fv) => if(match(fv.*.value().get(usize(0)), .Some(fvv) => is_unknown_val(&fvv), .None => true), {
               rp_all_filled = false;
             }),
             .None => ()
@@ -1270,14 +1270,14 @@ try_to_implement_function_by_function_type :: (
   match(
     function_type,
     Rc(.Func({ param_types, result : result_slot, meta : __fm2 })) => {
-      forall_labels := Rc.clone(__fm2.forall_labels);
-      param_labels := Rc.clone(__fm2.param_labels);
-      implicit_labels := Rc.clone(__fm2.implicit_labels);
+      forall_labels := Rc.clone(__fm2.*.*.forall_labels);
+      param_labels := Rc.clone(__fm2.*.*.param_labels);
+      implicit_labels := Rc.clone(__fm2.*.*.implicit_labels);
       // The result's VALUE type; a projection's `&`/`&mut` is its slot.
       result_box := t_slot_pointee(&result_slot.*);
       result_is_ref := t_slot_is_borrow(&result_slot.*);
       result_is_mut_ref := t_slot_is_mut_ref(&result_slot.*);
-      result_is_comptime_only := __fm2.result_is_comptime_only;
+      result_is_comptime_only := __fm2.*.*.result_is_comptime_only;
       tok := ast_expr_token(expr);
       // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
       // control-bound. `unwind` exits the frame the handler record is
@@ -1295,7 +1295,7 @@ try_to_implement_function_by_function_type :: (
       // conservatively not control-bound, so generic and async
       // (`Impl(Future(...))`) results pass. The `->`/`=>` literal path has
       // the same check (values/anonymous-function.yo).
-      if(!(__fm2.is_control) && !in_derive_impl() && type_is_control_bound(&result_box), {
+      if(!(__fm2.*.*.is_control) && !in_derive_impl() && type_is_control_bound(&result_box), {
         exn.throw(
           dyn(
             Box.new(
@@ -1456,13 +1456,13 @@ Result type: ${type_to_string(&result_box)}`
               match(
                 cap_frame.variable_at(cap_vi),
                 .Some(cv) => {
-                  if(cv.name == "__recur_fn", {
+                  if(cv.*.name == "__recur_fn", {
                     if(cap_vi > cap_run_start, {
                       cap_slices.push(CaptureSlice(vars : cap_frame.variables(), start : cap_run_start, end : cap_vi));
                     });
                     cap_run_start = (cap_vi + usize(1));
                   });
-                  if(!(cv.name == "__recur_fn"), {
+                  if(!(cv.*.name == "__recur_fn"), {
                     // A VALUELESS comptime fn-typed capture is a FORWARD
                     // DECLARATION (`comptime(is_odd) : (fn ...)` before its
                     // fill) — this fn's def-time body eval will record its
@@ -1470,7 +1470,7 @@ Result type: ${type_to_string(&result_box)}`
                     // below registers a pending RE-RUN (executed by
                     // assignment.yo once the declaration is filled).
                     cv_unfilled := match(
-                      cv.value().get(usize(0)),
+                      cv.*.value().get(usize(0)),
                       .Some(cv_v) => is_unknown_val(&cv_v),
                       .None => true
                     );
@@ -1492,12 +1492,12 @@ Result type: ${type_to_string(&result_box)}`
                     // (issues/fixed/yo-self-check-misses-undefined-variable.md).
                     cv_is_extern_fn := match(
                       &variable_value_type(&cv),
-                      Rc(.Func({ meta : __fcxm })) => __fcxm.is_extern.is_some(),
+                      Rc(.Func({ meta : __fcxm })) => __fcxm.*.*.is_extern.is_some(),
                       _ => false
                     );
-                    if(cv.is_compile_time_only() && cv_unfilled && is_function_type(&variable_value_type(&cv)) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
+                    if(cv.*.is_compile_time_only() && cv_unfilled && is_function_type(&variable_value_type(&cv)) && !cv.*.name.starts_with("__yo_") && !cv_is_extern_fn, {
                       if(!has_fwd_comptime_fn_cap && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
-                        eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
+                        eprintln(`[fwd-cap] name=${cv.*.name} frame=${cap_fi.to_string()}`);
                       });
                       has_fwd_comptime_fn_cap = true;
                       fwd_cap_vars.push(cv);
@@ -1518,7 +1518,7 @@ Result type: ${type_to_string(&result_box)}`
       });
       ft_env_key := mint_funcval_env_key();
       register_funcval_cap_slices(ft_env_key, &cap_slices);
-      fn_val_id := stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column));
+      fn_val_id := stable_func_id(String.from(""), &tok.*.module_path.*, usize(tok.*.row), usize(tok.*.column));
       // Defer body evaluation ONLY for functions that depend on generic type
       // variables — `generic` parameters, any parameter whose type contains a
       // some-type in codegen-relevant position, or a generic `Self`. Every other
@@ -1602,10 +1602,10 @@ Result type: ${type_to_string(&result_box)}`
         EvalValueNode.FuncVal(
           Rc.new(
             FuncValData(
-              forall_names : forall_labels.items.clone(),
-              params : param_labels.items.clone(),
+              forall_names : forall_labels.*.items.clone(),
+              params : param_labels.*.items.clone(),
               param_type_names : param_type_names,
-              evidence_params : implicit_labels.items.clone(),
+              evidence_params : implicit_labels.*.items.clone(),
               body : Rc.clone(body_expr),
               cap_names : ArrayList(String).new(),
               cap_tys : ArrayList(TypeValue).new(),
@@ -1668,8 +1668,8 @@ Result type: ${type_to_string(&result_box)}`
       // AoRTE flagship: div-by-zero on code nobody annotated); a walk that
       // fails the SUBSET on a contract-less fn degrades to the passing
       // `outside-subset` outcome in the driver, not an error.
-      if(_is_verify_target(&tok.module_path.*), {
-        vmode := resolve_verify_mode(&tok.module_path.*);
+      if(_is_verify_target(&tok.*.module_path.*), {
+        vmode := resolve_verify_mode(&tok.*.module_path.*);
         is_assumed := has_func_assumed_body(fn_val_id.clone());
         // V6 task 2: a DEFERRED (generic) CONTRACTED fn registers too —
         // its body is verified ABSTRACTLY (type variables as opaque
@@ -1822,11 +1822,11 @@ Result type: ${type_to_string(&result_box)}`
           });
           register_verify_task(
             VerifyTask(
-              fn_id : `fn@${display_module_path(&tok.module_path.*)}:${tok.row.to_string()}`,
+              fn_id : `fn@${display_module_path(&tok.*.module_path.*)}:${tok.*.row.to_string()}`,
               func_id : fn_val_id.clone(),
-              module_path : tok.module_path.*.clone(),
+              module_path : tok.*.module_path.*.clone(),
               body : body_expr_raw.clone(),
-              param_names : param_labels.items.clone(),
+              param_names : param_labels.*.items.clone(),
               param_types : slot_pointees(&param_types.*),
               result_type : result_box.clone(),
               requires_exprs : evd_reqs,
@@ -1907,8 +1907,8 @@ Result type: ${type_to_string(&result_box)}`
           def_param_toks := _fn_literal_param_tokens(expr);
           flow_env := _build_def_time_body_env(
             caller_env,
-            &param_labels.items,
-            &param_types.items,
+            &param_labels.*.items,
+            &param_types.*.*.items,
             &def_ct_flags,
             &result_box,
             &def_where_entries,
@@ -1952,7 +1952,7 @@ Result type: ${type_to_string(&result_box)}`
                   body : make_err_expr(),
                   cap_names : ArrayList(String).new(),
                   cap_tys : ArrayList(TypeValue).new(),
-                  func_id : stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column))
+                  func_id : stable_func_id(String.from(""), &tok.*.module_path.*, usize(tok.*.row), usize(tok.*.column))
                 )
               ),
               no_values()
@@ -1996,7 +1996,7 @@ Result type: ${type_to_string(&result_box)}`
           // batch main's own trial resolve abstractly
           // (tests/collections/btree-map.test.yo lost `for(m.iter())`'s
           // closure-arg ExprInfo under the wip synthesis loosenings).
-          flow_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&flow_env, &forall_labels.items, &param_labels.items), ArrayList(String).new());
+          flow_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&flow_env, &forall_labels.*.items, &param_labels.*.items), ArrayList(String).new());
           flow_depths := forcing_depths();
           _trial_eval_fn_body(&fb, &flow_env, &mut flow_ctx, &mut flow_out);
           truncate_forcing_depths(flow_depths);
@@ -2010,9 +2010,9 @@ Result type: ${type_to_string(&result_box)}`
           // message keyed by the task's fn_id BEFORE the fatal re-raise below,
           // so the verifier can name the cause when the load path surfaces the
           // task anyway.
-          if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && _is_verify_target(&tok.module_path.*), {
+          if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && _is_verify_target(&tok.*.module_path.*), {
             record_verify_task_def_eval_failure(
-              `fn@${display_module_path(&tok.module_path.*)}:${tok.row.to_string()}`,
+              `fn@${display_module_path(&tok.*.module_path.*)}:${tok.*.row.to_string()}`,
               _trial_swallow_message()
             );
           });
@@ -2025,7 +2025,7 @@ Result type: ${type_to_string(&result_box)}`
           // so the stash evaluates fresh-id clones at THIS call site's
           // concrete types — see CallsiteContracts in contracts.yo and the
           // `_callee_call_term` consult.
-          __cs_mode := resolve_verify_mode(&tok.module_path.*);
+          __cs_mode := resolve_verify_mode(&tok.*.module_path.*);
           // ... but NOT when the trial above swallowed. That body is hollow —
           // the call-site ExprInfo the stash reads (argument types, callee
           // FuncVal) is exactly what the failed trial did not stamp — so the
@@ -2049,7 +2049,7 @@ Result type: ${type_to_string(&result_box)}`
           // there, since a body that did not evaluate has no call sites worth
           // stashing.
           __cs_trial_failed := (_trial_swallow_pending() && (flow_out.len() == usize(0)));
-          if(_is_verify_target(&tok.module_path.*) && ((__cs_mode == "verify") || (__cs_mode == "verify+")) && !__cs_trial_failed, {
+          if(_is_verify_target(&tok.*.module_path.*) && ((__cs_mode == "verify") || (__cs_mode == "verify+")) && !__cs_trial_failed, {
             prepare_callsite_contracts(body_expr_raw.clone(), caller_env, ctx, exn);
           });
           if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
@@ -2067,8 +2067,8 @@ Result type: ${type_to_string(&result_box)}`
             g_pending_def_evals.with_mut({ body_expr : Rc.clone(body_expr), pde_strip_outer, def_ct_flags, def_param_toks, def_where_entries, function_type : Rc.clone(function_type), fwd_cap_vars, param_labels : Rc.clone(param_labels), param_types : Rc.clone(param_types), result_box : Rc.clone(result_box) }(xs) => xs.push(
               PendingDefEval(
                 body : body_expr.clone(),
-                param_labels : param_labels.items.clone(),
-                param_types : param_types.items.clone(),
+                param_labels : param_labels.*.items.clone(),
+                param_types : param_types.*.items.clone(),
                 param_is_comptime : def_ct_flags.clone(),
                 result_ty : Rc.clone(result_box),
                 where_entries : def_where_entries,
@@ -2289,7 +2289,7 @@ Result type: ${type_to_string(&result_box)}`
           // see types/function.yo — so only the raw-pointer-representation
           // rooting check remains.)
           if(type_representation_contains_raw_ptr(&result_box) && !result_is_comptime_only
-          && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&fb).module_path.*.clone())), {
+          && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&fb).*.module_path.*.clone())), {
             seb := match(
               flow_out.get_cloned(usize(0)),
               .Some(e) => e,
@@ -2384,7 +2384,7 @@ Result type: ${type_to_string(&result_box)}`
           // reader needs) that already ran clean for this exact definition
           // is not re-run.
           dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(&result_box));
-          dg_memo_key := if(dg_memo_eligible, `${tok.module_path.*}:${tok.row}:${tok.column}|${type_to_string(function_type)}|${ast_expr_to_string(&body_expr)}`, String.new());
+          dg_memo_key := if(dg_memo_eligible, `${tok.*.module_path.*}:${tok.*.row}:${tok.*.column}|${type_to_string(function_type)}|${ast_expr_to_string(&body_expr)}`, String.new());
           if(!(
             dg_memo_eligible && g_deferred_trial_clean.with({ &dg_memo_key }(s) => s.contains(dg_memo_key))
           ), {
@@ -2401,8 +2401,8 @@ Result type: ${type_to_string(&result_box)}`
             dg_param_toks := _fn_literal_param_tokens(expr);
             dg_env := _build_def_time_body_env(
               caller_env,
-              &param_labels.items,
-              &param_types.items,
+              &param_labels.*.items,
+              &param_types.*.*.items,
               &dg_ct_flags,
               &result_box,
               &dg_where,
@@ -2424,7 +2424,7 @@ Result type: ${type_to_string(&result_box)}`
                     body : make_err_expr(),
                     cap_names : ArrayList(String).new(),
                     cap_tys : ArrayList(TypeValue).new(),
-                    func_id : stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column))
+                    func_id : stable_func_id(String.from(""), &tok.*.module_path.*, usize(tok.*.row), usize(tok.*.column))
                   )
                 ),
                 no_values()
@@ -2466,7 +2466,7 @@ Result type: ${type_to_string(&result_box)}`
             // clone writes the trial's abstract-typed ExprInfos onto the real
             // body's nodes, which codegen reads for an `io.async` closure in
             // it (`R` lowered to `void*`, tests/async_generic_future_return).
-            dg_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&dg_env, &forall_labels.items, &param_labels.items), ArrayList(String).new());
+            dg_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&dg_env, &forall_labels.*.items, &param_labels.*.items), ArrayList(String).new());
             _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(&body_expr)), &dg_env, &mut dg_ctx, &mut dg_out);
             truncate_forcing_depths(dg_depths);
             if(dg_binders.len() > usize(0), {

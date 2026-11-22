@@ -283,7 +283,7 @@ _tail_unsized_twin :: (fn(st : &TypeValue, at : &AstExpr, env : &Environment, ct
     return(.None);
   });
   callee_id := alloc_global_expr_id();
-  callee_info := new_expr_info(env, &get_func_type(match(&ctor, Rc(.FuncVal(cfv, _)) => cfv.func_id.clone(), _ => return(.None))));
+  callee_info := new_expr_info(env, &get_func_type(match(&ctor, Rc(.FuncVal(cfv, _)) => cfv.*.*.func_id.clone(), _ => return(.None))));
   callee_info.set_value(Option(EvalValue).Some(ctor.clone()));
   expr_info_table_set(&ctx.expr_info_table, callee_id, &callee_info);
   call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(callee_id, synthetic_token(String.from("__yo_unsize_ctor"), &env.module_path().*))), Rc.new(call_args), false, tok));
@@ -361,7 +361,7 @@ evaluate_slice_primitive :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut 
   is_ptr := ast_expr_is_fn_call_of(expr, BF_SLICE_PTR, .None);
   name := cond(is_len => BF_SLICE_LEN, is_ptr => BF_SLICE_PTR, true => BF_SLICE_FROM_RAW_PARTS);
   ptok := ast_expr_token(expr);
-  if(!is_len && !ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.*.clone())), {
+  if(!is_len && !ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.*.module_path.*.clone())), {
     exn.throw(dyn(Box.new(format_error_message(&ptok, `\`${name}\` makes or reads a raw pointer, which is not available in safe code; add 'pragma(Pragma.AllowUnsafe);' at the top of a file that genuinely needs it.`))));
   });
   (call, infos) := _eval_builtin_args(expr, if(is_len || is_ptr, usize(1), usize(2)), name, env, ctx, exn);

@@ -145,10 +145,10 @@ impl(
       (mut(hit_eof) : bool) = false;
       while(!found_newline && !hit_eof, {
         cond(
-          (self._st._pos < self._st._filled) => {
-            mut(scan) := self._st._pos;
-            while((scan < self._st._filled) && !found_newline, {
-              b := self._st._buf(scan);
+          (self._st.*._pos < self._st.*._filled) => {
+            mut(scan) := self._st.*._pos;
+            while((scan < self._st.*._filled) && !found_newline, {
+              b := self._st.*._buf(scan);
               cond(
                 (b == u8(10)) => {
                   found_newline = true;
@@ -188,9 +188,9 @@ impl(
       (mut(hit_eof) : bool) = false;
       while((result.len() < n) && !hit_eof, {
         cond(
-          (self._st._pos < self._st._filled) => {
-            while((result.len() < n) && (self._st._pos < self._st._filled), {
-              result.push(self._st._buf(self._st._pos));
+          (self._st.*._pos < self._st.*._filled) => {
+            while((result.len() < n) && (self._st.*._pos < self._st.*._filled), {
+              result.push(self._st.*._buf(self._st.*._pos));
               unsafe(consume(st.*._pos = (st.*._pos + usize(1))));
             });
           },

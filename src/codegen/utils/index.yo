@@ -664,7 +664,7 @@ impl(
     );
     def_mod := match(
       value,
-      Rc(.FuncVal(fvd, _)) => ast_expr_token(&fvd.body).module_path.*.clone(),
+      Rc(.FuncVal(fvd, _)) => ast_expr_token(&fvd.*.*.body).*.module_path.*.clone(),
       _ => String.new()
     );
     self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : Rc.clone(value.*), c_name : final_name, def_module : def_mod));
@@ -845,7 +845,7 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)(
     match(
       vars.get_cloned(vi),
       .Some(var) => match(
-        var.value().get(usize(0)),
+        var.*.value().get(usize(0)),
         .Some(Rc(.TypeVal(t))) => match(
           resolve_struct_shell(&t),
           Rc(.Struct({ id : sid, name : sname })) => {
@@ -1037,7 +1037,7 @@ fresh_local_name :: (fn(prefix : &String, current_function_name : &String) -> St
 pattern_param_is_literal :: (fn(e : &AstExpr) -> bool)(
   cond(
     ast_expr_is_atom(e) => match(
-      ast_expr_token(e).kind,
+      ast_expr_token(e).*.kind,
       .Bool => true,
       .Integer => true,
       .Float => true,
@@ -1049,7 +1049,7 @@ pattern_param_is_literal :: (fn(e : &AstExpr) -> bool)(
         neg_args.get_cloned(usize(0)),
         .Some(op) => (
           ast_expr_is_atom(&op) && match(
-            ast_expr_token(&op).kind,
+            ast_expr_token(&op).*.kind,
             .Integer => true,
             .Float => true,
             _ => false
@@ -1076,7 +1076,7 @@ pattern_literal_param_code :: (fn(e : &AstExpr) -> String)({
     ),
     Rc(.Atom(_, _)) => Rc.clone(e.*)
   );
-  txt := ast_expr_token(&neg).value.*.clone();
+  txt := ast_expr_token(&neg).*.value.*.clone();
   negated := match(
     e,
     Rc(.FnCall(_, _, _, _, _)) => true,
@@ -1289,7 +1289,7 @@ _fn_call_callee_name :: (fn(e : &AstExpr) -> Option(String))(
     Rc(.Atom(_, _)) => .None,
     Rc(.FnCall(_, func_box, _, _, _)) => match(
       func_box,
-      Rc(.Atom(_, tok)) => .Some(tok.value.*.clone()),
+      Rc(.Atom(_, tok)) => .Some(tok.*.*.value.*.clone()),
       Rc(.FnCall(_, _, _, _, _)) => .None
     )
   )
@@ -1375,7 +1375,7 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
 });
 _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> bool)({
   args := match(call, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(false));
-  params := match(fv, Rc(.FuncVal(__fvd2, _)) => __fvd2.params.clone(), _ => return(false));
+  params := match(fv, Rc(.FuncVal(__fvd2, _)) => __fvd2.*.*.params.clone(), _ => return(false));
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
   // remain to line up with the parameters in order.
@@ -1385,7 +1385,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     arg := _inline_unwrap_transparent(match(args.get_cloned(i), .Some(a) => a, .None => return(false)));
     name := match(
       arg,
-      Rc(.Atom(_, tok)) => tok.value.*.clone(),
+      Rc(.Atom(_, tok)) => tok.*.value.*.clone(),
       Rc(.FnCall(_, _, _, _, _)) => return(false)
     );
     // Is this identifier one of the parameters at all?
@@ -1423,7 +1423,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : &EvalValue) -> Option(String)
 )({
-  body_box := match(fv, Rc(.FuncVal(__fvd1, _)) => Rc.clone(__fvd1.body), _ => return(.None));
+  body_box := match(fv, Rc(.FuncVal(__fvd1, _)) => Rc.clone(__fvd1.*.*.body), _ => return(.None));
   body := _unwrap_unsafe(&body_box);
   // The call node the operator name comes from — needed by the pass-through
   // check below, which must inspect THAT call's arguments and not the
@@ -1459,7 +1459,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(case_value : &AstExpr) -> Option(String))(
-  match(case_value, Rc(.FnCall(_, func, Rc(args), _, _)) => match(func, Rc(.Atom(_, tok)) => if((tok.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get_cloned(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None), Rc(.FnCall(_, ffunc, Rc(fargs), _, _)) => if(match(ffunc, Rc(.Atom(_, ft)) => (ft.value.* == BF_DOT), Rc(.FnCall(_, _, _, _, _)) => false) && (fargs.len() == usize(1)), match(fargs.get_cloned(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None)), Rc(.Atom(_, _)) => Option(String).None)
+  match(case_value, Rc(.FnCall(_, func, Rc(args), _, _)) => match(func, Rc(.Atom(_, tok)) => if((tok.*.*.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get_cloned(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None), Rc(.FnCall(_, ffunc, Rc(fargs), _, _)) => if(match(ffunc, Rc(.Atom(_, ft)) => (ft.*.*.value.* == BF_DOT), Rc(.FnCall(_, _, _, _, _)) => false) && (fargs.len() == usize(1)), match(fargs.get_cloned(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None)), Rc(.Atom(_, _)) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1550,7 +1550,7 @@ nullable_arm_payload_binder :: (fn(case_value : &AstExpr) -> Option(AstExpr))({
     dparams.get_cloned(usize(0)),
     .Some(p) => {
       var := if(ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), match(Rc.clone(p), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(1)), .Some(v) => v, .None => Rc.clone(p)), Rc(.Atom(_, _)) => Rc.clone(p)), p);
-      if(ast_expr_is_atom(&var) && !(ast_expr_token(&var).value.* == "_") && !pattern_param_is_literal(&var), Option(AstExpr).Some(var), Option(AstExpr).None)
+      if(ast_expr_is_atom(&var) && !(ast_expr_token(&var).*.value.* == "_") && !pattern_param_is_literal(&var), Option(AstExpr).Some(var), Option(AstExpr).None)
     },
     .None => Option(AstExpr).None
   )
@@ -2042,7 +2042,7 @@ std_io_type :: (fn(env : &Environment, std_path : &String) -> Option(TypeValue))
     match(
       vars.get_cloned(vi),
       .Some(var) => match(
-        var.value().get(usize(0)),
+        var.*.value().get(usize(0)),
         .Some(Rc(.TypeVal(t))) => {
           shell := resolve_struct_shell(&t);
           is_std := match(resolve_struct_shell(&t), Rc(.Struct({ id : sid })) => _is_std_declared_struct(&sid, std_path), _ => false);
@@ -2191,7 +2191,7 @@ get_variable_type_string :: (
 /// (`Emitter.declared_ref`) and writes it too.
 declare_c_var_name :: (fn(context : &CodeGenContext, c_name : &String) -> unit)({
   name_owned := c_name.clone();
-  context.declared_c_var_names.with_mut({ name_owned }(names) => {
+  context.declared_c_var_names.*.with_mut({ name_owned }(names) => {
     names.insert(name_owned);
   })
 });
@@ -2200,7 +2200,7 @@ declare_c_var_name :: (fn(context : &CodeGenContext, c_name : &String) -> unit)(
 /// (`Emitter.scope_ref`).
 push_declared_scope :: (fn(context : &CodeGenContext, c_name : &String) -> unit)({
   name_owned := c_name.clone();
-  context.declared_scopes.with_mut({ name_owned }(scopes) => scopes.push(name_owned))
+  context.declared_scopes.*.with_mut({ name_owned }(scopes) => scopes.push(name_owned))
 });
 /// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
 /// upper-cased).
@@ -2246,7 +2246,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(&variable_value_type(&variable), Rc(.Func({ meta : __fm1 })) => match(&__fm1.is_extern, .Some(lang) => (lang.* == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(&variable_value_type(&variable), Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.*.is_extern, .Some(lang) => (lang.* == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -2256,12 +2256,12 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // returned Other instead of NotFound). Match the RESOLVED
       // variable's type against the global's DECLARED type to restore the
       // per-variable semantics.
-      is_extern_c_glob := extern_c_global_matches(variable.name.clone(), &variable_value_type(&variable));
+      is_extern_c_glob := extern_c_global_matches(variable.*.name.clone(), &variable_value_type(&variable));
       is_extern_c := (is_extern_c_fn || is_extern_c_glob);
       // A global bound under a Yo alias (`{ stdout : out } :: c_include(...)`)
       // is emitted by its C symbol, not by the alias
       // (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
-      c_symbol := if(is_extern_c_glob, extern_c_global_c_name(variable.name.clone()), variable.name.clone());
+      c_symbol := if(is_extern_c_glob, extern_c_global_c_name(variable.*.name.clone()), variable.*.name.clone());
       var_name := sanitize_for_c_identifier(&c_symbol, is_extern_c);
       // A generated fn_* name shadowing a local → prefer the original name.
       if((var_name != variable_name.*) && var_name.starts_with(String.from("fn_yo_id_")), {
@@ -2280,7 +2280,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // must keep theirs.
       // issues/fixed/module-global-c-names-are-not-namespaced.md.
       if(g_debug_mg, {
-        eprintln(`[mg] name=${variable.name} path=${variable.token.module_path.*} param=${variable.is_parameter()} hit=${is_module_level_global(&variable.token.module_path.*, &variable.name)}`);
+        eprintln(`[mg] name=${variable.*.name} path=${variable.*.token.*.module_path.*} param=${variable.*.is_parameter()} hit=${is_module_level_global(&variable.*.token.*.module_path.*, &variable.*.name)}`);
       });
       // Never qualify when ANY match for this name is a PARAMETER: a
       // same-named parameter lexically shadows the global, so the bare
@@ -2297,7 +2297,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
           match(
             variables.get_cloned(mg_i),
             .Some(mv) => {
-              if(mv.is_parameter(), {
+              if(mv.*.is_parameter(), {
                 mg_any_param = true;
               });
             },
@@ -2306,15 +2306,15 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
           mg_i = (mg_i + usize(1));
         });
       };
-      if(!is_extern_c && !mg_any_param && is_module_level_global(&variable.token.module_path.*, &variable.name), {
-        mg_qualified := `${var_name}${module_global_c_suffix(&variable.token.module_path.*)}`;
+      if(!is_extern_c && !mg_any_param && is_module_level_global(&variable.*.token.*.module_path.*, &variable.*.name), {
+        mg_qualified := `${var_name}${module_global_c_suffix(&variable.*.token.*.module_path.*)}`;
         // A thread-local reads and writes through its lazy accessor, so
         // the FIRST touch on each thread runs the initializer. The
         // dereference is an lvalue, so this substitution is equally valid
         // in read and write position — which is what lets the whole rest
         // of codegen keep treating a thread-local as an ordinary
         // module-level global (plans/reference/THREAD_LOCAL_STORAGE.md).
-        if(is_thread_local(&variable.token.module_path.*, &variable.name), {
+        if(is_thread_local(&variable.*.token.*.module_path.*, &variable.*.name), {
           return(`(*${mg_qualified}__tl_get())`);
         });
         return(mg_qualified);
@@ -2416,7 +2416,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
           args.get_cloned(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from(""))));
+              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.*.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from(""))));
             });
           },
           .None => ()
@@ -2431,11 +2431,11 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
               first_ok := match(dot_args.get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               second_is_dup := match(
                 dot_args.get_cloned(usize(1)),
-                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DUP), Rc(.FnCall(_, _, _, _, _)) => false),
+                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.*.value.* == BF_DUP), Rc(.FnCall(_, _, _, _, _)) => false),
                 .None => false
               );
               if(first_ok && second_is_dup, {
-                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.*.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -2459,7 +2459,7 @@ get_deferred_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
         match(
           func_box,
           Rc(.FnCall(_, _, Rc(dot_args), _, _)) => if(ast_expr_is_fn_call_of(&func_box.*, BF_DOT, .Some(usize(2))), {
-            second_is_drop := match(dot_args.get_cloned(usize(1)), .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DROP), Rc(.FnCall(_, _, _, _, _)) => false), .None => false);
+            second_is_drop := match(dot_args.get_cloned(usize(1)), .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.*.value.* == BF_DROP), Rc(.FnCall(_, _, _, _, _)) => false), .None => false);
             if(second_is_drop, {
               match(
                 dot_args.get_cloned(usize(0)),
@@ -2493,7 +2493,7 @@ deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, base : &CodeGenContex
     get_deferred_drop_target_atom(drop_expr),
     .Some(atom) => match(
       base.get_expr_info(&atom),
-      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env(), ast_expr_token(&atom).value.*).last_cloned(),
+      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env(), ast_expr_token(&atom).*.value.*).last_cloned(),
       .None => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2512,12 +2512,12 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
             if(ast_expr_is_fn_call_of(&func_box.*, BF_DOT, .Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get_cloned(usize(1)),
-                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DROP), Rc(.FnCall(_, _, _, _, _)) => false),
+                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.*.value.* == BF_DROP), Rc(.FnCall(_, _, _, _, _)) => false),
                 .None => false
               );
               first_is_atom := match(dot_args.get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               if(second_is_drop && first_is_atom, {
-                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.*.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -2530,7 +2530,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
           args.get_cloned(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from(""))));
+              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.*.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from(""))));
             });
           },
           .None => ()
@@ -2690,8 +2690,8 @@ _checked_index_expr :: (fn(index_code : String, length_code : &String, expr : &A
       return(index_code);
     });
   });
-  file_lit := _idx_c_string_literal(&tok.module_path.*);
-  `__yo_idx_chk((size_t)(${index_code}), (size_t)(${length_code}), ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()})`
+  file_lit := _idx_c_string_literal(&tok.*.module_path.*);
+  `__yo_idx_chk((size_t)(${index_code}), (size_t)(${length_code}), ${file_lit}, ${(usize(tok.*.row) + usize(1)).to_string()}, ${(usize(tok.*.column) + usize(1)).to_string()})`
 });
 /// The comptime length of a fixed `Array(T, N)` as a decimal literal, or ""
 /// when the length is symbolic (a generic body pre-specialization — should
@@ -2720,7 +2720,7 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : &TypeVal
 is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
   // Read through an evaluator rewrite: `r.*` on a reference binding is the
   // name `r` itself (decision 43 step 2 N1e-1, `note_rewritten_node`).
-  match(ast_rewritten_node(expr), Rc(.Atom(_, sn_tok)) => (variable_name.* == sn_tok.value.*), Rc(.FnCall(_, _, _, _, _)) => false)
+  match(ast_rewritten_node(expr), Rc(.Atom(_, sn_tok)) => (variable_name.* == sn_tok.*.value.*), Rc(.FnCall(_, _, _, _, _)) => false)
 );
 /// The `fn(...)` type a `dyn(...)` payload's concrete type is, through its
 /// `SomeT` resolutions (an `Impl(Fn(...))` parameter bound to a named `fn`),
@@ -2846,7 +2846,7 @@ box_payload_place_code :: (fn(box_ty : &TypeValue, cell_code : &String, context 
 /// unconditionally.
 note_line_position :: (fn(em : &mut Emitter, expr : &AstExpr) -> unit)({
   tok := ast_expr_token(expr);
-  em.set_yo_line_position(&tok.module_path.*, tok.row);
+  em.set_yo_line_position(&tok.*.module_path.*, tok.*.row);
 });
 export(
   is_self_named_atom,

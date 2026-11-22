@@ -1103,7 +1103,7 @@ _is_static_origin_spelling :: (fn(e : &AstExpr) -> bool)(ast_expr_is_atom(e) && 
 /// `static` is reserved in origin position: a binding named `static` does
 /// not lift the wall.
 _reject_empty_origin_in_safe_code :: (fn(e : &AstExpr, std_path : &String, exn : Exception) -> unit)({
-  mp := ast_expr_token(e).module_path.*.clone();
+  mp := ast_expr_token(e).*.module_path.*.clone();
   if(is_implicitly_unsafe_capable_file(Option(String).Some(mp.clone())) || is_std_module_path(&mp, std_path), {
     return(());
   });
@@ -1192,7 +1192,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
     });
     return(());
   });
-  o_is_type := match(o_var.value().get(usize(0)), .Some(ov) => match(ov, Rc(.TypeVal(_)) => true, _ => false), .None => false);
+  o_is_type := match(o_var.*.value().get(usize(0)), .Some(ov) => match(ov, Rc(.TypeVal(_)) => true, _ => false), .None => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -1229,7 +1229,7 @@ evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalCo
 _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = e.clone();
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.*.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
   });
   if(ast_expr_is_atom(&cur) && is_valid_variable_name(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
 });
@@ -1330,7 +1330,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
     );
   });
   o_var := match(o_vars.get_cloned(o_n - usize(1)), .Some(v) => v, .None => return(()));
-  o_value := o_var.value().get(usize(0));
+  o_value := o_var.*.value().get(usize(0));
   o_is_type := match(o_value.clone(), .Some(Rc(.TypeVal(_))) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
   if(o_is_type, {
     exn.throw(
@@ -1361,7 +1361,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   // An origin parameter in scope, or a binding's place: both are named. A
   // place named in an origin is a use of its binding (the warnings
   // channel's read marker, D15).
-  o_var.set_was_read(true);
+  o_var.*.set_was_read(true);
   if(!_names_contain(out, &o_name), {
     out.push(o_name);
   });
@@ -1594,7 +1594,7 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
           )
         );
       });
-      ov.set_was_read(true);
+      ov.*.set_was_read(true);
       if(!_names_contain(out, &r_name), {
         out.push(r_name);
       });
@@ -1794,7 +1794,7 @@ _is_dots_atom :: (fn(expr : &AstExpr) -> bool)(
     false,
     begin(
       tok := ast_expr_token(expr),
-      tok.value.* == "..."
+      tok.*.value.* == "..."
     )
   )
 );
@@ -1854,7 +1854,7 @@ _is_contract_clause :: (fn(e : &AstExpr) -> bool)(
 _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    Rc(.Atom(_, at_tok)) => (at_tok.value.* == name.*),
+    Rc(.Atom(_, at_tok)) => (at_tok.*.*.value.* == name.*),
     Rc(.FnCall(_, f_box, Rc(f_args), _, _)) => cond(
       recur(&f_box.*, name.clone()) => true,
       true => {
@@ -1982,7 +1982,7 @@ _add_where_clause_constraint :: (
       present := _wcc_has_trait(&cond(is_negated => wcc_bounds.negative(), true => wcc_bounds.required()), trait_ty);
       if(!present, {
         wcc_trait := Rc.clone(trait_ty);
-        wcc_bounds.with_mut({ wcc_trait : Rc.clone(wcc_trait), is_negated }(b) => {
+        wcc_bounds.*.*.with_mut({ wcc_trait : Rc.clone(wcc_trait), is_negated }(b) => {
           if(is_negated, {
             b.negative.push(wcc_trait);
             b.negative_levels.push(usize(0));
@@ -2398,7 +2398,7 @@ evaluate_function_parameter :: (
           )
         );
       });
-      if(ast_expr_token(&lhs_mut).value.* == "mut", {
+      if(ast_expr_token(&lhs_mut).*.value.* == "mut", {
         exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&lhs_mut), reserved_builtin_binding_message(String.from("mut"))))));
       });
       label = .Some(ast_expr_text(&lhs_mut).*.clone());
@@ -2665,7 +2665,7 @@ evaluate_function_parameter :: (
   // pointer (`*[T]`, structs wrapping *(T), ...). The prelude's
   // `Allocator` passes as an opaque handle (ALLOCATOR_PLACEMENT.md A2).
   if(!ctx.unsafe_context &&
-    !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())) &&
+    !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).*.module_path.*.clone())) &&
       parameter_type_contains_raw_ptr(&final_param_type), {
     exn.throw(
       dyn(
@@ -2745,7 +2745,7 @@ evaluate_function_parameter :: (
   if(!is_compile_time_only && is_function_type(&final_param_type), {
     has_forall := match(
       &final_param_type,
-      Rc(.Func({ meta : __fm1 })) => (__fm1.forall_labels.len() > usize(0)),
+      Rc(.Func({ meta : __fm1 })) => (__fm1.*.*.forall_labels.len() > usize(0)),
       _ => false
     );
     if(has_forall, {
@@ -2877,7 +2877,7 @@ use_id :: (fn(generic(T : Type),
       }
     );
     match(
-      v.value().get(usize(0)),
+      v.*.value().get(usize(0)),
       .Some(ev) => {
         match(
           ev,
@@ -2912,7 +2912,7 @@ use_id :: (fn(generic(T : Type),
       )
     );
     top_frame_level := (env_mut.frames_len() - usize(1));
-    if(last_v.is_compile_time_only() && (last_v.frame_level == top_frame_level), {
+    if(last_v.*.is_compile_time_only() && (last_v.*.frame_level == top_frame_level), {
       existing_pre_var = .Some(last_v);
     });
   });
@@ -2922,7 +2922,7 @@ use_id :: (fn(generic(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value().get(usize(0)), .Some(ev) => match(ev, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+      existing_some_ty := match(wv.*.value().get(usize(0)), .Some(ev) => match(ev, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value.clone(),
@@ -2981,7 +2981,7 @@ use_id :: (fn(generic(T : Type),
         label_expr.clone(),
         .Some(le) => {
           le_info := new_expr_info(env_mut, &actual_param_type);
-          le_info.set_value(.Some(match(wv.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))));
+          le_info.set_value(.Some(match(wv.*.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
         },
         .None => ()
@@ -2997,7 +2997,7 @@ use_id :: (fn(generic(T : Type),
             label_expr.clone(),
             .Some(le) => {
               le_info := new_expr_info(env_mut, &actual_param_type);
-              le_info.set_value(pv.value().get(usize(0)));
+              le_info.set_value(pv.*.value().get(usize(0)));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
             },
             .None => ()
@@ -3037,7 +3037,7 @@ use_id :: (fn(generic(T : Type),
                     if(
                       match(
                         &final_param_type,
-                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.result_is_comptime_only && is_type_0(&t_slot_pointee(&result.*))),
+                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.*.result_is_comptime_only && is_type_0(&t_slot_pointee(&result.*))),
                         _ => false
                       ),
                       Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),
@@ -3393,7 +3393,7 @@ apply_single_trait_constraint :: (
     });
     last_var := match(existing_vars.last_cloned(), .Some(v) => v, .None => return(false));
     match(
-      last_var.value().get(usize(0)),
+      last_var.*.value().get(usize(0)),
       .Some(ev) => {
         match(
           ev,
@@ -3590,7 +3590,7 @@ parse_where_clause_constraints :: (
       if(existing_vars.len() > usize(0), {
         last_v := match(existing_vars.last_cloned(), .Some(v) => v, .None => return(pending_traits));
         match(
-          last_v.value().get(usize(0)),
+          last_v.*.value().get(usize(0)),
           .Some(ev) => {
             match(
               ev,
@@ -4284,8 +4284,8 @@ evaluate_function_parameters :: (
                 break;
               }
             );
-            if(fv.name == param.label, {
-              fv.set_is_implicit(true);
+            if(fv.*.name == param.label, {
+              fv.*.set_is_implicit(true);
               fvi = frame.variables_len();
             });
             fvi = (fvi + usize(1));
@@ -5469,7 +5469,7 @@ evaluate_function_type :: (
         match(
           ct_vars.last_cloned(),
           .Some(ct_var) => match(
-            ct_var.value().get(usize(0)),
+            ct_var.*.value().get(usize(0)),
             .Some(Rc(.TypeVal(ct_tb))) => _collect_where_constraints_from_some_t(&wpp.label, &ct_tb, &mut where_constraint_entries),
             .Some(_) => (),
             .None => ()
@@ -5673,7 +5673,7 @@ evaluate_function_type :: (
   // `auto-generated://` expansions inherit their caller's policy (see
   // is_macro_def_capable_file).
   if((quoted_param_indices.len() > usize(0)) || is_return_unquote, {
-    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())), {
+    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).*.module_path.*.clone())), {
       exn.throw(
         dyn(
           Box.new(

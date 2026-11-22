@@ -160,8 +160,8 @@ impl(
   /// rather than made per generation, because `exec_at` clears them with a
   /// `memset` on every step.
   new : (fn(program : &Rc(NfaProgram), flags : RegexFlags, input : &String) -> Self)({
-    n_slots := ((program.*.n_groups + usize(1)) * usize(2));
-    n_instr := program.*.instructions.len();
+    n_slots := ((program.*.*.n_groups + usize(1)) * usize(2));
+    n_instr := program.*.*.instructions.len();
     mut(seen) := ArrayList(bool).with_capacity(n_instr);
     seen.resize_with_byte(n_instr, int(0));
     mut(next_seen) := ArrayList(bool).with_capacity(n_instr);

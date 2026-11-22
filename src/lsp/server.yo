@@ -613,14 +613,14 @@ _handle_message :: (
   local_exn := Exception(
     throw : (
       err -> {
-        eprintln(`yo-lsp: skipping malformed message: ${err.to_string()}`);
+        eprintln(`yo-lsp: skipping malformed message: ${err.*.to_string()}`);
         // JSON-RPC 2.0: a body that does not parse is answered with
         // ParseError (-32700) under a null id — the id is unknowable from
         // an unparseable body. Swallowing it silently left a strict client
         // waiting on a reply that never comes.
         write_lsp_message(
           json.stringify(
-            j_error_response(JsonValue.Null, i64(0) - i64(32700), `parse error: ${err.to_string()}`)
+            j_error_response(JsonValue.Null, i64(0) - i64(32700), `parse error: ${err.*.to_string()}`)
           )
         );
         unwind(i32(0))

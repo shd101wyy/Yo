@@ -612,12 +612,12 @@ _significant_tokens :: (fn(source : &String) -> ArrayList(Token))({
       .Some(t) => {
         skip := cond(
           (t.kind == TokenKind.Whitespace) => true,
-          (t.kind == TokenKind.SingleLineComment) => true,
-          (t.kind == TokenKind.MultiLineComment) => true,
-          (t.kind == TokenKind.DocLineComment) => true,
-          (t.kind == TokenKind.InnerDocLineComment) => true,
-          (t.kind == TokenKind.DocBlockComment) => true,
-          (t.kind == TokenKind.InnerDocBlockComment) => true,
+          (t.*.kind == TokenKind.SingleLineComment) => true,
+          (t.*.kind == TokenKind.MultiLineComment) => true,
+          (t.*.kind == TokenKind.DocLineComment) => true,
+          (t.*.kind == TokenKind.InnerDocLineComment) => true,
+          (t.*.kind == TokenKind.DocBlockComment) => true,
+          (t.*.kind == TokenKind.InnerDocBlockComment) => true,
           true => false
         );
         if(!skip, {
@@ -655,9 +655,9 @@ _barrel_spreads :: (fn(source : &String) -> ArrayList(Pair))({
             .Some(t3) => match(
               e,
               .Some(t4) => {
-                is_import := ((t0.kind == TokenKind.Identifier) && (t1.value.* == "::") && (t2.value.* == "import") && (t3.value.* == "(") && (t4.kind == TokenKind.StringLit));
+                is_import := ((t0.*.kind == TokenKind.Identifier) && (t1.*.value.* == "::") && (t2.*.value.* == "import") && (t3.*.value.* == "(") && (t4.*.kind == TokenKind.StringLit));
                 if(is_import, {
-                  imports.push(Pair(first : t0.value.*.clone(), second : _unquote(&t4.value.*)));
+                  imports.push(Pair(first : t0.*.value.*.clone(), second : _unquote(&t4.*.value.*)));
                 });
               },
               .None => ()
@@ -691,13 +691,13 @@ _barrel_spreads :: (fn(source : &String) -> ArrayList(Pair))({
             .Some(t3) => match(
               e,
               .Some(t4) => {
-                is_spread := ((t0.value.* == "export") && (t1.value.* == "(") && (t2.value.* == "...") && (t3.value.* == "(") && (t4.kind == TokenKind.Identifier));
+                is_spread := ((t0.*.value.* == "export") && (t1.*.value.* == "(") && (t2.*.value.* == "...") && (t3.*.value.* == "(") && (t4.*.kind == TokenKind.Identifier));
                 if(is_spread, {
                   (pi : usize) = usize(0);
                   while(pi < imports.len(), {
                     // Bounds are owned by the loop guard; the pair is read
                     // in place and its fields cloned where kept.
-                    if(imports(pi).first == t4.value.*, {
+                    if(imports(pi).first == t4.*.value.*, {
                       spreads.push(Pair(first : imports(pi).first.clone(), second : imports(pi).second.clone()));
                     });
                     pi = (pi + usize(1));
