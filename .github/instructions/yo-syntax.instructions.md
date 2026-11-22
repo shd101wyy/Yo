@@ -498,7 +498,7 @@ main :: (fn() -> unit)({
 
 - A parameter may spell its reference's origin: `x : &(T, p)` / `x : &mut(T, p)` with `generic(p : Origin)`
   (a union is `&(T, (p, q))`). Same function type and C as `x : &T`; an origin binder does not make the
-  function generic. A non-origin second argument (a type, an undeclared name, another parameter) is E0922
+  function generic. A non-origin second argument (a type, an undeclared name, another parameter) is an uncoded error
   (a reference to a tuple is `&Tuple(A, B)`).
 - A projection's result may spell its origin: `-> &(T, p)`, `-> &(T, xs)` (the reference parameter `xs`), a
   union `-> &(T, (p, xs))`; a by-value parameter there is E0912. A call freezes only the arguments the
