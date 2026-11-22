@@ -75,7 +75,7 @@ yo_verdict() { # <kind> <id>
         fi
       elif [ "$today" = accept ]; then
         echo ACCEPT
-      elif [[ "$today" == *"$WALL_TEXT"* || "$today" == "-|carries an origin" ]]; then
+      elif [[ "$today" == *"$WALL_TEXT"* || "$today" == *"|carries an origin" ]]; then
         touch "$OUT/walled"; [ "$target" = ACCEPT ] && echo ACCEPT || echo REJECT
       else
         echo REJECT

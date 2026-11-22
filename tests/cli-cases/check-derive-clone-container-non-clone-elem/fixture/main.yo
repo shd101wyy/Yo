@@ -1,11 +1,11 @@
 // issues/fixed/derive-clone-over-an-arraylist-field-emits-a-hollow-clone.md
-// The CONTAINER-field variant of the non-clone-field derive: the generated
-// body's `self.rel.clone()` resolves fine (ArrayList derives Clone); the
-// failure surfaces one frame deeper, inside std's Clone impl
-// (`result.push(item.clone())` over R), so the swallowed error's rendered
-// location points into std — the shape the auto-generated-location
-// escalation misses. Expected: E0610 at the derive line naming R, the same
-// verdict as the direct variant (check-derive-clone-non-clone-field).
+// The CONTAINER-field variant of the non-clone-field derive. `ArrayList` is
+// a `Deref` type (VERDICTS-63), so the generated body clones the field
+// through its own impl, `(type_of(self.rel) <: Clone).clone(&self.rel)`,
+// and the cast fails: `ArrayList(R)` is `Clone` only when `R` is. Expected:
+// an error at the derive line naming `ArrayList(R)` and `Clone`; before the
+// `Deref` impl it was E0610 inside std's Clone impl, naming `R`
+// (check-derive-clone-non-clone-field is the direct variant).
 { ArrayList } :: import("std/collections/array-list");
 { println } :: import("std/fmt");
 R :: struct(a : usize);

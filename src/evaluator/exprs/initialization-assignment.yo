@@ -152,6 +152,7 @@
   projection_call_root_args,
   ProjectionRootArg,
   is_temporary_operand,
+  is_computed_reference_operand,
   projection_call_callee_type,
   bind,
   note_fn_value_definition,
@@ -979,6 +980,38 @@ _bind_projection_result :: (
     // ends with this statement.
     if(!root.by_value && is_temporary_operand(&root.arg, env, ctx), {
       exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT))));
+    });
+    // A COMPUTED reference passed on to a reference parameter — an inner
+    // projection call's result (`id(c.borrow_mut().get())`, `id(id(&x))`,
+    // the receiver `c.borrow_mut().me()` of `.get()`) — is no place: its
+    // roots are R-CALL's (`origin_of`), and a temporary among them (the
+    // guard `c.borrow_mut()`) ends with this statement while the binding
+    // reads through it (R-TEMP). The place walk would read the call as its
+    // callee's place (`c`), skipping the temporary, whose drop at the
+    // statement's end then frees what the binding reads.
+    if(!root.by_value && is_computed_reference_operand(&root.arg, ctx), {
+      cr_roots := origin_of(&root.arg, env, ctx);
+      (cri : usize) = usize(0);
+      while(cri < cr_roots.len(), cri = (cri + usize(1)), {
+        if(cr_roots(cri).place.root_name == ORIGIN_TEMPORARY_ROOT, {
+          exn.throw(dyn(Box.new(with_code(format_error_message_with_help(ast_expr_token(&root.arg), `Cannot bind \`${var_name}\` to \`${call_text}\`: it holds a reference into \`${cr_roots(cri).place.text}\`, a temporary that ends with this statement, while \`${var_name}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`, Option(String).Some(`bind \`${cr_roots(cri).place.text}\` to a local first and lend the local`)), E_LOCAL_BORROW_CONFLICT))));
+        });
+      });
+      if(cr_roots.len() > usize(0), {
+        (crj : usize) = usize(0);
+        while(crj < cr_roots.len(), crj = (crj + usize(1)), {
+          crr := cr_roots(crj).clone();
+          if(!is_mut || crr.is_mut, {
+            match(get_variables_from_env(env, crr.place.root_name.clone()).last_cloned(), .Some(rv) => root_vars.push(rv), .None => ());
+            root_labels.push(root.label.clone());
+            root_names.push(crr.place.root_name.clone());
+            places.push(crr.place.clone());
+            held_places.push(false);
+          });
+        });
+        ri = (ri + usize(1));
+        continue;
+      });
     });
     // A holder passed by value (N1e-2): the places its references point
     // into, as its own binding froze them (`origin_of`). A reference
