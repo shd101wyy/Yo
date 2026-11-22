@@ -12167,6 +12167,11 @@ _static_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
         .Some(svr_ci) => match(
           svr_ci.value(),
           .Some(Rc(.TypeVal(_))) => true,
+          // A comptime-constructor call: the callee evaluates to a function
+          // whose declared result is `comptime(...)` (a struct built through
+          // a type application, `H(static)(r : …)`); its result is built at
+          // check time, so R-CALL does not govern it.
+          .Some(Rc(.FuncVal(scd, _))) => match(get_func_type(&scd.*.func_id), Rc(.Func({ meta : scm })) => scm.result_is_comptime_only, _ => false),
           _ => !(is_function_type(&svr_ci.ty()) || is_type_value(&svr_ci.value()))
         ),
         .None => true
