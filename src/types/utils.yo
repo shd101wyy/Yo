@@ -1391,6 +1391,10 @@ _checked_static_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     Rc(.Tuple({ field_types : tcs_fs })) => _checked_static_list(&tcs_fs.*, seen, depth),
     Rc(.FutureTraitT(output : tcs_out, effect_types : tcs_ets, origin : tcs_fo)) =>
       (is_static_origin(&tcs_fo.*) || (_checked_static_inner(&tcs_out.*, seen, (depth + u32(1))) || _checked_static_list(&tcs_ets.*, seen, depth))),
+    // An origin argument of an instantiated holder (`H(static)`'s
+    // `comptime(p) : Origin` filled with the empty origin): the instance's
+    // fields keep the RIGID `p`, so the argument itself decides.
+    Rc(.OriginSet(_, _)) => is_static_origin(ty),
     // `Impl(Future(T, E, p))` is the reserved SomeT name "Impl" whose
     // required bounds hold the future: the future's origin decides.
     Rc(.SomeT({ resolution : tcs_res, bounds : tcs_bnd })) => cond(
