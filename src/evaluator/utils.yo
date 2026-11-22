@@ -13961,7 +13961,7 @@ _name_occurs_invariant_args :: (fn(inst : &TypeValue, tas : &SharedList(TypeValu
 /// mismatch. A miss runs the walk unchanged and records its own answer, so
 /// a served answer is the walk's by construction.
 (g_invariant_names_handles : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
-(g_invariant_names_answers : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String)).new(ArrayList(ArrayList(String)).new());
+(g_invariant_names_answers : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
 (mut(g_invariant_names_epoch) : u64) = u64(0);
 (mut(g_inv_names_memo_check) : u8) = u8(0);
 /// `YO_DEBUG_INV_NAMES_MEMO_CHECK=1`: every identity-memo hit is re-walked
@@ -13985,7 +13985,7 @@ invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
     if(_inv_names_memo_check_enabled(), {
       again := _invariant_origin_names_walk(ty);
       if(!_origin_name_sets_equal(&shared_list(again.clone()), &shared_list(served.clone())), {
-        __yo_panic(`YO_DEBUG_INV_NAMES_MEMO_CHECK: invariant_origin_names(${type_to_string(ty)}): the identity memo answers [${_origin_list_text(&shared_list(served.clone()))}], the walk [${_origin_list_text(&shared_list(again.clone()))}]`);
+        panic(`YO_DEBUG_INV_NAMES_MEMO_CHECK: invariant_origin_names(${type_to_string(ty)}): the identity memo answers [${_origin_list_text(&shared_list(served.clone()))}], the walk [${_origin_list_text(&shared_list(again.clone()))}]`);
       });
     });
     return(served);
