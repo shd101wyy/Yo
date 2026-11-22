@@ -4093,6 +4093,17 @@ _names_list_contains :: (fn(names : &ArrayList(String), n : &String) -> bool)({
 /// `Future(T, E, p)` (decision 43 step 4, N3-1): the io.async result `t`
 /// (its per-call wrapper SomeT) with its `FutureTraitT`'s origin set to the
 /// places `names`; the wrapper keeps its id, so the registry still finds it.
+/// The places the future's origin ALREADY names STAY (`future_origin_names`,
+/// the bound's own names or its resolution's): a stamp adds places, it never
+/// drops them. A combinator's future carries what its operands borrow,
+/// spelled through the operand parameters (§3.13 A4), beside the parameters
+/// its callee's return rule recorded (R-CALL, decision 43 step 4) — both are
+/// facts about one future, and dropping either would hide the operand's
+/// places from every reader of the origin (decision 38 B's overlap check
+/// `_check_future_operand_lends`, the binding freeze, the spawn rejection).
+/// The stamped bound SHADOWS the resolution's origin
+/// (`_future_origin_names_inner` reads the bound first), so the resolution's
+/// names are carried into the stamped bound, not left behind it.
 _stamp_future_origin :: (fn(t : &TypeValue, names : &ArrayList(String)) -> TypeValue)({
   if(names.len() == usize(0), {
     return(Rc.clone(t));
@@ -4101,7 +4112,23 @@ _stamp_future_origin :: (fn(t : &TypeValue, names : &ArrayList(String)) -> TypeV
     t,
     Rc(.SomeT({ id : st_id, name : sn, frame_level : sfl, parent_type : spt, bounds : st_bounds, kind_function_type : skft, resolution : sres })) => {
       note_future_origins_exist();
-      origin := t_origin_named(&shared_list(names.clone()));
+      merged := names.clone();
+      match(
+        future_origin_names(t),
+        .Some(have) => {
+          (hi : usize) = usize(0);
+          while(hi < have.len(), hi = (hi + usize(1)), {
+            match(
+              have.get_cloned(hi),
+              .Some(n) => if(!merged.contains(&n), {
+                merged.push(n);
+              }),
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
       srtt := st_bounds.required();
       new_rtt := ArrayList(TypeValue).new();
       (ri : usize) = usize(0);
@@ -4111,7 +4138,7 @@ _stamp_future_origin :: (fn(t : &TypeValue, names : &ArrayList(String)) -> TypeV
           .Some(rt) => new_rtt.push(
             match(
               &rt,
-              Rc(.FutureTraitT(base_name : fb, output : fo, effect_labels : fel, effect_types : fet)) => Rc.new(TypeValueNode.FutureTraitT(base_name : fb.clone(), output : Rc.clone(fo), effect_labels : Rc.clone(fel), effect_types : Rc.clone(fet), origin : Rc.clone(origin))),
+              Rc(.FutureTraitT(base_name : fb, output : fo, effect_labels : fel, effect_types : fet)) => Rc.new(TypeValueNode.FutureTraitT(base_name : fb.clone(), output : Rc.clone(fo), effect_labels : Rc.clone(fel), effect_types : Rc.clone(fet), origin : t_origin_named(&shared_list(merged.clone())))),
               _ => Rc.clone(rt)
             )
           ),

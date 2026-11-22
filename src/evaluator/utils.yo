@@ -4359,6 +4359,26 @@ _first_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
 /// P9), so a `&` loan whose last use is a later argument has ended
 /// (`local_borrow_access_at` with `after_live`).
 call_activation_token :: (fn(call : &AstExpr, at : &Token) -> Token)(_last_token_of(call, at));
+/// The function type `call` binds its arguments through, whatever its
+/// result: a function-typed callee's own (a named function, a function
+/// pointer), a closure-typed callee's trait call type (`Impl(Fn(...))`,
+/// `Dyn(Fn(...))`, a type variable bounded by `Fn`), else the method
+/// dispatch's. `projection_call_callee_type` answers a closure-typed callee
+/// only when its result is a reference; the argument rules need its slots
+/// whatever it returns: a local closure's `r : &String` parameter carries
+/// the loan of the argument `e` into the body as a named function's does
+/// (`c(&mut xs, e)`, issues/fixed/2026-11-19-a-mut-argument-to-a-local-closure-is-not-checked-against-a-reference-argument-of-the-same-call.md).
+_call_binding_func_type :: (fn(call : &AstExpr, ctx : &EvalContext) -> Option(TypeValue))(
+  match(
+    call,
+    Rc(.FnCall(_, cb_callee, _, _, _)) => match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cb_callee.*)),
+      .Some(cbi) => if(is_function_type(&cbi.ty()), Option(TypeValue).Some(Rc.clone(cbi.ty())), match(fn_trait_call_func_type(&cbi.ty()), .Some(ft) => Option(TypeValue).Some(ft), .None => lookup_method_callee_type(ast_expr_id(call)))),
+      .None => lookup_method_callee_type(ast_expr_id(call))
+    ),
+    Rc(.Atom(_, _)) => Option(TypeValue).None
+  )
+);
 /// The operands of `call` whose VALUE carries an origin into the callee: an
 /// argument (the receiver included) passed to a `&`/`&mut` parameter, or
 /// that is a lend, or whose type carries an origin (a reference, a holder
@@ -4381,7 +4401,7 @@ call_origin_operands :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(As
   if(!is_method && _operand_carries_origin(&callee, ctx), {
     out.push(callee.clone());
   });
-  slots := match(projection_call_callee_type(call, ctx), .Some(ft) => fn_param_slots(&ft), .None => no_types());
+  slots := match(_call_binding_func_type(call, ctx), .Some(ft) => fn_param_slots(&ft), .None => no_types());
   ordered := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
     .Some(ci) => ci.runtime_arg_exprs_in_order(),
@@ -8853,10 +8873,32 @@ match_scrutinee_is_capture :: (fn(v : &Variable, env : &Environment, ctx : &Eval
 /// `is_mut` false: a binding of `match(&x, …)`, which borrows the
 /// scrutinee read-only, so the arm cannot write or move it while the binding
 /// is live (Rust's shared borrow of a `ref` binding).
-local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : &LocalBorrowPlace, body : &AstExpr, (is_mut : bool) ?= true) -> unit)({
-  last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => Rc.clone(decl.*));
-  end := cond(_lb_mentions(body, name.clone()) => _lb_region_end(body, name.clone(), decl), true => Rc.clone(decl.*));
-  _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
+///
+/// `guard`: the arm's guard (`(p && (g)) => body`). It runs after the
+/// pattern has bound its names and before the body, so a binding used in
+/// the guard is live there, and a write of the scrutinee in the guard is an
+/// access under its loan (the guard's mentions extend the range when the
+/// body has none).
+local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : &LocalBorrowPlace, body : &AstExpr, (is_mut : bool) ?= true, (guard : Option(AstExpr)) ?= .None) -> unit)({
+  arm_range := _lb_arm_range(name, decl, body, &guard);
+  _info := local_borrow_register(name, decl, is_mut, place, &arm_range, Option(Variable).None);
+});
+/// The live range of the arm binding `name` (declared at `decl`): its last
+/// mention in the arm's `body`, else in its `guard`, else the binding
+/// itself; the region end likewise. The guard lies between the pattern and
+/// the body, so a mention in the body is the later one.
+_lb_arm_range :: (fn(name : &String, decl : &Token, body : &AstExpr, guard : &Option(AstExpr)) -> LocalBorrowRange)({
+  if(_lb_mentions(body, name.clone()), {
+    return(LocalBorrowRange(last_use : match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => Rc.clone(decl.*)), end : _lb_region_end(body, name.clone(), decl), has_repoint : false));
+  });
+  match(
+    guard,
+    .Some(g) => if(_lb_mentions(g, name.clone()), {
+      return(LocalBorrowRange(last_use : match(_lb_last_mention(g, name.clone(), Option(Token).None), .Some(t) => t, .None => Rc.clone(decl.*)), end : _lb_region_end(g, name.clone(), decl), has_repoint : false));
+    }),
+    .None => ()
+  );
+  LocalBorrowRange(last_use : Rc.clone(decl.*), end : Rc.clone(decl.*), has_repoint : false)
 });
 /// Record the `mut` place a `match` arm binds over the local borrow `borrow`
 /// (`match(cur, .Some(n) => …)`, `name` declared at `decl`), live to its
@@ -8866,9 +8908,14 @@ local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : 
 /// issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
 /// The borrow's own range stays as it is: a re-point inside the arm must not
 /// read as an access of the borrow while the place lives.
-local_borrow_note_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr) -> unit)({
-  last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => return(()));
-  end := _lb_region_end(body, name.clone(), decl);
+/// `guard`: the arm's guard, as `local_borrow_register_match_place` reads it.
+local_borrow_note_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr, (guard : Option(AstExpr)) ?= .None) -> unit)({
+  if(!_lb_mentions(body, name.clone()) && !match(&guard, .Some(g) => _lb_mentions(g, name.clone()), .None => false), {
+    return(());
+  });
+  arm_range := _lb_arm_range(name, decl, body, &guard);
+  last := Rc.clone(arm_range.last_use);
+  end := Rc.clone(arm_range.end);
   name_owned := name.clone();
   // Owned captures (`with_mut`'s callback is a sink parameter).
   lbmp_decl := decl.clone();
@@ -9709,8 +9756,12 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       // a closure or fn value (`pick(rx, ry)`, a local binding) computes its
       // result too: the walk reads the callee's name as the place, which
       // would freeze the closure instead of the places its reference
-      // arguments lend (audit A56). Both fall through to the call's own
-      // origin (R-CALL below) instead of returning that set.
+      // arguments lend (audit A56). A projection call over a receiver chain
+      // (`c.borrow_mut().get()`) is computed too: the place walk reads it as
+      // `c`, skipping the temporary guard the result points into, whose
+      // statement-end drop then frees what the value reads
+      // (`is_computed_reference_operand`, R-TEMP). All of them fall through
+      // to the call's own origin (R-CALL below) instead of returning that set.
       (callee_is_value : bool) = match(
         &stripped,
         Rc(.FnCall(_, cr_callee, _, _, _)) => match(
@@ -9724,7 +9775,7 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
         ),
         _ => false
       );
-      if(!callee_is_value && local_borrow_place_of(&stripped, env, ctx).is_some(), {
+      if(!callee_is_value && (!is_computed_reference_operand(&stripped, ctx) && local_borrow_place_of(&stripped, env, ctx).is_some()), {
         _origin_push_place(&stripped, rec_mut, env, ctx, out);
         return(());
       });
@@ -10214,6 +10265,17 @@ is_temporary_operand :: (fn(operand : &AstExpr, env : &Environment, ctx : &EvalC
     )
   )
 });
+/// `operand` is a COMPUTED reference: a projection call's result (a call or
+/// method call whose callee returns `&T`/`&mut T`; not a subscript, whose
+/// place is recorded), such as `c.borrow_mut().get()` or `id(&x)` passed on.
+/// It is no place of its own: its origin is R-CALL's over the call's root
+/// arguments, a temporary among them included (R-TEMP). `local_borrow_place_of`
+/// reads the call as its callee's place, which skips those roots: a
+/// temporary guard in `c.borrow_mut().get()` passed for `c`.
+is_computed_reference_operand :: (fn(operand : &AstExpr, ctx : &EvalContext) -> bool)({
+  s := ast_rewritten_node(&ast_expr_strip_borrow_marker(operand));
+  match(&s, Rc(.FnCall(_, _, _, cro_infix, _)) => (!cro_infix.* && projection_call_mode_of(&s, ctx).is_some()), Rc(.Atom(_, _)) => false)
+});
 /// The R-TEMP entry for the temporary `operand`.
 origin_temporary_entry :: (fn(operand : &AstExpr, is_mut : bool) -> OriginRootPlace)({
   s := ast_expr_strip_borrow_marker(operand);
@@ -10461,7 +10523,7 @@ _origin_push :: (fn(entry : OriginRootPlace, out : &mut ArrayList(OriginRootPlac
   while(i < out.len(), {
     match(
       out.get_cloned(i),
-      .Some(kept) => if((kept.is_mut == entry.is_mut) && (kept.place.text.clone() == entry.place.text.clone()), {
+      .Some(kept) => if((kept.is_mut == entry.is_mut) && _origin_same_place(&kept.place, &entry.place), {
         return(());
       }),
       .None => ()
@@ -10469,6 +10531,24 @@ _origin_push :: (fn(entry : OriginRootPlace, out : &mut ArrayList(OriginRootPlac
     i = (i + usize(1));
   });
   out.push(entry);
+});
+/// Two origin entries name the same place: the same root (name and
+/// declaration) and the same steps. The written text is no identity: the
+/// place walk renders a call's place as the call (`(c.borrow_mut)()` for the
+/// place `c`), which is also the text of R-TEMP's entry for that temporary,
+/// and a text match dropped the temporary from the origin
+/// (issues/fixed/2026-11-19-a-reference-read-through-a-temporary-guard-outlives-the-guards-drop.md).
+_origin_same_place :: (fn(a : &LocalBorrowPlace, b : &LocalBorrowPlace) -> bool)({
+  if(!_lb_same_decl(a.root_name.clone(), &a.root_decl, b.root_name.clone(), &b.root_decl) || ((a.through_cell != b.through_cell) || (a.steps.len() != b.steps.len())), {
+    return(false);
+  });
+  (si : usize) = usize(0);
+  while(si < a.steps.len(), si = (si + usize(1)), {
+    if(a.steps(si) != b.steps(si), {
+      return(false);
+    });
+  });
+  true
 });
 /// The `value` of a `label : value` argument, or the argument itself.
 _unlabeled_value :: (fn(arg : &AstExpr) -> AstExpr)(
@@ -14016,7 +14096,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, is_computed_reference_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

@@ -3702,7 +3702,9 @@ assert(b.norm1() == 9);
 
 **Owners.** Every other `Deref` type is an owner of unsized content, whose
 `.*` is the place its `deref` projection yields. `Array(T, N)` is one in the
-prelude, with `Target : [T]`, and so is a user type over a `[T]`:
+prelude and `ArrayList(T)` one in std, both with `Target : [T]` and
+`DerefMut`, so `&list.*` lends a list's elements as a `&[T]`. A user type
+over a `[T]` is one too:
 
 ```yo
 { assert } :: import("std/assert");
