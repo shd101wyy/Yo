@@ -1,0 +1,17 @@
+$ yo check reference-sent-to-a-thread.yo
+error[E0909]: Captured variable `r` (type `&i32`) borrows `x`, and a borrow cannot cross threads: the closure runs on another thread, which may outlive `x`.
+  --> reference-sent-to-a-thread.yo:7:28
+  |
+7 |   t := Thread(i32).spawn({ r }(io : Io) => r.*);
+  |                            ^
+help: capture the value instead of a borrow: a by-value entry (`{ x }`, `{ v : x.clone() }`) moves or copies it into the closure, and `{ v : r.* }` copies what a reference `r` refers to; or share the value through an `Arc`
+help: run `yo explain E0909` for more information
+yo: error: check: 1 file(s) failed evaluator coverage
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing reference-sent-to-a-thread.yo
+check: parsed 4 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+rc=1

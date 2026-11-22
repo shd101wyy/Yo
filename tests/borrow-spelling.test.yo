@@ -282,7 +282,7 @@ comptime_expect_error(
   bs_type_argument :: (fn() -> unit)({
     _xs := ArrayList(&i32).new();
   }),
-  "carries an origin inside a container or a cell"
+  "carries an origin (it holds a reference) inside a container or a cell"
 );
 // A value `HashMap` holds its entries behind `data : ?*MapEntry(K, V)`, so
 // the wall reaches it through the pointer, as for `ArrayList`
@@ -291,7 +291,7 @@ comptime_expect_error(
   bs_map_value_argument :: (fn() -> unit)({
     _m := HashMap(i32, &i32).new();
   }),
-  "carries an origin inside a container or a cell"
+  "carries an origin (it holds a reference) inside a container or a cell"
 );
 test("an inline composite over a reference type builds (N2b)", {
   x := i32(1);
