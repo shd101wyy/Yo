@@ -18,7 +18,7 @@ my_unwrap :: (fn(generic(T : Type), o : Option(T)) -> T)(
 );
 main :: (fn() -> unit)({
   mut(y) := String.from("hello");
-  r := my_unwrap(Option(&mut String).Some(&mut y));   // E0901 (std's `unwrap` too)
+  r := my_unwrap(Option(&mut String).Some(&mut y)); // E0901 (std's `unwrap` too)
   r.push_str("!");
   ()
 });

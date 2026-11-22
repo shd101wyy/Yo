@@ -12,10 +12,10 @@ pragma(Pragma.AllowUnsafe);
 pick :: (fn(s : &String) -> Option(&String))(.Some(s));
 main :: (fn() -> unit)({
   y := String.from("hello");
-  a := pick(&y).unwrap().*.len();     // E0610
-  b := pick(&y).unwrap().*.clone();   // E0610
-  c := pick(&y).unwrap().*;           // "Failed to evaluate"
-  d := String.len(&pick(&y).unwrap().*);   // "arg not evaluated"
+  a := pick(&y).unwrap().*.len(); // E0610
+  b := pick(&y).unwrap().*.clone(); // E0610
+  c := pick(&y).unwrap().*; // "Failed to evaluate"
+  d := String.len(&pick(&y).unwrap().*); // "arg not evaluated"
   ()
 });
 export(main);
