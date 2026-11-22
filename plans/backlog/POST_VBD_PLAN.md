@@ -136,7 +136,7 @@ battery takes the next lane-F item.
 - **IO-1a and TP-1 (lane B):** as decided in `IO_INTERFACE_AND_STD_RUNTIME.md`
   §6 and the pool plan §4. IO-1a is the compiler's Generation A, and the
   seed must carry it. TP-1 is not seed-gated and fixes the open S2
-  `issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`.
+  `issues/fixed/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`.
 - **Lane D:**
   - Promote the ownership guide. Re-sync it against decisions 46–50 and N1/N2
     as built, then publish it to `docs/` in both languages.

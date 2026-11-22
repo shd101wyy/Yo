@@ -132,7 +132,7 @@ with at most four running at once:
   1. `Io` becomes an interface value
      ([`backlog/IO_INTERFACE_AND_STD_RUNTIME.md`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)).
   2. `ThreadPool` owns its workers and shares one queue
-     ([`backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)).
+     ([`reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)): landed in v0.2.80 (TP-1).
   3. The root `global_allocator`.
   4. No libc by default, Zig's default
      ([`backlog/NO_LIBC_BY_DEFAULT.md`](backlog/NO_LIBC_BY_DEFAULT.md)), with

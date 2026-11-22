@@ -5,7 +5,7 @@
 Yo 提供两种并行执行机制：
 
 1. **Thread** - 专用操作系统线程（对 pthread 的封装）
-2. **ThreadPool** - 由一组工作线程组成的线程池，任务被交给它执行，具有线程亲和性
+2. **ThreadPool** - 拥有自己工作线程的线程池；任务在一个共享队列中等待，`spawn_on` 把任务固定到某个工作线程
 
 线程间通信通过 **Channel**（`std/sync/channel.yo`）完成——一个有界的多生产者多消费者队列，支持阻塞式发送/接收。
 
@@ -128,41 +128,56 @@ thread.join();
 
 ## ThreadPool - 线程池任务
 
-`ThreadPool` 把任务交给具有**线程亲和性**的**工作线程池**。每个任务固定在分配的操作系统线程上执行（无工作窃取）。
+`ThreadPool` 拥有 `n` 个工作线程：它们由 `new(n)` 创建，在线程池被丢弃或 `shutdown` 时被 join。
 
-操作系统层面的工作线程是运行时拥有的**进程级全局线程池**；`ThreadPool` 值是它的显式句柄，负责决定线程数、提交任务并等待其排空。由此有两点后果：传给 `new` 的 `num_threads` 只在运行时线程池尚未启动时生效；所有 `ThreadPool` 值共享这些工作线程。但每个线程池只统计自己的任务：`join_all` 和 `shutdown` 等待的是通过该线程池提交的任务（以及这些任务再提交进同一线程池的任务），而不是其他线程池的任务。
+每个工作线程都有自己的异步事件循环，因此任务可以在交给它的 `io` 上使用 `io.async`/`io.await`。已开始的任务绝不会移动到另一个线程：`Io` 和 `JoinHandle` 是 `!Send` 的，引用计数是每线程、非原子的。
 
-每个工作线程一次只运行一个任务，并运行到结束，包括该任务派生的异步工作。因此，一个在等待慢操作的线程池任务会推迟同一工作线程上排在它后面的所有任务，即使其他工作线程处于空闲状态（`issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`）。线程池正在为此重新设计（[`plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../../plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)）。
+尚未开始的任务在一个由所有工作线程共享的队列中等待。`spawn(&pool, cb)` 由第一个空闲的工作线程取走，因此慢任务不会推迟排在它后面的任何任务，CPU 密集型工作也会自动均衡。
+
+必须在特定工作线程上运行的任务（因为分片本地状态或每工作线程缓存）通过 `spawn_on(&pool, i, cb)` 显式放置，只有该工作线程会取走它（`pool.worker_count()`、`worker_id()`）。
+
+每个工作线程一次只运行一个任务，并运行到结束，包括该任务派生的异步工作。`join_all` 是该线程池所提交任务的完成计数器。
+
+没有工作窃取，也没有 CPU 亲和性：运行时从不把线程绑定到某个核心，已开始的任务也从不迁移。
 
 ### API
 
 ```yo
-{ ThreadPool, spawn } :: import("std/thread");
+{ ThreadPool, spawn, spawn_on, worker_id } :: import("std/thread");
 
-// 创建线程池，请求 num_threads 个工作线程
+// 创建一个恰好拥有 num_threads 个工作线程的线程池
 ThreadPool.new : (fn(num_threads : usize) -> ThreadPool);
 
-// 创建与硬件线程数一致的线程池
+// 创建每个硬件线程一个工作线程的线程池
 ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 
-// 当前（或即将）使用的工作线程数
-ThreadPool.num_threads : (fn(self : &ThreadPool) -> usize);
+// 线程池拥有的工作线程数
+ThreadPool.worker_count : (fn(self : &ThreadPool) -> usize);
 
-// 向线程池提交任务——这是模块级函数，不是方法
+// 把任务交给线程池的共享队列：第一个空闲的工作线程取走它。
+// 这是模块级函数，不是方法。
 spawn : (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
+
+// 只把任务交给工作线程 worker（0 <= worker < pool.worker_count()）
+spawn_on : (fn(pool : &ThreadPool, worker : usize, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
+
+// 正在运行的线程池任务所在的工作线程；在其他线程上为 .None
+worker_id : (fn() -> Option(usize));
 
 // 阻塞直到此前提交的所有任务完成；线程池保持开放
 ThreadPool.join_all : (fn(self : &ThreadPool) -> unit);
 
-// 拒绝新任务，然后排空。可重复调用。
+// 拒绝新任务，运行已提交的任务，join 工作线程。可重复调用。
 ThreadPool.shutdown : (fn(self : &ThreadPool) -> unit);
 ThreadPool.is_shutdown : (fn(self : &ThreadPool) -> bool);
+
+// impl(ThreadPool, Drop(...))：丢弃线程池即 `shutdown`
 ```
 
 ### 用法
 
 ```yo
-{ ThreadPool, spawn } :: import("std/thread");
+{ ThreadPool, spawn, spawn_on, worker_id } :: import("std/thread");
 { yield } :: import("std/async");
 
 pool := ThreadPool.new(usize(4));
@@ -180,34 +195,61 @@ spawn(&pool, (io : Io) => {
   io.await(task, io);
 });
 
+// 每个工作线程一个任务，各自处理自己的分片
+(mut(i) : usize) = usize(0);
+while(i < pool.worker_count(), {
+  spawn_on(&pool, i, (io : Io) => {
+    shard := worker_id().unwrap();
+    work_on_shard(shard);
+  });
+  i = (i + usize(1));
+});
+
 // 等待此前提交的所有任务
 pool.join_all();
 
-// 拒绝新任务并排空
-pool.shutdown();
+// `pool` 在其作用域结束时被丢弃：拒绝新任务，运行已提交的任务，并 join 工作线程。
 ```
 
 `join_all` 是一个**完成计数器**：`spawn` 把任务计入，任务的包装函数在任务返回后将其计出，因此当通过该线程池提交的所有任务（以及这些任务再提交进同一线程池的任务）都完成时，`join_all` 才返回。请勿在同一线程池的任务内部调用 `join_all`——该任务会等待它自己。
 
+### 共享线程池
+
+`ThreadPool` 是仅可移动（move-only）的值。用 `&pool` 借出，或以 `Arc(ThreadPool)` 在线程和任务之间共享：
+
+```yo
+pool := Arc.new(ThreadPool.new(usize(4)));
+spawn(&pool.*, { pool : Arc.clone(pool) }(io : Io) => {
+  // 向自己所在的线程池提交更多工作的任务
+  spawn(&pool.*, (io : Io) => { do_work(); });
+});
+```
+
+线程池在最后一个所有者丢弃它时关闭。如果这个所有者是线程池自己的某个任务，丢弃无法等待它所在的那个任务：它关闭线程池后返回，工作线程运行完已提交的任务后退出。
+
+保存在模块全局变量中的线程池永远不会被丢弃：它的工作线程一直存活到进程退出，而进程退出时不会等待它们，与分离（detached）的 `Thread` 相同。
+
 ### 线程池设计
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                           线程池                                │
-│                                                                │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ OS 线程 0    │  │ OS 线程 1    │  │ OS 线程 2    │  ...     │
-│  ├──────────────┤  ├──────────────┤  ├──────────────┤          │
-│  │ 事件循环     │  │ 事件循环     │  │ 事件循环     │          │
-│  │ 任务队列     │  │ 任务队列     │  │ 任务队列     │          │
-│  │ [A, D, G]    │  │ [B, E, H]    │  │ [C, F, I]    │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-│                                                                │
-│  - 默认每个硬件线程一个工作线程（不绑定 CPU）                     │
-│  - 轮询分配；任务固定在分配的工作线程上                           │
-│  - 每线程事件循环：异步 I/O 无竞争                               │
-│  - 无工作窃取；每个工作线程一次运行一个任务                       │
-└────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                           ThreadPool                              │
+│                                                                   │
+│  共享队列：[D, E, F, ...]   （由第一个空闲的工作线程取走）        │
+│                                                                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
+│  │ 工作线程 0   │  │ 工作线程 1   │  │ 工作线程 2   │  ...        │
+│  ├──────────────┤  ├──────────────┤  ├──────────────┤             │
+│  │ 事件循环     │  │ 事件循环     │  │ 事件循环     │             │
+│  │ 固定队列     │  │ 固定队列     │  │ 固定队列     │             │
+│  │ (spawn_on)   │  │ (spawn_on)   │  │ (spawn_on)   │             │
+│  └──────────────┘  └──────────────┘  └──────────────┘             │
+│                                                                   │
+│  - 恰好 n 个工作线程，归线程池所有，在线程池被丢弃时 join         │
+│  - 工作线程先取自己的固定队列，再取共享队列                       │
+│  - 每个工作线程一次运行一个任务，直到结束                         │
+│  - 无工作窃取，无 CPU 亲和性；已开始的任务从不移动                │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ### 何时使用 ThreadPool
@@ -354,12 +396,12 @@ Thread(unit).spawn(io => {
 
 | 方面       | Thread             | ThreadPool             |
 | ---------- | ------------------ | ---------------------- |
-| OS 线程    | 专用（1:1）        | 共享（线程池）         |
-| 生命周期   | 显式管理（`join`） | 按批次（`join_all`/`shutdown`） |
+| OS 线程    | 专用（1:1）        | 线程池自己的 `n` 个工作线程 |
+| 生命周期   | 显式管理（`join`） | 按批次（`join_all`）；丢弃即 `shutdown` |
 | 开销       | 较高（需创建线程） | 较低（复用线程）       |
 | 适用场景   | 长时间运行的任务   | 短期任务               |
-| 线程亲和性 | 不适用             | 是（任务固定在线程上） |
-| 异步 I/O   | 拥有独立事件循环   | 共享每线程事件循环     |
+| 固定       | 不适用             | 显式（`spawn_on`）     |
+| 异步 I/O   | 拥有独立事件循环   | 每个工作线程自己的事件循环 |
 
 `Thread(T).join()` 返回线程的 `T`。`ThreadPool.join_all` 不携带值：要从线程池任务返回结果，请通过 `Channel` 传回。
 
@@ -368,7 +410,7 @@ Thread(unit).spawn(io => {
 | 组件        | 用途             | API                   |
 | ----------- | ---------------- | --------------------- |
 | **Thread**  | 专用操作系统线程 | `spawn`、`join`       |
-| **ThreadPool** | 线程池        | `new`、`spawn`、`join_all`、`shutdown` |
+| **ThreadPool** | 线程池        | `new`、`spawn`、`spawn_on`、`join_all`、`shutdown` |
 | **Channel** | 阻塞式通信       | `new`、`send`、`recv` |
 
 ### 快速参考
@@ -404,5 +446,5 @@ val := ch.recv();
 2. **Send trait** - 只有 Send 类型可以跨越线程边界
 3. **线程局部 RC** - 非原子计数无需跨线程协调
 4. **非原子引用计数** - 线程局部对象无原子操作开销
-5. **线程亲和性** - 线程池任务固定在分配的操作系统线程上
+5. **共享队列，显式固定** - 空闲的工作线程取走下一个任务；`spawn_on` 固定一个任务；已开始的任务从不移动
 6. **每线程事件循环** - 每个线程拥有独立的异步 I/O

@@ -21,5 +21,5 @@ documentation only.
 | `std/thread.yo`, module doc and `ThreadPool` type doc | Each thread has its own "GC heap" | The cycle collector is gone (decision 48). Reference counting is per-thread and non-atomic |
 
 The docs now also state the head-of-line behaviour, with a pointer to
-`issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`
+`issues/fixed/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`
 and to the redesign that fixes it.

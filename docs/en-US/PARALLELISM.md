@@ -5,7 +5,7 @@
 Yo provides two mechanisms for parallel execution:
 
 1. **Thread** - A dedicated OS thread (wrapper around pthread)
-2. **ThreadPool** - A pool of worker threads that tasks are handed to, with thread affinity
+2. **ThreadPool** - A pool that owns its worker threads; tasks wait in one shared queue, and `spawn_on` pins a task to one worker
 
 Communication between threads is done via **Channel** (`std/sync/channel.yo`) — a bounded, multi-producer multi-consumer queue with blocking send/recv.
 
@@ -136,53 +136,67 @@ thread.join();
 
 ## ThreadPool - Thread Pool Tasks
 
-`ThreadPool` hands tasks to a **pool of worker threads** with **thread affinity**. Each task stays on its assigned OS thread (no work stealing).
+A `ThreadPool` owns `n` worker threads, created by `new(n)` and joined when the
+pool is dropped or `shutdown`.
 
-The OS worker threads are a single process-global pool owned by the runtime; a
-`ThreadPool` value is the explicit handle on it. It decides the thread count,
-submits tasks and drains them. Two consequences: the `num_threads` passed to
-`new` only takes effect while the runtime pool has not started yet, and the
-worker threads are shared by every `ThreadPool` value. Each pool still counts
-its own tasks: `join_all` and `shutdown` wait for the work submitted through
-that pool (and for the tasks that work submits into it), not for another
-pool's.
+Every worker has its own async event loop, so a task may use
+`io.async`/`io.await` on the `io` it is handed. A started task never moves to
+another thread: `Io` and `JoinHandle` are `!Send`, and reference counts are
+per-thread and non-atomic.
 
-A worker runs one task at a time to completion, including the async work that
-task spawned. A pool task that awaits something slow therefore delays every
-task queued behind it on the same worker, even while other workers are idle
-(`issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`).
-The pool is being redesigned to fix this
-([`plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../../plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)).
+Unstarted tasks wait in one queue shared by the workers. `spawn(&pool, cb)` is
+taken by the first idle worker, so a slow task delays nothing queued behind
+it, and CPU-bound work balances itself.
+
+A task that must run on a particular worker, because of shard-local state or a
+per-worker cache, is placed explicitly with `spawn_on(&pool, i, cb)`. Only that
+worker takes it (`pool.worker_count()`, `worker_id()`).
+
+Each worker runs one task at a time to completion, including the async work
+that task spawned. `join_all` is a completion counter over the tasks this pool
+submitted.
+
+There is no work stealing and no CPU affinity: the runtime never pins a thread
+to a core, and a started task never migrates.
 
 ### API
 
 ```yo
-{ ThreadPool, spawn } :: import("std/thread");
+{ ThreadPool, spawn, spawn_on, worker_id } :: import("std/thread");
 
-// Create a pool that requests `num_threads` worker threads
+// Create a pool that owns exactly `num_threads` worker threads
 ThreadPool.new : (fn(num_threads : usize) -> ThreadPool);
 
-// Create a pool sized to the number of hardware threads
+// Create a pool with one worker per hardware thread
 ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 
-// Number of worker threads in use (or about to be)
-ThreadPool.num_threads : (fn(self : &ThreadPool) -> usize);
+// The number of workers the pool owns
+ThreadPool.worker_count : (fn(self : &ThreadPool) -> usize);
 
-// Hand a task to the pool — a module-level function, not a method
+// Hand a task to the pool's shared queue: the first idle worker takes it.
+// A module-level function, not a method.
 spawn : (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
+
+// Hand a task to worker `worker` only (0 <= worker < pool.worker_count())
+spawn_on : (fn(pool : &ThreadPool, worker : usize, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
+
+// The running pool task's worker; .None on any other thread
+worker_id : (fn() -> Option(usize));
 
 // Block until every task submitted so far has finished; the pool stays open
 ThreadPool.join_all : (fn(self : &ThreadPool) -> unit);
 
-// Refuse new work, then drain. Idempotent.
+// Refuse new work, run what was submitted, join the workers. Idempotent.
 ThreadPool.shutdown : (fn(self : &ThreadPool) -> unit);
 ThreadPool.is_shutdown : (fn(self : &ThreadPool) -> bool);
+
+// impl(ThreadPool, Drop(...)): dropping the pool is `shutdown`
 ```
 
 ### Usage
 
 ```yo
-{ ThreadPool, spawn } :: import("std/thread");
+{ ThreadPool, spawn, spawn_on, worker_id } :: import("std/thread");
 { yield } :: import("std/async");
 
 pool := ThreadPool.new(usize(4));
@@ -200,11 +214,21 @@ spawn(&pool, (io : Io) => {
   io.await(task, io);
 });
 
+// One task per worker, each on its own shard
+(mut(i) : usize) = usize(0);
+while(i < pool.worker_count(), {
+  spawn_on(&pool, i, (io : Io) => {
+    shard := worker_id().unwrap();
+    work_on_shard(shard);
+  });
+  i = (i + usize(1));
+});
+
 // Wait for everything submitted so far
 pool.join_all();
 
-// Refuse new work and drain
-pool.shutdown();
+// Dropping `pool` at the end of its scope refuses new work, runs what was
+// submitted and joins the workers.
 ```
 
 `join_all` is a **completion counter**: `spawn` counts a task in, and the
@@ -213,25 +237,47 @@ task submitted through this pool so far (and every task those tasks submitted
 into it) has finished. Do not call `join_all` from inside a task of the same
 pool — the task would be waiting for itself.
 
+### Sharing a pool
+
+A `ThreadPool` is a move-only value. Lend it as `&pool`, or share it between
+threads and tasks as `Arc(ThreadPool)`:
+
+```yo
+pool := Arc.new(ThreadPool.new(usize(4)));
+spawn(&pool.*, { pool : Arc.clone(pool) }(io : Io) => {
+  // a task that submits more work into its own pool
+  spawn(&pool.*, (io : Io) => { do_work(); });
+});
+```
+
+The pool is shut down when the last owner drops it. When that owner is one of
+the pool's own tasks, the drop cannot wait for the task it runs in: it closes
+the pool and returns, and the workers run what was submitted, then exit.
+
+A pool held in a module global is never dropped: its workers live until the
+process exits, and exit does not wait for them, as for a detached `Thread`.
+
 ### Thread Pool Design
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                         Thread Pool                            │
-│                                                                │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ OS Thread 0  │  │ OS Thread 1  │  │ OS Thread 2  │  ...     │
-│  ├──────────────┤  ├──────────────┤  ├──────────────┤          │
-│  │ Event Loop   │  │ Event Loop   │  │ Event Loop   │          │
-│  │ Task Queue   │  │ Task Queue   │  │ Task Queue   │          │
-│  │ [A, D, G]    │  │ [B, E, H]    │  │ [C, F, I]    │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-│                                                                │
-│  - One worker per hardware thread by default (no CPU pinning)  │
-│  - Round-robin assignment; a task stays on its worker          │
-│  - Per-thread event loop: async I/O without contention         │
-│  - No work stealing; one task at a time per worker             │
-└────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                           ThreadPool                              │
+│                                                                   │
+│  Shared queue: [D, E, F, ...]   (taken by the first idle worker)  │
+│                                                                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
+│  │ Worker 0     │  │ Worker 1     │  │ Worker 2     │  ...        │
+│  ├──────────────┤  ├──────────────┤  ├──────────────┤             │
+│  │ Event Loop   │  │ Event Loop   │  │ Event Loop   │             │
+│  │ Pinned queue │  │ Pinned queue │  │ Pinned queue │             │
+│  │ (spawn_on)   │  │ (spawn_on)   │  │ (spawn_on)   │             │
+│  └──────────────┘  └──────────────┘  └──────────────┘             │
+│                                                                   │
+│  - Exactly n workers, owned by the pool, joined when it drops     │
+│  - A worker takes its pinned queue first, then the shared queue   │
+│  - One task at a time per worker, run to completion               │
+│  - No work stealing, no CPU affinity; a started task never moves  │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ### When to Use ThreadPool
@@ -398,12 +444,12 @@ This means:
 
 | Aspect          | Thread                   | ThreadPool                 |
 | --------------- | ------------------------ | -------------------------- |
-| OS Thread       | Dedicated (1:1)          | Shared (thread pool)       |
-| Lifecycle       | Explicit (`join`)        | Batch (`join_all`/`shutdown`) |
+| OS Thread       | Dedicated (1:1)          | The pool's own `n` workers |
+| Lifecycle       | Explicit (`join`)        | Batch (`join_all`); drop = `shutdown` |
 | Overhead        | Higher (thread creation) | Lower (reuses threads)     |
 | Use Case        | Long-running tasks       | Short-lived tasks          |
-| Thread Affinity | N/A                      | Yes (task stays on thread) |
-| Async I/O       | Own event loop           | Shared per-thread loop     |
+| Pinning         | N/A                      | Explicit (`spawn_on`)      |
+| Async I/O       | Own event loop           | Each worker's own loop     |
 
 `Thread(T).join()` returns the thread's `T`. `ThreadPool.join_all` carries
 no value: to return a result from a pool task, hand it back over a
@@ -414,7 +460,7 @@ no value: to return a result from a pool task, hand it back over a
 | Component   | Purpose                | API                   |
 | ----------- | ---------------------- | --------------------- |
 | **Thread**  | Dedicated OS thread    | `spawn`, `join`       |
-| **ThreadPool** | Thread pool         | `new`, `spawn`, `join_all`, `shutdown` |
+| **ThreadPool** | Thread pool         | `new`, `spawn`, `spawn_on`, `join_all`, `shutdown` |
 | **Channel** | Blocking communication | `new`, `send`, `recv` |
 
 ### Quick Reference
@@ -450,5 +496,5 @@ val := ch.recv();
 2. **Send trait** - only Send types can cross thread boundaries
 3. **Thread-local RC** - no cross-thread coordination of non-atomic counts
 4. **Non-atomic RC** - no atomic overhead for thread-local objects
-5. **Thread affinity** - pool tasks stay on assigned OS thread
+5. **Shared queue, explicit pinning** - an idle pool worker takes the next task; `spawn_on` pins one; a started task never moves
 6. **Per-thread event loop** - each thread gets independent async I/O

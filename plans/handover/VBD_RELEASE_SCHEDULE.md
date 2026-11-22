@@ -639,6 +639,6 @@ The maintainer deferred these until after VBD. They follow v0.2.76 (v0.2.75 befo
 - the `Io` interface and the pool redesign (VERDICTS-32, decided 2026-11-07), after v0.2.79 and before NO_LIBC P0b:
   - `plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md`: IO-1a (v0.2.80, compiler Generation A), IO-1b (v0.2.81, std
     Generation B on the v0.2.80 seed), IO-1c (v0.2.82);
-  - `plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`: TP-1 (v0.2.80, not seed-gated).
+  - `plans/reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`: TP-1 (v0.2.80, not seed-gated).
 
   Their documentation corrections landed inside VBD, as a plans PR.
