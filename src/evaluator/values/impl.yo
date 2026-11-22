@@ -3009,7 +3009,7 @@ _find_methods_from_generic_impls_scan :: (
         // clone per entry made this loop quadratic in the bucket's size and
         // was the evaluator's largest allocation site.
         fmg_owner := g_impl_registry_entry_owners.with({ ki, ei }(xs) => cond(
-          ki < xs.len() => match(xs(ki).get_cloned(ei), .Some(o) => o, .None => String.new()),
+          (ki < xs.len()) => match(xs(ki).get_cloned(ei), .Some(o) => o, .None => String.new()),
           true => String.new()
         ));
         mb_opt := try_match_generic_impl(resolved, &entry, env, false);
