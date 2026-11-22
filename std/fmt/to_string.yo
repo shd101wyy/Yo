@@ -386,6 +386,22 @@ impl(
     append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str(str.from_raw_parts(self.ptr(), self.len())))
   )
 );
+// === A shared reference ===
+/// `ToString` over a shared reference: a reference renders as its referent,
+/// so `${r}` and a generic `show(v : T)` at `T := &U` print the value, never
+/// an address. Both methods are forwarded, so a `&String` part is still
+/// appended by borrow. The bodies are the type-qualified calls, never
+/// `self.*.to_string()`, whose probe would select this impl again
+/// (VERDICTS-49).
+impl(
+  generic(T : Type),
+  where(T <: ToString),
+  &T,
+  ToString(
+    to_string : (fn(self : &Self) -> String)(T.to_string(self.*)),
+    append_to : (fn(self : &Self, out : &mut String) -> unit)(T.append_to(self.*, out))
+  )
+);
 // === Unit ===
 /// `()` prints as "()" — the last D3.8 primitive (plans/archive/STD_API_AUDIT.md).
 /// The `self : &mut Self` receiver of type unit is passed as a null pointer at the

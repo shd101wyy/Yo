@@ -6374,11 +6374,6 @@ _named_place_root_token :: (fn(e : &AstExpr) -> Option(Token))(
     )
   )
 );
-/// The two-step path that upgrades code written for v0.2.77 (decision 49):
-/// E0619's and the box-lend E0601's help both name it.
-unsized_upgrade_path_text :: (fn() -> String)(
-  String.from("code written for v0.2.77 or earlier is upgraded in two steps: on v0.2.77, `yo version install 0.2.77 && yo fix <path> --migrate unsized` writes the type spellings (`Box(Dyn(...))`); then on v0.2.78, `yo fix <path> --migrate unsized` writes the lends (`&b` to `&b.*`)")
-);
 /// A `Box(Dyn(T))` given where a `&Dyn(T)`/`&mut Dyn(T)` is expected (decision
 /// 49, VERDICTS-40 §5 family (d)): `&b` lends the box, and nothing coerces a
 /// reference to a box into a reference to the object it owns (no deref
@@ -6416,8 +6411,8 @@ legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &Ast
   lb_shown := match(lb_root.clone(), .Some(_) => local_borrow_place_text(&lb_place), .None => lb_text.clone());
   lb_help := match(
     lb_root,
-    .Some(_) => `lend the object the box owns: \`${lb_sig}${lb_shown}.*\`; ${unsized_upgrade_path_text()}`,
-    .None => `bind the box and lend the object it owns (\`b := ...; ${lb_sig}b.*\`), or lend a value as a \`Dyn\` without a box: \`dyn(${lb_sig}v)\`; ${unsized_upgrade_path_text()}`
+    .Some(_) => `lend the object the box owns: \`${lb_sig}${lb_shown}.*\``,
+    .None => `bind the box and lend the object it owns (\`b := ...; ${lb_sig}b.*\`), or lend a value as a \`Dyn\` without a box: \`dyn(${lb_sig}v)\``
   );
   raise_flow_violation(
     with_code(
@@ -6433,7 +6428,7 @@ legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &Ast
   );
   true
 });
-export(reject_dyn_place_by_value, legacy_box_dyn_lend, unsized_upgrade_path_text);
+export(reject_dyn_place_by_value, legacy_box_dyn_lend);
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);

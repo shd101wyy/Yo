@@ -181,11 +181,11 @@ ArrayExpression ::=
   | '[' Expression ';' Expression ']'                 ;; 数组类型 [T; N]
   | '[' Expression ']'                                ;; 切片类型 [T]
 
-;; `[T]` 是非定长切片类型 `Slice(T)`（plans/VALUES_BY_DEFAULT.md 决策 49），
-;; 只能位于指针之后：`&[T]`、`&mut [T]`、`*[T]`。`[T;]` 没有给出长度，
+;; `[T]` 是非定长切片类型 `Slice(T)`，只能位于指针之后：`&[T]`、`&mut [T]`、
+;; `*[T]`。`[T;]` 没有给出长度，
 ;; 是解析错误。单元素数组值用尾随逗号书写：`[expr,]`。
 
-;; 花括号表达式（plans/reference/BRACE_BLOCKS.md，自 v0.2.78 起）
+;; 花括号表达式
 ;; `.{ … }` 构造记录，绑定一侧的 `{ names }` 选取字段，其余所有 `{ … }` 都是块。
 ;; 在表达式位置，裸花括号组是块：`{ e }` 的值是 `e`，`{ s; e }` 的值是 `e`，
 ;; `{ s; }` 和 `{}` 的值是 unit。裸表达式花括号内直接出现 `,` 或
@@ -242,8 +242,7 @@ ArgumentList ::= [Expression (',' Expression)*]
 ## 函数签名与参数修饰符
 
 参数是 `label : Type`。标签可选地被恰好一个修饰符调用包裹（`sink`、
-`comptime`、`quote`），类型可选地带一个借用符号前缀 `&` 或 `&mut`
-（`plans/VALUES_BY_DEFAULT.md` 决策 42）：
+`comptime`、`quote`），类型可选地带一个借用符号前缀 `&` 或 `&mut`：
 
 ```abnf
 Parameter ::= ParameterLabel ':' ParameterType
@@ -299,11 +298,11 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
 `&` 与 `&mut` 的位置规则：
 
 - 在槽位中它们是**模式**：作为参数类型和局部借用位置的前缀。在类型单独出现的
-  地方（`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T`），
-  它们构成**引用类型**（决策 43 第 3 步）；`&(&T)` 是指向引用的引用，在槽位中写作
-  `& &T`，对引用绑定 `r` 写的 `&r` 就是这种类型。本版本中持有引用的
-  类型可以命名，但还不能构造它的值。
-- 双参数形式 `&(T, p)` / `&mut(T, p)` 是**带 origin 的引用**（决策 43 第 2 步）：
+  地方（`T :: &i32`、`Option(&T)`、结构体字段 `f : &T`），它们构成
+  **引用类型**；`&(&T)` 是指向引用的引用，在槽位中写作 `& &T`，对引用绑定 `r`
+  写的 `&r` 就是这种类型。结构体、枚举、元组或数组可以持有引用；以引用为元素的
+  集合或单元（`ArrayList(&T)`、`Rc(&T)`）是错误。
+- 双参数形式 `&(T, p)` / `&mut(T, p)` 是**带 origin 的引用**：
   作为参数类型时，`x : &(T, p)` 就是 origin 为 `p` 的 `x : &T`，其中 `p` 是用
   `generic(p : Origin)` 声明的 origin 参数，或它们的并集 `(p, q)`。第二个参数按其
   种类解读：那里出现类型是 E0922（指向元组的引用是 `&Tuple(A, B)`）。作为投影的
@@ -311,18 +310,12 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
   （`-> &(T, xs)`）或它们的并集；那里写按值参数是 E0912。在值位置，
   `&(a, b)` 仍是 `a & b` 的运算符调用形式。
 - 在**返回类型位置**（`-> &T`、`-> &mut T`、`-> (name : &mut T)`）它们声明一个
-  **投影**（决策 24）：函数体产出用结果符号书写的位置（`&self.a`、
+  **投影**：函数体产出用结果符号书写的位置（`&self.a`、
   `&mut self.rows(i)`），或引用绑定（`x : &T` 的 `x`；结果是引用位置），其根是函数的某个借用参数。投影通过下标（`x(i)`）
   到达，也可以直接调用（`t.index(i)`），其结果就是那个位置：可作操作数、接收者、
   借用实参、局部借用（`r := t.index(i)`），`&mut` 投影的结果还可作 `=` 的左边
   （[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。
 - `mut` 是保留字：名为 `mut` 的绑定或参数是错误。
-- 已删除的模式关键字写法 `imm(x) : T`、`mut(x) : T`、`inout(x) : T`、
-  `comptime(imm(x)) : T`、`-> imm(T)`、`imm(y) := place`、`mut(cur) = place`、
-  捕获项 `imm(y)` / `mut(z) : &mut w` 以及 `for(xs, mut(x) => ...)` 都是
-  错误 E0009，并给出符号写法。`imm` 是普通标识符。
-- `own(x)` 是 `sink(x)` 更早的写法，同样是错误 E0009。旧代码请在
-  最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
 - 语义见 [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md)。
 
 在调用处，被借出的实参带有与参数匹配的标记：

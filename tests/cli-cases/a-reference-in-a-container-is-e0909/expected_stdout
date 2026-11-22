@@ -1,0 +1,17 @@
+$ yo check reference-in-a-container.yo
+error[E0909]: A value of `ArrayList(&i32)` carries an origin (it holds a reference) inside a container or a cell, and those positions take no reference: an element of a collection (`ArrayList(&T)`, `HashMap(K, &V)`) and the payload of a cell or a counted handle (`RefCell(&T)`, `Box(&T)`, `Rc(&T)`, `Arc(&T)`) must be an owned value.
+  --> reference-in-a-container.yo:6:29
+  |
+6 |   mut(r) := ArrayList(&i32).new();
+  |                             ^^^
+help: store owned values (`ArrayList(T)`, cloning an element in with `.clone()`), or keep an index or key into the collection that owns them; a struct, a tuple, an `Option` or an array may hold a reference directly
+help: run `yo explain E0909` for more information
+yo: error: check: 1 file(s) failed evaluator coverage
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing reference-in-a-container.yo
+check: parsed 4 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+rc=1

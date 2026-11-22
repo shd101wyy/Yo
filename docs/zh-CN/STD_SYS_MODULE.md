@@ -401,50 +401,6 @@ case STATE_AWAIT_READ:
 
 ---
 
-## 已修复的已知问题
-
-- **errno 命名冲突**：枚举变体解构（`.Other(errno)`）现在会在 C 代码生成中对变量名进行清洁化处理，以避免与 C 的 `errno` 宏冲突。
-- **定时器资源（Linux）**：两个后端上的 sleep 都不占用描述符或缓冲区——它是事件循环线程定时器堆中的一个节点，触发或取消时即释放。
-- **c_include 常量上的位或运算**：`c_include` 常量（O_WRONLY、O_CREAT 等）持有 `UnknownValue`，导致选择了 `ComptimeBitOr`。在 `identifer-and-operator.ts` 中修复，将 extern "c" unknown 视为运行时值。
-- **导入命名空间常量的 C 代码生成访问**：像 `fcntl_io.O_NONBLOCK` 这样的表达式生成了无效的 C 代码（`/* skip generating: namespace */.FIELD`），因为导入的编译期命名空间值不会作为运行时表达式生成。在 `src/codegen/exprs/property-access.ts` 中修复。
-- **移除了 barrel 重导出**：`std/sys/index.yo` 已移除以避免命名冲突。用户直接导入子模块。
-- **异步循环中 SSA 变量突变**：循环内的变量重赋值创建了新的 SSA 变量 ID（例如 `offset` → `offset_1`），但循环条件始终读取原始 ID，导致无限循环。通过在 await 分析中添加 `variableIdRemapping` 修复。同时修复了异步 while 循环中 `break` 跳出 C `switch` 而非循环的问题。
-- **macOS 异步 continuation 线程模型**：从 GCD 迁移到 kqueue。所有 I/O 完成事件现在都在事件循环线程上处理——不再需要跨线程 continuation 队列。
-- **macOS getdents 链接器修复**：将不可用的 `getdirentries` 替换为基于 `readdir` 的模拟，使用 `dup(fd)` + `fdopendir` 以避免 arm64 上的 64 位 inode 存根符号。
-- **Windows 测试运行器缺少 ws2_32**：测试运行器在 Windows 上未链接 `-lws2_32`。在 `src/test-runner.ts` 中修复。
-- **Windows tty 测试的 unistd 头文件**：`tests/io/tty.test.yo` 无条件导入了 `std/libc/unistd`，在 Windows 上包含了 `<unistd.h>`。修复为将导入移到非 Windows 分支中。
-- **Windows 临时目录打开需要 `O_DIRECTORY`**：`openat` 仅在设置了 `O_DIRECTORY` 时才启用 `FILE_FLAG_BACKUP_SEMANTICS`（目录所需）。修复 `tests/io/temp.test.yo` 使用 `(O_RDONLY | O_DIRECTORY)` 打开 mkdtemp 结果。
-- **Windows 信号支持**：将存根替换为处理器注册和本地信号传递。`kill(pid=0, signum)` 传递到当前进程；`kill(pid, 0)` 探测进程是否存在；`kill(pid, SIGKILL)` 使用 `OpenProcess(PROCESS_TERMINATE)`。
-- **Windows AT_FDCWD**：在 Windows IOCP 运行时中添加了 `#ifndef AT_FDCWD / #define AT_FDCWD -100 / #endif`。
-- **Windows IOCP 重复句柄关联**：`__yo_win_associate_handle` 现在容忍已关联的句柄（`ERROR_INVALID_PARAMETER` → 返回 true）。
-- **Windows winsock 头文件冲突**：每个 Windows 生成的 C 文件顶部都输出 `WIN32_LEAN_AND_MEAN` 和 `_WINSOCKAPI_`。
-- **Windows 文件测试路径**：将硬编码的 `/tmp/` 替换为跨平台的 `temp_dir()` + `path_join()`。
-- **编译期常量 C 宏名冲突**：仅在编译期使用的常量（例如 `AF_INET`）作为函数参数传递时创建了与头文件宏冲突的本地 C 变量。在 `src/codegen/exprs/other-fn-call.ts` 中通过直接内联字面量修复。
-- **指针到可空指针的代码生成错误**：`*(?*(T))` 生成了 `uint8_t*` 而非 `uint8_t**`。在 `src/codegen/utils/index.ts` 的 `getTypeString()` 中修复。
-- **异步状态机悬空重赋值临时变量**：begin 块内的重赋值输出了未声明的临时变量引用。在 `src/codegen/exprs/assignment.ts` 中修复，当 `skippedTempVar` 为 true 时返回 `""`。
-- **macOS socket 操作异步化**：`accept`、`connect`、`send`、`recv`、`sendto`、`recvfrom` 使用 kqueue `EVFILT_READ`/`EVFILT_WRITE` 配合 `EV_ONESHOT` 进行就绪通知。
-- **macOS getnameinfo NI_NUMERICHOST 值错误**：在 `std/sys/socket.yo` 中添加了平台感知的 `NI__*` 常量。
-- **编译期常量未在异步状态机中内联**：两个错误：(1) atom.ts 状态机变量查找回退未检查 `isCompileTimeOnly`；(2) 内联的字面量被错误地通过 `sanitizeForCIdentifier` 清洁化。均已修复。
-- **Windows socket 关闭使用了 `_close()` 而非 `closesocket()`**：在 `__yo_async_close_start` 中修复。
-- **Windows socket 常量使用了 Linux 值**：为所有平台感知的 socket 常量条件添加了 `Platform.Win32` 分支。
-- **Windows `__yo_sockaddr_in_set_addr` 中重复 `htonl`**：移除了多余的 `htonl` 调用（Yo 代码在传递给 extern 之前已进行字节序转换）。
-- **Windows TCP send/recv 现在真正异步**：使用通过 IOCP 的 `WSASend`/`WSARecv` 配合 OVERLAPPED I/O。
-- **Windows DNS `WSANOTINITIALISED`**：`__yo_async_getaddrinfo_start` 和 `__yo_async_getnameinfo_start` 现在提前调用 `__yo_io_init()`。
-- **Windows `_waccess` 不支持 `X_OK`**：在调用 `_waccess` 之前剥离 X_OK（Windows 没有可执行位）。
-- **Windows `fchown(-1,-1)` 返回 `-ENOSYS`**：现在对无变更的哨兵值返回 0。
-- **Windows `futime` 在只读 fd 上失败**：现在通过 `GetFinalPathNameByHandleW` 以 `FILE_WRITE_ATTRIBUTES` 重新打开文件路径。
-- **Windows statx 纳秒时间戳始终为 0**：引入了 `__yo_win_stat_t`，其 nsec 字段来自 `GetFileAttributesExW`（100 ns FILETIME 精度，包括创建时间）。
-- **Windows Win32 错误码未映射到 POSIX errno**：在 `__yo_win_last_error_to_errno` 中添加了正确的映射（例如 `ERROR_FILE_NOT_FOUND` → `ENOENT`）。
-- **macOS 上 path 测试的规范化问题（`/tmp` vs `/private/tmp`）**：`tests/io/path.test.yo` 现在将 `realpath(input)` 与 `realpath(expected_target)` 进行比较。
-- **macOS FS 事件目录修改/删除检测**：在 kqueue 标志之外添加了基于快照的差异比较用于目录监视，对内容更新报告 `FS_EVENT_CHANGE`，对创建/删除报告 `FS_EVENT_RENAME`。
-- **macOS 上 `flock` EWOULDBLOCK errno**：macOS 上 `EWOULDBLOCK` 为 35，Linux 上为 11。更新 `tests/io/lock.test.yo` 使用平台感知的预期 errno。
-- **Windows 目录扫描**：将 `-ENOSYS` 存根替换为 `opendir`/`readdir`/`closedir`/`scandir` 中的 `FindFirstFileW`/`FindNextFileW`。
-- **Windows TTY 操作**：将 `-ENOSYS` 存根替换为 Console API（`SetConsoleMode`、`GetConsoleScreenBufferInfo`、`ENABLE_VIRTUAL_TERMINAL_INPUT`）。
-- **Windows FS 事件操作**：将 `-ENOSYS` 存根替换为 `ReadDirectoryChangesW`（目录）和 `FindFirstChangeNotificationW`（文件），在 `__yo_io_poll`/`__yo_io_wait` 中轮询。
-- **Windows poll 操作**：将 `-ENOSYS` 存根替换为 socket 的 `select()` 和 pipe 的 `PeekNamedPipe`/`WaitForSingleObject`。`__yo_poll_and_fs_event_tick` 从 `__yo_io_poll`（非阻塞）和 `__yo_io_wait`（有活跃监视时上限 50 ms）调用。
-
----
-
 ## 参考资料
 
 ### Linux (io_uring)

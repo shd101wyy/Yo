@@ -1,6 +1,6 @@
 # 版本管理
 
-Yo 支持通过 `.yo-version` 文件实现项目级别的版本固定，类似于 `.nvmrc`（Node.js）或 `.python-version`（Python）。这确保了团队间构建的可重复性和 IDE 行为的一致性。
+Yo 支持通过 `.yo-version` 文件实现项目级别的版本固定，类似于 `.nvmrc`（Node.js）或 `.python-version`（Python）。这让构建在不同机器上保持可重复。
 
 ## 快速开始
 
@@ -137,9 +137,7 @@ yo version pin
 
 ## LSP 集成
 
-Yo LSP 服务器过去会读取 `.yo-version` 来解析正确的 `std/` 标准库路径，从而让跳转到定义、悬停信息和补全都来自项目实际固定的那个版本。
-
-**目前没有 LSP 服务器。** 它是一个 TypeScript 程序，已经随 TypeScript 编译器一起被删除；等到 Yo 原生的服务器出现时，这套 `.yo-version` 解析也会回来。详见 [LSP.md](./LSP.md)。
+`yo lsp` 不做版本调度：语言服务器就是编辑器启动的那个 `yo` 二进制（`PATH` 上的，或扩展的 `yo.binPath`），使用该二进制自带的 `std/`。若要让悬停、跳转到定义和补全来自固定的版本，请让编辑器指向该版本的二进制。详见 [LSP.md](./LSP.md)。
 
 ## 版本缓存
 
@@ -169,7 +167,7 @@ Yo LSP 服务器过去会读取 `.yo-version` 来解析正确的 `std/` 标准�
 ## 注意事项
 
 - `.yo-version` 中**不支持** `latest` 关键字，请始终使用具体的版本号。
-- `yo version` 子命令以及 `--help` / `--version` 会跳过版本调度。
+- `yo version`、`yo lsp` 子命令以及 `--help` / `--version` 会跳过版本调度。
 - 版本以对应宿主平台的原生发布包形式从 [GitHub Releases](https://github.com/shd101wyy/Yo/releases) 下载。设置 `$YO_REPO` 可以指向某个 fork。
-- 早于 `0.2.1` 的版本发布于原生包之前，已经无法安装 —— npm 发布在 `0.2.0` 之后就停止了，该渠道已废弃。
-- 下载需要 `PATH` 中有 `tar`。从 v0.2.22 起，HTTP 请求由编译器通过 `std/http` 和编译器内置生成的 TLS 后端直接完成 —— 不再依赖 `curl`（此前的每个版本都是 shell-out 调用 curl）。**Windows 通过 Schannel（SSPI）支持 TLS**，它随操作系统提供，无需安装任何东西。在没有 OpenSSL 的 unix 机器上，远程子命令会报告 `TLS is unavailable in this build` 并给出安装指引（`brew install openssl@3`，或发行版的 `libssl-dev`）。**不再需要** Node.js 或 Bun —— 只有当年 Yo 以 npm 包形式发布时才需要它们。
+- 可以安装 `0.2.1` 及之后的版本；更早的版本没有原生发布包。
+- 下载需要 `PATH` 中有 `tar`。HTTP 请求由编译器通过 `std/http` 和编译器内置生成的 TLS 后端直接完成，因此不需要 `curl`。**Windows 通过 Schannel（SSPI）支持 TLS**，它随操作系统提供，无需安装任何东西。在没有 OpenSSL 的 unix 机器上，远程子命令会报告 `TLS is unavailable in this build` 并给出安装指引（`brew install openssl@3`，或发行版的 `libssl-dev`）。**不需要** Node.js 或 Bun。
