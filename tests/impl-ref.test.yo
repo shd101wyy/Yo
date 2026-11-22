@@ -617,16 +617,14 @@ test("the prelude's Ord(&T) leaves a generic impl's binder K when `a.cmp(b)` run
 // its referent, so the bounds hold and agree with the prelude's `Eq(&T)` /
 // `Ord(&T)`. Their registration blockers are fixed
 // (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md,
-// issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
-// A generic body INSTANTIATED at `T := &U` still walks into the open receiver
-// rules, so a `where(T <: ToString)` helper's `v.to_string()` is E0601 there
-// (issues/2026-11-11-a-bound-method-on-a-by-value-reference-parameter-is-rejected.md,
-// issues/2026-11-21-a-reference-binder-whose-type-is-the-methods-own-slot-is-lent-once-too-often.md),
-// and its type-qualified `T.to_string(r.*)` spelling passes check but emits
-// invalid C
-// (issues/2026-11-21-a-qualified-call-through-a-blanket-bound-at-t-ref-u-passes-check-and-emits-invalid-c.md):
-// these rows pin the registration, the coherence and the reference-receiver
-// semantics that hold today.
+// issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md),
+// and so are the receiver rules a generic body instantiated at `T := &U`
+// walks into (VERDICTS-75 §3 row (b)'s riders: a receiver whose own type is
+// the method's slot is the slot's value, never lent once more —
+// issues/fixed/2026-11-21-a-reference-binder-whose-type-is-the-methods-own-slot-is-lent-once-too-often.md,
+// issues/fixed/2026-11-21-a-qualified-call-through-a-blanket-bound-at-t-ref-u-passes-check-and-emits-invalid-c.md).
+// These rows pin the registration, the coherence and the reference-receiver
+// semantics.
 test("(riders) ToString(&T): the blanket registers, and a reference renders as its referent", {
   s := String.from("abc");
   rs := &s;
@@ -668,4 +666,36 @@ test("(riders) a user impl(&C, ToString) beside the blanket is E0612", {
     ),
     "by the generic impl at std/fmt/to_string.yo"
   );
+});
+
+// VERDICTS-75 §3 row (b)'s riders: the read-through and R-PROBE's reference
+// step apply to every receiver FORM exactly as to a binding (r1), and an
+// exact-type slot match outranks every autoref candidate at every probe step
+// (r2) — a receiver whose own type is the method's slot is the slot's value,
+// never a borrow minted once more.
+//
+// r2: `rr.wh()` on `rr : &&C` resolves the blanket whose slot is `rr`'s own
+// type at step 0, before the referent's method one read-through away
+// (issues/fixed/2026-11-20-a-reference-to-reference-binding-lends-itself-to-a-blanket-method-whose-slot-is-its-own-type.md).
+_RrWh :: trait(rr_wh : (fn(self : &Self) -> usize));
+_RrC :: struct(v : usize);
+impl(_RrC, _RrWh(rr_wh : (fn(self : &Self) -> usize)(self.v)));
+impl(generic(T : Type), where(T <: _RrWh), &T, _RrWh(rr_wh : (fn(self : &Self) -> usize)(T.rr_wh(self.*) + usize(100))));
+test("(r2) rr.wh() on rr : &&C takes the blanket at the slot &&C, not &rr", {
+  c := _RrC(v : usize(7));
+  r := &c;
+  rr := &r;
+  assert(rr.rr_wh() == usize(107), "the blanket at T := _RrC, the reference as the value");
+  assert(rr.*.rr_wh() == usize(7), "one read-through takes the referent's impl");
+});
+// r3: the std helpers at `T := &U` — `hash_one(&ra)` hashes the referent, a
+// `&&String` binding renders through the ToString(&T) blanket — and the
+// concrete `&&String` receiver takes the blanket's `&&String` slot directly
+// (issues/fixed/2026-11-21-a-reference-binder-whose-type-is-the-methods-own-slot-is-lent-once-too-often.md).
+test("(r3) hash_one(&ra) == hash_one(&a), and rr.to_string() on rr : &&String renders the referent", {
+  a := String.from("key");
+  ra := &a;
+  assert(hash_one(&ra) == hash_one(&a), "the reference hashes as its referent");
+  rr := &ra;
+  assert(rr.to_string() == String.from("key"), "rr.to_string(): the blanket's &&String slot, rr the value");
 });
