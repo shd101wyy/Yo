@@ -1158,6 +1158,15 @@ test("A4: a combinator over a borrowing future is itself second-class", {
     c.n = i32(5);
     io.await(f, io)
   }, "Cannot write `c.n` here");
+  // A combinator whose callee also borrows a parameter of its own: the
+  // parameters its return rule records must not displace the operand's
+  // places on the future's origin (the stamp unions, it never replaces).
+  comptime_expect_error({
+    mut(d) := _A4Counter(n : i32(0));
+    f2 := _a4_with(_a4_bump_after(&mut c, u64(1), io), &mut d, io);
+    c.n = i32(5);
+    io.await(f2, io)
+  }, "Cannot write `c.n` here");
   comptime_expect_error(io.spawn(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), io), "spawned or moved into a by-value parameter");
   comptime_expect_error(io.spawn(_a4_bump_after(&mut c, u64(1), io), io), "spawned or moved into a by-value parameter");
   comptime_expect_error(_a4_eat(_a4_bump_after(&mut c, u64(1), io)), "spawned or moved into a by-value parameter");
