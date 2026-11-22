@@ -712,3 +712,15 @@ test("(r3) hash_one(&ra) == hash_one(&a), and rr.to_string() on rr : &&String re
   rr := &ra;
   assert(rr.to_string() == String.from("key"), "rr.to_string(): the blanket's &&String slot, rr the value");
 });
+// r4: the type-qualified call through a blanket bound at `T := &U` compiles
+// AND emits the reference itself, not one indirection more
+// (issues/fixed/2026-11-21-a-qualified-call-through-a-blanket-bound-at-t-ref-u-passes-check-and-emits-invalid-c.md).
+_RrShow :: trait(rr_show : (fn(self : &Self) -> String));
+impl(String, _RrShow(rr_show : (fn(self : &Self) -> String)(self.*.clone())));
+impl(generic(T : Type), where(T <: _RrShow), &T, _RrShow(rr_show : (fn(self : &Self) -> String)(T.rr_show(self.*))));
+_rr_use :: (fn(generic(T : Type), r2 : &T, where(T <: _RrShow)) -> String)(T.rr_show(r2.*));
+test("(r4) a qualified blanket call at T := &String lowers the reference itself", {
+  s := String.from("abc");
+  rs := &s;
+  assert(_rr_use(&rs) == String.from("abc"), "T.rr_show(r2.*) emits r2, not &r2");
+});
