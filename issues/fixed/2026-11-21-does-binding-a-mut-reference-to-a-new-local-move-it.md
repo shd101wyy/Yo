@@ -1,6 +1,6 @@
 # Does `a := m` move a `&mut` reference binding into `a`, or is it rejected?
 
-**Kind:** design question
+**Kind:** design question (resolved)
 
 **Verdict:** ADOPTED (VERDICTS-76, 2026-11-22) — `a := m` with `m : &mut T` is a MOVE
 (Rust's bare-`let` rule): the loan transfers to `a` until `a`'s last use, a later use of
@@ -65,3 +65,30 @@ that holds the same `&mut`, so the rejection is an exception with no reason the 
 loan-transfer machinery exists (a holder moved whole keeps its origins). Tests to add with the fix:
 a G-B negative in `tests/origins/unsound/` that writes `x` while `a` lives (E0911), its positive
 twin (this program), and a use of `m` after `a := m` (E0901).
+
+## Resolution (2026-11-22, VERDICTS-76 Q1 as amended by its Fable review)
+
+A bare `&mut T` reference read by value MOVES; the reborrow is spelled `&mut m.*`.
+
+- `a := m` (and a `begin`/`cond`/`match` initializer whose leaves are such references): the R-TAIL
+  chain binding (`_bind_projection_result`, `src/evaluator/exprs/initialization-assignment.yo`)
+  marks a moved leaf's places as HELD — the destination takes over the places the reference holds,
+  with no fresh `&mut` loan and no access check against `m`'s own loan (the false E0911) — and
+  consumes the leaf through `set_expr_as_consumed`, so a later use, a move inside a loop and a move on
+  one branch are the ordinary E0901. A moved reference with no local places (a parameter's) binds
+  with none.
+- `(a : &mut T) = m`, a tuple element, a generic `T` slot: `transfer_explicit_copy_value` and
+  `check_dyn_copy` (`src/evaluator/utils.yo`) split the `is_ref` arm by what moves
+  (`moves_reference_itself`): the reference read as itself is consumed, while the referent (`m.*`)
+  keeps its E0901. The holder's `bind` already registers the moved reference's origin.
+- The E0901 for a moved reference names the reborrow (`_mut_reference_move_help`), not the generic
+  move-only help.
+- A `&mut` parameter moves the same way: `a := m; …; m.* = v` in a body was an accepted silent reborrow
+  before and is now E0901 (the breaking half; std/tests swept to `&mut m.*`).
+
+Tests: `tests/origins/unsound/v76-mut-ref-*.yo` (G-B rows 1–9, 11, 15, 17, 18, 21–23 of the review's
+table). Rows not in this change, filed: row 10
+(`issues/2026-11-22-assigning-a-mut-reference-to-a-mut-reference-binding-is-e0926-not-a-re-point-by-move.md`),
+row 12's reborrow spelling (`issues/2026-11-22-a-mut-reference-field-has-no-reborrow-spelling-into-a-local.md`),
+row 14 (`issues/2026-11-22-a-shared-reference-field-read-bare-is-e0926-instead-of-a-copy.md`), row 20
+(`issues/2026-11-22-a-capture-list-entry-cannot-move-a-mut-reference-into-the-closure.md`).

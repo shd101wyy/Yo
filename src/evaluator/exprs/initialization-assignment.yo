@@ -53,7 +53,8 @@
   is_reference_self_place,
   expr_info_index_trait_ptr_type,
   note_chain_ref_binding,
-  note_chain_ref_leaves
+  note_chain_ref_leaves,
+  record_branch_init
 } :: import("../../expr-info.yo");
 {
   Environment,
@@ -1314,6 +1315,21 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   // points at, and every borrow of that place is derived from `cur`, which
   // `local_borrow_require_no_live_derived` judges below (a `&mut` match
   // binding the re-point goes through is skipped there; VERDICTS-71).
+  // A re-point of a moved reference (`a := cur` moved it, VERDICTS-76 Q1)
+  // to a place not reached through `cur` gives `cur` a new value, as any
+  // assignment of a moved `mut` local does: it is usable again.
+  match(
+    cur_var.consumed_at_token(),
+    .Some(rp_moved_at) => {
+      rp_hops := ArrayList(_InoutPlaceHop).new();
+      rp_through_cur := match(_inout_place_chain(&rhs, &mut rp_hops), .Some(rp_root) => (ast_expr_token(&rp_root).value.* == name), .None => false);
+      if(!rp_through_cur, {
+        record_branch_init(cur_var.id(), &variable_value_type(&cur_var), &Option(TypeValue).None, &name_tok, &cur_var.initialized_at_token(), &Option(Token).Some(rp_moved_at));
+        cur_var.set_consumed_at_token(Option(Token).None);
+      });
+    },
+    .None => ()
+  );
   deref_exempt_mark(&name_expr);
   local_borrow_mark_receiver(&name_expr);
   _evaluated_name := evaluate_expression_raw(&name_expr, &env, ctx, exn);
