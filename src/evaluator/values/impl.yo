@@ -2971,11 +2971,6 @@ _find_methods_from_generic_impls_scan :: (
           continue;
         }
       );
-      fmg_owner := match(
-        g_impl_registry_entry_owners.with(xs => xs.get_cloned(ki)),
-        .Some(fmg_ol) => match(fmg_ol.get_cloned(ei), .Some(o) => o.clone(), .None => String.new()),
-        .None => String.new()
-      );
       // Cheap pre-filter: skip entries that don't even carry a field with
       // this name BEFORE attempting the receiver match — semantics are
       // identical (a non-name-matching entry contributes no candidates),
@@ -3008,6 +3003,15 @@ _find_methods_from_generic_impls_scan :: (
       if(!has_field_with_name, {
         ei = (ei + usize(1));
       }, {
+        // The entry's registering module, read before the match (which may
+        // force impls into the registry). One owner string per name-matching
+        // entry: the bucket's owner list is read in place, not cloned — a
+        // clone per entry made this loop quadratic in the bucket's size and
+        // was the evaluator's largest allocation site.
+        fmg_owner := g_impl_registry_entry_owners.with({ ki, ei }(xs) => cond(
+          ki < xs.len() => match(xs(ki).get_cloned(ei), .Some(o) => o, .None => String.new()),
+          true => String.new()
+        ));
         mb_opt := try_match_generic_impl(resolved, &entry, env, false);
         if(in_def_time_trial() && debug_knob(`YO_DEBUG_DISPATCH`).is_some() && (method_name.* == "add"), {
           eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(resolved)} pat=${type_to_string(&entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
