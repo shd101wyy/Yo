@@ -686,6 +686,7 @@ test("(r1) a method call on a call result typed &T reads through, as on a bindin
   assert(m.*.len() == usize(5), "and spelled through the star");
   h := _RrHolder(o : .Some(&y));
   assert(h.o.unwrap().len() == usize(5), "a field's call result reads through the same way");
+  assert("hello".to_string() == y, "a &str receiver (an unsized pointee) stays the fat pair it is");
 });
 // r2: `rr.wh()` on `rr : &&C` resolves the blanket whose slot is `rr`'s own
 // type at step 0, before the referent's method one read-through away

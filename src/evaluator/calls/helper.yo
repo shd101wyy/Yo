@@ -8974,7 +8974,9 @@ try_to_call_function_with_arguments :: (
         // subexpression (`o.unwrap().len()`,
         // issues/fixed/2026-11-10-a-method-call-on-a-call-result-typed-as-a-reference-is-e0610.md).
         // An argument the check itself evaluates (a binding, a place) keeps
-        // the pointee: it reads as the place the call lends.
+        // the pointee: it reads as the place the call lends. A reference to
+        // an UNSIZED pointee (`"lit".to_string()`'s `&str`) is the fat pair
+        // decision 49 S2 passes as is: it keeps the pointee too.
         ptype := match(
           pt.get(pi),
           .Some(pv_slot) => match(
@@ -8982,7 +8984,7 @@ try_to_call_function_with_arguments :: (
             .Some(pv_arg) => match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&pv_arg)),
               .Some(pv_info) => cond(
-                (node_is_preevaluated(ast_expr_id(&pv_arg)) && t_slot_is_borrow(&pv_slot) && are_types_compatible(&pv_info.ty(), &pv_slot)) => Rc.clone(pv_slot),
+                (node_is_preevaluated(ast_expr_id(&pv_arg)) && t_slot_is_borrow(&pv_slot) && type_is_sized(&t_slot_pointee(&pv_slot)) && are_types_compatible(&pv_info.ty(), &pv_slot)) => Rc.clone(pv_slot),
                 true => match(slot_pointee_at(&pt.*, pi), .Some(t) => t, .None => t_unit())
               ),
               .None => match(slot_pointee_at(&pt.*, pi), .Some(t) => t, .None => t_unit())
