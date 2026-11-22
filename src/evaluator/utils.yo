@@ -14053,14 +14053,115 @@ _inv_names_memo_check_enabled :: (fn() -> bool)({
   });
   g_inv_names_memo_check == u8(2)
 });
+/// `ty` may reach a `&mut` reference: through reference pointees, value
+/// slots, struct fields and type arguments, enum payloads and type
+/// arguments, and tuple components. Every position the invariant walk
+/// pairs, and every field `_ctor_arg_is_invariant` searches, is reached this
+/// way, and each one starts out covariant: it turns invariant only below a
+/// `&mut` it crosses, or at a constructor argument whose parameter its
+/// constructor's fields place below one. So a type that reaches no `&mut`
+/// has no invariant position and the walk names nothing. The answer is
+/// `true` when unsure — past depth 32, or after `budget` nodes — so a
+/// `false` is always exact. Reads only the type's own nodes, and allocates
+/// nothing.
+_may_reach_mut_reference :: (fn(ty : &TypeValue, budget : &mut u32, depth : u32) -> bool)({
+  if((depth > u32(32)) || (budget.* == u32(0)), {
+    return(true);
+  });
+  budget.* = (budget.* - u32(1));
+  match(
+    ty,
+    Rc(.Reference(mr_p, mr_m, _)) => (mr_m.* || recur(&mr_p.*, budget, (depth + u32(1)))),
+    Rc(.ValueSlot(mr_v)) => recur(&mr_v.*, budget, (depth + u32(1))),
+    Rc(.Struct({ field_types : mr_fts, type_arguments : mr_tas })) => (_may_reach_mut_reference_list(&mr_fts.*, budget, depth) || _may_reach_mut_reference_list(&mr_tas.*, budget, depth)),
+    Rc(.EnumT({ variant_fields : mr_vfs, type_arguments : mr_etas })) => {
+      (vi : usize) = usize(0);
+      while(vi < mr_vfs.len(), vi = (vi + usize(1)), {
+        if(match(mr_vfs.get(vi), .Some(vf) => _may_reach_mut_reference_list(&vf, budget, depth), .None => false), {
+          return(true);
+        });
+      });
+      _may_reach_mut_reference_list(&mr_etas.*, budget, depth)
+    },
+    Rc(.Tuple({ field_types : mr_tfs })) => _may_reach_mut_reference_list(&mr_tfs.*, budget, depth),
+    _ => false
+  )
+});
+_may_reach_mut_reference_list :: (fn(tys : &SharedList(TypeValue), budget : &mut u32, depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < tys.len(), i = (i + usize(1)), {
+    if(match(tys.get(i), .Some(t) => _may_reach_mut_reference(&t, budget, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The node budget of `_may_reach_mut_reference` per question.
+INVARIANT_PREFILTER_BUDGET :: u32(512);
+(mut(g_inv_stats_on) : u8) = u8(0);
+(mut(g_inv_n_calls) : u64) = u64(0);
+(mut(g_inv_n_pre) : u64) = u64(0);
+(mut(g_inv_n_hits) : u64) = u64(0);
+(mut(g_inv_n_walks) : u64) = u64(0);
+(mut(g_inv_n_epoch) : u64) = u64(0);
+(mut(g_inv_n_cap) : u64) = u64(0);
+_inv_stats_on :: (fn() -> bool)({
+  if(g_inv_stats_on == u8(0), {
+    on := match(debug_knob(String.from("YO_DEBUG_INV_NAMES_STATS")), .Some(v) => (v == "1"), .None => false);
+    g_inv_stats_on = if(on, u8(2), u8(1));
+  });
+  g_inv_stats_on == u8(2)
+});
+_inv_stat :: (fn(k : usize) -> unit)({
+  if(_inv_stats_on(), {
+    match(
+      k,
+      0 => {
+        g_inv_n_calls = (g_inv_n_calls + u64(1));
+        if((g_inv_n_calls % u64(100000)) == u64(0), {
+          eprintln(`[inv-stats] calls=${g_inv_n_calls.to_string()} prefilter-empty=${g_inv_n_pre.to_string()} hits=${g_inv_n_hits.to_string()} walks=${g_inv_n_walks.to_string()} epoch-clears=${g_inv_n_epoch.to_string()} cap-clears=${g_inv_n_cap.to_string()}`);
+        });
+      },
+      1 => {
+        g_inv_n_pre = (g_inv_n_pre + u64(1));
+      },
+      2 => {
+        g_inv_n_hits = (g_inv_n_hits + u64(1));
+      },
+      3 => {
+        g_inv_n_walks = (g_inv_n_walks + u64(1));
+      },
+      4 => {
+        g_inv_n_epoch = (g_inv_n_epoch + u64(1));
+      },
+      _ => {
+        g_inv_n_cap = (g_inv_n_cap + u64(1));
+      }
+    );
+  });
+});
 invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
+  _inv_stat(usize(0));
+  (budget : u32) = INVARIANT_PREFILTER_BUDGET;
+  if(!_may_reach_mut_reference(ty, &mut budget, u32(0)), {
+    _inv_stat(usize(1));
+    if(_inv_names_memo_check_enabled(), {
+      again := _invariant_origin_names_walk(ty);
+      if(again.len() > usize(0), {
+        panic(`YO_DEBUG_INV_NAMES_MEMO_CHECK: invariant_origin_names(${type_to_string(ty)}): the pre-filter answers [], the walk [${_origin_list_text(&shared_list(again.clone()))}]`);
+      });
+    });
+    return(ArrayList(String).new());
+  });
   if(g_invariant_names_epoch != type_key_epoch(), {
+    _inv_stat(usize(4));
     g_invariant_names_handles.with_mut(xs => xs.clear());
     g_invariant_names_answers.with_mut(xs => xs.clear());
     g_invariant_names_epoch = type_key_epoch();
   });
   (slot : usize) = g_invariant_names_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
   if(g_invariant_names_handles.with({ ty : &ty.*, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
+    _inv_stat(usize(2));
     served := match(g_invariant_names_answers.with({ slot }(xs) => xs.get_cloned(slot)), .Some(a) => a, .None => ArrayList(String).new());
     if(_inv_names_memo_check_enabled(), {
       again := _invariant_origin_names_walk(ty);
@@ -14070,12 +14171,14 @@ invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
     });
     return(served);
   });
+  _inv_stat(usize(3));
   names := _invariant_origin_names_walk(ty);
   // Record the answer only when the epoch it was computed in still holds:
   // the walk reads the constructor registry (`_ctor_param_name_at`), and a
   // registration since the lookup would change what it reads.
   if(g_invariant_names_epoch == type_key_epoch(), {
     if(g_invariant_names_handles.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
+      _inv_stat(usize(5));
       g_invariant_names_handles.with_mut(xs => xs.clear());
       g_invariant_names_answers.with_mut(xs => xs.clear());
     });
