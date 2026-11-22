@@ -14,6 +14,10 @@
 # 2026-11-09 (P8, BORROW_CHECKER_COMPLETENESS.md §7): closure-returns-param and closure-returns-capture re-recorded.
 # 2026-11-20 (audit A5/A56, the R-NONE continuation for a reference binding): bare-reference-store-widen re-recorded
 # from accept to its expected E0923.
+# 2026-11-21 (E0909 coded for the container/cell wall, E0927 for a local borrow of a non-place:
+# issues/fixed/2026-11-21-a-reference-in-a-container-is-an-uncoded-error-citing-plan-phases.md and
+# issues/fixed/2026-11-21-copy-without-clone-and-a-local-borrow-of-an-element-are-uncoded-errors.md):
+# the 20 rows whose first error is the wall and index-mut-twice re-recorded with their code.
 # id	anchor	kind	phase	expect	today
 wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0924|names the binding being declared
 wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	E0924|names the value being defined
@@ -22,8 +26,8 @@ wf-outward-field	O1, O4	pos	N2	ACCEPT	accept
 ret-local	O3 return rule, §5 route 1	neg	N1	E0912	E0912|its storage ends with the call
 ret-byvalue-param	O3 return rule (E0912's rule)	neg	N1	E0912	E0912|a by-value parameter
 ret-param-place	O3 return rule	pos	N1	ACCEPT	accept
-words	§3 words, O6	pos	N2	ACCEPT	-|carries an origin
-words-then-write	O3 step 2	neg	N2	E0911	-|carries an origin
+words	§3 words, O6	pos	N2	ACCEPT	E0909|carries an origin
+words-then-write	O3 step 2	neg	N2	E0911	E0909|carries an origin
 get2-mut-pair	O3 step 2	pos	N2	ACCEPT	accept
 get2-mut-twice	O3 step 2	neg	N1	E0911	E0911|Cannot read `xs` here
 cursor-two-items	O3 step 2	pos	N2	ACCEPT	accept
@@ -32,28 +36,28 @@ call-arg-overlap	O3 step 2, decision 28	neg	N1	E0910	E0910
 drop-root-while-borrowed	§5 route 6	neg	N1	E0911	E0911|Cannot move `x` here
 store-widen-mut-pointee	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	E0923|an origin reached through a `&mut` pointee is invariant
 store-same-origin	O3-3	pos	N2	ACCEPT	accept
-store-widen-refcell	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	-|carries an origin
+store-widen-refcell	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	E0909|carries an origin
 swap-different-origins	O7 swap	neg	N1	ORIGIN_MISMATCH	E0923|carries origin `y`, outside `x`
 swap-inferred-locals	O2 x O3-3 (§7 flow inference at a &mut lend)	pos	N1	ACCEPT	accept
 swap-declared-union	O7 swap	pos	N1	ACCEPT	accept
-push-outside-union	O6	neg	N2	UNION	-|carries an origin
-push-inside-union	O6	pos	N2	ACCEPT	-|carries an origin
-push-elided-unrelated	O2 elision checked in the body	neg	N2	UNION/E0923	-|carries an origin
-push-spelled-shared	O7 push	pos	N2	ACCEPT	-|carries an origin
-elided-container-lent-mut	O2 x O6 (§7 flow inference at a &mut lend)	pos	N2	ACCEPT	-|carries an origin
-elided-container-lent-mut-then-write	O2 x O6	neg	N2	E0911	-|carries an origin
-loop-join-push	hole: control-flow joins	neg	N2	E0911	-|carries an origin
-loop-join-push-after	hole: control-flow joins	pos	N2	ACCEPT	-|carries an origin
-drop-order-user-drop	hole: drop order x may_dangle	neg	N2	E0911	-|carries an origin
-drop-order-may-dangle	hole: drop order x may_dangle	pos	N2	ACCEPT	-|carries an origin
+push-outside-union	O6	neg	N2	UNION	E0909|carries an origin
+push-inside-union	O6	pos	N2	ACCEPT	E0909|carries an origin
+push-elided-unrelated	O2 elision checked in the body	neg	N2	UNION/E0923	E0909|carries an origin
+push-spelled-shared	O7 push	pos	N2	ACCEPT	E0909|carries an origin
+elided-container-lent-mut	O2 x O6 (§7 flow inference at a &mut lend)	pos	N2	ACCEPT	E0909|carries an origin
+elided-container-lent-mut-then-write	O2 x O6	neg	N2	E0911	E0909|carries an origin
+loop-join-push	hole: control-flow joins	neg	N2	E0911	E0909|carries an origin
+loop-join-push-after	hole: control-flow joins	pos	N2	ACCEPT	E0909|carries an origin
+drop-order-user-drop	hole: drop order x may_dangle	neg	N2	E0911	E0909|carries an origin
+drop-order-may-dangle	hole: drop order x may_dangle	pos	N2	ACCEPT	E0909|carries an origin
 spawn-box-origin	O4, O10	neg	N2	E0909	E0914|lends a borrow, but parameter
-thread-send-origin	O4, O8, O10	neg	N2	E0909	-|carries an origin
+thread-send-origin	O4, O8, O10	neg	N2	E0909	E0909|carries an origin
 global-refcell-origin	O4, O10, §7 module-level origins	neg	N2	E0909	E0909|carries an origin
 extern-box-origin	O4, O10	neg	N2	E0909	E0909|carries an origin
 rc-mut-through-deref	O9, decision 46	neg	N1	E0919	E0919|Cannot lend `h.*.x` as `&mut`
 rc-handle-dropped	O9	neg	N1	E0911	E0911|Cannot move `h` here
 rc-handle-reassigned	O9	neg	N1	E0911	E0911|Cannot write `h` here
-rc-push-handle-borrow	O9	pos	N2	ACCEPT	-|carries an origin
+rc-push-handle-borrow	O9	pos	N2	ACCEPT	E0909|carries an origin
 rc-of-ref-holder	O9, O10	neg	N2	E0909	E0909|requires an `Escapable` type
 rc-guard-and-clone	hole: handle origin x RefCell guard x collection	pos	N3	ACCEPT	E0610|No method "borrow_mut"
 rc-guard-handle-dropped	O9	neg	N3	E0911	E0610|No method "borrow_mut"
@@ -64,9 +68,9 @@ closure-caps-exceed-slot	O7 closures, O3-3	neg	N2	ORIGIN_MISMATCH	-|a payload bo
 closure-caps-within-slot	O7 closures	pos	N2	ACCEPT	-|a payload bounded by an origin
 closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	E0923|which the closure captures
 closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	accept
-closure-param-into-capture	hole: elision x closures	neg	N2	UNION/E0923	-|carries an origin
-closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	-|carries an origin
-closure-push-capture-then-write	§7 a &mut capture of a flow-inferred container	neg	N2	E0911	-|carries an origin
+closure-param-into-capture	hole: elision x closures	neg	N2	UNION/E0923	E0909|carries an origin
+closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	E0909|carries an origin
+closure-push-capture-then-write	§7 a &mut capture of a flow-inferred container	neg	N2	E0911	E0909|carries an origin
 closure-push-capture-then-clear	O-3, a capture store joins at the literal, = kills (VERDICTS-37 Q3)	pos	N2	ACCEPT	accept
 closure-param-into-capture-inline	O-3, a per-call parameter into a &mut capture (VERDICTS-37 Q2)	neg	N2	UNION/E0923	E0923|through the capture `s : &mut slot`
 async-cold-start-write	hole: captures in a state machine across a cold start, O8	neg	N3	E0911	E0911|Cannot write `x` here
@@ -85,10 +89,10 @@ effect-resume-local	O7 effect handlers, §4 handler lowering	neg	N1	E0912	E0912|
 effect-resume-capture	O7 effect handlers, §4 handler lowering	neg	N1	ORIGIN_MISMATCH	E0923|A closure's reference result is reached from one of its own
 effect-resume-param	O7 effect handlers, §4 handler lowering	pos	N1	ACCEPT	accept
 macro-ret-local	O3 return rule, §4 macro lowering	neg	N1	E0912	-|lends a borrow: it is written as a call argument
-index-mut-twice	O3 step 2, decision 28 index overlap (superseded row)	neg	N1	E0911	-|A local borrow (`y := &mut place`) needs a place
-place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	-|carries an origin
+index-mut-twice	O3 step 2, decision 28 index overlap (superseded row)	neg	N1	E0911	E0927|A local borrow (`y := &mut place`) needs a place
+place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	E0909|carries an origin
 match-arm-binding-origin	O3, §4 match lowering (superseded row)	neg	N2	E0911	E0911|`r` borrows `x` with `&` and is still live
-list-mut-two-pushes	O3 step 2, O6 (superseded row)	neg	N2	E0911	-|carries an origin
+list-mut-two-pushes	O3 step 2, O6 (superseded row)	neg	N2	E0911	E0909|carries an origin
 copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	accept
 ret-byvalue-carried	O3 return rule (superseded row)	pos	N2	ACCEPT	accept
 fnmut-two-live-calls	decision 37 FnMut call, O3 step 2 (N1f)	neg	N1	E0911	E0911|
@@ -97,7 +101,7 @@ match-arm-composite	O-1, R-ARM x R-COMP (decisions 38 A, 26)	neg	N2	E0911	E0911|
 cond-arm-composite	O-1, R-ARM's join (decision 38 A)	neg	N2	E0911	E0911|`m` borrows `y` with `&` and is still live
 match-value-arm-composite	O-1, R-ARM's join over an owned match	neg	N2	E0911	E0911|`m` borrows `y` with `&` and is still live
 for-element-stored	O-1, the for element's bind x the = join	neg	N2	E0911	E0911|`slot` borrows `xs` with `&` and is still live
-projection-in-payload	O-1, R-CALL under R-COMP	neg	N2	E0911	E0911|`slot` borrows `(xs.index)(usize(0))` with `&` and is still live
+projection-in-payload	O-1, R-CALL under R-COMP	neg	N2	E0911	E0911|`slot` borrows `xs` with `&` and is still live
 tuple-of-lends	O-1, R-LEND as a tuple component (N2b-r)	neg	N2	E0911	E0911|`t` borrows `x` with `&` and is still live
 flow-slot-lent-mut	O-2, §7 flow write-back at a &mut lend	neg	N2	E0911	E0911|Cannot store a reference to `y` in `slot` here
 flow-slot-lent-mut-loop	O-2, §7 flow write-back over a loop back edge	neg	N2	E0911	E0911|Cannot store a reference to `y` in `slot` here

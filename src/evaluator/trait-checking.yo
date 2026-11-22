@@ -89,10 +89,10 @@ pragma(Pragma.AllowUnsafe);
 { Environment, get_where_clause_constraints_for_some_type, new_environment } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { EvalValue } :: import("../value.yo");
-{ YoError, format_error_message, format_error_message_with_help, with_code } :: import("../error.yo");
+{ YoError, format_error_message, format_error_message_with_help, with_code, with_code_carried } :: import("../error.yo");
 { AstExpr, ast_expr_is_fn_call_of, ast_expr_strip_borrow_marker } :: import("../expr.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
+{ E_ORIGIN_MISMATCH, E_TRAIT_NOT_IMPLEMENTED } :: import("../diagnostics.yo");
 {
   find_matching_generic_impl,
   find_matching_negative_generic_impl,
@@ -100,6 +100,7 @@ pragma(Pragma.AllowUnsafe);
   set_register_trait_value_fn,
   set_check_self_constraints_fn,
   set_receiver_kind_trait_fn,
+  ImplRuleViolation,
   nominal_declares_move_only,
   generic_instantiation_declares_drop,
   nominal_drop_uses_roots,
@@ -1153,6 +1154,17 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
   });
   Option(String).None
 });
+/// An impl-rule violation without a registered code of its own.
+_uncoded_violation :: (fn(msg : String) -> Option(ImplRuleViolation))(Option(ImplRuleViolation).Some(ImplRuleViolation(message : msg, code : Option(String).None)));
+/// An impl-rule violation carrying the registered code `code`.
+_coded_violation :: (fn(msg : String, code : str) -> Option(ImplRuleViolation))(
+  Option(ImplRuleViolation).Some(ImplRuleViolation(message : msg, code : Option(String).Some(String.from(code))))
+);
+/// `_copy_without_clone_msg` as an impl-rule violation: `Copy` without
+/// `Clone` is E0602, the supertrait bound `where(Self <: Clone)` unmet.
+_copy_without_clone_violation :: (fn(target_type : &TypeValue, env : &Environment) -> Option(ImplRuleViolation))(
+  match(_copy_without_clone_msg(target_type, env), .Some(m) => _coded_violation(m, E_TRAIT_NOT_IMPLEMENTED), .None => Option(ImplRuleViolation).None)
+);
 /// The impl check of `impl(T, Copy())` (decision 36): `.Some(message)` when
 /// `T` may not implement `Copy`.
 ///
@@ -1169,10 +1181,10 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
 ///   must be `Copy`. The first one that is not is named.
 /// - Every type that may be `Copy` must also be `Clone`
 ///   (`_copy_without_clone_msg`).
-_copy_impl_violation_msg :: (fn(target_type : &TypeValue, target : &TypeValue, copy_tt : &TypeValue, env : &Environment) -> Option(String))({
+_copy_impl_violation_msg :: (fn(target_type : &TypeValue, target : &TypeValue, copy_tt : &TypeValue, env : &Environment) -> Option(ImplRuleViolation))({
   shown := type_to_string(target_type);
   if(is_reference_struct_type(target) || is_reference_enum_type(target), {
-    return(Option(String).Some(`Type "${shown}" cannot implement "Copy": it is a reference type, so its copies share one cell. Copy is a bitwise copy of a value that owns nothing; a shared cell is copied with .clone().`));
+    return(_uncoded_violation(`Type "${shown}" cannot implement "Copy": it is a reference type, so its copies share one cell. Copy is a bitwise copy of a value that owns nothing; a shared cell is copied with .clone().`));
   });
   if(!is_value_nominal_type(target), {
     is_builtin_leaf := match(
@@ -1184,27 +1196,27 @@ _copy_impl_violation_msg :: (fn(target_type : &TypeValue, target : &TypeValue, c
     );
     return(
       cond(
-        is_builtin_leaf => _copy_without_clone_msg(target_type, env),
-        copy_structural_parts(target).is_some() => Option(String).Some(`Type "${shown}" cannot implement "Copy": a tuple, array, closure, anonymous record or fn pointer is Copy exactly when all its parts are, and declares nothing.`),
-        true => Option(String).Some(`Type "${shown}" cannot implement "Copy": only a value type (struct, enum, newtype) may declare it.`)
+        is_builtin_leaf => _copy_without_clone_violation(target_type, env),
+        copy_structural_parts(target).is_some() => _uncoded_violation(`Type "${shown}" cannot implement "Copy": a tuple, array, closure, anonymous record or fn pointer is Copy exactly when all its parts are, and declares nothing.`),
+        true => _uncoded_violation(`Type "${shown}" cannot implement "Copy": only a value type (struct, enum, newtype) may declare it.`)
       )
     );
   });
   match(
     move_only_reason(target),
     .Some(mo_reason) => {
-      return(Option(String).Some(`Type "${shown}" cannot implement "Copy": ${mo_reason}, so it is move-only. A copy is bitwise, so its destructor would run once per copy; a type that releases a resource is moved, never copied.`));
+      return(_uncoded_violation(`Type "${shown}" cannot implement "Copy": ${mo_reason}, so it is move-only. A copy is bitwise, so its destructor would run once per copy; a type that releases a resource is moved, never copied.`));
     },
     .None => ()
   );
   match(
     _first_non_copy_part(target, copy_tt, env),
     .Some(part) => {
-      return(Option(String).Some(`Type "${shown}" cannot implement "Copy": ${part}, which does not implement required trait "Copy". Every field and payload of a Copy type must be Copy: derive Copy on that type first, or give the field a type that is Copy.`));
+      return(_coded_violation(`Type "${shown}" cannot implement "Copy": ${part}, which does not implement required trait "Copy". Every field and payload of a Copy type must be Copy: derive Copy on that type first, or give the field a type that is Copy.`, E_TRAIT_NOT_IMPLEMENTED));
     },
     .None => ()
   );
-  _copy_without_clone_msg(target_type, env)
+  _copy_without_clone_violation(target_type, env)
 });
 /// `Copy` requires `Clone` (decision 36, Rust's `Copy: Clone` supertrait,
 /// declared by the prelude trait's `where(Self <: Clone)`): `.Some(message)`
@@ -1256,7 +1268,7 @@ _copy_without_clone_msg :: (fn(target_type : &TypeValue, env : &Environment) -> 
             type_mentions_some_type(target_type) => `Write a Clone impl that covers the same instantiations: derive(generic(T : Type), where(T <: Clone), <type constructor>(T), Clone) beside this impl, or bound this impl (where(T <: Copy)) so the existing Clone impl covers it.`,
             true => `Write derive(${shown}, Copy, Clone), or derive(${shown}, Clone) beside impl(${shown}, Copy()).`
           );
-          Option(String).Some(`Type "${shown}" cannot implement "Copy" without "Clone": Copy requires Clone, as Rust's Copy: Clone (plans/VALUES_BY_DEFAULT.md decision 36), and the compiler never writes the Clone impl. ${remedy}`)
+          Option(String).Some(`Type "${shown}" cannot implement "Copy" without "Clone": Copy requires Clone, as Rust's Copy: Clone, and the compiler never writes the Clone impl. ${remedy}`)
         }
       )
     },
@@ -2415,7 +2427,7 @@ receiver_kind_trait_violation_msg :: (
     target_type : &TypeValue,
     trait_type : &TypeValue,
     env : &Environment
-  ) -> Option(String)
+  ) -> Option(ImplRuleViolation)
 )({
   trait_name := cond(
     _is_prelude_trait_named(trait_type, "Drop", env) => String.from("Drop"),
@@ -2423,7 +2435,7 @@ receiver_kind_trait_violation_msg :: (
     true => String.from("")
   );
   if(trait_name.is_empty(), {
-    return(Option(String).None);
+    return(Option(ImplRuleViolation).None);
   });
   (target : TypeValue) = resolve_enum_shell(target_type);
   if(is_some_type(&target), {
@@ -2440,14 +2452,14 @@ receiver_kind_trait_violation_msg :: (
     match(
       get_trait_type_from_env(env, String.from("Copy")),
       .Some(dm_copy_tt) => if(type_implements_trait(&target, &dm_copy_tt, env).implemented, {
-        return(Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "${trait_name}": it implements Copy, and a Copy value is duplicated bitwise, so it can never be move-only. A type that releases a resource is moved, never copied: remove Copy.`));
+        return(_uncoded_violation(`Type "${type_to_string(target_type)}" cannot implement "${trait_name}": it implements Copy, and a Copy value is duplicated bitwise, so it can never be move-only. A type that releases a resource is moved, never copied: remove Copy.`));
       }),
       .None => ()
     );
   });
   cond(
-    (is_value_nominal || is_reference) => Option(String).None,
-    true => Option(String).Some(
+    (is_value_nominal || is_reference) => Option(ImplRuleViolation).None,
+    true => _uncoded_violation(
       `Type "${type_to_string(target_type)}" cannot implement "${trait_name}": only a value type (struct, enum, newtype), which ${trait_name} makes move-only, or a cell payload (the \`Rc\`/\`Arc\`/\`RefCell\` payloads std spells through the reserved cell primitives) may implement it.`
     )
   )
@@ -2465,12 +2477,12 @@ check_self_constraints_violation_msg :: (
     target_type : &TypeValue,
     trait_type : &TypeValue,
     env : &Environment
-  ) -> Option(String)
+  ) -> Option(ImplRuleViolation)
 )({
   match(
     receiver_kind_trait_violation_msg(target_type, trait_type, env),
     .Some(cell_msg) => {
-      return(Option(String).Some(cell_msg));
+      return(Option(ImplRuleViolation).Some(cell_msg));
     },
     .None => ()
   );
@@ -2501,14 +2513,14 @@ check_self_constraints_violation_msg :: (
               sc_implemented = type_implements_trait_bool(target_type, &constraint, env);
             },
             .Error({ msg : sc_force_msg }) => {
-              return(Option(String).Some(sc_force_msg));
+              return(_uncoded_violation(sc_force_msg));
             },
             .NoneForced => ()
           );
         });
         if(!sc_implemented, {
           msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(&constraint)).concat(`" from trait "`).concat(&name.*).concat(`"'s where clause.`);
-          return(Option(String).Some(msg));
+          return(_coded_violation(msg, E_TRAIT_NOT_IMPLEMENTED));
         });
         ip = (ip + usize(1));
       });
@@ -2526,14 +2538,14 @@ check_self_constraints_violation_msg :: (
         );
         if(type_implements_trait_bool(target_type, &constraint, env), {
           msg := `Type "`.concat(type_to_string(target_type)).concat(`" implements "`).concat(type_to_string(&constraint)).concat(`" but the trait "`).concat(&name.*).concat(`"'s where clause requires it to NOT implement this trait.`);
-          return(Option(String).Some(msg));
+          return(_uncoded_violation(msg));
         });
         in_ = (in_ + usize(1));
       });
     },
     _ => ()
   );
-  Option(String).None
+  Option(ImplRuleViolation).None
 });
 /// Check that a type satisfies all positive and negative selfConstraints on a
 /// trait. Throws if any constraint is not satisfied.
@@ -2548,7 +2560,7 @@ check_type_implements_self_constraints :: (
 )(
   match(
     check_self_constraints_violation_msg(target_type, trait_type, env),
-    .Some(msg) => exn.throw(dyn(Box.new(format_error_message(error_token, &msg)))),
+    .Some(v) => exn.throw(dyn(Box.new(with_code_carried(format_error_message(error_token, &v.message), &v.code)))),
     .None => ()
   )
 );

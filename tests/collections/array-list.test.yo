@@ -1704,3 +1704,144 @@ test("extend_cloned of a list field with itself is E0910; a copy appends", {
   assert(o.xs.len() == usize(4), "four elements");
   assert((o.xs(usize(2)) == o.xs(usize(0))) && (o.xs(usize(3)) == o.xs(usize(1))), "the appended half copies the first");
 });
+// ===== Deref: the list's `[T]` view =====
+// `list.*` is the elements as a `[T]`: `&list.*` is `ArrayList.deref(&list)`,
+// `&mut list.*` is `deref_mut`. `list.m()` is the list's own member;
+// `list.*.m()` is the view's.
+_al_view_sum :: (fn(xs : &[i32]) -> i32)({
+  p := unsafe(__yo_slice_ptr(xs));
+  mut(t) := i32(0);
+  mut(i) := usize(0);
+  while(i < xs.len(), i = (i + usize(1)), {
+    // SAFETY: `i < xs.len()`.
+    t = (t + unsafe(p.add(i).*));
+  });
+  t
+});
+// A view-only read and a view-only write: `[i32]` has them, `ArrayList` does not.
+_AlViewOps :: trait(
+  view_first : (fn(self : &Self) -> i32),
+  view_zero_first : (fn(self : &mut Self) -> unit)
+);
+impl(
+  [i32],
+  _AlViewOps(
+    view_first : (fn(self : &Self) -> i32)(unsafe(__yo_slice_ptr(self).*)),
+    view_zero_first : (fn(self : &mut Self) -> unit)({
+      // SAFETY: called on a non-empty view, lent exclusively.
+      unsafe(__yo_slice_ptr(self).* = i32(0));
+    })
+  )
+);
+_al_total :: (fn(generic(D : Type), d : &D, where(D <: Deref(Target := [i32]))) -> i32)(_al_view_sum(d.deref()));
+test("&list.* lends the elements as a &[T]: bound, as an argument, as a receiver", {
+  mut(list) := ArrayList(i32).with_capacity(usize(8));
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  v := &list.*;
+  assert(v.len() == usize(3), "the view holds the elements, not the capacity");
+  assert(_al_view_sum(v) == i32(6), "read through the bound view");
+  assert(_al_view_sum(&list.*) == i32(6), "as an argument");
+  assert(list.*.len() == usize(3), "the view's len");
+  assert(list.len() == usize(3), "the list's own len");
+  assert(list.contains(&i32(2)), "the list's own contains");
+  assert(list.*.contains(&i32(2)), "the view's contains");
+  assert(ArrayList(i32).deref(&list).len() == usize(3), "the qualified projection");
+  assert(_al_total(&list) == i32(6), "one generic body over Deref(Target := [i32])");
+});
+test("a list with no buffer yet has an empty view", {
+  list := ArrayList(i32).new();
+  v := &list.*;
+  assert(v.len() == usize(0), "no elements");
+  assert(v.is_empty(), "is_empty on the view");
+  assert(!v.contains(&i32(0)), "contains finds nothing");
+  assert(_al_view_sum(&list.*) == i32(0), "a sum over nothing");
+  units := ArrayList(unit).new();
+  assert(units.*.len() == usize(0), "a zero-sized element type");
+});
+test("list.*.m() reaches a member only [T] has", {
+  mut(list) := ArrayList(i32).new();
+  list.push(i32(7));
+  list.push(i32(8));
+  assert(list.*.view_first() == i32(7), "a view-only read");
+  list.*.view_zero_first();
+  assert(list(usize(0)) == i32(0), "a view-only write through DerefMut");
+  assert(list.len() == usize(2), "nothing else changed");
+});
+test("&mut list.* lends the elements exclusively, and writes reach the list", {
+  mut(list) := ArrayList(i32).new();
+  list.push(i32(4));
+  list.push(i32(5));
+  w := &mut list.*;
+  w.view_zero_first();
+  assert(list(usize(0)) == i32(0), "written through the bound &mut view");
+  list.*.view_zero_first();
+  list.push(i32(6));
+  assert(list.*.len() == usize(3), "the list grows once the view is dead");
+});
+test("two lists' views compare with [T]'s Eq", {
+  mut(a) := ArrayList(i32).new();
+  mut(b) := ArrayList(i32).new();
+  a.push(i32(1));
+  b.push(i32(1));
+  assert(a.* == b.*, "equal elements");
+  b.push(i32(2));
+  assert(a.* != b.*, "different lengths");
+});
+mut(_al_view_drops) := i32(0);
+_AlTick :: struct(n : i32);
+impl(
+  _AlTick,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _al_view_drops = (_al_view_drops + i32(1));
+    })
+  )
+);
+test("the elements behind a view are dropped once, by the list", {
+  _al_view_drops = i32(0);
+  {
+    mut(list) := ArrayList(_AlTick).new();
+    list.push(_AlTick(n : i32(1)));
+    list.push(_AlTick(n : i32(2)));
+    v := &list.*;
+    assert(v.len() == usize(2), "read through the view");
+  };
+  assert(_al_view_drops == i32(2), "two elements, each dropped once");
+});
+test("a live view freezes the list", {
+  comptime_expect_error({
+    mut(list) := ArrayList(i32).new();
+    list.push(i32(1));
+    v := &list.*;
+    list.push(i32(2));
+    _al_view_sum(v)
+  }, "borrows `list`");
+  comptime_expect_error({
+    mut(list) := ArrayList(i32).new();
+    v := &list.*;
+    list.clear();
+    _al_view_sum(v)
+  }, "borrows `list`");
+  comptime_expect_error({
+    list := ArrayList(i32).new();
+    v := &list.*;
+    moved := list;
+    _al_view_sum(v) + moved.*.len()
+  }, "Cannot move `list`");
+});
+test("the view needs a writable list, is unsized, and is lent explicitly", {
+  comptime_expect_error({
+    list := ArrayList(i32).new();
+    _w := &mut list.*;
+  }, "it is a binding declared without `mut`");
+  comptime_expect_error({
+    list := ArrayList(i32).new();
+    _x := list.*;
+  }, "`Slice(i32)` is not `Sized`");
+  comptime_expect_error({
+    list := ArrayList(i32).new();
+    _al_view_sum(&list)
+  }, "lend its view with `&list.*`");
+});

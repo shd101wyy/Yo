@@ -989,6 +989,18 @@ Hash :: trait(
   hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)
 );
 export(Hash);
+/// `Hash` over a shared reference: a reference hashes as its referent, so
+/// `HashMap(&K, V)` and generic code at `T := &U` agree with `Eq(&T)`. The
+/// body is the type-qualified call, never `self.*.hash(…)`, whose probe
+/// would select this impl again (VERDICTS-49).
+impl(
+  generic(T : Type),
+  where(T <: Hash),
+  &T,
+  Hash(
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(T.hash(self.*, hasher))
+  )
+);
 /// Clone trait — deep-copy a value.
 Clone :: trait(
   /// Create an independent clone of `self`.
@@ -1001,7 +1013,7 @@ export(Clone);
 /// CloneInto trait — write an independent clone of `self` into the
 /// uninitialized slot `dst`: Rust's `CloneToUninit`
 /// (plans/VALUES_BY_DEFAULT.md decision 49). `Self` may be unsized, so this
-/// is how `Box(T).clone()` and `Rc.make_mut` clone a payload whose size is
+/// is how `Box.clone(&b)` and `Rc.make_mut` clone a payload whose size is
 /// known only at run time: `dst` points at `size_of_val(self)` fresh bytes
 /// (with `self`'s length or vtable), and the clone is written there, never
 /// dropping what `dst` held.
@@ -10231,8 +10243,9 @@ export(Weak);
 /// a value that needs a stable address.
 ///
 /// A `Box` has one owner. It is explicit-copy: a copy point moves it when it
-/// is the box's last use, any other copy is E0901, and `b.clone()` is a deep
-/// copy, a new cell holding a clone of the payload. Dropping the box drops its
+/// is the box's last use, any other copy is E0901, and `Box.clone(&b)` is a
+/// deep copy, a new cell holding a clone of the payload (`b.clone()` is
+/// E0616: the payload has a `clone` of its own). Dropping the box drops its
 /// payload and frees the cell. `Box(T)` is move-only when `T` is (no `Clone`).
 /// `w.*` names the payload, and `w.field` / `w.method()` reach it through
 /// auto-dereference (`Deref`). Sharing is `Rc`; a `Box` is never counted, so
@@ -10258,7 +10271,7 @@ export(Weak);
 ///
 /// ```yo
 /// a := Box.new(i32(41));
-/// b := a.clone(); // an independent cell
+/// mut(b) := Box.clone(&a); // an independent cell
 /// b.* = i32(42);
 /// assert(a.* == i32(41), "the clone is a new cell");
 /// ```
@@ -10603,7 +10616,7 @@ impl(
 /// (`h.field`, `h.method()`); `as_ref` names the whole payload where a `&T`
 /// is wanted, such as an argument to a `&T` parameter, or where the payload
 /// has a method of the handle's name (`p := h.as_ref(); p.clone()` clones
-/// the payload, `Box.clone(h)` the handle). Pass the result straight to a
+/// the payload, `Box.clone(&h)` the handle). Pass the result straight to a
 /// call, or bind it before reading through it.
 ///
 /// ```yo
