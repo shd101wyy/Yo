@@ -1,0 +1,10 @@
+// A local borrow of a collection element: E0927, borrow it with `xs.index(i)`
+// (issues/fixed/2026-11-21-copy-without-clone-and-a-local-borrow-of-an-element-are-uncoded-errors.md).
+{ ArrayList } :: import("std/collections/array-list");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  y := &xs(usize(0));
+  _n := y.*;
+});
+export(main);

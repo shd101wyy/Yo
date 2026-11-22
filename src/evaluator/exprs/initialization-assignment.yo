@@ -100,7 +100,7 @@
 { is_unit_type, is_comptime_int_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
+{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH, E_BORROW_OF_NON_PLACE } :: import("../../diagnostics.yo");
 { _type_origin_names_into } :: import("../types/function.yo");
 { Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -152,6 +152,7 @@
   projection_call_root_args,
   ProjectionRootArg,
   is_temporary_operand,
+  is_computed_reference_operand,
   projection_call_callee_type,
   bind,
   note_fn_value_definition,
@@ -370,13 +371,15 @@ _evaluate_inout_local_binding :: (
   });
   // The RHS must be a PLACE: an atom, or a `.` chain rooted at one. Checked
   // on the AST before evaluation so the message names the shape, not a type.
-  place_recipe := `A local borrow (\`y := ${sig}place\`) needs a place: a variable, or a field path rooted at one (\`x\`, \`h.n\`, \`a.b.c\`). To borrow an ELEMENT of a collection, iterate it with \`for(${sig}coll, x => ...)\`; to hold a computed value, bind it with \`:=\` and no sigil.`;
+  place_recipe := `A local borrow (\`y := ${sig}place\`) needs a place: a variable, or a field path rooted at one (\`x\`, \`h.n\`, \`a.b.c\`).`;
+  projection_name := if(is_mut, String.from("index_mut"), String.from("index"));
+  place_help := `to borrow an element of a collection, use its projection (\`r := xs.${projection_name}(i)\`) or iterate it with \`for(${sig}coll, x => ...)\`; to hold a computed value, bind it with \`:=\` and no sigil`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(rhs, &mut hops),
     .Some(r) => r,
     .None => {
-      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(rhs), place_recipe.clone()))));
+      exn.throw(dyn(Box.new(with_code(format_error_message_with_help(ast_expr_token(rhs), &place_recipe, Option(String).Some(place_help.clone())), E_BORROW_OF_NON_PLACE))));
       make_err_expr()
     }
   );
@@ -513,7 +516,7 @@ _evaluate_inout_local_binding :: (
     .None => false
   );
   if(root_is_type, {
-    exn.throw(dyn(Box.new(format_error_message(&root_tok, place_recipe.clone()))));
+    exn.throw(dyn(Box.new(with_code(format_error_message_with_help(&root_tok, &place_recipe, Option(String).Some(place_help.clone())), E_BORROW_OF_NON_PLACE))));
   });
   place_type := Rc.clone(rhs_info.ty());
   // A `unit` local has no C storage (its declaration emits nothing), so there
@@ -977,6 +980,38 @@ _bind_projection_result :: (
     // ends with this statement.
     if(!root.by_value && is_temporary_operand(&root.arg, env, ctx), {
       exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT))));
+    });
+    // A COMPUTED reference passed on to a reference parameter — an inner
+    // projection call's result (`id(c.borrow_mut().get())`, `id(id(&x))`,
+    // the receiver `c.borrow_mut().me()` of `.get()`) — is no place: its
+    // roots are R-CALL's (`origin_of`), and a temporary among them (the
+    // guard `c.borrow_mut()`) ends with this statement while the binding
+    // reads through it (R-TEMP). The place walk would read the call as its
+    // callee's place (`c`), skipping the temporary, whose drop at the
+    // statement's end then frees what the binding reads.
+    if(!root.by_value && is_computed_reference_operand(&root.arg, ctx), {
+      cr_roots := origin_of(&root.arg, env, ctx);
+      (cri : usize) = usize(0);
+      while(cri < cr_roots.len(), cri = (cri + usize(1)), {
+        if(cr_roots(cri).place.root_name == ORIGIN_TEMPORARY_ROOT, {
+          exn.throw(dyn(Box.new(with_code(format_error_message_with_help(ast_expr_token(&root.arg), `Cannot bind \`${var_name}\` to \`${call_text}\`: it holds a reference into \`${cr_roots(cri).place.text}\`, a temporary that ends with this statement, while \`${var_name}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`, Option(String).Some(`bind \`${cr_roots(cri).place.text}\` to a local first and lend the local`)), E_LOCAL_BORROW_CONFLICT))));
+        });
+      });
+      if(cr_roots.len() > usize(0), {
+        (crj : usize) = usize(0);
+        while(crj < cr_roots.len(), crj = (crj + usize(1)), {
+          crr := cr_roots(crj).clone();
+          if(!is_mut || crr.is_mut, {
+            match(get_variables_from_env(env, crr.place.root_name.clone()).last_cloned(), .Some(rv) => root_vars.push(rv), .None => ());
+            root_labels.push(root.label.clone());
+            root_names.push(crr.place.root_name.clone());
+            places.push(crr.place.clone());
+            held_places.push(false);
+          });
+        });
+        ri = (ri + usize(1));
+        continue;
+      });
     });
     // A holder passed by value (N1e-2): the places its references point
     // into, as its own binding froze them (`origin_of`). A reference
