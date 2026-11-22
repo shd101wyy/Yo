@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain, t_slot_is_mut_ref, t_reference } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, lend_place_reference_type, deref_is_owning_handle_step } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, is_temporary_operand, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, lend_place_reference_type, deref_is_owning_handle_step } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -408,6 +408,20 @@ _projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Enviro
   (mut(i) : usize) = usize(0);
   while(i < roots.len(), {
     root_arg := roots(i).arg.clone();
+    // R-TEMP: a temporary lent to the inner call's reference parameter
+    // (`c.borrow_mut().get()`) is a hidden local of this body, dropped
+    // when the body ends — its `Drop` may write the place the result
+    // reaches through it — so no result is read through it, as `origin_of`
+    // roots a binding's or a result's value at it
+    // (issues/fixed/2026-11-23-a-projection-may-return-a-reference-read-through-a-temporary-guard-whose-drop-rewrites-the-place.md).
+    if(!roots(i).by_value && ((!inner_mut || roots(i).is_mut) && is_temporary_operand(&root_arg, env, ctx)), {
+      return(
+        _proj_err(
+          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and this one is reached through \`${ast_expr_to_string(&root_arg)}\`, a temporary that is dropped when the body ends, before the caller reads the result (decision 24, the single-root rule; R-TEMP).`,
+          Option(str).Some(E_LOCAL_BORROW_ESCAPES)
+        )
+      );
+    });
     // A holder argument (`h.get()` on `h : H(x)`, an impl's origin
     // parameter bound from the receiver's type): the place lies where the
     // holder's references point (`origin_of`), not in the holder.
