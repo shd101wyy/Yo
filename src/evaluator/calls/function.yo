@@ -8644,10 +8644,16 @@ _evaluate_funcval_runtime_call :: (
                   // the slot takes — a receiver or value typed `&String` at a
                   // `&String` slot — so it is the slot's value, not a place
                   // the slot lends ("a receiver that is itself a reference
-                  // value needs no borrow").
+                  // value needs no borrow"). A LEND is not that value: `&r`
+                  // of a reference binding (a self place) or any recorded
+                  // lend of a place typed `&String` is a `&&String` (P3).
                   _ac_slot_value := match(
                     _ac_pts.get(_ac_i),
-                    .Some(_ac_sl) => (t_slot_is_borrow(&_ac_aty) && are_types_compatible(&_ac_aty, &_ac_sl)),
+                    .Some(_ac_sl) => (
+                      t_slot_is_borrow(&_ac_aty) && are_types_compatible(&_ac_aty, &_ac_sl)
+                      && expr_info_converted_runtime_type(&_ac_ai).is_none()
+                      && !is_reference_self_place(ast_expr_id(&match(runtime_arg_exprs.get_cloned(_ac_i), .Some(_ac_sv) => _ac_sv, .None => expr.clone())))
+                    ),
                     .None => false
                   );
                   if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime && !_ac_str_place && !_ac_slot_value
