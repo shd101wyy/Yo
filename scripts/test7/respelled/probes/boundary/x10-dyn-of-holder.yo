@@ -1,0 +1,16 @@
+// expect: E0909 (O4/O10: `Box(Dyn(Trait))` is `Box(Dyn(Trait, ∅))`; its payload must be Escapable, a holder of `&s` is not)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Ln :: trait(n : (fn(self : &Self) -> usize));
+H :: struct(r : &String);
+derive(H, Copy, Clone);
+impl(H, Ln(n : (fn(self : &Self) -> usize)(self.r.len())));
+_mk :: (fn() -> Box(Dyn(Ln)))({
+  s := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  dyn(Box.new(H(r : &s)))
+});
+main :: (fn() -> unit)({
+  d := _mk();
+  println(`OUT: ${d.n().to_string()}`);
+});
+export(main);

@@ -1,0 +1,20 @@
+// expect: E0911
+// A phantom origin Id(p) pushed into an ArrayList: the root is dropped while the list is live.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+Id :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(i : usize));
+mk :: (fn(xs : &ArrayList(String)) -> Id(xs))(Id(xs)(i : usize(0)));
+main :: (fn() -> unit)({
+  outer := ArrayList(String).new();
+  mut(ids) := ArrayList(Id(outer)).new();
+  {
+    mut(xs) := ArrayList(String).new();
+    xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    id := mk(&xs);
+    ids.push(id);
+  };
+  println(`OUT: ${ids.len().to_string()}`);
+  ()
+});
+export(main);

@@ -1,0 +1,16 @@
+// expect: E0909
+// A borrowing closure behind Box(Dyn(Fn)) (= Box(Dyn(Fn, static))) pushed into an outer list.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+X :: struct(s : String);
+main :: (fn() -> unit)({
+  mut(keep) := ArrayList(Box(Dyn(Fn() -> usize))).new();
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    keep.push(dyn(Box.new({ y : &b }() => y.*.s.len())));
+  };
+  println(`OUT: ${keep(usize(0))().to_string()}`);
+  ()
+});
+export(main);

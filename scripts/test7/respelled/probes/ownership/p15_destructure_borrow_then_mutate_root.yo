@@ -1,0 +1,19 @@
+// expect: E0911 (destructured borrow d live while s is reassigned)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+(mut(g_drops) : i32) = i32(0);
+D :: struct(s : String);
+impl(D, Drop(drop : (fn(self : &mut Self) -> unit)({ g_drops = (g_drops + i32(1)); })));
+mk :: (fn() -> D)(D(s : String.from("payload-0123456789abcdefghijklmnop")));
+take :: (fn(d : D) -> usize)(d.s.len());
+take_b :: (fn(d : D) -> bool)(d.s.len() > usize(0));
+peek :: (fn(d : &D) -> usize)(d.s.len());
+nd :: (fn() -> i32)(g_drops);
+P :: struct(d : D, n : i32);
+main :: (fn() -> unit)({
+  mut(s) := P(d : mk(), n : i32(1));
+  { d, n } := s;
+  s = P(d : D(s : String.from("other")), n : i32(2));
+  println(`OUT ${peek(&d).to_string()}`);
+});
+export(main);

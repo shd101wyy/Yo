@@ -1,0 +1,18 @@
+// expect: E0911 -- map adapter over a read cursor built, source grown, then consumed
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  xs.push(String.from("second-second-second-second-second"));
+  mut(it) := (&xs).into_iter().map((x : &(&String)) => x.*.len());
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(String.from("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+    i = (i + usize(1));
+  });
+  match(it.next(), .Some(n) => println(`OUT: ${n.to_string()}`), .None => ());
+  ()
+});
+export(main);

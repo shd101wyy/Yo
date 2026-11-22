@@ -1,0 +1,13 @@
+// expect: E0909
+// a method on `self : &Self` returns a closure implicitly capturing self; caller drops the receiver's payload, then calls
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+impl(S, reader : (fn(self : &Self) -> Impl(Fn() -> usize))({ self }() => self.a.len()));
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  g := h.*.reader();
+  h = Rc.new(S(a : String.from("z")));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

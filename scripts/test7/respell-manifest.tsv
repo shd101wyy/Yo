@@ -1,0 +1,360 @@
+# Test 7's respelling of the audit corpus's drifted negatives (plan §3.6, the pre-claim task; scripts/test7.sh leg (b)).
+# The 2026-11-23 run on develop f06ff5889 had 352 negatives rejected with another code than their `// expect:`.
+# Each is triaged here, one row per program, first column the path relative to the corpus root:
+#   <path>	respelled|kept	<the run's stop: expect E…, got E…>	<what changed and why / why it is kept>
+# `respelled`: the program in scripts/test7/respelled/<path> replaces the frozen original in the corpus (the tarball
+# keeps the original); it is today's spelling of the same unsafe pattern, so it reaches the probed hole again.
+# `kept`: not respelled, because the stopping diagnostic is the probed hole or its wall under another code, the shape
+# has no spelling in today's language, or the frozen probe never reached a shape.
+probes/async-effects/p13.yo	respelled	expect E0911, got E0901	E0901 stops at an implicit by-value capture (a move) the probe meant as a borrow; the borrow is the capture-list entry `{ &w }`
+probes/async-effects/s01.yo	respelled	expect E0911, got E0901	E0901: an implicit capture of a reference (a `&T` parameter, `self`, a match binding) is the move of the referent; the reference is captured through the capture list (`{ p }` copies the reference; an `io.async` body borrows a reference parameter whole as `{ s : &s.* }`)
+probes/async-effects/s02.yo	respelled	expect E0911, got -	uncoded "Cannot capture the borrow implicitly": a borrow is captured through the capture list (`{ y }` copies a `&` borrow, `{ p : &mut p.* }` reborrows a `&mut` one)
+probes/async-effects/x04.yo	respelled	expect E0911, got E0913	E0913: a closure body moves a capture out only from its capture list; the inner future is captured `{ f }`
+probes/boundary/c01-refcell-with-returns-ref.yo	respelled	expect E0912, got -	E0926/`&v.*` is no expression: a `with`/`with_lock` body returning its reference parameter is the typed fn literal `(fn(v : &T) -> &T)(v)`
+probes/boundary/c02-mutex-with-lock-returns-ref.yo	respelled	expect E0912, got -	E0926/`&v.*` is no expression: a `with`/`with_lock` body returning its reference parameter is the typed fn literal `(fn(v : &T) -> &T)(v)`
+probes/boundary/g20-handle-global-alias-grow.yo	respelled	expect E0916, got E0009	E0009: the `ref(struct(...))` global is a module-level `Rc(RefCell(Holder))`; the element lend `&G_H.items(0)` is made inside a `with` body and the grow goes through a cloned handle
+probes/boundary/m13-global-closure-capture-ref.yo	respelled	expect E0909, got -	uncoded "Expected a function type": a closure bound to a name (or called in place) needs its expected type, `(f : Impl(Fn..)) = (...)`; a closure returning its reference parameter is the typed fn literal `(fn(a : &T) -> &T)(a)`
+probes/boundary/x10-dyn-of-holder.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/boundary/x11-dyn-closure-capture-holder.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/calls/c01_named_ref.yo	respelled	expect E0911, got E0927	E0927: an element place `&xs(i)` is no local-borrow target; the element borrow is the projection call `xs.index(i)`
+probes/calls/c06_named_ref_first.yo	respelled	expect E0911, got E0927	E0927: an element place `&xs(i)` is no local-borrow target; the element borrow is the projection call `xs.index(i)`
+probes/calls/c27_dyn_method.yo	respelled	expect E0911, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/calls/c49_indexmut_idx_carries.yo	respelled	expect E0910, got E0926	E0926: the subscript `c(e)` takes its index by value; the IndexMut call by name `c.index_mut(e)` passes the reference
+probes/calls/d03_dynfn_call.yo	respelled	expect E0911, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/calls/e03_async_arg.yo	respelled	expect E0911, got -	uncoded: `io.async` takes its body `(io : Io) => ..` and borrows reference parameters through its capture list; `main` takes `io : Io` and `io.await(fut, io)` names the io
+probes/calls/e04_async_ref_into_future.yo	respelled	expect E0911, got E0901	E0901: an implicit capture of a reference (a `&T` parameter, `self`, a match binding) is the move of the referent; the reference is captured through the capture list (`{ p }` copies the reference; an `io.async` body borrows a reference parameter whole as `{ s : &s.* }`)
+probes/calls/r06_lie_nested_union.yo	respelled	expect E0923, got E0901	E0901: a projection body (or a capture initializer) that yields another projection call`s result writes it as a place, `&call(..)` (a bare call result is read by value)
+probes/cells/bx03_option_box_take.yo	respelled	expect E0911, got -	uncoded: an arm result lends a binding`s place, so the empty fallback string is bound first (`&e`)
+probes/cells/bx04_box_of_ref.yo	respelled	expect E0911, got E0914	E0914: a reference passed by value to a generic `Box.new`/`Rc.new` is spelled with the payload type, `Box(&String).new(&s)`; the box of a reference then meets the container wall (E0909)
+probes/cells/bx05_box_of_ref_escape.yo	respelled	expect E0911, got E0914	E0914: a reference passed by value to a generic `Box.new`/`Rc.new` is spelled with the payload type, `Box(&String).new(&s)`; the box of a reference then meets the container wall (E0909)
+probes/cells/dy01_dyn_of_ref_holder.yo	respelled	expect E0909, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/cells/dy01b_dyn_of_ref_holder_outer.yo	respelled	expect E0909, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/cells/dy03_dyn_method_ref_result_reassign.yo	respelled	expect E0911, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/cells/dy03b_dyn_method_ref_result_dropped.yo	respelled	expect E0911, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/cells/dy03c_dyn_method_on_temp.yo	respelled	expect E0911, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/cells/dy04_dyn_fn_borrowing_closure.yo	respelled	expect E0909, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/cells/es01b_generic_rc_of_ref_local.yo	respelled	expect E0909, got E0914	E0914: `&s` to a by-value generic parameter is a by-value reference argument; it is a local borrow passed bare, `r := &s; wrap(r)`
+probes/cells/es06_generic_rc_where_escapable_missing_in_struct.yo	respelled	expect E0909, got E0914	E0914: `&s` to a by-value generic parameter is a by-value reference argument; it is a local borrow passed bare, `r := &s; wrap(r)`
+probes/cells/gl13_reborrow_union_fn.yo	respelled	expect E0911, got -	uncoded "Failed to evaluate type expression: Guard": the origin-parameterized `Guard` is applied to an origin parameter, `g : &Guard(p)`
+probes/cells/gl18_direct_local_through_mut_field.yo	respelled	expect E0911, got E0927	E0927: `&h.m(i)` -> the projection call `h.m.index(i)`
+probes/cells/gl19_mutref_local_reborrow.yo	respelled	expect E0911, got E0927	E0927: `&m(i)` -> the projection call `m.index(i)`
+probes/cells/gl20_ref_to_mutref_param.yo	respelled	expect E0911, got E0914	E0914: the `&(&mut ArrayList)` parameter is lent with `&mut m` (the diagnostic`s own repair)
+probes/cells/gu09_guard_proj_temp_assign.yo	respelled	expect E0911, got E0926	E0926: a re-point admits only `r = &place`, not a call result; the reference read through the temporary guard is bound through `id(...)` (the gl02 shape, issues/fixed/2026-11-19-a-reference-read-through-a-temporary-guard-outlives-the-guards-drop.md)
+probes/cells/gu10_guard_proj_temp_return.yo	respelled	expect E0912, got E0901	E0901: a projection body (or a capture initializer) that yields another projection call`s result writes it as a place, `&call(..)` (a bare call result is read by value)
+probes/cells/gu11_guard_proj_temp_capture.yo	respelled	expect E0911, got E0901	E0901: a capture initializer yielding a projection call result is written `&call(..)`; it then stops at the capture wall (a borrow capture names a binding, not a temporary), the probed shape
+probes/cells/rc03_vec_handles_clear.yo	respelled	expect E0911, got E0927	E0927: `&hs(i).*.s` -> bind the element with `hs.index(i)`, then borrow the field through the handle
+probes/cells/rc04d_byval_param_asref.yo	respelled	expect E0912, got E0901	E0901: a projection body (or a capture initializer) that yields another projection call`s result writes it as a place, `&call(..)` (a bare call result is read by value)
+probes/cells/rc04p_local_handle_asref_returned.yo	respelled	expect E0912, got E0901	E0901: a projection body (or a capture initializer) that yields another projection call`s result writes it as a place, `&call(..)` (a bare call result is read by value)
+probes/cells/rc04u_closure_local_handle_returned.yo	respelled	expect E0912, got E0003	E0003: a closure with a spelled result type is the typed fn literal `(fn(a : &String) -> &String)({ ... })`
+probes/cells/rc08_option_rc_match_ref.yo	respelled	expect E0911, got -	uncoded: an arm`s `&place` result is not accepted in a typed binding`s initializer `(r : &String) = match(..)`; the binding is `r := match(..)`
+probes/cells/rcc01_with_returns_ref.yo	respelled	expect E0911, got E0926	E0926: a closure returning its reference parameter is spelled as a typed fn literal `(fn(v : &T) -> &T)(v)` (`v => v` reads `v` by value, `v => &v.*` is not an expression)
+probes/cells/rcc01b_with_returns_ref.yo	respelled	expect E0911, got -	E0926/`&v.*` is no expression: a `with`/`with_lock` body returning its reference parameter is the typed fn literal `(fn(v : &T) -> &T)(v)`
+probes/cells/rcc07_cell_dropped_inside_with.yo	respelled	expect E0910, got E0901	E0901 stops at an implicit by-value capture of `outer` (a move) the probe meant as a borrow; the borrow is the capture-list entry `{ &outer }`
+probes/cells/tip/dv11_box_dyn_of_ref_holder.yo	respelled	expect E0909, got E0922	E0922: the outer holder`s `static` origin was incidental; `static` is unavailable in safe code (until P12), so the holder is typed over an outer local`s origin
+probes/cells/tip/dv12_upcast_ref_bound.yo	respelled	expect E0911, got -	uncoded: `dyn(&c)` needs its `&Dyn(Name)` type from its position; it is bound typed first, `(d : &Dyn(Name)) = dyn(&c)`
+probes/cells/tip/dv13_downcast_ref_bound_then_write.yo	respelled	expect E0911, got -	uncoded: `dyn(&c)` needs its `&Dyn(Name)` type from its position; it is bound typed first, `(d : &Dyn(Name)) = dyn(&c)`
+probes/cells/tip/dv14_box_dyn_payload_byval_param_return.yo	respelled	expect E0912, got E0901	E0901: a projection body (or a capture initializer) that yields another projection call`s result writes it as a place, `&call(..)` (a bare call result is read by value)
+probes/cells/tm10_upgrade_match_arm.yo	respelled	expect E0911, got -	uncoded: an arm cannot yield a projection call result (`k.as_ref()`) beside a place lend (`&fb`), nor a lend in a typed binding`s initializer; both arms go through `idx(..)` and the binding is untyped
+probes/cells/tm11_closure_immediate.yo	respelled	expect E0911, got -	uncoded "Expected a function type": a closure bound to a name (or called in place) needs its expected type, `(f : Impl(Fn..)) = (...)`; a closure returning its reference parameter is the typed fn literal `(fn(a : &T) -> &T)(a)`
+probes/cells/tm12_cond_temp_arm.yo	respelled	expect E0911, got -	uncoded: an arm`s `&keep` is not accepted in a typed binding`s initializer; the binding is `r := cond(..)`
+probes/closures/c07.yo	respelled	expect E0909, got -	uncoded "Cannot capture the borrow implicitly": a borrow is captured through the capture list (`{ y }` copies a `&` borrow, `{ p : &mut p.* }` reborrows a `&mut` one)
+probes/closures/c08.yo	respelled	expect E0909, got E0901	E0901: an implicit capture of a reference (a `&T` parameter, `self`, a match binding) is the move of the referent; the reference is captured through the capture list (`{ p }` copies the reference; an `io.async` body borrows a reference parameter whole as `{ s : &s.* }`)
+probes/closures/g02.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/closures/n01.yo	respelled	expect E0909, got E0901	E0901: an implicit capture of a reference (a `&T` parameter, `self`, a match binding) is the move of the referent; the reference is captured through the capture list (`{ p }` copies the reference; an `io.async` body borrows a reference parameter whole as `{ s : &s.* }`)
+probes/closures/n04.yo	respelled	expect E0901, got -	uncoded "Cannot capture the borrow implicitly": a borrow is captured through the capture list (`{ y }` copies a `&` borrow, `{ p : &mut p.* }` reborrows a `&mut` one)
+probes/closures/n05.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/closures/o03.yo	respelled	expect E0901, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/closures/t01.yo	respelled	expect E0909, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/closures/t06c.yo	respelled	expect E0909, got -	uncoded: two closure literals are two concrete types, so an `Impl(Fn)` result cannot take either; the result is `Box(Dyn(Fn() -> i32))` and each arm `dyn(Box.new(..))`
+probes/closures/t12b.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/closures/t12d.yo	respelled	expect E0909, got E0901	E0901: an implicit capture of a reference (a `&T` parameter, `self`, a match binding) is the move of the referent; the reference is captured through the capture list (`{ p }` copies the reference; an `io.async` body borrows a reference parameter whole as `{ s : &s.* }`)
+probes/closures/t13.yo	respelled	expect E0909, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/closures/t14.yo	respelled	expect E0909, got -	uncoded "Cannot capture the borrow implicitly": a borrow is captured through the capture list (`{ y }` copies a `&` borrow, `{ p : &mut p.* }` reborrows a `&mut` one)
+probes/closures/t15.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/closures/t17.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/generics/c05-phantom-list.yo	respelled	expect E0911, got E0922	E0922: the outer holder`s `static` origin was incidental; `static` is unavailable in safe code (until P12), so the holder is typed over an outer local`s origin
+probes/generics/d01-dyn-elided-push.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+probes/generics/i02-impl-ref-generic.yo	respelled	expect E0911, got E0601	E0601: the method call `t.view()` at `T := &C` is rejected even in the valid program (issues/2026-11-23-a-method-call-on-a-generic-t-bound-to-a-reference-type-unifies-the-receiver-with-the-referent.md); the call is the qualified `View.view(t)`
+probes/generics/k01-type-of-decl.yo	respelled	expect E0911, got E0926	E0926: `type_of(ra)` reads the reference binding by value and `type_of(&a)` is not an expression; the holder spells the origin `type_of(&a)` carried, `Option(&(Rc(X), a))`
+probes/generics/k01b-type-of-lend.yo	respelled	expect E0911, got -	uncoded: `type_of(&a)` is not an expression (a lend is an argument, scrutinee, tuple element or local borrow); the holder spells the origin it carried, `Option(&(Rc(X), a))`
+probes/generics/r02-rigid-holder-field.yo	respelled	expect E0923, got E0926	E0926: re-pointing a reference FIELD (`h.r = &y`) is rejected whatever the origin (see issues/2026-11-23-re-pointing-a-reference-field-is-e0926-with-a-reading-message.md); the store is spelled as a whole-holder assignment
+probes/generics/r06-rigid-via-generic-T.yo	respelled	expect E0923, got E0926	E0926: `.Some(b)` at a generic `Option(T)` parameter reads `b` by value; the variant is spelled with its type `Option(&(String, q)).Some(b)`
+probes/generics/u01-ctor-result-subst.yo	respelled	expect E0911, got E0922	E0922: the outer holder`s `static` origin was incidental; `static` is unavailable in safe code (until P12), so the holder is typed over an outer local`s origin
+probes/holders/c03_anon_struct.yo	respelled	expect E0911, got E0007	E0007: `{ r : &x, .. }` is a block; a record `.{ r : &x }` cannot hold a lend (a lend is an argument, scrutinee, tuple element or local borrow), so the anonymous holder is the tuple `(&x, 0)`
+probes/holders/e04_stash_ret_holder_from_mut.yo	respelled	expect E0911, got E0901	E0901: moving the value out of a `&mut Option` and clearing it is `src.take()`
+probes/holders/e06_stash_spelled_holder_elided_arg.yo	respelled	expect E0923, got -	uncoded "Expected type for element": the origin-parameterized `G` is applied to an origin everywhere (`G(p)`, `G(q)`, `Option(G(a))`); the callee`s two parameters keep separate origins
+probes/holders/e07_closure_elided_holder.yo	respelled	expect E0923, got -	uncoded "Expected a function type": a closure bound to a name (or called in place) needs its expected type, `(f : Impl(Fn..)) = (...)`; a closure returning its reference parameter is the typed fn literal `(fn(a : &T) -> &T)(a)`
+probes/holders/f01_field_write_elided.yo	respelled	expect E0911, got E0926	E0926: re-pointing a reference FIELD (`h.r = &y`) is rejected whatever the origin (see issues/2026-11-23-re-pointing-a-reference-field-is-e0926-with-a-reading-message.md); the store is spelled as a whole-holder assignment
+probes/holders/f02_nested_field_write.yo	respelled	expect E0911, got E0926	E0926: re-pointing a reference FIELD (`h.r = &y`) is rejected whatever the origin (see issues/2026-11-23-re-pointing-a-reference-field-is-e0926-with-a-reading-message.md); the store is spelled as a whole-holder assignment
+probes/holders/f03_nested_spelled_field_write.yo	respelled	expect E0923, got E0926	E0926: re-pointing a reference FIELD (`h.r = &y`) is rejected whatever the origin (see issues/2026-11-23-re-pointing-a-reference-field-is-e0926-with-a-reading-message.md); the store is spelled as a whole-holder assignment
+probes/holders/f04_tuple_elem_write.yo	respelled	expect E0911, got E0926	E0926: re-pointing a reference FIELD (`h.r = &y`) is rejected whatever the origin (see issues/2026-11-23-re-pointing-a-reference-field-is-e0926-with-a-reading-message.md); the store is spelled as a whole-holder assignment
+probes/holders/f05_write_through_mut_holder.yo	respelled	expect E0911, got E0926	E0926: re-pointing a reference FIELD (`h.r = &y`) is rejected whatever the origin (see issues/2026-11-23-re-pointing-a-reference-field-is-e0926-with-a-reading-message.md); the store is spelled as a whole-holder assignment
+probes/holders/f09_callee_field_write.yo	respelled	expect E0911, got E0926	E0926: re-pointing a reference FIELD (`h.r = &y`) is rejected whatever the origin (see issues/2026-11-23-re-pointing-a-reference-field-is-e0926-with-a-reading-message.md); the store is spelled as a whole-holder assignment
+probes/holders/i01_move_into_fn.yo	respelled	expect E0911, got E0914	E0914 in a helper the probe does not test: a `&T` parameter takes its argument with the call-site marker `&x`
+probes/holders/k06_field_read_into_binding.yo	respelled	expect E0911, got E0926	E0926: copying a reference field into a binding is the reborrow `{ &h.r.* }` (`r := h.r` reads the referent by value; a bare `&h.r.*` initializer is the `.*`-step wall)
+probes/holders/r02_holder_of_ref_ref.yo	respelled	expect E0911, got -	uncoded "`&&` is logical and": a reference to a reference type is `&(&T)`
+probes/holders/u04_union_closure.yo	respelled	expect E0923, got E0003	E0003: a closure bound to a local is parenthesized and needs its expected type, `(f : Impl(Fn..)) = (...)` (no operator precedence; an untyped closure binding is "Expected a function type")
+probes/holders/w01_box_infer.yo	respelled	expect E0911, got E0914	E0914: a reference passed by value to a generic `Box.new`/`Rc.new` is spelled with the payload type, `Box(&String).new(&s)`; the box of a reference then meets the container wall (E0909)
+probes/iteration/a01.yo	respelled	expect E0911, got E0601	E0601: `map` hands its closure `&A` and the borrowed walk's item `A` is `&String`, so the parameter is `x : &(&String)` (`&&` is logical and) read as `x.*.len()`
+probes/iteration/a03.yo	respelled	expect E0911, got -	uncoded "Accessing tuple field by index": `enumerate` yields `IterPair(usize, A)`, whose item field is `_1`
+probes/iteration/a06.yo	respelled	expect E0911, got -	uncoded "`&&` is logical and": the filter closure takes `&A` with `A = &String`, so `s : &(&String)` read as `s.*.len()`
+probes/iteration/a07.yo	respelled	expect E0911, got -	uncoded "`&&` is logical and": `x : &(&String)`, and `fold` lends its accumulator, `acc : &Option(&String)`
+probes/iteration/a13.yo	respelled	expect E0911, got -	uncoded "Expected _ for non-tuple destructuring": `enumerate` yields `IterPair(usize, A)`, destructured `{ _0 : k, _1 : v } := p`
+probes/iteration/a22.yo	respelled	expect E0911, got E0926	E0926: the match result over an `Option(&String)` binding is bound with its type `(n : &String) = match(...)` (the untyped `n := match(.., .Some(s) => s, ..)` reads `s` by value)
+probes/iteration/f08.yo	respelled	expect E0911, got -	uncoded "Expected a function type": a closure bound to a name (or called in place) needs its expected type, `(f : Impl(Fn..)) = (...)`; a closure returning its reference parameter is the typed fn literal `(fn(a : &T) -> &T)(a)`
+probes/iteration/i05.yo	respelled	expect E0911, got E0003	E0003: a closure bound to a local is parenthesized and typed, `(f : Impl(Fn() -> usize)) = (...)`; a borrow is captured through the capture list `{ x }`
+probes/iteration/k04.yo	respelled	expect E0911, got E0003	E0003: a closure bound to a local is parenthesized and needs its expected type, `(f : Impl(Fn..)) = (...)` (no operator precedence; an untyped closure binding is "Expected a function type")
+probes/iteration/o02.yo	respelled	expect E0911, got E0610	E0610: `Array` has no borrowed walk (`for(&a, ..)`); the element is read in place with `match(&a(0), x => ...)` and stored
+probes/iteration/r01.yo	respelled	expect E0912, got -	E0926/`&v.*` is no expression: a `with`/`with_lock` body returning its reference parameter is the typed fn literal `(fn(v : &T) -> &T)(v)`
+probes/iteration/t04.yo	respelled	expect E0911, got E0914	E0914 in a helper the probe does not test: a `&T` parameter takes its argument with the call-site marker `&x`
+probes/iteration/u05.yo	respelled	expect E0911, got E0901	E0901: a projection body (or a capture initializer) that yields another projection call`s result writes it as a place, `&call(..)` (a bare call result is read by value)
+probes/iteration/x01.yo	respelled	expect E0912, got E0926	E0926: a closure returning its reference parameter is spelled as a typed fn literal `(fn(v : &T) -> &T)(v)` (`v => v` reads `v` by value, `v => &v.*` is not an expression)
+probes/ownership/l06_dyn_fnonce_twice.yo	respelled	expect E0901, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+probes/ownership/p15_destructure_borrow_then_mutate_root.yo	respelled	expect E0911, got E0914	E0914 in a helper the probe does not test: a `&T` parameter takes its argument with the call-site marker `&x`
+probes/ownership/v04_ref_struct_field_move_then_drop.yo	respelled	expect E0901, got E0009	E0009: the deleted `ref(struct(...))` object is an `Rc(H)` handle (decision 46); the move out of the shared payload is unchanged
+probes/ownership/v05_ref_field_self_assign.yo	respelled	expect E0901, got E0009	E0009: the mutable `ref(struct(...))` object is `Rc(RefCell(H))`; the self-assignment `h.s = h.s` runs inside a `with_mut` body
+probes/ownership/v07_ref_param_copy_realloc.yo	respelled	expect E0911, got E0009	E0009: the mutable `ref(struct(...))` object is `Rc(RefCell(H))`; `f(&h.xs, h2)` becomes the lend inside a `with` body while the callee grows the list through the other handle
+probes/patterns-flow/g03.yo	respelled	expect E0911, got E0003	E0003: a closure bound to a local is parenthesized and needs its expected type, `(f : Impl(Fn..)) = (...)` (no operator precedence; an untyped closure binding is "Expected a function type")
+probes/patterns-flow/g04.yo	respelled	expect E0911, got -	uncoded "Expected a function type": a closure bound to a name (or called in place) needs its expected type, `(f : Impl(Fn..)) = (...)`; a closure returning its reference parameter is the typed fn literal `(fn(a : &T) -> &T)(a)`
+probes/patterns-flow/g05.yo	respelled	expect E0911, got E0927	E0927: `&s.*(i)` -> the projection call `s.index(i)`
+probes/patterns-flow/j03.yo	respelled	expect E0911, got E0926	E0926: the arm result is `&s.*`, and the conditional re-point into the other Box is `match(&x, Box(s) => { r = &s.*; })` (a re-point to a match result is no re-point form); it now stops at the P1b wall: a re-point through a `.*` step is not admitted
+probes/patterns-flow/j04.yo	respelled	expect E0911, got E0908	E0908: the arm yields `&s.*`, and the re-point into the other Box is `match(&x, Box(s) => { r = &s.*; })` (a re-point to a match result is no re-point form); it now stops at the P1b wall (a re-point through a `.*` step is not admitted)
+probes/patterns-flow/k08.yo	respelled	expect E0911, got E0926	E0926: an arm, block or closure result that is a reference binding is spelled `&b.*` (the bare binding is a by-value read)
+probes/patterns-flow/lw01.yo	respelled	expect E0911, got E0901	E0901 stops at the `mut(s)` marker, not the probed write: a binding of a `&mut` match is already a `&mut` reference, so the sub-pattern is `Box(s)` and the write through it `s.* = ..`
+probes/patterns-flow/m10.yo	respelled	expect E0911, got E0927	E0927: an element place `&xs(i)` is no local-borrow target; the element borrow is the projection call `xs.index(i)`
+probes/patterns-flow/m11.yo	respelled	expect E0911, got E0927	E0927: an element place `&xs(i)` is no local-borrow target; the element borrow is the projection call `xs.index(i)`
+probes/patterns-flow/m12.yo	respelled	expect E0911, got E0927	E0926: an arm, block or closure result that is a reference binding is spelled `&b.*` (the bare binding is a by-value read)
+probes/patterns-flow/m13.yo	respelled	expect E0911, got E0927	E0927: an element place `&xs(i)` is no local-borrow target; the element borrow is the projection call `xs.index(i)`
+probes/patterns-flow/m24.yo	respelled	expect E0911, got E0901	E0901 stops at the by-value scrutinee `r.*`; a match through the reference is `match(r, ..)` (its bindings borrow)
+probes/patterns-flow/rb03.yo	respelled	expect E0911, got E0601	E0601: the binding of a match over `&mut` is a `&mut String`; the option is `Option(&mut String)`
+probes/patterns-flow/s03.yo	respelled	expect E0911, got E0601	E0601: a constructor field lends a place (`&init`, not the temporary `&String.from(..)`), and an arm stores the reborrow `&s.*` of its binding
+probes/patterns-flow/s12.yo	respelled	expect E0911, got E0926	E0926: an arm, block or closure result that is a reference binding is spelled `&b.*` (the bare binding is a by-value read)
+probes/patterns-flow/t06.yo	respelled	expect E0911, got E0926	E0926: a write through the `&mut` pattern binding `w` is `w.* = .None`
+probes/patterns-flow/t09.yo	respelled	expect E0911, got E0609	E0609: a `Box(s)` sub-pattern does not look through the tuple element `&Box`; the element is matched by a nested `match(b, Box(s) => ...)`
+probes/patterns-flow/t10.yo	respelled	expect E0911, got E0609	E0609: a `.Some(..)` sub-pattern does not look through the tuple element `&Option`; the element is matched by a nested `match(b, ...)`
+probes/patterns-flow/t13.yo	respelled	expect E0911, got E0926	E0926: an arm, block or closure result that is a reference binding is spelled `&b.*` (the bare binding is a by-value read)
+probes/patterns-flow/u01.yo	respelled	expect E0911, got E0901	E0901: an implicit capture of a reference (a `&T` parameter, `self`, a match binding) is the move of the referent; the reference is captured through the capture list (`{ p }` copies the reference; an `io.async` body borrows a reference parameter whole as `{ s : &s.* }`)
+probes/patterns-flow/u05.yo	respelled	expect E0911, got E0008	E0008: there is no `+=`; `n = (n + s.len())`
+probes/patterns-flow/u15.yo	respelled	expect E0911, got -	uncoded "Expected a function type": a closure bound to a name (or called in place) needs its expected type, `(f : Impl(Fn..)) = (...)`; a closure returning its reference parameter is the typed fn literal `(fn(a : &T) -> &T)(a)`
+probes/v58/p1_rp_set.yo	respelled	expect E0911, got E0601	E0601: the `&mut &Rc(X)` local `rp := &mut r` passed bare is read as `&Rc(X)`; the lend is written at the argument, `set(&mut r, &inner)`
+reprobe/probes2/e_rr_chain_store.yo	respelled	expect E0911, got -	uncoded: `&inner` is no expression on the right of `rpp.*.* = ..`; the store through the `&mut &T` chain is the call `set(&mut rpp.*.*, &inner)`
+repros/2026-11-11-a-box-sub-pattern-of-a-mut-match-records-no-loan-so-the-arm-can-replace-the-box-under-its-binding-double-free.yo	respelled	expect E0911, got E0901	E0901 stops at the `mut(s)` marker, not the probed write: a binding of a `&mut` match is already a `&mut` reference, so the sub-pattern is `Box(s)` and the write through it `s.* = ..`
+repros/2026-11-11-a-capture-of-a-reference-parameter-carries-no-origin-so-the-closure-escapes-its-argument.yo	respelled	expect E0909, got E0619	E0619: a bare `Dyn(T)` (result, element, payload type) is unsized; it is `Box(Dyn(T))`, and `dyn(v)` of a plain value is `dyn(Box.new(v))` (decision 49)
+repros/2026-11-11-a-mut-argument-is-an-exclusive-access-only-when-the-callees-body-writes-it-dyn-trait.yo	respelled	expect E0911, got E0620	E0620: `dyn(v)` of a plain value is `dyn(Box.new(v))`, and a binding of a bare `Dyn(T)` is `Box(Dyn(T))` (decision 49)
+repros/2026-11-11-safe-code-reads-maybeuninits-public-value-field-before-anything-was-written-box.yo	respelled	expect E0405, got E0406	E0406: the payload field is `_value` now
+repros/2026-11-11-safe-code-reads-maybeuninits-public-value-field-before-anything-was-written.yo	respelled	expect E0405, got E0619	E0619: `MaybeUninit(Dyn(..))` is `MaybeUninit(Box(Dyn(..)))` (decision 49), and the payload field is `_value` now
+probes/a/p4.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/a/p5.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/a/q1.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/a03.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/a04.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/a05.yo	kept	expect E0912, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/b04.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/c03.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/c04.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/d03.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/d05.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/e05.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/f02.yo	kept	expect E0911, got E0916	E0916 is the wall on the probed shape (a lend of a `mut(G)` module-level binding)
+probes/async-effects/i01.yo	kept	expect E0911, got E0901	the code it stops at is one its header lists as expected (E0901)
+probes/async-effects/i02.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/i04.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/j01.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/j02.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/n06.yo	kept	expect E0911, got E0601	the frozen probe never reaches its shape: `main` does not call `run`, `LONGS` is a `str` where `&String` is taken, and no Dyn dispatch is written
+probes/async-effects/r03.yo	kept	expect E0912, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/t01.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/t03.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/u05.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/w01.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/async-effects/w02.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/boundary/g03b-drop-in-range-box.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A local borrow cannot reach through a pointer dereference (`p.*`): t…
+probes/boundary/g21-fn-returns-mut-global.yo	kept	expect E0912, got -	uncoded wall on the probed shape: A projection yields a place reached from one of its `&`/`&mut` param…
+probes/boundary/g23-fn-returns-holder-mut-global.yo	kept	expect E0912, got E0916	E0916 is the wall on the probed shape (a lend of a `mut(G)` module-level binding)
+probes/boundary/g34-await-in-range.yo	kept	expect E0909, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/boundary/s04-async-return-capture-holder.yo	kept	expect E0909, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/boundary/x12-impl-closure-capture-holder.yo	kept	expect E0912, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/boundary/x12b-impl-closure-capture-holder-clone.yo	kept	expect E0912, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/boundary/x12c-noncopy-holder.yo	kept	expect E0912, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/boundary/x13-closure-capture-holder-i32.yo	kept	expect E0909, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/boundary/x13b-copy-holder.yo	kept	expect E0909, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c08_whole_ref.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c09_nested_first_q.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c13_whole_ref_first.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c16_consume_nested.yo	kept	expect E0911, got E0901	E0901 rejects the probed shape itself: one call moves `xs` and lends it
+probes/calls/c17_closure_capture.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c18_closure_inline.yo	kept	expect E0910, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c21_ctor_mut_and_holder.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c35_param_ref_beside_mut_param.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c52_nested_ref_then_move.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/c54_direct_ref_then_move.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/e03_async_future_arg.yo	kept	expect E0910, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/r08_byvalue_opt_explicit_origin.yo	kept	expect E0923, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/s01_mem_replace_opt.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/s02_mem_swap_opt.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/s03_mem_swap_holder.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/s08_elem_of_mut_list.yo	kept	expect E0923, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/s10_generic_T_store.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/s11_generic_T_store_holder.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/s12_generic_T_store_named.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/s14_named_mut_binding_direct.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/calls/u10_unify_assign.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/arc02_arc_mut_lend.yo	kept	expect E0919, got -	uncoded wall on the probed shape: Cannot pass a mut argument rooted in atomic object 'a' (type Arc(Y))…
+probes/cells/bx01_box_ref_reassign.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A local borrow cannot reach through a pointer dereference (`p.*`): t…
+probes/cells/bx02_box_into_inner_while_ref.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A local borrow cannot reach through a pointer dereference (`p.*`): t…
+probes/cells/dr03_drop_holder_in_list.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/dr05b_drop_holder_closure_declared_first.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/dr06_generic_drop_impl.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/dr23_drop_holder_via_mut_param.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/dy02_dyn_box_of_ref_holder.yo	kept	expect E0909, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/es05_arc_of_tuple_ref.yo	kept	expect E0909, got E0602	E0602 rejects the shape itself: an `Arc` payload holding `&String` is not `Send`
+probes/cells/rc04o_param_ref_but_mut_reassigned_handle.yo	kept	expect E0912, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/rc05_temp_handle.yo	kept	expect E0911, got E0927	E0927 is the wall itself: a local borrow of a temporary handle (`&long().*.s`) is not a place, and a projection call on a temporary cannot be bound
+probes/cells/rc06_clone_temp.yo	kept	expect E0911, got E0927	E0927 is the wall itself: `&Rc.clone(h).*.s` borrows through a temporary handle
+probes/cells/rc11_for_handle_deref_stored.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/rc12_capture_list_handle_deref.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/rc15_scope_end_handle.yo	kept	expect E0911, got -	uncoded wall on the probed shape: Cannot re-point `r` through a pointer dereference ('p.*'): a re-poin…
+probes/cells/rc16_handle_moved_into_capture_while_borrowed.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/rc17_capture_of_block_local_handle_deref.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/rcc03_payload_ref_replace_shorter.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/rcc04_lent_cell_store_shorter.yo	kept	expect E0923, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/rcc13_with_closure_returns_option_ref.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/cells/tm03_match_temp_stored.yo	kept	expect E0911, got E0901	E0901 refuses to copy the scrutinee `id(&longs())` out of the temporary it borrows, which is the probed shape; binding the projection first is the temporary-argument wall
+probes/cells/tm23_holder_of_temp_handle_deref_option.yo	kept	expect E0911, got E0601	no spelling reaches it: a temporary handle is no local-borrow place (E0927, the rc05 wall), and `&long().*.s` as a payload types as `String` (E0601)
+probes/closures/c03.yo	kept	expect E0909, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/c05.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/d01.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/d02.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/e02.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/e03.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/e04.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/e05.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/e06b.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A local borrow cannot reach through a pointer dereference (`p.*`): t…
+probes/closures/e06d.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A local borrow cannot reach through a pointer dereference (`p.*`): t…
+probes/closures/e07.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/e07b.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A borrow capture cannot reach through an `Rc`/`Arc` (or any `ref` ob…
+probes/closures/g03.yo	kept	expect E0909, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/h02.yo	kept	expect E0923, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/h03.yo	kept	expect E0923, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/h15.yo	kept	expect E0923, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/m04.yo	kept	expect E0917, got E0913	the code it stops at is one its header lists as expected
+probes/closures/m07.yo	kept	expect E0908, got E0913	the code it stops at is one its header lists as expected
+probes/closures/m13.yo	kept	expect E0913, got E0908	the code it stops at is one its header lists as expected
+probes/closures/p03.yo	kept	expect E0910, got -	uncoded wall on the probed shape: A borrow capture names a place rooted at a named binding (`y`, `s.it…
+probes/closures/t06.yo	kept	expect E0909, got -	the probed shape is shadowing a holder`s root, and Yo has no shadowing ("Failed to define variable")
+probes/closures/t07c.yo	kept	expect E0912, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/t08.yo	kept	expect E0909, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/closures/t09.yo	kept	expect E0909, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/a02-assoc-item-holder.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/c01-list-of-closures.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/c04-list-generic-wrapper.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/d02-dyn-origin-option.yo	kept	expect E0923, got -	no spelling: the origin-carrying `Dyn(Trait, p)` (REFERENCES_AND_ORIGINS O10) is not built ("Expected a trait type for argument 2 of Dyn"); the `Box(Dyn(Fn))` form is probe d01
+probes/generics/d03-dyn-origin-in-rc.yo	kept	expect E0909, got -	no spelling: the origin-carrying `Dyn(Trait, p)` (REFERENCES_AND_ORIGINS O10) is not built ("Expected a trait type for argument 2 of Dyn"); the `Box(Dyn(Fn))` form is probe d01
+probes/generics/d04-dyn-origin-generic-rc.yo	kept	expect E0909, got -	no spelling: the origin-carrying `Dyn(Trait, p)` (REFERENCES_AND_ORIGINS O10) is not built ("Expected a trait type for argument 2 of Dyn"); the `Box(Dyn(Fn))` form is probe d01
+probes/generics/f02-apply-closure-capture-result.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/g05-wrap-option.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/g08-wrap-list.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/g15-wrap-holder-list.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/g23-swap-generic.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/k02-alias-static.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/k03-comptime-ctor-static.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/r05-static-result.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/r07-static-typed-local.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/r08-static-field.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/r09-static-to-rc.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/r10-static-generic-result.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/r11-static-global.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/r13-static-holder-drop-root.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/r14-static-param.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+probes/generics/s01b-stack-push-ufcs.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/t16e-inherent-method-elided-holder.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/u03-widen-alias-mut.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/generics/v02-generic-wrapper-T.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/c05_array.yo	kept	expect E0911, got -	no spelling: an array literal or constructor element cannot be a lend (`[&x, &y]`, `Array(&String, 2)(&x, &y)`), so an array of references to locals has no value form
+probes/holders/f07_write_through_mut_field.yo	kept	expect E0911, got E0908	no spelling reaches it: a reference field cannot be re-pointed (`&mut h.r` is E0908, `h.r = &y` E0926; issues/2026-11-23-a-reference-field-cannot-be-re-pointed-and-the-diagnostics-say-read-or-write-through.md), so the A28 store through a `&mut &T` to a field has no form
+probes/holders/i04_tuple_inner_scope.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/k09_copy_original_dies.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l01_list_push_inner.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l02_list_root_reassign.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l03_list_of_holders.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l04_list_spelled_holders.yo	kept	expect E0923, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l05_list_declared_union_outside.yo	kept	expect E0923, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l06_list_elem_write.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l07_list_set_method.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l08_list_insert.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/l09_list_root_element_grow.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/m04_destructure_rebuild.yo	kept	expect E0901, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/m17_dup_direct_field.yo	kept	expect E0901, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/n04_typed_decl_spelled.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/n05_typed_decl_spelled_mismatch.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/n06_ctor_origin_mismatch.yo	kept	expect E0923, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/n09_ret_typed_local.yo	kept	expect E0923, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/n10_ret_elided_two_params.yo	kept	expect E0912, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/o01_option_replace_ref.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/r04_fn_mut_ref_ref.yo	kept	expect E0911, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/holders/s01_self_field.yo	kept	expect E0924, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/f02.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/f05.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/f06.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/j03.yo	kept	expect E0912, got E0923	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/j05.yo	kept	expect E0912, got -	uncoded wall on the probed shape: A projection yields a place reached from one of its `&`/`&mut` param…
+probes/iteration/o01.yo	kept	expect E0911, got E0610	E0610 is one of the outcomes its header accepts ("E0911 (or E0610 no impl)"): `Option` has no borrowed walk
+probes/iteration/p08.yo	kept	expect E0911, got E0008	the frozen probe is truncated (a stray `()` line; no push and no read follow), so it has no shape to reach
+probes/iteration/s02.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/s03.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/s05.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/s07.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/s14.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/s18.yo	kept	expect E0910, got E0911	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/iteration/x02.yo	kept	expect E0912, got E0926	E0926, then (respelled with a typed fn literal) the unsafe-type wall: `HashMapEntry` carries a raw pointer and is not available in safe code, so the shape is outside the claim
+probes/ownership/a11_swap_same_place.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/ownership/e03_resume_handler_moves.yo	kept	expect E0901, got -	the probed shape (a `->` handler capturing an outer local) is walled: handlers are capture-free by design
+probes/ownership/e04_ctl_handler_moves_capture.yo	kept	expect E0901, got -	the probed shape (a `->` handler capturing an outer local) is walled: handlers are capture-free by design
+probes/ownership/e05_handler_moves_then_outer_use.yo	kept	expect E0901, got -	the probed shape (a `->` handler capturing an outer local) is walled: handlers are capture-free by design
+probes/ownership/l09_fnmut_take_and_restore_capture_conditional.yo	kept	expect E0901, got E0913	E0913 rejects the probed shape itself (an `Fn`/`FnMut` closure moving its capture out), under the code that names it
+probes/ownership/m08_borrow_then_move_arg.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/ownership/o02_replace_self.yo	kept	expect E0910, got -	uncoded wall on the probed shape: Cannot pass "x" to the sink parameter "v" in the same call where arg…
+probes/ownership/p12_capture_move_twice.yo	kept	expect E0901, got E0913	E0913 rejects the probed shape itself (an `Fn`/`FnMut` closure moving its capture out), under the code that names it
+probes/ownership/r01_param_reassign.yo	kept	expect E0917, got E0902	E0902 answers the probe`s question (may a by-value parameter be written without `mut`?): it may not
+probes/ownership/w11_rc_payload_write.yo	kept	expect E0908, got E0919	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/cl01.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/cl02.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/cl03.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/cl04.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A borrow capture cannot reach through an `Rc`/`Arc` (or any `ref` ob…
+probes/patterns-flow/cl05.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A borrow capture cannot reach through an `Rc`/`Arc` (or any `ref` ob…
+probes/patterns-flow/cl06.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/cu02.yo	kept	expect E0911, got -	uncoded wall on the probed shape: Cannot re-point `cur` to `n.next`: `n` is a binding of a by-value `m…
+probes/patterns-flow/e06.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/g06.yo	kept	expect E0911, got E0901	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/g07.yo	kept	expect E0911, got E0901	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/k10.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/l05.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/l06.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/m15.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A local borrow cannot reach through a pointer dereference (`p.*`): t…
+probes/patterns-flow/o04.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/s04.yo	kept	expect E0911, got -	the probed shape is shadowing a holder`s root, and Yo has no shadowing ("Failed to define variable")
+probes/patterns-flow/s05.yo	kept	expect E0911, got -	the probed shape is shadowing a holder`s root, and Yo has no shadowing ("Failed to define variable")
+probes/patterns-flow/s10.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/s11.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/s13.yo	kept	expect E0911, got E0912	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/t01.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/t02.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/t07.yo	kept	expect E0911, got -	no shape: the frozen probe only destructures `&mut p` and uses nothing; `{ a, b } := pp` over a `&mut` borrow is E0926
+probes/patterns-flow/t11.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/t12.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/t14.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/t15.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/t16.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/u12.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/u13.yo	kept	expect E0911, got E0910	the stopping diagnostic is the probed hole (or its wall) under another code
+probes/patterns-flow/u16.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+reprobe/probes2/e_deref_chain.yo	kept	expect E0911, got E0908	no spelling reaches it: a reference field cannot be re-pointed (`&mut h.r` is E0908, `h.r = &y` E0926; issues/2026-11-23-a-reference-field-cannot-be-re-pointed-and-the-diagnostics-say-read-or-write-through.md), so the A28 store through a `&mut &T` to a field has no form
+reprobe/probes2/e_deref_chain_reborrow.yo	kept	expect E0911, got E0908	no spelling reaches it: a reference field cannot be re-pointed (`&mut h.r` is E0908, `h.r = &y` E0926; issues/2026-11-23-a-reference-field-cannot-be-re-pointed-and-the-diagnostics-say-read-or-write-through.md), so the A28 store through a `&mut &T` to a field has no form
+reprobe/probes2/e_field_direct.yo	kept	expect E0911, got E0908	no spelling reaches it: a reference field cannot be re-pointed (`&mut h.r` is E0908, `h.r = &y` E0926; issues/2026-11-23-a-reference-field-cannot-be-re-pointed-and-the-diagnostics-say-read-or-write-through.md), so the A28 store through a `&mut &T` to a field has no form
+reprobe/probes2/e_field_reborrow.yo	kept	expect E0911, got E0908	no spelling reaches it: a reference field cannot be re-pointed (`&mut h.r` is E0908, `h.r = &y` E0926; issues/2026-11-23-a-reference-field-cannot-be-re-pointed-and-the-diagnostics-say-read-or-write-through.md), so the A28 store through a `&mut &T` to a field has no form
+reprobe/probes2/e_nested_field.yo	kept	expect E0911, got E0908	no spelling reaches it: a reference field cannot be re-pointed (`&mut h.r` is E0908, `h.r = &y` E0926; issues/2026-11-23-a-reference-field-cannot-be-re-pointed-and-the-diagnostics-say-read-or-write-through.md), so the A28 store through a `&mut &T` to a field has no form
+reprobe/probes2/e_rr_chain_rq.yo	kept	expect E0911, got -	uncoded wall on the probed shape: A local borrow cannot reach through a pointer dereference (`p.*`): t…
+reprobe/probes2/e_tuple_field.yo	kept	expect E0911, got E0908	no spelling reaches it: a reference field cannot be re-pointed (`&mut h.r` is E0908, `h.r = &y` E0926; issues/2026-11-23-a-reference-field-cannot-be-re-pointed-and-the-diagnostics-say-read-or-write-through.md), so the A28 store through a `&mut &T` to a field has no form
+repros/2026-11-11-a-borrowing-future-bound-with-a-spelled-type-is-rejected-as-second-class-write.yo	kept	expect E0911, got E0909	the stopping diagnostic is the probed hole (or its wall) under another code
+repros/2026-11-11-a-reference-typed-over-the-static-origin-accepts-any-reference-and-freezes-nothing-into-rc.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
+repros/2026-11-11-a-reference-typed-over-the-static-origin-accepts-any-reference-and-freezes-nothing.yo	kept	expect E0923, got E0922	E0922 is the wall on the probed shape (a reference typed over the unchecked `static` origin); P12 (VERDICTS-74, a checked static origin) reopens it
