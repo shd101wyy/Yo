@@ -142,7 +142,7 @@ gd_howto() {
     bash scripts/test7.sh --gd-verdict <run-id> --sha $SHA
   Clean = the run's headSha is the candidate, the job succeeded, the generator printed
   "0 new" (rc 0: no finding outside tests/origins/gen-known.tsv), and every gen-known.tsv row is a
-  listable known issue (today: the two A6 rows, rule G — decide at the cut whether rule G is closed).
+  listable known issue (the table has no rows since #2038).
   A dispatch also runs --verify-known: a FIXED pattern's row is deleted in a follow-up PR.
 EOF
 }

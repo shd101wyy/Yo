@@ -164,9 +164,26 @@ shared box, G-B the long pole). (a) passed: sinks ok, G-A 150/150, G-B 392/392, 
 Drift: 94 positives rejected, 342 negatives rejected with another code, 93 negatives accepted (47 are the dirty set, 42 run clean, 4 fail to compile).
 The 47 dirty programs, re-run with `--only` on a stage 1 of the pending cluster branch `v0279/clusters`
 (`76f6aaf03`), went to 36 rejected (A3, A5, A10, A14, A15, A17, A23) and 11 still dirty. Ten of the 11 are six
-issues filed 2026-11-19 (`issues/2026-11-19-*.md`: clusters 2, 3, 5, 6 and 7), and one is the ref-era residual
-(`f(&h.xs, h2)`, audit §8), which the parser drop closes. So on develop plus the cluster branch, (b) would report
-**11 blocking**: the claim needs those six issues fixed or walled first.
+issues filed 2026-11-19 (`issues/fixed/2026-11-19-*.md`: clusters 2, 3, 5, 6 and 7, fixed since by #2020 and #2038),
+and one is the ref-era residual (`f(&h.xs, h2)`, audit §8), which the parser drop closes. So on develop plus the
+cluster branch, (b) would report **11 blocking**: the claim needed those six issues fixed or walled first.
+
+**Run, 2026-11-23, develop `f06ff5889`** (stage 1 of the test 7 branch merged with it, `8c2424568`: the same `src/`
+and `std/`, which develop kept unchanged through `369ff6491`; `--jobs 4` on the shared box, about 5 h, G-B the long
+pole). **(a) and (b) pass.** (a): sinks ok, G-A 150/150, G-B 504/504, totality 0. (b): of 2,047 programs (9 excluded
+as unsafe), 1,691 were rejected, 6 crashed the checker, and 341 were accepted: 305 clean, 7 leak-only, 17 C compile
+failures, 12 runs that failed without a sanitizer report (index, capacity and `RefCell` re-entry panics), and **0
+ASan-dirty**. Against the rehearsal, all 47 dirty programs are rejected now; 29 programs that ran clean, and 1 that
+panicked, are rejected too, and no program changed to a worse verdict. Drift: 94 positives rejected (the rehearsal's
+set), 352 negatives rejected with another code, 21 negatives accepted (17 run clean, 4 fail to compile; all 21 were
+accepted in the rehearsal too). (c): no nightly has run on `f06ff5889` yet. The newest, 44980366531 on `1c7aeb015`
+(before #2038), was clean: 291 programs, "0 new", and its one known finding was the `args:named/*/closure/*` row that
+#2038 fixed and deleted. **The respelling of the drifted negatives is not mechanical.** Of the 352, 212 now fail with
+another borrow code (E0909–E0923), 59 hit a wall without a code (the local-borrow and capture walls), 44 fail with a
+type or name error, and 37 hit a spelling diagnostic (E0926, E0009, E0927). `yo fix --migrate deref` does not
+evaluate a program the checker rejects. In a whole-reference read or write, it cannot tell whether the probe means
+re-pointing or writing through, or copying the reference or the value. So each program needs its probe's intent
+read.
 
 ## 4. What is not decided here
 
