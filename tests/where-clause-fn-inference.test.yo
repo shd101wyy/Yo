@@ -1,0 +1,183 @@
+//! Regression tests for where-clause associated-type inference.
+//!
+//! When a function has `where(Self <: Iterator(Item := A), F <: Fn(a : A) -> B)`
+//! and Self / F are bound to concrete types at the call site, the
+//! associated-type SomeTypes (A, B) inside the where-clauses must be unified
+//! and bound to concrete types as well — otherwise, the function body
+//! produces a separate "shadow" specialization with A,B left as SomeTypes.
+//!
+//! Root cause: `typeImplementsTrait` returned only a boolean, discarding the
+//! unification env produced while matching constraint traits against impl
+//! traits. The fix introduces `typeImplementsTraitWithBindings` which
+//! propagates that env back through where-clause validation.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ String } :: import("std/string");
+LocalMapIter :: (fn(comptime(I) : Type, comptime(A) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F)
+);
+impl(
+  generic(I : Type, A : Type, B : Type, F : Type),
+  LocalMapIter(I, A, B, F),
+  Iterator(
+    Item : B,
+    next : (fn(self : &mut Self) -> Option(B))(
+      Option(B).None
+    )
+  )
+);
+impl(
+  generic(I : Type),
+  where(I <: Iterator),
+  I,
+  local_map_to : (
+    fn(
+      generic(A : Type, B : Type, F : Type),
+      sink(self) : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(a : &A) -> B))
+    ) -> LocalMapIter(Self, A, B, F)
+  )(
+    LocalMapIter(Self, A, B, F)(_inner : self, _f : f)
+  )
+);
+double :: (fn(x : &i32) -> i32)(x.* * i32(2));
+test("where-clause associated-type inference binds A and B from impl + Fn signature", {
+  mut(list) := ArrayList(i32).new();
+  list.push(i32(1));
+  it1 := list.into_iter();
+  // The annotation forces the result type explicitly. Before the fix, the
+  // call would specialize `local_map_to` with A,B left as SomeTypes, producing a
+  // distinct shadow LocalMapIter struct that didn't satisfy the annotation.
+  (mut(iter) : LocalMapIter(type_of(it1), i32, i32, fn(x : &i32) -> i32)) = it1.local_map_to(double);
+  match(
+    iter.next(),
+    .None => assert(true, "stub returns None"),
+    .Some(v) => assert(false, "should not produce a value")
+  );
+});
+test("where-clause inference with bool callback return type", {
+  mut(list) := ArrayList(i32).new();
+  list.push(i32(1));
+  it1 := list.into_iter();
+  is_pos :: (fn(x : &i32) -> bool)(x.* > i32(0));
+  (mut(iter) : LocalMapIter(type_of(it1), i32, bool, fn(x : &i32) -> bool)) = it1.local_map_to(is_pos);
+  match(
+    iter.next(),
+    .None => assert(true, "stub returns None"),
+    .Some(v) => assert(false, "should not produce a value")
+  );
+});
+// --- where-bound generic over two collections: GC trace must not go
+// abstract-keyed (issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md).
+// A user IntoIterator-shaped trait (assoc Item/IntoIter + a where-clause tying
+// them) implemented on Deque and BTreeMap; instantiating one where-bound
+// generic at one collection and then a second at BTreeMap minted ERA-COPY
+// ArrayList(MapEntry(K',V')) identities from the failed impl-match trials,
+// whose GC traverse delegated to a never-emitted hard-generic trace spec —
+// "call to undeclared function yo_id_..._<raw SomeT ids>_..." at C compile.
+// The original trigger was std's linked list (removed 2026-10-24); Deque then
+// BTreeMap did NOT reproduce the bug even before the fix, so this case is now
+// a two-instantiation smoke test, not a guard. The fix sits in the cycle
+// collector's trace delegation, which W6b deletes, so the lost guard is
+// accepted rather than rebuilt.
+{ Deque, DequeIter } :: import("std/collections/deque");
+{ BTreeMap, BTreeMapIter, MapEntry } :: import("std/collections/btree-map");
+__WbInto :: trait(
+  Item : Type,
+  IntoIter : Type,
+  wb_into : (fn(self : &Self) -> Self.IntoIter),
+  where(Self.IntoIter <: Iterator(Item := Self.Item))
+);
+impl(
+  generic(T : Type),
+  Deque(T),
+  __WbInto(
+    Item : T,
+    IntoIter : DequeIter(T),
+    wb_into : (fn(self : Self) -> DequeIter(T))(self.into_iter())
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  BTreeMap(K, V),
+  __WbInto(
+    Item : MapEntry(K, V),
+    IntoIter : BTreeMapIter(K, V),
+    wb_into : (fn(self : Self) -> BTreeMapIter(K, V))(self.into_iter())
+  )
+);
+__wb_sum :: (
+  fn(generic(C : Type), c : C, where(C <: __WbInto(Item := i32))) -> i32
+)(
+  c.wb_into().fold(i32(0), (acc, x) => (acc.* + x.*))
+);
+__wb_count :: (
+  fn(generic(C : Type), c : C, where(C <: __WbInto)) -> usize
+)(
+  c.wb_into().count()
+);
+test("where-bound generic over Deque then BTreeMap compiles and runs", {
+  mut(dq) := Deque(i32).new();
+  dq.push_back(i32(10));
+  dq.push_back(i32(20));
+  assert(__wb_sum(dq) == i32(30), "Deque through the Item-bound generic");
+  mut(bt) := BTreeMap(i32, i32).new();
+  bt.insert(i32(1), i32(10));
+  assert(__wb_count(bt) == usize(1), "BTreeMap through the bare bound");
+});
+
+// ---------------------------------------------------------------------------
+// Call-site enforcement of where-clause bounds (issues/fixed/yo-self-where-clause-full-enforcement.md).
+// The callee's function type is re-evaluated with its parameters bound, and
+// every bound whose LHS resolved to a concrete type is checked: method traits,
+// composites, a type constructor's bound, and bounds reached through a generic
+// forwarder or on a type that carried the forwarder's SomeT.
+// ---------------------------------------------------------------------------
+_WcFoo :: trait(wc_foo : (fn(self : &Self) -> i32));
+_WcBar :: trait(wc_bar : (fn(self : &Self) -> i32));
+_WcQ :: struct(x : i32);
+impl(_WcQ, _WcFoo(wc_foo : (self -> self.x)));
+_WcBoth :: struct(x : i32);
+derive(_WcBoth, Copy, Clone);
+impl(_WcBoth, _WcFoo(wc_foo : (self -> self.x)), _WcBar(wc_bar : (self -> (self.x + i32(1)))));
+_wc_need_both :: (fn(generic(T : Type), x : &T, where(T <: (_WcFoo, _WcBar))) -> i32)(
+  x.wc_foo() + x.wc_bar()
+);
+// The same bounds in two `where` clauses: each clause is checked at a call,
+// not only the last one
+// (issues/fixed/2026-10-23-only-the-last-where-clause-of-a-signature-is-checked-at-a-call.md).
+_wc_need_both_split :: (fn(generic(T : Type), x : &T, where(T <: _WcBar), where(T <: _WcFoo)) -> i32)(
+  x.wc_foo() + x.wc_bar()
+);
+_WcBox :: (fn(comptime(T) : Type, where(T <: _WcBar)) -> comptime(Type))(struct(v : T));
+derive(generic(T : Type), where(T <: Clone), _WcBox(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _WcBox(T), Copy);
+_WcPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+_wc_need_send :: (fn(generic(T : Type), x : &T, where(T <: Send)) -> unit)(());
+_wc_fwd :: (fn(generic(U : Type), y : &U) -> unit)(_wc_need_send(_WcPair(U)(a : y.*, b : y.*)));
+_WcNotSend :: struct(x : i32);
+derive(_WcNotSend, Copy, Clone);
+impl(_WcNotSend, !Send());
+_WcKey :: struct(x : i32);
+impl(_WcKey, Eq(_WcKey)((==) : ((a, b) -> (a.x == b.x))));
+
+test("where-clause bounds are enforced at the call site", {
+  comptime_expect_error(_wc_need_both(_WcQ(x : i32(1))), "does not implement required trait _WcBar");
+  comptime_expect_error(_wc_need_both_split(_WcQ(x : i32(1))), "does not implement required trait _WcBar");
+  comptime_expect_error(_WcBox(_WcQ), "does not implement required trait _WcBar");
+  comptime_expect_error(_wc_fwd(_WcNotSend(x : i32(1))), "does not implement required trait Send");
+  comptime_expect_error(HashMap(_WcKey, i32).new(), "does not implement required trait Hash");
+});
+
+test("where-clause bounds accept the types that satisfy them", {
+  assert(_wc_need_both(_WcBoth(x : i32(2))) == i32(5), "both traits");
+  assert(_wc_need_both_split(_WcBoth(x : i32(2))) == i32(5), "both traits, two where clauses");
+  b := _WcBox(_WcBoth)(v : _WcBoth(x : i32(4)));
+  assert(b.v.wc_bar() == i32(5), "the type constructor's bound holds");
+  _wc_fwd(i32(1));
+  mut(m) := HashMap(String, i32).new();
+  m.insert(String.from("k"), i32(1));
+  assert(m.len() == usize(1), "String satisfies (Eq(K), Hash)");
+});

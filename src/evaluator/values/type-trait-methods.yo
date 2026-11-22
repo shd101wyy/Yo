@@ -1,0 +1,1264 @@
+//! type-trait-methods.yo — per-type trait-method registry.
+//!
+//! `TypeValue` is a flat sum type with no per-variant mutable `trait`
+//! slot, so when you write `impl(Foo, SomeTrait(...))` the evaluator
+//! records the new methods here instead. Following the same pattern as
+//! `evaluator/values/generic_impl_registry.yo`, we keep the
+//! per-type trait fields in a module-level registry keyed by the
+//! type's id string.
+//!
+//! ## What's stored
+//!
+//! Each entry is a `MethodEntry`:
+//!
+//!   - `label` — method or property name (`""` for inline-imported
+//!     trait values, the impl-trait marker).
+//!   - `ty` — the field's `TypeValue` (typically a `Func(...)`).
+//!   - `value` — the assigned `EvalValue` (the concrete
+//!     `FuncVal`/`TraitVal` produced by the `impl(...)` block).
+//!   - `source_trait_id` — the id of the trait this entry was
+//!     contributed by (for diagnostics + cross-trait disambiguation).
+//!
+//! ## What's exposed
+//!
+//!   - `register_type_trait_method(type_id, entry)` — append one
+//!     entry. The same `type_id` can hold many entries (one per
+//!     impl'd trait method); duplicates by `(label, source_trait_id)`
+//!     are not deduplicated by the registry — callers responsible
+//!     for coherence.
+//!   - `get_type_trait_methods_for_type(type_id)` — all entries.
+//!   - `get_type_trait_methods_by_name(type_id, method_name)` —
+//!     entries whose `label` matches.
+//!   - `clear_type_trait_methods()` — global wipe, used by test
+//!     harnesses to reset between runs.
+//!
+//! This registry is read by
+//! `env.yo:get_type_trait_methods_by_name_from_env` and by the
+//! receiver-method-lookup path that's still in flight
+//! (`getReceiverMethodsByNameFromEnv`).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ type_key } :: import("../../types/type-key.yo");
+{ bump_trait_impl_epoch } :: import("../../types/utils.yo");
+{ set_lookup_assoc_const } :: import("../../types/substitution.yo");
+{ EvalValue } :: import("../../value.yo");
+{ AstExpr } :: import("../../expr.yo");
+{ canonical_module_path, debug_knob, set_current_owner, owner_logs_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashMap(String, String)` (1 use)
+_c_len_1 :: (fn(m : &HashMap(String, String)) -> usize)(m.len());
+/// `HashMap(String, EvalValue)` (1 use)
+_c_len_2 :: (fn(m : &HashMap(String, EvalValue)) -> usize)(m.len());
+/// (seed window) See refcell.yo's filler block; concrete K/V for the `.into_iter()` chains.
+_ttm_keys :: (fn(m : &HashMap(String, ArrayList(MethodEntry))) -> ArrayList(String))(m.keys_cloned());
+_ttm_site_owners_keys :: (fn(m : &HashMap(String, String)) -> ArrayList(String))(m.keys_cloned());
+_ttm_defaults_keys :: (fn(m : &HashMap(String, EvalValue)) -> ArrayList(String))(m.keys_cloned());
+/// Extract the unique `id` string from a `TypeValue` variant that
+/// carries one (Struct / EnumT / TraitT / SomeT). Returns
+/// the empty string for variants that don't — method lookup is
+/// meaningless for them. Lives here (rather than on env.yo or
+/// types/utils.yo) so it's reachable from `impl.yo` registration
+/// callers and from `env.yo` lookup callers without re-creating
+/// the env ↔ impl cycle.
+/// The registry id of a `Dyn` type: its required (and negative) traits'
+/// identities, sorted, so `Dyn(A, B)` and `Dyn(B, A)` share one. A nominal trait
+/// contributes its id; an `Fn`/`Future` trait its structural key.
+_dyn_type_id :: (fn(rtt : &ArrayList(TypeValue), ntt : &ArrayList(TypeValue)) -> String)({
+  keys := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < rtt.len(), {
+    match(rtt.get_cloned(i), .Some(t) => keys.push(_dyn_member_key(&t)), .None => ());
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < ntt.len(), {
+    match(ntt.get_cloned(j), .Some(t) => keys.push(`!${_dyn_member_key(&t)}`), .None => ());
+    j = (j + usize(1));
+  });
+  // Insertion sort: trait sets are a handful of entries.
+  (a : usize) = usize(1);
+  while(a < keys.len(), {
+    (b : usize) = a;
+    while((b > usize(0)) && (match(keys.get_cloned(b), .Some(y) => y, .None => String.new()) < match(keys.get_cloned(b - usize(1)), .Some(x) => x, .None => String.new())), {
+      keys.swap(b - usize(1), b);
+      b = (b - usize(1));
+    });
+    a = (a + usize(1));
+  });
+  `__yo_dyn(${String.from("+").join(&keys)})`
+});
+_dyn_member_key :: (fn(t : &TypeValue) -> String)(
+  match(
+    t,
+    Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
+    _ => type_key(t)
+  )
+);
+type_id_or_empty :: (fn(t : &TypeValue) -> String)(
+  match(
+    t,
+    Rc(.Struct({ id })) => id.clone(),
+    Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
+    Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(),
+    // A union's `name` IS its unique id: evaluate_union_type mints
+    // `union_<random_id>` and passes it as the name (evaluator/types/union.yo),
+    // and the binding rename replaces it with the declared name consistently on
+    // both the registration and the lookup side. Without this arm the id was
+    // empty, so `impl(<union>, …)` registered NOTHING and every union method —
+    // static or instance — was unresolvable (tests/basic.test.yo arm 14), while
+    // the identical struct form worked.
+    Rc(.Union({ name : un_id })) => un_id.clone(),
+    // Primitive types get stable synthetic ids so `impl(usize, ...)`,
+    // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods
+    // in the trait-methods registry — without an id the registration
+    // is silently skipped and property access (`usize.MAX`) fails.
+    Rc(.Unit) => String.from("__yo_t_unit"),
+    // str keeps the id "str" — impl(str, ...) methods are registered
+    // under the singleton struct id "str".
+    Rc(.Str) => String.from("str"),
+    Rc(.BoolT) => String.from("__yo_t_bool"),
+    Rc(.Void) => String.from("__yo_t_void"),
+    Rc(.Int(bits, signed)) => cond(
+      signed.* => (String.from("__yo_t_i") + bits.to_string()),
+      true => (String.from("__yo_t_u") + bits.to_string())
+    ),
+    Rc(.Float(bits)) => (String.from("__yo_t_f") + bits.to_string()),
+    Rc(.Usize) => String.from("__yo_t_usize"),
+    Rc(.Isize) => String.from("__yo_t_isize"),
+    Rc(.ComptimeInt) => String.from("__yo_t_comptime_int"),
+    Rc(.ComptimeFloat) => String.from("__yo_t_comptime_float"),
+    Rc(.ComptimeString) => String.from("__yo_t_comptime_string"),
+    Rc(.CChar) => String.from("__yo_t_c_char"),
+    Rc(.CShort) => String.from("__yo_t_c_short"),
+    Rc(.CUShort) => String.from("__yo_t_c_ushort"),
+    Rc(.CInt) => String.from("__yo_t_c_int"),
+    Rc(.CUInt) => String.from("__yo_t_c_uint"),
+    Rc(.CLong) => String.from("__yo_t_c_long"),
+    Rc(.CULong) => String.from("__yo_t_c_ulong"),
+    Rc(.CLongLong) => String.from("__yo_t_c_longlong"),
+    Rc(.CULongLong) => String.from("__yo_t_c_ulonglong"),
+    Rc(.CLongDouble) => String.from("__yo_t_c_longdouble"),
+    /// The Expr reflection type — `impl(Expr, is_atom : ...)` must register
+    /// and `expr.is_atom()` dispatch must resolve (same class of gap as the
+    /// TypeUni id below; without it every Expr method soft-fell to unit).
+    Rc(.ExprT) => String.from("__yo_t_expr"),
+    // The type universe (`Type`). The cached singleton carries
+    // `id: "Type(${level})"` and a trait slot — so
+    // `impl(Type, get_info : ...)` registers and
+    // `Type.get_info(...)` dispatch resolves. Without this id the prelude's
+    // `impl(Type, ...)` registration was silently skipped and every
+    // `Type.*` reflection method soft-fell to `unit` under check.
+    Rc(.TypeUni(level)) => (String.from("Type(") + level.to_string() + String.from(")")),
+    // A `Dyn` is identified by its trait set, so `impl(AnyError, is : ...)`
+    // registers under `Dyn(Error)` and `err.is(T)` resolves. Without an id the
+    // registration was silently skipped and the method was unreachable.
+    Rc(.DynT({ required_trait_types : rtt, negative_trait_types : ntt })) => _dyn_type_id(&rtt.items, &ntt.items),
+    // A slice `[T]` (decision 49) is keyed by its element's id, so
+    // `impl([u8], …)` registers apart from `impl(u8, …)` and a call on a
+    // `&[u8]` finds it
+    // (issues/fixed/2026-11-10-a-method-call-on-a-reference-to-a-slice-does-not-find-an-impl-on-the-slice.md).
+    Rc(.SliceT(sl_elem)) => {
+      sl_eid := type_id_or_empty(&sl_elem.*);
+      cond(
+        (sl_eid.len() == usize(0)) => String.from(""),
+        true => `[${sl_eid}]`
+      )
+    },
+    // A reference receiver (`impl(&C, …)`, `impl(&mut C, …)`; decision 43,
+    // N1f-2): keyed by its mode and its pointee's id, origin erased, so
+    // `impl(&C, Tr)`, `impl(&mut C, Tr)` and `impl(C, Tr)` register apart.
+    // Without this arm `impl(&C, …)` registered nothing and a call reached
+    // `C`'s impl instead
+    // (issues/fixed/2026-11-05-an-impl-over-a-reference-type-registers-nothing.md).
+    Rc(.Reference(ref_pointee, ref_mut, _)) => {
+      ref_pid := type_id_or_empty(&ref_pointee.*);
+      cond(
+        (ref_pid.len() == usize(0)) => String.from(""),
+        ref_mut.* => `&mut ${ref_pid}`,
+        true => `&${ref_pid}`
+      )
+    },
+    _ => String.from("")
+  )
+);
+/// A single trait method or property attached to a concrete type.
+///
+/// Stored as an `object` so the registry can hand back the same
+/// shared reference to multiple call sites without paying for
+/// repeated cloning.
+///
+/// `needs_pointer_conversion` is the flag on
+/// `getReceiverMethodsByNameFromEnv`'s return record. It's set
+/// by `_filter_receiver_methods` (in env.yo) when the method's
+/// first parameter is `*(T)` and the receiver is `T` — codegen
+/// uses the flag to insert an address-of so the caller can pass
+/// `&receiver` automatically. Defaults to `false` at every
+/// registration site.
+///
+/// `self_type` carries the dereferenced receiver. Set on the SomeT /
+/// Dyn / TypeApplication trait-walk paths so that codegen can
+/// resolve `Self` references inside the method's signature to the
+/// concrete receiver type. Direct-on-type registry hits leave it
+/// `.None` (the method's `Self` is already the concrete type).
+MethodEntry :: struct(
+  label : String,
+  ty : TypeValue,
+  value : Option(EvalValue),
+  source_trait_id : String,
+  needs_pointer_conversion : bool,
+  self_type : Option(TypeValue),
+  /// MEMBER VISIBILITY: the `file://` module whose evaluation registered
+  /// this entry — stamped by `register_type_trait_method` from
+  /// `registration_owner()` (a generic-impl candidate carries its impl's
+  /// owner instead; the prelude's entries carry its `${std_path}/prelude.yo`
+  /// key, stamped by mm_load_prelude_file around the prelude's evaluation).
+  /// `""` = unknown, never enforced. Read by function.yo's `_`-prefixed
+  /// method check (plans/reference/MEMBER_VISIBILITY.md).
+  owner : String
+);
+/// A value aggregate holding a `MethodEntry` beside a counted handle can
+/// `derive(..., Clone)`: this impl is the field-wise clone that backs it
+/// (decision 17, plans/VALUES_BY_DEFAULT.md V2c).
+impl(
+  MethodEntry,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      MethodEntry(
+        label : self.label.clone(),
+        ty : Rc.clone(self.ty),
+        value : self.value.clone(),
+        source_trait_id : self.source_trait_id.clone(),
+        needs_pointer_conversion : self.needs_pointer_conversion,
+        self_type : self.self_type.clone(),
+        owner : self.owner.clone()
+      )
+    )
+  )
+);
+/// Module-level storage: `type id` → list of method entries.
+(_type_trait_methods : RefCell(HashMap(String, ArrayList(MethodEntry)))) = RefCell(HashMap(String, ArrayList(MethodEntry))).new(HashMap(String, ArrayList(MethodEntry)).new());
+/// Owner tags, parallel to `_type_trait_methods` (same key, same index):
+/// the `file://` abs path of the module whose evaluation registered the
+/// entry (`""` outside any module load — never purged). Enables
+/// `purge_type_trait_methods_owned_by` so LSP re-analysis stops leaking a
+/// registry generation per edit (plans/reference/INCREMENTAL_COMPILATION.md Phase B2).
+(_type_trait_method_owners : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
+/// The module currently being evaluated, as far as registration ownership
+/// is concerned. MAINTAINED BY module_loader's register_loading /
+/// unregister_loading (the loading-stack top) — the state lives HERE, and
+/// the loader pushes into it, because importing module_loader from this
+/// module would close the module_loader → env → type_trait_methods cycle.
+(mut(_registration_owner) : String) = String.new();
+set_registration_owner :: (fn(owner : &String) -> unit)({
+  set_current_owner(owner.clone());
+  _registration_owner = owner.clone();
+});
+/// Function ids by owner, for the per-function side tables
+/// (`src/evaluator/types/function.yo`'s `g_func_*`, `src/function-value.yo`'s
+/// registries). A table records a function id here only at its FIRST
+/// registration under the function's own id; specialization COPIES (`to_id`)
+/// are not recorded, because the specialization cache shares them across
+/// modules. `mm_invalidate_document` takes each removed module's ids and
+/// purges them from every such table (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md
+/// Phase 1 step 5).
+(g_owned_func_ids : RefCell(HashMap(String, HashMap(String, bool)))) = RefCell(HashMap(String, HashMap(String, bool))).new(HashMap(String, HashMap(String, bool)).new());
+/// The current owner tag ("" outside any module evaluation). Read by this
+/// module's own registration and by impl.yo's generic-impl registry.
+registration_owner :: (fn() -> String)(_registration_owner.clone());
+/// Expression ids by owner, for the ExprId-keyed side tables in
+/// `src/expr-info.yo` (method-callee values/types, macro expansions, arm
+/// init ranges, io-builtin calls). An id is recorded when a table is written
+/// while `owner`'s evaluation (or a lazily forced definition of it) is active;
+/// the tables are keyed by that module's AST nodes or their evaluation-time
+/// clones, which die with the module (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md
+/// Phase 1 step 5).
+(g_owned_expr_ids : RefCell(HashMap(String, ArrayList(usize)))) = RefCell(HashMap(String, ArrayList(usize))).new(HashMap(String, ArrayList(usize)).new());
+/// Record expression id `id` under the current owner (no-op outside a module load).
+record_owned_expr_id :: (fn(id : usize) -> unit)({
+  cur_owner := _registration_owner.clone();
+  if((cur_owner.len() == usize(0)) || !owner_logs_enabled(), {
+    return(());
+  });
+  // Taken out of the map and stored back: a `get` copy is not the stored
+  // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  rm_key := cur_owner.clone();
+  ids := match(g_owned_expr_ids.with_mut({ rm_key }(m) => m.remove(&rm_key)), .Some(l) => l, .None => ArrayList(usize).new());
+  ids.push(id);
+  ins_key := cur_owner.clone();
+  g_owned_expr_ids.with_mut({ ins_key, ids }(m) => m.insert(ins_key, ids));
+});
+/// (seed window) Concrete `with` bodies for the two log walks: a capture-free
+/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp under
+/// a seed whose codegen predates the ref-spill fix. Inline the literals back
+/// once `SEED_VERSION` carries the fix
+/// (issues/fixed/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
+_vh_owned_expr_id_entries :: (fn(m : &HashMap(String, ArrayList(usize))) -> usize)({
+  (mut(acc) : usize) = usize(0);
+  for(&m, (_k, ids) => {
+    acc = (acc + ids.len());
+  });
+  acc
+});
+_vh_owned_func_id_entries :: (fn(m : &HashMap(String, HashMap(String, bool))) -> usize)({
+  (mut(acc) : usize) = usize(0);
+  for(&m, (_k, ids) => {
+    acc = (acc + ids.len());
+  });
+  acc
+});
+/// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
+owned_id_log_entry_count :: (fn() -> usize)({
+  // Read-only walks: each log is read in place through the borrowed `for`.
+  en := g_owned_expr_ids.with(_vh_owned_expr_id_entries);
+  fnn := g_owned_func_ids.with(_vh_owned_func_id_entries);
+  en + fnn
+});
+/// Remove and return the expression ids `owner`'s evaluation recorded.
+take_owned_expr_ids :: (fn(owner : &String) -> ArrayList(usize))({
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  owner_owned := owner.clone();
+  match(g_owned_expr_ids.with_mut({ owner_owned }(m) => m.remove(&owner_owned)), .Some(ids) => ids, .None => ArrayList(usize).new())
+});
+/// Record `func_id` under the current owner (no-op outside a module load).
+record_owned_func_id :: (fn(func_id : &String) -> unit)({
+  cur_owner := _registration_owner.clone();
+  if((cur_owner.len() == usize(0)) || !owner_logs_enabled(), {
+    return(());
+  });
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  frm_key := cur_owner.clone();
+  ids := match(g_owned_func_ids.with_mut({ frm_key }(m) => m.remove(&frm_key)), .Some(m) => m, .None => HashMap(String, bool).new());
+  _old := ids.insert(func_id.clone(), true);
+  fins_key := cur_owner.clone();
+  g_owned_func_ids.with_mut({ fins_key, ids }(m) => m.insert(fins_key, ids));
+});
+/// Remove and return the function ids `owner`'s evaluation registered.
+take_owned_func_ids :: (fn(owner : &String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  tf_key := owner.clone();
+  match(
+    g_owned_func_ids.with_mut({ tf_key }(m) => m.remove(&tf_key)),
+    .Some(ids) => {
+      it := ids.keys();
+      nx := it.next();
+      while(nx.is_some(), {
+        match(nx, .Some(id) => out.push(id.clone()), .None => ());
+        nx = it.next();
+      });
+    },
+    .None => ()
+  );
+  out
+});
+/// Import-closure provider: the CANONICAL paths (`canonical_module_path`)
+/// of every module reachable from `module` through import edges, `module`
+/// itself included. Installed by module-loader.yo (`register_loading`),
+/// which owns the edge lists — importing it from here would close the
+/// module_loader → env → type_trait_methods cycle.
+ImportClosureFn :: (fn(module : &String) -> Rc(HashSet(String)));
+(mut(g_import_closure_fn) : Option(ImportClosureFn)) = Option(ImportClosureFn).None;
+set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
+  g_import_closure_fn = Option(ImportClosureFn).Some(f);
+});
+/// Owner tags are loading keys (`file://<abs>`, or the entry path as typed);
+/// comparisons go through their canonical spelling, memoized because this
+/// sits on the method-resolution path. A hit shares the stored `Rc` rather
+/// than copying the path (plans/handover/VBD_HANDOVER_2026-10-19.md §3.1).
+(_canonical_owner_memo : RefCell(HashMap(String, Rc(String)))) = RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
+_canonical_owner :: (fn(owner : &String) -> Rc(String))(
+  match(
+    _canonical_owner_memo.with({ owner : &owner.* }(m) => m.get_cloned(owner)),
+    .Some(c) => c,
+    .None => {
+      c := Rc.new(canonical_module_path(owner));
+      // Owned captures (`with_mut`'s callback is a sink parameter).
+      co_key := owner.clone();
+      _canonical_owner_memo.with_mut({ c : Rc.clone(c), co_key }(m) => m.insert(co_key, Rc.clone(c)));
+      c
+    }
+  )
+);
+/// Is an entry registered by `owner` visible to the module being evaluated?
+///
+/// A method must resolve the same way whether its file is checked alone or
+/// beside other files: the registry is process-wide and a provider module
+/// (`std/fmt` for integer `to_string`) is demand-loaded, so without this
+/// filter a file that never imports the provider still finds the impl once
+/// ANY earlier file in the same process loaded it
+/// (issues/fixed/a-file-that-fails-check-alone-passes-inside-a-directory-check.md).
+///
+///   - no current module (owner tag `""`: codegen, the CLI) — everything is
+///     visible;
+///   - an entry with owner `""` (registered outside any module load, e.g.
+///     the derive machinery) — always visible;
+///   - otherwise the owner must be in the current module's import closure
+///     (the prelude's key is in every closure via `mark_owner_always_visible`,
+///     module-loader.yo — mm_load_prelude_file marks it when it stamps it).
+owner_visible_from_current :: (fn(owner : &String) -> bool)({
+  cur_owner := _registration_owner.clone();
+  if(cur_owner.len() == usize(0), {
+    return(true);
+  });
+  if(owner.len() == usize(0), {
+    return(true);
+  });
+  if(owner.* == cur_owner, {
+    return(true);
+  });
+  match(
+    g_import_closure_fn,
+    .None => true,
+    .Some(f) => {
+      closure := f(&cur_owner);
+      owner_c := _canonical_owner(owner);
+      closure.contains(&owner_c.*)
+    }
+  )
+});
+/// Append `entry` to the method list for `type_id`. The list is
+/// created on demand. The owner tag is read from the module-loader's
+/// loading stack HERE so registration call sites stay unchanged.
+register_type_trait_method :: (
+  fn(type_id : &String, entry : &MethodEntry) -> unit
+)({
+  owner := _registration_owner.clone();
+  mut(owned_entry) := entry.clone();
+  if(owned_entry.owner.len() == usize(0), {
+    owned_entry.owner = owner.clone();
+  });
+  // Taken out of the maps and stored back: a `get` copy is not the stored
+  // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  // Owned captures (`with_mut`'s callback is a sink parameter): the key
+  // clones once per lookup and once per store-back.
+  tm_key := type_id.clone();
+  list := match(_type_trait_methods.with_mut({ tm_key }(m) => m.remove(&tm_key)), .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  list.push(owned_entry);
+  tm_key2 := type_id.clone();
+  _type_trait_methods.with_mut({ tm_key2, list }(m) => m.insert(tm_key2, list));
+  to_key := type_id.clone();
+  olist := match(_type_trait_method_owners.with_mut({ to_key }(m) => m.remove(&to_key)), .Some(l) => l, .None => ArrayList(String).new());
+  olist.push(owner);
+  to_key2 := type_id.clone();
+  _type_trait_method_owners.with_mut({ to_key2, olist }(m) => m.insert(to_key2, olist));
+});
+/// Drop every method entry registered by `owner` (a `file://` abs module
+/// path). Called with each module the LSP invalidates, right before its
+/// re-evaluation re-registers the surviving impls under fresh type ids. The
+/// prelude's `${std_path}/prelude.yo` owner key is deliberately NOT a
+/// loading-key spelling, so it never matches here: the cached prelude is
+/// never re-evaluated, and purging it would strand every later analysis.
+purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  // An invalidation changes what the impl registries answer — move the
+  // trait-impl epoch beside impl.yo's purges so the dispatch caches
+  // (find_methods_from_generic_impls, g_ctor_method_cache) re-derive.
+  bump_trait_impl_epoch();
+  // The filtered lists are collected first and stored back after the walk:
+  // a `get` copy is not the stored list once collections are values, and the
+  // maps are not written while their keys are being iterated.
+  upd_keys := ArrayList(String).new();
+  upd_lists := ArrayList(ArrayList(MethodEntry)).new();
+  upd_owners := ArrayList(ArrayList(String)).new();
+  it := _type_trait_methods.with(_ttm_keys).into_iter();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(key) => match(
+        _type_trait_methods.with({ &key }(m) => m.get_cloned(key.clone())),
+        .Some(found_list) => match(
+          _type_trait_method_owners.with({ &key }(m) => m.get_cloned(key.clone())),
+          .Some(found_olist) => {
+            list := found_list;
+            olist := found_olist;
+            (changed : bool) = false;
+            (i : usize) = olist.len();
+            while(i > usize(0), {
+              i = (i - usize(1));
+              hit := match(olist.get_cloned(i), .Some(o) => (o == owner.*), .None => false);
+              if(hit && (i < list.len()), {
+                list.drain(i .. (i + usize(1)));
+                olist.drain(i .. (i + usize(1)));
+                changed = true;
+              });
+            });
+            if(changed, {
+              upd_keys.push(key.clone());
+              upd_lists.push(list);
+              upd_owners.push(olist);
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  (ui : usize) = usize(0);
+  while(ui < upd_keys.len(), {
+    // Owned per-iteration copies, then owned captures: the maps' inserts
+    // take their key and value by value, and `with_mut`'s callback is a
+    // sink parameter (no borrow captures).
+    k := match(upd_keys.get_cloned(ui), .Some(v) => v, .None => String.new());
+    l := match(upd_lists.get_cloned(ui), .Some(v) => v, .None => ArrayList(MethodEntry).new());
+    _ml := _type_trait_methods.with_mut({ k, l }(m) => m.insert(k, l));
+    k2 := match(upd_keys.get_cloned(ui), .Some(v) => v, .None => String.new());
+    o := match(upd_owners.get_cloned(ui), .Some(v) => v, .None => ArrayList(String).new());
+    _ol := _type_trait_method_owners.with_mut({ k2, o }(m) => m.insert(k2, o));
+    ui = (ui + usize(1));
+  });
+});
+/// The method values the module `owner` registered (its impl members). The
+/// prelude's are registered under its `${std_path}/prelude.yo` key —
+/// mm_load_prelude_file stamps it around the prelude's evaluation and is the
+/// one caller that collects them.
+type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue))({
+  out := ArrayList(EvalValue).new();
+  it := _type_trait_methods.with(_ttm_keys).into_iter();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(key) => match(
+        _type_trait_methods.with({ &key }(m) => m.get_cloned(key.clone())),
+        .Some(list) => match(
+          _type_trait_method_owners.with({ &key }(m) => m.get_cloned(key.clone())),
+          .Some(olist) => {
+            (i : usize) = usize(0);
+            while((i < olist.len()) && (i < list.len()), {
+              if(match(olist.get_cloned(i), .Some(o) => (o == owner.*), .None => false), {
+                match(list.get_cloned(i), .Some(m) => match(m.value.clone(), .Some(v) => out.push(Rc.clone(v)), .None => ()), .None => ());
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  out
+});
+/// Total registered method entries across all type ids (LSP leak gate).
+type_trait_methods_entry_count :: (fn() -> usize)({
+  (total : usize) = usize(0);
+  it := _type_trait_methods.with(_ttm_keys).into_iter();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(key) => match(
+        _type_trait_methods.with(m => m.get_cloned(&key)),
+        .Some(list) => {
+          total = (total + list.len());
+        },
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  total
+});
+/// Return all method entries registered for `type_id`, or an empty
+/// list when nothing has been registered.
+get_type_trait_methods_for_type :: (
+  fn(type_id : &String) -> ArrayList(MethodEntry)
+)(
+  match(
+    _type_trait_methods.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id)),
+    .Some(list) => list,
+    .None => ArrayList(MethodEntry).new()
+  )
+);
+/// PROVISIONAL (in-flight) trait-method entries. While
+/// `try_to_implement_trait_with_arguments_by_trait_type` evaluates an impl's
+/// member expressions, a member body that calls back into the impl's own
+/// methods (recursive types — `TreeNode` with `Rc(Self)` fields under
+/// `derive(TreeNode, Clone)`: the derived clone validates `Rc(TreeNode).clone`,
+/// whose body calls `TreeNode.clone`) must find the method TYPE from the trait
+/// signature while the real `FuncVal` is still being built. The value-semantics
+/// `TypeValue` can't be mutated in
+/// place, so the in-flight signatures live here, keyed by receiver type id,
+/// and are consulted FIRST by `get_receiver_methods_by_name_from_env`
+/// (ahead of the regular entries). Entries carry
+/// `value : None` (the real value is still being built) and
+/// `self_type : Some(receiver)`.
+/// They are cleared when the member-evaluation loop finishes — the real
+/// registration (`register_type_trait_method`, with the concrete `FuncVal`)
+/// happens after `try_to_implement_trait_with_arguments_by_trait_type`
+/// returns, so provisional and final entries never coexist.
+(_provisional_trait_methods : RefCell(HashMap(String, ArrayList(MethodEntry)))) = RefCell(HashMap(String, ArrayList(MethodEntry))).new(HashMap(String, ArrayList(MethodEntry)).new());
+register_provisional_trait_method :: (
+  fn(type_id : &String, entry : &MethodEntry) -> unit
+)({
+  type_id_own____ := type_id.clone();
+  list := match(_provisional_trait_methods.with_mut({ type_id_own____ }(m) => m.remove(type_id_own____.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  list.push(entry.clone());
+  type_id_own_____ := type_id.clone();
+  _provisional_trait_methods.with_mut({ type_id_own_____, list : list.clone() }(m) => m.insert(type_id_own_____.clone(), list.clone()));
+});
+/// Update IN PLACE the registered entry whose `value` names `match_fid`:
+/// the impl block's completing evaluation refreshes the phase-A entry a
+/// forced sibling registered (`pa_e.ty`/`pa_e.value`/`pe.*` in
+/// `values/impl.yo`). A `get` copy is not the stored entry once collections
+/// are values, so the list is taken out, updated and stored back. Returns
+/// whether an entry was updated.
+update_type_trait_method_entry :: (
+  fn(registry_provisional : bool, type_id : &String, match_fid : &String, ty : &TypeValue, value : &EvalValue, source_trait_id : &String) -> bool
+)({
+  (updated : bool) = false;
+  take_key := type_id.clone();
+  src := cond(
+    registry_provisional => _provisional_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key)),
+    true => _type_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key))
+  );
+  list := match(src, .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  // Rebuilt element-wise, not through `ArrayList.with`: its callback is
+  // `FnOnce`, so it OWNS every capture, while this loop only re-reads its
+  // `&` parameters per element — a `get_cloned` copy (MethodEntry is Clone)
+  // modified and pushed keeps the reads where they are.
+  rebuilt := ArrayList(MethodEntry).new();
+  (i : usize) = usize(0);
+  while(i < list.len(), {
+    match(
+      list.get_cloned(i),
+      .Some(entry0) => {
+        mut(entry) := entry0;
+        entry_fid := match(entry.value.clone(), .Some(ev) => match(ev, Rc(.FuncVal(fd, _)) => fd.*.func_id.clone(), _ => String.new()), .None => String.new());
+        if((entry_fid.len() > usize(0)) && (entry_fid == match_fid.*), {
+          entry.ty = Rc.clone(ty);
+          entry.value = Option(EvalValue).Some(Rc.clone(value));
+          if(source_trait_id.len() > usize(0), {
+            entry.source_trait_id = source_trait_id.clone();
+          });
+          updated = true;
+        });
+        rebuilt.push(entry);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  put_key := type_id.clone();
+  cond(
+    registry_provisional => _provisional_trait_methods.with_mut({ put_key, rebuilt : rebuilt.clone() }(m) => m.insert(put_key, rebuilt.clone())),
+    true => _type_trait_methods.with_mut({ put_key, rebuilt : rebuilt.clone() }(m) => m.insert(put_key, rebuilt.clone()))
+  );
+  updated
+});
+get_provisional_trait_methods_by_name :: (
+  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
+)({
+  result := ArrayList(MethodEntry).new();
+  match(
+    _provisional_trait_methods.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id)),
+    .Some(all) => {
+      n := all.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          all.get_cloned(i),
+          .Some(entry) => {
+            if(entry.label == method_name.*, {
+              result.push(entry);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  result
+});
+clear_provisional_trait_methods :: (fn(type_id : &String) -> unit)({
+  type_id_owned := type_id.clone();
+  _provisional_trait_methods.with_mut({ type_id_owned }(m) => m.remove(&type_id_owned));
+});
+/// Return only the method entries whose `label` matches `method_name`.
+get_type_trait_methods_by_name :: (
+  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
+)({
+  result := ArrayList(MethodEntry).new();
+  all := get_type_trait_methods_for_type(type_id);
+  n := all.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      all.get_cloned(i),
+      .Some(entry) => {
+        if(entry.label == method_name.*, {
+          result.push(entry);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+(g_visibility_report : bool) = debug_knob(`YO_VISIBILITY_REPORT`).is_some();
+visibility_report_enabled :: (fn() -> bool)(g_visibility_report);
+/// `get_type_trait_methods_by_name` restricted to the entries VISIBLE from
+/// the module being evaluated (`owner_visible_from_current`). This is the
+/// getter method RESOLUTION uses (`env.yo`); codegen, the LSP and the
+/// registries' own bookkeeping keep the unfiltered view.
+get_visible_type_trait_methods_by_name :: (
+  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
+)({
+  all := get_type_trait_methods_by_name(type_id, method_name);
+  cur_owner := _registration_owner.clone();
+  if(cur_owner.len() == usize(0), {
+    return(all);
+  });
+  result := ArrayList(MethodEntry).new();
+  n := all.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      all.get_cloned(i),
+      .Some(entry) => if(owner_visible_from_current(entry.owner.clone()), {
+        result.push(entry);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // `YO_VISIBILITY_REPORT=1`: ENUMERATE the sites the filter would reject
+  // instead of rejecting them — one compile lists every module that relies on
+  // an impl outside its import closure (the sweep tool for the fix; the
+  // filter itself is unchanged when the knob is unset).
+  if((result.len() == usize(0)) && (n > usize(0)) && g_visibility_report, {
+    (oi : usize) = usize(0);
+    while(oi < n, {
+      match(
+        all.get_cloned(oi),
+        .Some(e) => eprintln(`[visibility] ${cur_owner} cannot see .${method_name} registered by ${e.owner}`),
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+    return(all);
+  });
+  result
+});
+/// INHERENT-method definition sites, keyed by `type_id` + NUL-free
+/// separator + `label`, valued by the defining token's
+/// `module_path:row:column`. This is how the duplicate-inherent-method
+/// rejection (plans/reference/FUNCTION_OVERLOADING_POLICY.md,
+/// issues/fixed/duplicate-inherent-method-impls-not-rejected.md) tells a GENUINE
+/// second definition (different source site) from the loader's idempotent
+/// re-evaluation and from a generic impl re-registering per instantiation
+/// (both replay the SAME site). Keyed separately from `_type_trait_methods`
+/// so codegen-time synthetic registrations (codegen/functions/collection.yo)
+/// never participate.
+(_inherent_method_sites : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+/// `_inherent_method_sites` keys by owner, so an invalidated module's sites
+/// go with it (`purge_inherent_method_sites_owned_by`). Without the purge a
+/// watch round that re-evaluates an edited module meets its own previous
+/// sites: an edit that moves an impl member to another line made the
+/// member's old site answer as a "first definition" (E0612).
+(_inherent_method_site_owned : OwnedKeys) = owned_keys_new();
+/// Trait-impl sites (plans/reference/TRAIT_COHERENCE.md) — see
+/// `note_trait_impl_site` below; declared here because runtime module-level
+/// bindings are evaluated in order and `clear_type_trait_methods` resets them.
+(_trait_impl_sites : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+(_trait_impl_site_owners : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+/// Drop all registered methods. Used by test harnesses to reset
+/// global state between runs. Same pattern as the cleanup helpers in
+/// `evaluator/values/impl.yo` for the generic-impl registry.
+clear_type_trait_methods :: (fn() -> unit)({
+  _type_trait_methods.with_mut(m => m.clear());
+  _inherent_method_sites.with_mut(m => m.clear());
+  _inherent_method_site_owned.by_owner.with_mut(m => m.clear());
+  _trait_impl_sites.with_mut(m => m.clear());
+  _trait_impl_site_owners.with_mut(m => m.clear());
+});
+/// Record `site` as the defining site of inherent method `label` on
+/// `type_id`. Returns `.Some(previous_site)` when the pair was already
+/// defined at a DIFFERENT site — a genuine duplicate the caller must
+/// reject — and `.None` for a fresh definition or a same-site replay.
+note_inherent_method_site :: (
+  fn(type_id : &String, label : &String, site : &String) -> Option(String)
+)({
+  key := `${type_id}\n${label}`;
+  match(
+    _inherent_method_sites.with({ &key }(m) => m.get_cloned(key.clone())),
+    .Some(prev) => cond(
+      (prev == site.*) => Option(String).None,
+      true => Option(String).Some(prev)
+    ),
+    .None => {
+      key_own := key.clone();
+      site_own_ := site.clone();
+      _inherent_method_sites.with_mut({ key_own, site_own_ }(m) => m.insert(key_own.clone(), site_own_.clone()));
+      owned_keys_record(&_inherent_method_site_owned, key.clone());
+      Option(String).None
+    }
+  )
+});
+/// Drop the inherent-method sites `owner`'s evaluation recorded (watch and
+/// LSP invalidation; its re-evaluation records them again).
+purge_inherent_method_sites_owned_by :: (fn(owner : &String) -> unit)({
+  keys := owned_keys_take(&_inherent_method_site_owned, owner);
+  (i : usize) = usize(0);
+  while(i < keys.len(), {
+    match(
+      keys.get_cloned(i),
+      .Some(k) => {
+        _r := _inherent_method_sites.with_mut({ k }(m) => m.remove(&k));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Recorded inherent-method sites (the watch-round plateau probe).
+inherent_method_site_count :: (fn() -> usize)(_inherent_method_sites.with(_c_len_1));
+/// TRAIT-IMPL sites (plans/reference/TRAIT_COHERENCE.md rules 1–2), keyed by
+/// `type_id` + newline + the trait's instantiation key, valued by the impl's
+/// `module_path:row:column`. A registration from a DIFFERENT site is a second
+/// impl of the pair — the caller rejects it; a same-site replay (loader
+/// re-evaluation, a generic impl re-registering per instantiation) is not.
+/// Each key remembers its registering owner so the LSP can purge a module's
+/// sites before re-evaluating it (`purge_trait_impl_sites_owned_by`).
+/// Record `site` as the impl of trait `trait_key` for `type_id`. Returns
+/// `.Some(previous_site)` for a second impl from a different site, `.None`
+/// for a first impl or a same-site replay.
+note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &String) -> Option(String))({
+  key := `${type_id}\n${trait_key}`;
+  match(
+    _trait_impl_sites.with({ &key }(m) => m.get_cloned(key.clone())),
+    .Some(prev) => cond(
+      (prev == site.*) => Option(String).None,
+      true => Option(String).Some(prev)
+    ),
+    .None => {
+      key_own_ := key.clone();
+      site_own__ := site.clone();
+      _trait_impl_sites.with_mut({ key_own_, site_own__ }(m) => m.insert(key_own_.clone(), site_own__.clone()));
+      key_own__ := key.clone();
+      registration_owner_own := registration_owner.clone();
+      _trait_impl_site_owners.with_mut({ key_own__, registration_owner_own }(m) => m.insert(key_own__.clone(), registration_owner_own()));
+      Option(String).None
+    }
+  )
+});
+/// The site of the impl of trait `trait_key` for the type `type_id`, if one
+/// is registered (`note_trait_impl_site`), without recording anything.
+trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(String))(
+  _trait_impl_sites.with({ type_id : &type_id.*, trait_key : &trait_key.* }(m) => m.get_cloned(`${type_id}\n${trait_key}`))
+);
+/// Drop the trait-impl site recorded for (`type_id`, `trait_key`) when it was
+/// recorded FROM `site` — the undo of `note_trait_impl_site` for an impl whose
+/// registration a later check rejected (a `comptime_expect_error` catch must
+/// not leave the rejected impl answering `trait_impl_site_of`). A site
+/// recorded from another impl stays: it is not this registration's to undo.
+forget_trait_impl_site_if_from :: (fn(type_id : &String, trait_key : &String, site : &String) -> unit)({
+  key := `${type_id}\n${trait_key}`;
+  match(
+    _trait_impl_sites.with({ &key }(m) => m.get_cloned(key.clone())),
+    .Some(prev) => if(prev == site.*, {
+      key_own___ := key.clone();
+      _trait_impl_sites.with_mut({ key_own___ }(m) => m.remove(key_own___.clone()));
+      _trait_impl_site_owners.with_mut(m => m.remove(&key));
+    }),
+    .None => ()
+  );
+  ()
+});
+/// Drop every trait-impl site registered by `owner` (LSP invalidation).
+purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  stale := ArrayList(String).new();
+  it := _trait_impl_site_owners.with(_ttm_site_owners_keys).into_iter();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(k) => if(match(_trait_impl_site_owners.with({ &k }(m) => m.get_cloned(k.clone())), .Some(o) => (o == owner.*), .None => false), {
+        stale.push(k.clone());
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  (si : usize) = usize(0);
+  while(si < stale.len(), {
+    sk := match(stale.get_cloned(si), .Some(k) => k, .None => String.new());
+    sk_own := sk.clone();
+    _trait_impl_sites.with_mut({ sk_own }(m) => m.remove(sk_own.clone()));
+    _trait_impl_site_owners.with_mut(m => m.remove(&sk));
+    si = (si + usize(1));
+  });
+});
+/// Trait-method DEFAULT values (`?=` defaults). `TraitT` does not store
+/// per-field default values (see trait-type.yo:6-8), so the trait
+/// evaluator records each defaulted method's FuncVal here, keyed by
+/// `${trait_id}::${label}`. Consumers (`_resolve_dyn_trait_values`, method
+/// dispatch) fall back to this when a concrete type implements the trait WITHOUT
+/// overriding a defaulted method (e.g. `Error.source ?= (self) -> .None`).
+(_trait_method_defaults : RefCell(HashMap(String, EvalValue))) = RefCell(HashMap(String, EvalValue)).new(HashMap(String, EvalValue).new());
+/// `_trait_method_defaults` keys by owner (the trait's module).
+(_trait_default_owned : OwnedKeys) = owned_keys_new();
+register_trait_default :: (fn(trait_id : &String, label : &String, value : &EvalValue) -> unit)({
+  key := (trait_id.clone() + String.from("::") + label.clone());
+  owned_keys_record(&_trait_default_owned, key.clone());
+  key_own____ := key.clone();
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  tmd_key := key.clone();
+  tmd_val := value.clone();
+  _trait_method_defaults.with_mut({ tmd_key, tmd_val }(m) => m.insert(tmd_key, tmd_val));
+});
+/// Registered trait defaults (the B2 plateau test's probe).
+trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.with(_c_len_2));
+/// Drop the trait defaults `owner`'s evaluation registered (its traits are
+/// re-minted under fresh ids when it is re-evaluated).
+purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({
+  keys := owned_keys_take(&_trait_default_owned, owner);
+  (i : usize) = usize(0);
+  while(i < keys.len(), {
+    match(
+      keys.get_cloned(i),
+      .Some(k) => {
+        _r := _trait_method_defaults.with_mut(m => m.remove(&k));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+get_trait_default :: (fn(trait_id : &String, label : &String) -> Option(EvalValue))(
+  _trait_method_defaults.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone()))
+);
+/// Trait-method CONTRACT clauses (V6 task 1, FORMAL_VERIFICATION.md):
+/// each trait-field fn-type's `requires(...)`/`ensures(...)` ASTs plus its
+/// return label, keyed `${trait_id}::${label}`. `TraitT` stores no AstExprs
+/// and the fn-type expression id is module-local and unstable across
+/// specializations, so this is the durable key — the same pattern as
+/// `_trait_method_defaults` above. Written at trait-field evaluation
+/// (types/trait.yo); read at impl registration (values/impl.yo) for the
+/// variance obligations (trait.requires ⇒ impl.requires,
+/// impl.ensures ⇒ trait.ensures) and for contract inheritance onto impl
+/// methods that declare none of their own.
+(_trait_method_requires : RefCell(HashMap(String, ArrayList(AstExpr)))) = RefCell(HashMap(String, ArrayList(AstExpr))).new(HashMap(String, ArrayList(AstExpr)).new());
+(_trait_method_ensures : RefCell(HashMap(String, ArrayList(AstExpr)))) = RefCell(HashMap(String, ArrayList(AstExpr))).new(HashMap(String, ArrayList(AstExpr)).new());
+(_trait_method_return_labels : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+register_trait_method_contracts :: (
+  fn(trait_id : &String, label : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
+)({
+  key := (trait_id.clone() + String.from("::") + label.clone());
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  tmc_key := key.clone();
+  tmc_reqs := reqs.clone();
+  _trait_method_requires.with_mut({ tmc_key, tmc_reqs }(m) => m.insert(tmc_key, tmc_reqs));
+  tmc_key2 := key.clone();
+  tmc_enss := enss.clone();
+  _trait_method_ensures.with_mut({ tmc_key2, tmc_enss }(m) => m.insert(tmc_key2, tmc_enss));
+  match(
+    ret,
+    .Some(r) => {
+      tmc_key3 := key.clone();
+      tmc_ret := r.clone();
+      _trait_method_return_labels.with_mut({ tmc_key3, tmc_ret }(m) => m.insert(tmc_key3, tmc_ret));
+    },
+    .None => ()
+  );
+});
+trait_method_requires :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
+  match(
+    _trait_method_requires.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
+    .Some(xs) => xs.clone(),
+    .None => ArrayList(AstExpr).new()
+  )
+);
+trait_method_ensures :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
+  match(
+    _trait_method_ensures.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
+    .Some(xs) => xs.clone(),
+    .None => ArrayList(AstExpr).new()
+  )
+);
+trait_method_return_label :: (fn(trait_id : &String, label : &String) -> Option(String))(
+  match(
+    _trait_method_return_labels.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
+    .Some(r) => Option(String).Some(r.clone()),
+    .None => Option(String).None
+  )
+);
+/// V6 task 1: function-pointer hooks to the func-contract side tables in
+/// types/function.yo, routed via pointers to break the import cycle —
+/// function.yo pulls trait-checking.yo which pulls impl.yo, so neither
+/// impl.yo nor this module may import function.yo directly (the same
+/// pattern as impl.yo's set_register_trait_value_fn). Installed by
+/// function.yo's init binding; before installation the readers return
+/// empty and the writer is a no-op.
+TraitContractReadFn :: (fn(id : &String) -> ArrayList(AstExpr));
+TraitReturnLabelReadFn :: (fn(id : &String) -> Option(String));
+/// V6 task 3: the refine() ANNOTATION-registry write hook — contracts.yo
+/// (evaluate_refine) records an annotation node's predicate id into the
+/// registry types/function.yo owns; the two modules cannot import each
+/// other, so the pointer is installed at function.yo module init (the
+/// `_name := (fn() -> bool)({...})();` shape — a bare call is dropped
+/// from compiled binaries).
+RefineAnnotationRegisterFn :: (fn(expr_id : usize, pred_fid : &String) -> unit);
+(mut(g_refine_annotation_register) : Option(RefineAnnotationRegisterFn)) = Option(RefineAnnotationRegisterFn).None;
+set_refine_annotation_hook :: (fn(r : RefineAnnotationRegisterFn) -> unit)({
+  g_refine_annotation_register = Option(RefineAnnotationRegisterFn).Some(r);
+  ()
+});
+hook_register_refine_annotation :: (fn(expr_id : usize, pred_fid : &String) -> unit)(
+  match(
+    g_refine_annotation_register,
+    .Some(f) => {
+      f(expr_id, pred_fid);
+      ()
+    },
+    .None => ()
+  )
+);
+TraitContractRegisterFn :: (
+  fn(id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
+);
+(mut(g_func_requires_read) : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
+(mut(g_func_ensures_read) : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
+(mut(g_func_return_label_read) : Option(TraitReturnLabelReadFn)) = Option(TraitReturnLabelReadFn).None;
+(mut(g_func_contract_register) : Option(TraitContractRegisterFn)) = Option(TraitContractRegisterFn).None;
+set_func_contract_hooks :: (
+  fn(
+    r : TraitContractReadFn,
+    e : TraitContractReadFn,
+    l : TraitReturnLabelReadFn,
+    w : TraitContractRegisterFn
+  ) -> unit
+)({
+  g_func_requires_read = Option(TraitContractReadFn).Some(r);
+  g_func_ensures_read = Option(TraitContractReadFn).Some(e);
+  g_func_return_label_read = Option(TraitReturnLabelReadFn).Some(l);
+  g_func_contract_register = Option(TraitContractRegisterFn).Some(w);
+});
+hook_func_requires :: (fn(id : &String) -> ArrayList(AstExpr))(
+  match(
+    g_func_requires_read,
+    .Some(f) => f(id.clone()),
+    .None => ArrayList(AstExpr).new()
+  )
+);
+hook_func_ensures :: (fn(id : &String) -> ArrayList(AstExpr))(
+  match(
+    g_func_ensures_read,
+    .Some(f) => f(id.clone()),
+    .None => ArrayList(AstExpr).new()
+  )
+);
+hook_func_return_label :: (fn(id : &String) -> Option(String))(
+  match(
+    g_func_return_label_read,
+    .Some(f) => f(id.clone()),
+    .None => Option(String).None
+  )
+);
+hook_register_func_contracts :: (
+  fn(id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
+)(
+  match(
+    g_func_contract_register,
+    .Some(f) => {
+      f(id.clone(), reqs, enss, ret);
+      ()
+    },
+    .None => ()
+  )
+);
+/// Read an associated CONSTANT off a concrete type as a `usize`
+/// (`u32.BYTES` -> 4), for use in a TYPE position.
+///
+/// This is the constant sibling of `find_associated_type_from_generic_impls`
+/// (values/impl.yo), which resolves `T.Assoc` as a TYPE. Both answer the same
+/// question against the same registrations; this one returns the VALUE half,
+/// which is what an `Array` length needs.
+///
+/// Concrete impls (`impl(u8, Widthy(BYTES : usize(1)))`) land in the
+/// type-trait registry keyed by `type_id_or_empty`, and primitives have stable
+/// synthetic ids there (`__yo_t_u8`), so an `impl` on an integer type is
+/// findable exactly like one on a struct.
+///
+/// `.None` for: no id, no such label, a label whose value is absent or not an
+/// integer. Every one of those leaves the caller's length untouched rather
+/// than substituting a wrong number — the failure this whole path exists to
+/// prevent is a SILENT 0
+/// (issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md).
+find_associated_const_usize :: (
+  fn(recv : &TypeValue, label : &String) -> Option(usize)
+)({
+  tid := type_id_or_empty(recv);
+  if(tid.len() == usize(0), {
+    return(Option(usize).None);
+  });
+  entries := get_type_trait_methods_for_type(&tid);
+  (i : usize) = usize(0);
+  n := entries.len();
+  while(i < n, {
+    match(
+      entries.get_cloned(i),
+      .Some(e) => if(e.label == label.*, {
+        match(
+          e.value.clone(),
+          .Some(v) => match(
+            v,
+            Rc(.IntLit(raw)) => match(
+              _parse_usize_literal(&raw),
+              .Some(k) => {
+                return(Option(usize).Some(k));
+              },
+              .None => ()
+            ),
+            _ => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// Decimal `IntLit` text -> `usize`. Local rather than imported: this module is
+/// below `evaluator/utils.yo` in the import order, and an associated constant
+/// used as a length is always a plain non-negative decimal literal.
+_parse_usize_literal :: (fn(raw : &String) -> Option(usize))({
+  if(raw.len() == usize(0), {
+    return(Option(usize).None);
+  });
+  (acc : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < raw.len(), {
+    c := raw.byte_at(i);
+    if((c < u8(48)) || (c > u8(57)), {
+      return(Option(usize).None);
+    });
+    acc = (acc.wrapping_mul(usize(10)) + usize(c - u8(48)));
+    i = (i + usize(1));
+  });
+  Option(usize).Some(acc)
+});
+// Install the associated-constant lookup into substitution's `.Array` arm
+// (cycle breaker: types/ cannot import THIS file). Same shape as
+// expr-info.yo's `_compat_some_resolved_init`. Until this runs, a length
+// projection stays unresolved, which is the old behaviour rather than a wrong
+// length.
+_assoc_const_len_init := (fn() -> bool)({
+  set_lookup_assoc_const(find_associated_const_usize);
+  true
+})();
+/// The registry key of a DURABLE associated-type registration for `t`
+/// (`Item : B` of a generic impl matched against `t`, stored substituted):
+/// `t`'s id, plus its `type_key` when `t` is an instantiation. Two
+/// instantiations can share one id — `substitute()` rewrites a struct's
+/// `type_arguments` but keeps the declaration-era id — so an id-only key let
+/// the first `.map(...)`'s `IterMap(MyRange, i32, F1)` answer `Item = i32`
+/// for a later `IterMap(MyRange64, i64, F2)`
+/// (issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md).
+assoc_type_registry_key :: (fn(t : &TypeValue) -> String)({
+  tid := type_id_or_empty(t);
+  has_args := match(
+    t,
+    Rc(.Struct({ type_arguments : ta })) => (ta.len() > usize(0)),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => true,
+    _ => false
+  );
+  cond(
+    ((tid.len() > usize(0)) && has_args) => `${tid}#${type_key(t)}`,
+    true => tid
+  )
+});
+/// The associated-type registrations of `label` for `t`: the exact
+/// instantiation's durable entries (`assoc_type_registry_key`) first, else the
+/// ones under the plain type id (a concrete impl's `Item : i32`, registered
+/// with the impl).
+get_assoc_type_entries :: (fn(t : &TypeValue, label : &String) -> ArrayList(MethodEntry))({
+  exact := get_type_trait_methods_by_name(assoc_type_registry_key(t), label.clone());
+  cond(
+    (exact.len() > usize(0)) => exact,
+    true => get_type_trait_methods_by_name(type_id_or_empty(t), label)
+  )
+});
+export(
+  MethodEntry,
+  type_trait_method_values_owned_by,
+  assoc_type_registry_key,
+  get_assoc_type_entries,
+  find_associated_const_usize,
+  register_trait_default,
+  get_trait_default,
+  register_trait_method_contracts,
+  trait_method_requires,
+  trait_method_ensures,
+  trait_method_return_label,
+  set_func_contract_hooks,
+  set_refine_annotation_hook,
+  hook_register_refine_annotation,
+  hook_func_requires,
+  hook_func_ensures,
+  hook_func_return_label,
+  hook_register_func_contracts,
+  register_type_trait_method,
+  update_type_trait_method_entry,
+  note_inherent_method_site,
+  purge_inherent_method_sites_owned_by,
+  inherent_method_site_count,
+  note_trait_impl_site,
+  trait_impl_site_of,
+  forget_trait_impl_site_if_from,
+  purge_trait_impl_sites_owned_by,
+  get_type_trait_methods_for_type,
+  get_type_trait_methods_by_name,
+  clear_type_trait_methods,
+  register_provisional_trait_method,
+  get_provisional_trait_methods_by_name,
+  clear_provisional_trait_methods,
+  type_id_or_empty,
+  set_registration_owner,
+  set_import_closure_fn,
+  owner_visible_from_current,
+  visibility_report_enabled,
+  get_visible_type_trait_methods_by_name,
+  registration_owner,
+  record_owned_func_id,
+  owned_id_log_entry_count,
+  take_owned_func_ids,
+  record_owned_expr_id,
+  take_owned_expr_ids,
+  purge_trait_defaults_owned_by,
+  trait_default_entry_count,
+  purge_type_trait_methods_owned_by,
+  type_trait_methods_entry_count
+);

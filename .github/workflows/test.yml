@@ -128,7 +128,7 @@ env:
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
   # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
-  SEED_VERSION: v0.2.78
+  SEED_VERSION: v0.2.79
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -416,7 +416,7 @@ jobs:
 
   # The release's documentation-website step, rehearsed on every PR.
   #
-  # scripts/build_site.yo is 24.7 KB of Yo that, until this job existed, was
+  # scripts/build-site.yo is 24.7 KB of Yo that, until this job existed, was
   # referenced by exactly ONE place in the repo — release.yml. So it ran for
   # the first time each release, AFTER the version bump had been pushed to
   # develop and the tag created. That is precisely how the first v0.2.10
@@ -427,7 +427,7 @@ jobs:
   # Marketplace publish.
   #
   # The doc-html / doc-json / doc-markdown cli-cases cover the `yo doc`
-  # SUBCOMMAND. They do not cover build_site.yo, which shells out to `yo doc`
+  # SUBCOMMAND. They do not cover build-site.yo, which shells out to `yo doc`
   # and then does its own git metadata, HTML templating and index assembly —
   # all of it release-only until now.
   #
@@ -497,13 +497,13 @@ jobs:
           fi
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
-          # markdown-yo and build_site.yo speak the TREE std, so both
+          # markdown-yo and build-site.yo speak the TREE std, so both
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
           VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' src/version.yo)
           [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from src/version.yo"; exit 1; }
-          "$YO_BIN" compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
+          "$YO_BIN" compile scripts/build-site.yo --optimize 2 -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v$VERSION" --yo "$YO_BIN"
 
       # A site build that emits nothing exits 0 exactly as happily as one that
@@ -522,6 +522,68 @@ jobs:
           name: docs-site
           path: yo-out/site
           retention-days: 7
+
+  # The docs gates (scripts/check-docs.py; the docs plan's step 1, K5 of
+  # plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md): every complete-program
+  # ```yo block in docs/ and the README goes through `yo check` (or `yo test`
+  # for a block with a top-level `test(`), every relative link and `#anchor`
+  # resolves, nothing in docs/en-US links outside it (only docs/en-US ships in
+  # a release bundle), and docs/en-US and docs/zh-CN agree on pages, ```yo
+  # block counts and H2 counts. A PR checks the examples of the Markdown files
+  # it changed (~10-20 s per block); a develop push checks all of them. Links
+  # and parity take seconds and always cover the whole tree.
+  #
+  # REPORT-ONLY for now: the script runs with --report-only (exit 0 whatever
+  # it finds; the findings are in the log and the run summary), and this job
+  # is deliberately NOT on merge-gate's needs list — the one exception to
+  # "every job is on merge-gate". Its findings are the work list of the docs
+  # rewrite, and a gate that is red on day one blocks every PR. The docs plan's
+  # last step makes it blocking: drop --report-only and add `docs-checks` to
+  # merge-gate's needs.
+  #
+  # The checker is the tree's stage 1 when one was built (the docs describe
+  # the tree's language), else the seed: a docs-only PR skips `stage1`, and
+  # then nothing under src/ differs from develop.
+  docs-checks:
+    name: Docs checks (examples, links, en/zh parity; report-only)
+    needs: [changes, stage1]
+    if: ${{ !cancelled() && (needs.stage1.result == 'success' || needs.stage1.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # HEAD^1 of a pull_request checkout (the merge commit) is the base
+          # tip, which is what --changed diffs against.
+          fetch-depth: 2
+
+      - name: Install the seed compiler
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: Download stage 1 (the tree's compiler)
+        if: needs.stage1.result == 'success'
+        uses: actions/download-artifact@v8
+        with:
+          name: yo-stage1
+
+      - name: Run the docs checks (report-only)
+        run: |
+          set -euo pipefail
+          if [ -f yo-stage1 ]; then
+            chmod +x yo-stage1
+            YO_BIN="$PWD/yo-stage1"
+          else
+            YO_BIN="$(command -v yo)"
+          fi
+          SCOPE=()
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SCOPE=(--changed HEAD^1)
+          fi
+          python3 scripts/check-docs.py --report-only --yo "$YO_BIN" --jobs 4 "${SCOPE[@]}" | tee docs-checks.txt
+          { echo '### Docs checks (report-only)'; echo; echo '```text'; cat docs-checks.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   # Formal verification (V2 of plans/backlog/FORMAL_VERIFICATION.md): the
   # verifier harness against the REAL pinned Z3 — the hermetic layers of
@@ -634,9 +696,14 @@ jobs:
           chmod +x yo-stage1
           mv yo-stage1 /tmp/yo-stage1
 
+      # --compile-timeout-ms on every verifier step: each file compiles the
+      # whole compiler, and the runner's default 600 s batch deadline is
+      # too tight once R7 grew the evaluator's work (verifier-negative hit
+      # it on 44700622640 and 44757876591;
+      # issues/fixed/2026-11-21-verifier-negative-hits-the-600-second-batch-deadline.md).
       - name: Verifier unit tests (real solver)
         if: matrix.part == 'harness'
-        run: /tmp/yo-stage1 test ./tests/internal/verifier.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier.test.yo --bail -v --compile-timeout-ms 1200000
 
       # V3: the per-function pass over the negative fixtures (subset
       # errors run solver-free; refutations need the Z3 above). Stage 1
@@ -651,7 +718,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier_negative.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-negative.test.yo --bail -v --compile-timeout-ms 1200000
 
       # V6 task 5 (plans/backlog/FORMAL_VERIFICATION.md): the `assumed()`
       # marker — contracts gate callers, subset-external bodies are not
@@ -660,7 +727,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier_assumed.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-assumed.test.yo --bail -v --compile-timeout-ms 1200000
 
       # V6 task 3 slice 1 (plans/backlog/FORMAL_VERIFICATION.md §7): the
       # refine(T, p) refinement annotations — modular VCs (callee assumes,
@@ -669,7 +736,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier_refine.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-refine.test.yo --bail -v --compile-timeout-ms 1200000
 
       # The ArrayList list model (R1 slice 1 of ATS_STYLE_INDEXED_TYPES.md):
       # len/is_empty/index reads over a runtime collection, modular length
@@ -678,7 +745,7 @@ jobs:
         if: matrix.part == 'list-model'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier_list_len.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-list-len.test.yo --bail -v --compile-timeout-ms 1200000
 
       - name: yo verify harness report (JSON)
         if: matrix.part == 'harness'
@@ -710,7 +777,7 @@ jobs:
           # pipefail: without it the step's status is tee's, and a failing
           # verify goes green (the default `bash -e` has no pipefail).
           set -o pipefail
-          yo verify ./tests/spec/verify_straight_line.test.yo --format json | tee verify-battery.json
+          yo verify ./tests/spec/verify-straight-line.test.yo --format json | tee verify-battery.json
 
       # B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): `--strict`
       # makes `assumed`, `outside-subset` and `unproven` hard failures, so a
@@ -723,7 +790,7 @@ jobs:
       # purpose: dogfooding uses `assumed()`.
       - name: yo verify --strict (the laws gate)
         if: matrix.part == 'harness'
-        run: yo verify ./tests/spec/verify_straight_line.test.yo --strict
+        run: yo verify ./tests/spec/verify-straight-line.test.yo --strict
 
       - name: Upload the verify report
         if: always() && matrix.part == 'harness'
@@ -982,7 +1049,7 @@ jobs:
       # builds to different output paths (the emitted .c is named after -o), so
       # it is path noise, not a route difference.
       # `--std-path ./std` stays load-bearing and IS forwarded to the child
-      # compile (build_runner.yo:426-432).
+      # compile (build-runner.yo:426-432).
       # WHY THE SELF-BUILD IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
       # The self-build peaks above 15 GB: on ubuntu-latest it climbed to
       # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before its
@@ -1234,7 +1301,7 @@ jobs:
       # contains REGRESSION TESTS for compiler bugs, so the seed fails it by
       # construction on every test newer than the seed (run 31861036285 died
       # on "standalone await as the async body's own result",
-      # tests/async_await.test.yo:3974 — a fix the seed does not have). Any
+      # tests/async-await.test.yo:3974 — a fix the seed does not have). Any
       # allowlist would need editing on every compiler fix and would invert
       # the meaning of the suite. The four macOS/Windows targets run this
       # same invocation in `test-native` below, under the cross-emitted
@@ -1457,7 +1524,7 @@ jobs:
         run: chmod +x yo-candidate
 
       # chunked_gate.sh runs `compile src/main.yo` four times, and
-      # src/doc/render_html.yo — in that closure — imports the `markdown-yo`
+      # src/doc/render-html.yo — in that closure — imports the `markdown-yo`
       # DEPENDENCY. `compile` resolves import roots but never fetches, so the
       # store has to be populated first. See install-deps' own comment.
       - name: Fetch the project's Yo dependencies
@@ -1776,7 +1843,7 @@ jobs:
             # under the default allocator, where its fault checks are inert.
             # Its children judge their own leaks whatever
             # YO_TEST_LEAK_VERDICT says (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11).
-            "$YO" test ./tests/debug_allocator.test.yo --allocator debug --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+            "$YO" test ./std/allocator.test.yo --allocator debug --bail --verbose --c-compiler clang $TEST_SAN_FLAG
           fi
 
       # The suite compiler above is a system-allocator build, like the shipped
@@ -1799,7 +1866,7 @@ jobs:
           # builds and runs on the vendored mimalloc. ASan coverage is "Run
           # tests"' job, and ASan + static mimalloc on windows-x64 has never
           # been exercised (a second malloc interposer under ASan's).
-          ./yo-suite.exe test ./tests/collections/hash_map.test.yo --allocator mimalloc --bail --verbose --c-compiler clang --disable-sanitize
+          ./yo-suite.exe test ./tests/collections/hash-map.test.yo --allocator mimalloc --bail --verbose --c-compiler clang --disable-sanitize
 
   # Stage 1 built ONCE per battery and shared. Before this job, five Linux jobs
   # (bootstrap-fixpoint, bootstrap-self-test, compiler-internal-tests-selfhosted,
@@ -1940,7 +2007,7 @@ jobs:
         run: |
           chmod +x yo-stage1
           mv yo-stage1 /tmp/yo-stage1
-      # G-E's totality audit checks ./src, and src/doc/render_html.yo imports
+      # G-E's totality audit checks ./src, and src/doc/render-html.yo imports
       # the `markdown-yo` DEPENDENCY: `check` resolves import roots but never
       # fetches, so without the store every file in that closure failed
       # (`./src: rc=1`, battery 43142204182) and went unaudited.
@@ -1994,8 +2061,8 @@ jobs:
           YO_TEST_LEAK_VERDICT: "0"
         run: |
           set -e
-          for p in tests/async_await.test.yo tests/async tests/io tests/net tests/sys \
-                   tests/thread.test.yo tests/cross_thread_wake.test.yo tests/spawn_blocking.test.yo; do
+          for p in tests/async-await.test.yo tests/async tests/io tests/net tests/sys \
+                   tests/thread.test.yo tests/cross-thread-wake.test.yo tests/spawn-blocking.test.yo; do
             echo "::group::$p"
             /tmp/yo-stage1 test "$p" --parallel 1 --bail
             echo "::endgroup::"
@@ -2437,7 +2504,7 @@ jobs:
   # RECORDED GOLDENS — the TS reference arm it used to diff against is gone with
   # src/), `<bin> check ./std`, `<bin> check ./src` (GATE 4
   # — the compiler type-checking ITSELF; ~137 s, and the only gate that covers
-  # build_runner.yo / version_cache.yo, which sit outside main.yo's import
+  # build-runner.yo / version-cache.yo, which sit outside main.yo's import
   # closure and were type-checked by NOTHING). The script exits non-zero if any
   # of those fail.
   #
@@ -3055,7 +3122,7 @@ jobs:
       # P2.5 step 22: this leg now drives the SELF-HOSTED compiler. Until now it
       # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not src/
       # — it could not have caught a fault in the wasm backend, which is exactly
-      # what the runtime_io_wasm.yo port needed proving.
+      # what the runtime-io-wasm.yo port needed proving.
       #
       # Node stays: `emcc` is itself a node program, so this leg can never be
       # node-free. What changes is only WHICH Yo compiler drives it. Bun and the
@@ -3193,7 +3260,7 @@ jobs:
       # P2.5 step 22: this leg now drives the SELF-HOSTED compiler. Until now it
       # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not src/
       # — it could not have caught a fault in the wasm backend, which is exactly
-      # what the runtime_io_wasm.yo port needed proving.
+      # what the runtime-io-wasm.yo port needed proving.
       #
       # Node stays: `emcc` is itself a node program, so this leg can never be
       # node-free. What changes is only WHICH Yo compiler drives it. Bun and the

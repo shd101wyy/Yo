@@ -9,9 +9,9 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
 {
   AstExpr,
   AstExprNode,
@@ -44,11 +44,15 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   AUTO_REF_RECEIVER_PATH,
   for_desugar_site_of,
-  ast_expr_is_infix_op_fn_call
+  ast_expr_is_infix_op_fn_call,
+  ast_expr_is_capture_mode_entry,
+  ast_expr_is_capture_list_params,
+  BK_MUT,
+  BK_COLON
 } :: import("../../expr.yo");
-{ is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
+{ is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory-safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place, note_self_lend_operand, note_self_lend_forced, path_collection_new } :: import("../../expr_info.yo");
+{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place, note_self_lend_operand, note_self_lend_forced, path_collection_new } :: import("../../expr-info.yo");
 {
   Variable,
   Environment,
@@ -76,15 +80,15 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { some_t_bounds, t_static_str_ref, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
-{ is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
-{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
+{ is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await-analysis.yo");
+{ Substitution, subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str, TokenData } :: import("../../token.yo");
 { EvalValue, EvalValueNode, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid, shared_values, value_cell_new } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
-{ type_key } :: import("../../types/type_key.yo");
-{ record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg } :: import("../utils.yo");
+{ type_key } :: import("../../types/type-key.yo");
+{ record_await_fusion_candidate } :: import("../../expr-traversal.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, place_write_join, invariant_origin_names, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -115,19 +119,19 @@ pragma(Pragma.AllowUnsafe);
   rprobe_stats_on
 } :: import("../context.yo");
 { is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_type_parameter_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type, is_str_reference_type, str_reference_pointee, unique_box_payload_type } :: import("../../types/guards.yo");
-{ convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
+{ convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env-lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_lacks_clone, is_legacy_value_str, is_static_view_slot } :: import("../../types/utils.yo");
+{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_error, type_lacks_clone, is_legacy_value_str, is_static_view_slot } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { trait_impl_epoch, type_is_typed_fnmut_closure, closure_fn_trait_of, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
-{ type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
-{ evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
+{ type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type-trait-methods.yo");
+{ evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime-fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ try_to_implement_function_by_function_type } :: import("./function_type.yo");
-{ try_to_implement_closure_by_fn_module_type } :: import("./closure_type.yo");
+{ try_to_implement_function_by_function_type } :: import("./function-type.yo");
+{ try_to_implement_closure_by_fn_module_type } :: import("./closure-type.yo");
 {
   extract_fn_trait_from_type,
   type_is_callable_shaped,
@@ -143,17 +147,17 @@ pragma(Pragma.AllowUnsafe);
   copy_structural_parts,
   type_implements_trait,
   type_clone_runs_no_user_code
-} :: import("../trait_checking.yo");
-{ get_trait_type_from_env } :: import("../../types/env_lookup.yo");
-{ make_deref_expr } :: import("../exprs/property_access.yo");
+} :: import("../trait-checking.yo");
+{ get_trait_type_from_env } :: import("../../types/env-lookup.yo");
+{ make_deref_expr } :: import("../exprs/property-access.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
-{ try_to_implement_module_with_arguments_by_module_type } :: import("./record_type.yo");
+{ try_to_implement_module_with_arguments_by_module_type } :: import("./record-type.yo");
 {
   try_to_specialize_trait_type,
   try_to_implement_trait_with_arguments_by_trait_type
-} :: import("./trait_type.yo");
-{ try_to_implement_array_by_array_type } :: import("./array_type.yo");
-{ has_index_impl, try_to_call_with_index_trait } :: import("./index_trait.yo");
+} :: import("./trait-type.yo");
+{ try_to_implement_array_by_array_type } :: import("./array-type.yo");
+{ has_index_impl, try_to_call_with_index_trait } :: import("./index-trait.yo");
 /// Master switch for macro-call dispatch in the FuncVal arm — see the
 /// comment at its use site. ENABLED 2026-06-11: the heap corruption that
 /// kept it off was root-caused to two general early-return RC bugs
@@ -161,19 +165,19 @@ pragma(Pragma.AllowUnsafe);
 /// fixed; dispatch-ON sweeps are clean (std 152/152 ×5, the compiler's own
 /// suite 240/240, gmalloc-clean) and the macro tests run for real against it.
 MACRO_DISPATCH_ENABLED :: true;
-{ try_to_implement_comptime_list_by_comptime_list_type } :: import("./comptime_list_type.yo");
+{ try_to_implement_comptime_list_by_comptime_list_type } :: import("./comptime-list-type.yo");
 {
   is_convertible_numeric_type,
   try_to_convert_to_numeric_type
-} :: import("./numeric_type.yo");
-{ try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
+} :: import("./numeric-type.yo");
+{ try_to_convert_to_pointer_type } :: import("./pointer-type.yo");
 { CtorMethodImpl, instance_constructor_fid, impls_of_constructor_method, synthesize_impl_binders, first_failed_impl_where } :: import("../values/impl.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr, reference_argument_as_referent, _try_call_fn_with_args_trapped } :: import("./helper.yo");
-{ get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function_value.yo");
+{ get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function-value.yo");
 { structural_clone_expansion } :: import("../utils/closure.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
-{ function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
+{ function_may_mutate_rc_storage } :: import("../effects/mutation-summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
 /// `TypeVal(SomeT)`. The name is REQUIRED for Type-typed slots
@@ -181,7 +185,7 @@ MACRO_DISPATCH_ENABLED :: true;
 /// `create_unknown_val_with_name` rationale), so a bare UnknownVal of type `Type`
 /// cannot reach a type-expecting builtin: `types.first()` on an unknown
 /// variadic ComptimeList(Type) did exactly that
-/// (tests/variadic_comptime.test.yo). Template-free name (hot path).
+/// (tests/variadic-comptime.test.yo). Template-free name (hot path).
 /// RUNTIME-ONLY by design: a call whose return type is not
 /// `comptime(...)` leaves `expr.$.value` UNDEFINED.
 /// This compiler carries a placeholder instead, so the flag has to say "there
@@ -226,6 +230,26 @@ _SaiMemo :: struct(epoch : u64, arg_keys : ArrayList(Option(String)), receiver :
 /// The receiver slot types R-PROBE tried for a `.` callee whose lookup found
 /// no method, by the callee's id: E0610's "probed" line.
 (g_probed_receiver_slots : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
+/// The io builtin a resolved method IS: the marker of an `extern("Yo")`
+/// `__yo_io_async` / `__yo_io_await` / `__yo_io_state` / `__yo_io_spawn` the
+/// method is bound to (`impl(Io, async : __yo_io_async, ...)`), `.None` for
+/// any other method. (`JoinHandle.await`'s builtin takes its handle as
+/// `self` and stays an ordinary method.)
+_io_builtin_method_marker :: (fn(method_ty : &TypeValue) -> Option(String))(
+  match(
+    method_ty,
+    Rc(.Func({ meta : ibm_m })) => match(
+      &ibm_m.extern_name,
+      .Some(ibm_en) => if(
+        (ibm_en.* == "__yo_io_async") || (ibm_en.* == "__yo_io_await") || (ibm_en.* == "__yo_io_state") || (ibm_en.* == "__yo_io_spawn"),
+        Option(String).Some(ibm_en.clone()),
+        Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    _ => Option(String).None
+  )
+);
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
@@ -322,7 +346,7 @@ _try_eval_receiver_node :: (
 /// is never blocked. The ACCESS site is the method-name TOKEN's module —
 /// the lexical position of the call — never `env.module_path`: a generic
 /// impl's body is evaluated at call time in an env that carries the CALLER's
-/// module, which flagged `self._length` inside array_list.yo itself.
+/// module, which flagged `self._length` inside array-list.yo itself.
 _reject_private_method_call :: (
   fn(
     method_info_opt : &Option(ReceiverMethodResult),
@@ -352,7 +376,7 @@ _reject_private_method_call :: (
     }
   );
   name_tok := ast_expr_token(&name_expr);
-  owner := match(mi.all_hits.get(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
+  owner := match(mi.all_hits.get_cloned(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
   owner_opt := cond((owner.len() > usize(0)) => Option(String).Some(owner), true => Option(String).None);
   if(private_member_blocked(name_tok.value.*.clone(), &owner_opt, &name_tok.module_path.*), {
     recv_str := cond(
@@ -601,7 +625,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
         (hi : usize) = usize(0);
         while(hi < hits.len(), hi = (hi + usize(1)), {
           match(
-            hits.get(hi),
+            hits.get_cloned(hi),
             .Some(h) => cond(
               h.source_trait_id.is_empty() => {
                 inherent = true;
@@ -1404,6 +1428,18 @@ _r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
     )
   )
 });
+/// Whether some method of `hits` has the probe step 0 of a `&C` receiver:
+/// its receiver slot is `&C` itself (VERDICTS-69 Q1).
+_has_slot_step_zero :: (fn(hits : &ArrayList(MethodEntry)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < hits.len(), {
+    if(_r_probe_rank(&hits(i), Option(bool).Some(false)) == usize(0), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 /// The candidate receiver slot types of a receiver whose value type is
 /// `base`, in probe order: E0610's "probed" line.
 _r_probe_slots_text :: (fn(base : &TypeValue, ref_mode : Option(bool)) -> String)({
@@ -1434,7 +1470,7 @@ _r_probe_candidates :: (
   (bi : usize) = usize(0);
   while(bi < base_hits.len(), {
     match(
-      base_hits.get(bi),
+      base_hits.get_cloned(bi),
       .Some(h) => {
         if(probe_refs, {
           seen.push(_method_entry_identity(&h));
@@ -1456,7 +1492,7 @@ _r_probe_candidates :: (
     (ri : usize) = usize(0);
     while(ri < ref_hits.len(), {
       match(
-        ref_hits.get(ri),
+        ref_hits.get_cloned(ri),
         .Some(h) => {
           hid := _method_entry_identity(&h);
           (dup : bool) = false;
@@ -1486,7 +1522,7 @@ _r_probe_candidates :: (
   pool_ranks := ArrayList(usize).new();
   (pi : usize) = usize(0);
   while(pi < pool.len(), {
-    match(pool.get(pi), .Some(h) => pool_ranks.push(_r_probe_rank(&h, ref_mode)), .None => pool_ranks.push(usize(9)));
+    match(pool.get_cloned(pi), .Some(h) => pool_ranks.push(_r_probe_rank(&h, ref_mode)), .None => pool_ranks.push(usize(9)));
     pi = (pi + usize(1));
   });
   (rank : usize) = usize(0);
@@ -1495,7 +1531,7 @@ _r_probe_candidates :: (
     while(qi < pool.len(), {
       if(match(pool_ranks.get(qi), .Some(r) => (r == rank), .None => false), {
         match(
-          pool.get(qi),
+          pool.get_cloned(qi),
           .Some(h) => {
             out_hits.push(h);
             out_ranks.push(rank);
@@ -1522,8 +1558,8 @@ _rprobe_audit_gate :: (
   (ai : usize) = usize(0);
   while(same && (ai < full.hits.len()), {
     same = match(
-      full.hits.get(ai),
-      .Some(fh) => match(gated.hits.get(ai), .Some(gh) => (_method_entry_identity(&fh) == _method_entry_identity(&gh)), .None => false),
+      full.hits.get_cloned(ai),
+      .Some(fh) => match(gated.hits.get_cloned(ai), .Some(gh) => (_method_entry_identity(&fh) == _method_entry_identity(&gh)), .None => false),
       .None => false
     );
     ai = (ai + usize(1));
@@ -1619,11 +1655,18 @@ _find_receiver_method_of :: (
   // The Q-B arm's receiver half (`unsized_legacy_spellings`, VERDICTS-62
   // decision 5): a `&str` VALUE receiver (a call's result, the legacy value
   // `str`) with no method of its own selects `str`'s, and the reference value
-  // fills the `&Self` slot as a `&str` argument does. S3b-`str` deletes it.
+  // fills the `&Self` slot as a `&str` argument does. A method of `&str` at a
+  // deeper slot (`&&str`: a blanket over `&T`, an `impl(&str, …)` taking
+  // `self : &Self`) does not shadow a method of `str`, which has the earlier
+  // slot `&str` (VERDICTS-69 Q1); with no method of `str` it is the answer.
+  // S3b-`str` deletes it.
   match(
     str_reference_pointee(&receiver_type),
-    .Some(sr_p) => if(!match(receiver_value.clone(), .Some(sr_v) => is_type_val(&sr_v), .None => false) && (get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false).len() == usize(0)), {
-      receiver_type = sr_p;
+    .Some(sr_p) => if(!match(receiver_value.clone(), .Some(sr_v) => is_type_val(&sr_v), .None => false), {
+      sr_ref_hits := get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false);
+      if((sr_ref_hits.len() == usize(0)) || (!_has_slot_step_zero(&sr_ref_hits) && (get_receiver_methods_by_name_from_env(env, method_name.clone(), &sr_p, false).len() > usize(0))), {
+        receiver_type = sr_p;
+      });
     }),
     .None => ()
   );
@@ -1727,15 +1770,45 @@ _find_receiver_method_of :: (
     // reaches it only through the deref step below (`rr.*.*.m()`). Only a
     // method whose impl receiver is itself a reference answers the value
     // directly.
+    // A reference impl's candidate is kept only when no candidate of `C` it
+    // drops has an earlier probe step: `C`'s `self : &Self` method has the
+    // slot `&C` the value fills, so it wins over a blanket over `&T` (slot
+    // `&&C`), and the call is left to the deref step (VERDICTS-69 Q1).
     value_receiver := (t_slot_is_borrow(&receiver_type) && !is_pointer_type(&receiver_type) && !probe_explicit && !ast_expr_is_atom(&receiver_expr_r));
     cond(
       value_receiver => {
         hits = ArrayList(MethodEntry).new();
+        (dropped_min_rank : usize) = usize(10);
+        (pd_i : usize) = usize(0);
+        while(pd_i < probed.hits.len(), {
+          if(!match(probed.receivers.get_cloned(pd_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true), {
+            match(
+              probed.ranks.get(pd_i),
+              .Some(r) => if(r < dropped_min_rank, {
+                dropped_min_rank = r;
+              }),
+              .None => ()
+            );
+          });
+          pd_i = (pd_i + usize(1));
+        });
+        // A reference impl's candidate at the same step as a dropped one ties
+        // with it: both stay, and the selection reports the ambiguity (E0616).
+        (tie_at_min : bool) = false;
+        (pt_i : usize) = usize(0);
+        while(pt_i < probed.hits.len(), {
+          if(match(probed.receivers.get_cloned(pt_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true) && match(probed.ranks.get(pt_i), .Some(r) => (r == dropped_min_rank), .None => false), {
+            tie_at_min = true;
+          });
+          pt_i = (pt_i + usize(1));
+        });
         (pf_i : usize) = usize(0);
         while(pf_i < probed.hits.len(), {
-          keep := match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true);
+          is_ref_impl := match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true);
+          pf_rank := match(probed.ranks.get(pf_i), .Some(r) => r, .None => usize(9));
+          keep := cond(is_ref_impl => (pf_rank <= dropped_min_rank), true => (tie_at_min && (pf_rank == dropped_min_rank)));
           if(keep, {
-            match(probed.hits.get(pf_i), .Some(h) => hits.push(h), .None => ());
+            match(probed.hits.get_cloned(pf_i), .Some(h) => hits.push(h), .None => ());
             match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());
             match(probed.receivers.get_cloned(pf_i), .Some(pr) => probe_receivers.push(pr), .None => ());
           });
@@ -1818,7 +1891,7 @@ _find_receiver_method_of :: (
   // Take the first hit ("first match wins" contract — the call site does
   // parameter unification later).
   first := match(
-    hits.get(usize(0)),
+    hits.get_cloned(usize(0)),
     .Some(m) => m,
     .None => {
       return(Option(ReceiverMethodResult).None);
@@ -2223,7 +2296,7 @@ _sai_instance_method_takes_self :: (fn(env : &Environment, m : &String, self_ty 
   (found : bool) = false;
   (hi : usize) = usize(0);
   while((hi < hits.len()) && !found, hi = (hi + usize(1)), {
-    found = match(hits.get(hi), .Some(h) => _sai_param0_is_self(&h.ty, self_ty), .None => false);
+    found = match(hits.get_cloned(hi), .Some(h) => _sai_param0_is_self(&h.ty, self_ty), .None => false);
   });
   found
 });
@@ -2302,14 +2375,14 @@ _sai_normalize_binder_levels :: (fn(ty : &TypeValue, names : &ArrayList(String),
       match(
         all.get_cloned(ai),
         .Some(Rc(.SomeT({ name : a_name, frame_level : a_lvl }))) => if((a_name == b_name) && (a_lvl != b_lvl), {
-          subst_add(&s, &b_name, a_lvl, &b_some);
+          subst_add(&mut s, &b_name, a_lvl, &b_some);
           added = true;
         }),
         _ => ()
       );
     });
   });
-  cond(added => substitute(&s, ty), true => ty.clone())
+  cond(added => substitute(&mut s, ty), true => ty.clone())
 });
 /// Does `ty` mention one of the binders `names`?
 _sai_mentions_binder :: (fn(ty : &TypeValue, names : &ArrayList(String)) -> bool)({
@@ -2455,7 +2528,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
       bindings.get_cloned(bi),
       .Some(.Some(bty)) => match(
         c.binder_types.get_cloned(bi),
-        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&s, &b_name, lvl, &bty),
+        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&mut s, &b_name, lvl, &bty),
         _ => ()
       ),
       _ => ()
@@ -2468,7 +2541,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
     match(
       targs.get_cloned(ti),
       .Some(ta) => {
-        arg_ty := substitute(&s, &ta);
+        arg_ty := substitute(&mut s, &ta);
         aid := alloc_global_expr_id();
         a_info := new_expr_info(env, t_type());
         a_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(arg_ty.clone()))));
@@ -2671,7 +2744,7 @@ _sai_decide :: (
 // `ctx.self_type` for the next body. Returns `.None` for non-static-method callees.
 // ---------------------------------------------------------------------------
 /// `(T <: Trait).static_method()` evaluates its dot-receiver to the TRAIT, with
-/// the real receiver parked in the trait's `is_concrete` slot (subtype_of.yo
+/// the real receiver parked in the trait's `is_concrete` slot (subtype-of.yo
 /// stores it there). `Self` inside the
 /// method body must be `T`, not the trait: binding the trait instead makes a
 /// `Self(field : ...)` constructor read as a trait IMPLEMENTATION and fail with
@@ -3061,7 +3134,7 @@ _ambiguous_method_message :: (
   (an : usize) = usize(0);
   while(an < amb_traits.len(), {
     tn := _trait_display_name(match(amb_traits.get_cloned(an), .Some(t) => t, .None => String.new()), env);
-    entry_opt := match(amb_entries.get(an), .Some(ei) => base.all_hits.get(ei), .None => Option(MethodEntry).None);
+    entry_opt := match(amb_entries.get(an), .Some(ei) => base.all_hits.get_cloned(ei), .None => Option(MethodEntry).None);
     (impl_text, impl_recv_text, slot_text) := match(
       entry_opt,
       .Some(ae) => {
@@ -3141,7 +3214,7 @@ _select_matching_overload :: (
   (hi : usize) = usize(0);
   while(hi < base.all_hits.len(), {
     match(
-      base.all_hits.get(hi),
+      base.all_hits.get_cloned(hi),
       .Some(cand) => match(
         cand.value.clone(),
         .Some(cv) => {
@@ -3192,7 +3265,7 @@ _select_matching_overload :: (
   });
   (winner_hi : usize) = match(matching.get(usize(0)), .Some(i) => i, .None => usize(0));
   // WHERE-CONSTRAINT preference: when the enclosing SPECIALIZATION carries
-  // where-clause traits (expr_info.yo g_active_where_trait_ids) and several
+  // where-clause traits (expr-info.yo g_active_where_trait_ids) and several
   // matches have IDENTICAL signatures from DIFFERENT traits (DisambigPoint's
   // two get_number impls), the constraint is the only discriminator — pick
   // the first match whose source_trait_id is in the active set. The def-time
@@ -3206,7 +3279,7 @@ _select_matching_overload :: (
     (aw_done : bool) = false;
     while((aw_mi < matching.len()) && !aw_done, {
       aw_idx := match(matching.get(aw_mi), .Some(i) => i, .None => usize(0));
-      aw_src := match(base.all_hits.get(aw_idx), .Some(c) => c.source_trait_id.clone(), .None => String.from(""));
+      aw_src := match(base.all_hits.get_cloned(aw_idx), .Some(c) => c.source_trait_id.clone(), .None => String.from(""));
       if(aw_src != "", {
         (aw_wi : usize) = usize(0);
         while((aw_wi < aw_ids.len()) && !aw_done, {
@@ -3239,17 +3312,17 @@ _select_matching_overload :: (
     while(mi < matching.len(), {
       m_idx := match(matching.get(mi), .Some(i) => i, .None => usize(0));
       m_ct := match(
-        base.all_hits.get(m_idx),
+        base.all_hits.get_cloned(m_idx),
         .Some(mc) => match(&mc.ty, Rc(.Func({ meta : __smm1 })) => __smm1.result_is_comptime_only, _ => false),
         .None => false
       );
       // One entry per trait: the same comptime impl can be registered
       // twice (prelude `neg`), and a duplicate is not a second candidate.
-      m_tid := match(base.all_hits.get(m_idx), .Some(mc) => mc.source_trait_id.clone(), .None => String.new());
+      m_tid := match(base.all_hits.get_cloned(m_idx), .Some(mc) => mc.source_trait_id.clone(), .None => String.new());
       (m_dup : bool) = false;
       (mdi : usize) = usize(0);
       while(mdi < ct_matches.len(), {
-        prev_tid := match(base.all_hits.get(match(ct_matches.get(mdi), .Some(i) => i, .None => usize(0))), .Some(pc) => pc.source_trait_id.clone(), .None => String.new());
+        prev_tid := match(base.all_hits.get_cloned(match(ct_matches.get(mdi), .Some(i) => i, .None => usize(0))), .Some(pc) => pc.source_trait_id.clone(), .None => String.new());
         if((prev_tid == m_tid) && (m_tid != ""), {
           m_dup = true;
         });
@@ -3282,7 +3355,7 @@ _select_matching_overload :: (
     while(ami < matching.len(), {
       am_idx := match(matching.get(ami), .Some(i) => i, .None => usize(0));
       match(
-        base.all_hits.get(am_idx),
+        base.all_hits.get_cloned(am_idx),
         .Some(amc) => {
           am_ct := match(&amc.ty, Rc(.Func({ meta : __amm })) => __amm.result_is_comptime_only, _ => false);
           cond(
@@ -3316,13 +3389,13 @@ _select_matching_overload :: (
         winner_hi = ih;
       },
       .None => if(amb_traits.len() > usize(1), {
-        amb_name := match(base.all_hits.get(winner_hi), .Some(w) => w.label.clone(), .None => String.new());
+        amb_name := match(base.all_hits.get_cloned(winner_hi), .Some(w) => w.label.clone(), .None => String.new());
         exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(func_expr), _ambiguous_method_message(base, &amb_name, &amb_traits, &amb_entries, env, ctx)), E_AMBIGUOUS_METHOD))));
       })
     );
   });
   match(
-    base.all_hits.get(winner_hi),
+    base.all_hits.get_cloned(winner_hi),
     .Some(w_cand) => ReceiverMethodResult(
       method_val_opt : w_cand.value.clone(),
       method_ty : Rc.clone(w_cand.ty),
@@ -4021,6 +4094,17 @@ _names_list_contains :: (fn(names : &ArrayList(String), n : &String) -> bool)({
 /// `Future(T, E, p)` (decision 43 step 4, N3-1): the io.async result `t`
 /// (its per-call wrapper SomeT) with its `FutureTraitT`'s origin set to the
 /// places `names`; the wrapper keeps its id, so the registry still finds it.
+/// The places the future's origin ALREADY names STAY (`future_origin_names`,
+/// the bound's own names or its resolution's): a stamp adds places, it never
+/// drops them. A combinator's future carries what its operands borrow,
+/// spelled through the operand parameters (§3.13 A4), beside the parameters
+/// its callee's return rule recorded (R-CALL, decision 43 step 4) — both are
+/// facts about one future, and dropping either would hide the operand's
+/// places from every reader of the origin (decision 38 B's overlap check
+/// `_check_future_operand_lends`, the binding freeze, the spawn rejection).
+/// The stamped bound SHADOWS the resolution's origin
+/// (`_future_origin_names_inner` reads the bound first), so the resolution's
+/// names are carried into the stamped bound, not left behind it.
 _stamp_future_origin :: (fn(t : &TypeValue, names : &ArrayList(String)) -> TypeValue)({
   if(names.len() == usize(0), {
     return(Rc.clone(t));
@@ -4029,7 +4113,23 @@ _stamp_future_origin :: (fn(t : &TypeValue, names : &ArrayList(String)) -> TypeV
     t,
     Rc(.SomeT({ id : st_id, name : sn, frame_level : sfl, parent_type : spt, bounds : st_bounds, kind_function_type : skft, resolution : sres })) => {
       note_future_origins_exist();
-      origin := t_origin_named(&shared_list(names.clone()));
+      merged := names.clone();
+      match(
+        future_origin_names(t),
+        .Some(have) => {
+          (hi : usize) = usize(0);
+          while(hi < have.len(), hi = (hi + usize(1)), {
+            match(
+              have.get_cloned(hi),
+              .Some(n) => if(!merged.contains(&n), {
+                merged.push(n);
+              }),
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
       srtt := st_bounds.required();
       new_rtt := ArrayList(TypeValue).new();
       (ri : usize) = usize(0);
@@ -4039,7 +4139,7 @@ _stamp_future_origin :: (fn(t : &TypeValue, names : &ArrayList(String)) -> TypeV
           .Some(rt) => new_rtt.push(
             match(
               &rt,
-              Rc(.FutureTraitT(base_name : fb, output : fo, effect_labels : fel, effect_types : fet)) => Rc.new(TypeValueNode.FutureTraitT(base_name : fb.clone(), output : Rc.clone(fo), effect_labels : Rc.clone(fel), effect_types : Rc.clone(fet), origin : Rc.clone(origin))),
+              Rc(.FutureTraitT(base_name : fb, output : fo, effect_labels : fel, effect_types : fet)) => Rc.new(TypeValueNode.FutureTraitT(base_name : fb.clone(), output : Rc.clone(fo), effect_labels : Rc.clone(fel), effect_types : Rc.clone(fet), origin : t_origin_named(&shared_list(merged.clone())))),
               _ => Rc.clone(rt)
             )
           ),
@@ -4248,6 +4348,21 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, env : &
   });
   (op_callee : AstExpr) = match(expr, Rc(.FnCall(_, c, _, _, _)) => Rc.clone(c.*), Rc(.Atom(_, _)) => return(()));
   op_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(()));
+  // R-CALL for a returned borrowing future (decision 43 step 4, O8
+  // forwarding): the call's type reads the callee BODY's future, whose
+  // origin names the parameters of whatever made it — `self` of the `show`
+  // a `fwd(w : &W, io)` delegates to. The callee's return rule recorded the
+  // parameters of its own that future is rooted at
+  // (`fn_future_result_origins`); the result's origin names those, so the
+  // lends below map them to this call's arguments.
+  match(
+    _callee_future_result_origins(expr, &op_callee, &info.ty(), ctx),
+    .Some(fr_names) => {
+      info.set_ty(_stamp_future_origin(&info.ty(), &fr_names));
+      expr_info_table_set(&ctx.expr_info_table, call_id, &info);
+    },
+    .None => ()
+  );
   // The places the future borrows are its origin's (decision 43 step 4,
   // VERDICTS-18 §B), named by the callee's parameters; each one's mode is
   // that parameter's.
@@ -4415,6 +4530,23 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
     });
   });
   true
+});
+/// The parameters of the function `call` reaches that its returned
+/// borrowing future is rooted at, as its return rule recorded them under its
+/// declared result or, for a generic callee, its id
+/// (`fn_future_result_origins`; `result` is the call's result type);
+/// `.None` for a function that returns no borrowing future.
+_callee_future_result_origins :: (fn(call : &AstExpr, callee : &AstExpr, result : &TypeValue, ctx : &EvalContext) -> Option(ArrayList(String)))({
+  callee_fid := match(
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(callee)), .Some(ci) => ci.value(), .None => Option(EvalValue).None),
+    .Some(Rc(.FuncVal(cf_fv, _))) => cf_fv.*.func_id.clone(),
+    _ => match(lookup_method_callee_value(ast_expr_id(call)), .Some(Rc(.FuncVal(cm_fv, _))) => cm_fv.*.func_id.clone(), _ => String.new())
+  );
+  found := fn_future_result_origins(result, &callee_fid);
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] callee-future-result ${match(result, Rc(.SomeT({ id : dbg_id })) => dbg_id.clone(), _ => String.new())} fn:${callee_fid}: found=${found.is_some().to_string()} at ${ast_expr_to_string(call)}`);
+  });
+  found
 });
 /// Decision 38 D as amended for futures (§3.13 A2): the borrowing future the
 /// call `op_callee(op_args)` makes borrows the places the call lent to the
@@ -4650,6 +4782,16 @@ _future_call_lends_into :: (
           // future (`mk(H(x)(r : &x), io)` for `h : H(p)`): the future's
           // origin names its parameter, so the call lends the argument's
           // origin, `{(x, &)}` (O8, R-CALL; audit A51).
+          // A reference binding passed bare (`fwd(w, io)` with `w : &W` a
+          // parameter of the caller): its read is typed as the pointee, and
+          // the place it lends is the binding's own, as a receiver's is.
+          if((out.len() == before) && labels_known && ast_expr_is_atom(&lent) && match(get_variables_from_env(env, ast_expr_token(&lent).value.*.clone()).last_cloned(), .Some(lrv) => variable_is_reference_binding(&lrv), .None => false), {
+            match(
+              _lent_place_of(&lent, ctx),
+              .Some(rbp) => out.push(_FutureLend(place : rbp, is_mut : _borrows_root_named_mut(leaf_bs, &label), via : via.clone())),
+              .None => ()
+            );
+          });
           if((out.len() == before) && labels_known && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lent)), .Some(lti) => (type_carries_origin(&lti.ty()) && !is_future_value_type(&lti.ty())), .None => false), {
             tok := ast_expr_token(&lent);
             ors := origin_of(&lent, env, ctx);
@@ -4866,7 +5008,16 @@ _lent_place_of :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(_LentPlace))({
           // Behind a raw pointer the steps go on as a separate path under
           // `*`: `p.*.a` and `p.*.b` are disjoint, as `s.a` and `s.b` are
           // (issues/fixed/2026-11-05-a-mut-match-through-a-raw-pointer-parameter-is-rejected-as-a-read-only-borrow.md).
+          // A raw pointer a call computes (`base.add(i).*`) points into no
+          // place of a binding: the call's result is a temporary, so the
+          // pointee is unchecked unsafe storage, as `*p.add(i)` is in Rust.
+          // Walking on would read the method call as an index of `base` and
+          // judge `(&mut base.add(i).*, &mut base.add(j).*)` as two lends of
+          // one place (tests/origins/corpus/get2-mut-pair.yo).
           (ast_expr_is_atom_of(&fld, "*") && deref_operand_is_raw_pointer(&cur, ctx)) => {
+            if(match(ast_rewritten_node(&cur), Rc(.FnCall(_, _, _, _, _)) => !ast_expr_is_fn_call_of(&ast_rewritten_node(&cur), BF_DOT, Option(usize).Some(usize(2))), Rc(.Atom(_, _)) => false), {
+              return(Option(_LentPlace).None);
+            });
             rev.push(String.from("*"));
           },
           true => {
@@ -4927,6 +5078,45 @@ _lent_places_overlap :: (fn(a : &_LentPlace, b : &_LentPlace, ctx : &EvalContext
 _lent_place_touched :: (fn(target : &AstExpr, lent : &_LentPlace, ctx : &EvalContext) -> bool)(
   match(_lent_place_of(target, ctx), .Some(tp) => _lent_places_overlap(&tp, lent, ctx), .None => false)
 );
+/// The borrows a closure literal's capture list takes
+/// (`{ &y, &mut z, q : &mut w.items }(params) => body`, decision 35), each as
+/// (the place, its mode is `&mut`, the entry). Each is a lend of an outer
+/// place, taken when the literal is evaluated and held by the closure value,
+/// so a call's argument checks judge it as the `&y` / `&mut z` an argument
+/// would hold. A pun's place is a fresh atom of its name: the parser rewrites
+/// the pun to the mode head `__yo_imm(y)` / `__yo_mut(z)`, whose atom also
+/// declares the capture binding, so the outer binding is resolved by name in
+/// the call's scope. A labeled entry's place is its `&p` / `&mut p`
+/// initializer's
+/// (issues/fixed/2026-11-21-a-closures-mut-capture-list-entry-is-not-checked-against-the-loans-of-the-calls-other-arguments.md).
+_closure_capture_lends :: (fn(e : &AstExpr) -> ArrayList(Tuple(AstExpr, bool, AstExpr)))({
+  out := ArrayList(Tuple(AstExpr, bool, AstExpr)).new();
+  if(!ast_expr_is_fn_call_of(e, "=>", Option(usize).Some(usize(2))), {
+    return(out);
+  });
+  lhs := match(e, Rc(.FnCall(_, _, Rc(cp_args), _, _)) => match(cp_args.get_cloned(usize(0)), .Some(a) => a, .None => return(out)), Rc(.Atom(_, _)) => return(out));
+  if(!ast_expr_is_capture_list_params(&lhs), {
+    return(out);
+  });
+  entries := match(lhs, Rc(.FnCall(_, cl_callee, _, _, _)) => match(cl_callee, Rc(.FnCall(_, _, Rc(cl_entries), _, _)) => cl_entries.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new()), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  (ei : usize) = usize(0);
+  while(ei < entries.len(), ei = (ei + usize(1)), {
+    en := match(entries.get_cloned(ei), .Some(x) => x, .None => return(out));
+    cond(
+      ast_expr_is_capture_mode_entry(&en) => {
+        name_atom := match(&en, Rc(.FnCall(_, _, Rc(en_args), _, _)) => match(en_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+        fresh := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), ast_expr_token(&name_atom)));
+        out.push((fresh, ast_expr_is_fn_call_of(&en, BK_MUT, Option(usize).Some(usize(1))), en.clone()));
+      },
+      ast_expr_is_fn_call_of(&en, BK_COLON, Option(usize).Some(usize(2))) => {
+        init := match(&en, Rc(.FnCall(_, _, Rc(lb_args), _, _)) => match(lb_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+        match(_lent_argument_place(&init), .Some(place) => out.push((place, ast_expr_is_fn_call_of(&init, "&mut", .Some(usize(1))), en.clone())), .None => ());
+      },
+      true => ()
+    );
+  });
+  out
+});
 /// The first access in `e` that writes or lends `&mut` a place overlapping
 /// `lent`: an assignment to it, a `&mut` of it, or a call of a `&mut self`
 /// method on it. Reads, `&` borrows and code that never names the place pass.
@@ -4936,6 +5126,15 @@ _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalCont
     .Some(expanded) => match(recur(&expanded, lent, ctx), .Some(hit) => return(Option(Tuple(AstExpr, String)).Some(hit)), .None => ()),
     .None => ()
   );
+  // A closure literal's `&mut` capture-list entry lends its place `&mut`
+  // as the literal is evaluated (`_closure_capture_lends`).
+  cpl := _closure_capture_lends(e);
+  (cpi : usize) = usize(0);
+  while(cpi < cpl.len(), cpi = (cpi + usize(1)), {
+    if(cpl(cpi).1 && _lent_place_touched(&cpl(cpi).0, lent, ctx), {
+      return(Option(Tuple(AstExpr, String)).Some((cpl(cpi).2.clone(), String.from("lends `&mut` (a capture-list entry of its closure)"))));
+    });
+  });
   (callee : AstExpr) = match(e, Rc(.FnCall(_, c, _, _, _)) => Rc.clone(c.*), Rc(.Atom(_, _)) => return(Option(Tuple(AstExpr, String)).None));
   c_args := match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   first := match(c_args.get_cloned(usize(0)), .Some(f) => f, .None => make_err_expr());
@@ -5106,6 +5305,86 @@ _check_call_value_root_overlap :: (fn(lends : &ArrayList(_CallLend), env : &Envi
         });
       }),
       _ => ()
+    );
+  });
+});
+/// Decision 28's argument-exclusivity rule over the ELEMENTS of a tuple
+/// literal (audit A17): the elements evaluate in order exactly as a call's
+/// arguments do, and the tuple holds each lend (`&x`, `&mut x`) from its
+/// element's evaluation for the literal's own life, so a place an element
+/// lends may not be moved, overwritten or lent `&mut` by a LATER element —
+/// `(&x, x)` drops the place the first element still points into,
+/// `(&mut x, &mut x)` gives two live `&mut` references to one place — the
+/// same rule a call's argument list runs
+/// (`_check_call_lent_place_moves`), with the tuple's message. Two `&`
+/// lends of one place (`(&x, &x)`) pass, as two `&` arguments do.
+check_tuple_element_lends :: (fn(elements : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  // The gate: a tuple with no lend element (most tuples — plain values)
+  // checks nothing, and no pairwise walk runs.
+  (has_lend : bool) = false;
+  (ei : usize) = usize(0);
+  while(ei < elements.len(), ei = (ei + usize(1)), {
+    elem := match(elements.get_cloned(ei), .Some(a) => _dyn_lend_unwrapped(_unlabeled_argument(&a)), .None => make_err_expr());
+    if(_lent_argument_place(&elem).is_some(), {
+      has_lend = true;
+    });
+  });
+  if(!has_lend, {
+    return(());
+  });
+  (li : usize) = usize(0);
+  while(li < elements.len(), li = (li + usize(1)), {
+    lent_i := _dyn_lend_unwrapped(_unlabeled_argument(&match(elements.get_cloned(li), .Some(a) => a, .None => make_err_expr())));
+    match(
+      _lent_argument_place(&lent_i),
+      .Some(place) => match(
+        _lent_place_of(&place, ctx),
+        .Some(lp) => {
+          root := ast_expr_to_string(&lp.root);
+          match(
+            _lent_root_moved_at(&lp, env, ctx),
+            .Some(moved_atom) => {
+              raise_flow_violation(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(&moved_atom),
+                    `This tuple literal's element moves \`${root}\`, which an earlier element of the same literal lends (\`${ast_expr_to_string(&lent_i)}\`): the tuple holds that borrow from the moment its element is evaluated, so a later element would drop the place it still points into (decision 28's argument exclusivity, plans/VALUES_BY_DEFAULT.md).`,
+                    Option(String).Some(String.from("compute the moving element before the tuple (`b := x; t := (&x, b)`), or lend and move different places"))
+                  ),
+                  E_BORROW_CONFLICT
+                ),
+                ctx,
+                exn
+              );
+            },
+            .None => ()
+          );
+          (aj : usize) = (li + usize(1));
+          while(aj < elements.len(), aj = (aj + usize(1)), {
+            elem_j := match(elements.get_cloned(aj), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+            match(
+              _find_lent_place_access(&elem_j, &lp, ctx),
+              .Some(hit) => {
+                raise_flow_violation(
+                  with_code(
+                    format_error_message_with_help(
+                      ast_expr_token(&hit.0),
+                      `This tuple literal's element ${hit.1} \`${root}\`, which an earlier element of the same literal lends (\`${ast_expr_to_string(&lent_i)}\`): the tuple holds that borrow from the moment its element is evaluated, so it would hold a reference to a place a later element replaced, or one two borrows reach at once (decision 28's argument exclusivity, plans/VALUES_BY_DEFAULT.md).`,
+                      Option(String).Some(String.from("compute the later element before the tuple (`k := ...; t := (&x, k)`), or lend and move different places"))
+                    ),
+                    E_BORROW_CONFLICT
+                  ),
+                  ctx,
+                  exn
+                );
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
     );
   });
 });
@@ -5307,6 +5586,9 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
     // A `dyn(&v)` / `dyn(&mut v)` argument lends `v` as the bare `&v` /
     // `&mut v` would, for as long as the statement (VERDICTS-43).
     lent := _dyn_lend_unwrapped(match(op_args.get_cloned(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr()));
+    // The capture-list borrows of a closure literal the argument passes
+    // (read before the match below moves `lent`).
+    cls := _closure_capture_lends(&match(_lent_argument_place(&lent), .Some(inner) => inner, .None => lent.clone()));
     match(
       _lent_argument_place(&lent),
       .Some(place) => {
@@ -5336,6 +5618,14 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
         )
       )
     );
+    // A closure literal the argument passes (`f(&mut ({ &mut xs }() => …))`)
+    // holds its capture-list borrows for the whole call: each is a lend of
+    // the argument's, against the call's other arguments in either order.
+    (ci : usize) = usize(0);
+    while(ci < cls.len(), ci = (ci + usize(1)), {
+      c_mut := cls(ci).1;
+      out.push(_CallLend(place : cls(ci).0.clone(), lent_arg : cls(ci).2.clone(), from : (ai + usize(1)), marked : true, exclusive : c_mut, form : if(c_mut, String.from("a `&mut` capture-list entry of a closure argument"), String.from("a `&` capture-list entry of a closure argument")), tag : if(c_mut, String.from("capture-mut"), String.from("capture-imm"))));
+    });
   });
   out
 });
@@ -5548,6 +5838,16 @@ _find_value_loan_access :: (fn(e : &AstExpr, lp : &LocalBorrowPlace, exclusive :
     .Some(expanded) => match(recur(&expanded, lp, exclusive, env, ctx), .Some(hit) => return(Option(Tuple(AstExpr, String)).Some(hit)), .None => ()),
     .None => ()
   );
+  // A closure literal's capture-list borrows lend their places as the
+  // literal is evaluated (`_closure_capture_lends`): `&mut` against any
+  // loan, `&` against a `&mut` one, as a `&mut p` / `&p` argument does.
+  vcpl := _closure_capture_lends(e);
+  (vci : usize) = usize(0);
+  while(vci < vcpl.len(), vci = (vci + usize(1)), {
+    if((vcpl(vci).1 || exclusive) && _value_loan_touched(&vcpl(vci).0, lp, env, ctx), {
+      return(Option(Tuple(AstExpr, String)).Some((vcpl(vci).2.clone(), if(vcpl(vci).1, String.from("lends `&mut` (a capture-list entry of its closure)"), String.from("lends `&` (a capture-list entry of its closure)")))));
+    });
+  });
   // A name or a field chain on one is a read of that place.
   if(_is_plain_place_expr(e), {
     return(if(exclusive && _value_loan_touched(e, lp, env, ctx), Option(Tuple(AstExpr, String)).Some((e.clone(), String.from("reads"))), Option(Tuple(AstExpr, String)).None));
@@ -6199,7 +6499,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
               fbntt := fbrtt_bnd.negative();
               fbntl := fbrtt_bnd.negative_levels();
               subst_add(
-                &fbs,
+                &mut fbs,
                 fbn.clone(),
                 fbl,
                 Rc.new(
@@ -6221,7 +6521,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
         );
         fb_i = (fb_i + usize(1));
       });
-      substitute(&fbs, ft.clone())
+      substitute(&mut fbs, ft.clone())
     },
     _ => Rc.clone(ft)
   )
@@ -6476,7 +6776,7 @@ _gc_freshen_all_sites :: (
           match(
             fresh_types.get_cloned(sk),
             .Some(s_rep) => {
-              subst_add(&gs, s_nm.clone(), s_lvl, &s_rep);
+              subst_add(&mut gs, s_nm.clone(), s_lvl, &s_rep);
             },
             .None => ()
           );
@@ -6486,7 +6786,7 @@ _gc_freshen_all_sites :: (
     });
     si = (si + usize(1));
   });
-  substitute(&gs, ft.clone())
+  substitute(&mut gs, ft.clone())
 });
 _gc_ids_str :: (fn(ids : &ArrayList(String)) -> String)({
   (out : String) = String.new();
@@ -7090,7 +7390,7 @@ _fv_refine_closure_expected :: (
           match(
             mentioned.get_cloned(ms_i),
             .Some(Rc(.SomeT({ name : sg_n, frame_level : sg_l }))) => if(sg_n == f_name, {
-              subst_add(&sb, &sg_n, sg_l, &ft);
+              subst_add(&mut sb, &sg_n, sg_l, &ft);
               any = true;
             }),
             .Some(_) => (),
@@ -7103,7 +7403,7 @@ _fv_refine_closure_expected :: (
     );
   });
   cond(
-    any => substitute(&sb, param_ty),
+    any => substitute(&mut sb, param_ty),
     true => Rc.clone(param_ty)
   )
 });
@@ -7810,6 +8110,132 @@ _funcval_bind_foralls :: (
     });
   });
 });
+/// The callee's `generic(...)` binders as a partial application must type
+/// its minted function. A `_` hole and the result are typed by the callee's
+/// parameter and result types, which can name a binder (`A` in
+/// `fn(generic(A : Type), comptime(x) : A, comptime(y) : A) -> comptime(A)`).
+/// The captured arguments are inferred against their parameters exactly as
+/// a call infers them (`_funcval_bind_foralls`, holes contributing nothing):
+/// a binder they fix to a concrete type goes into `out_subst`
+/// (`Wrap(i32(7), _)` takes and returns `i32`), and every other binder's
+/// index goes into `out_free`, a binder of the minted function that its own
+/// call infers from the hole arguments. Copied unbound, the binder was a type
+/// variable nothing in the minted function binds, and the comptime result of
+/// calling it was an unknown of that variable
+/// (issues/fixed/2026-11-21-partial-application-through-a-generic-binder-loses-the-comptime-value.md).
+_partial_application_binders :: (
+  fn(
+    callee_ty : &TypeValue,
+    forall_names : &ArrayList(String),
+    param_type_names : &ArrayList(String),
+    param_ct : &ArrayList(bool),
+    // Parallel to the callee's parameters; a hole's entry is a placeholder
+    // (blanked name, unit declared type) that can never bind a binder.
+    arg_infos : &ArrayList(ExprInfo),
+    is_hole : &ArrayList(bool),
+    args : &ArrayList(AstExpr),
+    cap_src : &FvCaptureSource,
+    cap_vals : &SharedList(EvalValue),
+    recv_type_args : &SharedList(TypeValue),
+    env : &Environment,
+    exn : Exception,
+    out_subst : &mut Substitution,
+    out_free : &mut ArrayList(usize)
+  ) -> unit
+)({
+  pts := match(callee_ty, Rc(.Func({ param_types : ppt })) => Rc.clone(ppt), _ => no_types());
+  kinds := match(callee_ty, Rc(.Func({ forall_types : fts })) => Rc.clone(fts), _ => no_types());
+  // A hole names no binder, has no declared type to synthesize against, and
+  // supplies no argument.
+  b_ptn := ArrayList(String).new();
+  b_decl := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < pts.len(), {
+    if(match(is_hole.get(i), .Some(h) => h, .None => false), {
+      b_ptn.push(String.new());
+      b_decl.push(t_unit());
+    }, {
+      b_ptn.push(match(param_type_names.get_cloned(i), .Some(n) => n, .None => String.new()));
+      b_decl.push(match(pts.get(i), .Some(t) => t, .None => t_unit()));
+    });
+    i = (i + usize(1));
+  });
+  scratch := new_environment(Rc.clone(env.module_path()));
+  bound_names := ArrayList(String).new();
+  bound_types := ArrayList(TypeValue).new();
+  conflicts := ArrayList(String).new();
+  conflict_args := ArrayList(usize).new();
+  _funcval_bind_foralls(
+    forall_names,
+    &b_ptn,
+    arg_infos,
+    cap_src,
+    cap_vals,
+    recv_type_args,
+    &scratch,
+    env,
+    forall_names.len(),
+    &mut bound_names,
+    &mut bound_types,
+    &ArrayList(TypeValue).new(),
+    &shared_list(b_decl),
+    param_ct,
+    &kinds,
+    &ArrayList(String).new(),
+    &ArrayList(EvalValue).new(),
+    &ArrayList(TypeValue).new(),
+    &mut conflicts,
+    &mut conflict_args
+  );
+  if(conflicts.len() > usize(0), {
+    c_arg := match(conflict_args.get(usize(0)), .Some(a) => a, .None => usize(0));
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(match(args.get_cloned(c_arg), .Some(a) => a, .None => make_err_expr())),
+            match(conflicts.get_cloned(usize(0)), .Some(m) => m, .None => String.new())
+          )
+        )
+      )
+    );
+  });
+  // Every occurrence of the binders in the types the minted function keeps.
+  somes := ArrayList(TypeValue).new();
+  (s_i : usize) = usize(0);
+  while(s_i < pts.len(), {
+    match(pts.get(s_i), .Some(t) => somes.extend(get_all_some_types(&t_slot_pointee(&t))), .None => ());
+    s_i = (s_i + usize(1));
+  });
+  match(callee_ty, Rc(.Func({ result : r })) => somes.extend(get_all_some_types(&t_slot_pointee(&r.*))), _ => ());
+  (f_i : usize) = usize(0);
+  while(f_i < forall_names.len(), {
+    f_name := match(forall_names.get_cloned(f_i), .Some(n) => n, .None => String.new());
+    match(
+      cond(
+        bound_names.contains(&f_name) => _scratch_concrete_binding(&scratch, &f_name),
+        true => Option(TypeValue).None
+      ),
+      .Some(f_ty) => {
+        (k : usize) = usize(0);
+        while(k < somes.len(), {
+          match(
+            somes.get_cloned(k),
+            .Some(Rc(.SomeT(_, st_name, st_lvl, _, _, _, _))) => if(st_name == f_name, {
+              subst_add(out_subst, &f_name, st_lvl, &f_ty);
+            }),
+            _ => ()
+          );
+          k = (k + usize(1));
+        });
+      },
+      .None => {
+        out_free.push(f_i);
+      }
+    );
+    f_i = (f_i + usize(1));
+  });
+});
 /// Extracted runtime-return branch of the FuncVal arm of
 /// `evaluate_function_call`. Pulling this ~200-line block (incl. the 16-field Func
 /// destructuring) out of `evaluate_function_call` removes its many -O0 stack slots
@@ -8094,7 +8520,7 @@ _evaluate_funcval_runtime_call :: (
                   // this guard the check wrongly rejects
                   // `fn(e : E2) -> T2  vs  fn(e : LogBundle) -> unit` and two
                   // siblings, breaking async_await and
-                  // codegen-bootstrap/effect_polymorphism_forall_infer.
+                  // codegen-bootstrap/effect-polymorphism-forall-infer.
                   // DEEP predicate here — a top-level-only
                   // variant read `Tuple(0:T,1:Y)` as CONCRETE and this gate
                   // then wrongly rejected `Tuple(T,Y)` vs `Tuple(i32,bool)`
@@ -8220,7 +8646,7 @@ _evaluate_funcval_runtime_call :: (
               bn := match(fa_bound_names.get_cloned(bni), .Some(x) => x, .None => String.from(""));
               if(bn == rst_name, {
                 bt := match(fa_bound_types.get_cloned(bni), .Some(t) => t, .None => t_unit());
-                subst_add(&s_ret, rst_name.clone(), rst_lvl, &bt);
+                subst_add(&mut s_ret, rst_name.clone(), rst_lvl, &bt);
                 s_ret_any = true;
               });
               bni = (bni + usize(1));
@@ -8231,7 +8657,7 @@ _evaluate_funcval_runtime_call :: (
         rsi = (rsi + usize(1));
       });
       if(s_ret_any, {
-        resolved_ret = substitute(&s_ret, ret_type);
+        resolved_ret = substitute(&mut s_ret, ret_type);
       });
     });
   });
@@ -8619,7 +9045,7 @@ _evaluate_funcval_runtime_call :: (
     });
     ou_spec_comptime_params = (ou_any_ct && ou_all_known && !is_control_fn(func_id_fv.clone()));
   };
-  // Supersession counting — see expr_info.yo g_fid_rtcalls/g_fid_specs.
+  // Supersession counting — see expr-info.yo g_fid_rtcalls/g_fid_specs.
   record_fid_rtcall(func_id_fv.clone());
   if((forall_names.len() > usize(0)) || ou_spec_soft_generic || ou_spec_comptime_params, {
     // Bind `Self` to the concrete static dot-receiver around the
@@ -8741,7 +9167,7 @@ _evaluate_funcval_runtime_call :: (
     while(sra_i < n_supplied_reg, {
       ainfo := match(evaled_arg_infos.get_cloned(sra_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
       // For a closure arg, the evaluator records the concrete capture
-      // struct on ExprInfo.capture_type (anonymous_function.yo:1052) while
+      // struct on ExprInfo.capture_type (anonymous-function.yo:1052) while
       // ExprInfo.ty stays the Fn-trait type. Use the capture struct as the
       // specialization arg_type so the closure param (`cb : Impl(Fn(...),
       // Send)`) lowers to its concrete capture struct in the specialized C
@@ -8955,7 +9381,7 @@ _evaluate_funcval_runtime_call :: (
     spec_callee_info.set_value(Option(EvalValue).Some(Rc.clone(spec_fv)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(func_expr), &spec_callee_info);
     // For a DOT-callee call, codegen's method dispatch resolves the callee
-    // through the method-callee VALUE side-table (other_fn_call.yo) and, when
+    // through the method-callee VALUE side-table (other-fn-call.yo) and, when
     // the table has no entry, falls back to the type_trait_methods registry
     // FIRST-HIT — the ORIGINAL generic FuncVal. This inline-FuncVal arm only
     // stamped func_expr's ExprInfo (which that dispatch never reads), so the
@@ -9125,7 +9551,7 @@ _operator_reference_operand :: (
   rhs_ty := variable_slot_type(&rhs_v);
   (ci : usize) = usize(0);
   while(ci < cands.len(), ci = (ci + usize(1)), {
-    c_slots := match(cands.get(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(false));
+    c_slots := match(cands.get_cloned(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(false));
     match(
       (c_slots.get(usize(0)), c_slots.get(usize(1))),
       (.Some(lhs_slot), .Some(rhs_slot)) => {
@@ -9347,15 +9773,15 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
 /// Hand-written bodies keep the plain error.
 _generated_no_method_independence :: (fn(err : &YoError, func_expr : &AstExpr, ctx : &EvalContext) -> YoError)(
   cond(
-    !ast_expr_token(func_expr).module_path.*.starts_with(String.from("auto-generated://")) => err.*,
+    !ast_expr_token(func_expr).module_path.*.starts_with(String.from("auto-generated://")) => err.clone(),
     true => match(
       match(func_expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.get_cloned(usize(0)), _ => Option(AstExpr).None),
       .Some(recv) => match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
         .Some(ri) => mark_generic_independent(err, &ri.ty(), &ri.ty()),
-        .None => err.*
+        .None => err.clone()
       ),
-      .None => err.*
+      .None => err.clone()
     )
   )
 );
@@ -9570,7 +9996,7 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
   match(
     downcast(&err.*, YoError),
     .Some(ye) => {
-      anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
+      anchored := reanchor_primary_at(ye, call_tok, String.from(STD_RAISE_NOTE));
       shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&anchored, &s.*), .None => anchored);
       dyn(Box.new(match(&accessor_help, .Some(h) => _with_primary_help(&shown, &h.*), .None => shown)))
     },
@@ -9707,7 +10133,7 @@ _reject_origin_carrying_value :: (fn(r : &AstExpr, call_tok : &Token, ctx : &Eva
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)),
     .Some(ri) => if(origin_beyond_n2b(&ri.ty()), {
-      exn.throw(dyn(Box.new(format_error_message(call_tok, origin_beyond_n2b_message(&ri.ty())))));
+      exn.throw(dyn(Box.new(origin_beyond_n2b_error(&ri.ty(), call_tok))));
     }),
     .None => ()
   )
@@ -9719,8 +10145,19 @@ _origin_position_pairs :: (fn(p : &TypeValue, a : &TypeValue, out_p : &mut Array
   if(depth > u32(16), {
     return(());
   });
+  // A binder-typed by-value slot specialized to a reference (`value : T` at
+  // `T := &(X, p)`, R3's `ValueSlot`) holds that reference's positions.
+  match(
+    a,
+    Rc(.ValueSlot(op_av)) => {
+      _origin_position_pairs(p, &op_av.*, out_p, out_a, depth + u32(1));
+      return(());
+    },
+    _ => ()
+  );
   match(
     p,
+    Rc(.ValueSlot(op_pv)) => _origin_position_pairs(&op_pv.*, a, out_p, out_a, depth + u32(1)),
     Rc(.Reference(pp, _, po)) => match(
       a,
       Rc(.Reference(ap, _, ao)) => {
@@ -9865,41 +10302,44 @@ _type_occurs_in_type_arguments :: (fn(needle : &TypeValue, hay : &TypeValue, dep
   });
   false
 });
-/// The origin parameters `ty` names under a `&mut` pointee (`under_mut`
-/// once one is crossed): through reference pointees, struct fields and type
-/// arguments, enum payloads and type arguments, and tuple components. Each
-/// is invariant (O3 step 3): `Slot(p)` with a field `dst : &mut Option(&(T,
-/// p))` names `p`, as do `Tuple(&mut Option(&(T, p)), i32)` and
-/// `Option(&mut Option(&(T, p)))`.
-_mut_pointee_origin_names :: (fn(ty : &TypeValue, under_mut : bool, out : &mut ArrayList(String), depth : u32) -> unit)({
+/// The pointee of every `&mut` a by-value `ty` holds, through struct
+/// fields, enum payloads and tuple components (`W(&mut Option(T))`'s
+/// `Option(T)`). A `&` stops the walk: nothing is written through it. `seen`
+/// stops a recursive type.
+_nested_mut_pointees :: (fn(ty : &TypeValue, out : &mut ArrayList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> unit)({
   if(depth > u32(8), {
     return(());
   });
-  if(under_mut, {
-    origin_param_names_of(ty, out, u32(0));
-  });
   match(
     ty,
-    Rc(.Reference(mp_p, mp_mut, _)) => recur(&mp_p.*, under_mut || mp_mut.*, out, (depth + u32(1))),
-    Rc(.Struct({ field_types : mp_fts, type_arguments : mp_tas })) => {
-      _mut_pointee_origin_names_list(&mp_fts.*, under_mut, out, depth);
-      _mut_pointee_origin_names_list(&mp_tas.*, under_mut, out, depth);
-    },
-    Rc(.EnumT({ variant_fields : mp_vfs, type_arguments : mp_tas })) => {
-      (vi : usize) = usize(0);
-      while(vi < mp_vfs.len(), vi = (vi + usize(1)), {
-        match(mp_vfs.get(vi), .Some(vf) => _mut_pointee_origin_names_list(&vf, under_mut, out, depth), .None => ());
+    Rc(.Reference(nm_p, nm_mut, _)) => if(nm_mut.*, {
+      out.push(Rc.clone(nm_p));
+    }),
+    Rc(.Struct({ id : nm_sid, field_types : nm_fts, type_arguments : nm_tas })) => if((nm_sid.len() == usize(0)) || !seen.contains(&nm_sid.*), {
+      if(nm_sid.len() > usize(0), {
+        seen.push(nm_sid.clone());
       });
-      _mut_pointee_origin_names_list(&mp_tas.*, under_mut, out, depth);
-    },
-    Rc(.Tuple({ field_types : mp_fts })) => _mut_pointee_origin_names_list(&mp_fts.*, under_mut, out, depth),
+      _nested_mut_pointees_list(&nm_fts.*, out, seen, depth);
+      _nested_mut_pointees_list(&nm_tas.*, out, seen, depth);
+    }),
+    Rc(.EnumT({ id : nm_eid, variant_fields : nm_vfs, type_arguments : nm_etas })) => if((nm_eid.len() == usize(0)) || !seen.contains(&nm_eid.*), {
+      if(nm_eid.len() > usize(0), {
+        seen.push(nm_eid.clone());
+      });
+      (vi : usize) = usize(0);
+      while(vi < nm_vfs.len(), vi = (vi + usize(1)), {
+        match(nm_vfs.get(vi), .Some(vf) => _nested_mut_pointees_list(&vf, out, seen, depth), .None => ());
+      });
+      _nested_mut_pointees_list(&nm_etas.*, out, seen, depth);
+    }),
+    Rc(.Tuple({ field_types : nm_tfs })) => _nested_mut_pointees_list(&nm_tfs.*, out, seen, depth),
     _ => ()
   );
 });
-_mut_pointee_origin_names_list :: (fn(tys : &SharedList(TypeValue), under_mut : bool, out : &mut ArrayList(String), depth : u32) -> unit)({
+_nested_mut_pointees_list :: (fn(tys : &SharedList(TypeValue), out : &mut ArrayList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> unit)({
   (i : usize) = usize(0);
   while(i < tys.len(), i = (i + usize(1)), {
-    match(tys.get(i), .Some(t) => _mut_pointee_origin_names(&t, under_mut, out, (depth + u32(1))), .None => ());
+    match(tys.get(i), .Some(t) => _nested_mut_pointees(&t, out, seen, (depth + u32(1))), .None => ());
   });
 });
 /// O3-3 at a call (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3
@@ -9995,6 +10435,168 @@ _lend_through_slots :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
   );
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ls_callee)), .Some(ci) => Option(SharedList(TypeValue)).Some(_callee_param_slots(&ci.ty())), .None => Option(SharedList(TypeValue)).None)
 });
+/// `lend_through` step 3's solve: what the call's arguments other than
+/// the `wi`-th carry into the parameters that name what the `wi`-th
+/// argument's `&mut` pointees (`w_pointees`) name — their origin
+/// parameters `w_names`, their type variables `w_tvars`, or, for a
+/// specialized generic container's method (`by_type_argument`), a type
+/// occurring among their type arguments. The callee may store any of them
+/// through that `&mut`; `stored` receives those arguments.
+_lend_through_solve :: (
+  fn(
+    op_args : &ArrayList(AstExpr),
+    slots : &SharedList(TypeValue),
+    wi : usize,
+    w_names : &ArrayList(String),
+    w_tvars : &ArrayList(String),
+    by_type_argument : bool,
+    w_pointees : &ArrayList(TypeValue),
+    stored : &mut ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext
+  ) -> ArrayList(OriginRootPlace)
+)({
+  solved := ArrayList(OriginRootPlace).new();
+  (xj : usize) = usize(0);
+  while(xj < op_args.len(), {
+    if(xj != wi, {
+      match(
+        slots.get(xj),
+        .Some(x_slot) => {
+          x_arg := _unlabeled_argument(match(op_args.get_cloned(xj), .Some(a) => a, .None => make_err_expr()));
+          x_p := ArrayList(TypeValue).new();
+          x_a := ArrayList(TypeValue).new();
+          _argument_origin_pairs(&x_arg, &x_slot, env, ctx, &mut x_p, &mut x_a);
+          (names_it : bool) = false;
+          (pk : usize) = usize(0);
+          while(pk < x_p.len(), {
+            match(
+              t_origin_spelled_names(&x_p(pk)),
+              .Some(pn) => {
+                (qi : usize) = usize(0);
+                while(qi < pn.len(), {
+                  if(w_names.contains(match(pn.get_cloned(qi), .Some(qn) => qn, .None => String.new())), {
+                    names_it = true;
+                  });
+                  qi = (qi + usize(1));
+                });
+              },
+              .None => ()
+            );
+            pk = (pk + usize(1));
+          });
+          // The parameter's own spelling: an argument whose
+          // type reads as no reference (a projection call's
+          // result `ys.index(i)` is typed as its place) pairs
+          // no position above, and still carries what the
+          // parameter names. (The ungated form also covers the
+          // projection-call-result shape develop's #1938 block
+          // targeted.)
+          if(!names_it, {
+            x_names := ArrayList(String).new();
+            origin_param_names_of(&x_slot, &mut x_names, u32(0));
+            (xn : usize) = usize(0);
+            while(xn < x_names.len(), {
+              if(w_names.contains(match(x_names.get_cloned(xn), .Some(n) => n, .None => String.new())), {
+                names_it = true;
+              });
+              xn = (xn + usize(1));
+            });
+          });
+          if(!names_it && (by_type_argument && type_carries_origin(&x_slot)), {
+            // A binder-typed by-value slot specialized to a reference is
+            // `ValueSlot(&X)` (R3), while the pointee's type argument is the
+            // bare `&X`: the value the slot takes is what occurs there.
+            x_needle := match(&x_slot, Rc(.ValueSlot(xn_inner)) => Rc.clone(xn_inner), _ => Rc.clone(&x_slot));
+            (pti : usize) = usize(0);
+            while(pti < w_pointees.len(), pti = (pti + usize(1)), {
+              if(_type_occurs_in_type_arguments(&x_needle, &w_pointees(pti), u32(0)), {
+                names_it = true;
+              });
+            });
+          });
+          if(!names_it && (w_tvars.len() > usize(0)), {
+            x_tvars := ArrayList(String).new();
+            type_var_ids_of(&x_slot, &mut x_tvars, u32(0), true);
+            (ti : usize) = usize(0);
+            while(ti < x_tvars.len(), {
+              if(w_tvars.contains(match(x_tvars.get_cloned(ti), .Some(tv) => tv, .None => String.new())), {
+                names_it = true;
+              });
+              ti = (ti + usize(1));
+            });
+          });
+          if(names_it, {
+            stored.push(x_arg.clone());
+            x_roots := origin_of(&x_arg, env, ctx);
+            // A projection call's result passed inline
+            // (`put(&mut h, pick(&x.*.s))`) is a place inside its
+            // root arguments, which `origin_of` does not read off
+            // the call (G-D's 2026-11-13 finding; G-B row
+            // `gd-inline-ref-result-store`).
+            if((x_roots.len() == usize(0)) && projection_call_mode_of(&ast_expr_strip_borrow_marker(&x_arg), ctx).is_some(), {
+              _value_loan_entries_into(&ast_expr_strip_borrow_marker(&x_arg), env, ctx, &mut x_roots, u32(0));
+            });
+            // A reference binding passed bare whose read carries
+            // no recorded origin (a capture `rx : &x`): the
+            // binding itself, which its own entries resolve.
+            if(x_roots.len() == usize(0), {
+              x_bare := ast_expr_strip_borrow_marker(&x_arg);
+              if(ast_expr_is_atom(&x_bare), {
+                match(
+                  get_variables_from_env(env, ast_expr_token(&x_bare).value.*.clone()).last_cloned(),
+                  .Some(xv) => if(variable_is_reference_binding(&xv), {
+                    match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : t_slot_is_mut_ref(&variable_slot_type(&xv)))), .None => ());
+                  }),
+                  .None => ()
+                );
+              }, if(t_slot_is_borrow(&x_slot), {
+                // A projection call's result at a reference
+                // slot (`ys.index(usize(0))`) is typed as its
+                // place, so it carries no origin of its own: the
+                // value passed is a lend of that place.
+                match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : t_slot_is_mut_ref(&x_slot))), .None => ());
+              }));
+            });
+            if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+              eprintln(`[n2b] lend-through solve ${ast_expr_to_string(&x_arg)}: roots=[${n2b_roots_text(&x_roots)}]`);
+            });
+            (xr : usize) = usize(0);
+            while(xr < x_roots.len(), {
+              solved.push(x_roots(xr).clone());
+              xr = (xr + usize(1));
+            });
+          });
+        },
+        .None => ()
+      );
+    });
+    xj = (xj + usize(1));
+  });
+  solved
+});
+/// `lend_through` step 3's write-back into one holder: a flow-inferred
+/// holder joins the solved set (`bind_join_roots_for`, KILL when the store
+/// replaced its value); a parameter of the body being evaluated has its
+/// origins declared, rigid where elided (O-3), so each stored argument is
+/// judged as the store `holder.* = arg` through it would be
+/// (`place_write_join`'s subset checks: E0923 for another parameter's
+/// origin, E0912 for a body local), then joined.
+_lend_write_back_into :: (
+  fn(holder : &Variable, solved : &ArrayList(OriginRootPlace), stored : &ArrayList(AstExpr), kill : bool, at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  if(param_declared_origin_slot(holder, env, ctx).is_some(), {
+    (si : usize) = usize(0);
+    while(si < stored.len(), si = (si + usize(1)), {
+      place_write_join(holder, &ast_expr_strip_borrow_marker(&stored(si)), env, ctx, exn);
+    });
+    return(());
+  });
+  if(solved.len() == usize(0), {
+    return(());
+  });
+  bind_join_roots_for(holder, solved, at, env, ctx, exn, kill : kill);
+});
 /// O-2's `lend_through` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3):
 /// the one place O3 step 1's substitution and step 3's exact unification are
 /// applied at a call — a `&mut` argument fixes the origin parameters its
@@ -10065,8 +10667,11 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
     match(
       slots.get(ai),
       .Some(n_slot) => if(!t_slot_is_mut_ref(&n_slot) && type_carries_origin(&n_slot), {
-        inv := ArrayList(String).new();
-        _mut_pointee_origin_names(&n_slot, false, &mut inv, u32(0));
+        // The origins the slot spells at invariant positions: below a `&mut`
+        // pointee, or at a constructor argument whose parameter its fields
+        // place below one (by the constructor's own parameter names, so a
+        // `Slot(r)` over `Slot :: (fn(comptime(z) : Origin) ...)` names `r`).
+        inv := invariant_origin_names(&n_slot);
         if(inv.len() > usize(0), {
           n_arg := match(op_args.get_cloned(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
           n_p := ArrayList(TypeValue).new();
@@ -10243,114 +10848,21 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
               });
               ni = (ni + usize(1));
             });
-            if(unfixed, {
-              solved := ArrayList(OriginRootPlace).new();
-              (xj : usize) = usize(0);
-              while(xj < op_args.len(), {
-                if(xj != wi, {
-                  match(
-                    slots.get(xj),
-                    .Some(x_slot) => {
-                      x_arg := _unlabeled_argument(match(op_args.get_cloned(xj), .Some(a) => a, .None => make_err_expr()));
-                      x_p := ArrayList(TypeValue).new();
-                      x_a := ArrayList(TypeValue).new();
-                      _argument_origin_pairs(&x_arg, &x_slot, env, ctx, &mut x_p, &mut x_a);
-                      (names_it : bool) = false;
-                      (pk : usize) = usize(0);
-                      while(pk < x_p.len(), {
-                        match(
-                          t_origin_spelled_names(&x_p(pk)),
-                          .Some(pn) => {
-                            (qi : usize) = usize(0);
-                            while(qi < pn.len(), {
-                              if(w_names.contains(match(pn.get_cloned(qi), .Some(qn) => qn, .None => String.new())), {
-                                names_it = true;
-                              });
-                              qi = (qi + usize(1));
-                            });
-                          },
-                          .None => ()
-                        );
-                        pk = (pk + usize(1));
-                      });
-                      // The parameter's own spelling: an argument whose
-                      // type reads as no reference (a projection call's
-                      // result `ys.index(i)` is typed as its place) pairs
-                      // no position above, and still carries what the
-                      // parameter names. (The ungated form also covers the
-                      // projection-call-result shape develop's #1938 block
-                      // targeted.)
-                      if(!names_it, {
-                        x_names := ArrayList(String).new();
-                        origin_param_names_of(&x_slot, &mut x_names, u32(0));
-                        (xn : usize) = usize(0);
-                        while(xn < x_names.len(), {
-                          if(w_names.contains(match(x_names.get_cloned(xn), .Some(n) => n, .None => String.new())), {
-                            names_it = true;
-                          });
-                          xn = (xn + usize(1));
-                        });
-                      });
-                      if(!names_it && (by_type_argument && type_carries_origin(&x_slot)), {
-                        names_it = _type_occurs_in_type_arguments(&x_slot, &t_slot_pointee(&w_slot), u32(0));
-                      });
-                      if(!names_it && (w_tvars.len() > usize(0)), {
-                        x_tvars := ArrayList(String).new();
-                        type_var_ids_of(&x_slot, &mut x_tvars, u32(0), true);
-                        (ti : usize) = usize(0);
-                        while(ti < x_tvars.len(), {
-                          if(w_tvars.contains(match(x_tvars.get_cloned(ti), .Some(tv) => tv, .None => String.new())), {
-                            names_it = true;
-                          });
-                          ti = (ti + usize(1));
-                        });
-                      });
-                      if(names_it, {
-                        x_roots := origin_of(&x_arg, env, ctx);
-                        // A projection call's result passed inline
-                        // (`put(&mut h, pick(&x.*.s))`) is a place inside its
-                        // root arguments, which `origin_of` does not read off
-                        // the call (G-D's 2026-11-13 finding; G-B row
-                        // `gd-inline-ref-result-store`).
-                        if((x_roots.len() == usize(0)) && projection_call_mode_of(&ast_expr_strip_borrow_marker(&x_arg), ctx).is_some(), {
-                          _value_loan_entries_into(&ast_expr_strip_borrow_marker(&x_arg), env, ctx, &mut x_roots, u32(0));
-                        });
-                        // A reference binding passed bare whose read carries
-                        // no recorded origin (a capture `rx : &x`): the
-                        // binding itself, which its own entries resolve.
-                        if(x_roots.len() == usize(0), {
-                          x_bare := ast_expr_strip_borrow_marker(&x_arg);
-                          if(ast_expr_is_atom(&x_bare), {
-                            match(
-                              get_variables_from_env(env, ast_expr_token(&x_bare).value.*.clone()).last_cloned(),
-                              .Some(xv) => if(variable_is_reference_binding(&xv), {
-                                match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : t_slot_is_mut_ref(&variable_slot_type(&xv)))), .None => ());
-                              }),
-                              .None => ()
-                            );
-                          }, if(t_slot_is_borrow(&x_slot), {
-                            // A projection call's result at a reference
-                            // slot (`ys.index(usize(0))`) is typed as its
-                            // place, so it carries no origin of its own: the
-                            // value passed is a lend of that place.
-                            match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : t_slot_is_mut_ref(&x_slot))), .None => ());
-                          }));
-                        });
-                        if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-                          eprintln(`[n2b] lend-through solve ${ast_expr_to_string(&x_arg)}: roots=[${n2b_roots_text(&x_roots)}]`);
-                        });
-                        (xr : usize) = usize(0);
-                        while(xr < x_roots.len(), {
-                          solved.push(x_roots(xr).clone());
-                          xr = (xr + usize(1));
-                        });
-                      });
-                    },
-                    .None => ()
-                  );
-                });
-                xj = (xj + usize(1));
-              });
+            // A holder that is a parameter of the body being evaluated has
+            // declared origins: every store the callee may make through it is
+            // judged as the store `holder.* = arg` would be
+            // (`_lend_write_back_into`), whether or not step 1 fixed its
+            // origin parameters. A specialized generic container method types
+            // `value : T` from the ARGUMENT (`T`'s origin is the argument's,
+            // not the receiver's `p`), so step 2 cannot relate the two: the
+            // arguments whose type occurs among the pointee's type arguments
+            // are the candidates too.
+            w_holder_is_param := (ast_expr_is_atom(&w_place) && match(get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(), .Some(whp) => param_declared_origin_slot(&whp, env, ctx).is_some(), .None => false));
+            if(unfixed || w_holder_is_param, {
+              w_pointees := ArrayList(TypeValue).new();
+              w_pointees.push(t_slot_pointee(&w_slot));
+              stored := ArrayList(AstExpr).new();
+              solved := _lend_through_solve(&op_args, &slots, wi, &w_names, &w_tvars, (by_type_argument || w_holder_is_param), &w_pointees, &mut stored, env, ctx);
               // A reference binding's value type is its pointee, which carries no
               // origin: the binding itself is the holder, and its slot type spells
               // (or infers) the origin the solved set widens (`dst : &mut &(T, p)`).
@@ -10365,7 +10877,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
               if((solved.len() > usize(0)) && w_projection, {
                 flow_write_back_through(&origin_of(&w_node, env, ctx), &String.new(), &solved, ast_expr_token(&w_arg), env, ctx, exn);
               });
-              if((solved.len() > usize(0)) && !w_projection, {
+              if(((solved.len() > usize(0)) || (w_holder_is_param && (stored.len() > usize(0)))) && !w_projection, {
                 match(
                   get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(),
                   .Some(hv) => {
@@ -10388,7 +10900,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                             if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                               eprintln(`[n2b] write-back ${hh.name} (chain depth ${link.depth.to_string()}): roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
                             });
-                            bind_join_roots_for(&hh, &solved, ast_expr_token(&w_arg), env, ctx, exn, kill : (link.is_end && (n_ends == usize(1))));
+                            _lend_write_back_into(&hh, &solved, &stored, (link.is_end && (n_ends == usize(1))), ast_expr_token(&w_arg), env, ctx, exn);
                             // A local `&mut` borrow of a holder (`sp := &mut
                             // slot`): the store lands in the holder (A25).
                             if(local_mut_borrow_of_holder(&hh), {
@@ -10403,6 +10915,66 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                   },
                   .None => ()
                 );
+              });
+            });
+          });
+        }),
+        .None => ()
+      );
+      // A `&mut` nested inside a by-value parameter (`w : W(&mut
+      // Option(T))`, a tuple or an `Option` around one; audit A24's
+      // generic-wrapper residual): the callee may store through it exactly as
+      // through a top-level `&mut` parameter, so the places that `&mut`
+      // borrows join what the call's other arguments carry over the same
+      // origin or type parameters. The argument's own `&mut` roots (`slot`
+      // in `W(...)(inner : &mut slot)`) are those places.
+      match(
+        slots.get(wi),
+        .Some(n_slot) => if(!t_slot_is_borrow(&n_slot) && type_carries_origin(&n_slot), {
+          n_pts := ArrayList(TypeValue).new();
+          n_seen := ArrayList(String).new();
+          _nested_mut_pointees(&n_slot, &mut n_pts, &mut n_seen, u32(0));
+          if(n_pts.len() > usize(0), {
+            n_arg := _unlabeled_argument(match(op_args.get_cloned(wi), .Some(a) => a, .None => make_err_expr()));
+            n_names := ArrayList(String).new();
+            n_tvars := ArrayList(String).new();
+            (n_carries : bool) = false;
+            (pi : usize) = usize(0);
+            while(pi < n_pts.len(), pi = (pi + usize(1)), {
+              origin_param_names_of(&n_pts(pi), &mut n_names, u32(0));
+              type_var_ids_of(&n_pts(pi), &mut n_tvars, u32(0), true);
+              if(type_carries_origin(&n_pts(pi)), {
+                n_carries = true;
+              });
+            });
+            n_by_type_argument := ((n_names.len() == usize(0)) && ((n_tvars.len() == usize(0)) && n_carries));
+            (n_unfixed : bool) = ((n_tvars.len() > usize(0)) || n_by_type_argument);
+            (nn : usize) = usize(0);
+            while(nn < n_names.len(), nn = (nn + usize(1)), {
+              if(!fixed_names.contains(&n_names(nn)), {
+                n_unfixed = true;
+              });
+            });
+            if(n_unfixed, {
+              n_stored := ArrayList(AstExpr).new();
+              n_solved := _lend_through_solve(&op_args, &slots, wi, &n_names, &n_tvars, n_by_type_argument, &n_pts, &mut n_stored, env, ctx);
+              if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+                eprintln(`[n2b] lend-through nested &mut in ${ast_expr_to_string(&n_arg)}: solved=[${n2b_roots_text(&n_solved)}] targets=[${n2b_roots_text(&origin_of(&n_arg, env, ctx))}]`);
+              });
+              if(n_solved.len() > usize(0), {
+                n_targets := origin_of(&n_arg, env, ctx);
+                (nt : usize) = usize(0);
+                while(nt < n_targets.len(), nt = (nt + usize(1)), {
+                  if(n_targets(nt).is_mut && !n_targets(nt).place.module_root, {
+                    match(
+                      get_variables_from_env(env, n_targets(nt).place.root_name.clone()).last_cloned(),
+                      .Some(ntv) => if(!ntv.is_module_level() && !ntv.is_compile_time_only(), {
+                        _lend_write_back_into(&ntv, &n_solved, &n_stored, false, ast_expr_token(&n_arg), env, ctx, exn);
+                      }),
+                      .None => ()
+                    );
+                  });
+                });
               });
             });
           });
@@ -11073,7 +11645,7 @@ _evaluate_function_call_unanchored :: (
     });
     if(op_methods.len() > usize(0), {
       first_m_0 := match(
-        op_methods.get(usize(0)),
+        op_methods.get_cloned(usize(0)),
         .Some(m) => m,
         .None => return(Rc.clone(expr.*))
       );
@@ -11102,7 +11674,7 @@ _evaluate_function_call_unanchored :: (
             (osi : usize) = usize(0);
             (osel : bool) = false;
             while((osi < op_methods.len()) && !osel, {
-              ocand := match(op_methods.get(osi), .Some(m) => m, .None => first_m_0);
+              ocand := match(op_methods.get_cloned(osi), .Some(m) => m, .None => first_m_0.clone());
               ocand_p1 := match(
                 &ocand.ty,
                 Rc(.Func({ param_types : ocpt })) => match(slot_pointee_at(&ocpt.*, usize(1)), .Some(t) => t, .None => t_unit()),
@@ -11119,7 +11691,7 @@ _evaluate_function_call_unanchored :: (
         );
       });
       first_m := match(
-        op_methods.get(chosen_idx),
+        op_methods.get_cloned(chosen_idx),
         .Some(m) => m,
         .None => first_m_0
       );
@@ -11220,7 +11792,7 @@ _evaluate_function_call_unanchored :: (
           (ai : usize) = usize(0);
           while((ai < assoc_entries.len()) && !diverged, {
             match(
-              assoc_entries.get(ai),
+              assoc_entries.get_cloned(ai),
               .Some(ae) => match(
                 ae.value.clone(),
                 .Some(av) => match(
@@ -11293,7 +11865,7 @@ _evaluate_function_call_unanchored :: (
         (ocm_i : usize) = usize(0);
         while((ocm_i < op_methods.len()) && op_comptime_m.is_none(), {
           match(
-            op_methods.get(ocm_i),
+            op_methods.get_cloned(ocm_i),
             .Some(ocm) => if(match(&ocm.ty, Rc(.Func({ meta : __fm1 })) => __fm1.result_is_comptime_only, _ => false), {
               op_comptime_m = Option(MethodEntry).Some(ocm);
             }),
@@ -11302,7 +11874,7 @@ _evaluate_function_call_unanchored :: (
           ocm_i = (ocm_i + usize(1));
         });
       };
-      op_eff_m := match(op_comptime_m, .Some(m) => m, .None => first_m);
+      op_eff_m := match(op_comptime_m, .Some(m) => m, .None => first_m.clone());
       op_is_comptime := match(&op_eff_m.ty, Rc(.Func({ meta : __fm2 })) => __fm2.result_is_comptime_only, _ => false);
       // Only FOLD the operator at comptime when EVERY operand is a concrete
       // value (present and not an `UnknownVal`). With a runtime-unknown operand
@@ -11319,7 +11891,7 @@ _evaluate_function_call_unanchored :: (
         oac_n := call_result_op.arg_values.args.len();
         while((oac_i < oac_n) && all_conc, {
           match(
-            call_result_op.arg_values.args.get(oac_i),
+            call_result_op.arg_values.args.get_cloned(oac_i),
             .Some(ae) => match(
               ae.value.clone(),
               .Some(v) => if(is_unknown_val(&v), {
@@ -11358,7 +11930,7 @@ _evaluate_function_call_unanchored :: (
             (opi : usize) = usize(0);
             while(opi < op_pnames.len(), {
               opn := match(op_pnames.get_cloned(opi), .Some(n) => n, .None => String.from(""));
-              oa := match(call_result_op.arg_values.args.get(opi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
+              oa := match(call_result_op.arg_values.args.get_cloned(opi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
               _oap := add_variable_to_env(&op_env, &opn, &oa.arg_type, &oa.value, match(oa.value.clone(), .Some(_) => true, .None => false), false, false, false, synthetic_token(&opn, &op_env.module_path().*));
               opi = (opi + usize(1));
             });
@@ -11369,7 +11941,7 @@ _evaluate_function_call_unanchored :: (
           Option(AstExpr).Some(Rc.clone(func_expr)),
           &op_eff_m.ty,
           &op_fv,
-          &call_result_op.arg_values,
+          &mut call_result_op.arg_values,
           &call_result_op.caller_env,
           &op_env,
           ctx,
@@ -11410,7 +11982,7 @@ _evaluate_function_call_unanchored :: (
       //       evaluates the callee (an identifier lookup on `==` would throw), so
       //       the callee node carries NO ExprInfo. Codegen collection
       //       (functions/collection.yo callee-FuncVal walk) and dispatch
-      //       (other_fn_call.yo `get_expr_info(func_expr)`) BOTH read it to emit +
+      //       (other-fn-call.yo `get_expr_info(func_expr)`) BOTH read it to emit +
       //       call the function; without the stamp the method is neither
       //       generated nor dispatched → "// Failed to transpile". Prefer the
       //       specialized (monomorphized) FuncVal; fall back to the resolved one.
@@ -12536,6 +13108,12 @@ Fix: wrap the call:
             pa_ptn := ArrayList(String).new();
             pa_body_args := ArrayList(AstExpr).new();
             pa_orig_ct := get_func_param_comptime(func_id_fv.clone());
+            // Per callee parameter: the captured argument's info (a hole's is
+            // a placeholder) and whether it is a hole, for the binder pass.
+            pa_arg_infos := ArrayList(ExprInfo).new();
+            pa_is_hole := ArrayList(bool).new();
+            pa_hole_ptys := ArrayList(TypeValue).new();
+            pa_hole_idx := ArrayList(usize).new();
             (pa_i2 : usize) = usize(0);
             while(pa_i2 < n_a, {
               pa_arg := match(args.get_cloned(pa_i2), .Some(a) => a, .None => make_err_expr());
@@ -12543,10 +13121,11 @@ Fix: wrap the call:
               if(ast_expr_is_atom_of(&pa_arg, "_"), {
                 pa_pname := `__pa_${pa_i2}_${pa_id}`;
                 pa_new_labels.push(pa_pname.clone());
-                // A partial application's remaining parameters borrow.
-                pa_new_types.push(t_reference(&pa_pty, false));
+                pa_hole_ptys.push(pa_pty);
+                pa_hole_idx.push(pa_i2);
                 pa_new_ct.push(match(pa_orig_ct.get(pa_i2), .Some(f) => f, .None => true));
-                pa_ptn.push(String.new());
+                pa_arg_infos.push(new_expr_info(env, t_unit()));
+                pa_is_hole.push(true);
                 pa_body_args.push(Rc.new(AstExprNode.Atom(alloc_global_expr_id(), synthetic_token(&pa_pname, &env.module_path().*))));
               }, {
                 pa_cname := `__pa_cap_${pa_i2}_${pa_id}`;
@@ -12559,10 +13138,62 @@ Fix: wrap the call:
                 pa_cap_names.push(pa_cname.clone());
                 pa_cap_tys.push(Rc.clone(pa_info.ty()));
                 pa_cap_vals.push(match(pa_info.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnknownVal(Rc.clone(pa_info.ty()), false))));
+                pa_arg_infos.push(pa_info);
+                pa_is_hole.push(false);
                 pa_body_args.push(Rc.new(AstExprNode.Atom(alloc_global_expr_id(), synthetic_token(&pa_cname, &env.module_path().*))));
               });
               pa_i2 = (pa_i2 + usize(1));
             });
+            // The callee's binders: substitute the ones the captured arguments
+            // fix, keep the rest as the minted function's own binders
+            // (`_partial_application_binders`).
+            pa_subst := subst_new();
+            pa_free := ArrayList(usize).new();
+            if(forall_names.len() > usize(0), {
+              _partial_application_binders(
+                &pa_fty,
+                &forall_names,
+                &param_type_names,
+                &pa_orig_ct,
+                &pa_arg_infos,
+                &pa_is_hole,
+                &args,
+                &fv_capture_source(&__fvm7.*),
+                &cap_vals,
+                &match(
+                  _static_dot_receiver_self_type(&func_expr, ctx),
+                  .Some(Rc(.Struct({ type_arguments : pa_rta }))) => Rc.clone(pa_rta),
+                  _ => no_types()
+                ),
+                env,
+                exn,
+                &mut pa_subst,
+                &mut pa_free
+              );
+            });
+            pa_forall_names := ArrayList(String).new();
+            pa_forall_kinds := ArrayList(TypeValue).new();
+            pa_fkinds := match(&pa_fty, Rc(.Func({ forall_types : pa_fts })) => Rc.clone(pa_fts), _ => no_types());
+            (pa_fi : usize) = usize(0);
+            while(pa_fi < pa_free.len(), {
+              pa_fx := match(pa_free.get(pa_fi), .Some(x) => x, .None => usize(0));
+              pa_forall_names.push(match(forall_names.get_cloned(pa_fx), .Some(n) => n, .None => String.new()));
+              pa_forall_kinds.push(match(pa_fkinds.get(pa_fx), .Some(k) => k, .None => Rc.new(TypeValueNode.TypeUni(usize(0)))));
+              pa_fi = (pa_fi + usize(1));
+            });
+            (pa_hi : usize) = usize(0);
+            while(pa_hi < pa_hole_ptys.len(), {
+              pa_hty := match(pa_hole_ptys.get_cloned(pa_hi), .Some(t) => t, .None => t_unit());
+              // A partial application's remaining parameters borrow.
+              pa_new_types.push(t_reference(&substitute(&mut pa_subst, &pa_hty), false));
+              // A hole spelled by a binder the minted function keeps infers it
+              // by name, as the callee's own parameter would.
+              pa_hptn := match(param_type_names.get_cloned(match(pa_hole_idx.get(pa_hi), .Some(x) => x, .None => usize(0))), .Some(n) => n, .None => String.new());
+              pa_ptn.push(cond(pa_forall_names.contains(&pa_hptn) => pa_hptn, true => String.new()));
+              pa_hi = (pa_hi + usize(1));
+            });
+            pa_res_closed := substitute(&mut pa_subst, &pa_res);
+            pa_forall_labels := shared_list(pa_forall_names.clone());
             pa_body := Rc.new(
               AstExprNode.FnCall(
                 alloc_global_expr_id(),
@@ -12575,14 +13206,14 @@ Fix: wrap the call:
             pa_new_labels_s := shared_list(pa_new_labels);
             pa_new_ty := Rc.new(
               TypeValueNode.Func(
-                no_types(),
+                shared_list(pa_forall_kinds),
                 shared_list(pa_new_types),
                 no_types(),
                 no_types(),
-                pa_res,
+                pa_res_closed,
                 Rc.new(
                   FuncMeta(
-                    forall_labels : no_labels(),
+                    forall_labels : pa_forall_labels,
                     param_labels : pa_new_labels_s.clone(),
                     implicit_labels : no_labels(),
                     result_is_comptime_only : true,
@@ -12604,7 +13235,7 @@ Fix: wrap the call:
               EvalValueNode.FuncVal(
                 Rc.new(
                   FuncValData(
-                    forall_names : ArrayList(String).new(),
+                    forall_names : pa_forall_names,
                     params : pa_new_labels_s.items.clone(),
                     param_type_names : pa_ptn,
                     evidence_params : ArrayList(String).new(),
@@ -13156,8 +13787,8 @@ Fix: wrap the call:
             // function-boundary-arrow argument whose declared parameter type is
             // a plain `.Func` carrying an unresolved binder, and only when the
             // re-derivation lands a FULLY CONCRETE function type. A SomeT /
-            // `Impl(Fn)` parameter coerces through closure_type.yo instead, and
-            // widening this regressed codegen-bootstrap/closure_where_clause_param
+            // `Impl(Fn)` parameter coerces through closure-type.yo instead, and
+            // widening this regressed codegen-bootstrap/closure-where-clause-param
             // twice before.
             if(vs_override.is_none() && (ai < n_p), {
               lp_decl := match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit());
@@ -13283,7 +13914,7 @@ Fix: wrap the call:
                   // Abstract SomeTs (bare type-param `T`) are skipped — an abstract
                   // expected mis-resolves enum-variant shorthands. EXCEPTION: a
                   // SomeT wrapping an Fn trait (`cb : Impl(Fn(...), Send)`) MUST be
-                  // passed so the closure arg coerces through closure_type.yo and
+                  // passed so the closure arg coerces through closure-type.yo and
                   // records its capture struct as the SomeT's resolved_concrete
                   // (needed for spawn/parallelism specialization).
                   is_some_type(&apt) => match(
@@ -14088,12 +14719,12 @@ Fix: wrap the call:
           // `(*name)`. The old add_variable_to_env call passed p_is_ref only
           // as is_reassignable and silently dropped is_ref, so a SPECIALIZED
           // callee's body emitted `p.x` on a pointer param (`__yo_tN* p`)
-          // instead of `(*p).x`; the def-time body eval (function_type.yo:362)
+          // instead of `(*p).x`; the def-time body eval (function-type.yo:362)
           // already binds params this way, which is why the non-specialized
           // function was correct.
           // `is_owning_the_rc_value` must carry the DECLARED `own(name) : T`
           // flag, exactly as the def-time body env binds it
-          // (function_type.yo's `add_parameter_to_env(..., p_own, ...)`). The
+          // (function-type.yo's `add_parameter_to_env(..., p_own, ...)`). The
           // callee owns the reference an `own` argument transferred in (the
           // caller's arg is marked consumed), so begin.yo's parameters-frame
           // pass must see an OWNING binding to schedule its scope-end release.
@@ -14182,14 +14813,14 @@ Fix: wrap the call:
         // hands to `evaluate_comptime_fn_call` below as the callee env. The
         // quote sibling above binds RAW AST; this one binds VALUES.
         //
-        // Before this existed, the whole of tests/variadic_comptime.test.yo
+        // Before this existed, the whole of tests/variadic-comptime.test.yo
         // rode on it: with the name unbound, EVERY call site threw
         // `Variable "types" not found` from inside the body, the def-time
         // swallow hid it, and the failed comptime_assert erased the batch's
         // `__yo_user_main` — 10 tests reporting "passed" while running nothing
         // (issues/fixed/handover-yo-self-hollow-files.md). The failure is at the CALL,
         // not at the definition: the definition alone compiles clean, because
-        // the def-time body env DOES bind the variadic (function_type.yo:918).
+        // the def-time body env DOES bind the variadic (function-type.yo:918).
         if(fv_variadic_is_comptime, {
           ct_velems := ArrayList(EvalValue).new();
           (ct_vidx : usize) = n_p;
@@ -14424,7 +15055,7 @@ Fix: wrap the call:
             Option(AstExpr).Some(Rc.clone(func_expr)),
             &ct_func_type,
             &ct_func_value,
-            &ct_arg_values,
+            &mut ct_arg_values,
             env,
             &fresh_env,
             ctx,
@@ -14549,7 +15180,7 @@ Fix: wrap the call:
                       ct_bn := match(fa_bound_names.get_cloned(ct_bni), .Some(x) => x, .None => String.from(""));
                       if(ct_bn == ct_rst_name, {
                         ct_bt := match(fa_bound_types.get_cloned(ct_bni), .Some(t) => t, .None => t_unit());
-                        subst_add(&s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
+                        subst_add(&mut s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
                         s_ct_any = true;
                       });
                       ct_bni = (ct_bni + usize(1));
@@ -14560,7 +15191,7 @@ Fix: wrap the call:
                 ctsi = (ctsi + usize(1));
               });
               if(s_ct_any, {
-                ct_res_ret = substitute(&s_ct_ret, &ct_res_ret);
+                ct_res_ret = substitute(&mut s_ct_ret, &ct_res_ret);
               });
             });
             ct_res_ret = evaluate_function_return_type_again(&ct_res_ret, &fresh_env, ctx);
@@ -14646,7 +15277,7 @@ Fix: wrap the call:
           };
           out_ct := new_expr_info(&ct_result.caller_env, &resolved_ret_ct);
           // A RUNTIME-ONLY UnknownVal here means the CTFE body was NOT
-          // executed (validation mode: comptime_fn.yo sets
+          // executed (validation mode: comptime-fn.yo sets
           // `is_executing: validating ? false : true`) and
           // an inner short-circuit (recur / call placeholder) leaked its
           // runtime marker through the body's value merge. The `::` gate
@@ -14994,7 +15625,7 @@ Fix: wrap the call:
     ),
     // Callee produced no compile-time value.
     // First try instance-method dispatch for property-access callees
-    // (when property_access.yo could not resolve the method).
+    // (when property-access.yo could not resolve the method).
     .None => {
       // `G.m(x, ...)` through an unapplied type constructor: the receiver
       // becomes `G(A, ...)`, inferred from `x` (decision 32).
@@ -15008,7 +15639,19 @@ Fix: wrap the call:
           .None => ()
         );
       });
-      method_info_opt0 := _try_find_receiver_method(&evaluated_callee, &callee_env, ctx);
+      // A method that IS an io builtin (`impl(Io, await : __yo_io_await,
+      // ...)`, the interface-shaped `Io`,
+      // plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2) is not dispatched as
+      // a method: the property access typed the callee as the builtin itself
+      // (`_io_builtin_method_type`), with no receiver, and the call takes the
+      // valueless-callee path below exactly as the four-field `Io`'s field
+      // does. The receiver only names the `Io` codegen lowers `io.spawn` and
+      // a sync-context await through.
+      method_info_opt0 := match(
+        _try_find_receiver_method(&evaluated_callee, &callee_env, ctx),
+        .Some(fm0) => if(_io_builtin_method_marker(&fm0.method_ty).is_some(), Option(ReceiverMethodResult).None, Option(ReceiverMethodResult).Some(fm0)),
+        .None => Option(ReceiverMethodResult).None
+      );
       // A payload retry records the callee as rewritten (`w.m` → `w.*.m`,
       // `note_rewritten_node`): the rest of the call reads it so.
       m_callee := ast_rewritten_node(&evaluated_callee);
@@ -15248,7 +15891,7 @@ Fix: wrap the call:
                       (rm_done : bool) = false;
                       while((rm_ei < rm_entries.len()) && !rm_done, {
                         match(
-                          rm_entries.get(rm_ei),
+                          rm_entries.get_cloned(rm_ei),
                           .Some(rm_e) => match(
                             rm_e.value.clone(),
                             .Some(rm_ev) => {
@@ -15316,16 +15959,12 @@ Fix: wrap the call:
               match(
                 method_info.receiver_value.clone(),
                 .Some(rcv_val) => if(!is_unknown_val(&rcv_val), {
-                  match(
-                    call_result_m.arg_values.args.get(usize(0)),
-                    .Some(self_ae) => {
-                      self_needs_value := match(self_ae.value.clone(), .Some(sv) => is_unknown_val(&sv), .None => true);
-                      if(self_needs_value, {
-                        self_ae.value = Option(EvalValue).Some(Rc.clone(rcv_val));
-                      });
-                    },
-                    .None => ()
-                  );
+                  call_result_m.arg_values.args.with(usize(0), self_ae => {
+                    self_needs_value := match(self_ae.value.clone(), .Some(sv) => is_unknown_val(&sv), .None => true);
+                    if(self_needs_value, {
+                      self_ae.value = Option(EvalValue).Some(Rc.clone(rcv_val));
+                    });
+                  });
                 }),
                 .None => ()
               );
@@ -15355,7 +15994,7 @@ Fix: wrap the call:
                 (mpi : usize) = usize(0);
                 while(mpi < m_pnames.len(), {
                   mpn := match(m_pnames.get_cloned(mpi), .Some(n) => n, .None => String.from(""));
-                  ma := match(call_result_m.arg_values.args.get(mpi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
+                  ma := match(call_result_m.arg_values.args.get_cloned(mpi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
                   _map := add_variable_to_env(&m_env, &mpn, &ma.arg_type, &ma.value, match(ma.value.clone(), .Some(_) => true, .None => false), false, false, false, synthetic_token(&mpn, &m_env.module_path().*));
                   mpi = (mpi + usize(1));
                 });
@@ -15366,7 +16005,7 @@ Fix: wrap the call:
               Option(AstExpr).Some(m_callee.clone()),
               &method_info.method_ty,
               &m_fv,
-              &call_result_m.arg_values,
+              &mut call_result_m.arg_values,
               &call_result_m.caller_env,
               &m_env,
               ctx,
@@ -15587,7 +16226,7 @@ Fix: wrap the call:
             // — callable through the valueless path's closure machinery.
             // Without this arm the gate threw inside a SILENT closure-spec
             // channel and the aborted eval leaked a Type(1) stamp downstream
-            // (tests/iterator_combinators.test.yo, `[vcall-throw]`-pinned).
+            // (tests/iterator-combinators.test.yo, `[vcall-throw]`-pinned).
             cvl_cap_sid := match(&callee_ty_none, Rc(.Struct({ id : cvl_s })) => cvl_s.clone(), _ => String.from(""));
             cvl_is_fnish = cvl_cap_sid.starts_with("capture_");
           });
@@ -15745,5 +16384,5 @@ Fix: wrap the call:
     }
   )
 });
-export(evaluate_function_call, reject_destructor_member_read);
+export(evaluate_function_call, reject_destructor_member_read, check_tuple_element_lends);
 export(MACRO_DISPATCH_ENABLED);

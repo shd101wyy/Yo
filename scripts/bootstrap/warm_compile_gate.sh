@@ -28,7 +28,7 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 EOF
 cat >"$FIXDIR/alist.yo" <<'EOF'
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 main :: (fn(io : Io) -> unit)({
   xs := ArrayList(i32).new();
   xs.push(i32(1));
@@ -37,7 +37,7 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 EOF
 cat >"$FIXDIR/strings.yo" <<'EOF'
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 main :: (fn(io : Io) -> unit)({

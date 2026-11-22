@@ -1,4 +1,4 @@
-/* Fixture for tests/c_include_const_result.test.yo.
+/* Fixture for tests/c-include-const-result.test.yo.
  *
  * C functions whose result is a `const` pointer, as raylib's `TextFormat`
  * and libc's `gai_strerror` are. Yo has no const pointer, so the binding

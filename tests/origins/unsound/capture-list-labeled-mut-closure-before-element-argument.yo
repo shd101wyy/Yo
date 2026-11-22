@@ -1,0 +1,22 @@
+// expect: E0910
+// The labeled spelling `q : &mut ws` of the previous row's capture, closure first
+// (issues/fixed/2026-11-21-a-closures-mut-capture-list-entry-is-not-checked-against-the-loans-of-the-calls-other-arguments.md)
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+poke :: (fn(act : &mut Impl(FnMut() -> unit), w : &W) -> unit)({
+  act();
+  println(`OUT: ${w.s.clone()}`);
+});
+main :: (fn() -> unit)({
+  mut(ws) := ArrayList(W).new();
+  ws.push(W(s : String.from("hello, a string long enough to live on the heap")));
+  poke(
+    &mut ({ q : &mut ws }() => {
+      q.clear();
+    }),
+    &ws(usize(0))
+  );
+});
+export(main);

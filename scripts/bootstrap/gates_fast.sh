@@ -92,7 +92,7 @@ if [ "$rc" != "0" ]; then
 fi
 
 echo "=== T1 GATE 1: battery (with HOLLOW detection) ==="
-for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/async_await.test.yo tests/io/bufio.test.yo tests/fs/file.test.yo tests/fs/temp.test.yo tests/fs/walker.test.yo tests/sys/signal.test.yo tests/basic.test.yo tests/closure.test.yo tests/module_struct_unification.test.yo tests/ref_struct.test.yo tests/fn.test.yo tests/rc.test.yo tests/ref_field_borrow.test.yo tests/module.test.yo tests/operator_grouping.test.yo tests/algebraic_effects.test.yo; do
+for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/async-await.test.yo tests/io/bufio.test.yo tests/fs/file.test.yo tests/fs/temp.test.yo tests/fs/walker.test.yo tests/sys/signal.test.yo tests/basic.test.yo tests/closure.test.yo tests/module-struct-unification.test.yo tests/fn.test.yo tests/rc.test.yo tests/ref-field-borrow.test.yo tests/module.test.yo tests/operator-grouping.test.yo tests/algebraic-effects.test.yo; do
   name=$(basename "$t" .test.yo); d=$(dirname "$t")
   rm -f "$d"/.yo_selftest_batch_*
   # YO_KEEP_BATCH=1 is LOAD-BEARING — do not remove it. It is read by the
@@ -177,7 +177,7 @@ fi
 
 echo "=== T1 GATE 4: check ./src ==="
 # The compiler type-checking ITSELF. GATE 3 only covers ./std, which left two
-# ported-but-unwired libraries (build_runner.yo, version_cache.yo — ~1600 lines)
+# ported-but-unwired libraries (build-runner.yo, version-cache.yo — ~1600 lines)
 # type-checked by nothing at all: they are outside main.yo's import closure, so
 # the stage-2/stage-3 compiles never touch them either. This is also the
 # workload that exposed the -O0 stack-exhaustion class (AGENTS.md), hence the

@@ -1,0 +1,40 @@
+$ yo fix main.yo
+fix: main.yo:2:21: import("./string-util.yo")
+fix: applied 1 repair(s) in 2 pass(es)
+rc=0
+$ yo check main.yo
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing main.yo
+check: parsed 5 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+check: main.yo — evaluator OK
+rc=0
+$ yo check unrepaired
+error: Module not found: tried "<PROJ>/no_such_module.yo" and "<PROJ>/no_such_module/index.yo"
+  --> unrepaired/none.yo:1:21
+  |
+1 | { shout } :: import("../no_such_module");
+  |                     ^^^^^^^^^^^^^^^^^^^
+help: module file and directory names are kebab-case, and no module matches this path's kebab-case spelling either
+error: Module not found: tried "<PROJ>/string_util.yo" and "<PROJ>/string_util/index.yo"
+  --> unrepaired/renamed.yo:1:21
+  |
+1 | { shout } :: import("../string_util");
+  |                     ^^^^^^^^^^^^^^^^
+help: module file and directory names are kebab-case: did you mean `import("../string-util")`?
+yo: error: check: 2 file(s) failed evaluator coverage
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing unrepaired/none.yo
+check: parsed 2 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+check: parsing unrepaired/renamed.yo
+check: parsed 2 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+check: 0/2 file(s) passed
+rc=1

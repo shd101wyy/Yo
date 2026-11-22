@@ -7,6 +7,7 @@ Every derivable trait in `std` is **self-hosted** — the derive rules are writt
 ## Basic Usage
 
 ```yo
+{ assert } :: import("std/assert");
 { ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
@@ -149,7 +150,7 @@ The message is **ordinary Yo**, spliced into the match arm that binds the payloa
 Two things to know:
 
 - **Messages go in declaration order**, and each is checked against the variant it lands on — so adding, removing, renaming or reordering a variant is a compile error, not a silently swapped message.
-- It emits both traits because `Error` requires `Self <: ToString`. That is why one `derive` replaces what used to be a `ToString` impl plus a separate `impl(T, Error());` line.
+- It emits both traits because `Error` requires `Self <: ToString`. So one `derive` stands in for a `ToString` impl plus a separate `impl(T, Error());` line.
 
 ### ToJson / FromJson
 
@@ -190,7 +191,7 @@ Each field type in the struct or enum must already implement the trait being der
 A type can derive through a field that names the type itself, such as `ArrayList(Self)` or `Rc(Self)`. The derived method reaches the inner values through the container's own impl: `Node`'s derived `==` below compares `children` with `ArrayList(Node)`'s `==`, which calls `Node`'s `==` again.
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { println, ToString } :: import("std/fmt");
 
 Node :: enum(Leaf, Branch(children : ArrayList(Self)));

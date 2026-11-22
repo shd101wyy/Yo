@@ -2,7 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { AtomicI32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { Channel } :: import("std/sync/channel");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { printf } :: import("std/libc/stdio.yo");
@@ -325,7 +325,7 @@ impl(
   /// second generation.
   make : (fn(v : &T) -> Self)({
     ch := Channel(T).new(usize(1));
-    sink := ch;
+    sink := ch.clone();
     run_it(() => {
       _ := sink.send(v.*);
       ()
@@ -360,17 +360,18 @@ impl(
   holding : (fn(tag : i32, f : &T) -> Self)(Self(tag : tag, _f : .Some(f.*)))
 );
 test("a container of a closure type compiles and calls the closure", {
-  (hits : AtomicI32) = AtomicI32.new(i32(0));
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  h1 := Arc.clone(hits);
   (k : Impl(Fn() -> unit)) = (
     () => {
-      hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+      h1.fetch_add(i32(1), MemoryOrder.AcqRel);
       ();
     }
   );
   mut(ks) := ArrayList(type_of(k)).new();
   ks.push(k);
   // Called in place: `ks.get` copies the element, and a closure that owns an
-  // `AtomicI32` is not `Copy` (plans/VALUES_BY_DEFAULT.md decision 36).
+  // `Arc(AtomicI32)` is not `Copy` (plans/VALUES_BY_DEFAULT.md decision 36).
   ks(usize(0))();
   assert(ks.len() == usize(1), "one closure in the list");
   assert(hits.load(MemoryOrder.Acquire) == i32(1), "the listed closure ran");
@@ -385,18 +386,20 @@ test("a generic's static -> Self constructor at a closure type", {
   assert(match(s._f, .Some(g) => g(), .None => i32(0)) == i32(42), "the held closure ran");
 });
 test("two closures' lists are two types, one per closure", {
-  (hits : AtomicI32) = AtomicI32.new(i32(0));
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  h1 := Arc.clone(hits);
+  h2 := Arc.clone(hits);
   a := i32(1);
   b := i32(10);
   (k1 : Impl(Fn() -> unit)) = (
     () => {
-      hits.fetch_add(a, MemoryOrder.AcqRel);
+      h1.fetch_add(a, MemoryOrder.AcqRel);
       ();
     }
   );
   (k2 : Impl(Fn() -> unit)) = (
     () => {
-      hits.fetch_add(b, MemoryOrder.AcqRel);
+      h2.fetch_add(b, MemoryOrder.AcqRel);
       ();
     }
   );
@@ -411,12 +414,14 @@ test("two closures' lists are two types, one per closure", {
 // Two closures of different capture shapes: the first list's push must not
 // leave a binding that types the second closure as the first's capture struct.
 test("a second closure's list after the first list's push", {
-  (hits : AtomicI32) = AtomicI32.new(i32(0));
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  h1 := Arc.clone(hits);
+  h2 := Arc.clone(hits);
   a := i32(1);
   s := String.from("abc");
   (k1 : Impl(Fn() -> unit)) = (
     () => {
-      hits.fetch_add(a, MemoryOrder.AcqRel);
+      h1.fetch_add(a, MemoryOrder.AcqRel);
       ();
     }
   );
@@ -424,7 +429,7 @@ test("a second closure's list after the first list's push", {
   l1.push(k1);
   (k2 : Impl(Fn() -> unit)) = (
     () => {
-      hits.fetch_add(i32(s.len()), MemoryOrder.AcqRel);
+      h2.fetch_add(i32(s.len()), MemoryOrder.AcqRel);
       ();
     }
   );

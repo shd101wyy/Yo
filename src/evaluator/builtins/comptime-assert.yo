@@ -1,0 +1,244 @@
+//! evaluator/builtins/comptime-assert — implements evaluate_comptime_assert.
+//!
+//! `comptime_assert(cond)` or `comptime_assert(cond, msg)` — evaluates `cond`
+//! at compile time and throws if it is false.  When not executing, still
+//! type-checks the condition argument.
+{ String } :: import("std/string");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  BF_COMPTIME_ASSERT
+} :: import("../../expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr-info.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{
+  EvalValue,
+  EvalValueNode,
+  is_bool_val,
+  is_unknown_val,
+  create_unknown_val,
+  value_to_string
+} :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ is_bool_type } :: import("../../types/guards.yo");
+{ format_error_message } :: import("../../error.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+/// Raise the assertion failure, using the optional second argument as the
+/// message. Shared by the executing path and the validation path — a
+/// `comptime_assert` whose condition is a CONCRETE `false` is a failure in
+/// either mode, and having one thrower keeps the two from drifting.
+_throw_assert_failed :: (
+  fn(
+    expr : &AstExpr,
+    arg_expr : &AstExpr,
+    msg_expr_opt : &Option(AstExpr),
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  err_msg := match(
+    msg_expr_opt,
+    .Some(msg_expr) => {
+      eval_msg := evaluate_expression_raw(&msg_expr.*, env, ctx, exn);
+      msg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_msg));
+      match(
+        msg_info_opt,
+        .Some(mi) => match(
+          mi.value(),
+          .Some(mv) => match(
+            Rc.clone(mv),
+            Rc(.StrLit(raw)) => {
+              rn := raw.len();
+              raw.substring(usize(1), rn - usize(1))
+            },
+            _ => value_to_string(&mv)
+          ),
+          .None => String.from("")
+        ),
+        .None => String.from("")
+      )
+    },
+    .None => String.from("")
+  );
+  if(err_msg.len() > usize(0), {
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), &err_msg))));
+  }, {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Assertion failed for "comptime_assert":\n${ast_expr_to_string(arg_expr)}`
+          )
+        )
+      )
+    );
+  });
+});
+evaluate_comptime_assert :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // Extract arg_expr (condition) and optional message_expr.
+  (arg_expr_opt : Option(AstExpr)) = match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(0)),
+    _ => .None
+  );
+  (msg_expr_opt : Option(AstExpr)) = match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(1)),
+    _ => .None
+  );
+  // When not executing, still type-check the condition so malformed expressions
+  // are caught during function-definition validation.
+  if(ctx.is_validating_function_definition || !ctx.is_executing, {
+    match(
+      arg_expr_opt,
+      .Some(arg_expr) => {
+        // The condition's own error propagates (the swallowing 3-argument
+        // `evaluate_expression` made a malformed condition inside a function
+        // body pass validation silently — Phase 6 site #16 residue); a def-time
+        // trial around the body decides what to raise.
+        evaluated_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+        arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
+        match(
+          arg_info_opt,
+          .Some(ai) => {
+            if(!is_bool_type(&ai.ty()) && !is_unknown_val(match(ai.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))), {
+              exn.throw(
+                dyn(
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&arg_expr),
+                      `Expected bool expression for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nType:\n${String.from("unknown")}`
+                    )
+                  )
+                )
+              );
+            });
+            // A CONCRETE `false` is a failure however the body is reached.
+            // Validation mode used to type-check and return, which made every
+            // `comptime_assert` inside a function body inert — and a
+            // `test("…", { … })` body IS a function body, so the whole suite's
+            // comptime assertions verified nothing
+            // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+            // An UNKNOWN value still only type-checks: a runtime condition, or
+            // a generic body whose types are not bound yet, genuinely cannot be
+            // decided here.
+            // Nested patterns do not parse (`.Some(.BoolVal(b))` is rejected),
+            // so this is two matches.
+            (is_false : bool) = match(
+              ai.value(),
+              .Some(v) => match(v, Rc(.BoolVal(b)) => !b, _ => false),
+              .None => false
+            );
+            if(is_false, {
+              _throw_assert_failed(expr, &arg_expr, &msg_expr_opt, env, ctx, exn);
+            });
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    // Return type: use expectedType if provided; else unit.
+    (ret_type : TypeValue) = match(
+      &ctx.expected_type,
+      .Some(et) => Rc.clone(et.ty),
+      .None => t_unit()
+    );
+    (ret_val : Option(EvalValue)) = if(
+      is_unit_type(&ret_type),
+      .Some(Rc.new(EvalValueNode.UnitVal)),
+      .Some(create_unknown_val(&ret_type))
+    );
+    out_info := new_expr_info(env, &ret_type);
+    out_info.set_value(ret_val);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+    return(Rc.clone(expr.*));
+  });
+  // --- Executing path ---
+  arg_expr := match(
+    arg_expr_opt,
+    .Some(a) => Rc.clone(a),
+    .None => {
+      return(Rc.clone(expr.*));
+    }
+  );
+  evaluated_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
+  arg_info := match(
+    arg_info_opt,
+    .Some(ai) => Rc.clone(ai),
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}`
+            )
+          )
+        )
+      );
+      new_expr_info(env, t_unit())
+    }
+  );
+  arg_val := match(
+    arg_info.value(),
+    .Some(v) => v,
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}`
+            )
+          )
+        )
+      );
+      Rc.new(EvalValueNode.UnitVal)
+    }
+  );
+  if(!is_bool_val(&arg_val), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nValue:\n${value_to_string(&arg_val)}`
+          )
+        )
+      )
+    );
+  });
+  bool_val := match(arg_val, Rc(.BoolVal(b)) => b, _ => false);
+  if(bool_val, {
+    // Assertion passed — return unit.
+    out_info := new_expr_info(env, t_unit());
+    out_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+  }, {
+    _throw_assert_failed(expr, &arg_expr, &msg_expr_opt, env, ctx, exn);
+  });
+  Rc.clone(expr.*)
+});
+export(evaluate_comptime_assert);

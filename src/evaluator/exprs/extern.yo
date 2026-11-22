@@ -1,7 +1,7 @@
 //! evaluate_extern — handles `extern("Yo", ...)` and `extern("c", ...)`.
 //!
 //! An `extern(...)` call evaluates to a MODULE VALUE, exactly like
-//! `c_include(...)` (see c_include.yo's header): bind it, destructure it, or
+//! `c_include(...)` (see c-include.yo's header): bind it, destructure it, or
 //! write it as a bare statement, which the parser desugars to the glob
 //! `{ ... } :: extern(...)`. plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md.
 //!
@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of,
   BK_EXTERN
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr-info.yo");
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
 { Environment, Frame, new_frame, add_variable_to_env, frame_truncate_variables, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -31,12 +31,18 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_extern_opaque } :: import("../../types/creators.yo");
 { type_contains_rc_type, type_carries_origin, no_origin_position_error } :: import("../../types/utils.yo");
 { is_type_hierarchy_type } :: import("../../types/guards.yo");
-{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{
+  is_implicitly_unsafe_capable_file,
+  is_yo_namespace_name,
+  may_bind_yo_namespace_name,
+  reserved_yo_name_message,
+  reserved_yo_name_help
+} :: import("../memory-safety.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { EvalModuleFieldResult, evaluate_module_field } :: import("../types/record.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 /// The no-origin rule at an `extern` member (plans/backlog/REFERENCES_AND_ORIGINS.md
 /// O4, O10): a parameter's or the result's type, or a non-function member's
 /// type, that carries an origin is E0909. A `&T` / `&mut T` parameter slot
@@ -84,6 +90,27 @@ _reject_extern_origin :: (fn(ty : &TypeValue, at : &AstExpr, exn : Exception) ->
     },
     .None => ()
   );
+});
+/// E0407 (VERDICTS-72 rule (a)): a member label of `extern(...)` (both ABIs)
+/// or `c_include(...)` that starts with `__yo_` is the compiler's namespace,
+/// and only the std tree (and `auto-generated://` code) may declare one. The
+/// label is read from the member as written, before its type is evaluated,
+/// so the error lands on the label whatever the type says. Shared with
+/// `evaluate_c_include`.
+reject_reserved_ffi_member :: (fn(arg : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  label_tok := if(
+    ast_expr_is_fn_call(arg),
+    match(
+      match(Rc.clone(arg.*), Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), _ => ArrayList(AstExpr).new()).get_cloned(usize(0)),
+      .Some(fe) => ast_expr_token(&fe),
+      .None => ast_expr_token(arg)
+    ),
+    ast_expr_token(arg)
+  );
+  label := label_tok.value.*.clone();
+  if(is_yo_namespace_name(&label) && !may_bind_yo_namespace_name(&label_tok.module_path.*, &ctx.std_path), {
+    exn.throw(dyn(Box.new(format_error_message_with_help(&label_tok, &reserved_yo_name_message(&label), &Option(String).Some(reserved_yo_name_help())))));
+  });
 });
 evaluate_extern :: (
   fn(
@@ -210,7 +237,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   // Iterate over the field declarations, binding each in the CURRENT frame
   // so a later field can name an earlier one; the bindings are removed again
   // afterwards and the collected labels / types / values become the module
-  // value. (Not a pushed scratch frame — see c_include.yo: a generic
+  // value. (Not a pushed scratch frame — see c-include.yo: a generic
   // parameter's SomeT is keyed on its frame level.)
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
@@ -221,6 +248,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   (field_idx : usize) = usize(0);
   while(args_idx < all_args.len(), {
     arg := match(all_args.get_cloned(args_idx), .Some(a) => a, .None => Rc.clone(expr.*));
+    reject_reserved_ffi_member(&arg, ctx, exn);
     result := evaluate_module_field(&arg, field_idx, &env, ctx, false, exn);
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
@@ -334,7 +362,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     field_idx = (field_idx + usize(1));
   });
   frame_truncate_variables(&scratch_frame, scratch_base);
-  // The module value — see c_include.yo for the id scheme. An `extern`
+  // The module value — see c-include.yo for the id scheme. An `extern`
   // module is not recorded as a c_include module: its globals are not
   // extern-C globals (no header, no reserved-name exemption).
   sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(&env.module_path().*).to_string()}_`, &env.module_path().*);
@@ -365,4 +393,4 @@ User code should normally call stdlib wrappers (e.g. functions in
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &mod_info);
   Rc.clone(expr.*)
 });
-export(evaluate_extern);
+export(evaluate_extern, reject_reserved_ffi_member);

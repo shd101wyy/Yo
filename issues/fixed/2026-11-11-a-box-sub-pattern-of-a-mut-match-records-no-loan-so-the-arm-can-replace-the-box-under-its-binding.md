@@ -97,7 +97,7 @@ match's `mut(name)` copy is: its write would drop the buffer the box still owns 
 frees even without the box's replacement). G-B rows: `tests/origins/unsound/a15-mut-match-box-subpattern-write.yo`
 (E0911), `…-mut-parameter.yo` (E0911), `…-double-free.yo` (E0901), `…-write-pos.yo` (accept, runs clean under ASan).
 Still open, and tracked by the A3 document
-(`issues/2026-11-11-a-match-arm-binding-over-a-reference-bound-from-a-call-result-does-not-keep-the-root-frozen.md`):
+(`issues/fixed/2026-11-11-a-match-arm-binding-over-a-reference-bound-from-a-call-result-does-not-keep-the-root-frozen.md`):
 a `&mut` REFERENCE BINDING matched bare (`r := &mut o; match(r, .Some(Box(s)) =>
 { r.* = .None; … })`): the place model cuts a place at `.*`, so a write through `r` cannot be told from a re-point of
 `r` (decision 25), and the binding is recorded, not registered.

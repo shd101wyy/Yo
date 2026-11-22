@@ -1,0 +1,21 @@
+// expect: E0911
+// guard-off: same
+// A future borrows a place behind an `Arc` (`&a.*`); the caller drops the
+// last handle before awaiting it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+W :: struct(s : String);
+mk :: (fn(w : &W, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ w }(io : Io) => {
+    io.await(yield(io), io);
+    w.s.len()
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  a := Arc.new(W(s : String.from("hello, a string long enough to live on the heap")));
+  fut := mk(&a.*, io);
+  drop(a);
+  println(`OUT: ${io.await(fut, io)}`);
+});
+export(main);

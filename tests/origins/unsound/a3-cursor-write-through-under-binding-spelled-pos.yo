@@ -1,0 +1,19 @@
+// expect: accept
+// Audit A3 (VERDICTS-71 rule (c)), spelled `match(&mut cur.*, …)`: the write through `cur` after the arm binding `n`'s last use.
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .None))));
+  cur := &mut l1.head;
+  match(
+    &mut cur.*,
+    .Some(n) => {
+      n.value = i32(5);
+      cur.* = .None;
+    },
+    .None => ()
+  );
+  println(`OUT: ${l1.head.is_some().to_string()}`);
+});
+export(main);

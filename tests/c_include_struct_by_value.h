@@ -1,4 +1,4 @@
-/* Fixture for tests/c_include_struct_by_value.test.yo.
+/* Fixture for tests/c-include-struct-by-value.test.yo.
  *
  * A C struct that crosses the ABI BY VALUE in both directions — the shape
  * raylib, SDL and most C libraries are built around, and the one `c_include`

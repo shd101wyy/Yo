@@ -1,0 +1,11 @@
+# An import of a module whose file was renamed to kebab-case is a hard error
+# (no old-name table; VERDICTS-67): the old name never resolves. When exactly
+# one existing module matches the failed path under the segment-wise `_` → `-`
+# and lower-case normalization, the error names it in its help and carries a
+# repair, so `yo fix` rewrites the import string (`./string_util.yo` →
+# `./string-util.yo`, an explicit `.yo` path included). The last command shows
+# both errors `fix` was not run on: the did-you-mean help (`../string_util`)
+# and, with no candidate, help only.
+fix main.yo
+check main.yo
+check unrepaired

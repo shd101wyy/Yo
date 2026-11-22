@@ -1,7 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert, panic } :: import("std/assert");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { replace } :: import("std/mem");
 import("std/libc/stdio.yo");
 
@@ -93,7 +93,7 @@ test("unsafe(match(...)) wraps a match", {
 // moving the value out. Both need an unsafe-capable file: in safe code
 // `___drop(h.xs)` left a field readable after its buffer was freed
 // (issues/fixed/2026-10-21-the-drop-builtin-is-callable-outside-unsafe.md;
-// the rejection is pinned in tests/safe_code_structural_gates.test.yo).
+// the rejection is pinned in tests/safe-code-structural-gates.test.yo).
 { malloc, free } :: import("std/libc/stdlib.yo");
 mut(DROPPED_IDS) := i32(0);
 Tracked :: struct(id : i32);
@@ -133,7 +133,7 @@ test("drop_in_place(p) destroys the value a raw pointer owns", {
 // `unsafe(...)`: a generic body is evaluated at its call site, so wrapping a
 // call into a safe file's generic function must not admit the `___drop` that
 // file contains.
-{ destroy_field_then_read } :: import("./fixtures/drop_gate_generic.yo");
+{ destroy_field_then_read } :: import("./fixtures/drop-gate-generic.yo");
 test("unsafe(...) around a call does not admit ___drop written in a safe file", {
   comptime_expect_error({
     n := unsafe(destroy_field_then_read(i32(0)));

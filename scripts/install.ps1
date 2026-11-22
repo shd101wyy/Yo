@@ -96,7 +96,7 @@ function Get-OsArch {
 
 # The published asset name for this host, in canonical target-triple form
 # (plans/reference/RELEASE_ASSET_TRIPLES.md). Kept in step with
-# scripts/release_asset_triple.sh and src/version_cache.yo; this script is
+# scripts/release_asset_triple.sh and src/version-cache.yo; this script is
 # fetched standalone over HTTP, so it carries its own copy of the mapping.
 function Get-HostTriple {
   switch (Get-OsArch) {

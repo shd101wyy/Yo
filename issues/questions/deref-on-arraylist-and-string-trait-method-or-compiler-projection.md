@@ -5,7 +5,9 @@
 **Status:** DECIDED 2026-11-15 (VERDICTS-63). Filed 2026-11-14 by the decision 49 S2 lane; the
 mechanism was chosen by a Fable consult at the start of v0.2.79. Generation A (the compiler and the prelude) is one
 PR in v0.2.79; Generation B (the `ArrayList` and `String` impls) is the first std PR of v0.2.80. The doc closes with
-Generation B.
+Generation B. **2026-11-21:** Generation B's `ArrayList` half (`Deref` and `DerefMut`, `Target : [T]`) lands on
+`v0280/deref-std-impls`; the `String` half waits for S3b-`str`, because an associated type written `str` is still the
+legacy alias `&(str, static)` (`impl.yo`'s `ls_aliased` arm), so `Deref(Target : str)` declares `deref -> &&str`.
 
 ## What
 
@@ -48,7 +50,7 @@ Decided (VERDICTS-63, 2026-11-15): option 1, amended. Decisions 1-4, 7 and 10 of
 
 1. **`x.*` on a `Deref` type is the `Target` place its `deref` projection yields.** `Deref` carries
    `deref : fn(self : &Self) -> &Self.Target`; `Target : Type` stays (decision 49's `?Sized` waits on
-   `issues/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`).
+   `issues/fixed/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`).
 2. **The write half is `DerefMut`**, chosen as `IndexMut` is: a read calls `deref`; a write, a `&mut` lend, a
    `self : &mut Self` receiver and `addr_of` call `deref_mut`. A `DerefMut` impl needs a `Deref` impl with the same
    `Target`. `Box` implements both; `Rc` and `Arc` implement `Deref` only; `ArrayList` and `Array` implement both;
@@ -75,6 +77,6 @@ Not started. Bugs found by the probes, filed 2026-11-15:
 
 - `issues/fixed/2026-11-15-a-closure-capturing-a-fat-reference-by-value-emits-invalid-c.md` (S2, fixed on `vbd/d49-str`)
 - `issues/2026-11-15-a-generic-impl-omitting-a-required-trait-member-is-accepted.md` (S2)
-- `issues/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md` (S3)
+- `issues/fixed/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md` (S3)
 - `issues/2026-11-15-returning-a-projection-call-of-a-local-reports-e0901-where-e0912-is-due.md` (S3)
 - `issues/2026-11-15-a-unit-index-argument-emits-an-empty-c-argument.md` (S3)

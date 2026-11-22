@@ -25,20 +25,20 @@
 //! — overlay + `mm_invalidate_document` in server.yo). Re-analysis purges the
 //! document's previous registry generation before re-registering.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { Error, Exception } :: import("std/error");
 { parse } :: import("../parser.yo");
 { Diagnostic, Severity, Repair } :: import("../diagnostics.yo");
 { stash_error_diagnostics, take_error_diagnostics } :: import("../error.yo");
 { AstExpr } :: import("../expr.yo");
-{ ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
+{ ExprInfoTable, expr_info_table_new } :: import("../expr-info.yo");
 {
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
   mm_preload_prelude,
   mm_has_prelude_env,
   _take_load_error
-} :: import("../module_manager.yo");
+} :: import("../module-manager.yo");
 
 /// One analysis finding, 0-based positions (LSP convention; Token.row and
 /// Token.column are already 0-based internally — the +1 lives only in the
@@ -467,14 +467,13 @@ _ensure_prelude :: (fn(std_path : &String, io : Io) -> unit)({
 /// requests. `parsed && !ok` means the evaluation stopped at an error:
 /// `exprs` is the full program and `info_table` holds everything recorded
 /// before the error.
-AnalyzeOutcome :: ref(
-  struct(
-    ok : bool,
-    parsed : bool,
-    exprs : ArrayList(AstExpr),
-    info_table : ExprInfoTable
-  )
+AnalyzeOutcome :: struct(
+  ok : bool,
+  parsed : bool,
+  exprs : ArrayList(AstExpr),
+  info_table : ExprInfoTable
 );
+derive(AnalyzeOutcome, Clone);
 export(AnalyzeOutcome);
 /// Parse the document text under a swallowing handler; `.None` when it does
 /// not parse. The handler's `unwind` exits THIS Option-typed frame (see

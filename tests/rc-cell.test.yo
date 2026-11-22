@@ -1,0 +1,376 @@
+//! `Rc(T)` is the shared, counted cell under its plans/VALUES_BY_DEFAULT.md
+//! name (§6 V1 step 1; it was spelled `Box(T)` until Generation B): it has
+//! construction by `Rc.new(...)`, auto-dereference, patterns through
+//! the payload, `dyn` over the cell, a type built by a comptime function,
+//! `ref_count`, and `Clone`/`Eq`/`Hash`/`Default`. The compiler recognises the
+//! cell by name (`shared_cell_names_at`, src/types/guards.yo), so each case
+//! below that looks through the cell failed before it learned `Rc`.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ String } :: import("std/string");
+Counter :: struct(n : i32, items : ArrayList(i32));
+impl(
+  Counter,
+  bump : (fn(self : &mut Self, by : i32) -> i32)({
+    self.n = (self.n + by);
+    self.n
+  })
+);
+Key :: struct(k : i32);
+derive(Key, Eq(Key), Clone, Copy, Hash);
+List :: enum(Nil, Cons(head : i32, tail : Rc(Self)));
+Cell :: enum(Value(v : Rc(i32)), Empty);
+Probe :: trait(
+  value : (fn(self : &*Self) -> i32)
+);
+impl(i32, Probe(value : (self -> self.*.*)));
+Square :: struct(side : i32);
+derive(Square, Copy, Clone);
+impl(Square, Probe(value : (self -> (self.side * self.side))));
+probe :: (fn(p : &Dyn(Probe)) -> i32)(p.value());
+/// A comptime function that builds the cell type: the instance is minted by a
+/// CTFE call of `Rc` inside it, and must be the same cell `Rc.new(...)` builds.
+CellOf :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(T));
+test("Rc.new(v) builds an Rc(T) whose handles share one cell", {
+  (a : Rc(i32)) = Rc.new(i32(42));
+  b := a;
+  assert(b.* == i32(42), "a read through one handle sees the cell the other holds");
+  // The payload is read-only through the handle (decision 46).
+  comptime_expect_error(b.* = i32(7), "read-only through the handle");
+  c := Rc(i32).new(i32(3));
+  assert(c.* == i32(3), "the type constructor builds the same cell");
+});
+// The shared cell's legacy `Box` spelling is gone (Generation B part 2);
+// `Box` is now the unique cell (V1 step 2), a different type from `Rc`.
+test("Box is the unique cell, a different type from Rc", {
+  comptime_expect_error({
+    (b : Box(i32)) = Rc.new(i32(1));
+  }, "Box");
+  comptime_expect_error({
+    (r : Rc(i32)) = Box.new(i32(1));
+  }, "Rc");
+});
+test("ref_count reads an Rc's count", {
+  a := Rc.new(i32(5));
+  assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+  {
+    a2 := Rc.clone(a);
+    {
+      a3 := a2;
+      assert(ref_count(a) == usize(2), "a copy in an inner scope shares the cell");
+      assert(a3.* == i32(5), "the copy reads the same value");
+    };
+  };
+  assert(ref_count(a) == usize(1), "the copies released their count");
+});
+// Writes through the handle are E0919 (decision 46): the payload is
+// read-only through it.
+test("auto-dereference reads and calls through an Rc; writes are E0919", {
+  c := Rc.new(Counter(n : i32(1), items : ArrayList(i32).new()));
+  assert(c.n == i32(1), "a payload field reads through the cell");
+  assert(c.*.n == i32(1), "the explicit deref reads the same field");
+  assert(c.items.len() == usize(0), "a &self payload method is called through the cell");
+  comptime_expect_error(c.n = i32(2), "read-only through the handle");
+  comptime_expect_error(c.bump(i32(3)), "read-only through the handle");
+  comptime_expect_error(c.items.push(i32(9)), "read-only through the handle");
+  d := c;
+  assert(d.n == i32(1), "another handle reads the same payload");
+});
+test("nested patterns look through an Rc payload", {
+  f :: (fn(l : &List) -> i32)(
+    match(
+      l,
+      .Cons(1, Rc(.Cons(n, _))) => n.*,
+      .Cons(h, _) => h.*,
+      .Nil => i32(0)
+    )
+  );
+  assert(f(List.Cons(1, Rc.new(List.Cons(2, Rc.new(List.Nil))))) == i32(2), "two levels through the cell");
+  assert(f(List.Cons(3, Rc.new(List.Nil))) == i32(3), "the second arm");
+  assert(f(List.Nil) == i32(0), "the unit variant");
+  h :: (fn(c : &Cell) -> i32)(
+    match(
+      c,
+      .Value(Rc(42)) => i32(1),
+      .Value(_) => i32(2),
+      .Empty => i32(0)
+    )
+  );
+  assert(h(Cell.Value(Rc.new(i32(42)))) == i32(1), "a literal sub-pattern through the cell");
+  assert(h(Cell.Value(Rc.new(i32(7)))) == i32(2), "the fallback arm");
+  n :: (fn(r : &Rc(List)) -> i32)(
+    match(
+      r,
+      Rc(.Cons(h, _)) => h.*,
+      Rc(.Nil) => i32(-1)
+    )
+  );
+  assert(n(Rc.new(List.Cons(7, Rc.new(List.Nil)))) == i32(7), "an Rc scrutinee takes payload patterns directly");
+  assert(n(Rc.new(List.Nil)) == i32(-1), "and its unit variant");
+});
+test("a cell type built by a comptime function is the same Rc", {
+  (r : CellOf(List)) = Rc.new(List.Cons(4, Rc.new(List.Nil)));
+  head := match(
+    r,
+    Rc(.Cons(h, _)) => h,
+    Rc(.Nil) => i32(0)
+  );
+  assert(head == i32(4), "the CTFE-built Rc(List) is looked through like rc's");
+});
+test("dyn over an Rc dispatches on its payload", {
+  (b1 : Box(Dyn(Probe))) = dyn(Box.new(i32(42)));
+  assert(probe(&b1.*) == i32(42), "dyn(Rc.new(v))");
+  (h1 : Rc(Dyn(Probe))) = dyn(Rc(i32).new(i32(43)));
+  assert(probe(&h1.*) == i32(43), "dyn(Rc(T).new(v))");
+  (d : Box(Dyn(Probe))) = dyn(Box.new(Square(side : i32(3))));
+  assert(probe(&d.*) == i32(9), "a struct payload");
+  match(
+    downcast(&d.*, Square),
+    .Some(s) => assert(s.side == i32(3), "the downcast reads the payload"),
+    .None => assert(false, "a dyn over Rc.new(Square) downcasts to Square")
+  );
+});
+test("Rc implements Clone as a second handle, and Eq, Hash and Default by payload", {
+  a := Rc.new(Key(k : i32(1)));
+  b := Rc.clone(a);
+  assert(a == b, "a clone is equal");
+  assert((ref_count(a) == usize(2)) && (ref_count(b) == usize(2)), "the clone is a second handle to the cell (decision 17)");
+  c := Rc.new(Key(k : i32(2)));
+  assert(!(a == c), "and compares by payload");
+  mut(m) := HashMap(Rc(Key), i32).new();
+  m.insert(Rc.new(Key(k : i32(3))), i32(30));
+  assert(m.get(Rc.new(Key(k : i32(3)))).unwrap_or(i32(0)) == i32(30), "an equal cell hashes to the same entry");
+  (z : Rc(i32)) = (Rc(i32) <: Default).default();
+  assert(z.* == i32(0), "the default cell holds the payload's default");
+});
+test("dyn over an rc-wrapped closure types the closure from the Dyn", {
+  use_cb :: (fn(v : i32, cb : &Dyn(Fn(u : i32) -> i32)) -> i32)({
+    return(cb(v));
+  });
+  a := 2;
+  (cx : Box(Dyn(Fn(u : i32) -> i32))) = dyn(Box.new(u => (u + 1 + a)));
+  x := use_cb(10, &cx.*);
+  assert(x == 13, "a capturing closure in an rc cell");
+  (cy : Box(Dyn(Fn(u : i32) -> i32))) = dyn(Box.new(u => (u * 2)));
+  y := use_cb(20, &cy.*);
+  assert(y == 40, "a non-capturing closure in an rc cell");
+  b := Rc.new(i32(5));
+  (cz : Box(Dyn(Fn(u : i32) -> i32))) = dyn(Box.new(u => (u + 1 + b.*)));
+  z := use_cb(10, &cz.*);
+  assert(z == 16, "a closure capturing an Rc, in an rc cell");
+});
+// --- Rows from tests/ref_enum.test.yo and tests/ref_struct.test.yo, deleted
+// with `ref(enum)` / `ref(struct)` in v0.2.79. Each mechanism they gated that
+// survives the form is spelled here over a value enum and an `Rc` cell:
+//
+// - A recursive enum reached BOTH via a direct `Rc(Self)` field and via an
+//   `ArrayList(Self)` field (the shape of the compiler's own `TypeValue` /
+//   `AstExpr`). The size and alignment calculators once recursed forever on a
+//   `Self` variant field of a function that RECONSTRUCTS the enum
+//   (`_nest_rebuild`); a merely reducing recursion (`_nest_sum`) did not trip it.
+// - A value enum holding that recursive enum as a field (`_NestHolder`): the
+//   RC-cycle analysis walks its `Self` variant fields, and the enum walk once
+//   had no visited guard.
+// - Drop on an enum behind a counted cell runs once, at the last handle, also
+//   for a payload-free variant and once per node of a self-recursive chain.
+// - An enum with a unit variant and one `Rc(Self)` payload, with derive(Eq)
+//   (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md), and
+//   an enum whose only payload is an `Rc` keeps a count of its own.
+// - A field read or write on an enum parameter resolves against the variant
+//   that declares it.
+// - A payload struct may name its fields `header`, `ref_count`, `gc_flags`,
+//   `type_id` or carry a comptime `header` field: the cell's header never
+//   collides with them (issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md).
+_Nest :: enum(Tip(n : i32), One(inner : Rc(Self)), Many(items : ArrayList(Self)));
+_NestHolder :: enum(Plain(n : i32), Boxed(b : Rc(Self), t : _Nest));
+_nest_sum :: (fn(t : &_Nest) -> i32)(
+  match(
+    t,
+    .Tip(n) => n.*,
+    .One(inner) => recur(&inner.*.*),
+    .Many(items) => {
+      (mut(acc) : i32) = i32(0);
+      (mut(i) : usize) = usize(0);
+      while(i < items.len(), {
+        acc = (acc + recur(&items(i)));
+        i = (i + usize(1));
+      });
+      acc
+    }
+  )
+);
+_nest_rebuild :: (fn(t : &_Nest) -> _Nest)(
+  match(
+    t,
+    .Tip(n) => _Nest.Tip(n : n.*),
+    .One(inner) => _Nest.One(inner : Rc.new(recur(&inner.*.*))),
+    .Many(items) => {
+      mut(out) := ArrayList(_Nest).new();
+      (mut(i) : usize) = usize(0);
+      while(i < items.len(), {
+        out.push(recur(&items(i)));
+        i = (i + usize(1));
+      });
+      _Nest.Many(items : out)
+    }
+  )
+);
+test("a recursive enum with Rc(Self) and ArrayList(Self) fields reduces and reconstructs", {
+  mut(leaves) := ArrayList(_Nest).new();
+  leaves.push(_Nest.Tip(n : i32(1)));
+  leaves.push(_Nest.One(inner : Rc.new(_Nest.Tip(n : i32(2)))));
+  leaves.push(_Nest.Tip(n : i32(4)));
+  n := _Nest.One(inner : Rc.new(_Nest.Many(items : leaves)));
+  assert(_nest_sum(&n) == i32(7), "sum over a recursive enum");
+  rebuilt := _nest_rebuild(&n);
+  assert(_nest_sum(&rebuilt) == i32(7), "the reconstructed enum preserves the structure");
+});
+test("a value enum holding a recursive enum field (RC-cycle analysis)", {
+  h := _NestHolder.Boxed(b : Rc.new(_NestHolder.Plain(n : i32(1))), t : _Nest.Tip(n : i32(9)));
+  match(
+    &h,
+    .Boxed(_, t) => {
+      assert(_nest_sum(t) == i32(9), "a recursive enum field inside a value enum");
+    },
+    .Plain(_) => ()
+  );
+});
+_WrapS :: enum(Empty, Has(s : String));
+test("an Rc of an enum drops its variant's String when the cell is freed", {
+  w := Rc.new(_WrapS.Has(s : `a heap string the cell must free`));
+  match(&w.*, .Has(sv) => assert(sv.len() > usize(0), "has a string"), .Empty => ());
+});
+_Flag :: enum(On, Off);
+test("an Rc of a fieldless enum matches and counts", {
+  a := Rc.new(_Flag.On);
+  b := Rc.new(_Flag.Off);
+  on := match(&a.*, .On => true, .Off => false);
+  off := match(&b.*, .On => false, .Off => true);
+  assert(on && off, "the variants distinguish in match");
+  a2 := Rc.clone(a);
+  assert(ref_count(a) == usize(2), "the cell is counted");
+  assert(ref_count(a2) == ref_count(a), "both handles read one count");
+});
+(mut(g_enum_cell_disposed) : i32) = i32(0);
+_Guarded :: enum(GuardNone, GuardSome(label : String));
+impl(
+  _Guarded,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_enum_cell_disposed = (g_enum_cell_disposed + i32(1));
+    })
+  )
+);
+test("an enum with Drop in an Rc cell is disposed once, at the last handle", {
+  before := g_enum_cell_disposed;
+  {
+    g := Rc.new(_Guarded.GuardSome(String.from("x")));
+    alias := Rc.clone(g);
+    assert(ref_count(alias) == usize(2), "alias shares the cell");
+  };
+  assert((g_enum_cell_disposed - before) == i32(1), "Drop ran exactly once");
+  {
+    _n := Rc.new(_Guarded.GuardNone);
+  };
+  assert((g_enum_cell_disposed - before) == i32(2), "Drop also runs for a payload-free variant");
+});
+(mut(g_enum_chain_disposed) : i32) = i32(0);
+_GuardedChain :: enum(GcEnd, GcLink(next : Rc(Self)));
+impl(
+  _GuardedChain,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_enum_chain_disposed = (g_enum_chain_disposed + i32(1));
+    })
+  )
+);
+_DisposedValueEnum :: enum(DvA, DvB(x : i32));
+_PlainValueEnum :: enum(PvA, PvB(x : i32));
+derive(_PlainValueEnum, Copy, Clone);
+(mut(g_value_enum_disposed) : i32) = i32(0);
+impl(
+  _DisposedValueEnum,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_value_enum_disposed = (g_value_enum_disposed + i32(1));
+    })
+  )
+);
+test("Drop on a self-recursive enum runs once per node, and makes a value enum move-only", {
+  before := g_enum_chain_disposed;
+  {
+    _c := _GuardedChain.GcLink(Rc.new(_GuardedChain.GcLink(Rc.new(_GuardedChain.GcEnd))));
+  };
+  assert((g_enum_chain_disposed - before) == i32(3), "Drop ran once per node of a self-recursive enum");
+  value_before := g_value_enum_disposed;
+  {
+    v := _DisposedValueEnum.DvB(i32(1));
+    w := v;
+  };
+  assert((g_value_enum_disposed - value_before) == i32(1), "a value enum's Drop runs once, for its one owner");
+  comptime_assert(!Type.impls(_DisposedValueEnum, Copy) && !Type.impls(_DisposedValueEnum, Clone), "a value enum with Drop is move-only");
+  comptime_assert(Type.impls(_PlainValueEnum, Copy), "one without Drop can be Copy");
+});
+_Chain :: enum(End, Link(next : Rc(Self)));
+derive(_Chain, Eq(_Chain));
+_chain_len :: (fn(c : &_Chain) -> i32)(
+  match(c, .End => i32(0), .Link(next) => (recur(&next.*.*) + i32(1)))
+);
+_Kind3 :: enum(Leaf, Other, Node(elem : Rc(Self)));
+derive(_Kind3, Eq(_Kind3));
+_SlotPayload :: struct(n : i32);
+_Slot :: enum(Vacant, Held(p : Rc(_SlotPayload)));
+test("an enum with a unit variant and an Rc(Self) payload builds, matches and recurses", {
+  c := _Chain.Link(next : Rc.new(_Chain.Link(next : Rc.new(_Chain.End))));
+  assert(_chain_len(&c) == i32(2), "two links");
+  assert(_chain_len(&_Chain.End) == i32(0), "the end has no links");
+});
+test("derive(Eq) on an enum with an Rc(Self) payload compares structurally", {
+  a := _Chain.Link(next : Rc.new(_Chain.End));
+  b := _Chain.Link(next : Rc.new(_Chain.End));
+  c := _Chain.Link(next : Rc.new(_Chain.Link(next : Rc.new(_Chain.End))));
+  assert(a == b, "equal chains built separately");
+  assert(!(a == c), "different lengths");
+  assert(a != c, "the derived != agrees");
+  assert(_Chain.End == _Chain.End, "unit variants");
+  k := _Kind3.Node(elem : Rc.new(_Kind3.Node(elem : Rc.new(_Kind3.Leaf))));
+  assert(k == _Kind3.Node(elem : Rc.new(_Kind3.Node(elem : Rc.new(_Kind3.Leaf)))), "three-variant shape, nested payloads");
+  assert(!(k == _Kind3.Node(elem : Rc.new(_Kind3.Node(elem : Rc.new(_Kind3.Other))))), "the innermost variant differs");
+  assert(!(_Kind3.Leaf == _Kind3.Other), "distinct unit variants");
+});
+test("an Rc of an enum whose only payload is an Rc keeps its own count", {
+  s := Rc.new(_Slot.Held(p : Rc.new(_SlotPayload(n : i32(7)))));
+  alias := Rc.clone(s);
+  assert(ref_count(s) == usize(2), "the enum cell is shared by s and alias");
+  payload_rc := match(&alias.*, .Held(q) => ref_count(q.*), .Vacant => usize(0));
+  assert(payload_rc == usize(1), "the payload has its own count: only the variant field holds it");
+  n := match(&alias.*, .Held(q) => q.n, .Vacant => i32(0));
+  assert(n == i32(7), "payload read through the alias");
+  assert(match(_Slot.Vacant, .Vacant => true, .Held(_) => false), "payload-free variant");
+});
+_Ctr :: enum(Zero, Active(count : i32, step : i32));
+_bump_ctr :: (fn(c : &mut _Ctr) -> unit)({
+  c.count = (c.count + i32(10));
+});
+_read_ctr :: (fn(c : &_Ctr) -> i32)(c.count);
+test("an enum parameter's field resolves against the declaring variant", {
+  mut(c) := _Ctr.Active(count : i32(5), step : i32(1));
+  _bump_ctr(&mut c);
+  assert(_read_ctr(&c) == i32(15), "the write landed");
+});
+test("an Rc payload may have fields named header, ref_count, gc_flags and type_id", {
+  _VH :: struct(header : i32, n : i32);
+  v := Rc.new(_VH(header : i32(1), n : i32(2)));
+  assert(v.header == i32(1), "a payload field named header");
+  assert(v.n == i32(2), "its sibling");
+  _KH :: struct(ref_count : i32, gc_flags : i32, type_id : i32);
+  k := Rc.new(_KH(ref_count : i32(1), gc_flags : i32(2), type_id : i32(3)));
+  assert(k.ref_count == i32(1), "ref_count as a payload field name");
+  assert(k.gc_flags == i32(2), "gc_flags as a payload field name");
+  assert(k.type_id == i32(3), "type_id as a payload field name");
+  _CH :: struct(header :: 1, n : i32);
+  c := Rc.new(_CH(n : i32(5)));
+  assert(c.n == i32(5), "the runtime sibling of a comptime header field");
+});

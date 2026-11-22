@@ -1,0 +1,93 @@
+{ assert } :: import("std/assert");
+/// Flowability + memory-safety coverage for the STATIC-str model
+/// (plans/archive/SLICE_REWORK.md).
+///
+/// After the slice rework, SAFE code cannot construct a value that carries
+/// a raw pointer into mortal storage:
+///   - `str` is the builtin view of STATIC string bytes (literals /
+///     template segments) — immortal backing, so it is freely copyable,
+///     storable, returnable: NO flow constraints.
+///   - `String.as_str()` / `ArrayList.as_slice()` are deleted; the
+///     privileged replacements (`raw_bytes()`, `RawSlice(T)`) require
+///     `pragma(Pragma.AllowUnsafe)` via the raw-pointer gates.
+///   - Range indexing COPIES (`arr(a..b)` → new ArrayList, String range →
+///     new String); `str` ranges stay zero-copy static windows.
+///   - `inout(name) : T` flowability (rules R1–R4) is UNCHANGED and covered
+///     by tests/ref_*.test.yo.
+///
+/// NOTE: this file must NOT declare `pragma(Pragma.AllowUnsafe);` — the
+/// negatives below pin the SAFE-code gates and would pass vacuously under
+/// the pragma.
+import("std/string");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+// ---------------------------------------------------------------------------
+// str is static: store, return, reassign freely — no flow constraints.
+// ---------------------------------------------------------------------------
+StrHolder :: struct(name : str);
+derive(StrHolder, Copy, Clone);
+NestedStrHolder :: struct(inner : StrHolder);
+derive(NestedStrHolder, Copy, Clone);
+return_str_field :: (fn(h : StrHolder) -> str)(h.name);
+return_str_literal :: (fn() -> str)("static backing");
+return_str_from_branch :: (
+  fn(pick : bool) -> str
+)(cond(pick => "left", true => "right"));
+make_holder :: (fn() -> StrHolder)(StrHolder(name : "immortal"));
+test("str stores, returns and reassigns freely (static backing)", {
+  mut(h) := StrHolder(name : "hello");
+  h = StrHolder(name : "world!");
+  assert(h.name.len() == usize(6), "reassigned holder reads");
+  n := NestedStrHolder(inner : make_holder());
+  assert(n.inner.name == "immortal", "nested static str field");
+  assert(return_str_field(h) == "world!", "str field returns");
+  assert(return_str_literal().len() == usize(14), "literal returns");
+  assert(return_str_from_branch(true) == "left", "branch returns");
+  mut(s) := "outer";
+  {
+    s = "inner scope literal";
+  };
+  assert(s.len() == usize(19), "inner-scope literal outlives the block (static)");
+});
+test("str range windows stay static str", {
+  v := "hello world";
+  w := v(usize(6) .. usize(11));
+  assert(w == "world", "window content");
+  ww := w(usize(0) .. usize(3));
+  assert(ww == "wor", "window of window");
+});
+// ---------------------------------------------------------------------------
+// Range indexing copies: the old slice-invalidation triggers are gone.
+// ---------------------------------------------------------------------------
+test("range copies survive source reassignment and growth", {
+  mut(buf) := ArrayList(i32).new();
+  buf.push(i32(42));
+  buf.push(i32(7));
+  s := buf(usize(0) .. usize(2));
+  // (a) reassignment of the source — the copy is unaffected
+  buf = ArrayList(i32).new();
+  // (b) growth/realloc of the source — the copy is unaffected
+  mut(i) := usize(0);
+  while(i < usize(100), i = (i + usize(1)), {
+    buf.push(i32(1));
+  });
+  assert(s.len() == usize(2), "copy length stable");
+  assert(match(s.get(usize(0)), .Some(v) => (v == i32(42)), .None => false), "copy data stable");
+});
+// ---------------------------------------------------------------------------
+// Privileged raw views are gated: safe code cannot type-annotate a raw
+// pointer, to a slice (`*[u8]`, the old `RawSlice`) or to a value.
+// ---------------------------------------------------------------------------
+comptime_expect_error(
+  safe_code_cannot_name_raw_slice :: (fn(s : *[u8]) -> usize)(__yo_slice_len(s))
+);
+comptime_expect_error(
+  safe_code_cannot_name_raw_ptr :: (fn(p : *u8) -> *u8)(p)
+);
+// ---------------------------------------------------------------------------
+// `String.as_str()` / `ArrayList.as_slice()` are DELETED — any use fails to
+// compile because the methods do not exist. (Not pinned via
+// comptime_expect_error here: the self-hosted proto-evaluator soft-falls-
+// back on unknown methods during def-eval by design, which would make the
+// negative vacuous under `yo-self check`.)
+// ---------------------------------------------------------------------------

@@ -1,0 +1,119 @@
+//! The registry's examples, verified by the compiler
+//! (plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md §3.3): every entry's `bad`
+//! program is written to disk and loaded through the same module-manager
+//! service `yo check` uses, and must fail with EXACTLY the entry's code as the
+//! first diagnostic; every `good` program must load clean. Before this test,
+//! 6 of 30 `bad` snippets reproduced their own code and most were fragments
+//! with free names — `yo explain` was showing examples the compiler rejects
+//! for a different reason, or accepts.
+//!
+//! Exempt from the `bad` half, each with the reason in `_bad_exempt`:
+//!   - E0905: reported by `compile` when a swallowed definition-time failure
+//!     reaches codegen; `check` reports the underlying error instead.
+//! Their `good` programs are still required to load clean.
+//!
+//! Exempt from BOTH halves (`_toolchain_band`): the E13xx/E15xx band — the
+//! ICE wrapper (E1301) and the dependency toolchain (E1501–E1506). None of
+//! them is raised by the evaluator at all: E1301 is, by construction, an
+//! emitter precondition no accepted source can reach, and the E15xx family
+//! is raised by the install/fetch CLI over yo.toml/yo.lock and the network.
+//! Their examples are command and manifest transcripts, not Yo programs, so
+//! loading them as a module proves nothing; the codes are verified by
+//! tests/internal/error.test.yo (format_coded_error),
+//! tests/internal/resolver.test.yo and tests/internal/install-command.test.yo
+//! (the raise sites), and the explain-list cli-case pins the code set.
+{ String } :: import("std/string");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{ assert } :: import("std/assert");
+{ Path } :: import("std/path");
+{ write_string } :: import("std/fs/file");
+{ create_dir_all } :: import("std/fs/dir");
+{ IoExn, Exception } :: import("std/error");
+{ Explain, registry_entries } :: import("../../src/diagnostics-registry.yo");
+{ mm_load_file, mm_preload_prelude, mm_invalidate_document, resolve_std_path, _take_load_error } :: import("../../src/module-manager.yo");
+{ take_error_diagnostics } :: import("../../src/error.yo");
+{ Diagnostic } :: import("../../src/diagnostics.yo");
+{ format_yo_source } :: import("../../src/formatter.yo");
+/// The E13xx/E15xx band: codes raised outside the evaluator (see the header).
+_toolchain_band :: (fn(code : &String) -> bool)(
+  (code.* == "E1301") || ((code.* == "E1501") || ((code.* == "E1502") || ((code.* == "E1503") || ((code.* == "E1504") || ((code.* == "E1505") || (code.* == "E1506"))))))
+);
+/// E0920 (`.*` on a borrow) fires only in deref-exempt files (std, src,
+/// scripts/, build.yo) since N1e-1: a user file reads `v.*` as the reference's
+/// deref and a bare `v` is E0926, so neither half reproduces as a user file.
+/// N3's std/src sweep retires E0920 and this exemption with it.
+_deref_exempt_only :: (fn(code : &String) -> bool)(code.* == "E0920");
+_bad_exempt :: (fn(code : &String) -> bool)(
+  (code.* == "E0905") || (_toolchain_band(code) || _deref_exempt_only(code))
+);
+/// The `good` half is also a transcript for the toolchain band — there is no
+/// Yo program whose loading demonstrates the fix for a missing yo.toml.
+_good_exempt :: (fn(code : &String) -> bool)(_toolchain_band(code) || _deref_exempt_only(code));
+/// The code of the first `error[EXXXX]` in a rendered diagnostic, "" when none.
+_first_code_in_text :: (fn(text : &String) -> String)(
+  match(
+    text.index_of(String.from("error[")),
+    .Some(k) => text.substring(k + usize(6), k + usize(11)),
+    .None => String.new()
+  )
+);
+/// Load `src` as the module at `path` and return the first diagnostic code
+/// ("" for a clean load). Drains every error channel so nothing leaks into
+/// the next example.
+_load_code :: (fn(path : &String, src : &String, std_path : &String, io : Io, exn : Exception) -> String)({
+  ioexn := IoExn(io : io, exn : exn);
+  io.await(write_string(Path.new(path.clone()), src, io), ioexn);
+  _inv := mm_invalidate_document(path.clone());
+  outcome := mm_load_file(path.clone(), std_path.clone(), false, io, exn);
+  rendered := match(_take_load_error(), .Some(r) => r, .None => String.new());
+  typed := match(take_error_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new());
+  if(outcome.ok, {
+    return(String.new());
+  });
+  typed_code := match(
+    typed.get_cloned(usize(0)),
+    .Some(d) => match(&d.code, .Some(c) => c.clone(), .None => String.new()),
+    .None => String.new()
+  );
+  if(typed_code.len() > usize(0), typed_code, {
+    text_code := _first_code_in_text(&rendered);
+    if(text_code.len() > usize(0), text_code, String.from("<uncoded>"))
+  })
+});
+test("every registry example reproduces its code, and every good example loads clean", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := String.from("/tmp/yo_registry_examples");
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  std_path := resolve_std_path();
+  assert(mm_preload_prelude(std_path.clone(), false, io, exn), "prelude must load");
+  entries := registry_entries();
+  assert(entries.len() >= usize(30), `expected at least 30 entries, got ${entries.len().to_string()}`);
+  (mut(i) : usize) = usize(0);
+  while(i < entries.len(), {
+    e := match(entries.get_cloned(i), .Some(x) => x, .None => __yo_panic("missing registry entry"));
+    i = (i + usize(1));
+    bad_path := `${dir}/${e.code}_bad.yo`;
+    good_path := `${dir}/${e.code}_good.yo`;
+    if(!_bad_exempt(e.code.clone()), {
+      got := _load_code(bad_path.clone(), e.bad.clone(), std_path.clone(), io, exn);
+      assert(got == e.code, `${e.code}: the bad example must fail with ${e.code}, got "${got}"`);
+    });
+    if(!_good_exempt(e.code.clone()), {
+      got_good := _load_code(good_path.clone(), e.good.clone(), std_path.clone(), io, exn);
+      assert(got_good == "", `${e.code}: the good example must load clean, got "${got_good}"`);
+      // `yo explain` prints the good example as the fix to copy, so it is
+      // written the way `yo fmt` writes code (no redundant parens, one space
+      // before a trailing comment).
+      good_fmt := format_yo_source(e.good.clone(), good_path.clone(), exn);
+      assert(good_fmt.trim_end() == e.good.trim_end(), `${e.code}: the good example is not yo fmt-clean; fmt writes:\n${good_fmt}`);
+    });
+  });
+});

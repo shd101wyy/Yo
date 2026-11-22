@@ -6,11 +6,11 @@
 //!   derive([generic(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
 //!
 //! Derive rules live in the global g_derive_rules registry
-//! (from derive_rule.yo) rather than in fields on FunctionValue/TraitType.
+//! (from derive-rule.yo) rather than in fields on FunctionValue/TraitType.
 //! Trait args are resolved by expression-level name (not by evaluating the trait arg).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   ast_expr_token,
@@ -45,13 +45,14 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set,
   expr_info_adopt_env
-} :: import("../../expr_info.yo");
+} :: import("../../expr-info.yo");
+{ push_in_derive_impl, pop_in_derive_impl } :: import("../../types/flowability.yo");
 { format_error_message, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive_rule.yo");
+{ extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive-rule.yo");
 { Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
-{ push_copy_pending, clear_copy_pending } :: import("../trait_checking.yo");
+{ push_copy_pending, clear_copy_pending } :: import("../trait-checking.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
@@ -72,7 +73,7 @@ _c_len_1 :: (fn(xs : &ArrayList(AnyError)) -> usize)(xs.len());
 // the `derive(...)` statement instead of at the prelude quote template the impl
 // was spliced from. A capture-free `->` handler cannot reach an outer local, so
 // the message travels through a module-level box — the same shape as
-// anonymous_function.yo's `g_anon_swallow_msg`. Single-threaded evaluator.
+// anonymous-function.yo's `g_anon_swallow_msg`. Single-threaded evaluator.
 // ---------------------------------------------------------------------------
 (g_derive_impl_err : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// The generated body's error code, carried onto the "derive on … failed"
@@ -110,7 +111,7 @@ _derive_impl_err_message :: (fn() -> String)(
 ///
 /// **Every derive-internal evaluation must go through this, never through the
 /// 3-argument `evaluate_expression`.** That one is
-/// `_evaluate_expression_wrapper` (`evaluator/exprs/_expr.yo`), whose handler
+/// `_evaluate_expression_wrapper` (`evaluator/exprs/dispatch.yo`), whose handler
 /// swallows EVERY throw and returns an err-expr — so a rule's own
 /// `comptime_assert` never reached the user. `derive` saw only a missing
 /// expr-info value and reported the generic "derive rule function failed", or
@@ -123,12 +124,15 @@ _derive_eval_guarded :: (
   inner_exn := Exception(
     throw : (
       _err -> {
+        pop_in_derive_impl();
         _flag_derive_impl_err(_err.to_string(), primary_diagnostic_code(&_err));
         unwind(());
       }
     )
   );
+  push_in_derive_impl();
   evaluated := evaluate_expression_raw(step_expr, env, ctx, inner_exn);
+  pop_in_derive_impl();
   out.push(evaluated);
 });
 /// Strip one leading error prefix so a re-raise does not read

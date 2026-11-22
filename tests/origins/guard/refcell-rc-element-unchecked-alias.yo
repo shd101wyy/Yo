@@ -1,0 +1,57 @@
+// expect: accept
+// guard-off: DIRTY heap-use-after-free
+// tests/sync/refcell.test.yo's keep-alive rows: `with_mut`, `with` and
+// `replace_with` on a `RefCell` reached through an `Rc` element, whose body
+// empties the list through the unchecked second name of
+// tests/fixtures/cell-handles.yo (`talias`/`tclear`, unsafe-capable code).
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+{ talias, tclear } :: import("../../fixtures/cell-handles.yo");
+(mut(drops) : i32) = i32(0);
+C :: struct(n : i32);
+impl(
+  C,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      drops = (drops + i32(1));
+    })
+  )
+);
+list :: (fn(n : i32) -> ArrayList(Rc(RefCell(C))))({
+  mut(xs) := ArrayList(Rc(RefCell(C))).new();
+  xs.push(Rc.new(RefCell(C).new(C(n : n))));
+  xs
+});
+main :: (fn() -> unit)({
+  mut(a) := list(i32(1));
+  a2 := talias(&mut a);
+  ra := a(usize(0)).with_mut(v => {
+    tclear(&a2);
+    v.n = (v.n + i32(1));
+    drops
+  });
+  mut(b) := list(i32(2));
+  b2 := talias(&mut b);
+  rb := b(usize(0)).with(
+    &mut (
+      v => {
+        tclear(&b2);
+        drops + (v.n - v.n)
+      }
+    )
+  );
+  mut(c) := list(i32(3));
+  c2 := talias(&mut c);
+  old := c(usize(0)).replace_with(
+    &mut (
+      v => {
+        tclear(&c2);
+        C(n : (v.n + drops))
+      }
+    )
+  );
+  d := drops;
+  println(`OUT: ${ra} ${rb} ${old.n} ${d}`);
+});
+export(main);

@@ -1,0 +1,27 @@
+// expect: E0911
+// guard-off: same
+// A `match` over a local `Option(Rc(W))` lends the payload to a receiver
+// whose closure argument resets the local.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &mut Impl(FnMut() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+main :: (fn() -> unit)({
+  mut(o) := Option(Rc(W)).Some(Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  match(
+    &o,
+    .Some(r) => r.peek(
+      &mut ({ &mut o }() => {
+        o = .None;
+      })
+    ),
+    .None => ()
+  );
+});
+export(main);

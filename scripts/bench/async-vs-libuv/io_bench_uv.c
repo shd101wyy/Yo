@@ -1,8 +1,8 @@
-// The libuv twin of scripts/bench/io_bench.yo's echo, timer and file
+// The libuv twin of scripts/bench/io-bench.yo's echo, timer and file
 // workloads, written the way a libuv program would write them (callbacks,
 // uv_write, uv_read_start, uv_timer, uv_fs on the threadpool). Driven by
 // scripts/bench-vs-libuv.sh, which prints both programs' numbers side by
-// side. Output lines match io_bench.yo's: "<key>_us <micros> ops <count>".
+// side. Output lines match io-bench.yo's: "<key>_us <micros> ops <count>".
 #include <uv.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -192,7 +192,7 @@ static void run_timer(void) {
 
 // ---------------------------------------------------------------- file ----
 // One iteration: write the file (open O_CREAT|O_TRUNC, write, close), then
-// read it back to EOF (open, fstat, read until 0, close) — what io_bench.yo's
+// read it back to EOF (open, fstat, read until 0, close) — what io-bench.yo's
 // write_string + read_to_string do.
 static char path[4096];
 static char wbuf[FILE_SIZE];

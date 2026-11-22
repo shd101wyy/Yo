@@ -7,6 +7,13 @@ each v0.2.79 PR retired, which docs and tables it must touch, and the sentence t
 that merges a row flips its **State** and fills its PR number in the same PR. At the release it is frozen and
 `plans/archive/` takes it, like the earlier handovers.
 
+**Amended 2026-11-19 (schedule §5l, decisions 57 and 58).** The parser drop (R7) is in v0.2.79: the 06:00 hard stop of
+2026-11-19 had moved it to v0.2.80, and the maintainer re-admitted it, so v0.2.79 is cut WITH it. VERDICTS-66 adds the
+derive-later `Clone`/`Hash` fix and the `?Sized` associated-type fix to the release, with the blanket `Hash(&T)` /
+`ToString(&T)` as riders that ride only if READY by R7's merge + 24 h (rider rows are filled as they merge, see §6).
+Kebab-case Part C ships as the last step before the cut, and `module-names` is a permanent flag, not a retirement
+(R11, VERDICTS-67). The mode retirements of this release are `record-literal` (R8) only.
+
 ## 1. What the release retires
 
 "Retire" is used in three senses, one per table column group: a **spelling** leaves the language (it becomes an error
@@ -21,11 +28,11 @@ which, and where the user-visible text lives.
 | R4 | `dyn(v)` of a plain value (the legacy alias of `dyn(Box.new(v))`) | spelling | E0620; its help names `dyn(Box.new(v))` and v0.2.78's migration, and a named value carries a structured repair (`yo fix` rewrites it). `yo fix --migrate unsized` keeps only the `&b` → `&b.*` lend rewrite and the listing of `dyn(h)` over a named handle, and finds sites by position, so a template literal, a bracket in a string or a multi-line argument is rewritten instead of listed. Also in this PR, an S1 present on v0.2.78: a boxed or lent `FnOnce`/`FnMut` closure erased into a `Dyn(Fn(...))` is E0913 again (the second call freed the captures twice). Still to come (S3a's remainder, d49 lane): the legacy dyn runtime arms, the fat cells, B | v0.2.78 | #1981 | alias merged; remainder → v0.2.80 |
 | R5 | `Deref` as a marker trait with no `deref` method, read natively for the cell handles only (VERDICTS-63 Generation A) | surface change, not a deletion | `Deref` gains the projection `deref`, `DerefMut` its write half; an owner's `.*` is the `deref` call; outside the prelude a `Deref` impl needs an unsized `Target`; `Array(T, N)` implements both; `TMisnamed` in `tests/fixtures/cell_handles.yo` becomes a type error at the impl. The two std impls (`ArrayList`, `String`) are v0.2.80 | n/a | #1983 | merged |
 | R6 | `Token`, `AstExpr`, `EvalValue` as `ref(struct)` / `ref(enum)` | internal | Read-only `Rc`, one PR each (3c, 3d, 3e), each behind its prep PR; no user-visible change. Gate: compiler-swap identity (schedule §5i decision 54). 3c's prep is #1979 | v0.2.78 | #1979 (prep) / #1986 (3c), #1992 (3d) / to fill (3e, merging before the cut) | prep, 3c, 3d merged; 3e pending (merging before the cut) |
-| R7 | `ref(...)` and `atomic(...)` as declaration forms | spelling | E0009 naming the `Rc(S)` / `Arc(S)` spelling; the `BK_REF` / `BK_ATOMIC` arms, the `is_reference_semantics` / `is_atomic_rc` sites (160 on 2026-11-09, reread as cell-payload flags), the LSP keywords, the VS Code grammar and the hints are deleted; the tests V5 part B kept on `ref` and 13 cli fixtures are rewritten; the effect records' `Copy` lands. The `ref`-era backstop (VERDICTS-42) and audit §8's `f(&h.xs, h2)` residual close with it | v0.2.78 | the R7 PR | merging before the cut (PR: the parser-drop lane, v0279/parser-drop) |
+| R7 | `ref(...)` and `atomic(...)` as declaration forms | spelling | E0009 naming the `Rc(S)` / `Arc(S)` spelling; the `BK_REF` / `BK_ATOMIC` arms, the `is_reference_semantics` / `is_atomic_rc` sites (160 on 2026-11-09, reread as cell-payload flags), the LSP keywords, the VS Code grammar and the hints are deleted; the tests V5 part B kept on `ref` and 13 cli fixtures are rewritten; the effect records' `Copy` lands. The `ref`-era backstop (VERDICTS-42) and audit §8's `f(&h.xs, h2)` residual close with it | v0.2.78 | the R7 PR | in the cut (re-admitted 2026-11-19, schedule §5l decision 57): branch `v0279/parser-drop`, merges FIRST, ahead of every rider. As built: `ref(...)` carries a `ref` → `Rc` structured repair, `atomic(...)` help only (a one-span repair cannot drop the surplus `)`); the ~50 compiler records that were `ref(struct(...))` are value structs or `Rc` handles; PR number to fill |
 | R8 | `--migrate record-literal` | mode | Retired: the E0007 help and `yo fix --help` stop naming it; the `Retired migrations` table gains its row (§2) | v0.2.78 (its Generation B swept the trees there) | #1989 (`cli` lane) | landed 2026-11-17: the mode, `_run_migrate_record_literal` and its helpers, the parser's `set_brace_legacy_records` flag and the `fix-migrate-record-literal` case are deleted; E0007's help says `yo version install 0.2.78 && yo fix <path> --migrate record-literal`; the `Retired migrations` row is in both languages |
 | R9 | The value-`str` alias, `slice_copy`/`slice_copy_inclusive`, `unsized_legacy_spellings` (S3b-`str`) | spelling | The std/src `str` sweep first; then the alias and the legacy arms are deleted. **v0.2.80, not here** (§5h decision 51: the swept spellings do not compile on a seed without the flip) | v0.2.79 | n/a | planned for v0.2.80 |
 | R10 | `--migrate deref`, `--migrate unsized` | mode | `deref` retires in v0.2.80 (v0.2.79 is its last release); `unsized` is in its last release in v0.2.80. Neither retires here, so the table in §2 gains no row for them yet | v0.2.79 / v0.2.80 | n/a | planned for v0.2.80 / v0.2.81 |
-| R11 | `--migrate module-names` | mode | **Not shipped.** Kebab-case Part C did not land in v0.2.78 (`src/main.yo` accepts three modes: `deref`, `record-literal`, `unsized`), so there is nothing to retire in v0.2.79: the schedule's "retires in v0.2.79" (§5f decision 32) is superseded. See the open question in §4 | n/a | n/a | open |
+| R11 | `--migrate module-names` | mode (never built) | **No retirement, ever.** Kebab-case Part C did not land in v0.2.78 (`src/main.yo` accepts three modes: `deref`, `record-literal`, `unsized`), and VERDICTS-67 (2026-11-19, schedule §5l decision 58) settles the question: the tool ships in v0.2.79 as `yo fix <path> --module-names`, a permanent opt-in flag OUTSIDE the `--migrate` family, so there is no mode to retire, no row in ERROR_DIAGNOSTICS' retired-migrations table and no effect on claim (L). The schedule's "retires in v0.2.79" (§5f decision 32) is superseded. The std/src/tests module renames are a breaking change the notes state (`yo fix <path> --module-names` for a package's own files; the did-you-mean import repair, which may slip to v0.2.80, or a manual rename for std import paths) | n/a | the kebab lane, branch `v0279/kebab-part-c`; PR number to fill | in progress: the last step before the cut |
 
 Two other merged PRs of this window retire nothing and are recorded here only so the notes cite them: **#1975** (audit A57:
 a bare reference binding passed to a reference parameter roots the call result, so a call result stored through a
@@ -196,21 +203,38 @@ issues filed 2026-11-19 (`issues/2026-11-19-*.md`: clusters 2, 3, 5, 6 and 7), a
     and `release.yml`'s bundles, so it needs a build, `cli-diff-test` and a re-record. Recommendation: a separate small
     PR by whichever lane is idle after the retype's first PR, because none of those files is in the retype's surface;
     it must not wait for K5, whose snippet gate is the inventory K7 would use but not a dependency of the deletion.
-- **Kebab Part C and `--migrate module-names` (R11).** Part C was scheduled last in v0.2.78 "unless the flip has started
-  merging"; the flip merged and Part C did not land, and no document gives it a new release. It renames most of std,
-  src and tests, so it cannot share a window with the retype (decision 37's #1813 precedent). Recommendation: v0.2.80,
-  after the parser drop, with `module-names` shipping there and retiring in v0.2.81; the schedule's v0.2.79 and v0.2.80
-  rows then lose the "module-names" clause and `KEBAB_CASE_NAMES.md`'s status line says so.
-- **The count of mode retirements.** VERDICTS-58 decision 28 lists "the four mode retirements". After §5h only one
-  (`record-literal`, R8) retires in v0.2.79; `deref` and `unsized` move to v0.2.80 and v0.2.81 and `module-names` to
-  v0.2.81 (R10, R11). The schedule row already says "`record-literal` and `module-names` only"; it needs the R11 edit.
+- **Kebab Part C and `module-names` (R11): decided 2026-11-19.** Part C was scheduled last in v0.2.78 "unless the flip
+  has started merging"; the flip merged and Part C did not land. The maintainer placed it in v0.2.79 as the last step
+  before the cut (it renames most of std, src and tests, so it follows the retype and the parser drop, decision 37's
+  #1813 precedent, and is regenerated on the release tip), and VERDICTS-67 (schedule §5l decision 58) keeps the tool
+  permanently as `yo fix <path> --module-names`, outside the `--migrate` family: nothing retires, there is no old-name
+  table, and an unresolved import gets a generic did-you-mean repair (exactly one module matching under `_` → `-` plus
+  lower case) in the `.NotFound` arm of `src/evaluator/exprs/import.yo`. The repair is not cut-blocking and may slip to
+  v0.2.80. The schedule's v0.2.79 row says so; `KEBAB_CASE_NAMES.md`'s status lines are the kebab lane's to amend.
+- **The count of mode retirements.** VERDICTS-58 decision 28 lists "the four mode retirements". After §5h and
+  VERDICTS-67 only one (`record-literal`, R8) retires in v0.2.79; `deref` retires in v0.2.80 and `unsized` in v0.2.81
+  (R10); `module-names` is not a mode and never retires (R11). The schedule row says "`record-literal` only".
 
 ## 5. Moved to v0.2.80 (maintainer override, 2026-11-17)
 
 The maintainer's override of 2026-11-17 (schedule §5k) moves `Box`'s layout L3 (R12) out of v0.2.79; the row text is
 unchanged from §1, and only the State column differs. The parser drop (R7) was re-admitted to v0.2.79 behind 3e by the
-maintainer's second override, 2026-11-17 later that day, and stays in §1.
+maintainer's second override, 2026-11-17 later that day, and stays in §1: the 2026-11-19 hard stop moved it to v0.2.80
+for a few hours, and the maintainer re-admitted it the same day (schedule §5l decision 57), so no R7 row moves.
 
 | # | What | Sense | After the change | Last release of the old form | PR | State |
 | --- | --- | --- | --- | --- | --- | --- |
 | R12 | `Box`'s layout L3: a placed `Rc`/`Arc` cell's 16-byte extent | internal | The placed cell stops carrying the extent once S2 has typed every release path; the C size of a placed handle shrinks | v0.2.78 | to fill | moved to v0.2.80 |
+
+## 6. Riders of the 2026-11-19 scope (VERDICTS-66, schedule §5l decision 57)
+
+Not retirements: fixes that ride the release behind R7, one row each, filled as each merges. The wall is R7's merge + 24 h
+for the two blankets; only blocker 1 holds the cut past it.
+
+| # | What | Branch | Gate | PR | State |
+| --- | --- | --- | --- | --- | --- |
+| F1 | Blocker 1: a generic impl's `where` bound forces the bound type's later impls and derives (`derive(Clone)`/`derive(Hash)` on a struct with a `Deref`-owner field saw later derives) | `v0279/derive-later-clone` | the pinned test, stage 2, the fixpoint, zero emit-diff | to fill | holds the cut |
+| F2 | An associated type declared `?Sized` is an associated type (`Deref.Target : ?Sized`) | `v0279/sized-assoc` | as F1 | to fill | in the cut |
+| F3 | Blocker 4: blanket `ToString(&T)` | `v0279/blanket-tostring` | as F1 | to fill | rider: READY by the wall, else v0.2.80 |
+| F4 | Blocker 3: blanket `Hash(&T)` (the occurs check descends into references) | `v0279/blanket-hash` | as F1 | to fill | rider: READY by the wall, else compiler fix v0.2.80 and std `Hash(&T)` v0.2.81 |
+| F5 | The compiler's own leak since the retype: a value a later `cond` condition moves is dropped in the earlier arms (G4 75,897 B against the 378 B bar) | `v0279/g4-leak` | G4 back at the bar | to fill | gates the cut (G4 is a cut gate, §5k decision 56) |

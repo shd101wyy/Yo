@@ -4,8 +4,8 @@
 #
 # `yo check` trial-evaluates bodies at definition time and SWALLOWS what the
 # trial throws. Under YO_DEBUG_SWALLOW=1 every swallow is printed:
-#   [swallow] <err>          named-fn def-eval trial (calls/function_type.yo)
-#   [anon-swallow] <err>     closure-body trial (values/anonymous_function.yo)
+#   [swallow] <err>          named-fn def-eval trial (calls/function-type.yo)
+#   [anon-swallow] <err>     closure-body trial (values/anonymous-function.yo)
 #   [mat-default-swallow]    trait `?=` default materialization (values/impl.yo)
 #   [reeval-swallow] <err>   specialization-time closure re-evaluation (calls/helper.yo)
 # This script runs `check` over each target with the knob on and counts those

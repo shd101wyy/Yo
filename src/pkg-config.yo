@@ -1,0 +1,309 @@
+/// pkg-config integration for the Yo build system.
+///
+/// Discovers system C libraries via `pkg-config` on Unix-like systems.
+/// Falls back to user-provided paths when `pkg-config` is not available
+/// (common on Windows).
+{ String } :: import("std/string");
+{ Command, ExitStatus, Output } :: import("std/process/command");
+{ Exception, IoExn } :: import("std/error");
+{ ArrayList } :: import("std/collections/array-list");
+{ BuildSystemLibrary } :: import("./evaluator/builtins/build.yo");
+/// Resolved compiler and linker flags for a system library.
+PkgConfigResult ::
+  struct(
+    c_flags : ArrayList(String),
+    ld_flags : ArrayList(String),
+    include_paths : ArrayList(String),
+    library_paths : ArrayList(String),
+    link_libraries : ArrayList(String),
+    defines : ArrayList(String)
+  );
+// The system-library entry type is the CANONICAL one from the build builtins
+// — pkg_config previously duplicated the identical shape locally, and the two
+// nominal types could not unify when build_runner wired the resolver in
+// (P2.5 step 9b).
+/// ASCII whitespace test (mirrors std String._is_whitespace_byte, which is private).
+_is_ws_byte :: (fn(byte : u8) -> bool)(
+  (byte == u8(0x20)) || (byte == u8(0x09)) || (byte == u8(0x0A)) || (byte == u8(0x0D)) || (byte == u8(0x0C)) || (byte == u8(0x0B))
+);
+/// Split a string on ASCII whitespace boundaries, filtering empty tokens.
+_split_whitespace :: (fn(s : &String) -> ArrayList(String))({
+  mut(result) := ArrayList(String).new();
+  bytes := s.clone();
+  n := bytes.len();
+  mut(k) := usize(0);
+  mut(start) := usize(0);
+  mut(in_token) := false;
+  while(k < n, {
+    mut(b) := u8(0);
+    match(
+      bytes.get_byte(k),
+      .None => (),
+      .Some(p) => {
+        b = p;
+      }
+    );
+    is_ws := _is_ws_byte(b);
+    cond(
+      (!in_token && !is_ws) => {
+        start = k;
+        in_token = true;
+      },
+      (in_token && is_ws) => {
+        result.push(s.substring(start, k));
+        in_token = false;
+      },
+      true => ()
+    );
+    k = (k + usize(1));
+  });
+  if(in_token, {
+    result.push(s.substring(start, n));
+  });
+  result
+});
+/// Build an empty PkgConfigResult.
+_empty_result :: (fn() -> PkgConfigResult)(
+  PkgConfigResult(
+    c_flags : ArrayList(String).new(),
+    ld_flags : ArrayList(String).new(),
+    include_paths : ArrayList(String).new(),
+    library_paths : ArrayList(String).new(),
+    link_libraries : ArrayList(String).new(),
+    defines : ArrayList(String).new()
+  )
+);
+/// Parse pkg-config `--cflags` output into include_paths and c_flags.
+parse_cflags :: (fn(raw : &String) -> PkgConfigResult)({
+  result := _empty_result();
+  tokens := _split_whitespace(raw.trim());
+  n := tokens.len();
+  mut(k) := usize(0);
+  while(k < n, {
+    flag_opt := tokens.get_cloned(k);
+    flag := match(flag_opt, .None => String.new(), .Some(p) => p);
+    cond(
+      flag.starts_with(String.from("-I")) => {
+        result.include_paths.push(flag.substring(usize(2), flag.len()));
+      },
+      flag.starts_with(String.from("-D")) => {
+        result.c_flags.push(flag);
+      },
+      !flag.is_empty() => {
+        result.c_flags.push(flag);
+      },
+      true => ()
+    );
+    k = (k + usize(1));
+  });
+  result
+});
+/// Parse pkg-config `--libs` output and append into `result`, which it takes
+/// and returns.
+parse_ldflags_into :: (fn(raw : &String, result : PkgConfigResult) -> PkgConfigResult)({
+  tokens := _split_whitespace(raw.trim());
+  n := tokens.len();
+  mut(k) := usize(0);
+  while(k < n, {
+    flag_opt := tokens.get_cloned(k);
+    flag := match(flag_opt, .None => String.new(), .Some(p) => p);
+    cond(
+      flag.starts_with(String.from("-L")) => {
+        result.library_paths.push(flag.substring(usize(2), flag.len()));
+      },
+      flag.starts_with(String.from("-l")) => {
+        result.link_libraries.push(flag.substring(usize(2), flag.len()));
+      },
+      !flag.is_empty() => {
+        result.ld_flags.push(flag);
+      },
+      true => ()
+    );
+    k = (k + usize(1));
+  });
+  result
+});
+/// Build a fallback PkgConfigResult from user-provided paths when pkg-config fails.
+build_fallback :: (fn(lib : &BuildSystemLibrary) -> PkgConfigResult)({
+  result := _empty_result();
+  if(!lib.fallback_include.is_empty(), {
+    result.include_paths.push(lib.fallback_include.clone());
+  });
+  if(!lib.fallback_lib.is_empty(), {
+    result.library_paths.push(lib.fallback_lib.clone());
+  });
+  if(!lib.fallback_link.is_empty(), {
+    // May contain multiple libs separated by spaces
+    link_tokens := _split_whitespace(&lib.fallback_link);
+    lt_n := link_tokens.len();
+    mut(lt_k) := usize(0);
+    while(lt_k < lt_n, {
+      tok_opt := link_tokens.get_cloned(lt_k);
+      tok := match(tok_opt, .None => String.new(), .Some(p) => p);
+      if(!tok.is_empty(), {
+        result.link_libraries.push(tok);
+      });
+      lt_k = (lt_k + usize(1));
+    });
+  });
+  result
+});
+/// Merge explicit defines from the library config into `result`, which it
+/// takes and returns.
+apply_system_library_metadata :: (fn(lib : &BuildSystemLibrary, result : PkgConfigResult) -> PkgConfigResult)({
+  mut(k) := usize(0);
+  n := lib.defines.len();
+  while(k < n, {
+    def_opt := lib.defines.get_cloned(k);
+    def := match(def_opt, .None => String.new(), .Some(p) => p);
+    if(!def.is_empty(), {
+      result.defines.push(def);
+    });
+    k = (k + usize(1));
+  });
+  result
+});
+/// Append all elements from `src` into `dst`.
+_append_all :: (fn(dst : &mut ArrayList(String), src : &ArrayList(String)) -> unit)({
+  mut(k) := usize(0);
+  n := src.len();
+  while(k < n, {
+    elem_opt := src.get_cloned(k);
+    elem := match(elem_opt, .None => String.new(), .Some(p) => p);
+    dst.push(elem);
+    k = (k + usize(1));
+  });
+});
+/// Merge all fields of `src` into `dst` in-place.
+_merge_into :: (fn(dst : &mut PkgConfigResult, src : &PkgConfigResult) -> unit)({
+  _append_all(&mut dst.c_flags, &src.c_flags);
+  _append_all(&mut dst.ld_flags, &src.ld_flags);
+  _append_all(&mut dst.include_paths, &src.include_paths);
+  _append_all(&mut dst.library_paths, &src.library_paths);
+  _append_all(&mut dst.link_libraries, &src.link_libraries);
+  _append_all(&mut dst.defines, &src.defines);
+});
+/// Check if `pkg-config` is available on this system.
+is_pkg_config_available :: (
+  fn(
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(bool, IoExn))
+)(
+  io.async((e : IoExn) => {
+    mut(cmd) := Command.new(String.from("pkg-config"));
+    cmd = cmd.arg(String.from("--version"));
+    status := e.io.await(cmd.status(e.io), e);
+    status.success()
+  })
+);
+/// Query pkg-config for a library's compile and link flags.
+/// Returns None if pkg-config fails or the library is not found.
+query_pkg_config :: (
+  fn(
+    pkg_name : &String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Option(PkgConfigResult), IoExn))
+)({
+  // The async body owns its copy of the name (a borrowed parameter
+  // cannot be captured by a closure that outlives the call).
+  name_own := pkg_name.clone();
+  io.async({ name_own }(e : IoExn) => {
+    // Run pkg-config --cflags
+    mut(cflags_cmd) := Command.new(String.from("pkg-config"));
+    cflags_cmd = cflags_cmd.arg(String.from("--cflags"));
+    cflags_cmd = cflags_cmd.arg(&name_own);
+    cflags_out := e.io.await(cflags_cmd.output(e.io), e);
+    if(!cflags_out.status.success(), {
+      return(Option(PkgConfigResult).None);
+    });
+    // Run pkg-config --libs
+    mut(ldflags_cmd) := Command.new(String.from("pkg-config"));
+    ldflags_cmd = ldflags_cmd.arg(String.from("--libs"));
+    ldflags_cmd = ldflags_cmd.arg(&name_own);
+    ldflags_out := e.io.await(ldflags_cmd.output(e.io), e);
+    if(!ldflags_out.status.success(), {
+      return(Option(PkgConfigResult).None);
+    });
+    cflags_raw := String.from_bytes(cflags_out.stdout.clone()).trim();
+    ldflags_raw := String.from_bytes(ldflags_out.stdout.clone()).trim();
+    result := parse_cflags(&cflags_raw);
+    result_with_ld := parse_ldflags_into(&ldflags_raw, result);
+    Option(PkgConfigResult).Some(result_with_ld)
+  })
+});
+/// Resolve a single system library to its compiler/linker flags.
+/// Tries pkg-config first, then falls back to user-provided paths.
+resolve_system_library :: (
+  fn(
+    sink(lib) : BuildSystemLibrary,
+    verbose : bool,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(PkgConfigResult, IoExn))
+)(
+  io.async({ lib }(e : IoExn) => {
+    pkg_available := e.io.await(is_pkg_config_available(e.io, e.exn), e);
+    if(pkg_available, {
+      pkg_result := e.io.await(query_pkg_config(&lib.name, e.io, e.exn), e);
+      match(
+        pkg_result,
+        .Some(r) => {
+          return(apply_system_library_metadata(&lib, r));
+        },
+        .None => ()
+      );
+    });
+    // pkg-config failed or unavailable — use fallback
+    apply_system_library_metadata(&lib, build_fallback(&lib))
+  })
+);
+/// Resolve all system libraries and merge their flags into a single result.
+resolve_all_system_libraries :: (
+  fn(
+    libs : &ArrayList(BuildSystemLibrary),
+    verbose : bool,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(PkgConfigResult, IoExn))
+)({
+  // The async body cannot capture a borrowed parameter (a closure that
+  // outlives the call), so it owns a copy of the libraries.
+  mut(libs_own) := ArrayList(BuildSystemLibrary).new();
+  for(&libs, l => {
+    libs_own.push(l.clone());
+  });
+  io.async({ libs_own, verbose }(e : IoExn) => {
+    merged := _empty_result();
+    mut(k) := usize(0);
+    n := libs_own.len();
+    while(k < n, {
+      lib_opt := libs_own.get_cloned(k);
+      lib := match(
+        lib_opt,
+        .None => {
+          k = n;
+          break;
+        },
+        .Some(p) => p
+      );
+      resolved := e.io.await(resolve_system_library(lib, verbose, e.io, e.exn), e);
+      _merge_into(&mut merged, &resolved);
+      k = (k + usize(1));
+    });
+    merged
+  })
+});
+export(
+  PkgConfigResult,
+  BuildSystemLibrary,
+  parse_cflags,
+  parse_ldflags_into,
+  build_fallback,
+  apply_system_library_metadata,
+  is_pkg_config_available,
+  query_pkg_config,
+  resolve_system_library,
+  resolve_all_system_libraries
+);

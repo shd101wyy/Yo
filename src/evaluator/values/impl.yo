@@ -20,8 +20,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { panic } :: import("std/assert");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { replace } :: import("std/mem");
 {
   AstExpr,
@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
   BK_TUPLE,
   is_maybe_sized_kind_spelling
 } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, lookup_trait_type_args, struct_effective_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, lookup_trait_type_args, struct_effective_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr-info.yo");
 {
   Environment,
   Variable,
@@ -83,25 +83,26 @@ pragma(Pragma.AllowUnsafe);
   assoc_type_registry_key,
   get_trait_default,
   register_provisional_trait_method,
+  update_type_trait_method_entry,
   get_provisional_trait_methods_by_name,
   clear_provisional_trait_methods,
   type_id_or_empty,
   registration_owner,
   owner_visible_from_current,
   visibility_report_enabled
-} :: import("./type_trait_methods.yo");
+} :: import("./type-trait-methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { some_t_bounds, FuncMeta, TypeValue, TypeValueNode, t_refine_inner, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind, fn_result_slot, fn_result_composite_origin_names, fn_param_pointee_in_result_origin, t_slot_is_by_value } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view, is_type_0 } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
-{ Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
+{ is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
+{ Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
 { get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
-{ type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
+{ type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type-key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
-{ register_func_type } :: import("../../function_value.yo");
+{ register_func_type } :: import("../../function-value.yo");
 { EvalValue, EvalValueNode, FuncValData, create_type_value, create_unknown_val, lookup_enum_cfid, no_values, shared_values } :: import("../../value.yo");
 {
   EvalContext,
@@ -115,11 +116,22 @@ pragma(Pragma.AllowUnsafe);
   ImplInFlight,
   push_impl_in_flight,
   pop_impl_in_flight,
-  newest_impl_in_flight_for,
+  newest_impl_in_flight_index_for,
+  impl_in_flight_clone_at,
+  impl_in_flight_header_at,
+  impl_in_flight_field_clone_at,
+  impl_in_flight_field_phase_a_at,
+  impl_in_flight_ctx_copy_at,
+  impl_in_flight_len,
+  _mutate_impl_in_flight_at,
+  _in_flight_env_at,
   make_impl_pending_field,
   impl_direct_field_at,
+  impl_direct_field_index_at,
   impl_inner_field_at,
-  impl_forcible_field,
+  impl_inner_field_index_at,
+  impl_forcible_field_at,
+  impl_forcible_field_index_at,
   flag_pending_impl_force_error,
   push_forcing_def,
   pop_forcing_def,
@@ -127,20 +139,22 @@ pragma(Pragma.AllowUnsafe);
   truncate_forcing_depths,
   call_evaluate_fn_body,
   force_pending_move_only_impls,
+  force_pending_trait_impls_for_type_name,
   type_head_name_for_impl_forcing,
   note_reference_impl_head,
   note_reference_impl_method,
   note_reference_blanket_method,
-  impl_receiver_head_name
+  impl_receiver_head_name,
+  sync_in_flight_ctx_at,
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { note_legacy_str_spelling } :: import("../utils.yo");
-{ evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
-{ format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help } :: import("../../error.yo");
+{ evaluate_anonymous_module_begin_exprs } :: import("./anonymous-module.yo");
+{ format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help, with_code_carried } :: import("../../error.yo");
 { E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
-{ get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
+{ get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env-lookup.yo");
 { synthesize_types, SynthesizeOptions, TypePair }
 :: import("../types/synthesizer.yo");
 { Exception, AnyError } :: import("std/error");
@@ -150,7 +164,7 @@ _SIZED_IS_DERIVED :: "`Sized` is derived from a type's structure and is never im
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
 /// uses of the result needing methods fail (see refcell.yo's filler block).
-_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get(usize(0)));
+_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get_cloned(usize(0)));
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
 /// fillers: a fn value generic over its element keeps the variable abstract
 /// through the slot and its specializations COLLAPSE across element types
@@ -254,11 +268,11 @@ _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) 
 // resolution.
 //
 // A function-pointer slot (`g_type_implements_trait_full_fn`) is provided as
-// an indirection back to `trait_checking.yo:type_implements_trait` to
-// break the natural circular dependency — trait_checking.yo imports the
+// an indirection back to `trait-checking.yo:type_implements_trait` to
+// break the natural circular dependency — trait-checking.yo imports the
 // registry to check matches, but the registry needs the trait checker to
 // validate where-clause constraints (and to BIND where-clause-only generic
-// params). trait_checking.yo installs the pointer in its init block via
+// params). trait-checking.yo installs the pointer in its init block via
 // `set_type_implements_trait_full_fn`.
 // ---------------------------------------------------------------------------
 /// One registered generic impl.
@@ -309,7 +323,7 @@ ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty
 (g_impl_registry_entry_lists : RefCell(ArrayList(ArrayList(GenericImplEntry)))) = RefCell(ArrayList(ArrayList(GenericImplEntry))).new(ArrayList(ArrayList(GenericImplEntry)).new());
 // Owner tags, bucket-parallel to `g_impl_registry_entry_lists` (same outer
 // AND inner index): the `file://` module path whose evaluation registered
-// each entry, from `registration_owner()` (type_trait_methods.yo). `""` =
+// each entry, from `registration_owner()` (type-trait-methods.yo). `""` =
 // registered outside any module load, never purged. Enables
 // `purge_generic_impls_owned_by` — LSP re-analysis must not leak a registry
 // generation per edit (plans/reference/INCREMENTAL_COMPILATION.md Phase B2), and
@@ -322,7 +336,7 @@ ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty
 (g_ctor_concrete_methods : RefCell(ArrayList(_CtorConcreteMethod))) = RefCell(ArrayList(_CtorConcreteMethod)).new(ArrayList(_CtorConcreteMethod).new());
 (g_ctor_method_cache : RefCell(HashMap(String, _CtorMethodCacheEntry))) = RefCell(HashMap(String, _CtorMethodCacheEntry)).new(HashMap(String, _CtorMethodCacheEntry).new());
 /// ENV-THREADING variant of the hook. `TraitCheckResult` lives in
-/// trait_checking.yo (importing it here would be circular), so the adapter
+/// trait-checking.yo (importing it here would be circular), so the adapter
 /// writes the post-constraint bindings into the caller's env IN PLACE and
 /// returns the implemented flag. `try_match_generic_impl`'s where-constraint pass needs
 /// the env: trait satisfaction is what BINDS a generic param that appears
@@ -341,14 +355,14 @@ derive(ConcreteTraitImpl, Clone);
 set_type_implements_trait_full_fn :: (fn(f : TypeImplementsTraitFullFn) -> unit)({
   g_type_implements_trait_full_fn = Option(TypeImplementsTraitFullFn).Some(f);
 });
-/// Type of `register_type_trait_value` from trait_checking.yo. Records that a
+/// Type of `register_type_trait_value` from trait-checking.yo. Records that a
 /// type implements a trait VALUE (by its base id) so `Type.impls(T, Trait)`
 /// resolves at trait-checking step 4. Routed via a function pointer to break the
-/// impl.yo ↔ trait_checking.yo import cycle (same pattern as above).
+/// impl.yo ↔ trait-checking.yo import cycle (same pattern as above).
 RegisterTraitValueFn :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit);
 (mut(g_register_trait_value_fn) : Option(RegisterTraitValueFn)) =
   Option(RegisterTraitValueFn).None;
-/// Install the function pointer (called from trait_checking.yo init block).
+/// Install the function pointer (called from trait-checking.yo init block).
 set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
   g_register_trait_value_fn = Option(RegisterTraitValueFn).Some(f);
 });
@@ -362,7 +376,7 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 (g_hand_written_clone_sites : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// The hand-written `Clone` impls outside std, by the same site keys: the
 /// impls whose `clone()` runs user code. E0916's structural-clone exemption
-/// (`type_clone_runs_no_user_code`, trait_checking.yo) refuses a `mut(G)`
+/// (`type_clone_runs_no_user_code`, trait-checking.yo) refuses a `mut(G)`
 /// global's `G.clone()` that reaches one of them.
 (g_user_clone_sites : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Does `ty` have a hand-written `Clone` impl outside std: its concrete impl,
@@ -395,20 +409,25 @@ type_has_user_clone_impl :: (fn(ty : &TypeValue, clone_tt : &TypeValue) -> bool)
   });
   false
 });
-/// Type of `check_self_constraints_violation_msg` from trait_checking.yo:
-/// `.Some(error message)` when `target_type` may not implement `trait_ty` (a
+/// Type of `check_self_constraints_violation_msg` from trait-checking.yo:
+/// `.Some(violation)` when `target_type` may not implement `trait_ty` (a
 /// `Drop` on a primitive) or violates a positive or negative
 /// selfConstraint on it, `.None` when satisfied. Routed via a function pointer to
-/// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
+/// break the impl.yo ↔ trait-checking.yo import cycle (same pattern as above);
 /// the caller throws with its own token/exn, invoking it per trait entry.
-CheckSelfConstraintsFn :: (fn(target_type : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> Option(String));
+/// A receiver-kind or selfConstraint violation of an impl: the message and,
+/// when the rule has one, its registered code (`Copy` without `Clone` is
+/// E0602).
+ImplRuleViolation :: struct(message : String, code : Option(String));
+derive(ImplRuleViolation, Clone);
+CheckSelfConstraintsFn :: (fn(target_type : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> Option(ImplRuleViolation));
 (mut(g_check_self_constraints_fn) : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
-/// Install the function pointer (called from trait_checking.yo init block).
+/// Install the function pointer (called from trait-checking.yo init block).
 set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
   g_check_self_constraints_fn = Option(CheckSelfConstraintsFn).Some(f);
 });
-/// `receiver_kind_trait_violation_msg` from trait_checking.yo: `.Some(error
+/// `receiver_kind_trait_violation_msg` from trait-checking.yo: `.Some(error
 /// message)` when `trait_ty` is `Drop` and
 /// `target_type` is not a receiver that trait accepts. The GENERIC impl path
 /// calls it on the receiver pattern (it does not run the full selfConstraint
@@ -417,10 +436,10 @@ set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 /// type arguments (a `cond` over a type parameter in a type constructor is
 /// rejected when the pattern is evaluated), so the pattern check covers every
 /// instantiation. Same function-pointer routing as above: impl.yo cannot
-/// import trait_checking.yo.
+/// import trait-checking.yo.
 (mut(g_receiver_kind_trait_fn) : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
-/// Install the function pointer (called from trait_checking.yo init block).
+/// Install the function pointer (called from trait-checking.yo init block).
 set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
   g_receiver_kind_trait_fn = Option(CheckSelfConstraintsFn).Some(f);
 });
@@ -429,8 +448,8 @@ set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 // ---------------------------------------------------------------------------
 /// Set of `${typeId}:${traitId}` keys currently being registered.
 /// Lives in impl.yo (not
-/// trait_checking.yo) so the impl evaluator can mark/unmark without
-/// a circular import; trait_checking.yo re-exports thin wrappers.
+/// trait-checking.yo) so the impl evaluator can mark/unmark without
+/// a circular import; trait-checking.yo re-exports thin wrappers.
 ///
 /// Used to handle recursive types — e.g. `derive(TreeNode, Clone)`
 /// where `Rc(TreeNode)` Clone-impl validation needs to see
@@ -488,6 +507,13 @@ get_base_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
     _ => get_trait_key(trait_ty)
   )
 );
+/// A blanket receiver pattern: a bare binder (`T`) or a reference to one
+/// (`&T`, `&mut T`). Such a pattern matches every type (every reference), so
+/// its `where` clause is all that keeps it off a type that does not meet the
+/// bound.
+_is_blanket_receiver_pattern :: (fn(pattern : &TypeValue) -> bool)(
+  is_some_type(pattern) || (t_slot_is_borrow(pattern) && is_some_type(&t_slot_pointee(pattern)))
+);
 /// Register a new generic impl entry.
 register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   bump_trait_impl_epoch();
@@ -495,7 +521,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   // unifies with `&C`, so every method it registers can answer the lookup on a
   // reference.
   rp_pattern := Rc.clone(entry.receiver_type_pattern);
-  if(is_some_type(&rp_pattern) || (t_slot_is_borrow(&rp_pattern) && is_some_type(&t_slot_pointee(&rp_pattern))), {
+  if(_is_blanket_receiver_pattern(&rp_pattern), {
     (rp_i : usize) = usize(0);
     while(rp_i < entry.field_names.len(), {
       note_reference_blanket_method(&entry.field_names(rp_i));
@@ -652,7 +678,7 @@ derive(MoveOnlyDecl, Clone);
 /// `type_key` → answer; cleared whenever a declaration is added or purged.
 (g_move_only_memo : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// The identity front cache of `g_move_only_memo` (see `type_identity_slot`,
-/// types/type_key.yo): handles sorted by address, their answers, and the
+/// types/type-key.yo): handles sorted by address, their answers, and the
 /// type-key epoch they were keyed in. Cleared with the memo.
 (g_move_only_fast : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
 (g_move_only_fast_answers : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
@@ -763,7 +789,7 @@ generic_impl_entry_count :: (fn() -> usize)({
 /// binder named `binder_name` carries (one entry per such binder). A
 /// where-bound restated on several methods must be recorded once
 /// (`_wcc_has_trait`, src/evaluator/types/function.yo); read by
-/// tests/internal/type_trait_methods.test.yo.
+/// tests/internal/type-trait-methods.test.yo.
 generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usize))({
   out := ArrayList(usize).new();
   (ki : usize) = usize(0);
@@ -964,7 +990,7 @@ _resolve_one_forall_binding :: (
   // concrete-only rule stays — derive validation and specialization body
   // evals produce stamps codegen consumes directly, and an abstract match
   // there minted an abstract-keyed spec the emitter skips while the call
-  // site still emits it (tests/derive_clone_complex.test.yo 'call to
+  // site still emits it (tests/derive-clone-complex.test.yo 'call to
   // undeclared function', measured; std/string module eval broke under the
   // unscoped name channel too).
   bt_id := match(&bound_type, Rc(.SomeT({ id : __bti })) => __bti.clone(), _ => String.from(""));
@@ -1252,7 +1278,7 @@ _bind_forall_from_type_args :: (
   // parameter that a payload mentions is bound, or deliberately left open,
   // by field synthesis. Binding `Option(T)`'s `T` from an `Impl(Future(...))`
   // argument made `Option(typeof(fut)).Some(fut)` comptime-only and failed a
-  // 61-test batch of tests/async_await.test.yo
+  // 61-test batch of tests/async-await.test.yo
   // (issues/fixed/an-option-of-an-io-async-future-is-judged-comptime-only.md).
   enum_phantom := match(
     pattern,
@@ -1285,7 +1311,7 @@ _bind_forall_from_type_args :: (
       match(
         con_ta.get(j),
         // `Unit` in a type_arguments slot is the NON-TYPE-ARG placeholder
-        // (comptime_fn.yo inst_type_args pads value args with Unit so
+        // (comptime-fn.yo inst_type_args pads value args with Unit so
         // positions line up) — never a real binding. Binding a forall to it
         // specialized `_find_bucket` with `key : unit` under the HashMap
         // Clone-impl trial and the sibling `set` re-eval swallowed
@@ -1709,10 +1735,18 @@ try_match_generic_impl :: (
   // ENFORCEMENT is scoped by `enforce_all_where`:
   //
   //   false (METHOD DISPATCH — find_methods_from_generic_impls and friends):
-  //     only BLANKET impls (bare-SomeT receiver pattern) are rejected on a
-  //     failed clause. A blanket matches every type, so its where-clause is
-  //     the only thing keeping it off non-satisfying types; specific-pattern
-  //     impls already constrain via their pattern, and enforcing their
+  //     only BLANKET impls are rejected on a failed clause. A blanket matches
+  //     every type, so its where-clause is the only thing keeping it off
+  //     non-satisfying types. A bare-SomeT pattern is rejected on any failed
+  //     clause; a reference to one (`&T`, `&mut T`, matching every reference)
+  //     on a clause that can be judged from what is stored, as the
+  //     trait-predicate mode below judges it (a marker, or a trait that
+  //     mentions none of the impl's binders: `T <: ToString` is judged,
+  //     `T <: Eq(T)` is not). Without it R-PROBE's lookup on `&Rc(String)`
+  //     took `impl(generic(T), where(T <: ToString), &T, …)` at
+  //     `T := Rc(String)` and gave the handle a method only its payload has
+  //     (issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+  //     Specific-pattern impls already constrain via their pattern, and enforcing their
   //     clauses HERE would drop a method wherever the trait-implements
   //     predicate has a load-order false negative (e.g. `String <: Hash`
   //     breaking `HashMap(String, _).new()`).
@@ -1798,11 +1832,27 @@ try_match_generic_impl :: (
           .Some(wcj_f) => {
             // The adapter writes the post-constraint bindings into match_env
             // IN PLACE (env.frames swap) — see the hook's doc above.
-            wcj_impl := wcj_f(&wcj_bound, &wcj_trait, &match_env);
-            if(!wcj_impl && (
-              (enforce_all_where && (_is_marker_trait(&wcj_trait) || _where_trait_mentions_no_forall(&wcj_trait, &entry.forall_some_types)))
+            (wcj_impl : bool) = wcj_f(&wcj_bound, &wcj_trait, &match_env);
+            wcj_enforced := (
+              ((enforce_all_where || _is_blanket_receiver_pattern(&entry.receiver_type_pattern)) && (_is_marker_trait(&wcj_trait) || _where_trait_mentions_no_forall(&wcj_trait, &entry.forall_some_types)))
               || is_some_type(&entry.receiver_type_pattern)
-            ), {
+            );
+            // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): the
+            // bound type's impl may sit later in its module — `Box(B) <:
+            // Clone` judged by a derive above `derive(B, Clone)`. Force the
+            // bound's pending impls and derives that name the trait before
+            // rejecting, as the direct trait checks force the receiver's
+            // (issues/fixed/2026-11-19-derive-clone-of-a-deref-field-fails-when-the-payloads-clone-is-derived-later.md).
+            if(!wcj_impl && wcj_enforced && (get_all_some_types(&wcj_bound).len() == usize(0)), {
+              match(
+                force_pending_trait_impls_for_type_name(type_head_name_for_impl_forcing(&wcj_bound), type_head_name_for_impl_forcing(&wcj_trait)),
+                .Forced => {
+                  wcj_impl = wcj_f(&wcj_bound, &wcj_trait, &match_env);
+                },
+                _ => ()
+              );
+            });
+            if(!wcj_impl && wcj_enforced, {
               wc_ok = false;
             });
           },
@@ -1912,7 +1962,7 @@ try_match_generic_impl :: (
                                 (wcr_ri : usize) = usize(0);
                                 while((wcr_ri < wcr_regs.len()) && wcr_bound.is_none(), {
                                   match(
-                                    wcr_regs.get(wcr_ri),
+                                    wcr_regs.get_cloned(wcr_ri),
                                     .Some(wcr_re) => match(
                                       wcr_re.value.clone(),
                                       .Some(Rc(.TypeVal(wcr_ret))) => if(!is_some_type(&wcr_ret), {
@@ -1997,7 +2047,7 @@ try_match_generic_impl :: (
   // DEF-time trials must not make DURABLE registrations: a trial-time
   // abstract match (the trial-scoped acceptance above) registering assoc
   // types under the trial receiver's id redirected BATCH-time resolution —
-  // tests/collections/btree_map.test.yo's main lost the `for(m.iter())`
+  // tests/collections/btree-map.test.yo's main lost the `for(m.iter())`
   // closure arg's ExprInfo (repair 1 of
   // issues/fixed/def-eval-swallow-remaining-roots.md).
   if(all_bound && !_abstract_bindings_ok(), {
@@ -2013,12 +2063,12 @@ try_match_generic_impl :: (
         dar_ty := match(bindings.get_cloned(dar_i), .Some(t) => t, .None => t_unit());
         match(
           dar_some,
-          Rc(.SomeT(_, _, dar_lvl, _, _, _, _)) => subst_add(&dar_s, &dar_name, dar_lvl, &dar_ty),
+          Rc(.SomeT(_, _, dar_lvl, _, _, _, _)) => subst_add(&mut dar_s, &dar_name, dar_lvl, &dar_ty),
           _ => ()
         );
         dar_i = (dar_i + usize(1));
       });
-      subst_set_self(&dar_s, &entry.receiver_type_pattern, &resolved_concrete);
+      subst_set_self(&mut dar_s, &entry.receiver_type_pattern, &resolved_concrete);
       (dar_fi : usize) = usize(0);
       while(dar_fi < entry.field_names.len(), {
         dar_lbl := match(entry.field_names.get_cloned(dar_fi), .Some(l) => l, .None => String.new());
@@ -2029,7 +2079,7 @@ try_match_generic_impl :: (
             .Some(dar_fv) => match(
               dar_fv,
               Rc(.TypeVal(dar_tvb)) => {
-                dar_res := substitute(&dar_s, &dar_tvb);
+                dar_res := substitute(&mut dar_s, &dar_tvb);
                 if((get_all_some_types(&dar_res).len() == usize(0)) && !is_some_type(&dar_res), {
                   if(get_type_trait_methods_by_name(dar_tid.clone(), dar_lbl.clone()).len() == usize(0), {
                     register_type_trait_method(
@@ -2250,14 +2300,14 @@ _trait_instances_agree :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(T
       entry.forall_some_types.get_cloned(ta_i),
       .Some(ta_f) => match(
         ta_f,
-        Rc(.SomeT({ name : ta_n, frame_level : ta_l })) => subst_add(&ta_s, &ta_n, ta_l, match(bindings.get_cloned(ta_i), .Some(b) => b, .None => t_unit())),
+        Rc(.SomeT({ name : ta_n, frame_level : ta_l })) => subst_add(&mut ta_s, &ta_n, ta_l, match(bindings.get_cloned(ta_i), .Some(b) => b, .None => t_unit())),
         _ => ()
       ),
       .None => ()
     );
     ta_i = (ta_i + usize(1));
   });
-  g_tr := substitute(&ta_s, &entry.trait_type);
+  g_tr := substitute(&mut ta_s, &entry.trait_type);
   match(
     concrete,
     Rc(.TraitT({ body : c_labels_body })) => {
@@ -2450,8 +2500,8 @@ _canon_shown_substs :: (fn(entry : &GenericImplEntry) -> Tuple(Substitution, Sub
       .Some(cn_f) => match(
         cn_f,
         Rc(.SomeT({ name : cn_n, frame_level : cn_l })) => {
-          subst_add(&canon, &cn_n, cn_l, t_some_t(`$${cn_i.to_string()}`, usize(0)));
-          subst_add(&shown, &cn_n, cn_l, t_some_t(match(entry.forall_names.get_cloned(cn_i), .Some(fnm) => fnm, .None => cn_n.clone()), usize(0)));
+          subst_add(&mut canon, &cn_n, cn_l, t_some_t(`$${cn_i.to_string()}`, usize(0)));
+          subst_add(&mut shown, &cn_n, cn_l, t_some_t(match(entry.forall_names.get_cloned(cn_i), .Some(fnm) => fnm, .None => cn_n.clone()), usize(0)));
         },
         _ => ()
       ),
@@ -2473,7 +2523,8 @@ _canon_shown_substs :: (fn(entry : &GenericImplEntry) -> Tuple(Substitution, Sub
 /// rollback (`_undo_generic_impl_registration`) must rebuild the SAME key.
 _generic_impl_trait_site_shape :: (fn(entry : &GenericImplEntry) -> String)({
   (canon, _shown_unused) := _canon_shown_substs(entry);
-  `${_decl_identity_key_of(substitute(&canon, &entry.receiver_type_pattern), usize(0))}\n${_decl_identity_key_of(substitute(&canon, &entry.trait_type), usize(0))}|${entry.trait_key}`
+  mut(canon_w) := _subst_clone(&canon);
+  `${_decl_identity_key_of(substitute(&mut canon_w, &entry.receiver_type_pattern), usize(0))}\n${_decl_identity_key_of(substitute(&mut canon_w, &entry.trait_type), usize(0))}|${entry.trait_key}`
 });
 /// Coherence at a GENERIC trait impl: an identical impl (same receiver
 /// pattern and trait, binders renamed by position) from another site is a
@@ -2487,7 +2538,9 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
   // compare equal, and `shown` strips their constraint lists so a diagnostic
   // prints `HashSet(T)`, not the SomeT's whole bound set.
   (canon, shown) := _canon_shown_substs(entry);
-  shown_receiver := type_to_string(substitute(&shown, &entry.receiver_type_pattern));
+  mut(canon_k) := _subst_clone(&canon);
+  mut(shown_w) := _subst_clone(&shown);
+  shown_receiver := type_to_string(substitute(&mut shown_w, &entry.receiver_type_pattern));
   if(!match(&entry.trait_type, Rc(.TraitT(_, _, _, _, _, _)) => true, _ => false), {
     // An INHERENT generic impl: the duplicate-inherent-method rule
     // (plans/reference/FUNCTION_OVERLOADING_POLICY.md) for a generic
@@ -2501,14 +2554,14 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
     while(bw_i < entry.where_constraint_traits.len(), {
       bw_subj := match(entry.where_constraint_some_types.get_cloned(bw_i), .Some(t) => t, .None => t_unit());
       bw_tr := match(entry.where_constraint_traits.get_cloned(bw_i), .Some(t) => t, .None => t_unit());
-      bounds.push(`${type_to_string(substitute(&canon, &bw_subj))} <: ${get_base_trait_key(&bw_tr)}`);
+      bounds.push(`${type_to_string(substitute(&mut canon_k, &bw_subj))} <: ${get_base_trait_key(&bw_tr)}`);
       bw_i = (bw_i + usize(1));
     });
     bounds.sort();
     // The receiver keys by declaration identity (`_decl_identity_key_of`): a
     // printed name splits one declaration's spellings apart (an alias, a
     // binder rename) and merges two modules' same-named types.
-    inh_shape := `${_decl_identity_key_of(substitute(&canon, &entry.receiver_type_pattern), usize(0))}\n${String.from(", ").join(&bounds)}`;
+    inh_shape := `${_decl_identity_key_of(substitute(&mut canon_k, &entry.receiver_type_pattern), usize(0))}\n${String.from(", ").join(&bounds)}`;
     (fi : usize) = usize(0);
     while(fi < entry.field_names.len(), {
       f_name := match(entry.field_names.get_cloned(fi), .Some(n) => n, .None => String.new());
@@ -2548,7 +2601,7 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
           Box.new(
             format_error_message(
               tok,
-              `Trait "${type_to_string(substitute(&shown, &entry.trait_type))}" is already implemented for type "${shown_receiver}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+              `Trait "${type_to_string(substitute(&mut shown_w, &entry.trait_type))}" is already implemented for type "${shown_receiver}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
             )
           )
         )
@@ -2969,7 +3022,7 @@ _find_methods_from_generic_impls_scan :: (
         if(mb_opt.is_some() && !owner_visible_from_current(fmg_owner.clone()), {
           if(visibility_report_enabled(), {
             // YO_VISIBILITY_REPORT=1: enumerate instead of rejecting (see
-            // type_trait_methods.yo).
+            // type-trait-methods.yo).
             eprintln(`[visibility] ${registration_owner()} cannot see generic .${method_name} registered by ${fmg_owner}`);
           }, {
             fmg_hidden = true;
@@ -3043,7 +3096,7 @@ _find_methods_from_generic_impls_scan :: (
                 match(
                   sb_some,
                   Rc(.SomeT(_, _, lvl, _, _, _, _)) => {
-                    subst_add(&spec_s, &sb_name, lvl, &sb_ty);
+                    subst_add(&mut spec_s, &sb_name, lvl, &sb_ty);
                     (fts_i : usize) = usize(0);
                     while(fts_i < ft_all_somes.len(), {
                       match(
@@ -3051,7 +3104,7 @@ _find_methods_from_generic_impls_scan :: (
                         .Some(fts_t) => match(
                           fts_t,
                           Rc(.SomeT(_, fts_n, fts_lvl, _, _, _, _)) => if((fts_n == sb_name) && (fts_lvl != lvl), {
-                            subst_add(&spec_s, &sb_name, fts_lvl, &sb_ty);
+                            subst_add(&mut spec_s, &sb_name, fts_lvl, &sb_ty);
                           }),
                           _ => ()
                         ),
@@ -3080,7 +3133,7 @@ _find_methods_from_generic_impls_scan :: (
                     Rc(.IntLit(sb_raw)) => match(
                       parse_raw_int(&sb_raw),
                       .Some(sb_n) => if(sb_n >= i64(0), {
-                        subst_add_len_var(&spec_s, sb_name.clone(), usize(sb_n));
+                        subst_add_len_var(&mut spec_s, sb_name.clone(), usize(sb_n));
                       }),
                       .None => ()
                     ),
@@ -3097,8 +3150,8 @@ _find_methods_from_generic_impls_scan :: (
               // substituting it, so substituting the key first makes the
               // exact-equality test compare EnumT(id, Some(T)) against
               // EnumT(id, Some(Node)) and silently never fire.
-              subst_set_self(&spec_s, &entry.receiver_type_pattern, resolved);
-              fmg_spec_ty := substitute(&spec_s, &ftype);
+              subst_set_self(&mut spec_s, &entry.receiver_type_pattern, resolved);
+              fmg_spec_ty := substitute(&mut spec_s, &ftype);
               if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
                 eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(resolved)} raw=${type_to_string(&ftype)} spec=${type_to_string(&fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
               });
@@ -3170,7 +3223,7 @@ _find_methods_from_generic_impls_scan :: (
 // results across envs with weaker keys.
 //
 // A hit returns the STORED list: read-only by contract. Every caller was
-// audited when this landed (property_access.yo ×4, collection.yo ×2, and the
+// audited when this landed (property-access.yo ×4, collection.yo ×2, and the
 // env.yo adapter, which projects into a fresh `MethodEntry` list) — none
 // mutates it.
 (g_fmg_method_cache : RefCell(HashMap(String, ArrayList(MethodCandidate)))) = RefCell(HashMap(String, ArrayList(MethodCandidate))).new(HashMap(String, ArrayList(MethodCandidate)).new());
@@ -3463,13 +3516,13 @@ find_associated_type_from_generic_impls :: (
                         sb_ty := match(match_bindings.get_cloned(sb_i), .Some(t) => t, .None => t_unit());
                         match(
                           sb_some,
-                          Rc(.SomeT(_, _, lvl, _, _, _, _)) => subst_add(&spec_s, &sb_name, lvl, &sb_ty),
+                          Rc(.SomeT(_, _, lvl, _, _, _, _)) => subst_add(&mut spec_s, &sb_name, lvl, &sb_ty),
                           _ => ()
                         );
                         sb_i = (sb_i + usize(1));
                       });
-                      subst_set_self(&spec_s, &entry.receiver_type_pattern, &resolved);
-                      found = Option(TypeValue).Some(substitute(&spec_s, &tvb));
+                      subst_set_self(&mut spec_s, &entry.receiver_type_pattern, &resolved);
+                      found = Option(TypeValue).Some(substitute(&mut spec_s, &tvb));
                     },
                     _ => ()
                   ),
@@ -3940,7 +3993,7 @@ _substitute_assoc_in_method_ty :: (
           while(j < labels.len(), {
             lbl := match(labels.get_cloned(j), .Some(l) => l, .None => String.from(""));
             if(lbl == snm, {
-              subst_add(&s, snm.clone(), slvl, match(types.get_cloned(j), .Some(t) => t, .None => t_unit()));
+              subst_add(&mut s, snm.clone(), slvl, match(types.get_cloned(j), .Some(t) => t, .None => t_unit()));
               n_added = (n_added + usize(1));
             });
             j = (j + usize(1));
@@ -3955,7 +4008,7 @@ _substitute_assoc_in_method_ty :: (
   if(n_added == usize(0), {
     return(Rc.clone(method_ty));
   });
-  substitute(&s, method_ty)
+  substitute(&mut s, method_ty)
 });
 /// Re-keying helper: `fi.ty` carries the TRAIT-DECLARED param labels
 /// (`lhs`/`rhs` for an Eq method), but the impl's closure BODY was written
@@ -4083,7 +4136,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
               });
               if(!r_kept, {
                 subst_add(
-                  &fs,
+                  &mut fs,
                   r_nm.clone(),
                   r_lvl,
                   Rc.new(
@@ -4116,7 +4169,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
           Rc.clone(fr_pts),
           Rc.clone(fr_its),
           Rc.clone(fr_wts),
-          substitute(&fs, &fr_res.*),
+          substitute(&mut fs, &fr_res.*),
           Rc.clone(fr_m),
           Rc.clone(fr_vts)
         )
@@ -4148,7 +4201,7 @@ _substitute_self_in_method_ty :: (
     match(
       self_somes.get_cloned(ssi),
       .Some(Rc(.SomeT(_, ss_n, ss_lvl, _, _, _, _))) => if(ss_n == "Self", {
-        subst_add(&s, String.from("Self"), ss_lvl, self_concrete.clone());
+        subst_add(&mut s, String.from("Self"), ss_lvl, self_concrete.clone());
         any_self = true;
       }),
       .Some(_) => (),
@@ -4157,7 +4210,7 @@ _substitute_self_in_method_ty :: (
     ssi = (ssi + usize(1));
   });
   cond(
-    any_self => substitute(&s, method_ty),
+    any_self => substitute(&mut s, method_ty),
     true => Rc.clone(method_ty)
   )
 });
@@ -4172,7 +4225,7 @@ _substitute_self_in_method_ty :: (
 /// The body is a FUNCTION BODY and must be evaluated as one: `fn_ty` (the
 /// Self-substituted method type) and `fn_id` build the same
 /// `create_function_body_evaluation_context` every other def-time body eval
-/// uses (`_trial_eval_fn_body`, closure_type.yo, anonymous_function.yo).
+/// uses (`_trial_eval_fn_body`, closure-type.yo, anonymous-function.yo).
 /// Evaluating it under the IMPL's ambient context instead — which is what this
 /// helper did before — left two things unset, and both were silently swallowed
 /// here:
@@ -4214,7 +4267,7 @@ _materialize_default_body :: (
   );
   // A separate preliminary FuncVal for the body-eval context (EvalValue is not
   // Clone and the caller still needs the registered one). Same pattern as
-  // anonymous_function.yo's `body_ctx_func_val`.
+  // anonymous-function.yo's `body_ctx_func_val`.
   body_ctx_fv := Rc.new(
     EvalValueNode.FuncVal(
       Rc.new(
@@ -4237,20 +4290,21 @@ _materialize_default_body :: (
   // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
   // error unwinds out of this helper, skipping any in-fn restore).
   // As a FUNCTION BODY, through the begin machinery like every other
-  // def-time body eval (`_trial_eval_fn_body`, calls/function_type.yo): a
+  // def-time body eval (`_trial_eval_fn_body`, calls/function-type.yo): a
   // non-begin body is treated as a one-statement begin, so a bare
   // `(self -> return(...))` default finds `return`, which only a begin
   // recognises. Evaluated raw, it threw `Variable "return" not found` — once
   // swallowed (the shared default took over), a compile error since the
-  // Phase 6 re-raise (tests/async_trait_default_await.test.yo).
+  // Phase 6 re-raise (tests/async-trait-default-await.test.yo).
   evaluated := call_evaluate_fn_body(body, env, &mut body_ctx, inner_exn);
   out.push(evaluated);
 });
 /// Evaluate ONE colon-pair member of a concrete (Case 3) impl — the body the
 /// field loop ran inline before P3 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md), pulled out
 /// so `force_in_flight_field` can run it OUT OF ORDER when a sibling references
-/// the member before its position. `field_opt` is the member's pending entry
-/// (a direct field, or an inner field of the trait entry being evaluated).
+/// the member before its position. `field_at` is the (stack, field) index of
+/// the member's pending entry (a direct field, or an inner field of the trait
+/// entry being evaluated); its phase-A flag is read live from the stack.
 /// Reads and advances the impl env through `st.env`.
 /// `actual` with its receiver's mode taken from `expected`. An impl may spell
 /// a trait method's receiver in any of the forms `docs/en-US/DYN_DESIGN.md`
@@ -4476,8 +4530,8 @@ _c3_eval_colon_pair :: (
   fn(
     meth_expr : &AstExpr,
     current_trait_ty : &Option(TypeValue),
-    st : &ImplInFlight,
-    field_opt : &Option(ImplPendingField),
+    st : &mut ImplInFlight,
+    field_at : Option(Tuple(usize, usize)),
     ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
@@ -4744,26 +4798,13 @@ _c3_eval_colon_pair :: (
         // and value instead of registering a second entry.
         (updated_phase_a : bool) = false;
         match(
-          field_opt,
-          .Some(pa_pf) => if(pa_pf.phase_a_registered, {
+          field_at,
+          .Some(pa_at) => if(impl_in_flight_field_phase_a_at(pa_at.0, pa_at.1), {
             pa_real_fid := match(Rc.clone(method_val), Rc(.FuncVal(__pa_fvd, _)) => __pa_fvd.*.func_id.clone(), _ => String.new());
-            pa_existing := get_type_trait_methods_by_name(&st.recv_id, &method_name);
-            (pa_i : usize) = usize(0);
-            while((pa_i < pa_existing.len()) && !updated_phase_a, {
-              match(
-                pa_existing.get(pa_i),
-                .Some(pa_e) => {
-                  pa_e_fid := match(pa_e.value.clone(), .Some(pa_v) => match(pa_v, Rc(.FuncVal(__pa_e_fvd, _)) => __pa_e_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
-                  if((pa_e_fid.len() > usize(0)) && (pa_e_fid == pa_real_fid), {
-                    pa_e.ty = Rc.clone(fi.ty());
-                    pa_e.value = Option(EvalValue).Some(Rc.clone(method_val));
-                    register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
-                    updated_phase_a = true;
-                  });
-                },
-                .None => ()
-              );
-              pa_i = (pa_i + usize(1));
+            (pa_stid : String) = String.new();
+            updated_phase_a = update_type_trait_method_entry(false, &st.recv_id, &pa_real_fid, &fi.ty(), &method_val, &pa_stid);
+            if(updated_phase_a, {
+              register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
             });
           }),
           .None => ()
@@ -4779,7 +4820,7 @@ _c3_eval_colon_pair :: (
           // impl method as hard-generic and skip its emission —
           // while the call site still emitted the direct
           // `fn_<fid>` call ('call to undeclared function',
-          // prelude arm 1 / assigned_param_overload_select.yo).
+          // prelude arm 1 / assigned-param-overload-select.yo).
           // The default-method path already does this
           // (register_func_type at the d_fresh mint above); this
           // is the colon-pair-method twin.
@@ -4867,29 +4908,12 @@ _c3_eval_colon_pair :: (
 /// early reference already registered this member's phase-A entry (same
 /// func_id), update that entry in place (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3).
 _c2_register_member :: (
-  fn(st : &ImplInFlight, pf : &ImplPendingField, label : &String, ty : &TypeValue, value : &EvalValue, src_tid : &String) -> unit
+  fn(st : &ImplInFlight, phase_a_registered : bool, label : &String, ty : &TypeValue, value : &EvalValue, src_tid : &String) -> unit
 )({
   (updated : bool) = false;
-  if(pf.phase_a_registered, {
+  if(phase_a_registered, {
     real_fid := match(value, Rc(.FuncVal(__c2r_fvd, _)) => __c2r_fvd.func_id.clone(), _ => String.new());
-    prior := get_provisional_trait_methods_by_name(&st.recv_id, label.clone());
-    (pi : usize) = usize(0);
-    while((pi < prior.len()) && !updated, {
-      match(
-        prior.get(pi),
-        .Some(pe) => {
-          pe_fid := match(pe.value.clone(), .Some(pv) => match(pv, Rc(.FuncVal(__c2p_fvd, _)) => __c2p_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
-          if((pe_fid.len() > usize(0)) && (pe_fid == real_fid), {
-            pe.ty = Rc.clone(ty);
-            pe.value = Option(EvalValue).Some(Rc.clone(value.*));
-            pe.source_trait_id = src_tid.clone();
-            updated = true;
-          });
-        },
-        .None => ()
-      );
-      pi = (pi + usize(1));
-    });
+    updated = update_type_trait_method_entry(true, &st.recv_id, &real_fid, ty, value, src_tid);
   });
   if(!updated, {
     // Registered PROVISIONALLY: Case 2 has no per-field permanent
@@ -4917,7 +4941,7 @@ _c2_register_member :: (
 /// source order, binds the bare label in the impl env, registers the member
 /// provisionally.
 _c2_eval_direct_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
+  fn(pf : &mut ImplPendingField, st : &mut ImplInFlight, field_at : Tuple(usize, usize), ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   mf_colon_args := match(
     Rc.clone(pf.colon_expr),
@@ -4966,7 +4990,7 @@ _c2_eval_direct_field :: (
         &mname_tok
       );
       if(st.recv_id != "", {
-        _c2_register_member(st, pf, &mname, &mfi.ty(), &m_to_push, String.from(""));
+        _c2_register_member(&st.*, impl_in_flight_field_phase_a_at(field_at.0, field_at.1), &mname, &mfi.ty(), &m_to_push, String.from(""));
       });
     }
   );
@@ -4975,7 +4999,7 @@ _c2_eval_direct_field :: (
 /// (`Trait(name : fn_def, ...)`), with the trait's expected field type (Self
 /// substituted to the receiver pattern) and the entry's working bindings.
 _c2_eval_inner_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
+  fn(pf : &mut ImplPendingField, st : &mut ImplInFlight, field_at : Tuple(usize, usize), ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   g_colon_args := match(
     Rc.clone(pf.colon_expr),
@@ -5048,7 +5072,7 @@ _c2_eval_inner_field :: (
           .Some(c2g_tt) => type_id_or_empty(&c2g_tt.*),
           .None => String.from("")
         );
-        _c2_register_member(st, pf, &g_mname, &gfi.ty(), &g_to_push, &c2g_src_tid);
+        _c2_register_member(st, impl_in_flight_field_phase_a_at(field_at.0, field_at.1), &g_mname, &gfi.ty(), &g_to_push, &c2g_src_tid);
       });
     }
   );
@@ -5057,27 +5081,65 @@ _c2_eval_inner_field :: (
 /// from `force_in_flight_field`), with its forcing-stack entry pushed so
 /// `try_to_implement_function_by_function_type` publishes the phase-A FuncVal
 /// a re-entrant sibling reference binds.
-_run_impl_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
+/// Run ONE pending field, in place in the in-flight stack: the field is
+/// marked Forcing in the STACK before the evaluation starts (a sibling miss
+/// re-entering the hook mid-evaluation must find it), the evaluation runs on
+/// fresh copies (the RefCell must not stay borrowed across user code), and
+/// the field's results and the entry's env are written back in place at the
+/// end — the same boundaries at which the shared cell used to update.
+_run_impl_field_in_place :: (
+  fn(stack_idx : usize, field_idx : usize, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
+  st := match(
+    impl_in_flight_clone_at(stack_idx),
+    .Some(r) => r,
+    .None => {
+      return(());
+    }
+  );
+  pf := match(
+    impl_in_flight_field_clone_at(stack_idx, field_idx),
+    .Some(f) => f,
+    .None => {
+      return(());
+    }
+  );
+  _mutate_impl_in_flight_at(stack_idx, rec => {
+    rec.fields.with(field_idx, f => {
+      f.state = ImplFieldState.Forcing;
+    });
+  });
   push_forcing_def(&pf.def);
-  pf.state = ImplFieldState.Forcing;
   cond(
     st.is_generic => cond(
-      pf.is_inner => _c2_eval_inner_field(pf, st, ctx, exn),
-      true => _c2_eval_direct_field(pf, st, ctx, exn)
+      pf.is_inner => _c2_eval_inner_field(&mut pf, &mut st, (stack_idx, field_idx), ctx, exn),
+      true => _c2_eval_direct_field(&mut pf, &mut st, (stack_idx, field_idx), ctx, exn)
     ),
     true => _c3_eval_colon_pair(
       &pf.colon_expr,
       cond(pf.is_inner => st.current_trait_ty.clone(), true => Option(TypeValue).None),
-      st,
-      Option(ImplPendingField).Some(pf.*),
+      &mut st,
+      Option(Tuple(usize, usize)).Some((stack_idx, field_idx)),
       ctx,
       exn
     )
   );
   pf.state = ImplFieldState.Done;
   pop_forcing_def();
+  pf_state := pf.state;
+  pf_failure := pf.failure.clone();
+  pf_result_ty := pf.result_ty.clone();
+  pf_result_value := pf.result_value.clone();
+  st_env := Rc.clone(st.env);
+  _mutate_impl_in_flight_at(stack_idx, { pf_state, pf_failure, pf_result_ty, pf_result_value, st_env, field_idx }(rec) => {
+    rec.env = st_env;
+    mut(f) := rec.fields(field_idx).clone();
+    f.state = pf_state;
+    f.failure = pf_failure;
+    f.result_ty = pf_result_ty;
+    f.result_value = pf_result_value;
+    rec.fields(field_idx) = f;
+  });
 });
 /// A forced member's failure, parked by the capture-free handler below.
 (mut(g_field_force_failure) : Option(String)) = Option(String).None;
@@ -5090,21 +5152,11 @@ _take_field_force_failure :: (fn() -> Option(String))({
   g_field_force_failure = Option(String).None;
   r
 });
-/// The in-flight record holds a COPY of the impl's evaluation context (taken
-/// when the record is pushed): the env lookup hook forces a sibling member
-/// with it while the field loop's own context is lent down the stack. Before
-/// each field the loop runs, the copy takes the loop context's per-field
-/// state, so a force sees what an in-place evaluation would.
-_sync_in_flight_ctx :: (fn(rec : &ImplInFlight, ctx : &EvalContext) -> unit)({
-  rec.ctx.self_type = ctx.self_type.clone();
-  rec.ctx.self_trait_type = ctx.self_trait_type.clone();
-  rec.ctx.self_module_type = ctx.self_module_type.clone();
-  rec.ctx.receiver_type = ctx.receiver_type.clone();
-  rec.ctx.expected_type = ctx.expected_type.clone();
-  rec.ctx.current_impl_trait_field_labels = ctx.current_impl_trait_field_labels.clone();
-  rec.ctx.current_impl_trait_field_types = ctx.current_impl_trait_field_types.clone();
-});
-_force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
+/// A forced member's evaluation: the record's context is lent to the field's
+/// evaluation through a copy (the record itself stays in the in-flight stack,
+/// where a re-entrant miss keeps finding it), and the copy's end state is
+/// written back IN PLACE, so the record keeps what the evaluation wrote.
+_force_field_eval :: (fn(stack_idx : usize, field_idx : usize) -> unit)({
   inner_exn := Exception(
     throw : (
       _err -> {
@@ -5113,12 +5165,17 @@ _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
       }
     )
   );
-  // The record's context is lent to the field's evaluation through a copy
-  // (the record itself is lent alongside it), and the copy's end state is
-  // written back, so the record keeps what the evaluation wrote.
-  force_ctx := copy_eval_context(&st.ctx);
-  _run_impl_field(pf, st, &mut force_ctx, inner_exn);
-  st.ctx = force_ctx;
+  force_ctx := match(
+    impl_in_flight_ctx_copy_at(stack_idx),
+    .Some(r) => r,
+    .None => {
+      return(());
+    }
+  );
+  _run_impl_field_in_place(stack_idx, field_idx, &mut force_ctx, inner_exn);
+  _mutate_impl_in_flight_at(stack_idx, { force_ctx }(rec) => {
+    rec.ctx = force_ctx;
+  });
   ()
 });
 /// env.yo's lookup-miss hook (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): a method
@@ -5134,15 +5191,29 @@ _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
 force_in_flight_field :: (
   fn(type_id : &String, method_name : &String) -> bool
 )({
-  rec := match(
-    newest_impl_in_flight_for(type_id),
+  stack_idx := match(
+    newest_impl_in_flight_index_for(type_id),
+    .Some(i) => i,
+    .None => {
+      return(false);
+    }
+  );
+  hdr := match(
+    impl_in_flight_header_at(stack_idx),
     .Some(r) => r,
     .None => {
       return(false);
     }
   );
+  field_idx := match(
+    impl_forcible_field_index_at(stack_idx, method_name),
+    .Some(j) => j,
+    .None => {
+      return(false);
+    }
+  );
   pf := match(
-    impl_forcible_field(&rec, method_name),
+    impl_in_flight_field_clone_at(stack_idx, field_idx),
     .Some(f) => f,
     .None => {
       return(false);
@@ -5157,7 +5228,7 @@ force_in_flight_field :: (
         pa_v := match(pf.def.phase_a_value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
         pa_t := match(&pf.def.phase_a_type(), .Some(t) => Rc.clone(t), .None => t_unit());
         pa_src := cond(
-          pf.is_inner => match(&rec.current_trait_ty, .Some(tt) => type_id_or_empty(&tt.*), .None => String.from("")),
+          pf.is_inner => hdr.current_trait_type_id.clone(),
           true => String.from("")
         );
         pa_entry := MethodEntry(
@@ -5169,12 +5240,16 @@ force_in_flight_field :: (
           self_type : Option(TypeValue).None,
           owner : String.new()
         );
-        if(rec.is_generic, {
-          register_provisional_trait_method(rec.recv_id.clone(), &pa_entry);
+        if(hdr.is_generic, {
+          register_provisional_trait_method(hdr.recv_id.clone(), &pa_entry);
         }, {
-          register_type_trait_method(rec.recv_id.clone(), &pa_entry);
+          register_type_trait_method(hdr.recv_id.clone(), &pa_entry);
         });
-        pf.phase_a_registered = true;
+        _mutate_impl_in_flight_at(stack_idx, r2 => {
+          r2.fields.with(field_idx, f2 => {
+            f2.phase_a_registered = true;
+          });
+        });
         if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
           eprintln(`[force-field] phase-A ${type_id}.${method_name}`);
         });
@@ -5190,29 +5265,39 @@ force_in_flight_field :: (
       // to what an in-place evaluation of this member would see.
       prev_trial := set_in_def_time_trial(false);
       saved_where := take_active_where_trait_ids();
-      saved_exp := rec.ctx.expected_type.clone();
-      saved_wt_labels := rec.ctx.current_impl_trait_field_labels.clone();
-      saved_wt_types := rec.ctx.current_impl_trait_field_types.clone();
-      if(!pf.is_inner, {
-        rec.ctx.current_impl_trait_field_labels = ArrayList(String).new();
-        rec.ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
+      saved_exp := match(impl_in_flight_ctx_copy_at(stack_idx), .Some(rc) => rc.expected_type.clone(), .None => Option(ExpectedTypeCtx).None);
+      saved_wt_labels := match(impl_in_flight_ctx_copy_at(stack_idx), .Some(rc) => rc.current_impl_trait_field_labels.clone(), .None => ArrayList(String).new());
+      saved_wt_types := match(impl_in_flight_ctx_copy_at(stack_idx), .Some(rc) => rc.current_impl_trait_field_types.clone(), .None => ArrayList(TypeValue).new());
+      pf_is_inner := pf.is_inner;
+      _mutate_impl_in_flight_at(stack_idx, { pf_is_inner }(r2) => {
+        if(!pf_is_inner, {
+          r2.ctx.current_impl_trait_field_labels = ArrayList(String).new();
+          r2.ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
+        });
       });
       depths := forcing_depths();
       ___cf := _take_field_force_failure();
-      _force_field_eval(&pf, &rec);
+      _force_field_eval(stack_idx, field_idx);
       failure := _take_field_force_failure();
-      rec.ctx.current_impl_trait_field_labels = saved_wt_labels;
-      rec.ctx.current_impl_trait_field_types = saved_wt_types;
-      rec.ctx.expected_type = saved_exp;
+      _mutate_impl_in_flight_at(stack_idx, { saved_wt_labels, saved_wt_types, saved_exp }(r2) => {
+        r2.ctx.current_impl_trait_field_labels = saved_wt_labels;
+        r2.ctx.current_impl_trait_field_types = saved_wt_types;
+        r2.ctx.expected_type = saved_exp;
+      });
       restore_active_where_trait_ids(&saved_where);
       ___rt := set_in_def_time_trial(prev_trial);
       match(
         failure,
         .Some(msg) => {
           truncate_forcing_depths(depths);
-          pf.state = ImplFieldState.Failed;
           full := `${msg}\n  note: \`${pf.label}\` was evaluated here because a sibling method of this impl references it before its definition`;
-          pf.failure = Option(String).Some(full.clone());
+          failure_full := full.clone();
+          _mutate_impl_in_flight_at(stack_idx, { failure_full, field_idx }(r2) => {
+            mut(f2) := r2.fields(field_idx).clone();
+            f2.state = ImplFieldState.Failed;
+            f2.failure = Option(String).Some(failure_full);
+            r2.fields(field_idx) = f2;
+          });
           flag_pending_impl_force_error(&full);
           false
         },
@@ -5642,7 +5727,8 @@ evaluate_module_value :: (
       current_trait_ty : Option(TypeValue).None,
       forall_names : forall_names.clone()
     );
-    push_impl_in_flight(&c2_rec);
+    push_impl_in_flight(c2_rec);
+    c2_stack_i := (impl_in_flight_len() - usize(1));
     // `where(...)` clauses may also appear AFTER the receiver
     // (`impl(generic(T), Channel(T), where(T <: Send), ...)`). Collect them
     // all before the field loop: every entry the loop registers carries the
@@ -5660,7 +5746,9 @@ evaluate_module_value :: (
     while(fj < n_args, {
       mf_expr := match(args.get_cloned(fj), .None => make_err_expr(), .Some(e) => e);
       fj = (fj + usize(1));
-      c2_rec.current_top_index = (fj - usize(1));
+      _mutate_impl_in_flight_at(c2_stack_i, r => {
+        r.current_top_index = (fj - usize(1));
+      });
       // Negative GENERIC impl: `impl(generic(...), Pattern, !(Trait))`. Register
       // the negated trait into the negative-generic registry (reusing this
       // impl's generic params + receiver pattern) so `Type.impls(Concrete, Trait)`
@@ -5700,37 +5788,49 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call(&mf_expr) && ast_expr_is_fn_call_of(&mf_expr, BK_COLON, .Some(usize(2))), {
         // Direct member — through its pending entry (a sibling may already
         // have forced it); its results are pushed HERE, in source order.
-        c2_rec.env = forall_env;
+        // The entry itself stays in the in-flight stack (the env-lookup hook
+        // keeps finding it): every read takes a copy, every write lands in
+        // place, and the field runs through `_run_impl_field_in_place`.
+        sync_in_flight_ctx_at(c2_stack_i, &forall_env, ctx);
         match(
-          impl_direct_field_at(&c2_rec, fj - usize(1)),
-          .Some(c2_pf) => {
-            match(
-              c2_pf.state,
-              .Done => (),
-              .Failed => {
-                exn.throw(dyn(Box.new(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
-              },
-              .Forcing => {
-                exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`))));
-              },
-              .Unforced => {
-                _sync_in_flight_ctx(&c2_rec, ctx);
-                _run_impl_field(&c2_pf, &c2_rec, ctx, exn);
-              }
-            );
-            match(
-              &c2_pf.result_ty,
-              .Some(c2_rt) => {
-                method_names.push(c2_pf.label.clone());
-                method_types.push(Rc.clone(c2_rt));
-                method_values.push(match(c2_pf.result_value.clone(), .Some(v) => Rc.clone(v), .None => Rc.new(EvalValueNode.UnitVal)));
-              },
-              .None => ()
-            );
-          },
+          impl_direct_field_index_at(c2_stack_i, fj - usize(1)),
+          .Some(c2_fi) => match(
+            impl_in_flight_field_clone_at(c2_stack_i, c2_fi),
+            .Some(c2_pf) => {
+              match(
+                c2_pf.state,
+                .Done => (),
+                .Failed => {
+                  exn.throw(dyn(Box.new(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
+                },
+                .Forcing => {
+                  exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`))));
+                },
+                .Unforced => {
+                  _run_impl_field_in_place(c2_stack_i, c2_fi, ctx, exn);
+                }
+              );
+              // Fresh read: the run (or a sibling force inside it) wrote the
+              // results in place.
+              match(
+                impl_in_flight_field_clone_at(c2_stack_i, c2_fi),
+                .Some(c2_pf2) => match(
+                  &c2_pf2.result_ty,
+                  .Some(c2_rt) => {
+                    method_names.push(c2_pf2.label.clone());
+                    method_types.push(Rc.clone(c2_rt));
+                    method_values.push(match(c2_pf2.result_value.clone(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal)));
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          ),
           .None => ()
         );
-        forall_env = Rc.clone(c2_rec.env);
+        forall_env = _in_flight_env_at(c2_stack_i);
       });
       // Trait-constructor entry: `Trait(name : fn_def, ...)` or
       // `Trait(args)(name : fn_def, ...)` — e.g. ArrayList's
@@ -5766,8 +5866,8 @@ evaluate_module_value :: (
             g_receiver_kind_trait_fn,
             .Some(cof) => match(
               &cof(&receiver_type_pattern, &gtt.*, &forall_env),
-              .Some(co_msg) => {
-                exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&mf_expr), &co_msg.*))));
+              .Some(co_v) => {
+                exn.throw(dyn(Box.new(with_code_carried(format_error_message(ast_expr_token(&mf_expr), &co_v.message), &co_v.code))));
               },
               .None => ()
             ),
@@ -5788,7 +5888,9 @@ evaluate_module_value :: (
           Rc(.FnCall(_, _, Rc(tia2), _, _)) => tia2.clone(),
           Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
         );
-        c2_rec.current_trait_ty = g_trait_ty_opt;
+        _mutate_impl_in_flight_at(c2_stack_i, { g_trait_ty_opt }(r) => {
+          r.current_trait_ty = g_trait_ty_opt;
+        });
         (gti : usize) = usize(0);
         while(gti < trait_inner_args2.len(), {
           inner_e2 := match(trait_inner_args2.get_cloned(gti), .Some(x) => x, .None => make_err_expr());
@@ -5801,40 +5903,49 @@ evaluate_module_value :: (
             );
             // Through the member's pending entry (a sibling of THIS trait
             // entry may already have forced it); results pushed in order.
-            c2_rec.env = forall_env;
+            sync_in_flight_ctx_at(c2_stack_i, &forall_env, ctx);
             match(
-              impl_inner_field_at(&c2_rec, fj - usize(1), g_mname.clone()),
-              .Some(c2_ipf) => {
-                match(
-                  c2_ipf.state,
-                  .Done => (),
-                  .Failed => {
-                    exn.throw(dyn(Box.new(match(&c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
-                  },
-                  .Forcing => {
-                    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`))));
-                  },
-                  .Unforced => {
-                    _sync_in_flight_ctx(&c2_rec, ctx);
-                    _run_impl_field(&c2_ipf, &c2_rec, ctx, exn);
-                  }
-                );
-                match(
-                  &c2_ipf.result_ty,
-                  .Some(g_rt) => {
-                    g_method_names.push(c2_ipf.label.clone());
-                    g_method_types.push(Rc.clone(g_rt));
-                    g_method_values.push(match(c2_ipf.result_value.clone(), .Some(v) => Rc.clone(v), .None => Rc.new(EvalValueNode.UnitVal)));
-                  },
-                  .None => ()
-                );
-              },
+              impl_inner_field_index_at(c2_stack_i, fj - usize(1), g_mname.clone()),
+              .Some(c2_ifi) => match(
+                impl_in_flight_field_clone_at(c2_stack_i, c2_ifi),
+                .Some(c2_ipf) => {
+                  match(
+                    c2_ipf.state,
+                    .Done => (),
+                    .Failed => {
+                      exn.throw(dyn(Box.new(match(&c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
+                    },
+                    .Forcing => {
+                      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`))));
+                    },
+                    .Unforced => {
+                      _run_impl_field_in_place(c2_stack_i, c2_ifi, ctx, exn);
+                    }
+                  );
+                  match(
+                    impl_in_flight_field_clone_at(c2_stack_i, c2_ifi),
+                    .Some(c2_ipf2) => match(
+                      &c2_ipf2.result_ty,
+                      .Some(g_rt) => {
+                        g_method_names.push(c2_ipf2.label.clone());
+                        g_method_types.push(Rc.clone(g_rt));
+                        g_method_values.push(match(c2_ipf2.result_value.clone(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal)));
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                },
+                .None => ()
+              ),
               .None => ()
             );
-            forall_env = Rc.clone(c2_rec.env);
+            forall_env = _in_flight_env_at(c2_stack_i);
           });
         });
-        c2_rec.current_trait_ty = Option(TypeValue).None;
+        _mutate_impl_in_flight_at(c2_stack_i, r => {
+          r.current_trait_ty = Option(TypeValue).None;
+        });
         ctx.current_impl_trait_field_labels = old_wt_labels;
         ctx.current_impl_trait_field_types = old_wt_values;
         // Fill trait `?=` DEFAULT methods the impl did not override — the
@@ -6161,7 +6272,8 @@ evaluate_module_value :: (
     current_trait_ty : Option(TypeValue).None,
     forall_names : ArrayList(String).new()
   );
-  push_impl_in_flight(&c3_rec);
+  push_impl_in_flight(c3_rec);
+  c3_stack_i := (impl_in_flight_len() - usize(1));
   // Process each field expression: `name : fn_def` or a trait constructor
   // like `Trait(name: fn_def, ...)` whose inner args are colon pairs.
   (field_idx : usize) = usize(1);
@@ -6170,7 +6282,9 @@ evaluate_module_value :: (
       args.get_cloned(field_idx),
       .None => (),
       .Some(field_expr) => {
-        c3_rec.current_top_index = field_idx;
+        _mutate_impl_in_flight_at(c3_stack_i, r => {
+          r.current_top_index = field_idx;
+        });
         // Collect method colon-pair expressions from either the direct form
         // `name : fn_def` or from inside a trait constructor `Trait(name: fn_def, ...)`.
         // Also try to capture the trait TypeValue (when present) so each
@@ -6336,9 +6450,9 @@ evaluate_module_value :: (
                 g_check_self_constraints_fn,
                 .Some(cf) => match(
                   &cf(&receiver_ty, &ctt.*, &local_env),
-                  .Some(sc_msg) => {
+                  .Some(sc_v) => {
                     exn.throw(
-                      dyn(Box.new(format_error_message(ast_expr_token(expr), &sc_msg.*)))
+                      dyn(Box.new(with_code_carried(format_error_message(ast_expr_token(expr), &sc_v.message), &sc_v.code)))
                     );
                   },
                   .None => ()
@@ -6404,7 +6518,7 @@ evaluate_module_value :: (
         // signature while the real FuncVal is still being evaluated. Without
         // it the lookup misses, the call degrades to the non-Func unit
         // fallback, and codegen emits an argument-less void call
-        // (tests/derive_clone_complex.test.yo). Entries carry `value : None`
+        // (tests/derive-clone-complex.test.yo). Entries carry `value : None`
         // (the real value is still being evaluated during the window) and are
         // cleared right after the member loop.
         match(
@@ -6448,7 +6562,10 @@ evaluate_module_value :: (
         // Index's `Output : u8`, not the `Output : Self` an earlier Add
         // impl registered under the same receiver id in the global
         // registry — fields attach progressively to the current trait entry.
-        c3_rec.current_trait_ty = current_trait_ty.clone();
+        ctt := current_trait_ty.clone();
+        _mutate_impl_in_flight_at(c3_stack_i, { ctt }(r) => {
+          r.current_trait_ty = ctt;
+        });
         old_wt_labels_c3 := replace(&mut ctx.current_impl_trait_field_labels, ArrayList(String).new());
         old_wt_values_c3 := replace(&mut ctx.current_impl_trait_field_types, ArrayList(TypeValue).new());
         (mj : usize) = usize(0);
@@ -6461,10 +6578,11 @@ evaluate_module_value :: (
               // already have forced it — plans/reference/LAZY_TOPLEVEL_BINDINGS.md
               // P3): a direct one by position, a trait constructor's by its
               // label within this entry.
-              c3_pf_opt := cond(
-                current_trait_ty.is_none() => impl_direct_field_at(&c3_rec, field_idx),
-                true => impl_inner_field_at(
-                  &c3_rec,
+              sync_in_flight_ctx_at(c3_stack_i, &local_env, ctx);
+              c3_fi_opt := cond(
+                current_trait_ty.is_none() => impl_direct_field_index_at(c3_stack_i, field_idx),
+                true => impl_inner_field_index_at(
+                  c3_stack_i,
                   field_idx,
                   match(
                     Rc.clone(meth_expr),
@@ -6473,28 +6591,42 @@ evaluate_module_value :: (
                   )
                 )
               );
-              c3_rec.env = local_env;
               match(
-                c3_pf_opt,
-                .Some(c3_pf) => match(
-                  c3_pf.state,
-                  .Done => (),
-                  .Failed => {
-                    exn.throw(dyn(Box.new(match(&c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
-                  },
-                  .Forcing => {
-                    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`))));
-                  },
-                  .Unforced => {
-                    _sync_in_flight_ctx(&c3_rec, ctx);
-                    _run_impl_field(&c3_pf, &c3_rec, ctx, exn);
-                  }
+                c3_fi_opt,
+                .Some(c3_fi) => match(
+                  impl_in_flight_field_clone_at(c3_stack_i, c3_fi),
+                  .Some(c3_pf) => match(
+                    c3_pf.state,
+                    .Done => (),
+                    .Failed => {
+                      exn.throw(dyn(Box.new(match(&c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
+                    },
+                    .Forcing => {
+                      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`))));
+                    },
+                    .Unforced => {
+                      _run_impl_field_in_place(c3_stack_i, c3_fi, ctx, exn);
+                    }
+                  ),
+                  .None => ()
                 ),
                 .None => {
-                  _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &c3_rec, Option(ImplPendingField).None, ctx, exn);
+                  // A member with no pending entry: evaluated directly, on a
+                  // copy, with the env it re-stamps written back in place.
+                  (mut(c3_direct) : ImplInFlight) = match(
+                    impl_in_flight_clone_at(c3_stack_i),
+                    .Some(r) => r,
+                    .None => {
+                      return(Rc.clone(expr.*));
+                    }
+                  );
+                  _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &mut c3_direct, Option(Tuple(usize, usize)).None, ctx, exn);
+                  _mutate_impl_in_flight_at(c3_stack_i, r => {
+                    r.env = Rc.clone(c3_direct.env);
+                  });
                 }
               );
-              local_env = Rc.clone(c3_rec.env);
+              local_env = _in_flight_env_at(c3_stack_i);
             }
           );
           mj = (mj + usize(1));
@@ -6555,7 +6687,7 @@ evaluate_module_value :: (
                 // (issues/fixed/impl-is-not-checked-against-the-trait-members.md).
                 // An associated type (`Output : Type`) has no default form,
                 // so it must always be provided.
-                if(!d_provided && (is_function_type(&d_ty) || is_type_hierarchy_type(&d_ty)), {
+                if(!d_provided && (is_function_type(&d_ty) || is_type_hierarchy_type(&d_ty) || is_maybe_sized_kind(&d_ty)), {
                   if(!is_function_type(&d_ty) || get_trait_default(dtf_trait_id.clone(), d_label.clone()).is_none(), {
                     exn.throw(
                       dyn(
@@ -6833,7 +6965,7 @@ evaluate_module_value :: (
     rp_c_entries := get_type_trait_methods_for_type(&receiver_type_id);
     (rp_c_i : usize) = usize(0);
     while(rp_c_i < rp_c_entries.len(), {
-      match(rp_c_entries.get(rp_c_i), .Some(rp_c_e) => note_reference_impl_method(&rp_c_head, &rp_c_e.label), .None => ());
+      match(rp_c_entries.get_cloned(rp_c_i), .Some(rp_c_e) => note_reference_impl_method(&rp_c_head, &rp_c_e.label), .None => ());
       rp_c_i = (rp_c_i + usize(1));
     });
   });
@@ -6891,7 +7023,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
 });
 // Install the adapter as env.yo's generic-impl-fallback callback.
 // Runs once at module-init time (same pattern as
-// `_trait_checking_init` in `evaluator/trait_checking.yo:1079`).
+// `_trait_checking_init` in `evaluator/trait-checking.yo:1079`).
 _impl_generic_impl_fallback_init := (fn() -> bool)({
   set_find_methods_from_generic_impls_fn(
     _find_methods_from_generic_impls_as_method_entries
@@ -7284,7 +7416,7 @@ note_generic_move_only_impl :: (fn(entry : &GenericImplEntry) -> unit)({
 // ---------------------------------------------------------------------------
 // Copy and Clone (plans/VALUES_BY_DEFAULT.md decision 36)
 // ---------------------------------------------------------------------------
-/// Does the trait-implementation predicate (trait_checking.yo, installed at
+/// Does the trait-implementation predicate (trait-checking.yo, installed at
 /// init) say `ty <: trait_ty`? Asked on a private env snapshot: the adapter
 /// writes the bindings a match produced back into the env it is given.
 _implements_via_hook :: (fn(ty : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> bool)(
@@ -7447,7 +7579,7 @@ _try_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : 
 /// Is an impl of `trait_ty` written for `ty`'s shape: a concrete impl of
 /// `ty` itself, or a generic impl whose receiver pattern matches `ty` with
 /// its where-clause not enforced (the prelude's `Option(T)` `Copy` impl, for
-/// `Option(Point)`)? `YO_AUDIT_COPY_TRAIT` (trait_checking.yo,
+/// `Option(Point)`)? `YO_AUDIT_COPY_TRAIT` (trait-checking.yo,
 /// `copy_trait_blockers`) tells a type that lacks `Copy` from one whose
 /// conditional `Copy` fails at a type argument.
 type_has_impl_shape_for :: (fn(ty : &TypeValue, trait_ty : &TypeValue) -> bool)({
@@ -7511,7 +7643,7 @@ _generic_pattern_covered :: (fn(pattern : &TypeValue, trait_ty : &TypeValue, env
           while((fi < e.forall_some_types.len()) && (fi < bindings.len()), {
             match(
               e.forall_some_types.get_cloned(fi),
-              .Some(Rc(.SomeT({ name : f_name, frame_level : f_level }))) => subst_add(&s, &f_name, f_level, match(bindings.get_cloned(fi), .Some(b) => b, .None => t_unit())),
+              .Some(Rc(.SomeT({ name : f_name, frame_level : f_level }))) => subst_add(&mut s, &f_name, f_level, match(bindings.get_cloned(fi), .Some(b) => b, .None => t_unit())),
               _ => ()
             );
             fi = (fi + usize(1));
@@ -7519,7 +7651,7 @@ _generic_pattern_covered :: (fn(pattern : &TypeValue, trait_ty : &TypeValue, env
           (all_hold : bool) = true;
           (wi : usize) = usize(0);
           while((wi < e.where_constraint_traits.len()) && all_hold, {
-            w_subject := substitute(&s, match(e.where_constraint_some_types.get_cloned(wi), .Some(t) => t, .None => t_unit()));
+            w_subject := substitute(&mut s, match(e.where_constraint_some_types.get_cloned(wi), .Some(t) => t, .None => t_unit()));
             w_trait := match(e.where_constraint_traits.get_cloned(wi), .Some(t) => t, .None => t_unit());
             all_hold = cond(
               is_some_type(&w_subject) => _implements_via_hook(&w_subject, &w_trait, env),
@@ -7546,7 +7678,7 @@ export(GenericImplEntry, MethodCandidate);
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.with(_c_len_10));
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
-export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only, generic_instantiation_declares_drop, nominal_drop_uses_roots);
+export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, ImplRuleViolation, get_trait_key, nominal_declares_move_only, generic_instantiation_declares_drop, nominal_drop_uses_roots);
 export(register_generic_impl, purge_concrete_trait_impls_owned_by, fn_result_origin_wider);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);

@@ -1,0 +1,21 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)): `d := &n.next; cur = &mut n.next; cur.* = .None; use(d)`: `n`'s loan, extended by `d`, keeps every access through `cur` rejected, so the drop under `d` is E0911 (VERDICTS-71 addendum B, b1; accepted before rule (c)).
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  match(
+    cur,
+    .Some(n) => {
+      d := &n.next;
+      cur = &mut n.next;
+      cur.* = .None;
+      match(d, .Some(x) => println(&x.value), .None => ());
+    },
+    .None => ()
+  );
+});
+export(main);

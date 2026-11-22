@@ -6,7 +6,7 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { Exception, IoExn } :: import("std/error");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { format_yo_source, format_yo_fences, collect_yo_files } :: import("../../src/formatter.yo");
 { YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
@@ -500,7 +500,7 @@ test("fmt D4: multi-arg and infix-operand funcs keep their call parens", {
 // `...quote(entries)`), which does not re-parse (E0008) — the verify gate
 // then disabled paren elision FILE-WIDE, so the byte-identical
 // `Item : *(MapEntry(K, V))` spelling passed `fmt --check` in
-// hash_map.yo (whose trailing spread-rest macro tripped the gate) and was
+// hash-map.yo (whose trailing spread-rest macro tripped the gate) and was
 // rewritten in every file without one.
 // ---------------------------------------------------------------------------
 test("fmt elision: spread-rest call paren stays and does not disable file-wide elision", {
@@ -525,7 +525,7 @@ test("fmt elision: barrel export spread call paren stays", {
 });
 test("fmt elision: pointer-type paren verdict is context-independent", {
   // The filed divergence: `Item : *(MapEntry(K, V))` canonicalizes in a
-  // plain file but survived verbatim in hash_map.yo, whose trailing
+  // plain file but survived verbatim in hash-map.yo, whose trailing
   // `fn(...(quote(entries)))` macro used to trip the verify gate and turn
   // elision off for the WHOLE file. Both spellings must now agree.
   plain := String.from("Iter :: struct(Item : *(MapEntry(K, V)));\n");

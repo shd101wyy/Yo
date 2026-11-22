@@ -14,15 +14,15 @@
 //!     reached from the module StructVal via the expr walker instead.
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
+{ HashMap } :: import("std/collections/hash-map");
 { profile_enabled, fnv1a64 } :: import("../../utils.yo");
 { TypeValue, TypeValueNode, no_types, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST, ast_rewritten_view } :: import("../../expr.yo");
-{ ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs, expr_info_runtime_destructurings, expr_info_capture_type, expr_info_capture_field_inits, expr_info_closure_function_value, expr_info_macro_expansion } :: import("../../expr_info.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs, expr_info_runtime_destructurings, expr_info_capture_type, expr_info_capture_field_inits, expr_info_closure_function_value, expr_info_macro_expansion } :: import("../../expr-info.yo");
 { EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
-{ is_control_fn, get_func_type } :: import("../../function_value.yo");
+{ is_control_fn, get_func_type } :: import("../../function-value.yo");
 {
   is_struct_type,
   is_enum_type,
@@ -39,7 +39,7 @@
 } :: import("../../types/guards.yo");
 { type_contains_some_type, type_carries_origin, origin_beyond_n2b, type_is_comptime_only } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ stable_type_identity } :: import("../../types/type_key.yo");
+{ stable_type_identity } :: import("../../types/type-key.yo");
 {
   CodeGenContext,
   type_key,
@@ -390,7 +390,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
         (mut(i) : usize) = usize(0);
         while(i < n, {
           match(
-            runtime_fields.get(i),
+            runtime_fields.get_cloned(i),
             .Some(rf) => if(!is_function_type(&rf.ty), {
               recur(&rf.ty, context);
             }),
@@ -562,7 +562,7 @@ collect_pointer_pointees :: (fn(context : &mut CodeGenContext) -> unit)({
           nf := rfs.len();
           (mut(fi) : usize) = usize(0);
           while(fi < nf, {
-            match(rfs.get(fi), .Some(rf) => _collect_field_pointees(&rf.ty, context), .None => ());
+            match(rfs.get_cloned(fi), .Some(rf) => _collect_field_pointees(&rf.ty, context), .None => ());
             fi = (fi + usize(1));
           });
         },

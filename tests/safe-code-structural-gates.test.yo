@@ -1,0 +1,302 @@
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ unchecked_non_zero } :: import("std/spec/refine");
+{ ArrayList } :: import("std/collections/array-list");
+/// Phase C structural gates for safe code (per plans/reference/MEMORY_SAFETY.md).
+///
+/// The previous gates required `unsafe(...)` to wrap pointer ops but
+/// still let safe code *declare* `*(T)` types and *take* `&(expr)`
+/// addresses, on the basis that without an `unsafe(...)`-wrappable
+/// op, those declarations were inert. Phase C tightens the safe
+/// surface: pointer-type declarations and the address-of operator
+/// themselves are rejected in safe code, so user code can't even
+/// name a raw pointer.
+///
+/// Negative cases pinned via `comptime_expect_error(...)`. The
+/// positive direction (pragma + raw pointers work) is covered by
+/// `tests/unsafe.test.yo` and `tests/privilege-pragma.test.yo`.
+// `*(T)` in a parameter slot is rejected in safe code.
+comptime_expect_error(
+  takes_ptr :: (fn(p : *i32) -> i32)(i32(0))
+);
+// `*(T)` in a return slot is rejected in safe code.
+comptime_expect_error(
+  returns_ptr :: (fn() -> *i32)({
+    x := i32(0);
+    addr_of(x)
+  })
+);
+// `*(T)` in a struct field is rejected in safe code.
+comptime_expect_error(
+  HasPtrField :: struct(p : *i32)
+);
+// `addr_of(x)` address-of is rejected in safe code (even when assigning to
+// an explicitly-typed local — the type rule fires too, but the
+// address-of fires first at the construction site).
+comptime_expect_error({
+  x := i32(0);
+  (p : *i32) = addr_of(x);
+});
+// `unsafe(...)` itself is rejected in safe code.
+comptime_expect_error(
+  unsafe(i32(0))
+);
+// `asm(...)` is rejected in safe code (implicitly unsafe).
+comptime_expect_error(
+  asm("nop")
+);
+// `extern(...)` declarations are rejected in safe code (FFI is
+// unsafe by construction; user code calls stdlib wrappers).
+comptime_expect_error(
+  extern(
+    "c",
+    bad_strlen :
+      (
+        fn(s : *u8) -> usize
+      )
+  )
+);
+// `c_include(...)` header imports are rejected in safe code (same
+// rationale — declares FFI symbols).
+comptime_expect_error(
+  c_include(
+    "<string.h>",
+    bad_strlen :
+      (
+        fn(s : *u8) -> usize
+      )
+  )
+);
+// Pointer arithmetic `&+` is rejected in safe code.
+comptime_expect_error({
+  x := i32(0);
+  p := addr_of(x);
+  q := p.add(usize(1));
+});
+// Pointer cast `(*U)(p)` is rejected in safe code (result has type
+// `*(U)`, which is a forbidden expression type).
+comptime_expect_error({
+  x := i32(0);
+  p := addr_of(x);
+  q := (*u8)(p);
+});
+// Positive runtime guardrail: safe code with no pointer surface
+// compiles and runs cleanly.
+swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
+});
+test("safe code uses inout, no raw pointers needed", {
+  mut(x) := i32(1);
+  mut(y) := i32(2);
+  swap(&mut x, &mut y);
+  assert(x == i32(2), "swapped: x");
+  assert(y == i32(1), "swapped: y");
+});
+// ============================================================================
+// Phase A (THREAD_SAFETY): Manual impl(T, Send()) requires
+// pragma(Pragma.AllowUnsafe). Auto-derived Send (from struct/enum
+// definitions) is not gated — only explicit impl declarations.
+// ============================================================================
+// Manual impl(T, Send()) without pragma is rejected.
+comptime_expect_error({
+  PlainStruct :: struct(value : i32);
+  impl(PlainStruct, Send());
+});
+// A manual impl(T, Acyclic()) is rejected: the marker is derived from the
+// type's structure (decision 48 W6b, plans/archive/WEAK_AND_UNCOLLECTED_RC.md
+// §4), and a negative impl still opts a type out.
+PlainAcyclicNode :: struct(value : i32, next : Option(Rc(Self)));
+comptime_expect_error(impl(PlainAcyclicNode, Acyclic()), "never implemented by hand");
+PlainLeaf :: struct(value : i32);
+impl(PlainLeaf, !Acyclic);
+test("Acyclic is derived, never declared", {
+  comptime_assert(!Type.impls(PlainAcyclicNode, Acyclic), "a struct that can reach itself through an Rc is not Acyclic");
+  comptime_assert(!Type.impls(PlainLeaf, Acyclic), "a negative impl opts a type out");
+});
+
+// =====================================================================// Pointer-free APIs with unsafe semantics (the safe-mode handover §3.2
+// audit). Each of these compiled cleanly in safe code before its gate; the
+// tests pin the error the fix produces.
+// ============================================================================
+// `String.ptr()` hands out the heap buffer: the POINTER result is a raw
+// pointer value, which safe code may not hold. Before the fix this was
+// `raw_bytes() -> RawSlice(u8)` — a struct wrapping the pointer, which
+// passed the gate and reached `random_bytes`: a heap-use-after-free WRITE
+// once the string reallocated.
+// issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md
+comptime_expect_error({
+  s := String.from("hi");
+  s.ptr()
+});
+// `MaybeUninit.assume_init` reads the uninitialized slot: it now takes the
+// `as_ptr()` result as a witness, a pointer safe code cannot hold. The
+// one-argument spelling no longer exists, so the call is an arity error.
+// issues/fixed/safe-code-reads-uninitialized-memory-through-maybeuninit-assume-init.md
+comptime_expect_error({
+  m := MaybeUninit(i64).new();
+  m.assume_init()
+});
+// `std/spec/refine`'s trusted casts forge a refinement with no check and no
+// proof; they now take a `*(T)` witness (`&(x)`), which safe code cannot
+// produce. The two-argument spelling no longer exists.
+// issues/fixed/safe-code-forges-refinement-proofs-through-unchecked-casts.md
+comptime_expect_error({
+  zero := i32(0);
+  unchecked_non_zero(zero)
+});
+// The struct-wrapping-a-pointer class is NOT structurally detectable, so
+// these stay as boundary pins: HOLDING a managed container whose pointer
+// field is public by accident (HashMap's `ctrl : ?(*(u8))`) is fine —
+// while READING that field is an enum-wrapping-a-pointer expression and
+// stays gated.
+comptime_expect_error({
+  { HashMap } :: import("std/collections/hash-map");
+  m := HashMap(i32, i32).new();
+  c := m.ctrl;
+  c
+});
+// A test body, not a module-level block: a value map written through
+// `&mut self` is a local (a mutable module-level binding cannot be lent,
+// decision 47).
+test("a HashMap is safe to hold and use", {
+  { HashMap } :: import("std/collections/hash-map");
+  mut(m) := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(2));
+  assert(m.len() == usize(1), "a HashMap is safe to hold and use");
+});
+// `IndexUnchecked.index_unchecked` skips the bounds check; codegen calls it
+// only at a subscript the verifier proved in bounds. Its result is a raw
+// pointer, so safe code cannot call it directly, not even to dereference at
+// once (plans/archive/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+comptime_expect_error({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.index_unchecked(usize(5))
+});
+// The write twin, `IndexUncheckedMut.index_unchecked_mut`, is gated the same
+// way: the V2b split once gave both twins projection results, which safe code
+// could call (issues/fixed/2026-10-14-safe-code-can-call-the-unchecked-index-twins.md).
+comptime_expect_error({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.index_unchecked_mut(usize(5))
+});
+// `___drop(place)` runs a place's destructor without moving it out. On a
+// field nothing marks the place dead, so the read below was a heap
+// use-after-free that `yo check` accepted. The builtin now needs an
+// unsafe-capable file, as Rust's `ptr::drop_in_place` is an `unsafe fn`;
+// tests/unsafe.test.yo covers the accepted direction.
+// issues/fixed/2026-10-21-the-drop-builtin-is-callable-outside-unsafe.md
+DropGateHolder :: struct(xs : ArrayList(i32));
+// Each case is a block inside a test body, so `h` is a local: at module
+// level it would be a global, whose field cannot be lent (a different error).
+test("___drop and the RC-release builtins are rejected in safe code", {
+  comptime_expect_error({
+    mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+    h.xs.push(i32(1));
+    ___drop(h.xs);
+    h.xs.len()
+  }, "'___drop(...)' is not available in safe code");
+  // On a named local `___drop(xs)` moved `xs`, so the hole did not open there,
+  // but the builtin is gated whatever its argument: safe code ends a value with
+  // `drop(xs)`.
+  comptime_expect_error({
+    xs := ArrayList(i32).new();
+    ___drop(xs);
+  }, "'___drop(...)' is not available in safe code");
+  // The RC-release builtins destroy their argument in place the same way, so
+  // they are gated with `___drop`: `__yo_decr_rc(h.xs)` freed the field's buffer
+  // and the read after it was a heap use-after-free that `yo check` accepted.
+  // issues/fixed/2026-10-22-the-rc-release-builtins-are-callable-outside-unsafe.md
+  comptime_expect_error({
+    mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+    h.xs.push(i32(1));
+    __yo_decr_rc(h.xs);
+    h.xs.len()
+  }, "'__yo_decr_rc(...)' is not available in safe code");
+  comptime_expect_error({
+    mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+    __yo_decr_rc_atomic(h.xs);
+    h.xs.len()
+  }, "'__yo_decr_rc_atomic(...)' is not available in safe code");
+  comptime_expect_error({
+    words := Array(String, 1)(String.from("a"));
+    __yo_drop_array_element(words, usize(0));
+    words(usize(0)).len()
+  }, "'__yo_drop_array_element(...)' is not available in safe code");
+  comptime_expect_error({
+    pair := (String.from("a"), i32(1));
+    __yo_drop_tuple_element(pair, usize(0));
+    pair.0.len()
+  }, "'__yo_drop_tuple_element(...)' is not available in safe code");
+  comptime_expect_error({
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(() => i32(1)));
+    __yo_dyn_drop(d);
+  }, "'__yo_dyn_drop(...)' is not available in safe code");
+  // The gate is raised before the argument is examined, so any place shows it.
+  comptime_expect_error({
+    mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+    __yo_sometype_drop(h.xs);
+    h.xs.len()
+  }, "'__yo_sometype_drop(...)' is not available in safe code");
+});
+// The builtins that add an owner or a count the compiler does not record are
+// gated the same way: `b := __yo_rc_own(a)` made `b` a second owner of `a`'s
+// cell with one count (a heap use-after-free), `__yo_capture_field(f, 0)` a
+// second owner of the captured `String` (a double free), and
+// `__yo_dyn_dup(d)` on a `Box(Dyn(...))` a bad free; the `incr`/`dup` forms
+// leak. Safe code shares with `Rc.clone(h)` or `x.clone()`.
+// issues/fixed/2026-11-21-the-rc-ownership-builtins-are-callable-outside-unsafe.md
+test("the RC-ownership builtins are rejected in safe code", {
+  comptime_expect_error({
+    a := Rc.new(i32(5));
+    b := __yo_rc_own(a);
+    ref_count(b)
+  }, "'__yo_rc_own(...)' is not available in safe code");
+  comptime_expect_error({
+    s := String.from("captured");
+    (f : Impl(Fn() -> usize)) = ({ s }() => s.len());
+    t := __yo_capture_field(f, 0);
+    t.len()
+  }, "'__yo_capture_field(...)' is not available in safe code");
+  comptime_expect_error({
+    r := Rc.new(i32(5));
+    __yo_incr_rc(r);
+  }, "'__yo_incr_rc(...)' is not available in safe code");
+  comptime_expect_error({
+    r := Arc.new(i32(5));
+    __yo_incr_rc_atomic(r);
+  }, "'__yo_incr_rc_atomic(...)' is not available in safe code");
+  comptime_expect_error({
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(() => i32(1)));
+    __yo_dyn_dup(d);
+  }, "'__yo_dyn_dup(...)' is not available in safe code");
+  // The gate is raised before the argument is examined, so any place shows it.
+  comptime_expect_error({
+    mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+    __yo_sometype_dup(h.xs);
+  }, "'__yo_sometype_dup(...)' is not available in safe code");
+  comptime_expect_error({
+    cells := Array(Rc(i32), 1)(Rc.new(i32(1)));
+    x := __yo_dup_array_element(cells, usize(0));
+    ref_count(x)
+  }, "'__yo_dup_array_element(...)' is not available in safe code");
+  comptime_expect_error({
+    pair := (Rc.new(i32(1)), i32(2));
+    x := __yo_dup_tuple_element(pair, usize(0));
+    ref_count(x)
+  }, "'__yo_dup_tuple_element(...)' is not available in safe code");
+});
+// The private heap-cell primitives need an unsafe-capable file
+// (plans/VALUES_BY_DEFAULT.md §3.5): safe code shares a value with
+// `Rc.new(v)`/`Arc.new(v)`. The gate fires on the type itself, so neither a
+// construction nor a type annotation gets through.
+test("the cell primitives are not available in safe code", {
+  comptime_expect_error(__yo_cell(i32)(i32(1), .None), "`__yo_cell(...)` is not available in safe code");
+  comptime_expect_error(__yo_atomic_cell(i32)(i32(1), .None), "`__yo_atomic_cell(...)` is not available in safe code");
+  comptime_expect_error({
+    (c : __yo_cell(i32)) = Rc.new(i32(1));
+  }, "`__yo_cell(...)` is not available in safe code");
+});

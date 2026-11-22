@@ -2,7 +2,7 @@
 
 The `Yo` compiler is **self-hosted**: it is written in Yo and lives in
 [`src/`](./src/). Building it needs an already-installed `yo` binary
-(get one from the [install script](./README.md#install-script-recommended)) plus
+(get one from the [install script](./README.md#installation)) plus
 a C compiler.
 
 Yo is primarily developed on the Steam Deck LCD (Linux). The compiler currently transpiles Yo to C; to produce
@@ -70,8 +70,7 @@ $ yo build --std-path ./std
 it the installed `yo` uses the std it ships with. `build.yo` already builds
 with `--optimize 2`. Keep that setting whenever you compile the compiler by
 hand. At `-O0` the big evaluator functions have multi-megabyte stack frames,
-and deep compile-time recursion exhausts the stack. (`--release` was removed;
-it was exactly `--optimize 2`.) With a v0.2.43 or later `yo`, the build fits
+and deep compile-time recursion exhausts the stack. The build fits
 on an 8 GB machine: about 4.3 GiB peak, C compiler included. `yo build --watch`
 rebuilds in-process on every change.
 

@@ -12,12 +12,14 @@
 //! { Barrier } :: import("std/sync/barrier");
 //! { Thread } :: import("std/thread");
 //!
-//! b := Barrier.new(i32(3));
-//! t1 := Thread(unit).spawn(io => {
-//!   b.wait();
+//! b := Arc.new(Barrier.new(i32(3)));
+//! b1 := Arc.clone(b);
+//! t1 := Thread(unit).spawn({ b1 }(io : Io) => {
+//!   b1.wait();
 //! });
-//! t2 := Thread(unit).spawn(io => {
-//!   b.wait();
+//! b2 := Arc.clone(b);
+//! t2 := Thread(unit).spawn({ b2 }(io : Io) => {
+//!   b2.wait();
 //! });
 //! b.wait(); // the third party — all three proceed from here
 //! t1.join();
@@ -35,8 +37,8 @@
 pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
-/// Reusable barrier built on `Mutex` and `Cond`.
-/// Uses atomic reference counting for safe cross-thread sharing.
+/// Reusable barrier built on `Mutex` and `Cond`. A move-only value with its
+/// state in a private `Box`; the parties share one as `Arc(Barrier)`.
 ///
 /// `_generation` is what makes the barrier reusable and correct. A waiter
 /// samples it on arrival and sleeps until it CHANGES, rather than sleeping
@@ -52,7 +54,11 @@ _BarrierState :: struct(
   _mutex : Mutex(bool),
   _cv : Cond
 );
-Barrier :: struct(_cell : __yo_atomic_cell(_BarrierState));
+Barrier :: struct(_state : Box(_BarrierState));
+// SAFETY: every read and write of the counters happens under `_mutex`, so the
+// parties may share the barrier from their own threads.
+impl(Barrier, Send());
+impl(Barrier, Sync());
 impl(
   Barrier,
   /// Create a barrier that trips once `parties` threads are waiting on it.
@@ -61,61 +67,62 @@ impl(
   /// thread trips it immediately and is its own leader.
   new : (fn(parties : i32) -> Self)(
     Self(
-      _cell : __yo_atomic_cell(_BarrierState)(
+      _state : Box.new(
         _BarrierState(
           _parties : parties,
           _count : i32(0),
           _generation : i64(0),
           _mutex : Mutex(bool).new(false),
           _cv : Cond.new()
-        ),
-        .None
+        )
       )
     )
   ),
+  // The state in the box: writes go through it, under `_mutex`.
+  _st : (fn(self : &Self) -> *_BarrierState)(addr_of(self._state.*)),
   /// Block until `parties` threads have called `wait()`. Returns `true` in
   /// exactly one of them per generation — the thread that tripped the barrier.
   wait : (fn(self : &Self) -> bool)({
-    self._cell.*._mutex._raw_lock();
-    arrival_generation := self._cell.*._generation;
-    self._cell.*._count = (self._cell.*._count + i32(1));
+    self._state.*._mutex._raw_lock();
+    arrival_generation := self._state.*._generation;
+    unsafe(consume(self._st().*._count = (self._state.*._count + i32(1))));
     mut(is_leader) := false;
     cond(
-      (self._cell.*._count >= self._cell.*._parties) => {
+      (self._state.*._count >= self._state.*._parties) => {
         // Last party in: reset for the next round, publish the new
         // generation, and release everyone parked on the old one.
-        self._cell.*._count = i32(0);
-        self._cell.*._generation = (self._cell.*._generation + i64(1));
+        unsafe(consume(self._st().*._count = i32(0)));
+        unsafe(consume(self._st().*._generation = (self._state.*._generation + i64(1))));
         is_leader = true;
-        self._cell.*._cv.broadcast();
+        self._state.*._cv.broadcast();
       },
       true => {
-        while(self._cell.*._generation == arrival_generation, {
-          self._cell.*._cv.wait_with(&self._cell.*._mutex);
+        while(self._state.*._generation == arrival_generation, {
+          self._state.*._cv.wait_with(&self._state.*._mutex);
         });
       }
     );
-    self._cell.*._mutex._raw_unlock();
+    self._state.*._mutex._raw_unlock();
     is_leader
   }),
   /// The number of threads this barrier trips on. Fixed at construction.
   parties : (fn(self : &Self) -> i32)(
-    self._cell.*._parties
+    self._state.*._parties
   ),
   /// How many times the barrier has tripped so far — the round a caller
   /// arriving now would join.
   generation : (fn(self : &Self) -> i64)({
-    self._cell.*._mutex._raw_lock();
-    g := self._cell.*._generation;
-    self._cell.*._mutex._raw_unlock();
+    self._state.*._mutex._raw_lock();
+    g := self._state.*._generation;
+    self._state.*._mutex._raw_unlock();
     g
   }),
   /// How many threads are currently parked in `wait()` for the round in
   /// progress. Informational only.
   waiting : (fn(self : &Self) -> i32)({
-    self._cell.*._mutex._raw_lock();
-    n := self._cell.*._count;
-    self._cell.*._mutex._raw_unlock();
+    self._state.*._mutex._raw_lock();
+    n := self._state.*._count;
+    self._state.*._mutex._raw_unlock();
     n
   })
 );

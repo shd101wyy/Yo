@@ -29,9 +29,9 @@
 //! error keeps its partial ExprInfo), so completion answers while the
 //! document is mid-edit.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
 { Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
 { read_dir, FileType } :: import("std/fs/dir");
@@ -39,16 +39,16 @@
 { is_any_temp_variable_name } :: import("../utils.yo");
 { tokenize } :: import("../lexer.yo");
 { AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
-{ ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ ExprInfoTable, expr_info_table_get } :: import("../expr-info.yo");
 { Environment, Variable, get_variables_from_env, variable_value_type } :: import("../env.yo");
 { TypeValue, TypeValueNode, no_types, no_labels } :: import("../types/definitions.yo");
 { type_to_string } :: import("../types/string.yo");
 { EvalValue } :: import("../value.yo");
-{ type_id_or_empty, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
+{ type_id_or_empty, get_type_trait_methods_for_type } :: import("../evaluator/values/type-trait-methods.yo");
 { get_generic_impl_doc_entries } :: import("../evaluator/values/impl.yo");
 { resolve_module_path, ModuleResolveResult } :: import("../evaluator/exprs/import.yo");
-{ module_cache_has, load_module_from_cache } :: import("../evaluator/module_loader.yo");
-{ mm_load_file } :: import("../module_manager.yo");
+{ module_cache_has, load_module_from_cache } :: import("../evaluator/module-loader.yo");
+{ mm_load_file } :: import("../module-manager.yo");
 { str_lit_unquote_bytes } :: import("../utils.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, jnum, rune_col_to_byte_offset, byte_offset_to_rune_col, uri_to_fs_path } :: import("./protocol.yo");
@@ -122,7 +122,6 @@ keyword_names :: (fn() -> ArrayList(String))({
   ks.push(String.from("Fn"));
   ks.push(String.from("FnMut"));
   ks.push(String.from("FnOnce"));
-  ks.push(String.from("atomic"));
   ks.push(String.from("struct"));
   ks.push(String.from("newtype"));
   ks.push(String.from("enum"));
@@ -138,7 +137,6 @@ keyword_names :: (fn() -> ArrayList(String))({
   ks.push(String.from("quote"));
   ks.push(String.from("gensym"));
   ks.push(String.from("comptime_list"));
-  ks.push(String.from("ref"));
   // `mut` follows `&` in a borrow (`x : &mut T`, `&mut x`); decision 42
   // deleted the `imm` word from the completions.
   ks.push(String.from("mut"));
@@ -367,7 +365,7 @@ _push_registry_methods :: (
     (i : usize) = usize(0);
     while(i < entries.len(), {
       match(
-        entries.get(i),
+        entries.get_cloned(i),
         .Some(en) => _push_method(en.label.clone(), &en.ty, out, seen),
         .None => ()
       );

@@ -1,6 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { printf } :: import("std/libc/stdio.yo");
 Id :: trait(
   id : (fn(self : &Self) -> Self)
@@ -430,6 +430,30 @@ test("a trait operator member calls itself recursively", {
   k := SelfEqKind.Node(elem : Box.new(SelfEqKind.Leaf));
   assert(k == SelfEqKind.Node(elem : Box.new(SelfEqKind.Leaf)), "-> literal member recursion");
   assert(!(k == SelfEqKind.Node(elem : Box.new(SelfEqKind.Other))), "payload differs");
+});
+
+// The member's recursion goes through `Box(Self) == Box(Self)`, whose `Eq`
+// bound forces THIS impl's `==` while it is being evaluated: the miss
+// registers a phase-A entry and flags the pending field in the in-flight
+// stack. The completing registration must read that flag from the stack, not
+// from the copy its evaluation started with, or it registers a second `==`
+// and the default `!=` body's `Self.(==)(lhs, rhs)` is E0610
+// (issues/fixed/2026-11-20-a-forced-impl-member-s-phase-a-flag-is-lost-on-its-evaluation-copy.md).
+SelfEqBoxed :: enum(Tip, Link(next : Box(Self)));
+impl(
+  SelfEqBoxed,
+  Eq(SelfEqBoxed)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
+      match(lhs, .Tip => match(rhs, .Tip => true, _ => false), .Link(l) => match(rhs, .Link(r) => (l.* == r.*), _ => false))
+    )
+  )
+);
+test("a typed trait member recursing through Box(Self) keeps one registry entry", {
+  one := SelfEqBoxed.Link(next : Box.new(SelfEqBoxed.Tip));
+  two := SelfEqBoxed.Link(next : Box.new(SelfEqBoxed.Link(next : Box.new(SelfEqBoxed.Tip))));
+  assert(one == SelfEqBoxed.Link(next : Box.new(SelfEqBoxed.Tip)), "equal chains");
+  assert(one != two, "the default != calls the recursive ==");
+  assert(!(two != SelfEqBoxed.Link(next : Box.new(SelfEqBoxed.Link(next : Box.new(SelfEqBoxed.Tip))))), "equal longer chains");
 });
 
 // A helper placed AFTER the impl, forced from `==`'s body, calls `!=` — a

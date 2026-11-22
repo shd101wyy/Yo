@@ -14,8 +14,8 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 {
   AstExpr,
   ast_expr_token,
@@ -40,18 +40,18 @@ pragma(Pragma.AllowUnsafe);
   note_self_lend_operand,
   is_reference_self_place,
   note_mut_lend_value
-} :: import("../../expr_info.yo");
+} :: import("../../expr-info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { Environment, Variable, env_adopt } :: import("../../env.yo");
 { TypeValue, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
+{ same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_error } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ raise_function_value_origin_mismatch } :: import("../trait_checking.yo");
-{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{ raise_function_value_origin_mismatch } :: import("../trait-checking.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/env-lookup.yo");
 { EvalContext, ExpectedTypeCtx, TypeCallResult, in_def_time_trial } :: import("../context.yo");
-{ is_std_module_path } :: import("../memory_safety.yo");
+{ is_std_module_path } :: import("../memory-safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
 { set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording, local_borrows_active, loans_active, local_borrow_place_of, access_place, LocalBorrowAccess, local_borrow_place_text, local_borrow_require_writable, local_borrow_root_is_shared_reference, legacy_box_dyn_lend } :: import("../utils.yo");
@@ -134,7 +134,7 @@ try_to_call_type_with_arguments :: (
           .Some(ci) => match(&ci.value(), .Some(Rc(.TypeVal(ct))) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
-        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown)))));
+        exn.throw(dyn(Box.new(origin_beyond_n2b_error(&o_shown, ast_expr_token(function_callee_expr)))));
       }),
       .None => ()
     );
@@ -448,9 +448,7 @@ try_to_call_type_with_arguments :: (
     reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty(), &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
     reject_second_class_escape(&arg_info.ty(), String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
     // A reference field stores the place's address (T9): no ownership is
-    // copied, so no dup. One recorded here paired with the place's own
-    // scope-end drop, and the pair optimizer cancelled both as a move into
-    // the holder, whose drop never drops a reference: the place leaked
+    // copied, so no dup
     // (issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md).
     if(!t9_field_is_reference, {
       set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
@@ -535,7 +533,7 @@ try_to_call_type_with_arguments :: (
               // C18: a missing required field is ALWAYS a hard error (never a
               // legitimate def-time-trial failure). Flag it on the
               // flow-violation channel so an async-closure-body swallow
-              // (anonymous_function.yo's Channel-1 re-raise) surfaces it with
+              // (anonymous-function.yo's Channel-1 re-raise) surfaces it with
               // this message instead of dropping the whole statement to
               // `// Failed to transpile`. Guarded like helper.yo's overload
               // re-raise: skip during checking-phase trials and cee-propagate

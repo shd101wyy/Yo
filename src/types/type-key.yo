@@ -1,0 +1,1126 @@
+//! Structural type-key (`type_key`) — the codegen C-type-identity function,
+//! extracted into `types/` so BOTH codegen and the evaluator can import it
+//! (the evaluator's specialization signature must align with codegen's C-type
+//! merging; see evaluator/calls/helper.yo compute_compile_time_signature).
+//! Verbatim move of the cluster formerly in codegen/utils/index.yo:
+//! g_struct_cfid_keys / g_enum_sig_keys / _lookup_or_register_enum_sig /
+//! g_tk_visited / _tk_seen / _type_key_at / type_key.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_label_lists, SharedList, no_discriminants } :: import("./definitions.yo");
+{ type_to_string, bump_type_key_epoch, type_key_epoch } :: import("./string.yo");
+{ resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
+{ is_type_hierarchy_type, is_unit_type, is_some_type, enum_decl_identity, is_prelude_enum_decl } :: import("./guards.yo");
+{ is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked, type_mentions_some_type } :: import("./utils.yo");
+{ debug_knob } :: import("../utils.yo");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(TypeValue)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(TypeValue)) -> usize)(xs.len());
+(g_struct_cfid_keys : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+
+// Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
+// `Struct` carries a `constructor_func_id` + `type_arguments` that give every
+// generic instantiation a stable codegen key; `EnumT` has no constructor id, so two
+// structurally-identical generic enum instantiations (e.g. `Option(i32)` reached
+// once via `ArrayList.get()` and once via the iterator `next()`'s `-> Option(T)`
+// return) get DISTINCT eval ids → distinct id-based type keys → two incompatible
+// C structs (`assigning from incompatible type` when one is stored into the
+// other). Eval mints fresh ids per instantiation (the same divergence the
+// struct cfid scheme already compensates for), so dedup at codegen here: map an enum's STRUCTURAL
+// signature (variant names + discriminants + field-type keys, NO id) to the
+// FIRST-seen full key, and reuse that for later structural duplicates. Single
+// enums are unaffected (they register their own key and get it back), so this is
+// minimal — only genuine duplicates collapse, and only to a C-layout-identical
+// peer. Reference-semantics enums are excluded (they key by id for recursion
+// termination). See issues/fixed/yo-self-iterator-option-identity.md.
+// sig → canonical_key, FIRST registration wins (HashMap — same O(n²)-scan
+// fix as g_struct_cfid_keys above).
+//
+// The signature also carries the enum's DECLARATION identity
+// (`enum_decl_identity`, types/guards.yo): only renditions of ONE declaration may merge.
+// Without it two distinct declarations of one shape —
+// `A :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` and a `B` spelled
+// the same — had one signature, because a self-reference inside the
+// expansion renders through the cycle guard WITHOUT the enum's identity, so
+// `ArrayList(B)` keyed (and specialized) as `ArrayList(A)`
+// (issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md).
+(g_enum_sig_keys : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+// A rendition with NO declaration identity (`create_option_type`'s synthesized
+// `Option`, id "") must still collapse onto the real `Option(T)` of its shape,
+// as it did when the signature was shape-only. Per declaration-free signature
+// (`bare`): the canonical of the PRELUDE declaration of that shape
+// (`g_enum_bare_claims`), and the key an undeclared rendition registered
+// before the prelude declaration was keyed (`g_enum_bare_unclaimed`) — the
+// prelude declaration then adopts that key, so the pair merges whichever is
+// seen first. Only a std/prelude.yo declaration claims (`is_prelude_enum_decl`):
+// a user enum spelled `enum(None, Some(value : T))` keyed before the real
+// `Option(T)` once captured the synthetic rendition, and a downcast's
+// `Option(T)` temp got the user enum's C struct.
+(g_enum_bare_claims : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+(g_enum_bare_unclaimed : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+/// The canonical key for an enum of structural signature `bare` and
+/// declaration identity `decl` ("" = none recorded); registers `full_key`
+/// as the canonical on first sight.
+// The returned canonical is always a CLONE: a returned String shares the map
+// value's buffer, so an in-place push by any caller would corrupt the
+// canonical (the IoError stage-2 typedef split). Same hardening on the
+// struct cfid-key returns below.
+_lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &String) -> String)(
+  cond(
+    (decl.len() == usize(0)) => match(
+      g_enum_bare_claims.with({ bare : &bare.* }(m) => m.get_cloned(bare)),
+      .Some(k) => k.clone(),
+      .None => match(
+        g_enum_bare_unclaimed.with({ bare : &bare.* }(m) => m.get_cloned(bare)),
+        .Some(k) => k.clone(),
+        .None => {
+          full_key_owned := full_key.clone();
+          bare_owned := bare.clone();
+          g_enum_bare_unclaimed.with_mut({ full_key_owned, bare_owned }(m) => m.insert(bare_owned, full_key_owned.clone()));
+          bump_type_key_epoch();
+          full_key.clone()
+        }
+      )
+    ),
+    true => {
+      sig := `${bare}@${decl}`;
+      match(
+        g_enum_sig_keys.with({ &sig }(m) => m.get_cloned(sig)),
+        .Some(k) => k.clone(),
+        .None => {
+          canonical := cond(
+            !is_prelude_enum_decl(decl) => full_key.clone(),
+            true => match(
+              g_enum_bare_claims.with({ bare : &bare.* }(m) => m.get_cloned(bare)),
+              .Some(_) => full_key.clone(),
+              .None => {
+                adopted := match(g_enum_bare_unclaimed.with({ bare : &bare.*, full_key : &full_key.* }(m) => m.get_cloned(bare)), .Some(k) => k.clone(), .None => full_key.clone());
+                bare_owned2 := bare.clone();
+                adopted_owned := adopted.clone();
+                g_enum_bare_claims.with_mut({ bare_owned2, adopted_owned }(m) => m.insert(bare_owned2.clone(), adopted_owned));
+                adopted
+              }
+            )
+          );
+          // Owned captures (`with_mut`'s callback is a sink parameter).
+          esk_key := sig.clone();
+          esk_val := canonical.clone();
+          g_enum_sig_keys.with_mut({ esk_key, esk_val }(m) => m.insert(esk_key, esk_val));
+          bump_type_key_epoch();
+          canonical
+        }
+      )
+    }
+  )
+);
+
+// Monotonic set of named-type ids currently on the `_type_key_at` expansion
+// path (reset per top-level `type_key` call). A named type re-encountered
+// while already being expanded renders id-only — the SAME cycle-guard
+// discipline as types/intern.yo's type_intern_key. WHY: the compiler's own
+// giant recursive enums (TypeValue/AstExpr/EvalValue) reach _type_key_at
+// through `ArrayList(AstExpr)` → Struct arm → recurse into AstExpr → EnumT arm
+// → its own `ArrayList(AstExpr)` field → … The direct-ref-enum-field id-only
+// shortcut does NOT catch this (the recursion goes THROUGH a Struct wrapper),
+// so only the depth-4 cap bounded it: 40-way variant fanout × depth 4 built
+// multi-MB key strings per lookup, thousands of times → a ~300 MB/s runaway
+// during prototype emission (footprint 7→62 GB). The guard bounds each key to
+// O(distinct types on path) and is MORE precise than depth truncation (each
+// distinct type still gets a distinct key), so C-type identity is preserved.
+(g_tk_visited : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+/// Resolve a SomeT TYPE-ARGUMENT slot through its resolution chain
+/// (cycle-guarded) before keying. Bare-id keying of argument slots split one
+/// logical instantiation into two C types whenever two records held the same
+/// resolution behind DIFFERENT SomeT identities — the closure-F family:
+/// `IterFilter(CountIter, F)` minted once with the where-clause forall `F`
+/// and once with the synthetic `__impl_fn` wrapper, both resolving to the
+/// SAME capture struct. Scoped to argument slots only: a top-level SomeT
+/// (dyn/box closure wrappers) keys by its own id — hopping there over-merged
+/// the wrapper's fat call/data struct with the capture struct.
+_tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
+  (cur : TypeValue) = Rc.clone(t_in);
+  (seen : ArrayList(String)) = ArrayList(String).new();
+  (walk : bool) = true;
+  while(walk, {
+    match(
+      Rc.clone(cur),
+      Rc(.SomeT({ id : ras_id, name : ras_nm, resolution : ras_rc })) => {
+        // The dyn-coercion wrappers (minted NAMELESS, values/dyn.yo) keep
+        // their OWN identity: the dyn/box closure machinery lowers them to a
+        // distinct fat call/data C struct, and hopping to the capture struct
+        // merged the two ("no member named 'call'" across the dyn corpus).
+        // An annotation wrapper (reserved name "Impl") hops only when it is
+        // a closure identity (`is_bound_closure_identity`): its C type IS its
+        // resolution. A closure's wrapper is copied under fresh SomeT ids as
+        // the value flows, so keying it by id gave one closure's
+        // `ArrayList(typeof(k))` a C type per copy
+        // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+        // A `Future` or unresolved annotation wrapper keeps its id.
+        if((ras_nm.len() == usize(0)) || ((ras_nm == "Impl") && !is_bound_closure_identity(&cur)), {
+          return(Rc.clone(t_in));
+        });
+        (revisit : bool) = false;
+        (ri : usize) = usize(0);
+        while(ri < seen.len(), {
+          match(
+            seen.get_cloned(ri),
+            .Some(rs) => if(rs == ras_id, {
+              revisit = true;
+            }),
+            .None => ()
+          );
+          ri = (ri + usize(1));
+        });
+        if(revisit, {
+          walk = false;
+        }, {
+          seen.push(ras_id.clone());
+          match(
+            ras_rc,
+            .Some(nx) => {
+              cur = Rc.clone(nx);
+            },
+            .None => {
+              walk = false;
+            }
+          );
+        });
+      },
+      _ => {
+        walk = false;
+      }
+    );
+  });
+  // An unresolved chain keeps the ORIGINAL slot (bare-id keying as before).
+  if(is_some_type(&cur), Rc.clone(t_in), cur)
+});
+/// True when `somes` holds a SomeT whose id is `id`.
+_tk_somes_have_id :: (fn(somes : &ArrayList(TypeValue), id : &String) -> bool)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < somes.len()) && !found, {
+    found = match(somes.get_cloned(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id.*), _ => false);
+    i = (i + usize(1));
+  });
+  found
+});
+_tk_seen :: (fn(id : &String) -> bool)(
+  // Compare in place: a copy of each visited entry per probe (`e.clone()`,
+  // and `get_cloned` once `String` is a value) deep-copies its byte buffer
+  // just to == it and drop it (342 M ArrayList(u8) allocations per
+  // self-emit, the #2 string-churn site).
+  g_tk_visited.with({ id : &id.* }(xs) => xs.contains(id))
+);
+/// Whether a generic instance's argument list holds a `Type` or `unit` slot:
+/// a comptime VALUE argument erased from its key's argument part (see the
+/// Struct arm of `_type_key_at`).
+_tk_args_value_erased :: (fn(tas : &SharedList(TypeValue)) -> bool)({
+  (erased : bool) = false;
+  (i : usize) = usize(0);
+  while((i < tas.len()) && !erased, {
+    match(
+      tas.get(i),
+      .Some(ta_raw) => {
+        ta := _tk_resolve_arg_slot(&ta_raw);
+        erased = (is_type_hierarchy_type(&ta) || is_unit_type(&ta));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  erased
+});
+/// A struct's node on the `g_tk_visited` path: its id plus the identities of
+/// its type arguments (`_tk_arg_id`). A true self-reference (a recursive
+/// struct's `Option(Self)` field) repeats both; two instantiations sharing a
+/// def-era id do not.
+_tk_node_id :: (fn(sid : &String, tas : &SharedList(TypeValue)) -> String)(_tk_args_sig(sid, tas, usize(0)));
+_tk_args_sig :: (fn(head : &String, tas : &SharedList(TypeValue), depth : usize) -> String)({
+  node := head.clone();
+  (i : usize) = usize(0);
+  while(i < tas.len(), {
+    match(
+      tas.get(i),
+      .Some(ta) => {
+        node.push_str("|");
+        node.push_string(_tk_arg_id(&ta, depth));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  node
+});
+/// A type argument's identity for the cycle guard: a nominal argument by its
+/// id and, for a generic instantiation, its own arguments (the combinators
+/// nest `IterMap(IterMap(IterMap(I, …), …), …)` under ONE def-era id, so an
+/// id alone reads the chain as a cycle); a SomeT by its id and its
+/// resolution's end; anything else by its spelling. Nested arguments stop at a
+/// fixed depth, which only a cycle through type arguments reaches.
+///
+/// A recursive type's self-shell and its final are ONE argument here, as they
+/// are one type everywhere else in the key (the Struct and EnumT arms resolve
+/// shells): `_patch_self_shell` patches only the first container of a given id
+/// it reaches, so one copy of a recursive enum can hold `ArrayList(final)` in
+/// one payload and `ArrayList(shell)` in another, and a second copy a
+/// different mix. With the shell spelled apart, the cycle guard saw a nested
+/// `ArrayList(ArrayList(Self))`'s inner list as new in one copy and as
+/// already expanded in the other, so `Option(E)` got two keys and two C types
+/// (issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md).
+_tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
+  t := resolve_struct_shell(resolve_enum_shell(t_in));
+  match(
+    &t,
+    Rc(.Struct({ id : sh_sid, type_arguments : sh_tas })) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, &sh_tas.*, depth + usize(1)), `s:${sh_sid}`),
+    Rc(.EnumT({ id : sh_eid, type_arguments : sh_etas })) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, &sh_etas.*, depth + usize(1)), `e:${sh_eid}`),
+    Rc(.SomeT({ id : sh_tid })) => {
+      sh_end := resolve_cell_chain(&t);
+      match(&sh_end, Rc(.SomeT({ id : _ })) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(&sh_end, depth)}`)
+    },
+    Rc(.OriginSet(_, _)) => String.from("origin"),
+    _ => type_to_string(&t)
+  )
+});
+_type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
+  match(
+    t,
+    Rc(.Struct({ id, constructor_func_id : cfid, type_arguments : tas, field_types : fts, is_reference_semantics : t_is_ref })) => {
+      // Resolve a leaked recursive-struct SELF-SHELL to its final so the shell and
+      // its final share ONE C type key. Same as the EnumT branch below. No-op for
+      // non-shells. See resolve_struct_shell (creators.yo).
+      st := resolve_struct_shell(t);
+      (sid, scfid, stas, sfts, s_is_ref) := match(
+        &st,
+        Rc(.Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs })) => (rid.clone(), rcfid.clone(), Rc.clone(rtas), Rc.clone(rfts), rirs.*),
+        _ => (id.clone(), cfid.clone(), Rc.clone(tas), Rc.clone(fts), t_is_ref.*)
+      );
+      // #30: a reference-semantics struct (`ref(struct …)` → emitted as a pointer
+      // field) and a value struct with the SAME fields have DIFFERENT C layouts
+      // and MUST NOT share a C type id. `type_key` historically omitted this, so
+      // two `MapEntry(K,V)` instantiations — one with a ref `value` field, one with
+      // a value `value` field — collapsed onto one id; the GC traverse fn built for
+      // the ref layout was then emitted for the value layout (`if(struct){…}` — a
+      // clang scalar-type error, main.yo-only). Prefix ref-semantics struct keys so
+      // they never collide with value structs; ref structs still dedup among
+      // themselves (constant marker). See issues/fixed/yo-self-gc-traverse-value-struct-field.md.
+      ref_pfx := if(s_is_ref, String.from("R#"), String.from(""));
+      // Cycle guard (see g_tk_visited): a struct already on the expansion
+      // path renders via its recorded cfid-key / id — no re-recursion into
+      // its (already-being-expanded) type arguments. The node is the id AND
+      // its type arguments' identities (`_tk_node_id`): substitution
+      // keeps an instance's def-era id, so a combinator applied twice nests
+      // one `IterMap` inside another under ONE id, and an id-only guard cut
+      // the inner one to its bare id, which gave the returned instance a
+      // second C type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
+      // A generic instance's node is headed by its constructor, as its key
+      // is (below), not by its id: each constructor call stamps a fresh id,
+      // and substitution keeps the def-era one, so `Rc(T)` substituted to
+      // `Rc(RefCell(N))` and the `Rc(RefCell(N))` inside a recursive `N`
+      // carry two ids for one instance. Headed by the ids, the guard cut the
+      // substituted instance's walk one level deeper than the direct one's,
+      // and the two keys (two C types, two header layouts) differed
+      // (issues/fixed/2026-10-27-a-generic-method-returning-rc-of-its-parameter-over-a-recursive-struct-gets-a-second-c-type.md).
+      // A value-erased argument list keeps the id head: its key reads the
+      // fields too, which the argument identities do not cover.
+      tk_head := if((scfid.len() > usize(0)) && (stas.len() > usize(0)) && !_tk_args_value_erased(&stas), `c:${scfid}`, sid.clone());
+      tk_node := _tk_node_id(&tk_head, &stas);
+      if((sid.len() > usize(0)) && _tk_seen(&tk_node), {
+        cyc_inner := match(
+          g_struct_cfid_keys.with({ &sid }(m) => m.get_cloned(sid)),
+          // A POISONED slot ("!AMBIG" — multiple instantiations share this
+          // sid) must NOT leak the sentinel as a key: two different nested
+          // types would both render "!AMBIG" and collide (the sentinel
+          // appeared inside specialized C fn names, merging distinct
+          // ArrayList instantiations — the stage-2 binary's runtime hang).
+          // Fall back to the bare sid: the cycle guard only fires for a
+          // type already ON the expansion path, where id-only rendering is
+          // the pre-poison behavior for self-references.
+          .Some(k) => if(k == "!AMBIG", sid.clone(), k.clone()),
+          .None => sid.clone()
+        );
+        cyc_out := ref_pfx.clone();
+        cyc_out.push_string(&cyc_inner);
+        return(cyc_out);
+      });
+      if(sid.len() > usize(0), {
+        g_tk_visited.with_mut(xs => xs.push(tk_node.clone()));
+      });
+      raw_key := cond(
+        // GENERIC INSTANTIATION with stable identity: key by (constructor_func_id, type_arguments).
+        // NO depth cap: the g_tk_visited cycle guard already bounds recursion;
+        // a depth cap made every generic nested deeper than the cap fall back
+        // to the g_struct_cfid_keys[sid] single slot, which is
+        // first-registration-wins and thus WRONG for shared-id generics like
+        // MapEntry(K,V) (all instantiations share one eval struct id) — the
+        // flaky GC-tracer .label/.ty cluster: a deep MapEntry keyed as the
+        // FIRST-seen instantiation, collapsing two different layouts onto one
+        // C name, order-dependent per emit. Long keys are ugly but correct.
+        ((scfid.len() > usize(0)) && (stas.len() > usize(0))) => {
+          key := `gs_${scfid.clone()}`;
+          (tk_has_uni : bool) = false;
+          (ti : usize) = usize(0);
+          while(ti < stas.len(), {
+            match(
+              stas.get(ti),
+              .Some(ta_raw) => {
+                // Resolve a SomeT slot through its resolution chain first (the
+                // closure-F identity repair — see _tk_resolve_arg_slot).
+                ta := _tk_resolve_arg_slot(&ta_raw);
+                // `Type` AND `unit` argument slots are value-erased: a comptime
+                // VALUE argument (`N : usize`) has no TypeValue representation,
+                // so the stamp records `unit` (fresh re-stamps) or `Type`
+                // (def-era binder) in its slot.
+                if(is_type_hierarchy_type(&ta) || is_unit_type(&ta), {
+                  tk_has_uni = true;
+                });
+                key.push_str("_");
+                key.push_string(recur(&ta, depth + usize(1)));
+              },
+              .None => ()
+            );
+            ti = (ti + usize(1));
+          });
+          // VALUE-generic stamps: a `Type` argument slot erases the VALUE —
+          // `_ArrayIter(i32, 0)` and `_ArrayIter(i32, 3)` both render
+          // `[i32, Type]` (a comptime usize is not representable as a
+          // TypeValue argument), so keying by (cfid, args) alone collapsed
+          // the two layouts onto ONE C type (`._arr = self` with a
+          // 3-element self against a 0-element member). Append the FIELD
+          // structure, which carries the distinguishing Array length.
+          if(tk_has_uni, {
+            (tkf : usize) = usize(0);
+            while(tkf < sfts.len(), {
+              match(
+                sfts.get(tkf),
+                .Some(tk_ft) => {
+                  key.push_str("_f");
+                  key.push_string(recur(&tk_ft, depth + usize(1)));
+                },
+                .None => ()
+              );
+              tkf = (tkf + usize(1));
+            });
+          });
+          // Record the cfid-key for this struct id so cfid-empty copies use
+          // it — but ONLY while the sid maps to ONE instantiation key. When a
+          // SECOND different key arrives (shared-id generics: every
+          // MapEntry(K,V) instantiation shares one eval struct id), POISON the
+          // slot: a cfid-empty copy can then no longer be attributed to any
+          // single instantiation and must key STRUCTURALLY (below). The old
+          // first-registration-wins slot pinned every cfid-empty copy to the
+          // FIRST instantiation — one specialized MapEntry tracer served 36
+          // different MapEntry layouts (the flaky GC-tracer .label/.ty cluster),
+          // with registration order deciding the winner per emit.
+          if(sid.len() > usize(0), {
+            match(
+              g_struct_cfid_keys.with({ &sid }(m) => m.get_cloned(sid)),
+              .Some(prev) => if(!((prev == key) || (prev == "!AMBIG")), {
+                sid_owned := sid.clone();
+                g_struct_cfid_keys.with_mut({ sid_owned }(m) => m.insert(sid_owned.clone(), String.from("!AMBIG")));
+                bump_type_key_epoch();
+              }),
+              .None => {
+                sid_owned2 := sid.clone();
+                key_owned := key.clone();
+                g_struct_cfid_keys.with_mut({ sid_owned2, key_owned }(m) => m.insert(sid_owned2.clone(), key_owned));
+                bump_type_key_epoch();
+              }
+            );
+          });
+          key
+        },
+        // No cfid: look up a previously-recorded cfid-key for this struct id.
+        // A POISONED slot (multiple instantiations share this sid) keys
+        // STRUCTURALLY — sid + per-field type keys — so two cfid-empty copies
+        // with different layouts get different, DETERMINISTIC keys (the enum
+        // analogue: g_enum_sig_keys). A NEVER-REGISTERED sid (.None) with
+        // known field types ALSO keys structurally: shared-id generics whose
+        // instantiations are all cfid-empty (MapEntry(K,V) — created by the
+        // with_capacity Type(1) path, so NO instantiation ever records a gs_
+        // key) otherwise render bare-sid everywhere and every layout collapses
+        // onto ONE key — one GcTracer visit specialization served all MapEntry
+        // layouts and walked the wrong fields; every distinct instantiation
+        // must get its own visit fn. Unpoisoned REGISTERED sids
+        // (.Some non-poison) behave exactly as before.
+        (sid.len() > usize(0)) => {
+          slot := g_struct_cfid_keys.with({ &sid }(m) => m.get_cloned(sid));
+          need_structural := match(
+            &slot,
+            .Some(k) => (k.* == "!AMBIG"),
+            .None => (sfts.len() > usize(0))
+          );
+          if(need_structural, {
+            skey := sid.clone();
+            // A closure's capture struct keys a SomeT field by the SomeT's id,
+            // not through its resolution. The field holds the captured variable's
+            // type, and a closure inside a generic function captures that
+            // function's `Impl(Fn...)` parameter: one def-era parameter whose
+            // resolution differs at every call site. Keyed through the resolution, the
+            // capture struct's key changed with each call, and codegen looked
+            // it up under a key it was never registered with ("Capture type
+            // not found for closure")
+            // (issues/fixed/a-capture-struct-changes-type-key-when-a-captured-closure-param-is-re-resolved.md).
+            is_capture := sid.starts_with("capture_");
+            (sfi : usize) = usize(0);
+            while(sfi < sfts.len(), {
+              match(
+                sfts.get(sfi),
+                .Some(sft) => {
+                  skey.push_str("_");
+                  skey.push_string(
+                    match(
+                      &sft,
+                      Rc(.SomeT({ id : cf_sid })) => if(is_capture && (cf_sid.len() > usize(0)), cf_sid.clone(), recur(&sft, depth + usize(1))),
+                      _ => recur(&sft, depth + usize(1))
+                    )
+                  );
+                },
+                .None => ()
+              );
+              sfi = (sfi + usize(1));
+            });
+            skey
+          }, match(
+            slot,
+            .Some(k) => k.clone(),
+            .None => sid.clone()
+          ))
+        },
+        true => type_to_string(&st)
+      );
+      out_key := ref_pfx.clone();
+      out_key.push_string(&raw_key);
+      out_key
+    },
+    Rc(.EnumT({ id, variant_fields : vfs })) => {
+      // Resolve a leaked recursive-enum SELF-SHELL to its final so the shell and
+      // its final share ONE C type key (else a `Rc(Self)` field two levels deep
+      // keys/emits a separate empty `..._self_shell` enum — "use of empty enum").
+      // Passthrough for any non-shell enum. See
+      // issues/.../recursive-enum-self-shell.md.
+      rs := resolve_enum_shell(t);
+      eid := match(&rs, Rc(.EnumT({ id : rid })) => rid.clone(), _ => id.clone());
+      evfs := match(&rs, Rc(.EnumT({ variant_fields : rvfs })) => Rc.clone(rvfs), _ => Rc.clone(vfs));
+      evns := match(&rs, Rc(.EnumT({ variant_names : rvns })) => Rc.clone(rvns), _ => no_labels());
+      evds := match(&rs, Rc(.EnumT({ variant_discriminants : rvds })) => Rc.clone(rvds), _ => no_discriminants());
+      e_is_ref := match(&rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs.*, _ => false);
+      evfls := match(&rs, Rc(.EnumT({ variant_field_labels : rvfls })) => Rc.clone(rvfls), _ => no_label_lists());
+      // Cycle guard (see g_tk_visited): an enum already on the expansion
+      // path renders id-only rather than re-expanding its variant fields. The
+      // node is the id AND its type arguments' identities, as the Struct arm's:
+      // substitution keeps an instance's def-era id, so a generic fn applied
+      // to its own result (`wrap(wrap(x))`, `wrap : fn(U) -> Option(U)`) nests
+      // one `Option(U)` instance inside another under ONE id, and an id-only
+      // guard cut the inner one to its bare id. That gave the outer instance a
+      // second C type beside the declared `Option(Option(i32))`
+      // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
+      e_node_targs := match(&rs, Rc(.EnumT({ type_arguments : nd_tas })) => Rc.clone(nd_tas), _ => no_types());
+      e_node := _tk_node_id(&eid, &e_node_targs);
+      if((eid.len() > usize(0)) && _tk_seen(&e_node), {
+        return(eid.clone());
+      });
+      if(eid.len() > usize(0), {
+        g_tk_visited.with_mut(xs => xs.push(e_node.clone()));
+      });
+      // An EMPTY-id enum must still be keyed STRUCTURALLY (via the sig path
+      // below), not by `type_to_string` — the name alone drops the payload, so
+      // `create_option_type`'s synthesized `Option` (id="", name="Option", used
+      // by downcast/await/rc) collapsed EVERY instantiation to one C type
+      // `Option`, giving e.g. `downcast(err, MathError)` a result whose Some
+      // field was typed `String` ("initializing __yo_t30 with __yo_t10",
+      // tests/error.test.yo). The sig (variant names + discriminants +
+      // field types) distinguishes `Option(String)` from `Option(MathError)`
+      // AND still collapses the synthetic rendition with real `Option(T)`
+      // instances (same sig). Only the DEPTH guard keeps the name-only shortcut
+      // (recursion bound); empty-id enums are leaf-shaped here (no id-keyed
+      // cycle guard), so the depth bound suffices.
+      if(depth > usize(4), if(eid.len() > usize(0), eid.clone(), type_to_string(&rs)), {
+        // Build the per-field structural suffix ONCE (used in both the full key
+        // and the structural signature).
+        field_part := String.new();
+        (vi : usize) = usize(0);
+        while(vi < evfs.len(), {
+          match(
+            evfs.get(vi),
+            .Some(fields) => {
+              (fi : usize) = usize(0);
+              while(fi < fields.len(), {
+                match(
+                  fields.get(fi),
+                  .Some(ft) => {
+                    field_part.push_str("_");
+                    // Field LABEL joins the key: two enums with identical
+                    // variant names/discriminants/field TYPES but different
+                    // field labels (`Err(msg : i32)` vs `Err(error : i32)`)
+                    // emit different C member names — merging them made the
+                    // second enum's designated initializer reference a
+                    // nonexistent member (tests/basic arms 19+8 batch:
+                    // "field designator 'msg' does not refer to any field").
+                    match(
+                      evfls.get(vi),
+                      .Some(vfl_row) => match(
+                        vfl_row.get(fi),
+                        .Some(fl_nm) => {
+                          field_part.push_string(&fl_nm);
+                          field_part.push_str(":");
+                        },
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                    // A reference-semantics enum field (`ref(enum(…))`) is a
+                    // POINTER, so key it by its shell-resolved `id` ALONE. This
+                    // terminates self-referential `ref(enum(…))` recursion with
+                    // a STABLE key — identical across the shell / pre-final /
+                    // final layers — so the recursive field and the registered
+                    // type get the SAME C name (else they diverge into distinct
+                    // depth-expanded names → "field has incomplete type").
+                    // Value-enum fields still expand, distinguishing generic
+                    // instantiations (Option(Token) vs Option(u8)).
+                    rft := resolve_enum_shell(&ft);
+                    fk := match(
+                      rft,
+                      Rc(.EnumT({ id : rid, is_reference_semantics : rrs })) =>
+                        if(rrs && (rid.len() > usize(0)), rid.clone(), recur(&ft, depth + usize(1))),
+                      _ => recur(&ft, depth + usize(1))
+                    );
+                    field_part.push_string(&fk);
+                  },
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        // A PHANTOM type argument keys too. The payloads record every
+        // argument they mention, but not a phantom one, so `Tag(u8)`,
+        // `Tag(i64)` and the abstract `Tag(K)` of `enum(A, B(n : u8))` had
+        // one key: one C type, and ONE specialization of every method on them
+        // (each rtparam is keyed by `type_key`), so a body reading `K`
+        // (`sizeof(K)`) answered for whichever instantiation came first, and
+        // a specialization a definition-time trial registered over the
+        // abstract `Tag(K)` (never emitted) was the one a concrete call reused
+        // (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+        // Phantom positions are the constructor's (`enum_phantom_positions`:
+        // arguments its definition-time trial showed no payload depends on),
+        // plus a type-variable argument no payload mentions. A resolved variable keys as its resolution, and a
+        // non-type argument (`Unit`) adds nothing; an enum with no phantom
+        // position keys exactly as before.
+        e_targs := match(&rs, Rc(.EnumT({ type_arguments : rtas })) => Rc.clone(rtas), _ => no_types());
+        if(e_targs.len() > usize(0), {
+          e_mask := enum_phantom_positions(&eid);
+          e_some_phantoms := enum_phantom_type_args_masked(&rs, &e_mask);
+          (pti : usize) = usize(0);
+          while(pti < e_targs.len(), {
+            pt := match(e_targs.get(pti), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
+            pt_masked := match(e_mask.get(pti), .Some(b) => b, .None => false);
+            pt_free_var := match(
+              &pt,
+              Rc(.SomeT({ id : pt_id, resolution : pt_res })) => (pt_res.is_none() && _tk_somes_have_id(&e_some_phantoms, &pt_id.*)),
+              _ => false
+            );
+            if((pt_masked && !is_unit_type(&pt)) || pt_free_var, {
+              field_part.push_str("_ph:");
+              field_part.push_string(recur(resolve_cell_chain(&pt), depth + usize(1)));
+            });
+            pti = (pti + usize(1));
+          });
+        });
+        // Full key = id-based (UNCHANGED behavior). This is what a single,
+        // first-seen enum gets.
+        key := eid.clone();
+        key.push_string(&field_part);
+        // Reference-semantics enums keep the id-based key verbatim (no structural
+        // dedup — their id is load-bearing for recursion termination).
+        if(e_is_ref, key, {
+          // Structural signature = variant names + discriminants + field suffix
+          // (NO id). Two generic instantiations of the same enum (e.g. two
+          // `Option(i32)` with distinct eval ids) produce the SAME sig and so
+          // collapse to one C type; distinct enums differ in variant names,
+          // discriminants, or field types. Discriminants are included so two
+          // same-named/same-fielded variants with different tag values do NOT
+          // merge. The lookup adds the declaration identity, so two
+          // DECLARATIONS of one shape never merge (`enum_decl_identity`).
+          sig := String.from("e");
+          (si : usize) = usize(0);
+          while(si < evns.len(), {
+            sig.push_str("_");
+            match(evns.get(si), .Some(vn) => sig.push_string(&vn), .None => ());
+            match(
+              evds.get(si),
+              .Some(d) => {
+                sig.push_str("=");
+                sig.push_string(d.to_string());
+              },
+              .None => ()
+            );
+            si = (si + usize(1));
+          });
+          sig.push_string(&field_part);
+          decl := match(enum_decl_identity(&eid), .Some(d) => d, .None => String.new());
+          _lookup_or_register_enum_sig(&sig, &decl, &key)
+        })
+      })
+    },
+    // NOTE: a SomeT keys by its OWN id — NOT through its resolution. A
+    // blanket resolved-hop here was measured to over-merge: the dyn/box
+    // closure-wrapper family keys the WRAPPER SomeT as a distinct C type (the
+    // fat call/data struct) whose id-keyed identity must NOT collapse onto
+    // the capture struct ("no member named 'call'" across the dyn corpus).
+    // The closure-F identity split is instead repaired where it actually
+    // occurs: the Struct arm resolves SomeT TYPE-ARGUMENT slots through
+    // their resolutions (see _tk_resolve_arg_slot below).
+    //
+    // A closure identity (`is_bound_closure_identity`: a resolved, non-Future
+    // `Impl` annotation wrapper — never a dyn wrapper) is the exception: it is
+    // its resolution wherever it appears, so `Option(*(<k's Impl>))` in a
+    // payload, or a comptime `sizeof(T)`, names the C type of k's capture
+    // struct whichever copy of the wrapper it holds
+    // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+    Rc(.SomeT({ id })) => cond(
+      is_bound_closure_identity(t) => recur(resolve_cell_chain(t), depth + usize(1)),
+      (id.len() > usize(0)) => id.clone(),
+      true => type_to_string(t)
+    ),
+    Rc(.TraitT({ id })) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    // Key a Dyn by its trait IDS (each trait keyed by the stable TraitT arm
+    // above, which uses the id WITHOUT recursing into method signatures), NOT
+    // by `type_to_string`. For a self-referential trait like `Error`
+    // (`source : fn(self) -> Option(Dyn(Error))`), `type_to_string` spells the
+    // method sig differently across contexts (full `(source : fn… -> <enum>)`
+    // vs abbreviated `_`), so the same `Dyn(Error)` got TWO C type names — the
+    // vtable `source` slot vs its wrapper's return type mismatched (fn-ptr type
+    // error). Trait-id keying is stable and still distinguishes distinct Dyns.
+    Rc(.DynT({ required_trait_types : drtt, negative_trait_types : dntt })) => {
+      key := String.from("dyn");
+      (di : usize) = usize(0);
+      while(di < drtt.len(), {
+        match(
+          drtt.get(di),
+          .Some(tt) => {
+            key.push_str("_");
+            key.push_string(recur(&tt, depth + usize(1)));
+          },
+          .None => ()
+        );
+        di = (di + usize(1));
+      });
+      (ni : usize) = usize(0);
+      while(ni < dntt.len(), {
+        match(
+          dntt.get(ni),
+          .Some(tt) => {
+            key.push_str("_n");
+            key.push_string(recur(&tt, depth + usize(1)));
+          },
+          .None => ()
+        );
+        ni = (ni + usize(1));
+      });
+      key
+    },
+    // Pointer: recurse into the pointee so `*(anon-generic-instantiation)`
+    // inherits the struct machinery's instantiation-precise key. The plain
+    // `_ => type_to_string` fallback rendered `*(<struct:yo_id_N>)` — N being
+    // the shared DECLARATION id — so pointers to different instantiations
+    // produced identical keys and collided (the shared GcTracer visit
+    // specialization class). Re-applied 2026-07-17: the 2026-07-15 revert's "stage-2
+    // startup heap corruption" verdict came from an invalidated bisect — the
+    // corruption was the since-fixed RC leak + GC-teardown double-free. See
+    // issues/fixed/yo-self-specialization-signature-type-identity.md.
+    Rc(.Pointer(pointee)) => {
+      key := String.from("*(");
+      key.push_string(recur(&pointee.*, depth + usize(1)));
+      key.push_str(")");
+      key
+    },
+    // `[T]` (decision 49): keyed by its element's key.
+    Rc(.SliceT(sl_elem)) => {
+      key := String.from("slice(");
+      key.push_string(recur(&sl_elem.*, depth + usize(1)));
+      key.push_str(")");
+      key
+    },
+    // Tuple: key by the RECURSED keys of the field types (labels included for
+    // record-tuples), NOT by `type_to_string`. Tuples are structural — the
+    // render fallback embedded the EVALUATOR's type-argument spelling, so
+    // `Tuple(0 : Rc(V))` (a signature rendered before `V` resolved) and
+    // `Tuple(0 : Rc(i32))` minted TWO C types for one layout (both fields
+    // `__yo_t18*` — the SAME Rc instance) and `z._0 = (…){…}` failed to
+    // C-compile (tests/rc.test.yo "Rc in different data structures", rc
+    // layer 2 in the Gap-6 ledger). Per-field recursion inherits the struct
+    // arm's instantiation merging, so layout-identical tuples share one key.
+    Rc(.Tuple(tk_labels, tk_fts)) => {
+      key := String.from("tup");
+      (ti : usize) = usize(0);
+      while(ti < tk_fts.len(), {
+        key.push_str("_");
+        match(
+          tk_labels.get(ti),
+          .Some(tl) => if(tl.len() > usize(0), {
+            key.push_string(&tl);
+            key.push_str(":");
+          }),
+          .None => ()
+        );
+        match(
+          tk_fts.get(ti),
+          .Some(ft) => {
+            key.push_string(recur(&ft, depth + usize(1)));
+          },
+          .None => ()
+        );
+        ti = (ti + usize(1));
+      });
+      key
+    },
+    // An extern opaque type is identified by its C spelling
+    // (types/definitions.yo `ExternOpaqueT`), not its Yo label.
+    Rc(.ExternOpaqueT(_, tk_ec)) => `ex_${tk_ec}`,
+    // An origin argument of a type constructor's instance (decision 43
+    // step 3, N2a): origins are erased from every key, so `_View(x)` and
+    // `_View(y)` are one C type.
+    Rc(.OriginSet(_, _)) => String.from("origin"),
+    // A reference: its mode and its pointee's key, the origin erased
+    // (decision 43, N1f-2): `&(T, x)` and `&(T, y)` are one type here,
+    // `&T`, `&mut T` and `T` three.
+    Rc(.Reference(tk_rp, tk_rmut, _)) => cond(
+      tk_rmut.* => `&mut ${recur(&tk_rp.*, depth + usize(1))}`,
+      true => `&${recur(&tk_rp.*, depth + usize(1))}`
+    ),
+    _ => type_to_string(t)
+  )
+);
+type_key :: (fn(t : &TypeValue) -> String)({
+  // Fresh expansion-path set per top-level key build (see g_tk_visited).
+  g_tk_visited.with_mut(xs => xs.clear());
+  _type_key_at(t, usize(0))
+});
+// ---------------------------------------------------------------------------
+// Identity front caches for memos keyed by `type_key`.
+// ---------------------------------------------------------------------------
+// A memo keyed by `type_key(ty)` builds the key on every call, and the keys
+// of the compiler's own types run to ~5 KB (about a third of the allocations
+// of `check src/main.yo`,
+// issues/fixed/2026-10-15-v4-typevalue-rc-raises-the-check-allocation-count-by-7-percent.md).
+// Such a memo is fronted by a cache keyed by the `TypeValue` handle itself: a
+// list of handles sorted by address (binary search with `__yo_ptr_lt`, as
+// substitution's node memo does) and, at the caller, a parallel list of
+// answers.
+//
+// Sound for a type that mentions no type variable (`type_identity_cacheable`),
+// within one type-key epoch (`type_key_epoch`, types/string.yo): such a
+// handle's `type_key` and `type_to_string` never change. Its node's fields do
+// not change while the handle is alive, and every registry those renders
+// read bumps the epoch when it changes. A `SomeT` is excluded because its
+// trait lists are shared ref-type `ArrayList`s that grow in place
+// (`_add_where_clause_constraint`, evaluator/types/function.yo), so one live
+// SomeT handle renders differently over time (seen by the knob below on
+// std/collections/btree-map.yo: `K : (Ord + …)` gained two bounds). The cache
+// holds a clone of every handle it records, so a recorded address cannot be
+// freed and reused by another node. The caller keeps the invariant "a cached
+// handle's answer is what its memo holds under that handle's key": it records
+// a cacheable handle only with a key computed in the current epoch, and
+// clears the cache whenever it clears the memo or the epoch moves.
+// `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1` re-checks every cache hit against the
+// memo's own answer and aborts on a mismatch.
+/// Past this many handles a cache is cleared before the next insert: it is
+/// only a cache, and an insert shifts the slots above it.
+TYPE_IDENTITY_CACHE_CAP :: usize(16384);
+/// The first slot of `handles` (sorted by address) whose handle's address is
+/// not below `ty`'s.
+type_identity_slot :: (fn(handles : &ArrayList(TypeValue), ty : &TypeValue) -> usize)({
+  (lo : usize) = usize(0);
+  (hi : usize) = handles.len();
+  while(lo < hi, {
+    mid := (lo + ((hi - lo) / usize(2)));
+    if(match(handles.get_cloned(mid), .Some(h) => __yo_ptr_lt(&h, ty), .None => false), {
+      lo = (mid + usize(1));
+    }, {
+      hi = mid;
+    });
+  });
+  lo
+});
+/// Whether `handles(slot)` is the handle `ty` itself.
+type_identity_slot_holds :: (fn(handles : &ArrayList(TypeValue), slot : usize, ty : &TypeValue) -> bool)(
+  match(handles.get_cloned(slot), .Some(h) => __yo_ptr_eq(&h, ty), .None => false)
+);
+/// `type_identity_cacheable`'s own identity memo: handles sorted by address,
+/// whether each mentions no type variable, and the epoch they were judged in.
+(g_tk_cacheable_handles : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
+(g_tk_cacheable_answers : RefCell(ArrayList(bool))) = RefCell(ArrayList(bool)).new(ArrayList(bool).new());
+(mut(g_tk_cacheable_epoch) : u64) = u64(0);
+/// Whether an identity cache may record `ty`: it mentions no `SomeT`
+/// (`type_mentions_some_type`), so no part of it grows in place. Judged once
+/// per handle and type-key epoch (whether a type mentions a type variable
+/// does not change as a SomeT's trait lists grow).
+type_identity_cacheable :: (fn(ty : &TypeValue) -> bool)({
+  if(g_tk_cacheable_epoch != type_key_epoch(), {
+    g_tk_cacheable_handles.with_mut(xs => xs.clear());
+    g_tk_cacheable_answers.with_mut(xs => xs.clear());
+    g_tk_cacheable_epoch = type_key_epoch();
+  });
+  (slot : usize) = g_tk_cacheable_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
+  if(g_tk_cacheable_handles.with({ ty : &ty.*, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
+    return(match(g_tk_cacheable_answers.with(xs => xs.get(slot)), .Some(a) => a, .None => false));
+  });
+  key_epoch := type_key_epoch();
+  answer := !type_mentions_some_type(ty);
+  if(key_epoch == type_key_epoch(), {
+    if(g_tk_cacheable_handles.with(_c_len_1) >= TYPE_IDENTITY_CACHE_CAP, {
+      g_tk_cacheable_handles.with_mut(xs => xs.clear());
+      g_tk_cacheable_answers.with_mut(xs => xs.clear());
+    });
+    (at : usize) = g_tk_cacheable_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
+    g_tk_cacheable_handles.with_mut({ at, ty : Rc.clone(ty) }(xs) => xs.insert(at, Rc.clone(ty)));
+    g_tk_cacheable_answers.with_mut(xs => xs.insert(at, answer));
+  });
+  answer
+});
+(mut(g_type_key_memo_check) : u8) = u8(0);
+/// `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1`: every identity-cache hit is checked
+/// against the string-keyed memo it fronts, and a mismatch aborts.
+type_key_memo_check_enabled :: (fn() -> bool)({
+  if(g_type_key_memo_check == u8(0), {
+    on := match(debug_knob(String.from("YO_DEBUG_TYPE_KEY_MEMO_CHECK")), .Some(v) => (v == "1"), .None => false);
+    g_type_key_memo_check = if(on, u8(2), u8(1));
+  });
+  g_type_key_memo_check == u8(2)
+});
+// ---------------------------------------------------------------------------
+// stable_type_identity — a PURE structural identity render.
+// ---------------------------------------------------------------------------
+// Like `type_key` but consulting NO mutable key registries (the
+// g_struct_cfid_keys first-registration/poison transitions make `type_key`'s
+// render of one type EVOLVE over a compile): this render never changes.
+// `collect_type` uses it to detect "same type re-collected under an EVOLVED
+// type_key" — the duplicate-C-declaration family (enumerator/typeid
+// redefinitions, one struct split across two C types). It is NOT a type_key
+// replacement: instantiation COPIES that type_key deliberately merges may
+// render distinctly here (by their own sid), which only means a missed
+// alias — never a wrong merge, since equal renders imply equal structure.
+(g_sti_visited : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+_sti_seen :: (fn(id : &String) -> bool)(g_sti_visited.with({ id : &id.* }(xs) => xs.contains(id)));
+_stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
+  // DEPTH CAP: the id-based cycle guard below cuts CYCLES, but a memoized
+  // instantiation CHAIN (Option(RBNode(Option(RBNode(…)))) where every level
+  // is a DISTINCT instance with a fresh id) is an infinite NON-cyclic graph —
+  // the guard never fires and the render recursed forever (the imm_sorted_set
+  // / btree_map batch compile STALL: 100% CPU in this walker). Render a
+  // cut marker that keeps the node's own identity (id or tag) so two types
+  // differing at the cut still render distinctly — a false MERGE here would
+  // collapse different layouts onto one C type.
+  if(depth > usize(32), {
+    cut := String.from("d#");
+    cut.push_string(
+      match(
+        t,
+        Rc(.Struct({ id : cut_sid })) => cut_sid.clone(),
+        Rc(.EnumT(cut_eid, _, _, _, _, _, _, _, _, _)) => cut_eid.clone(),
+        _ => type_to_string(t)
+      )
+    );
+    return(cut);
+  });
+  match(
+    t,
+    Rc(.Struct({ id, field_labels : fls, field_types : fts, is_reference_semantics : t_is_ref })) => {
+      st := resolve_struct_shell(t);
+      (sid, sfls, sfts, s_is_ref) := match(
+        st,
+        Rc(.Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs })) => (rid.clone(), Rc.clone(rfls), Rc.clone(rfts), rirs),
+        _ => (id.clone(), Rc.clone(fls), Rc.clone(fts), t_is_ref.*)
+      );
+      pfx := if(s_is_ref, String.from("R#"), String.from(""));
+      if((sid.len() > usize(0)) && _sti_seen(&sid), {
+        out_cyc := pfx.clone();
+        out_cyc.push_string(&sid);
+        return(out_cyc);
+      });
+      if(sid.len() > usize(0), {
+        sid_owned := sid.clone();
+        g_sti_visited.with_mut({ sid_owned }(xs) => xs.push(sid_owned.clone()));
+      });
+      out := pfx;
+      out.push_string(&sid);
+      (i : usize) = usize(0);
+      while(i < sfts.len(), {
+        ft := match(sfts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
+        fl := match(sfls.get_cloned(i), .Some(x) => x, .None => String.from(""));
+        out.push_str("_");
+        out.push_string(&fl);
+        out.push_str(":");
+        out.push_string(recur(&ft, depth + usize(1)));
+        i = (i + usize(1));
+      });
+      out
+    },
+    Rc(.EnumT({ id, variant_names : vns0, variant_fields : vfs0, is_reference_semantics : e_is_ref0 })) => {
+      rs := resolve_enum_shell(t);
+      eid := match(&rs, Rc(.EnumT({ id : rid })) => rid.clone(), _ => id.clone());
+      evns := match(&rs, Rc(.EnumT({ variant_names : rvns })) => Rc.clone(rvns), _ => Rc.clone(vns0));
+      evfs := match(&rs, Rc(.EnumT({ variant_fields : rvfs })) => Rc.clone(rvfs), _ => Rc.clone(vfs0));
+      e_is_ref := match(&rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs.*, _ => e_is_ref0.*);
+      pfx := if(e_is_ref, String.from("R#"), String.from(""));
+      // The path node carries the type arguments, as `_type_key_at`'s does:
+      // `wrap(wrap(x))` nests one `Option(U)` instance in another under one
+      // id, and an id-only node rendered `Option(Option(i32))` and
+      // `Option(Option(String))` alike, so collect_type aliased the second
+      // onto the first's C type
+      // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
+      e_node := _tk_node_id(&eid, &match(rs, Rc(.EnumT({ type_arguments : sti_tas })) => Rc.clone(sti_tas), _ => no_types()));
+      if((eid.len() > usize(0)) && _sti_seen(&e_node), {
+        out_cyc := pfx.clone();
+        out_cyc.push_string(&eid);
+        return(out_cyc);
+      });
+      if(eid.len() > usize(0), {
+        g_sti_visited.with_mut(xs => xs.push(e_node.clone()));
+      });
+      out := pfx;
+      out.push_string(&eid);
+      (vi : usize) = usize(0);
+      while(vi < evfs.len(), {
+        vn := match(evns.get_cloned(vi), .Some(x) => x, .None => String.from(""));
+        out.push_str("_");
+        out.push_string(&vn);
+        match(
+          evfs.get(vi),
+          .Some(fields) => {
+            (fi : usize) = usize(0);
+            while(fi < fields.len(), {
+              ft := match(fields.get(fi), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
+              out.push_str(":");
+              out.push_string(recur(&ft, depth + usize(1)));
+              fi = (fi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      out
+    },
+    Rc(.Pointer(pointee)) => {
+      out := String.from("*(");
+      out.push_string(recur(&pointee.*, depth + usize(1)));
+      out.push_str(")");
+      out
+    },
+    // A reference renders its mode and its POINTEE's identity, never through
+    // `type_to_string` (the fallback below): that spells a nominal type by
+    // NAME, so `Option(&MathError)` of one declaration and another's rendered
+    // alike and `collect_type` aliased the second's type_key onto the first's
+    // C type — one Option struct for two payload types, and the second
+    // block's downcast initialized the first's `Some(value : &MathError)`
+    // with its own enum (`incompatible pointer types`, two same-named
+    // `MathError` enums in the error.test batch).
+    Rc(.Reference(sti_rp, sti_rmut, _)) => {
+      out := if(sti_rmut.*, String.from("&mut "), String.from("& "));
+      out.push_string(recur(&sti_rp.*, depth + usize(1)));
+      out
+    },
+    Rc(.SliceT(sl_elem)) => {
+      out := String.from("slice(");
+      out.push_string(recur(&sl_elem.*, depth + usize(1)));
+      out.push_str(")");
+      out
+    },
+    // Tuple: parity with `type_key`'s Tuple arm — RECURSE into the field
+    // types. Without this arm a tuple fell to `type_to_string`, which renders
+    // a Struct field by NAME, so two sibling blocks each declaring a local
+    // `S` and `C :: Tuple(S)` both rendered `Tuple(0 : S)` — collect_type then
+    // ALIASED the second tuple's type_key onto the first's C type and emitted
+    // one `__yo_tN` for two different layouts (basic.test.yo arm 12; the
+    // handoff-2026-08-02/07 A2 patch, re-landed after the get_type_string
+    // cycle guard removed the stage-2 crash that blocked its control run).
+    Rc(.Tuple(sti_labels, sti_fts)) => {
+      out := String.from("tup");
+      (sti_i : usize) = usize(0);
+      while(sti_i < sti_fts.len(), {
+        out.push_str("_");
+        match(
+          sti_labels.get(sti_i),
+          .Some(sti_l) => if(sti_l.len() > usize(0), {
+            out.push_string(&sti_l);
+            out.push_str(":");
+          }),
+          .None => ()
+        );
+        match(
+          sti_fts.get(sti_i),
+          .Some(sti_ft) => {
+            out.push_string(recur(&sti_ft, depth + usize(1)));
+          },
+          .None => ()
+        );
+        sti_i = (sti_i + usize(1));
+      });
+      out
+    },
+    // A SomeT lowers to the end of its resolution chain when that is a
+    // concrete type, so it renders as that type; an unresolved one renders by
+    // its id. `type_to_string` spells only the binder (`F : (Fn(A) -> B)`),
+    // so `StreamMap(Countdown, i32, F)` rendered alike for two different
+    // closures `F`, and collect_type aliased the second spec's capture struct
+    // onto the first ("unknown type name 'async_capture_…'").
+    Rc(.SomeT({ id : sti_sid })) => {
+      sti_term := resolve_cell_chain(t);
+      cond(
+        !is_some_type(&sti_term) => {
+          out := String.from("S#");
+          out.push_string(recur(&sti_term, depth + usize(1)));
+          out
+        },
+        (sti_sid.len() > usize(0)) => {
+          out := String.from("S#");
+          out.push_string(&sti_sid.*);
+          out
+        },
+        true => type_to_string(t)
+      )
+    },
+    _ => type_to_string(t)
+  )
+});
+stable_type_identity :: (fn(t : &TypeValue) -> String)({
+  g_sti_visited.with_mut(xs => xs.clear());
+  _stable_identity_at(t, usize(0))
+});
+/// A generic enum instance's identity for a cycle guard keyed outside codegen:
+/// its id plus its type arguments' identities (`_tk_node_id`, pure: no key
+/// registry is read or written). Substitution keeps an instance's def-era id,
+/// so `Option(Option(i32))` from `wrap(wrap(x))` nests two `Option` instances
+/// under one id; a guard keyed by the id alone reads that nesting as a cycle.
+/// The id alone for a non-generic enum, "" for any other type.
+enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
+  match(
+    t,
+    Rc(.EnumT({ id : ein_id, type_arguments : ein_tas })) => _tk_node_id(&ein_id.*, &ein_tas.*),
+    _ => String.new()
+  )
+);
+/// `enum_instance_node_id` for a struct or an enum: the nominal id plus the
+/// type arguments' identities, for a walk that keys nodes by instance (the
+/// `Acyclic` reach walk, evaluator/trait-checking.yo). "" for any other type.
+nominal_instance_node_id :: (fn(t : &TypeValue) -> String)(
+  match(
+    t,
+    Rc(.Struct({ id : nin_id, type_arguments : nin_tas })) => _tk_node_id(&nin_id.*, &nin_tas.*),
+    Rc(.EnumT({ id : nin_eid, type_arguments : nin_etas })) => _tk_node_id(&nin_eid.*, &nin_etas.*),
+    _ => String.new()
+  )
+);
+export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id, nominal_instance_node_id);
+export(TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled);

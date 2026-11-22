@@ -1,0 +1,19 @@
+// expect: E0910
+// guard-off: same
+// A place behind a field's `Rc` lent to a call whose closure argument moves
+// and drops the root: argument exclusivity (decision 28).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+S :: struct(h : Rc(W));
+peek :: (fn(w : &W, act : Impl(FnOnce() -> unit)) -> unit)({
+  act();
+  println(`OUT: ${w.s.clone()}`);
+});
+main :: (fn() -> unit)({
+  s := S(h : Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  peek(&s.h.*, { s }() => {
+    drop(s);
+  });
+});
+export(main);

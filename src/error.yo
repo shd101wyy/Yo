@@ -9,7 +9,7 @@
 { String, Pattern } :: import("std/string");
 { ToString, eprintln } :: import("std/fmt");
 { Error, AnyError } :: import("std/error");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { Token } :: import("./token.yo");
 { assert } :: import("std/assert");
 {
@@ -32,6 +32,7 @@
   E_FIELD_NOT_FOUND,
   E_NOT_DEFINED,
   E_PRIVATE_MEMBER,
+  E_RESERVED_NAME,
   E_INCOMPATIBLE_TYPES,
   E_TRAIT_NOT_IMPLEMENTED,
   E_ARGUMENT_COUNT_MISMATCH,
@@ -165,6 +166,16 @@ _classify_message :: (fn(error_message : &String) -> Option(String))({
   if(msg.contains(String.from("is private")), {
     return(_coded(E_PRIVATE_MEMBER));
   });
+  // A binder named by a reserved word: the three texts of
+  // `reserved_builtin_binding_message` (src/token.yo) and the `__yo_`
+  // namespace (`reserved_yo_name_message`, src/evaluator/memory-safety.yo).
+  if(msg.contains(String.from("names a builtin: every call with this name dispatches to the builtin")) ||
+    (
+      msg.starts_with(String.from("\"mut\" is reserved:")) ||
+        (msg.starts_with(String.from("\"Origin\" is reserved:")) || msg.contains(String.from("the compiler's namespace: a name there is a compiler builtin")))
+    ), {
+    return(_coded(E_RESERVED_NAME));
+  });
   // No "not found" substring rule: E0401 is named by its raise sites
   // (`with_code`). The substrings ("not found.", "not found ", `" not found`)
   // coded destructuring labels, trait fields, effect-row variables and
@@ -287,10 +298,8 @@ _diagnostic_of_token :: (
 /// Compiler error: a group of diagnostics — entry 0 the primary error,
 /// every later entry a related location rendered as a `note:` block
 /// (D6 — they used to render with an `Error:` prefix).
-YoError :: ref(
-  struct(
-    diagnostics : ArrayList(Diagnostic)
-  )
+YoError :: struct(
+  diagnostics : ArrayList(Diagnostic)
 );
 impl(
   YoError,
@@ -323,11 +332,9 @@ impl(
 /// error object on stdout — and exits with `code`. Throw it instead of
 /// calling `exit()`: a plain exit on the normal path aborts in the
 /// self-compiled runtime's teardown, the handler's does not.
-ExitWith :: ref(
-  struct(
-    code : i32,
-    message : String
-  )
+ExitWith :: struct(
+  code : i32,
+  message : String
 );
 impl(
   ExitWith,
@@ -688,7 +695,7 @@ with_code :: (fn(err : &YoError, code : str) -> YoError)(_with_primary_code(err,
 /// generated body) carries that error's code over with this; `.None` leaves
 /// `err` as it is.
 with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
-  match(code, .Some(_) => _with_primary_code(err, code), .None => err.*)
+  match(code, .Some(_) => _with_primary_code(err, code), .None => err.clone())
 );
 /// `err` with a mechanical repair on its PRIMARY diagnostic: replace
 /// `token`'s own text with `replacement` (`yo fix` applies it,

@@ -1,0 +1,24 @@
+// expect: accept
+// Audit A3 (VERDICTS-71 rule (c)), spelled `match(&mut cur.*, …)`: a two-step walk re-points `cur` through the nested match's binding
+// `m`, which is derived from `n`; neither is mentioned after the re-point.
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  match(
+    &mut cur.*,
+    .Some(n) => match(
+      &mut n.next,
+      .Some(m) => {
+        cur = &mut m.next;
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  cur.* = .Some(Box.new(BNode(value : i32(3), next : .None)));
+  println(`OUT: ${l1.head.is_some().to_string()}`);
+});
+export(main);

@@ -12,9 +12,9 @@
 //! DEFERRED (documented, not hit by the no-RC/no-async corpus):
 //! state-machine storage of destructured variables (Phase 5, gated on in_async).
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
+{ HashMap } :: import("std/collections/hash-map");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT, is_mut_binding } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
@@ -26,23 +26,23 @@
   expr_info_consumed_variable_drop_expressions,
   expr_info_deferred_dup_expressions,
   scope_variables
-} :: import("../../expr_info.yo");
+} :: import("../../expr-info.yo");
 { is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type, is_box_type, is_newtype_type, cell_handle_view } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { type_is_sized, is_static_view_slot } :: import("../../types/utils.yo");
 { note_state_machine_binding_id, FunctionGenerationContext, sm_lowering_note_binding_source, shadow_binding_decl_name, shadow_binding_c_name, shadow_binding_push, shadow_binding_pop } :: import("../functions/context.yo");
-{ _call_generate_expr, chain_leaf_pointer_code } :: import("./_expr.yo");
+{ _call_generate_expr, chain_leaf_pointer_code } :: import("./dispatch.yo");
 { Token, TokenKind } :: import("../../token.yo");
-{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop, _looks_like_minted_temp } :: import("./drop_dup.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop, _looks_like_minted_temp } :: import("./drop-dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
-{ _store_temp_var_to_state_machine_if_needed, _sm_lent_temp_slot } :: import("./other_fn_call.yo");
+{ _store_temp_var_to_state_machine_if_needed, _sm_lent_temp_slot } :: import("./other-fn-call.yo");
 { _flush_stmt_lent_temp_drops } :: import("./begin.yo");
-{ sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, sm_move_flag_of } :: import("../async/state-machine-naming.yo");
 { declare_c_var_name, get_type_string, pointer_c_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at, box_payload_place_code, unsized_place_fat_code } :: import("../utils/index.yo");
 { resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings, pattern_binding_atoms, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs, MATCH_MODE_CONSUME } :: import("../../pattern.yo");
-{ arm_is_classic } :: import("../../evaluator/exprs/pattern_compile.yo");
+{ arm_is_classic } :: import("../../evaluator/exprs/pattern-compile.yo");
 { replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
@@ -236,7 +236,7 @@ _inside_c_string_literal :: (fn(s : &String, idx : usize) -> bool)({
 });
 /// Byte-based find of `word` in `s` starting at byte `from` — `index_of`
 /// returns RUNE indices, which cannot feed the byte_at reads below when the
-/// scanned C code contains multibyte string literals (see other_fn_call.yo's
+/// scanned C code contains multibyte string literals (see other-fn-call.yo's
 /// splitter fix).
 _byte_index_of :: (fn(s : &String, word : &String, from : usize) -> Option(usize))({
   sb := s.clone();
@@ -516,7 +516,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_consumed, &prev_consumed));
     // When the arm value carries deferred `___dup`s (returning a borrowed
     // value out of the arm — e.g. `.Some(e) => e.ty`),
-    // see arm_value_with_dups in drop_dup.yo.
+    // see arm_value_with_dups in drop-dup.yo.
     note_line_position(&mut context.base.emitter, body_expr);
     code := chain_leaf_pointer_code(
       body_expr,
@@ -959,7 +959,7 @@ _bind_pattern_name :: (fn(context : &mut FunctionGenerationContext, indent : &St
 /// A binding stored into its slot gives the slot a value: clear the move flag
 /// a move out of its previous value set (an arm in a loop binds the name
 /// again on every iteration), as every store into a named local's slot does
-/// (`_clear_sm_move_flag`, init_assignment.yo).
+/// (`_clear_sm_move_flag`, init-assignment.yo).
 _clear_binding_move_flag :: (fn(context : &mut FunctionGenerationContext, indent : &String, field : &String) -> unit)(
   match(
     sm_move_flag_of(`sm->${field}`),
@@ -1127,7 +1127,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
           // facet-2 loop-await rc=139
           // (issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
           // Resolve the binding's slot: env id (owning-alias + remapping,
-          // init_assignment.yo:206's steps) first, then a NAME scan over
+          // init-assignment.yo:206's steps) first, then a NAME scan over
           // the hoister's map (_find_sm_var_id_by_name's recovery) —
           // pattern bindings are often absent from the recorded env
           // entirely, and env ids can be a different generation than the
@@ -1147,10 +1147,10 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
             // whose id is not a state-machine variable is a local, and must
             // NOT fall through to the name scan, which would store into
             // another same-named variable's slot (the rule
-            // `state_code_gen.yo` follows for await-carrying arms,
+            // `state-code-gen.yo` follows for await-carrying arms,
             // issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md).
             (mut(smb_env_resolved) : bool) = false;
-            // Resolve by the PATTERN atom's own env (as `state_code_gen.yo`
+            // Resolve by the PATTERN atom's own env (as `state-code-gen.yo`
             // does): the arm body's recorded env may predate the binding, and
             // a name lookup there finds an OUTER same-named variable.
             match(
@@ -1180,7 +1180,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
                       );
                       smb_has = match(
                         &context.state_machine_variables,
-                        .Some(smv) => smv.get(smb_id.clone()).is_some(),
+                        .Some(smv) => smv.contains_key(&smb_id),
                         .None => false
                       );
                     },
@@ -1833,13 +1833,11 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
 // borrow (a plain C copy, no dup), as the classic emitters' do.
 // ---------------------------------------------------------------------------
 /// Per-match label allocator for the general lowering.
-_MatchLabels :: ref(
-  struct(
-    prefix : String,
-    next : usize
-  )
+_MatchLabels :: struct(
+  prefix : String,
+  next : usize
 );
-_fresh_label :: (fn(labels : &_MatchLabels, tag : str) -> String)({
+_fresh_label :: (fn(labels : &mut _MatchLabels, tag : str) -> String)({
   l := labels.prefix.clone();
   l.push_str("_");
   l.push_str(tag);
@@ -2014,7 +2012,7 @@ _emit_pattern_chain :: (
     /// alternative that binds.
     emit_tests : bool,
     indent : &String,
-    labels : &_MatchLabels,
+    labels : &mut _MatchLabels,
     shadows : &mut ArrayList(String),
     context : &mut FunctionGenerationContext,
     /// A `mut` match (decision 26): bindings are C pointers to their parts,
@@ -2268,7 +2266,7 @@ _emit_pattern_chain :: (
       fcode := if(is_unique_box_type(&box_ty.*), box_payload_place_code(&box_ty.*, &base, &mut context.base), {
         fields := get_runtime_struct_fields(&_through_box_cell_type(&box_ty.*));
         label := match(
-          fields.get(usize(0)),
+          fields.get_cloned(usize(0)),
           .Some(f) => sanitize_for_c_identifier(f.label.clone(), false),
           .None => String.from("_u42_")
         );
@@ -2351,7 +2349,7 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
   (cell_key : String) = String.new();
   (i : usize) = usize(0);
   while(i < arms.len(), i = (i + usize(1)), {
-    arm := match(arms.get(i), .Some(a) => a, .None => return(.None));
+    arm := match(arms.get_cloned(i), .Some(a) => a, .None => return(.None));
     if(arm.guard.is_some(), {
       return(.None);
     });
@@ -2404,7 +2402,7 @@ _arms_all_classic :: (fn(arms : &ArrayList(Arm)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < arms.len()) && ok, {
-    ok = match(arms.get(i), .Some(a) => a.classic, .None => false);
+    ok = match(arms.get_cloned(i), .Some(a) => a.classic, .None => false);
     i = (i + usize(1));
   });
   ok
@@ -2420,7 +2418,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   // machine), so the prefix is fresh per emission, not the node id alone
   // (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
   prefix := fresh_local_name(`__yo_m${ast_expr_id(expr).to_string()}_`, &context.base.current_function_name);
-  labels := _MatchLabels(prefix : prefix.clone(), next : usize(0));
+  (mut(labels) : _MatchLabels) = _MatchLabels(prefix : prefix.clone(), next : usize(0));
   end_label := prefix.clone();
   end_label.push_str("_end");
   places := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
@@ -2429,11 +2427,11 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   (k : usize) = usize(0);
   while(k < n, {
     match(
-      arms.get(k),
+      arms.get_cloned(k),
       .Some(arm) => {
         if(_case_executed(&arm.pattern_expr, context), {
           fail_label := cond(
-            ((k + usize(1)) < n) => _fresh_label(&labels, "a"),
+            ((k + usize(1)) < n) => _fresh_label(&mut labels, "a"),
             true => end_label.clone()
           );
           open := indent.clone();
@@ -2442,12 +2440,12 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
           shadows := ArrayList(String).new();
           // The last unguarded arm of an exhaustive match needs no tests.
           is_last := ((k + usize(1)) == n);
-          _emit_pattern_chain(&arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), &labels, &mut shadows, context, places, refs, false);
+          _emit_pattern_chain(&arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), &mut labels, &mut shadows, context, places, refs, false);
           match(
             arm.guard.clone(),
             .Some(g) => {
               gcode := _call_generate_expr(&g, body_indent.clone(), context);
-              gvar := _fresh_label(&labels, "g");
+              gvar := _fresh_label(&mut labels, "g");
               gl := body_indent.clone();
               gl.push_str("bool ");
               gl.push_string(gvar.clone());
@@ -2750,7 +2748,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
           cell_base := if(is_pointer_type(&match_value_type), `(*${matched_value_code})`, matched_value_code.clone());
           fields := get_runtime_struct_fields(&_through_box_cell_type(&cell_ty));
           match(
-            fields.get(usize(0)),
+            fields.get_cloned(usize(0)),
             .Some(f) => {
               payload_ty := resolve_enum_shell(&f.ty);
               // Only the tagged-union switch reads through a wrapper arm. Any

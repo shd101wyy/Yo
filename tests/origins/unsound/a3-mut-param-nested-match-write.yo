@@ -1,0 +1,25 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c), r2): a `&mut` parameter matched bare, then a nested `&mut` match over the arm
+// binding: the write through `cur` drops the nodes under `m` (heap use after free on develop).
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+f :: (fn(cur : &mut Option(Box(BNode))) -> unit)({
+  match(
+    cur,
+    .Some(n) => match(
+      &mut n.next,
+      .Some(m) => {
+        cur.* = .None;
+        m.value = i32(4);
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  f(&mut l1.head);
+});
+export(main);

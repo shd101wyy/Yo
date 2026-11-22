@@ -19,7 +19,7 @@
 //! would double-free; documented in
 //! issues/fixed/yo-self-parallelism-emitter-gated-on-closure-codegen.md).
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -27,20 +27,20 @@
 { is_unit_type, is_array_type, is_tuple_type, is_enum_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only, type_is_move_only, is_value_nominal_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
+{ get_func_type, is_fnonce_closure_fn } :: import("../../function-value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_name_for_codegen_at, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, c_variant_member_name, can_optimize_as_nullable_pointer } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen_at, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, c_variant_member_name, can_optimize_as_nullable_pointer, entry_param_c_value } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ expr_info_closure_function_value, expr_info_capture_type } :: import("../../expr_info.yo");
+{ expr_info_closure_function_value, expr_info_capture_type } :: import("../../expr-info.yo");
 {
   get_drop_function_for_type,
   get_dispose_function_for_type,
   dispose_call_on_value,
   generate_drop_code_for_value
-} :: import("./drop_dup.yo");
-{ HashSet } :: import("std/collections/hash_set");
+} :: import("./drop-dup.yo");
+{ HashSet } :: import("std/collections/hash-set");
 { RefCell } :: import("std/sync/refcell");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
 /// C name of the capture struct for `capture_type`: the registered type-entry
 /// c_name if present, else `async_capture_<id>`. (Same lookup as async.yo's
 /// `_find_capture_type_c_name`; duplicated to avoid importing the heavy async
@@ -87,8 +87,10 @@ _closure_fid :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Optio
   );
   match(fv_opt, .Some(fv) => match(fv, Rc(.FuncVal(__fvd2, _)) => __fvd2.*.func_id.clone(), _ => String.new()), .None => String.new())
 });
-/// `, (<cType>){0}, …` — zero-inits for the closure's runtime params (e.g. the
-/// `io : Io` of a `Thread.spawn` callback), as the spawn wrapper builds them.
+/// `, <value>, …` — the closure's runtime params as the spawn wrapper builds
+/// them, ON the new thread (`entry_param_c_value`): the `io : Io` of a
+/// `Thread.spawn` or pool callback is that thread's native Io
+/// (`__yo_io_native()`), anything else `(<cType>){0}`.
 /// Func param_types already exclude comptime
 /// params, so every entry is a runtime param.
 _closure_runtime_arg_zeroinits :: (fn(closure_fid : &String, context : &mut FunctionGenerationContext) -> String)({
@@ -102,9 +104,8 @@ _closure_runtime_arg_zeroinits :: (fn(closure_fid : &String, context : &mut Func
         match(
           slot_pointee_at(&pts, i),
           .Some(pt) => {
-            out.push_str(", (");
-            out.push_string(get_type_string(&pt, &mut context.base));
-            out.push_str("){0}");
+            out.push_str(", ");
+            out.push_string(entry_param_c_value(&pt, &mut context.base));
           },
           .None => ()
         );
@@ -172,7 +173,7 @@ _emit_capture_dispose_lines :: (
         // the inner type with the SAME ref (no  member at the C ABI).
         nt_fields := get_runtime_struct_fields(&concrete);
         match(
-          nt_fields.get(usize(0)),
+          nt_fields.get_cloned(usize(0)),
           .Some(nt_f) => _emit_capture_dispose_lines(ref_code.clone(), &nt_f.ty, context, depth + u32(1)),
           .None => ()
         );
@@ -181,7 +182,7 @@ _emit_capture_dispose_lines :: (
         (mut(ds_i) : usize) = usize(0);
         while(ds_i < ds_fields.len(), {
           match(
-            ds_fields.get(ds_i),
+            ds_fields.get_cloned(ds_i),
             .Some(ds_f) => {
               mut(ds_ref) := String.from("(");
               ds_ref.push_string(ref_code.clone());
@@ -354,7 +355,7 @@ _emit_capture_drop_lines :: (
   (mut(cd_i) : usize) = usize(0);
   while(cd_i < cd_fields.len(), {
     match(
-      cd_fields.get(cd_i),
+      cd_fields.get_cloned(cd_i),
       .Some(cd_f) => {
         cd_ty := resolve_some_type_to_concrete(&cd_f.ty);
         mut(cd_ref) := String.from("(");
@@ -499,18 +500,18 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
     Rc(.SomeT({ id : cb_sid })) => cb_sid.clone(),
     _ => type_key(capture_type.clone())
   );
-  mapped_opt := context.base.impl_closure_call_map.get(&cb_map_key);
+  mapped_opt := context.base.impl_closure_call_map.get_cloned(&cb_map_key);
   capture_c_name := _capture_type_c_name(capture_type.clone(), context);
   closure_fn := match(
     _closure_fn_c_name(&cei.value(), expr_info_closure_function_value(&cei), context),
     .Some(n) => n,
-    .None => match(mapped_opt, .Some(m) => m.function_c_name.clone(), .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
+    .None => match(&mapped_opt, .Some(m) => m.function_c_name.clone(), .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
   );
   closure_fid_direct := _closure_fid(&cei.value(), expr_info_closure_function_value(&cei));
   closure_fid := if(
     closure_fid_direct.len() > usize(0),
     closure_fid_direct,
-    match(mapped_opt, .Some(m) => m.closure_fid.clone(), .None => String.from(""))
+    match(&mapped_opt, .Some(m) => m.closure_fid.clone(), .None => String.from(""))
   );
   runtime_args := _closure_runtime_arg_zeroinits(&closure_fid, context);
   wrapper := _generate_spawn_wrapper(&closure_fn, capture_c_name.clone(), &capture_type, &runtime_args, is_fnonce_closure_fn(&closure_fid), context);

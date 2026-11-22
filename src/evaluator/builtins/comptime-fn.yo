@@ -1,0 +1,219 @@
+//! evaluator/builtins/comptime-fn — evaluate_comptime_fn.
+//!
+//! `comptime_fn(f)` converts a runtime function to a compile-time function by
+//! changing the return type from a runtime type (e.g. i32) to its comptime
+//! equivalent (e.g. ComptimeInt), then verifying the body can be evaluated at
+//! compile time.
+//!
+//! The CTFE analysis itself lives in `evaluator/ctfe/ctfe-analysis.yo`. It
+//! used to be INLINED here, which
+//! left it reachable from this builtin only — so nested functions met during a
+//! CTFE analysis were never analysed. See
+//! `issues/yo-self-ctfe-nested-fn-analysis-gap.md`.
+//!
+//! NOTE: This is builtins/comptime-fn.yo, distinct from calls/comptime-fn.yo.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
+{
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr-info.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, EvalValueNode, is_func_val } :: import("../../value.yo");
+{ TypeValue, no_types, no_labels, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
+{ type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{
+  create_comptime_function_type,
+  analyze_ctfe_capability
+} :: import("../ctfe/ctfe-analysis.yo");
+{ format_error_message } :: import("../../error.yo");
+{ Exception } :: import("std/error");
+// ---------------------------------------------------------------------------
+// evaluate_comptime_fn
+// ---------------------------------------------------------------------------
+/// Builtin `comptime_fn(f)` — wrap a runtime function for compile-time evaluation.
+///
+///
+evaluate_comptime_fn :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  tok := ast_expr_token(expr);
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
+  arg_expr := match(
+    args.get_cloned(usize(0)),
+    .Some(a) => a,
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("comptime_fn requires exactly one argument (a function)")
+            )
+          )
+        )
+      );
+      make_err_expr()
+    }
+  );
+  // Evaluate the argument.
+  evaled_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));
+  arg_info := match(
+    arg_info_opt,
+    .Some(i) => Rc.clone(i),
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("Failed to evaluate argument to comptime_fn")
+            )
+          )
+        )
+      );
+      new_expr_info(env, t_unit())
+    }
+  );
+  // Require a compile-time function value.
+  arg_val := match(
+    arg_info.value(),
+    .Some(v) => v,
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("comptime_fn: argument has no compile-time value")
+            )
+          )
+        )
+      );
+      Rc.new(EvalValueNode.UnitVal)
+    }
+  );
+  if(!is_func_val(&arg_val), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("comptime_fn requires a function argument")
+          )
+        )
+      )
+    );
+  });
+  func_type := Rc.clone(arg_info.ty());
+  // If already a comptime function, return it unchanged.
+  if(is_function_type_and_returns_comptime_value(&func_type), {
+    out_info := new_expr_info(env, &func_type);
+    out_info.set_value(Option(EvalValue).Some(arg_val));
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+    return(Rc.clone(expr.*));
+  });
+  // Pre-flight diagnostics. `analyze_ctfe_capability` re-derives all of these and
+  // simply returns `.None`, but this builtin keeps
+  // these SPECIFIC messages: they say WHY comptime_fn is impossible, where the
+  // shared analysis can only say "not possible" — worth keeping on top of the
+  // shared analysis.
+  forall_labels := match(&func_type, Rc(.Func({ meta : __fm1 })) => Rc.clone(__fm1.forall_labels), _ => no_labels());
+  param_types := match(&func_type, Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
+  result_box := match(&func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb.*), _ => t_unit());
+  // Skip functions with generic parameters — they need specialisation first.
+  if(forall_labels.len() > usize(0), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("comptime_fn: cannot convert a generic (generic) function to comptime")
+          )
+        )
+      )
+    );
+  });
+  // Check param types and return type are comptime-compatible.
+  n_pt := param_types.len();
+  (pti : usize) = usize(0);
+  while(pti < n_pt, {
+    pt := match(slot_pointee_at(&param_types, pti), .Some(t) => t, .None => t_unit());
+    if(type_prohibits_comptime_modifier(&pt), {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("comptime_fn: a parameter type prohibits the comptime modifier")
+            )
+          )
+        )
+      );
+    });
+    pti = (pti + usize(1));
+  });
+  if(type_prohibits_comptime_modifier(&result_box), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("comptime_fn: return type prohibits the comptime modifier")
+          )
+        )
+      )
+    );
+  });
+  if(match(create_comptime_function_type(&func_type), .Some(_) => false, .None => true), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("comptime_fn: return type cannot be promoted to comptime")
+          )
+        )
+      )
+    );
+  });
+  // Delegate to the shared CTFE analysis — the SAME entry point the nested-function
+  // call sites use (evaluator/ctfe/ctfe-analysis.yo). It builds the comptime function
+  // type, proves the body, and produces the `${funcId}_comptime` clone.
+  match(
+    analyze_ctfe_capability(&arg_val, &func_type, env, ctx),
+    .Some(ctfe_ok) => {
+      out_info := new_expr_info(env, &ctfe_ok.ty);
+      out_info.set_value(Option(EvalValue).Some(Rc.clone(ctfe_ok.value)));
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+      Rc.clone(expr.*)
+    },
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("comptime_fn: Failed to create compile-time version of function. The function body cannot be evaluated at compile time.")
+            )
+          )
+        )
+      );
+      make_err_expr()
+    }
+  )
+});
+export(evaluate_comptime_fn);

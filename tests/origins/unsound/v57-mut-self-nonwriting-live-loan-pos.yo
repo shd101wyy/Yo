@@ -1,9 +1,10 @@
-// expect: accept
+// expect: E0911
 // A `&mut self` method whose body neither writes `self` nor makes a `&mut` reference value of it, called while
-// a `&` loan of the receiver is live: accepted in v0.2.77 (VERDICTS-57 §3.2). FLIPS AT G (v0.2.78): every `&mut`
-// argument becomes a write whatever the callee's body does, and this row becomes E0911.
+// a `&` loan of the receiver is live: accepted in v0.2.77 (VERDICTS-57 §3.2). FLIPPED AT G (v0.2.79, audit A6's
+// open half): every `&mut` argument and receiver is a write at the call's activation whatever the callee's body
+// does, so this row is E0911. End the loan's last use before the call, or take the receiver by `&Self`.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { println } :: import("std/fmt");
 Bag :: struct(items : ArrayList(String), n : i32);
 impl(Bag, peek_count : (fn(self : &mut Self) -> i32)(self.n));

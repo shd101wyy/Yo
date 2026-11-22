@@ -1,0 +1,465 @@
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ assert } :: import("std/assert");
+// The Send/Sync split (plans/VALUES_BY_DEFAULT.md §3.8 and decision 38 E),
+// Generation A.
+//
+// - `Send`: the value may be MOVED to another thread. It reaches no
+//   non-atomic cell, holds no raw pointer and no borrow.
+// - `Sync`: copies of the value may be READ from several threads at once.
+//   Today's `Send` derivation (plain data, atomic cells, values composed of
+//   them) is this marker.
+{ Thread, ThreadPool, spawn } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
+{ Mutex } :: import("std/sync/mutex");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
+{ Deque } :: import("std/collections/deque");
+{ String } :: import("std/string");
+{ RwLock } :: import("std/sync/rwlock");
+{ OnceCell } :: import("std/sync/once");
+{ RefCell } :: import("std/sync/refcell");
+{ Mutex : AsyncMutex } :: import("std/async/mutex");
+
+// ============================================================================
+// The derivation, by reflection
+// ============================================================================
+SsPoint :: struct(x : i32, y : i32);
+derive(SsPoint, Copy, Clone);
+SsCell :: struct(v : Rc(i32));
+SsSpeak :: trait(speak : (fn(self : &Self) -> i32));
+SsDog :: struct(n : i32);
+derive(SsDog, Copy, Clone);
+impl(SsDog, SsSpeak(speak : (self -> self.n)));
+test("primitives and plain data are Send and Sync", {
+  comptime_assert(Type.impls(i32, Send), "i32 is Send");
+  comptime_assert(Type.impls(i32, Sync), "i32 is Sync");
+  comptime_assert(Type.impls(bool, Sync), "bool is Sync");
+  comptime_assert(Type.impls(SsPoint, Send), "a struct of i32 is Send");
+  comptime_assert(Type.impls(SsPoint, Sync), "a struct of i32 is Sync");
+  comptime_assert(Type.impls(Array(i32, 4), Sync), "an array of i32 is Sync");
+  comptime_assert(Type.impls(Option(SsPoint), Sync), "an Option of plain data is Sync");
+});
+test("a non-atomic cell is neither Send nor Sync", {
+  comptime_assert(!Type.impls(Rc(i32), Send), "Rc is not Send");
+  comptime_assert(!Type.impls(Rc(i32), Sync), "Rc is not Sync");
+  comptime_assert(!Type.impls(Rc(i32), Sync), "Rc (a shared cell) is not Sync");
+  // A `Weak` into an `Rc` graph is as thread-local as the graph
+  // (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.5).
+  comptime_assert(!Type.impls(Weak(i32), Send), "Weak is not Send");
+  comptime_assert(!Type.impls(Weak(i32), Sync), "Weak is not Sync");
+  comptime_assert(!Type.impls(SsCell, Send), "a struct holding an Rc is not Send");
+  comptime_assert(!Type.impls(SsCell, Sync), "a struct holding an Rc is not Sync");
+});
+test("a value String or ArrayList owns its buffer, so it is Send and Sync (B8)", {
+  // B8 (plans/VALUES_BY_DEFAULT.md): the buffer has one owner, so moving the
+  // value moves the buffer; `ArrayList(T)` is `Send`/`Sync` exactly when `T`
+  // is (std/collections/array-list.yo).
+  comptime_assert(Type.impls(String, Send), "String is Send");
+  comptime_assert(Type.impls(String, Sync), "String is Sync");
+  comptime_assert(Type.impls(ArrayList(i32), Send), "ArrayList(i32) is Send");
+  comptime_assert(Type.impls(ArrayList(String), Sync), "ArrayList(String) is Sync");
+  comptime_assert(!Type.impls(ArrayList(Rc(i32)), Send), "ArrayList(Rc(i32)) is not Send");
+  comptime_assert(!Type.impls(ArrayList(Rc(i32)), Sync), "ArrayList(Rc(i32)) is not Sync");
+});
+test("a value HashMap or HashSet owns its buffers, so it is Send and Sync exactly when its parts are (B9)", {
+  // B9 (plans/VALUES_BY_DEFAULT.md): `HashMap(K, V)` is `Send`/`Sync` when `K`
+  // and `V` are, `HashSet(T)` when `T` is (std/collections/hash-map.yo).
+  comptime_assert(Type.impls(HashMap(String, i32), Send), "HashMap(String, i32) is Send");
+  comptime_assert(Type.impls(HashMap(String, i32), Sync), "HashMap(String, i32) is Sync");
+  comptime_assert(!Type.impls(HashMap(String, Rc(i32)), Send), "HashMap(String, Rc(i32)) is not Send");
+  comptime_assert(!Type.impls(HashMap(i32, Rc(i32)), Sync), "HashMap(i32, Rc(i32)) is not Sync");
+  comptime_assert(Type.impls(HashSet(String), Send), "HashSet(String) is Send");
+  comptime_assert(Type.impls(HashSet(i32), Sync), "HashSet(i32) is Sync");
+});
+test("a value Deque owns its ring, so it is Send and Sync (B10)", {
+  // B10 (plans/VALUES_BY_DEFAULT.md): as ArrayList above — the ring has one
+  // owner, so moving the deque moves every element (std/collections/deque.yo).
+  comptime_assert(Type.impls(Deque(i32), Send), "Deque(i32) is Send");
+  comptime_assert(Type.impls(Deque(String), Sync), "Deque(String) is Sync");
+  comptime_assert(!Type.impls(Deque(Rc(i32)), Send), "Deque(Rc(i32)) is not Send");
+  comptime_assert(!Type.impls(Deque(Rc(i32)), Sync), "Deque(Rc(i32)) is not Sync");
+});
+test("atomic cells are Send and Sync", {
+  comptime_assert(Type.impls(Arc(i32), Send), "Arc(i32) is Send");
+  comptime_assert(Type.impls(Arc(i32), Sync), "Arc(i32) is Sync");
+  // An `ArcWeak`'s counts are atomic and an `Arc` payload is `Send` and
+  // `Sync` (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.5).
+  comptime_assert(Type.impls(ArcWeak(i32), Send), "ArcWeak(i32) is Send");
+  comptime_assert(Type.impls(ArcWeak(i32), Sync), "ArcWeak(i32) is Sync");
+  comptime_assert(Type.impls(AtomicI32, Sync), "AtomicI32 is Sync");
+  comptime_assert(Type.impls(Mutex(i32), Sync), "Mutex(i32) is Sync");
+  comptime_assert(Type.impls(Channel(i32), Send), "Channel(i32) is Send");
+  comptime_assert(Type.impls(Channel(i32), Sync), "Channel(i32) is Sync");
+});
+// Raw pointers exist only under pragma(Pragma.AllowUnsafe), so their rules are
+// pinned in tests/send-sync-raw-pointer.test.yo.
+// Naming `JoinHandle(T)` inside a sync test body instantiates the type and
+// emits its Drop body, whose `__yo_join_handle_release_raw` call must pull
+// in the async runtime
+// (issues/fixed/naming-joinhandle-inside-a-sync-test-body-emits-a-call-to-an-undeclared-runtime-function.md).
+test("Io and JoinHandle declare negative markers", {
+  comptime_assert(!Type.impls(Io, Send), "Io is not Send");
+  comptime_assert(!Type.impls(Io, Sync), "Io is not Sync");
+  comptime_assert(!Type.impls(JoinHandle(i32), Send), "JoinHandle is not Send");
+  comptime_assert(!Type.impls(JoinHandle(i32), Sync), "JoinHandle is not Sync");
+});
+test("a Dyn is Send or Sync only through an explicit bound", {
+  comptime_assert(!Type.impls(Box(Dyn(SsSpeak)), Send), "Dyn(Trait) is not Send");
+  comptime_assert(!Type.impls(Box(Dyn(SsSpeak)), Sync), "Dyn(Trait) is not Sync");
+  comptime_assert(Type.impls(Box(Dyn(SsSpeak, Send)), Send), "Dyn(Trait, Send) is Send");
+  comptime_assert(Type.impls(Box(Dyn(SsSpeak, Sync)), Sync), "Dyn(Trait, Sync) is Sync");
+});
+
+// ============================================================================
+// Thread boundaries
+// ============================================================================
+// A channel moves its payload to the receiving thread. An Rc payload is E0602.
+comptime_expect_error({
+  _rc_channel :: (fn() -> unit)({
+    _ch := Channel(Rc(i32)).new(usize(1));
+  });
+  _rc_channel();
+}, "Send");
+// A Dyn without Send cannot cross Thread.spawn.
+comptime_expect_error({
+  _spawn_plain_dyn :: (fn() -> unit)({
+    (d : Box(Dyn(SsSpeak))) = dyn(Box.new(SsDog(n : i32(3))));
+    t := Thread(unit).spawn(io => {
+      _n := d.speak();
+      ()
+    });
+    t.join();
+  });
+  _spawn_plain_dyn();
+}, "does not implement Send");
+// Over-rejection canary: a Dyn(Trait, Send) does cross it.
+_spawn_send_dyn :: (fn() -> i32)({
+  (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(4))));
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ d, hits : Arc.clone(hits) }(io) => {
+    hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
+    ()
+  });
+  t.join();
+  hits.load(MemoryOrder.Acquire)
+});
+test("a Dyn(Trait, Send) crosses Thread.spawn", {
+  assert(_spawn_send_dyn() == i32(4), "the spawned thread called the trait object");
+});
+// `dyn(Box.new(v))` into a `Dyn(..., Send)` boxes with `Arc`, as the auto-box
+// does: it read as `dyn(Rc.new(v))` and was rejected, so `yo fix --migrate
+// unsized`'s rewrite of `dyn(v)` stopped this file evaluating
+// (issues/fixed/2026-11-12-dyn-box-new-into-a-send-dyn-is-rejected.md).
+_spawn_send_dyn_box :: (fn() -> i32)({
+  (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(5))));
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ d, hits : Arc.clone(hits) }(io) => {
+    hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
+    ()
+  });
+  t.join();
+  hits.load(MemoryOrder.Acquire)
+});
+test("dyn(Box.new(v)) into a Dyn(Trait, Send) crosses Thread.spawn", {
+  assert(_spawn_send_dyn_box() == i32(5), "an Arc-boxed payload");
+});
+// A manual Sync impl needs pragma(Pragma.AllowUnsafe), as a manual Send does.
+comptime_expect_error({
+  _SsClaimsSync :: struct(n : i32);
+  impl(_SsClaimsSync, Sync());
+}, "requires pragma(Pragma.AllowUnsafe)");
+// An `Arc`'s payload is shared by every handle, so it must be Send.
+comptime_expect_error({
+  _SsArcRc :: Arc(struct(r : Rc(i32)));
+}, "does not implement required trait Send");
+
+// ============================================================================
+// Closures (decision 38 E)
+// ============================================================================
+// A closure is Sync iff its captured state is. A closure literal passed to an
+// `imm(f)` parameter captures by borrow, and an `imm` capture of an Rc is not
+// Sync.
+_run_sync :: (fn(f : &Impl(Fn() -> i32, Sync)) -> i32)(f());
+comptime_expect_error({
+  _imm_capture_of_rc :: (fn() -> i32)({
+    r := Rc.new(i32(1));
+    _run_sync(() => r.*)
+  });
+  _imm_capture_of_rc();
+}, "does not implement Sync");
+test("a closure over plain data is Sync", {
+  n := i32(5);
+  assert(_run_sync(() => (n + i32(1))) == i32(6), "the Sync closure ran");
+});
+// D1 covers a Sync slot as well as a Send one: a closure that may run on
+// several threads may not reach a non-Sync module-level global.
+(g_ss_names : ArrayList(Rc(i32))) = ArrayList(Rc(i32)).new();
+comptime_expect_error({
+  _sync_reaches_global :: (fn() -> i32)(_run_sync(() => i32(g_ss_names.len())));
+  _sync_reaches_global();
+}, "module-level global 'g_ss_names'");
+// A borrow capture is never Send (decision 38 E). A closure literal passed
+// to a BORROWING parameter borrows a capture that is not implicitly
+// copyable (a move-only one), so it stays in the caller's frame and may not
+// cross into a Send slot. The spawn boundaries take the closure `own`, so
+// they MOVE such a capture in instead — the two tests after this one.
+_ss_dispose_count := AtomicI32.new(i32(0));
+_SsFd :: struct(fd : i32);
+impl(
+  _SsFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _n := _ss_dispose_count.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ()
+    })
+  )
+);
+_ss_run_send :: (fn(f : &Impl(Fn() -> unit, Send)) -> unit)(f());
+comptime_expect_error({
+  _borrowed_capture_never_send :: (fn() -> unit)({
+    f := _SsFd(fd : i32(3));
+    _ss_run_send(() => {
+      _n := f.fd;
+      ()
+    });
+  });
+  _borrowed_capture_never_send();
+}, "a borrow capture is never Send");
+test("a move-only capture crosses Thread.spawn and disposes once", {
+  _ss_dispose_count.store(i32(0), MemoryOrder.Release);
+  {
+    f := _SsFd(fd : i32(3));
+    t := Thread(unit).spawn(io => {
+      assert(f.fd == i32(3), "the thread saw the moved value");
+      ()
+    });
+    t.join();
+  };
+  assert(_ss_dispose_count.load(MemoryOrder.Acquire) == i32(1), "the moved capture disposed exactly once");
+});
+test("a move-only capture crosses spawn(pool, …) and disposes once", {
+  _ss_dispose_count.store(i32(0), MemoryOrder.Release);
+  {
+    pool := ThreadPool.new(usize(1));
+    f := _SsFd(fd : i32(4));
+    spawn(&pool, io => {
+      assert(f.fd == i32(4), "the worker saw the moved value");
+      ()
+    });
+    pool.join_all();
+  };
+  assert(_ss_dispose_count.load(MemoryOrder.Acquire) == i32(1), "the moved capture disposed exactly once");
+});
+
+// ============================================================================
+// Moves through a channel, at run time (TSan: tests/send-sync.test.yo is in
+// the TSan job's list; see the issue doc for the local run)
+// ============================================================================
+_move_points :: (fn() -> i32)({
+  ch := Channel(SsPoint).new(usize(4));
+  producer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
+    (mut(i) : i32) = i32(0);
+    while(i < i32(4), {
+      _ := ch.send(SsPoint(x : i, y : (i * i32(2))));
+      i = (i + i32(1));
+    });
+    ()
+  });
+  (mut(sum) : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
+  while(k < i32(4), {
+    match(
+      ch.recv(),
+      .Some(p) => {
+        sum = (sum + (p.x + p.y));
+      },
+      .None => ()
+    );
+    k = (k + i32(1));
+  });
+  producer.join();
+  sum
+});
+test("a value struct moves through a Channel between threads", {
+  // (0+0) + (1+2) + (2+4) + (3+6) = 18
+  assert(_move_points() == i32(18), "every point arrived");
+});
+
+// ============================================================================
+// Generation B: sharing needs Sync (plans/VALUES_BY_DEFAULT.md §3.8)
+// ============================================================================
+// `SsNotSync` is plain data, so `Send`, with a negative `Sync` marker
+// (decision 38 E): it may move to another thread but never be read from two.
+SsNotSync :: struct(n : i32);
+derive(SsNotSync, Copy, Clone);
+impl(SsNotSync, !Sync());
+test("a negative Sync marker leaves a type Send", {
+  comptime_assert(Type.impls(SsNotSync, Send), "plain data is Send");
+  comptime_assert(!Type.impls(SsNotSync, Sync), "the marker removes Sync");
+});
+// Every `Arc` handle reads the payload from its own thread: `Arc(T)` needs
+// `T <: (Send, Sync)`.
+comptime_expect_error({
+  _arc_not_sync :: (fn() -> unit)({
+    _a := Arc.new(SsNotSync(n : i32(1)));
+  });
+  _arc_not_sync();
+}, "Sync");
+// `RwLock` hands out concurrent read guards: `T <: (Send, Sync)`.
+comptime_expect_error({
+  _rwlock_not_sync :: (fn() -> unit)({
+    _l := RwLock(SsNotSync).new(SsNotSync(n : i32(1)));
+  });
+  _rwlock_not_sync();
+}, "Sync");
+// Over-rejection canaries: a `Mutex` serializes access and a `Channel` moves
+// its payload, so both keep `T <: Send` and take the non-`Sync` type.
+test("Mutex and Channel take a Send type that is not Sync", {
+  _m := Mutex(SsNotSync).new(SsNotSync(n : i32(2)));
+  ch := Channel(SsNotSync).new(usize(1));
+  _sent := ch.send(SsNotSync(n : i32(5)));
+  match(
+    ch.recv(),
+    .Some(v) => assert(v.n == i32(5), "the payload moved through"),
+    .None => assert(false, "a value was sent")
+  );
+});
+// Regression (issues/fixed/2026-10-15-a-closure-parameter-captured-by-an-inner-closure-is-e0901.md):
+// a generic function's `sink` closure parameter whose type mentions the type
+// parameter, captured by a closure passed on to another call, was E0901 ("it
+// is borrowed ... Take it `sink(...)`") once its argument closure was
+// move-only. `spawn_blocking` is this shape.
+_ss_run_on_thread :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T, Send), where(T <: Send)) -> T)({
+  worker := Thread(T).spawn((tio : Io) => cb());
+  worker.join()
+});
+_ss_take :: (fn(generic(U : Type), sink(f) : Impl(Fn() -> U)) -> U)(f());
+_ss_relay :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T)) -> T)(_ss_take(() => cb()));
+test("a generic function's move-only closure parameter moves into a closure it passes on", {
+  progress := AtomicI32.new(i32(7));
+  assert(_ss_run_on_thread(() => progress.load(MemoryOrder.Acquire)) == i32(7), "the thread ran the moved closure");
+  seen := AtomicI32.new(i32(9));
+  assert(_ss_relay(() => seen.load(MemoryOrder.Acquire)) == i32(9), "the relay ran the moved closure");
+});
+// ============================================================================
+// Decision 48 W2: `Arc` and the sync types do not require `Acyclic`
+// (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §2)
+// ============================================================================
+// As in Rust, an `Arc` cycle is legal and leaks unless a back edge is
+// cleared. `SsPeer` is a struct reaching itself through
+// `Arc(Mutex(Self))`, so it derives no `Acyclic`, and before W2 `Arc` rejected
+// it (E0602). The leak itself, seen by `--debug-heap`, is the cli-case
+// tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle. The derivation
+// rows for the same shape are W5's, below.
+SsPeer :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+// Recursion with no cell on the back edge is `Acyclic`.
+SsBoxNode :: struct(id : i32, next : Option(Box(Self)));
+test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it", {
+  comptime_assert(!Type.impls(SsPeer, Acyclic), "the peer reaches itself");
+  comptime_assert(Type.impls(SsBoxNode, Acyclic), "a Box back edge is no cycle");
+  a := Arc.new(Mutex(SsPeer).new(SsPeer(id : i32(1), peer : .None)));
+  b := Arc.clone(a);
+  a.with_lock(v => {
+    v.* = SsPeer(id : i32(1), peer : .Some(Arc.clone(b)));
+  });
+  assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
+  a.with_lock(v => {
+    v.* = SsPeer(id : i32(1), peer : .None);
+  });
+  assert(a.with_lock(v => v.peer.is_none()), "the back edge is cleared");
+});
+// A cyclic payload (it reaches itself through an `Arc`): `Send` and `Sync`,
+// never `Acyclic`. Each container takes it, and the derived marker on the
+// container still says no.
+SsCyclic :: struct(v : i32, next : Option(Arc(Self)));
+test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
+  comptime_assert(Type.impls(SsCyclic, Send) && Type.impls(SsCyclic, Sync), "the payload may cross threads");
+  comptime_assert(!Type.impls(SsCyclic, Acyclic), "the payload reaches itself");
+  comptime_assert(!Type.impls(Arc(SsCyclic), Acyclic), "an Arc of it is not Acyclic");
+  comptime_assert(!Type.impls(Mutex(SsCyclic), Acyclic), "a Mutex of it is not Acyclic");
+  comptime_assert(!Type.impls(RwLock(SsCyclic), Acyclic), "an RwLock of it is not Acyclic");
+  comptime_assert(Type.impls(Mutex(i32), Acyclic) && Type.impls(Arc(i32), Acyclic), "an acyclic payload keeps the container Acyclic");
+  a := Arc.new(SsCyclic(v : i32(1), next : .None));
+  assert(a.*.v == i32(1), "the Arc holds the node");
+  m := Mutex(SsCyclic).new(SsCyclic(v : i32(2), next : .None));
+  assert(m.with_lock(n => n.v) == i32(2), "the Mutex holds the node");
+  l := RwLock(SsCyclic).new(SsCyclic(v : i32(3), next : .None));
+  assert(l.with_read(n => n.v) == i32(3), "the RwLock holds the node");
+  ch := Channel(SsCyclic).new(usize(1));
+  _sent := ch.send(SsCyclic(v : i32(4), next : .None));
+  match(
+    ch.recv(),
+    .Some(n) => assert(n.v == i32(4), "the node moved through the Channel"),
+    .None => assert(false, "a node was sent")
+  );
+  t := Thread(SsCyclic).spawn((tio : Io) => SsCyclic(v : i32(5), next : .None));
+  assert(t.join().v == i32(5), "the node came back from the thread");
+});
+// ============================================================================
+// Decision 48 W5: `Acyclic` is the strong-cycle reach walk
+// (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §4)
+// ============================================================================
+// `T <: Acyclic` iff no cycle of strong edges is reachable from a `T`. A
+// recursion through a shared cell (`Rc`, `Arc`, a `ref` object) is a cycle; one
+// through a value, a `Box` or an owned buffer is a tree (the buffer rows are in
+// tests/send-sync-raw-pointer.test.yo); a `Weak`/`ArcWeak` edge is no edge.
+// The children are owned (`Box`), so the parent edge is the only edge back.
+SsWeakParent :: struct(v : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Weak(RefCell(Self)));
+SsStrongParent :: struct(v : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Option(Rc(RefCell(Self))));
+SsArcWeakPeer :: struct(id : i32, peer : ArcWeak(Mutex(Self)));
+// `ArrayList` is a value since decision 46's B8, so a recursion through it is
+// a tree: a list owns its elements, and no element can hold the list itself.
+// Before B8 the list was a shared `ref` object, and the row was not Acyclic.
+SsListNode :: struct(v : i32, kids : ArrayList(Self));
+test("a Weak edge is no edge, and a value or Box recursion is a tree", {
+  comptime_assert(Type.impls(SsWeakParent, Acyclic), "a weak edge is no edge");
+  comptime_assert(!Type.impls(SsStrongParent, Acyclic), "a strong-parent tree is not");
+  comptime_assert(Type.impls(SsArcWeakPeer, Acyclic), "an ArcWeak back edge is no cycle");
+  comptime_assert(Type.impls(Weak(RefCell(SsStrongParent)), Acyclic), "a Weak handle reaches nothing");
+  comptime_assert(Type.impls(SsBoxNode, Acyclic), "Option(Box(Self)) stays Acyclic");
+  comptime_assert(Type.impls(SsListNode, Acyclic), "a recursion through a value ArrayList is a tree");
+  comptime_assert(Type.impls(ArrayList(SsBoxNode), Acyclic), "a list of a tree is Acyclic");
+});
+// issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md:
+// each type reaches itself through an atomic cell, so none is `Acyclic`.
+SsArcNode :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+SsArcNodeDirect :: struct(id : i32, peer : Arc(Self));
+SsPeerDirect :: struct(id : i32, peer : Option(Arc(Self)));
+test("a value struct that reaches itself through an Arc is not Acyclic", {
+  comptime_assert(!Type.impls(SsArcNode, Acyclic), "Node through Arc(Mutex(Self))");
+  comptime_assert(!Type.impls(Arc(Mutex(SsArcNode)), Acyclic), "Arc(Mutex(Node))");
+  comptime_assert(!Type.impls(SsArcNodeDirect, Acyclic), "Node through Arc(Self)");
+  comptime_assert(!Type.impls(Arc(Mutex(SsPeer)), Acyclic), "Arc(Mutex(Peer))");
+  comptime_assert(!Type.impls(Mutex(SsPeer), Acyclic), "Mutex(Peer)");
+  comptime_assert(!Type.impls(Arc(SsPeerDirect), Acyclic), "Arc(PeerDirect)");
+  comptime_assert(!Type.impls(AsyncMutex(SsArcNode), Acyclic), "an async Mutex of it");
+  comptime_assert(Type.impls(AsyncMutex(i32), Acyclic), "an async Mutex of plain data is Acyclic");
+});
+// issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md:
+// an object that holds a cyclic cell reaches that cycle, however it holds it
+// (the raw-pointer rows are in tests/send-sync-raw-pointer.test.yo).
+SsHoldsDirect :: struct(x : SsCyclic);
+SsHoldsOption :: struct(x : Option(SsCyclic));
+test("an object holding a cyclic cell behind an Option or a pointer is not Acyclic", {
+  comptime_assert(!Type.impls(SsHoldsDirect, Acyclic), "held directly");
+  comptime_assert(!Type.impls(SsHoldsOption, Acyclic), "held in an Option");
+  comptime_assert(!Type.impls(Arc(Option(SsCyclic)), Acyclic), "Arc(Option(Cyclic))");
+  comptime_assert(!Type.impls(OnceCell(SsCyclic), Acyclic), "OnceCell(Cyclic)");
+  comptime_assert(!Type.impls(Channel(SsCyclic), Acyclic), "Channel(Cyclic)");
+  comptime_assert(Type.impls(OnceCell(i32), Acyclic) && Type.impls(Channel(i32), Acyclic), "plain data keeps them Acyclic");
+});
+// issues/fixed/2026-11-21-an-arc-of-a-generic-type-with-an-explicit-marker-impl-is-rejected-inside-a-type-function.md:
+// a type function's body names `Arc(Mutex(T))` with `T` abstract; the marker
+// bound is judged at the instantiation, not against the abstract `T`.
+SsShared :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(struct(_m : Arc(Mutex(T))));
+test("a generic type holding an Arc(Mutex(T)) is accepted and judged at its instantiation", {
+  s := SsShared(i32)(_m : Arc.new(Mutex(i32).new(i32(1))));
+  t := SsShared(i32)(_m : Arc.clone(s._m));
+  t._m.with_lock(v => {
+    v.* = (v.* + i32(1));
+  });
+  assert(s._m.with_lock(v => v.*) == i32(2), "both handles name one mutex");
+  comptime_assert(Type.impls(SsShared(i32), Send) && Type.impls(SsShared(i32), Sync), "the instantiation is Send and Sync");
+});

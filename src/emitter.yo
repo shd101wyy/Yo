@@ -9,10 +9,10 @@
 // The code spill writes raw buffers (`write_sync`).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ HashSet } :: import("std/collections/hash_set");
+{ HashSet } :: import("std/collections/hash-set");
 { RefCell } :: import("std/sync/refcell");
-{ HashMap } :: import("std/collections/hash_map");
-{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash-map");
+{ ArrayList } :: import("std/collections/array-list");
 { replace } :: import("std/mem");
 { open_sync, close_sync, write_sync } :: import("std/sys/file");
 { panic } :: import("std/assert");
@@ -276,7 +276,7 @@ _emitter_quote_c_filename :: (fn(p : &String) -> String)({
   out
 });
 /// The restore-marker prefix: 8 placeholder zeros never occur in a real line
-/// number, so the patch passes (here and in chunk_assembly.yo) can recognize
+/// number, so the patch passes (here and in chunk-assembly.yo) can recognize
 /// their own directives and nothing else. A function, not a `::` constant —
 /// a module-level `String.from(...)` is a runtime value.
 line_restore_marker :: (fn() -> String)(String.from("#line 00000000 \""));
@@ -319,7 +319,7 @@ Emitter :: struct(
   line_directives : bool,
   /// The C file name restore directives attribute generated code to (the
   /// `<output>.c` sidecar). Chunked emission rewrites the name per chunk at
-  /// assembly time (chunk_assembly.yo): the emitter cannot know which chunk
+  /// assembly time (chunk-assembly.yo): the emitter cannot know which chunk
   /// a function lands in.
   line_c_name : String,
   /// The RAW `.yo` path spelling of the last directive (the comparison key —
@@ -639,7 +639,7 @@ impl(
   /// with the honest physical line number of the line AFTER it, in the final
   /// `headers ++ "\n" ++ declarations ++ "\n" ++ code` stream. `sections` and
   /// `print` call this once emission is complete; chunked emission patches the
-  /// same markers per chunk instead (chunk_assembly.yo) and this patch then
+  /// same markers per chunk instead (chunk-assembly.yo) and this patch then
   /// fixes the monolithic `--emit-c` view. In-place byte writes: the code
   /// buffer is the ~100 MB the spill lever exists to avoid copying.
   patch_restore_line_numbers : (fn(self : &mut Self) -> unit)({

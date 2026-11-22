@@ -13,23 +13,24 @@
 //!   paths returned by `Path.join` are used directly.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
   BK_IMPORT
 } :: import("../../expr.yo");
 { stable_sns_module_id } :: import("../../utils.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr-info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { register_sns_module, EvalContext, LoadModuleResult } :: import("../context.yo");
 { Diagnostic } :: import("../../diagnostics.yo");
 { EvalValue, EvalValueNode, type_of_eval_value, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ YoError, format_error_message, take_error_diagnostics, note_diagnostic_of_token } :: import("../../error.yo");
+{ YoError, format_error_message, format_error_message_with_help, format_error_message_with_repair, take_error_diagnostics, note_diagnostic_of_token } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { Path } :: import("std/path");
 { cwd } :: import("std/env");
@@ -49,7 +50,7 @@ _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 /// Synchronous file existence check via libc `stat` — portable to Windows
 /// (MSVC has stat in <sys/stat.h>; POSIX `access`/`F_OK` broke the v0.2.0
-/// windows seed leg). Matches module_manager.yo's `_path_exists_sync`.
+/// windows seed leg). Matches module-manager.yo's `_path_exists_sync`.
 _file_exists_sync :: (fn(absolute_path : &String) -> bool)({
   { malloc, free } :: GlobalAllocator;
   cstr := absolute_path.to_cstr();
@@ -67,7 +68,7 @@ _file_exists_sync :: (fn(absolute_path : &String) -> bool)({
 /// `import("mylib")` / `import("mylib/sub")` resolve through this table: the
 /// project's `yo.toml` closure — its own `[modules]`, every dependency's
 /// modules under the dependency's name, transitively — as computed by
-/// `manifest.resolve_import_roots`. module_manager.yo registers it from the
+/// `manifest.resolve_import_roots`. module-manager.yo registers it from the
 /// manifest it discovers above the entry file, or from the build runner's
 /// explicit `--imports <file>` mapping (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
 /// §4.5.1). Empty for a file outside any project, where only `std/`,
@@ -138,6 +139,63 @@ lookup_import_root :: (fn(name : &String) -> Option(String))({
     i = (i + usize(1));
   });
   Option(String).None
+});
+// ---------------------------------------------------------------------------
+// Module file and directory names (plans/backlog/KEBAB_CASE_NAMES.md Part C)
+// ---------------------------------------------------------------------------
+/// A module file or directory name breaks the naming rule when it holds `_`
+/// or an ASCII upper-case letter: a `.yo` file, a directory and a
+/// `[modules]` key are kebab-case, because a module path is only ever a
+/// string (an `import(…)` argument), never an identifier.
+module_name_offends :: (fn(name : &String) -> bool)({
+  (mut(i) : usize) = usize(0);
+  while(i < name.len(), i = (i + usize(1)), {
+    b := name.byte_at(i);
+    if((b == u8(95)) || ((b >= u8(65)) && (b <= u8(90))), {
+      return(true);
+    });
+  });
+  false
+});
+/// The kebab-case spelling of a module file or directory name: ASCII upper
+/// case lowered and `_` written `-`, with a `-` that would lead or trail a
+/// dot-separated part dropped (a name may not start with `-`: `yo check
+/// -foo.yo` reads it as a flag). `array_list.yo` → `array-list.yo`,
+/// `foo_bar.test.yo` → `foo-bar.test.yo`, `_fsm.yo` → `fsm.yo`. There is no
+/// CamelCase splitting (`FooBar` → `foobar`): the rule is one byte-wise
+/// normalization, so a name is recognized the same way everywhere.
+module_name_kebab :: (fn(name : &String) -> String)({
+  parts := name.split(String.from("."));
+  out_parts := ArrayList(String).new();
+  (mut(pi) : usize) = usize(0);
+  while(pi < parts.len(), pi = (pi + usize(1)), {
+    p := parts(pi).clone();
+    bytes := ArrayList(u8).new();
+    (mut(bi) : usize) = usize(0);
+    while(bi < p.len(), bi = (bi + usize(1)), {
+      b := p.byte_at(bi);
+      cond(
+        (b == u8(95)) => bytes.push(u8(45)),
+        ((b >= u8(65)) && (b <= u8(90))) => bytes.push(b + u8(32)),
+        true => bytes.push(b)
+      );
+    });
+    (mut(lo) : usize) = usize(0);
+    while((lo < bytes.len()) && (bytes(lo) == u8(45)), {
+      lo = (lo + usize(1));
+    });
+    (mut(hi) : usize) = bytes.len();
+    while((hi > lo) && (bytes((hi - usize(1))) == u8(45)), {
+      hi = (hi - usize(1));
+    });
+    kept := ArrayList(u8).new();
+    (mut(ki) : usize) = lo;
+    while(ki < hi, ki = (ki + usize(1)), {
+      kept.push(bytes(ki));
+    });
+    out_parts.push(String.from_bytes(kept));
+  });
+  String.from(".").join(&out_parts)
 });
 // ---------------------------------------------------------------------------
 // Module path resolution (shared with main.yo's preload_module_tree)
@@ -282,6 +340,111 @@ resolve_module_path_ex :: (
     index_exists => ModuleResolveResult.Found(`file://${index_yo_path}`),
     true => ModuleResolveResult.NotFound(module_path_to_import)
   )
+});
+/// The import specs an import of a renamed module may mean (VERDICTS-67): every
+/// spelling of `spec` with some of its offending segments (`_` or upper case)
+/// written in their kebab-case normalization that resolves to an existing
+/// module, one per module reached. Normalization equality only: no edit
+/// distance, and the import stays an error (nothing resolves under the old
+/// name). `.`, `..`, empty segments and a leading `std` are kept; more than six
+/// offending segments give no candidate.
+renamed_module_candidates :: (
+  fn(spec : &String, current_dir : &String, std_path : &String) -> ArrayList(String)
+)({
+  out := ArrayList(String).new();
+  segs := spec.split(String.from("/"));
+  idx := ArrayList(usize).new();
+  (mut(si) : usize) = usize(0);
+  while(si < segs.len(), si = (si + usize(1)), {
+    seg := segs(si).clone();
+    keep := ((seg == "") || (seg == ".") || (seg == "..") || ((si == usize(0)) && (seg == "std")));
+    if(!keep && module_name_offends(&seg) && (module_name_kebab(&seg) != seg) && !module_name_kebab(&seg).is_empty(), {
+      idx.push(si);
+    });
+  });
+  if((idx.len() == usize(0)) || (idx.len() > usize(6)), {
+    return(out);
+  });
+  reached := ArrayList(String).new();
+  (mut(combos) : usize) = usize(1);
+  (mut(ci) : usize) = usize(0);
+  while(ci < idx.len(), ci = (ci + usize(1)), {
+    combos = (combos * usize(2));
+  });
+  // Mask 0 is the spelling that just failed.
+  (mut(mask) : usize) = usize(1);
+  while(mask < combos, mask = (mask + usize(1)), {
+    mut(variant) := segs.clone();
+    (mut(bit) : usize) = usize(1);
+    (mut(bj) : usize) = usize(0);
+    while(bj < idx.len(), bj = (bj + usize(1)), {
+      if(((mask / bit) % usize(2)) == usize(1), {
+        variant(idx(bj)) = module_name_kebab(&segs(idx(bj)));
+      });
+      bit = (bit * usize(2));
+    });
+    v := String.from("/").join(&variant);
+    match(
+      resolve_module_path_ex(v.clone(), current_dir.clone(), std_path.clone(), true),
+      .Found(p) => if(_file_exists_sync(&p.replace(String.from("file://"), String.new())) && !reached.contains(&p), {
+        reached.push(p);
+        out.push(v);
+      }),
+      _ => ()
+    );
+  });
+  out
+});
+/// Raise "module not found" for the import `module_arg` (spelling `spec`).
+/// A module renamed to kebab-case (plans/backlog/KEBAB_CASE_NAMES.md Part C)
+/// is not found under its old name: one candidate under the naming
+/// normalization is repaired on the import string; several, or none for a
+/// path that breaks the rule, are named in the help (VERDICTS-67).
+_throw_module_not_found :: (
+  fn(module_arg : &AstExpr, spec : &String, msg : &String, current_dir : &String, std_path : &String, exn : Exception) -> unit
+)({
+  module_path_to_import := spec.clone();
+  arg_raw := ast_expr_token(module_arg).value.*.clone();
+  is_literal := (ast_expr_is_atom(module_arg) && arg_raw.starts_with("\"") && !arg_raw.contains("\\"));
+  cands := renamed_module_candidates(&module_path_to_import, current_dir, std_path);
+  cond(
+    ((cands.len() == usize(1)) && is_literal) => exn.throw(
+      dyn(
+        Box.new(
+          format_error_message_with_repair(
+            ast_expr_token(module_arg),
+            msg,
+            &Option(String).Some(`module file and directory names are kebab-case: did you mean \`import("${cands(usize(0))}")\`?`),
+            &`"${cands(usize(0))}"`,
+            &`import("${cands(usize(0))}")`
+          )
+        )
+      )
+    ),
+    (cands.len() > usize(0)) => exn.throw(
+      dyn(
+        Box.new(
+          format_error_message_with_help(
+            ast_expr_token(module_arg),
+            msg,
+            &Option(String).Some(`module file and directory names are kebab-case; these modules match: ${String.from(", ").join(&cands)}`)
+          )
+        )
+      )
+    ),
+    module_name_offends(&module_path_to_import) => exn.throw(
+      dyn(
+        Box.new(
+          format_error_message_with_help(
+            ast_expr_token(module_arg),
+            msg,
+            &Option(String).Some(String.from("module file and directory names are kebab-case, and no module matches this path's kebab-case spelling either"))
+          )
+        )
+      )
+    ),
+    true => exn.throw(dyn(Box.new(format_error_message(ast_expr_token(module_arg), msg))))
+  );
 });
 // ---------------------------------------------------------------------------
 // _build_module_val_from_env
@@ -480,7 +643,16 @@ evaluate_import :: (
   // `preload_module_tree` (main.yo) registers under.
   (module_abs_path : String) = match(
     resolve_module_path(module_path_to_import.clone(), current_dir.clone(), ctx.std_path.clone()),
-    .Found(p) => p,
+    .Found(p) => {
+      // An explicit `.yo` path resolves without a probe; when its file is
+      // missing and a kebab-case spelling exists, it is the renamed-module
+      // error below rather than a failed read.
+      fs_p := p.replace(String.from("file://"), String.new());
+      if(!_file_exists_sync(&fs_p) && (renamed_module_candidates(&module_path_to_import, &current_dir, &ctx.std_path).len() > usize(0)), {
+        _throw_module_not_found(&module_arg, &module_path_to_import, &`Module not found: "${fs_p}" does not exist`, &current_dir, &ctx.std_path, exn);
+      });
+      p
+    },
     .Ambiguous(base) => {
       exn.throw(
         dyn(
@@ -495,16 +667,7 @@ evaluate_import :: (
       String.from("")
     },
     .NotFound(base) => {
-      exn.throw(
-        dyn(
-          Box.new(
-            format_error_message(
-              ast_expr_token(&module_arg),
-              `Module not found: tried "${base}.yo" and "${base}/index.yo"`
-            )
-          )
-        )
-      );
+      _throw_module_not_found(&module_arg, &module_path_to_import, &`Module not found: tried "${base}.yo" and "${base}/index.yo"`, &current_dir, &ctx.std_path, exn);
       String.from("")
     },
     .Unavailable(name, reason) => {
@@ -600,4 +763,4 @@ evaluate_import :: (
 });
 export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);
 export(set_import_root, set_import_unavailable, clear_import_roots, lookup_import_root, lookup_import_unavailable);
-export(resolve_module_path_ex);
+export(resolve_module_path_ex, module_name_offends, module_name_kebab, renamed_module_candidates);

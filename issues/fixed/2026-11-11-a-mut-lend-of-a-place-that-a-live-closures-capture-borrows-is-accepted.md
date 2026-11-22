@@ -99,7 +99,7 @@ Every `&mut` lend now reaches the capture borrows: a local `w := &mut h` and a `
 calls `access_expr`; a `&mut` argument, a `&mut self` receiver and the by-value `&mut` lend of `for(&mut xs, …)` carry
 the conflict in their pending entry (`D3PendingInout.cap_conflict`, `exprs/assignment.yo`), judged at the call whatever
 the callee's body does (the declared mode; the local-borrow half of that rule for summarized callees is still
-`issues/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`).
+`issues/fixed/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`).
 
 Tests: `tests/origins/unsound/c2-ref-capture-then-mut-arg.yo`, `-local-mut.yo`, `-mut-capture.yo`, `-mut-receiver.yo`,
 `-mut-scrutinee.yo`, `-mut-walk.yo` (E0910), `c2-ref-capture-then-mut-arg-pos.yo`, `-mut-receiver-pos.yo` (accept, ASan

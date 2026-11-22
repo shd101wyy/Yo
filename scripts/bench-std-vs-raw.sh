@@ -14,7 +14,7 @@ YO="${YO:?set YO to the yo binary}"
 REPS="${REPS:-7}"
 OUT="$(mktemp -d)"
 trap 'rm -rf "${OUT}"' EXIT
-"${YO}" compile "${HERE}/bench/async-vs-libuv/std_vs_raw.yo" --optimize 2 -o "${OUT}/bench" >/dev/null
+"${YO}" compile "${HERE}/bench/async-vs-libuv/std-vs-raw.yo" --optimize 2 -o "${OUT}/bench" >/dev/null
 MODES="pp_raw pp_std wr_raw wr_std"
 for r in $(seq "${REPS}"); do
   for m in ${MODES}; do

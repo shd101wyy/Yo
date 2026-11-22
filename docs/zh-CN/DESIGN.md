@@ -1,7 +1,8 @@
 # 语言设计
 
 **Yo** 是一种多范式、通用、编译型编程语言。
-Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）。
+Yo 追求**简洁**与**高效**：它编译为 C11，目标是与 C 相当的速度。实测差距见
+`plans/backlog/CODEGEN_PERFORMANCE.md`。
 
 **Yo** 旨在成为一门对 C 和 JavaScript (TypeScript) 程序员来说**易于学习**的编程语言 😉。
 
@@ -48,7 +49,8 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [recur](#recur)
   - [共享单元与内存管理](#共享单元与内存管理)
     - [引用计数单元](#引用计数单元)
-    - [编译期引用计数优化](#编译期引用计数优化)
+    - [选择值、借用还是共享单元](#选择值借用还是共享单元)
+    - [读取计数](#读取计数)
     - [显式分配器](#显式分配器)
     - [只能移动的值](#只能移动的值)
 - [指针](#指针)
@@ -243,7 +245,7 @@ export(main);
 ```
 
 `main` 必须返回 `unit`，编译器会拒绝其他返回类型。程序主体在一个大栈的工作线程上运行，
-因此从 `main` 返回的值无处可去 —— 过去它会被计算然后被静默丢弃。请用 `std/process` 的
+因此从 `main` 返回的值无处可去。请用 `std/process` 的
 `exit(code)` 设置进程退出状态：
 
 ```yo
@@ -299,15 +301,15 @@ yo fmt --check             # 只检查格式，不写入变更
 
 同一条规则还会去掉另外两类括号：包住整个调用参数的括号（`f((a + b))` 变为 `f(a + b)`，因为调用自身的括号已经完成了分组），以及包住单个前缀运算符操作数的括号（`-(x)` 变为 `-x`，`!(done)` 变为 `!done`）。以下括号会保留：加括号的右操作数（`a + (b + c)`）、前缀运算符的复合操作数（`-(x + x)`、`!(a > b)`）、分隔两个不同运算符的括号（`(a * b) + c`），以及 `:=` 或 `=` 右侧二元表达式外的括号——E0003 要求必须有它。`yo fmt` 从不添加括号，所以 E0003 需要的括号要自己写。格式化前后对比：
 
-```yo
+```yo ignore
 // 格式化前
-s1 := (a - b - c - x);
+s1 := (((a - b) - c) - x);
 s2 := (a + (b + c));
-s3 := f(a + b);
-s4 := -x;
+s3 := f((a + b));
+s4 := -(x);
 s5 := -(x + x);
 s6 := ((a * b) + c);
-ok := !done;
+ok := !(done);
 
 // `yo fmt` 之后
 s1 := (a - b - c - x);
@@ -457,7 +459,7 @@ begin(
 
 #### 非定长类型
 
-没有自身大小的类型只能放在指针后面：`&T`、`&mut T`、`*T`，或者 `Box(T)` 这样的拥有型句柄（决策 49，见 [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md)）。共有三种：
+没有自身大小的类型只能放在指针后面：`&T`、`&mut T`、`*T`，或者 `Box(T)` 这样的拥有型句柄。共有三种：
 
 - `[T]`（`Slice(T)`），一段 `T`，其长度由指针携带。`unsize(&a)` 把 `&Array(T, N)` 变成 `&[T]`（`&mut a` 和 `*Array(T, N)` 同理），而 `&xs(a..b)` 是对容器一部分的视图，不做复制，该容器的 `Index(Range(usize))` impl 的 `Output : [T]`。`size_of_val(s)` 和 `align_of_val(s)` 通过指针测量。
 - `Dyn(Trait, ...)`，trait 对象，其指针携带虚表（[DYN_DESIGN.md](./DYN_DESIGN.md)）。
@@ -470,7 +472,15 @@ Show :: trait(show : (fn(self : &Self) -> i32));
 show :: (fn(generic(T : ?Sized), x : &T, where(T <: Show)) -> i32)(x.show());
 ```
 
-标准库中 `[T]` 上的方法（`len`、索引、迭代）随 v0.2.78 提供。
+trait 的关联类型也接受同样的种类：写作 `Target : ?Sized` 时，impl 既可以把它绑定为 `[T]` 或 `str`，也可以绑定为定长类型；trait 只在指针后面使用 `Self.Target`（按值使用 `Self.Target` 在 trait 处就是 E0619）。写作 `Target : Type` 时它是定长的，为它写的值类型 `str` 表示 `&(str, static)`。
+
+```yo
+Peek :: trait(Target : ?Sized, peek : (fn(self : &Self) -> &Self.Target));
+Row :: struct(a : Array(i32, 3));
+impl(Row, Peek(Target : [i32], peek : (fn(self : &Self) -> &Self.Target)(&self.a.*)));
+```
+
+标准库为 `[T]` 提供 `len`、`is_empty`、`contains`、`==` 与哈希；`[T]` 没有下标，也没有迭代器。
 
 #### 值类型与共享单元
 
@@ -539,7 +549,7 @@ z := 16;
 #### 绑定默认不可变，除非声明为 `mut(name)`
 
 绑定在定义之后不能被写入，除非它的名字被包在 `mut(...)` 中，相当于 Rust 的
-`let mut`（plans/VALUES_BY_DEFAULT.md 决策 47）。该标记在每个绑定位置都包住名字：
+`let mut`。该标记在每个绑定位置都包住名字：
 
 ```yo
 x := 0; // 不可变
@@ -566,22 +576,21 @@ r := match(
 - 以 `&mut` 借出（`f(&mut x)`、`y := &mut x.f`、`match(&mut x, …)`、`&mut x` 捕获）；
 - 调用 `&mut self` 方法（在 `String` 上调用 `s.push_str("!")`）。
 
-对没有该标记的绑定做其中任何一种写入都是错误 E0917。绑定持有的 `ref` 句柄（目前的集合、
-`ref(struct(...))` 对象）是一个指针：经由它写入字段或调用 `&mut self` 方法写入的是对象，
-而不是绑定本身，不需要标记；重新赋值该绑定则需要。借用（`x : &mut T`、`y := &mut place`）
+对没有该标记的绑定做其中任何一种写入都是错误 E0917。共享句柄之后的“门”经由自己的方法写入：
+`RefCell.with_mut` 接收 `&self` 并写入载荷，因此 `RefCell` 绑定改变它所持有的内容不需要标记；
+重新赋值该绑定仍然需要。借用（`x : &mut T`、`y := &mut place`）
 是被“透过”写入，而不是被写入。没有初值声明的绑定（`(x : T);`）的第一次赋值是它的初始化。
 
-参数不接受 `mut`：参数保持不可变，参数位置上的 `mut(x) : T` 是已删除的借用写法（E0009）。
+参数不接受 `mut`：参数保持不可变。
 需要修改按值实参的函数体应重新绑定它：`mut(y) := x;`，对拥有所有权的值这是一次移动；
 需要修改调用方的值则改用 `x : &mut T`。模块级绑定遵循同一规则：未标记的相当于 Rust 的
 `static`，`mut(G) := v` 相当于 `static mut`（且永远不能借给调用，E0916）。在编译期被重新赋值的
 编译期绑定声明为 `mut(x) :: v`（或 `comptime(mut(x)) := v`），在块中和模块级都一样。`for` 的元素
 绑定和闭包捕获列表中的条目同样不接受 `mut`；需要修改它们的函数体应重新绑定。
 
-`yo fix <path>` 会为一次写入插入它需要的标记，每轮一处；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。本版本中，该规则在除编译器自身
-源码之外的所有地方生效（编译器源码在下一个版本中迁移）；`std/` 已完成迁移，同样受此检查。
+`yo fix <path>` 会为一次写入插入它需要的标记，每轮一处。
 
-> `mut` 是保留字：它包住绑定的名字（`mut(x) := v`），或出现在 `&` 之后（位置中的 `&mut T`，调用点的 `&mut x`）；名为 `mut` 的绑定或参数是错误。`imm` 已不再是关键字。
+> `mut` 是保留字：它包住绑定的名字（`mut(x) := v`），或出现在 `&` 之后（位置中的 `&mut T`，调用点的 `&mut x`）；名为 `mut` 的绑定或参数是错误。
 
 #### 禁止变量遮蔽
 
@@ -716,7 +725,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### 参数模式是函数类型的一部分
 
-`fn(x : &mut i32) -> unit`、`fn(x : &String) -> usize` 和 `fn(x : String) -> usize` 是三个不同的类型：`&mut T` 参数是对调用方位置的独占借用，`&T` 参数是只读（共享）借用，普通参数是**按值**传递。`Copy` 类型的按值参数得到一份副本；显式复制类型（只能移动的值、没有 `Copy` 的纯数据，或 `Rc`/`Arc` 句柄，决策 17）的按值参数会消耗其实参，调用方的绑定在调用处结束。`sink(x)` 参数，以及闭包或函数实参，总是移动。无论参数类型是否为 `Copy`，模式都是类型的一部分，所以 `fn(x : &i32)` 与 `fn(x : i32)` 也不同。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置，无论它经由哪条路径到达：绑定到带类型的名字、作为实参传给 `fn(...)` 或 `Impl(Fn(...))` 参数、存入字段、作为返回值，或由 `dyn(...)` 包装成 `Dyn(Fn(...))`。闭包字面量采用它所在位置的参数模式：
+`fn(x : &mut i32) -> unit`、`fn(x : &String) -> usize` 和 `fn(x : String) -> usize` 是三个不同的类型：`&mut T` 参数是对调用方位置的独占借用，`&T` 参数是只读（共享）借用，普通参数是**按值**传递。`Copy` 类型的按值参数得到一份副本；显式复制类型（只能移动的值、没有 `Copy` 的纯数据，或 `Rc`/`Arc` 句柄）的按值参数会消耗其实参，调用方的绑定在调用处结束。`sink(x)` 参数，以及闭包或函数实参，总是移动。无论参数类型是否为 `Copy`，模式都是类型的一部分，所以 `fn(x : &i32)` 与 `fn(x : i32)` 也不同。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置，无论它经由哪条路径到达：绑定到带类型的名字、作为实参传给 `fn(...)` 或 `Impl(Fn(...))` 参数、存入字段、作为返回值，或由 `dyn(...)` 包装成 `Dyn(Fn(...))`。闭包字面量采用它所在位置的参数模式：
 
 ```yo
 bump :: (fn(x : &mut i32) -> unit)({
@@ -728,15 +737,15 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 唯一的例外是 `impl` 成员的接收者：trait 中声明为 `self : &mut Self` 的方法可以用 `self : Self` 实现，因为每个调用点都会按 impl 自己的签名适配。
 
-在这一代中，`&T` 与 `&mut T` 是位置所写的借用**模式**，而不是类型：它们加在参数、接收者（`self : &Self`、`self : &mut Self`）、闭包参数（`(v : &T) => ...`）或带标签的 `Fn` 位置（`Fn(v : &T) -> R`；不接受无标签的 `Fn(&T)`）的类型之前。在类型单独出现的任何地方（`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T`），借用符号构成**引用类型**（决策 43 第 3 步，见下文“引用类型”）；`&&T` 是指向引用的引用：对引用绑定 `r` 写 `&r` 借出的是 `r` 本身（`&&T`；对 `mut(r)` 绑定写 `&mut r` 得到 `&mut &T`），因此参数 `a : &mut &(T, p)` 可以让调用者的引用改指向别处。没有任何转换会把 `&&T` 变成 `&T`：对所指值的再借用写作 `&r.*`，方法调用经由 `(&r).m()` 与 `rr.*.m()`（R-PROBE 的解引用步骤）找到所指值的方法；对 `&&T` 绑定直接写 `rr.m()` 暂不解析。借用结果（`-> &T` / `-> &mut T`）是投影（决策 24）：函数体产出用结果符号书写、以借用参数为根的位置，并通过下标（`x(i)`）到达（[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。
+`&T` 与 `&mut T` 是位置所写的借用**模式**：它们加在参数、接收者（`self : &Self`、`self : &mut Self`）、闭包参数（`(v : &T) => ...`）或带标签的 `Fn` 位置（`Fn(v : &T) -> R`；不接受无标签的 `Fn(&T)`）的类型之前。在类型单独出现的任何地方（`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T`），借用符号构成**引用类型**（见下文“引用类型”）；`&&T` 是指向引用的引用：对引用绑定 `r` 写 `&r` 借出的是 `r` 本身（`&&T`；对 `mut(r)` 绑定写 `&mut r` 得到 `&mut &T`），因此参数 `a : &mut &(T, p)` 可以让调用者的引用改指向别处。没有任何转换会把 `&&T` 变成 `&T`：对所指值的再借用写作 `&r.*`，方法调用经由 `(&r).m()` 与 `rr.*.m()`（方法探测的解引用步骤）找到所指值的方法；对 `&&T` 绑定直接写 `rr.m()` 不会被解析。借用结果（`-> &T` / `-> &mut T`）是投影：函数体产出用结果符号书写、以借用参数为根的位置，并通过下标（`x(i)`）到达（[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。
 
-**Origin**（决策 43 第 2 步的第一部分；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O1）。参数的引用可以写出它的 **origin**，即它可能指向的位置集合：`x : &(T, p)` 与 `x : &mut(T, p)`，其中 `p` 在签名的 `generic(...)` 子句中以种类 `Origin` 声明，就像类型参数以 `Type` 声明一样。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。空 origin 写作 `static`（决策 49）；在 v0.2.77 中，除 std 和声明了 `pragma(Pragma.AllowUnsafe);` 的文件外，写出它是错误 E0922；这些文件可以把它当作未经检查的断言写出，直到 v0.2.78 开始检查它。第二个参数按其种类解读，必须是 origin：那里出现类型是错误 E0922（Yo 把元组类型写作 `Tuple(A, B)`，所以指向元组的引用是 `&Tuple(A, B)`），未被任何 `generic(p : Origin)` 声明的名字或另一个参数的名字也是如此。origin 参数不是类型参数，所以只对 origin 抽象的函数不是泛型函数，只编译一次。投影的结果类型（决策 24）也可以写出 origin：`-> &(T, p)` 借自 origin 参数，`-> &(T, xs)` 借自引用参数 `xs`，`-> &(T, (p, xs))` 借自两者之一。方法的结果可以写出它所在 impl 的 origin 参数，就像 Rust 的 `Entry<'a, K, V>::or_insert(self) -> &'a mut V`：对 `impl(generic(p : Origin), H(p), get : (fn(self : &Self) -> &(i32, p))(…))`，调用通过匹配接收者的类型绑定 `p`，所以对 `h : H(x)` 调用 `h.get()` 借自 `x`，可以比 `h` 活得更久，并在存活期间冻结 `x`；没有任何参数的类型写出的名字（调用无法绑定它）是错误 E0922。按值参数的位置属于被调函数自己的栈帧，所以对 `v : T` 写 `-> &(T, v)` 是错误 E0912。结果的 origin 会被检查（N1c）。一次调用只冻结结果 origin 指名的那些实参：`pick` 返回 `-> &(T, a)` 时，`r := pick(&a, &b)` 之后只要 `r` 还活着，`b` 仍然可写；省略的结果 origin 指名每个引用参数，所以省略 origin 的调用发生冲突时，诊断会附带一条说明，指出是哪个参数以及能释放它的写法。函数体产出的位置必须从 origin 指名的参数出发到达：从另一个参数出发是错误 E0923，从局部绑定或按值参数出发是 E0912。impl 的结果 origin 必须包含在它的 trait 方法的结果 origin 之内，引用结果如此，携带 origin 的按值结果（如 `-> Option(&(T, self))`）也如此（O7：更窄可以接受，更宽，或在 trait 写出 origin 时省略，是 E0923），`Dyn` 调用按 trait 的签名映射结果 origin。origin 不属于类型的身份：`fn(generic(p : Origin), v : &(i32, p)) -> i32` 与 `fn(v : &i32) -> i32` 是同一个函数类型，生成的 C 也相同；`-> &(T, xs)` 与 `-> &T` 亦然。闭包 trait 可以返回引用，`Fn(s : &T) -> &U`（它的 origin 按调用计算，即该次调用的引用实参，从不写出）：具名投影，或函数体产出从自身参数出发到达的 `&place` 的闭包字面量，可以填入这个槽位；产出它所捕获位置的闭包是错误 E0923。投影可以通过任何投影类型的值调用：`fn(...) -> &T` 类型的参数或字段、`Impl(Fn(...) -> &T)`、`Dyn(Fn(...) -> &T)`，以及效应操作 `ctl(...) -> &T`，其处理器以自身参数的位置恢复。引用的被指类型（`&mut &(T, p)`）、局部绑定的标注和闭包 trait 结果上的 origin 参数在后续部分中才能带 origin。`Origin` 与 `Type` 一样是保留的类型名。
+**Origin**。参数的引用可以写出它的 **origin**，即它可能指向的位置集合：`x : &(T, p)` 与 `x : &mut(T, p)`，其中 `p` 在签名的 `generic(...)` 子句中以种类 `Origin` 声明，就像类型参数以 `Type` 声明一样。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。空 origin 写作 `static`。它不会被检查，所以在安全代码中写出它是错误 E0922；std 和声明了 `pragma(Pragma.AllowUnsafe);` 的文件可以把它当作未经检查的断言写出。第二个参数按其种类解读，必须是 origin：那里出现类型是错误 E0922（Yo 把元组类型写作 `Tuple(A, B)`，所以指向元组的引用是 `&Tuple(A, B)`），未被任何 `generic(p : Origin)` 声明的名字或另一个参数的名字也是如此。origin 参数不是类型参数，所以只对 origin 抽象的函数不是泛型函数，只编译一次。投影的结果类型也可以写出 origin：`-> &(T, p)` 借自 origin 参数，`-> &(T, xs)` 借自引用参数 `xs`，`-> &(T, (p, xs))` 借自两者之一。方法的结果可以写出它所在 impl 的 origin 参数，就像 Rust 的 `Entry<'a, K, V>::or_insert(self) -> &'a mut V`：对 `impl(generic(p : Origin), H(p), get : (fn(self : &Self) -> &(i32, p))(…))`，调用通过匹配接收者的类型绑定 `p`，所以对 `h : H(x)` 调用 `h.get()` 借自 `x`，可以比 `h` 活得更久，并在存活期间冻结 `x`；没有任何参数的类型写出的名字（调用无法绑定它）是错误 E0922。按值参数的位置属于被调函数自己的栈帧，所以对 `v : T` 写 `-> &(T, v)` 是错误 E0912。结果的 origin 会被检查。一次调用只冻结结果 origin 指名的那些实参：`pick` 返回 `-> &(T, a)` 时，`r := pick(&a, &b)` 之后只要 `r` 还活着，`b` 仍然可写；省略的结果 origin 指名每个引用参数，所以省略 origin 的调用发生冲突时，诊断会附带一条说明，指出是哪个参数以及能释放它的写法。函数体产出的位置必须从 origin 指名的参数出发到达：从另一个参数出发是错误 E0923，从局部绑定或按值参数出发是 E0912。impl 的结果 origin 必须包含在它的 trait 方法的结果 origin 之内，引用结果如此，携带 origin 的按值结果（如 `-> Option(&(T, self))`）也如此（更窄可以接受；更宽，或在 trait 写出 origin 时省略，是 E0923），`Dyn` 调用按 trait 的签名映射结果 origin。origin 不属于类型的身份：`fn(generic(p : Origin), v : &(i32, p)) -> i32` 与 `fn(v : &i32) -> i32` 是同一个函数类型，生成的 C 也相同；`-> &(T, xs)` 与 `-> &T` 亦然。闭包 trait 可以返回引用，`Fn(s : &T) -> &U`（它的 origin 按调用计算，即该次调用的引用实参，从不写出）：具名投影，或函数体产出从自身参数出发到达的 `&place` 的闭包字面量，可以填入这个槽位；产出它所捕获位置的闭包是错误 E0923。投影可以通过任何投影类型的值调用：`fn(...) -> &T` 类型的参数或字段、`Impl(Fn(...) -> &T)`、`Dyn(Fn(...) -> &T)`，以及效应操作 `ctl(...) -> &T`，其处理器以自身参数的位置恢复。引用的被指类型（`&mut &(T, p)`）、局部绑定的标注和闭包 trait 的结果不写 origin。`Origin` 与 `Type` 一样是保留的类型名。
 
-**引用类型**（决策 43 第 3 步的第一部分；[`plans/handover/D43_STEP3_N2_DESIGN.md`](../../plans/handover/D43_STEP3_N2_DESIGN.md)）。在槽位之外，`&T`、`&mut T`、`&(T, o)` 与 `&mut(T, o)` 表示引用类型：结构体或枚举的字段（`struct(at : &(i32, p), lo : usize)`）、类型实参（`Option(&i32)`、`ArrayList(&(i32, (x, y)))`）或别名（`R :: &i32`）。类型构造器用 `comptime(p) : Origin` 声明 origin 参数，并应用于一个按名字解读的 origin，`View(x)`：绑定的位置（局部绑定、参数、模块级绑定）、作用域中的 origin 参数，或并集 `(x, y)`。不写 origin 的字段 `&T` 得到它自己的新 origin。类型不能把自己的字段当作 origin（`next : &(i32, self.value)` 是错误 E0924）：值内部的每个引用都指向外部，因此移动值不会使引用悬空。origin 不属于类型的身份：`View(x)` 与 `View(y)`、`Option(&(i32, x))` 与 `Option(&(i32, y))` 是同一个类型、同一个 C 结构体。不接受 origin 的位置以错误 E0909 拒绝带 origin 的类型：`extern` 签名（FFI 使用裸指针）和模块级绑定。本版本给出了第一批值：引用类型之上的**内联复合类型**——值语义的结构体或枚举（包括无字段变体 `Option(&mut i32).None`）、元组、数组——可以构造并按值传递。构造调用借用每个引用字段的位置（`at : &x`、`at : &mut x`），绑定冻结被借用的根（E0911）；返回 origin 指向本函数局部量的值是 E0912。`&T` 字段是 `Copy`（拷贝共享其指针），`&mut T` 字段使持有者只能移动，除非其类型声明 `derive(..., Copy, Clone)`；C 将引用字段_lowering_ 为 `const T*` / `T*`。绑定引用载荷的 `match` 分支（在 `Option(&T)` 或 `Option(&Dyn(Trait))` 上的 `.Some(r)`）把 `r` 绑定为引用，与 `r := &x` 相同。`r.f`、`r.m()` 与 `r.*` 经由它读取，`f(r)` 把它直接借给 `&T` 参数，而通过 `&` 载荷写入是 E0908。`r` 存活期间，被匹配值中的引用所指向的位置被冻结（E0911）。结果类型携带 origin 的函数，其 `&T` 参数按指针传递，与投影相同，因此由该参数构造的 `.Some(r)` 指向调用者的位置。`match(&x, …)` 的绑定同样是指向 `x` 所在位置的引用，因此作为 `Option(&T)` 返回的 `match(&h.v, .Some(s) => .Some(s), .None => .None)` 指向 `h` 内部。读取引用字段尚未接受（解引用部分 N1e）；容器或单元（`ArrayList(&T)`、`Rc`、`RefCell`）内部的引用在容器部分之前没有值。
+**引用类型**。在槽位之外，`&T`、`&mut T`、`&(T, o)` 与 `&mut(T, o)` 表示引用类型：结构体或枚举的字段（`struct(at : &(i32, p), lo : usize)`）、类型实参（`Option(&i32)`、`ArrayList(&(i32, (x, y)))`）或别名（`R :: &i32`）。类型构造器用 `comptime(p) : Origin` 声明 origin 参数，并应用于一个按名字解读的 origin，`View(x)`：绑定的位置（局部绑定、参数、模块级绑定）、作用域中的 origin 参数，或并集 `(x, y)`。不写 origin 的字段 `&T` 得到它自己的新 origin。类型不能把自己的字段当作 origin（`next : &(i32, self.value)` 是错误 E0924）：值内部的每个引用都指向外部，因此移动值不会使引用悬空。origin 不属于类型的身份：`View(x)` 与 `View(y)`、`Option(&(i32, x))` 与 `Option(&(i32, y))` 是同一个类型、同一个 C 结构体。不接受 origin 的位置以错误 E0909 拒绝带 origin 的类型：`extern` 签名（FFI 使用裸指针）和模块级绑定。引用类型之上的**内联复合类型**——值语义的结构体或枚举（包括无字段变体 `Option(&mut i32).None`）、元组、数组——可以构造并按值传递。构造调用借用每个引用字段的位置（`at : &x`、`at : &mut x`），绑定冻结被借用的根（E0911）；返回 origin 指向本函数局部量的值是 E0912。`&T` 字段是 `Copy`（拷贝共享其指针），`&mut T` 字段使持有者只能移动，除非其类型声明 `derive(..., Copy, Clone)`；C 将引用字段_lowering_ 为 `const T*` / `T*`。绑定引用载荷的 `match` 分支（在 `Option(&T)` 或 `Option(&Dyn(Trait))` 上的 `.Some(r)`）把 `r` 绑定为引用，与 `r := &x` 相同。`r.f`、`r.m()` 与 `r.*` 经由它读取，`f(r)` 把它直接借给 `&T` 参数，而通过 `&` 载荷写入是 E0908。`r` 存活期间，被匹配值中的引用所指向的位置被冻结（E0911）。结果类型携带 origin 的函数，其 `&T` 参数按指针传递，与投影相同，因此由该参数构造的 `.Some(r)` 指向调用者的位置。`match(&x, …)` 的绑定同样是指向 `x` 所在位置的引用，因此作为 `Option(&T)` 返回的 `match(&h.v, .Some(s) => .Some(s), .None => .None)` 指向 `h` 内部。引用类型的字段用 `.*` 读取（`h.f.*`）。容器或单元（`ArrayList(&T)`、`Rc`、`RefCell`）内部的引用是错误。
 
-**`Escapable` 与经由句柄的借用**（决策 43 第 2 步，N1d；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O9、O10）。prelude 的标记 trait `Escapable` 对不携带 origin 的类型成立：引用、任何持有引用的类型、带借用捕获的闭包以及借用的 future 都不是 `Escapable`；其他所有类型都是。它像 `Send` 一样由类型的结构推导，从不手写实现（`impl(T, Escapable())` 是错误）。泛型函数用 `where(T <: Escapable)` 声明它，把 `T` 绑定为带 origin 的类型的调用在该调用处报错误 E0909。`Rc(V)` 与 `Arc(V)` 只接受 `Escapable` 的载荷，因此对持有引用的 `v` 调用 `Rc.new(v)` 以同样的消息报 E0909：计数单元的载荷在最后一个句柄消失时才释放，那个时刻无法与任何借用对照检查。共享借用可以穿过句柄的解引用：`r := &h.*.x` 与捕获 `{ x : &h.*.x }` 借用载荷，以句柄的位置为 origin，因此借用存活期间 `h` 被冻结（丢弃、移动或重新赋值它是 E0911；另一个句柄的丢弃没有问题，因为被冻结的 `h` 仍持有载荷）。经由句柄的载荷是只读的（决策 46），所以 `&mut h.*.x` 仍是错误 E0919。
+**`Escapable` 与经由句柄的借用**。prelude 的标记 trait `Escapable` 对不携带 origin 的类型成立：引用、任何持有引用的类型、带借用捕获的闭包以及借用的 future 都不是 `Escapable`；其他所有类型都是。它像 `Send` 一样由类型的结构推导，从不手写实现（`impl(T, Escapable())` 是错误）。泛型函数用 `where(T <: Escapable)` 声明它，把 `T` 绑定为带 origin 的类型的调用在该调用处报错误 E0909。`Rc(V)` 与 `Arc(V)` 只接受 `Escapable` 的载荷，因此对持有引用的 `v` 调用 `Rc.new(v)` 以同样的消息报 E0909：计数单元的载荷在最后一个句柄消失时才释放，那个时刻无法与任何借用对照检查。共享借用可以穿过句柄的解引用：`r := &h.*.x` 与捕获 `{ x : &h.*.x }` 借用载荷，以句柄的位置为 origin，因此借用存活期间 `h` 被冻结（丢弃、移动或重新赋值它是 E0911；另一个句柄的丢弃没有问题，因为被冻结的 `h` 仍持有载荷）。经由句柄的载荷是只读的，所以 `&mut h.*.x` 仍是错误 E0919。
 
-**用 `.*` 读引用**（决策 43 第 2 步，N1e-1；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md)）。引用绑定（`&T` 或 `&mut T` 参数、局部借用 `y := &place`、捕获列表中的借用、`for(&xs, x => …)` 的元素、`match(&x, …)` 或 `match(&mut x, …)` 的绑定）用 `.*` 读写它所引用的值：`n : &i32` 时写 `n.* + 1`，`r : &mut T` 时写 `r.* = v`，`x := r.*`（复制，与 `t := s` 的复制相同）。把裸名字当作整个值使用是错误 E0926：运算数（`n + 1`；运算符从不自动解引用）、按值传递的实参、初始化式、返回值、写入 `r = v`，以及借用 `&r`（应写作 `&r.*`，即被引用的值）。裸名字的四种用法不是整值读取，保持原样：接收者经由引用读取（`r.field`、`r.method()`、`r(i)`）；把名字传给引用参数（`f(r)` 传递 `r` 所借用的）；重新指向 `r = &place`；以及 `match(r, …)` 的被匹配值，它经由引用匹配，因此其绑定借用被引用值的载荷（经由 `&mut` 引用时还能写入）。对引用写 `match(&r, …)` 是 E0926，因为这个标记是多余的，迁移会删掉它；`match(r.*, …)` 匹配被引用值的一份副本。对指向 `Box`、`Rc` 或指针的引用，`r.*` 是引用自身的解引用，`r.*.*` 才是载荷。`yo fix <path> --migrate deref` 插入所有 `.*` 并删掉 `match` 中多余的标记（`YO_AUDIT_DEREF=1` 只列出位置，不修改文件）。无论在哪台主机上运行，它都会迁移按平台分支的 `cond` 的每个分支：若文件中有在主机上不会求值的分支，就针对其他每种架构和操作系统再求值一次；两个目标读法不同的位置会被列出并保持原样。该规则适用于所有文件，包括标准库、编译器自身源码和获取的依赖（自 v0.2.79 起）；只有编译器合成的代码保留裸名读取。
+**用 `.*` 读引用**。引用绑定（`&T` 或 `&mut T` 参数、局部借用 `y := &place`、捕获列表中的借用、`for(&xs, x => …)` 的元素、`match(&x, …)` 或 `match(&mut x, …)` 的绑定）用 `.*` 读写它所引用的值：`n : &i32` 时写 `n.* + 1`，`r : &mut T` 时写 `r.* = v`，`x := r.*`（复制，与 `t := s` 的复制相同）。把裸名字当作整个值使用是错误 E0926：运算数（`n + 1`；运算符从不自动解引用）、按值传递的实参、初始化式、返回值、写入 `r = v`，以及借用 `&r`（应写作 `&r.*`，即被引用的值）。裸名字的四种用法不是整值读取，保持原样：接收者经由引用读取（`r.field`、`r.method()`、`r(i)`）；把名字传给引用参数（`f(r)` 传递 `r` 所借用的）；重新指向 `r = &place`；以及 `match(r, …)` 的被匹配值，它经由引用匹配，因此其绑定借用被引用值的载荷（经由 `&mut` 引用时还能写入）。对引用写 `match(&r, …)` 是 E0926，因为这个标记是多余的；`match(r.*, …)` 匹配被引用值的一份副本。对指向 `Box`、`Rc` 或指针的引用，`r.*` 是引用自身的解引用，`r.*.*` 才是载荷。该规则适用于所有文件，包括标准库和获取的依赖。
 
 ```yo
 first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v.*);
@@ -746,11 +755,9 @@ first_of :: (fn(generic(p : Origin), s : &(Pair, p)) -> &(i32, p))(&s.a);
 second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 ```
 
-**引用上的 impl**（决策 43 N1f-2；[`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) 决策 43，R-PROBE）。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`，接收 `&Self` 的 trait 会强制出现）被接受：引用绑定 `r : &C` 作为接收者时借出自身的存储，与 `(&r).m()` 相同；自有的值、调用结果或显式的 `(&c)` 没有可借出的存储，调用报错并提示先把引用绑定到局部变量。中缀运算符按同一规则选择：作为引用绑定的操作数以其引用类型参与选择，所以 `ra, rb : &C` 上的 `ra == rb` 是 `&C` 上的 impl（Rust 的 `impl PartialEq<&B> for &A`），其 `lhs : &Self` 与 `rhs : &Rhs` 槽位由两个绑定自身的存储填充；它绝不是解引用。没有 `&C` 上的 impl 接受这些操作数时（`c : C` 时的 `ra == c`、`ra + 1`，或 `C` 没有这样的 impl），该操作数是整值读取，E0926 要求写 `ra.*`。prelude 为每个具有 `Eq(T)` / `Ord(T)` 的定长 `T` 提供 `Eq(&T)` 与 `Ord(&T)`（Rust 的 `impl PartialEq<&B> for &A`）：两个引用按其所指的值比较与排序，因此 `ra == rb`、`ra < rb` 以及 `T := &U` 处的泛型代码（`max`、约束 `where(T <: Ord(T))`）都可用；与之并存的用户 `impl(&C, Eq(&C))` 是 E0612。`&T` 上的 `Hash` 与 `ToString` 尚未提供。
+**引用上的 impl**。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`，接收 `&Self` 的 trait 会强制出现）被接受：引用绑定 `r : &C` 作为接收者时借出自身的存储，与 `(&r).m()` 相同；自有的值、调用结果或显式的 `(&c)` 没有可借出的存储，调用报错并提示先把引用绑定到局部变量。类型为引用 `&U` 的接收者（绑定、字段、调用结果、`rr.*`）首先探测槽位 `&U`：`impl(U, …)` 中 `self : &Self` 的方法与 `impl(&U, …)` 中 `self : Self` 的方法占据这个槽位，引用本身就是实参。只有没有任何方法占据该槽位时，探测才会到达 `&&U`：引用绑定借出自身的存储来填充它，其他接收者则不能（E0610）。引用上的 impl（包括 `&T` 上的通用实现）绝不会遮蔽被指类型自身的方法。中缀运算符按同一规则选择：作为引用绑定的操作数以其引用类型参与选择，所以 `ra, rb : &C` 上的 `ra == rb` 是 `&C` 上的 impl（Rust 的 `impl PartialEq<&B> for &A`），其 `lhs : &Self` 与 `rhs : &Rhs` 槽位由两个绑定自身的存储填充；它绝不是解引用。没有 `&C` 上的 impl 接受这些操作数时（`c : C` 时的 `ra == c`、`ra + 1`，或 `C` 没有这样的 impl），该操作数是整值读取，E0926 要求写 `ra.*`。prelude 为每个具有 `Eq(T)` / `Ord(T)` 的定长 `T` 提供 `Eq(&T)` 与 `Ord(&T)`（Rust 的 `impl PartialEq<&B> for &A`）：两个引用按其所指的值比较与排序，因此 `ra == rb`、`ra < rb` 以及 `T := &U` 处的泛型代码（`max`、约束 `where(T <: Ord(T))`）都可用；与之并存的用户 `impl(&C, Eq(&C))` 是 E0612。prelude 还为每个具有 `Hash(T)` / `ToString(T)` 的定长 `T` 提供 `Hash(&T)` 与 `ToString(&T)`：引用的哈希与渲染就是其引用物的哈希与渲染；与之并存的用户 `impl(&C, Hash(&C))` 是 E0612。
 
-旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
-
-运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式（决定 34）。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn` 没有可交给按值操作数的值，所以方法按值接收 `self` 的 trait（`LogicalNot`、`Negate`、`Add` 等）无论载荷是什么都不能放到 `Dyn` 后面（E0614）。
+运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn` 没有可交给按值操作数的值，所以方法按值接收 `self` 的 trait（`LogicalNot`、`Negate`、`Add` 等）无论载荷是什么都不能放到 `Dyn` 后面（E0614）。
 
 ```yo
 Money :: struct(cents : i64);
@@ -769,7 +776,7 @@ show(&s); // s 仍可使用
 take(s); // 被移动
 ```
 
-`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [FLOWABILITY.md](./FLOWABILITY.md)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`，对所有代码生效，包括 std；临时值、字面量、闭包和运算符操作数不需要标记。早于这些标记的旧代码（裸的具名位置或作为取址的 `&x`）请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
+`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#局部借用)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`，对所有代码生效，包括 std；临时值、字面量、闭包和运算符操作数不需要标记。
 
 ### 命名参数
 
@@ -1171,7 +1178,7 @@ lambda 中，`recur` 指代该 lambda，而不是外层函数。`recur` 是一�
 
 ### 共享单元与内存管理
 
-Yo 使用**引用计数单元**（`Rc`、`Arc`），配合[生成的 C 中的引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)来实现安全高效的内存管理。
+Yo 使用**引用计数单元**（`Rc`、`Arc`）实现共享所有权。`Rc(T)` 以非原子方式对句柄计数，`Arc(T)` 以原子方式计数。非原子计数是可靠的，因为 `Rc` 不是 `Send`：它从不离开自己的线程，所以只有一个线程会访问它的计数（[PARALLELISM.md](./PARALLELISM.md)）。跨线程共享请用 `Arc`（[ARC.md](./ARC.md)）。
 
 #### 引用计数单元
 
@@ -1195,13 +1202,11 @@ s2 := Rc.clone(s1); // RC = 2（两个句柄指向同一个单元）
 s3 := Rc.clone(s2); // RC = 3
 // 当 s1、s2、s3 离开作用域时，RC 递减
 // 当 RC 降为零时，载荷的 `drop` 运行并释放单元
-// 实践中，dup/drop 配对优化器会消除许多这样的操作
 ```
 
-#### 替换 `ref` 声明
+#### 选择值、借用还是共享单元
 
-`ref(struct(...))` 与 `ref(enum(...))` 正在退役（plans/VALUES_BY_DEFAULT.md
-V5），自 v0.2.76 起 std 中不再有这两种声明。两个问题决定 `ref` 类型的替代形式：
+两个问题决定了一个持有状态的类型的形态：
 
 1. 构造之后它会被写入吗？
 2. 它是否被两个所有者需要，而这两个所有者的生存期超出彼此的调用？
@@ -1209,7 +1214,7 @@ V5），自 v0.2.76 起 std 中不再有这两种声明。两个问题决定 `re
 都不是：普通 `struct`，按 `&` 传入、按值返回。是、否：一个拥有所有权的值，写入处以
 `&mut` 借出，只读处以 `&` 借出。都是：`Rc(RefCell(S))`。
 
-std 原先的 `ref` 类型展示了方法的形态，每个方法只有一种形态：
+std 的类型展示了方法的形态，每个方法只有一种形态：
 
 - 构建器消耗并返回：链式写 `Command.new(p).arg(a).arg(b)`，或在 `mut(cmd)` 绑定上写
   `cmd = cmd.arg(a);`。`HttpRequest`/`HttpResponse` 的 `.header`/`.with_body` 以及
@@ -1221,18 +1226,22 @@ std 原先的 `ref` 类型展示了方法的形态，每个方法只有一种形
 - `HttpServer` 是共享的那一个：它的 `serve` future 拥有一个 `server.clone()`，保留下来的
   克隆在处理函数或另一个任务中调用 `stop`。
 
-#### 编译期引用计数优化
+#### 读取计数
 
-编译器在编译期抵消成对的引用计数操作，因此在最后一次使用处移动的值不产生计数流量。
+内建函数 `ref_count(x)` 以 `usize` 返回 `x` 所持单元的句柄数；`Arc(T)` 以原子加载读取。对值类型（普通 `struct`、整数）它总是 `1`，在编译期已知。`Box` 没有计数，所以 `ref_count(b)` 是编译错误。计数用于唯一性检查（写时复制）和测试，不用于程序逻辑。
 
-生成的 C 里有什么、优化器消除哪些操作，详见 [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
+```yo
+a := Rc.new(i32(42));
+b := Rc.clone(a);
+assert(ref_count(b) == usize(2), "两个句柄，一个单元");
+```
 
 #### 显式分配器
 
 引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`Box.new`、`Rc.new`、`Arc.new` 以及容器的 `new` / `with_capacity` 都用 `alloc : .Some(a)`：
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 Point :: struct(x : i32, y : i32);
 
 // `a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
@@ -1265,7 +1274,7 @@ export(main);
 
 这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`String` 字段：`holds a move-only value in its field \`name\``）。实现了 `Drop` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；是 `Clone` 但不是 `Copy` 的记录或闭包按字段克隆：`Copy` 的部分被复制，其余部分被克隆。闭包的组成部分就是它的捕获记录，与 Rust 相同：按值捕获按其自身类型计算（列出的 `{ s }`，以及隐式捕获——绑定到名字的闭包拥有它捕获的东西），`&` 捕获是指针，因此是 `Copy`，`&mut` 捕获使闭包既不是 `Copy` 也不是 `Clone`。所以拥有 `String` 的闭包是 `Clone` 而不是 `Copy`：`d := c` 会移动它，`c.clone()` 则得到持有自己 `String` 的第二个闭包。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
 
-`Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。`&T` 参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请按值接受参数（`p : Point`，不写 `&`）。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
+`Copy` 是规则。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。`&T` 参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请按值接受参数（`p : Point`，不写 `&`）。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
 
 #### 只能移动的值
 
@@ -1298,11 +1307,11 @@ export(main);
 
 要把字段从一个仍然存活的持有者中移出，请使用 `std/mem`（即 Rust 的 `std::mem`）：`replace(&mut h.f, v)` 写入 `v` 并返回旧值，`take(&mut h.f)` 写入 `T` 的默认值（`where(T <: Default)`）并返回旧值，`swap(&mut a, &mut b)` 交换两个位置的值。它们都按位移动，因此只能移动的值既不会被复制，也不会被 drop 两次。它们位于独立的模块而不是 prelude 中，所以这些名字仍可用于你自己的定义：`{ replace, take, swap } :: import("std/mem");`。
 
-泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。集合元素改为按位置访问（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)的决定 20）：`xs(i)` 原地读取元素，`xs.with(i, (v) => …)` 以 `&mut` 借用元素运行一段代码并返回其结果，`xs.take(i)` 把元素移出并留下 `T` 的默认值，`xs.swap(i, j)` 交换两个元素，`std/mem` 的 `replace(&mut xs(i), v)` 移入新值并移出旧值。每个会复制的访问器都有一个用于实现了 `Clone` 的元素的克隆版本：`ArrayList` 的 `get_cloned`、`first_cloned` 和 `last_cloned`；`Deque` 的 `get_cloned`、`front_cloned` 和 `back_cloned`；各种映射的 `get_cloned`，以及 `get_key_value_cloned`（`HashMap`）、`get_index_cloned`（`OrderedMap`）和 `first_entry_cloned`/`last_entry_cloned`（`BTreeMap`）；`PriorityQueue` 的 `peek_cloned`。`xs.extend(ys)` 会消耗 `ys`；`xs.extend_cloned(&ys)` 追加克隆并保留它。`Option` 和 `Result` 的 `unwrap`、`expect`、`unwrap_or`、`unwrap_or_else`、`unwrap_or_default`、`unwrap_err` 和 `expect_err` 会消耗接收者，因此 `make().unwrap()` 能把只能移动的载荷移出。
+泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。集合元素改为按位置访问：`xs(i)` 原地读取元素，`xs.with(i, (v) => …)` 以 `&mut` 借用元素运行一段代码并返回其结果，`xs.take(i)` 把元素移出并留下 `T` 的默认值，`xs.swap(i, j)` 交换两个元素，`std/mem` 的 `replace(&mut xs(i), v)` 移入新值并移出旧值。每个会复制的访问器都有一个用于实现了 `Clone` 的元素的克隆版本：`ArrayList` 的 `get_cloned`、`first_cloned` 和 `last_cloned`；`Deque` 的 `get_cloned`、`front_cloned` 和 `back_cloned`；各种映射的 `get_cloned`，以及 `get_key_value_cloned`（`HashMap`）、`get_index_cloned`（`OrderedMap`）和 `first_entry_cloned`/`last_entry_cloned`（`BTreeMap`）；`PriorityQueue` 的 `peek_cloned`。`xs.extend(ys)` 会消耗 `ys`；`xs.extend_cloned(&ys)` 追加克隆并保留它。`Option` 和 `Result` 的 `unwrap`、`expect`、`unwrap_or`、`unwrap_or_else`、`unwrap_or_default`、`unwrap_err` 和 `expect_err` 会消耗接收者，因此 `make().unwrap()` 能把只能移动的载荷移出。
 
 #### std 的资源是只能移动的
 
-`std/` 中的资源是只能移动的值：`File`、`TempDir`、`TempFile`、`Watcher`、`TcpStream`、`TcpListener`、`UdpSocket`、`UnixStream`、`UnixListener`、`TlsStream`、`HttpClient`、`Child` 及其管道句柄（`ChildStdin`、`ChildStdout`、`ChildStderr`）、`Thread`，以及拥有其中之一的 `BufReader`/`BufWriter`（[值语义计划](../../plans/VALUES_BY_DEFAULT.md) V3）。每个都是状态存放在 `Box` 里的结构体，因此句柄可以移动，而 future 或运行时仍持有状态的地址。丢弃句柄即释放资源：描述符被关闭、临时文件被删除、监视被停止、线程被分离。原子原语（`Mutex`、`RwLock`、`Channel`、`Atomic*` 类型以及 `std/sync` 的其余部分）在后续步骤之前仍是共享的引用类型。
+`std/` 中的资源是只能移动的值：`File`、`TempDir`、`TempFile`、`Watcher`、`TcpStream`、`TcpListener`、`UdpSocket`、`UnixStream`、`UnixListener`、`TlsStream`、`HttpClient`、`Child` 及其管道句柄（`ChildStdin`、`ChildStdout`、`ChildStderr`）、`Thread`，以及拥有其中之一的 `BufReader`/`BufWriter`。每个都是状态存放在 `Box` 里的结构体，因此句柄可以移动，而 future 或运行时仍持有状态的地址。丢弃句柄即释放资源：描述符被关闭、临时文件被删除、监视被停止、线程被分离。`std/sync` 原语（`Mutex`、`RawMutex`、`RwLock`、`Cond`、`Barrier`、`Semaphore`、`WaitGroup`、`Once`、`OnceCell` 以及 `Atomic*` 类型）同样是只能移动的值，跨线程时以 `Arc(Mutex(T))` 的形式共享；`Channel(T)` 是持有队列 `Arc` 的值，`ch.clone()` 是该队列上的另一个句柄。
 
 - **复制是 E0901。** `g := f` 移动文件，之后再使用 `f` 是 E0901（使用已移动的值）。把一个句柄存两次、或在两个闭包中捕获它，同样是 E0901。在这次改动之前，`File` 是引用句柄，副本共享它的描述符和位置。
 - **借出它。** 每个方法都取 `self : &Self`，所以 `f.read_to_string(io)` 借用 `f`。只使用资源的函数取 `&File`。
@@ -1315,13 +1324,13 @@ export(main);
 
 - 在创建它的地方 await。它不能被绑定到名字、被 spawn 或被返回（E0909）。
 - 它的 effect bundle 必须是一个位置。写成 `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)`；在 `io.await` 里内联 `IoExn(...)` 是 E0910。
-- 被借用的资源不能位于 `ref` 对象或指针解引用之内（E0909）：把它存为 `Rc` 字段。
+- 被借用的资源不能位于 `Rc` 载荷之内或指针解引用之后（E0909）：改为借出句柄。
 
-出于同样的原因，`Dyn(Reader)` 和 `Dyn(Writer)` 已不再可用。这两个 trait 的默认方法（`read_to_end`、`read_to_string`、`write_all`）返回借用 reader 或 writer 的 future，而 vtable 的 future 类型不携带借用，因此对任何实现者，把 `dyn(r)` 当作这两种 trait 对象都是 E0909。请改用泛型 `Impl(Reader)` / `Impl(Writer)` 参数。
+出于同样的原因，没有 `Dyn(Reader)` 和 `Dyn(Writer)`。这两个 trait 的默认方法（`read_to_end`、`read_to_string`、`write_all`）返回借用 reader 或 writer 的 future，而 vtable 的 future 类型不携带借用，因此对任何实现者，把 `dyn(r)` 当作这两种 trait 对象都是 E0909。请改用泛型 `Impl(Reader)` / `Impl(Writer)` 参数。
 
 #### 析构函数：`Drop`
 
-`Drop` 是析构 trait，其方法 `drop` 采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。它以前名为 `Dispose`，编译器已不再识别这个名字（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`）；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
+`Drop` 是析构 trait，其方法 `drop` 采用 Rust 的语义：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。
 
 手动调用析构函数是错误 E0915，与 Rust 相同：`x.drop()`、`Fd.drop(&x)` 和 `(Fd <: Drop).drop(&x)` 会在值仍然存活时再运行一次析构函数。把它当作值读取（`f := Fd.drop`）也是 E0915，因为通过 `f` 调用会造成同样的结果。其他 trait 中恰好名为 `drop` 的方法是普通方法，可以直接调用，也可以通过 `Dyn` 调用。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
 
@@ -1390,6 +1399,9 @@ float_ptr := (*f32)(ptr); // 将指针转换为 *(f32)
 指针算术使用方法 — `p.add(n)`、`p.sub(n)`、`p.offset_from(q)` — 需要 `unsafe(...)` 包装；指针比较使用普通运算符（`==`、`!=`、`<`、`<=`、`>`、`>=`，经由 `*(T)` 上的 `Eq`/`Ord` impl）并保持安全 — 比较地址本身不会破坏内存安全。注意 `*(T) ==` 比较的是地址（同一性），而 `Rc(T)` 这样的句柄通过自己的 `Eq` impl 比较值。
 
 ```yo
+pragma(Pragma.AllowUnsafe); // 原始指针需要 unsafe 能力的 pragma
+{ assert } :: import("std/assert");
+
 test("Pointer arithmetic", {
   x := 12;
   p := addr_of(x);
@@ -1436,7 +1448,7 @@ consume(ptr.* = some_value);
 
 对其他任何参数，`consume(x)` 会移动 `x`（之后再使用会报 "use of moved value"）；由于它返回 `unit`，它就是该值的最后一个所有者：被拥有的值在 consume 处释放，与 `drop(x)` 的释放完全相同。不拥有其值的绑定（`&T` 借用）只会被标记为已移动。
 
-更多指针示例请参阅 [ptr.test.yo](../tests/ptr.test.yo)。
+更多指针示例请参阅 `tests/ptr.test.yo`。
 
 ### 可空指针
 
@@ -1475,6 +1487,8 @@ sz_tree :: size_of(Tree); // == size_of(*u8)   —— NULL 即 Empty
 
 面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`&mut T` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`、`unwrap` 禁令，以及整数算术规则（溢出、除以零和越界移位都会中止程序）。
 
+所有权、移动与拷贝、`&T`/`&mut T` 引用及其来源，以及编译器检查的借用规则，见 [OWNERSHIP_AND_BORROWING.md](OWNERSHIP_AND_BORROWING.md)。
+
 Yo 的安全模型是分层的（设计计划见 [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)）：
 
 - **`Rc(T)`** 是引用计数的单元，在最后一个句柄处自动释放（环会泄漏，除非用 `Weak` 打破），从构造上保证内存安全。
@@ -1510,7 +1524,7 @@ write_and_read :: (fn(p : *i32, v : i32) -> i32)(
 
 如需一目了然地审计，运行 `yo unsafe-report`（或 `yo unsafe-report ./std` 仅扫描标准库）。它列出每一处 `unsafe(...)` 站点、`asm(...)` 块、`extern(...)` 声明以及声明 pragma 的文件，带 `file:line:col` 跳转格式以方便编辑器查看。`--json` 标志输出机器可读格式，便于 CI 集成。
 
-```yo
+```yo ignore
 // 没有 pragma 的文件 — `unsafe(...)` 被拒绝：
 main :: (fn() -> unit)({
   x := i32(42);
@@ -1518,7 +1532,9 @@ main :: (fn() -> unit)({
   //        To use raw pointer operations, declare at the top:
   //            pragma(Pragma.AllowUnsafe);
 });
+```
 
+```yo
 // 在文件顶部添加 pragma 即可启用：
 pragma(Pragma.AllowUnsafe);
 
@@ -1534,6 +1550,8 @@ main :: (fn() -> unit)({
 要在不使用原始指针的情况下实现原地修改，请使用 `name : &mut T` 参数。`&mut` 加在参数类型之前，参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `name : &mut T` 在 C 中降低为 `T*`；调用方用 `&mut x` 借出该位置，编译器传递它的地址。
 
 ```yo
+{ assert } :: import("std/assert");
+
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   tmp := a.*;
   a.* = b.*;
@@ -1545,13 +1563,13 @@ increment :: (fn(n : &mut i32) -> unit)({
 });
 
 main :: (fn() -> unit)({
-  x := i32(1);
-  y := i32(2);
+  mut(x) := i32(1);
+  mut(y) := i32(2);
   swap(&mut x, &mut y); // 调用点用 `&mut` 借出每个位置
   assert(x == i32(2), "swapped");
   assert(y == i32(1), "swapped");
 
-  counter := i32(0);
+  mut(counter) := i32(0);
   increment(&mut counter);
   increment(&mut counter);
   assert(counter == i32(2), "incremented");
@@ -1628,8 +1646,8 @@ Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后�
   `s(a..b)` 是静态字节上的零拷贝窗口，永远不会悬空。
 - **元素访问只交出值，从不交出内部指针** —— `xs.get(i)` 返回元素
   （`Copy` 类型返回拷贝，用 `xs(i) = v` 写回；其余用
-  `xs.get_cloned(i)`，`Rc` 元素得到第二个句柄，容器增长后依然有效），受流动性
-  规则约束（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+  `xs.get_cloned(i)`，`Rc` 元素得到第二个句柄，容器增长后依然有效），见
+  [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#元素访问与迭代)。
 
 ### 使用 `..` 的区间
 
@@ -1722,7 +1740,7 @@ assert(arr1(usize(0)) == i32(1), "arr1 未改变");
 assert(arr2(usize(0)) == i32(10), "arr2 已修改");
 ```
 
-更多数组示例请参阅 [array.test.yo](../tests/array.test.yo)。
+更多数组示例请参阅 `tests/array.test.yo`。
 
 ## 算术与失败语义
 
@@ -1914,7 +1932,7 @@ while(i < usize(3), {
 
 组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
-借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：写 `x.* = …` 即写入该元素。借用符号写在来源上，元素的模式随之而定。对映射，`for(&mut m, (k, v) => body)` 借出每个值（键为只读）。循环是基于 `(&mut coll).into_iter()` 的值形式：`impl(&mut C, IntoIterator)` 返回的游标在整个循环期间持有对集合的借出（`plans/VALUES_BY_DEFAULT.md` 决策 39，`plans/backlog/REFERENCES_AND_ORIGINS.md` 的 R-FOR），因此循环体只能通过 `x` 触及集合：在循环体中提到集合本身是 E0911。只读遍历 `for(&coll, x => body)`（映射为 `for(&m, (k, v) => body)`）同样作用于 `(&coll).into_iter()`，并把每个元素绑定为只读的 `&` 引用：不复制任何东西，经由 `x` 写入是 E0908，循环体可以读取集合但不能写入它（E0911）。每个 std 集合都支持只读遍历；`HashSet` 与 `PriorityQueue` 没有原地遍历，`String` 两者都没有（请遍历 `s.chars()`）。若要在遍历列表时读取或扩充它，请遍历它的位置：`for(xs.indices(), i => …)` 配合 `xs(i)`。经由 `Rc` 触及的来源写成 `for(&xs.*, …)`（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：写 `x.* = …` 即写入该元素。借用符号写在来源上，元素的模式随之而定。对映射，`for(&mut m, (k, v) => body)` 借出每个值（键为只读）。循环是基于 `(&mut coll).into_iter()` 的值形式：`impl(&mut C, IntoIterator)` 返回的游标在整个循环期间持有对集合的借出，因此循环体只能通过 `x` 触及集合：在循环体中提到集合本身是 E0911。只读遍历 `for(&coll, x => body)`（映射为 `for(&m, (k, v) => body)`）同样作用于 `(&coll).into_iter()`，并把每个元素绑定为只读的 `&` 引用：不复制任何东西，经由 `x` 写入是 E0908，循环体可以读取集合但不能写入它（E0911）。每个 std 集合都支持只读遍历；`HashSet` 与 `PriorityQueue` 没有原地遍历，`String` 两者都没有（请遍历 `s.chars()`）。若要在遍历列表时读取或扩充它，请遍历它的位置：`for(xs.indices(), i => …)` 配合 `xs(i)`。经由 `Rc` 触及的来源写成 `for(&xs.*, …)`（见 [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#迭代)）。
 
 ```yo
 mut(xs) := ArrayList(i32).new();
@@ -2543,8 +2561,7 @@ command :: (fn(s : String) -> i32)(
 `(c := Rc(p))` 绑定单元本身。`Rc(T)` 或 `Arc(T)` 位置只接受包装写法：
 不写包装的结构化模式是 E0609，其帮助信息给出 `Rc(p)`。缺失的情形
 也透过包装打印（`.Node(Rc(.Leaf(_)), _)`）。在唯一的 `Box(T)` 位置上，未写
-`Box(…)` 的模式目前仍会被隐式穿透，直到 `src/` 写出 `Box(p)` 为止
-（`plans/VALUES_BY_DEFAULT.md` 决定 31）：
+`Box(…)` 的模式也会被隐式穿透：
 
 ```yo
 axis :: (fn(t : Tuple(i32, i32)) -> i32)(
@@ -2599,7 +2616,7 @@ leaves :: (fn(t : Tree) -> i32)(
 ### `match` 如何接收被匹配值
 
 `match` 接收被匹配值的方式与参数接收实参的方式相同
-（`plans/VALUES_BY_DEFAULT.md` 决策 26，即 Rust 的默认绑定模式）：
+（即 Rust 的默认绑定模式）：
 
 | 被匹配值 | 分支中的绑定 |
 | --- | --- |
@@ -2633,11 +2650,11 @@ main :: (fn() -> unit)({
   p := Two.Two(a : Fd(n : 3), b : Fd(n : 4));
   n := match(&p, .Two(a, _) => a.n, .Zero => i32(0)); // 借用；p 仍可用
   r := first(p); // p 移动进 `first`
-  (o : Option(i32)) = .Some(i32(1));
+  (mut(o) : Option(i32)) = .Some(i32(1));
   match(
     &mut o,
     .Some(v) => {
-      v = (v + i32(1));
+      v.* = (v.* + i32(1));
     },
     .None => ()
   ); // o 变为 .Some(2)
@@ -2649,7 +2666,7 @@ main :: (fn() -> unit)({
 - 守卫把绑定视为借用；移动发生在分支被选中时，因此守卫失败时载荷留给下一个分支。
 - 分支没有绑定的部分（`_`、未列出的字段）在进入分支时被丢弃。分支结束时仍拥有的绑定在
   那里被丢弃；被移走的绑定则不再存在。
-- 在引用单元之下（模式透视的 `Rc`/`Arc` 载荷、`ref` 值），绑定是借用，句柄一直存活到分支结束。
+- 在引用单元之下（模式透视的 `Rc`/`Arc` 载荷），绑定是借用，句柄一直存活到分支结束。
 - 消耗式 `match` 之后再使用被匹配值是 E0901，其提示给出 `match(&x, …)`。按值匹配模块级
   绑定、字段（`x.f`）、元素（`xs(i)`）或解引用（`p.*`）同样是 E0901（Yo 没有部分移动）：
   请写 `match(&x.f, …)`，或先用 `std/mem` 的 `take(&mut x.f)` 或
@@ -2680,7 +2697,7 @@ s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 并就地修改；而 `+` 之类的运算符仍然产生新字符串。
 
 增量拼接请使用 `StringBuilder`：它是一个拥有自己字节缓冲区的值
-（`B11`，决策 24）——`b2 := b` 是移动，`b.clone()` 是独立副本，
+——`b2 := b` 是移动，`b.clone()` 是独立副本，
 `into_string()` 把缓冲区直接交还为 `String`，不新分配。需要多个所有者
 共享的构建器写作 `Rc(RefCell(StringBuilder))`。
 
@@ -2719,7 +2736,7 @@ s3 := (s + s2); // 创建一个新字符串。
 ```yo
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 // `&mut T` 参数传入的是调用方的变量本身。
 append_mut :: (fn(out : &mut String) -> unit)({
@@ -2728,19 +2745,19 @@ append_mut :: (fn(out : &mut String) -> unit)({
 
 // `&T` 参数是借用的：写一个局部克隆并返回它。
 with_bang :: (fn(s : &String) -> String)({
-  t := s.clone();
+  mut(t) := s.clone();
   t.push_str("!");
   t
 });
 
 main :: (fn() -> unit)({
   a := String.from("hi");
-  b := a.clone(); // b 拥有自己的一份字节
+  mut(b) := a.clone(); // b 拥有自己的一份字节
   b.push_str("?"); // a 不受影响
   println(`"${a}" "${b}"`); // "hi" "hi?"
 
   e := String.new();
-  f := e.clone();
+  mut(f) := e.clone();
   f.push_str("x"); // 无论是否为空，克隆都是独立的
   println(`"${e}" "${f}"`); // "" "x"
 
@@ -2822,7 +2839,7 @@ impl(Point, Format());
 
 ## 集合
 
-完整的集合类型及其 API 请参阅 [std/collections](../std/collections)。
+完整的集合类型及其 API 请参阅 `std/collections`。
 
 Yo 在标准库中提供了高效的、唯一所有的集合类型。
 
@@ -2855,7 +2872,7 @@ Yo 在标准库中提供了高效的、唯一所有的集合类型。
 支持自动扩容的动态数组。
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 // 创建新的 ArrayList
 mut(list) := ArrayList(i32).new();
@@ -2900,7 +2917,7 @@ list.shrink_to_fit();
 键值对哈希映射。
 
 ```yo
-{ HashMap } :: import("std/collections/hash_map");
+{ HashMap } :: import("std/collections/hash-map");
 
 // 创建新的 HashMap
 mut(map) := HashMap(i32, i32).new();
@@ -2955,7 +2972,7 @@ map.clear();
 用于唯一值的哈希集合。
 
 ```yo
-{ HashSet } :: import("std/collections/hash_set");
+{ HashSet } :: import("std/collections/hash-set");
 
 // 创建新的 HashSet
 mut(set) := HashSet(i32).new();
@@ -3027,11 +3044,11 @@ Yo 支持闭包（捕获其所在环境的匿名函数）。
 闭包会被编译成一个保存所捕获变量的**捕获结构体**。它如何存储与调用，取决于所标注的类型：
 
 - **`Impl(Fn(...))` —— 静态分发，不做引用计数。** 编译器会将闭包单态化为独立函数，捕获结构体**按值传递**，并生成直接调用：没有堆分配、没有虚表、也没有引用计数。每个闭包都有各自不同的类型（参见 [Closure Type Restrictions](#closure-type-restrictions)），因此这种形式无法用同一个变量持有两个不同的闭包。
-- **`Box(Dyn(Fn(...)))` 和 `&Dyn(Fn(...))` —— 动态分发。** 值是 `{data, vtable}` 的胖指针（[DYN_DESIGN.md](./DYN_DESIGN.md)）：`dyn(Box.new(f))` 把捕获结构体移入由 `Box` 拥有的堆 box，`dyn(&f)` 则就地借用闭包，不做分配。当不同类型的闭包需要共享同一类型时使用它——例如存入集合、从不同分支返回，或接受任意可调用对象。擦除总是要写出来，绑定、字段、实参和结果都一样；对闭包、具名 `fn` 或 `Impl(Fn(...))` 值写裸 `dyn(f)`（在 v0.2.77 和 v0.2.78 中是 `dyn(Box.new(f))` 的旧别名）自 v0.2.79 起是 E0620。把可调用值裸传入 `Dyn(Fn(...))` 位置（`(d : Dyn(Fn() -> i32)) = f`、`run(f)`、`S(cb : f)`、以 `f` 结尾的函数体）是错误 E0618，其提示会给出 `dyn(f)`；`yo fix <path>` 会给具名可调用值加上 `dyn(...)`。`Impl(Fn(...))` 位置不是擦除，闭包可以直接传入。
+- **`Box(Dyn(Fn(...)))` 和 `&Dyn(Fn(...))` —— 动态分发。** 值是 `{data, vtable}` 的胖指针（[DYN_DESIGN.md](./DYN_DESIGN.md)）：`dyn(Box.new(f))` 把捕获结构体移入由 `Box` 拥有的堆 box，`dyn(&f)` 则就地借用闭包，不做分配。当不同类型的闭包需要共享同一类型时使用它——例如存入集合、从不同分支返回，或接受任意可调用对象。擦除总是要写出来，绑定、字段、实参和结果都一样；对闭包、具名 `fn` 或 `Impl(Fn(...))` 值写裸 `dyn(f)` 是 E0620。把可调用值裸传入 `Dyn(Fn(...))` 位置（`(d : Dyn(Fn() -> i32)) = f`、`run(f)`、`S(cb : f)`、以 `f` 结尾的函数体）是错误 E0618，其提示会给出 `dyn(f)`；`yo fix <path>` 会给具名可调用值加上 `dyn(...)`。`Impl(Fn(...))` 位置不是擦除，闭包可以直接传入。
 
 两种形式下，**被捕获的值**都遵循一般规则：被捕获的 `Rc` 句柄由该捕获结构体持有，并在其销毁时释放。
 
-更多闭包示例和用法请参阅 [closure.test.yo](../tests/closure.test.yo)。
+更多闭包示例和用法请参阅 `tests/closure.test.yo`。
 
 ### 基本闭包语法
 
@@ -3105,8 +3122,7 @@ test_capture :: (fn() -> unit)({
 
 ### 捕获列表
 
-闭包可以在形参之前用一个字段列表列出它的捕获
-（`plans/VALUES_BY_DEFAULT.md` 决策 35 与 38）：
+闭包可以在形参之前用一个字段列表列出它的捕获：
 
 ```yo
 k := i32(3);
@@ -3138,7 +3154,7 @@ count := i32(0);
 - **列表是穷尽的。** 有列表时，闭包体只能读取列出的捕获和模块级项；`{}()` 不捕获任何东西。
   没有列表时，捕获仍是隐式的。
 - **借用可以指向什么。** 以具名局部绑定为根的位置：不能是临时值，不能是模块级绑定，
-  也不能穿过 `Rc`/`Arc`（或任何 `ref` 对象、指针解引用）——请改为捕获句柄：
+  也不能穿过 `Rc`/`Arc`（或任何指针解引用）——请改为捕获句柄：
   `{ &r }() => r.*.items.len()`。`&mut` 位置必须可写。`&` 捕获在闭包体中只读。
 - **借用型闭包是二等值**，由它构成的任何值（副本、持有它的元组或记录、捕获它的闭包）
   也是。它可以绑定到局部变量、被调用、传给形参，但不能被返回、存入字段或 `Dyn`、
@@ -3152,7 +3168,7 @@ count := i32(0);
   按值捕获、复制其余部分。`&mut` 捕获使闭包两者都不是，`where(T <: Copy)` 会拒绝不是
   `Copy` 的闭包（E0602）。
 - **闭包存活期间，被借用的位置被冻结**：不能访问 `&mut` 捕获的位置，不能写入或移动
-  `&` 捕获的位置（E0910）。在本版本中，闭包存活到其绑定作用域结束，因此若之后还需要
+  `&` 捕获的位置（E0910）。闭包存活到其绑定作用域结束，因此若之后还需要
   该位置，请把闭包及其调用放进一个代码块。
 - **调用实参是互斥的。** 持有 `&mut` 捕获的闭包按独占方式借出，因此同一调用不能再传入
   任何能到达被借用位置的东西，接收者和被调用的闭包也算在内（E0910）：
@@ -3163,8 +3179,7 @@ count := i32(0);
 
 ### 只调用一次的闭包：`FnOnce`
 
-`FnOnce(...) -> R` 是调用时会消耗闭包本身的闭包 trait（`plans/VALUES_BY_DEFAULT.md`
-决策 37）。带捕获列表、类型为 `FnOnce(...)` 的闭包拥有其按值捕获，因此函数体可以把其中之一移出：
+`FnOnce(...) -> R` 是调用时会消耗闭包本身的闭包 trait。带捕获列表、类型为 `FnOnce(...)` 的闭包拥有其按值捕获，因此函数体可以把其中之一移出：
 
 ```yo
 take :: (fn(sink(t) : Token) -> i32)(t.n);
@@ -3187,13 +3202,12 @@ run_once(add); // `Fn` 也能用于一次调用
   `FnOnce` 闭包是 E0901。不逃逸的回调保持 `f : &Impl(Fn(...))`。与所有拥有的值一样，
   在 `cond`/`match` 部分分支中被调用的 `sink` 闭包，会在其余分支末尾不经调用地被 drop。
 - **把捕获移出需要 `FnOnce` 和捕获列表。** `Fn(...)` 的调用借用捕获，以便闭包能再次运行，因此在其中移出
-  捕获是 E0913，指向移出的那一行。本版本中隐式捕获也不能被移出（E0913 会给出捕获列表的写法）。
+  捕获是 E0913，指向移出的那一行。隐式捕获也不能被移出（E0913 会给出捕获列表的写法）。
 - `Box(Dyn(FnOnce(...) -> R))` 可以容纳任何只调用一次的闭包；它的调用同样会消耗它。
 
 ### 可重复调用的闭包：`FnMut`
 
-`FnMut(...) -> R` 是调用时独占借用闭包（`self : &mut Self`）的闭包 trait（`plans/VALUES_BY_DEFAULT.md`
-决策 37）。它的函数体可以写入自身状态（捕获列表的按值条目）以及它的 `&mut` 捕获，写入会从一次调用
+`FnMut(...) -> R` 是调用时独占借用闭包（`self : &mut Self`）的闭包 trait。它的函数体可以写入自身状态（捕获列表的按值条目）以及它的 `&mut` 捕获，写入会从一次调用
 保留到下一次：
 
 ```yo
@@ -3234,7 +3248,7 @@ twice({ n : i32(10) }() => {
 - **`Sync` 位置拒绝它。** `Impl(Fn(...), Sync)` 可能从多个线程同时调用闭包，因此写入 `&mut` 捕获或
   自身状态的闭包在那里被拒绝，错误会指出 `FnMut`。
 - **把持有 `&mut` 捕获的字面量传给 `Fn(...)` 位置是 E0913。** 持有 `&mut` 捕获的字面量仅凭其捕获
-  就是 `FnMut(...)`，而曾经允许它的单版本豁免已经删除：std 的每个非逃逸回调——可重复调用的
+  就是 `FnMut(...)`：std 的每个非逃逸回调——可重复调用的
   （`for_each`、`retain`、`sort_by`、`with_lock` 的函数体）和单次调用的（`Option`/`Result` 组合子、
   `RefCell.with`、`Once.call`、`*_lazy` 日志）——都接受 `f : &mut Impl(FnMut(...))`，写入因此改在
   `FnMut` 位置通过捕获的指针进行。`Fn` 只在回调被共享、被存储超出调用、或从其他线程调用时保留。
@@ -3315,7 +3329,7 @@ test :: (fn() -> unit)({
 });
 ```
 
-更多示例请参阅 [closure.test.yo](../tests/closure.test.yo)。
+更多示例请参阅 `tests/closure.test.yo`。
 
 ## Box：唯一所有的单元
 
@@ -3352,7 +3366,7 @@ assert(sum(&t) == 3);
 - **`Eq`、`Hash` 和 `Default`** 比较、哈希和构造的都是载荷。`T` 是 `Send`/`Sync`
   时 `Box(T)` 才是。
 - **布局。** `Box` 值是一个指针，`Option(Box(T))` 也是一个指针（`NULL` 即
-  `.None`）。全局单元就是载荷本身，与 Rust 一样占 `size_of(T)` 字节，零大小的载荷不分配任何内存。由 `alloc` 参数放置的单元在载荷前带有 16 字节的所有者前缀，记录放置它的分配器，句柄用指针的第 0 位标明这一点（每个单元至少按 16 字节对齐，所以这一位是空闲的）。`Box` 的载荷可以是非定长类型（`comptime(V) : ?Sized`，决策 49）：`Box([T])` 或 `Box(Dyn(T))` 的句柄是两个字。
+  `.None`）。全局单元就是载荷本身，与 Rust 一样占 `size_of(T)` 字节，零大小的载荷不分配任何内存。由 `alloc` 参数放置的单元在载荷前带有 16 字节的所有者前缀，记录放置它的分配器，句柄用指针的第 0 位标明这一点（每个单元至少按 16 字节对齐，所以这一位是空闲的）。`Box` 的载荷可以是非定长类型（`comptime(V) : ?Sized`）：`Box([T])` 或 `Box(Dyn(T))` 的句柄是两个字。
 - **分配器。** `Box.new(v, alloc : .Some(a))` 把单元放在 `a` 中；不传 `alloc` 时单元
   使用全局分配器。单元通过其所有者释放，
   `Box.clone(b)` 落在 `b` 所在的位置（由显式分配器放置的 box 克隆到同一个分配器中）。
@@ -3377,13 +3391,13 @@ Yo 提供了 `Rc`（用 `Rc.new` 构造）用于将值类型堆分配并自动�
 > assert(ref_count(a) == usize(2), "a 和 b 指向同一个值");
 > ```
 >
-> **第二个句柄要显式写出**（`plans/VALUES_BY_DEFAULT.md` 决定 17）：句柄是新的
+> **第二个句柄要显式写出**：句柄是新的
 > 所有者，所以共享在创建处可见。句柄的最后一次使用会移动它（`b := a` 之后不再
 > 使用 `a`）；源值之后仍被使用的隐式拷贝是 E0901，其提示写出 `Rc.clone(a)`。
 > `&Rc(T)` 形参借用句柄而不拷贝。持有句柄的值（结构体字段、`Option(Rc(T))`）
 > 用 `.clone()` 拷贝，它会克隆每个句柄；闭包在捕获列表里取得第二个句柄：
 > `{ a : Rc.clone(a) }() => a.*`。克隆通过类型来写（`Rc.clone(a)`），因为 `a.clone()` 可能指
-> 负载自己的 `clone`（决定 32）。`Rc(T)` 和 `Arc(T)` 对任何 `T` 都实现 `Clone`，
+> 负载自己的 `clone`。`Rc(T)` 和 `Arc(T)` 对任何 `T` 都实现 `Clone`，
 > 克隆总是第二个句柄；深拷贝写作 `Rc.new(h.*.clone())`。泛型函数体按每个实例化检查，所以当 `T` 是
 > 句柄时，在那里拷贝 `T` 同样要写 `.clone()`（`where(T <: Clone)`）。std 的泛型
 > 读取方法也同样检查：`ArrayList(Rc(T)).get(i)`、`HashMap.get` 通过 `T` 拷贝元素，
@@ -3492,10 +3506,12 @@ assert(b.norm1() == 9);
   再使用（`q := p.as_ref(); q.clone()` 调用的是载荷的 `clone`）。
 
 **所有者。** 其他所有 `Deref` 类型都是非定长内容的所有者，它们的 `.*` 是其
-`deref` 投影给出的位置。prelude 中的 `Array(T, N)` 就是一个所有者
-（`Target : [T]`），持有 `[T]` 的用户类型也是：
+`deref` 投影给出的位置。prelude 中的 `Array(T, N)` 和 std 中的
+`ArrayList(T)` 都是所有者（`Target : [T]`，并实现 `DerefMut`），因此
+`&list.*` 把列表的元素借出为 `&[T]`。持有 `[T]` 的用户类型也是：
 
 ```yo
+{ assert } :: import("std/assert");
 Ring :: struct(items : Array(i32, 3));
 impl(Ring, len : (fn(self : &Self) -> usize)(usize(30)));
 impl(Ring, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
@@ -3519,16 +3535,18 @@ export(main);
   `&mut` 借出（E0911）。
 - **所有者自己的成员优先。** 只有视图拥有的成员通过 `.*` 访问；所有者拥有的
   成员属于所有者，因此上例中 `r.len()` 是 `Ring` 的，`r.*.len()` 是视图的。
-  决策 32 的 E0616 是句柄的规则。因此，给所有者新增成员会让原先访问视图同名
+  因此，给所有者新增成员会让原先访问视图同名
   成员的调用改为解析到所有者。
 - **其他地方都不解引用。** `&Ring` 不能填入 `&[i32]` 形参：`count(&r)` 是
   E0601，其帮助信息给出 `count(&r.*)`。运算符的操作数也从不解引用。
 
 ### Rc 与赋值
 
-重新赋值要求绑定以 `mut` 声明（决策 47），而赋值表达式的值是句柄的**旧值**：
+重新赋值要求绑定以 `mut` 声明，而赋值表达式的值是句柄的**旧值**：
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Rc assignment behavior", {
   mut(x) := Rc.new(1);
   y := (x = Rc.new(2)); // y 获得旧值
@@ -3542,6 +3560,8 @@ test("Rc assignment behavior", {
 `Rc(T)` 使用自动引用计数；第二个句柄写作 `Rc.clone`：
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Rc reference counting", {
   original := Rc.new(42);
   copy := Rc.clone(original); // 引用计数递增
@@ -3557,7 +3577,7 @@ test("Rc reference counting", {
 
 ### 修改共享载荷：`RefCell`、`Rc.get_mut`、`Rc.make_mut`、`Rc.try_unwrap`
 
-`Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同（[值默认计划的决策 46](../../plans/VALUES_BY_DEFAULT.md)）。通过 `Rc` 的写入（`h.n = v`、`h.* = v`、`bump(&mut h.n)`、`h.items.push(v)`）是错误 E0919，错误信息会列出下面这些入口（`yo explain E0919`）：
+`Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同。通过 `Rc` 的写入（`h.n = v`、`h.* = v`、`bump(&mut h.n)`、`h.items.push(v)`）是错误 E0919，错误信息会列出下面这些入口（`yo explain E0919`）：
 
 - **`RefCell(T)`**（`std/sync/refcell`）是共享修改的载荷：`Rc(RefCell(T))`。访问限定在闭包内，与 `Mutex(T)` 相同：`with(v => ...)` 借出 `v : &T`，`with_mut(v => ...)` 借出 `v : &mut T`，二者都返回闭包的结果。Rust 的按值移动方法不向调用者借出任何东西：`replace(v)` 和 `take()`（要求 `T <: Default`）存入新值并返回旧值，`replace_with(v => ...)` 存入闭包根据 `v : &T` 算出的新值并返回旧值，`into_inner()` 消耗这个单元。与 Rust 的 `replace_with`（闭包是 `FnOnce(&mut T) -> T`）不同，这里的闭包是借到 `&T` 的 `Fn`，与 `with` 闭包体相同。多个 `with` 闭包体可以同时运行；`with_mut`（以及 `replace_with` 的闭包）只能单独运行，运行期间的冲突访问会 panic，与 Rust 的 `RefCell::borrow_mut` 相同。闭包体返回或 unwind 时标记被释放。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝（跨线程请共享 `Arc(Mutex(T))`）。它也可以放在普通值中，此时可以通过 `&` 借用进行写入。
 
@@ -3736,7 +3756,7 @@ perform :: (
 - `downcast` 和 `upcast` 保持指针的种类
 - 一个 `Dyn` 中可以有多个 trait：`Dyn(Speak, Run)`
 
-较早的写法现在都是错误：裸的 `Dyn(Trait)` 值类型（在 v0.2.77 中表示 `Box(Dyn(Trait))`）自 v0.2.78 起是 E0619，对普通值写的 `dyn(v)`（在 v0.2.77 和 v0.2.78 中表示 `dyn(Box.new(v))`）自 v0.2.79 起是 E0620。`yo fix <path> --migrate unsized` 在最后一个接受该写法的版本上迁移它（类型用 `yo version install 0.2.77`，`dyn(v)` 用 `0.2.78`）。v0.2.78 中还有哪些变化，见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
+`Dyn` 只能位于指针之后：裸的 `Dyn(Trait)` 值类型是 E0619，对普通值写的 `dyn(v)` 是 E0620（`dyn(Box.new(v))` 会为它装箱）。见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
 
 ### 示例
 
@@ -3862,7 +3882,7 @@ use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
 });
 ```
 
-更多示例请参阅 [impl.test.yo](../tests/impl.test.yo)。
+更多示例请参阅 `tests/impl.test.yo`。
 
 ## 代数效应与处理器
 
@@ -4026,7 +4046,7 @@ result := safe_divide(6, 3, exn); // result = 2
 result2 := safe_divide(10, 0, exn); // 处理器以 0 恢复续延，result2 = 0
 ```
 
-更多示例请参阅 [error.test.yo](../tests/error.test.yo)。
+更多示例请参阅 `tests/error.test.yo`。
 
 ## 异步/等待
 
@@ -4068,8 +4088,7 @@ export(main);
 
 ## Arc 类型
 
-`Arc(T)` 提供**共享所有权**并使用原子引用计数。它不再是编译器内置类型，
-而是在 `std/prelude.yo` 中被定义为原子计数单元上的 newtype。
+`Arc(T)` 提供**共享所有权**并使用原子引用计数。它在 `std/prelude.yo` 中被定义为原子计数单元上的 newtype。
 `Arc(T)` 要求 `T <: (Send, Sync)`：要求 `Sync`，是因为每个句柄都在自己的线程上读取载荷；
 要求 `Send`，是因为最后一个句柄可能在任意线程上被释放（载荷也在那里被销毁）。因此它只包装可安全
 跨线程共享的值，在该约束下 `Arc(T)` 自身也是 `Send` 和 `Sync`。与 Rust 一样，载荷不必是
@@ -4133,9 +4152,9 @@ test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 T
 每个导入的名字都是一个绑定，所以"禁止变量遮蔽"的规则同样适用于导入：同一个名字绑定两次是错误（`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`），无论是两行都写了这个名字，还是 `{ ... }` 通配导入已经引入了它。同一路径写多行导入没有问题，只要每行绑定的名字不同；同一个名字也可以换个新名字再导入一次：
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
-{ ArrayListIter } :: import("std/collections/array_list"); // 可以：名字不同
-{ ArrayList : List } :: import("std/collections/array_list"); // 可以：绑定为新名字
+{ ArrayList } :: import("std/collections/array-list");
+{ ArrayListIter } :: import("std/collections/array-list"); // 可以：名字不同
+{ ArrayList : List } :: import("std/collections/array-list"); // 可以：绑定为新名字
 xs := List(i32).new();
 ```
 
@@ -4204,18 +4223,21 @@ inc :: (fn() -> unit)({
 使用 2 个空格进行缩进。
 
 - `snake_case`
-  - `文件名`
-  - `目录名`
   - `函数`
   - `变量`
-  - `模块`
+  - 持有整个模块的绑定（`array_list :: import("std/collections/array-list");`）
 - `PascalCase`
   - `trait`
   - `类型`及其变体
 - `UPPER_SNAKE_CASE`
   - `常量`
-- `kebab-case`
-  - `包名`（`yo.toml` 的 `[package] name` 与依赖键，例如 `markdown-yo`；`-` 与 `_` 是不同的名字）
+- `kebab-case`：所有只作为字符串、从不作为标识符的名字
+  - `包名`（`yo.toml` 的 `[package] name` 与依赖键，例如 `markdown-yo`）
+  - `.yo` 文件名（`array-list.yo`、`hash-map.test.yo`）
+  - `目录名`
+  - `[modules]` 键
+
+模块路径只是 `import(...)` 的字符串：没有任何东西从它推导出标识符，因此整条路径使用同一种分隔符（`import("markdown-yo/block-parser")`）。`-` 与 `_` 是不同的名字，不会被互相规范化；名字可以包含 `[A-Za-z0-9_-]`，且不能以 `-` 开头或结尾（`yo check -foo.yo` 会被读成选项）。`check` 与 `compile` 会对名字含 `_` 或大写字母的项目本地模块文件或目录给出警告，`yo fix <path> --module-names` 会重命名它们，并改写指向它们的每个 import、`[modules]` 条目与 `build.yo` 的 root（`ERROR_DIAGNOSTICS.md`）。
 
 ## 测试
 
@@ -4266,6 +4288,8 @@ $ yo test ./tests --json
 #### 运行时断言
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Runtime assertions", {
   x := 42;
 
@@ -4387,10 +4411,10 @@ Yo 测试文件通常使用 `.test.yo` 扩展名：
 - `basic.test.yo` — 基本语言特性
 - `array.test.yo` — 数组操作
 - `closure.test.yo` — 闭包功能
-- `async_await.test.yo` — 异步/等待特性
+- `async-await.test.yo` — 异步/等待特性
 - `collections/*.test.yo` — 集合类型
 
-完整的测试示例请参阅 [tests/](../tests/) 目录。
+完整的测试示例请参阅 `tests/` 目录。
 
 ## 元编程
 
@@ -4461,9 +4485,8 @@ if(true, {
 });
 ```
 
-> std 的 `try` 宏已移除（它隐藏了调用方栈帧内的 `return`，且在概念上与
-> 代数效应系统冲突）。请改用对 `Result` 的 `match`。用户自定义宏也正在被移除
-> （`plans/backlog/MACRO_AND_ISO_REMOVAL.md`），因此不要在本地把它重新定义为宏。
+> std 没有 `try` 宏：它会隐藏调用方栈帧内的 `return`，与代数效应冲突。
+> 请改用对 `Result` 的 `match`。
 
 ## 派生特征（Derive Traits）
 
@@ -4474,6 +4497,7 @@ Yo 支持类似 Rust `#[derive(...)]` 的自动特征派生，但使用函数调
 五个特征具有内置派生支持：`Eq`、`Hash`、`Clone`、`Ord` 和 `ToString`。它们适用于结构体和枚举：
 
 ```yo
+{ assert } :: import("std/assert");
 { ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
@@ -4708,7 +4732,7 @@ increment :: (fn(x : i32) -> i32)(
 3. **泛型编程**：无运行时开销的类型级抽象
 4. **元编程**：基于编译时信息生成代码
 
-更多示例请参阅 [comptime.test.yo](../tests/comptime.test.yo)。
+更多示例请参阅 `tests/comptime.test.yo`。
 
 ## 内联汇编
 

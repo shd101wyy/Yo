@@ -20,7 +20,7 @@ import("std/fmt");
   BK_YO_CELL,
   BK_YO_ATOMIC_CELL
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr-info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, EvalValueNode, create_type_value } :: import("../../value.yo");
@@ -39,16 +39,16 @@ import("std/fmt");
 { eprintln } :: import("std/fmt");
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { _type_reaches_root_by_value } :: import("./enum.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class, type_contains_some_type, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { reject_second_class_escape } :: import("../utils.yo");
-{ type_key } :: import("../../types/type_key.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ type_key } :: import("../../types/type-key.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ type_is_comptime_only_full } :: import("../trait_checking.yo");
-{ _ctfe_args_equal } :: import("../calls/comptime_fn.yo");
+{ type_is_comptime_only_full } :: import("../trait-checking.yo");
+{ _ctfe_args_equal } :: import("../calls/comptime-fn.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
 /// fillers: a fn value generic over its element keeps the variable abstract
@@ -133,7 +133,7 @@ evaluate_struct_type :: (
   old_self_type := ctx.self_type.clone();
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
   // RC functions (___drop/___dup) for reference-semantics structs are lowered
-  // DIRECTLY in codegen (drop_dup.yo: `is_reference_struct_type` →
+  // DIRECTLY in codegen (drop-dup.yo: `is_reference_struct_type` →
   // `__yo_decr_rc`/`__yo_incr_rc`). Evaluator-side ___drop/___dup method
   // synthesis does not apply: it would need to mutate
   // `SelfType.trait.fields`, and the TypeValue is a value enum with NO
@@ -180,40 +180,6 @@ evaluate_struct_type :: (
             format_error_message(
               &err_tok,
               `Duplicate label "${field.label}" in struct`
-            )
-          )
-        )
-      );
-    });
-    // RESERVED MEMBER. A reference struct's emitted C layout is
-    // `{ __yo_ref_header_t header; <user fields...> }`, so a user field named
-    // `header` produced TWO members with that name: "duplicate member
-    // 'header'", and every `x.header` access silently resolved to the RC
-    // header instead — cascading into incompatible-type errors at the
-    // constructor, the traversal function and each use site. It type-checked
-    // cleanly, so the only symptom was a wall of C errors naming generated
-    // temps. `header` is the ONLY injected member (ref_count, gc_flags,
-    // type_id, dispose_fn and friends live INSIDE the header struct, so they
-    // do not collide), and value structs inject nothing — hence the
-    // is_reference_semantics guard. Rejecting here means `yo check` catches it
-    // with a source location. See
-    // issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md.
-    // `!(field.is_comptime)`: a comptime field is ERASED from the C layout
-    // (get_runtime_struct_fields drops it), so `ref(struct(header :: 1))`
-    // cannot collide and must stay legal.
-    if(is_reference_semantics && !field.is_comptime && (field.label == "header"), {
-      res_args := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(a3), _, _)) => a3.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-      res_tok := if(
-        ast_expr_is_fn_call(&arg),
-        match(res_args.get_cloned(usize(0)), .Some(fe2) => ast_expr_token(&fe2), .None => ast_expr_token(&arg)),
-        ast_expr_token(&arg)
-      );
-      exn.throw(
-        dyn(
-          Box.new(
-            format_error_message(
-              &res_tok,
-              String.from("\"header\" is a reserved field name in a reference struct: the generated C layout already carries a `header` member (the reference-count header), so a field of that name would collide with it. Rename the field.")
             )
           )
         )
@@ -321,7 +287,7 @@ evaluate_struct_type :: (
             Box.new(
               format_error_message(
                 ast_expr_token(expr),
-                `recursive value struct: field '${vc_label}' contains the struct itself by value (a path with no reference indirection) — a plain 'struct(...)' would have infinite size. Make it 'ref(struct(...))', or route the recursion through a reference type (ArrayList, Rc, Option of a ref).`
+                `recursive value struct: field '${vc_label}' contains the struct itself by value (a path with no reference indirection) — a plain 'struct(...)' would have infinite size. Route the recursion through an indirection (Box, ArrayList, or Rc).`
               )
             )
           )
@@ -412,7 +378,7 @@ evaluate_struct_type :: (
 _CellInstance :: struct(is_atomic : bool, payload : TypeValue, id : String);
 derive(_CellInstance, Clone);
 /// Every cell instantiation so far, in creation order. Global for the reason
-/// the CTFE memo is (`g_comptime_fn_caches`, calls/comptime_fn.yo): a module
+/// the CTFE memo is (`g_comptime_fn_caches`, calls/comptime-fn.yo): a module
 /// loaded on demand evaluates in a fresh context, and it must still name the
 /// same cell type.
 (g_cell_instances : RefCell(ArrayList(_CellInstance))) = RefCell(ArrayList(_CellInstance)).new(ArrayList(_CellInstance).new());

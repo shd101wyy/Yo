@@ -1,0 +1,151 @@
+{ assert } :: import("std/assert");
+import("std/string");
+import("std/fmt");
+{ IoFuture } :: import("std/sys/future");
+{ Park } :: import("std/async/waker");
+{ size_would_overflow } :: import("std/allocator");
+{ ArrayList } :: import("std/collections/array-list");
+// A function whose type parameter is pinned ONLY by an explicit
+// `comptime(C) : Type` argument used to be routed into the CTFE
+// type-constructor path (every argument was a type), which cannot resolve a
+// return type that names a comptime parameter — so the call's result came back
+// under-resolved and any method on it failed to resolve. The same gate also
+// CTFE-executed an ordinary runtime body.
+// issues/fixed/comptime-type-argument-alone-does-not-bind-the-generic.md
+_dflt :: (fn(comptime(C) : Type, where(C <: Default)) -> C)((C <: Default).default());
+_pick :: (fn(comptime(C) : Type, v : &C) -> C)(v.*);
+_dflt2 :: (fn(comptime(C) : Type, hint : &C, where(C <: Default)) -> C)(
+  (C <: Default).default()
+);
+_dflt4 :: (fn(comptime(C) : Type, dummy : i32, where(C <: Default)) -> C)(
+  (C <: Default).default()
+);
+// Declared return is a plain runtime type, and the body is NOT comptime-known.
+_runtime_body :: (fn(comptime(C) : Type) -> i32)({
+  mut(n) := i32(7);
+  n = (n + i32(1));
+  n
+});
+// A real type constructor must keep its memoized identity.
+_Box :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    v : T
+  )
+);
+derive(generic(T : Type), where(T <: Clone), _Box(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _Box(T), Copy);
+_takes_box :: (fn(b : _Box(i32)) -> i32)(b.v);
+test("a generic bound only by the comptime type argument resolves", {
+  a := _dflt(i32);
+  assert(a == i32(0), "i32 default through a comptime type argument");
+  assert(a.to_string() == `0`, "and the result type is usable");
+  b := _dflt(bool);
+  assert(!b, "bool default through the same shape");
+});
+test("the shapes that already worked still work", {
+  assert(_pick(i32, i32(5)) == i32(5), "value parameter of type C");
+  assert(_dflt2(i32, i32(0)) == i32(0), "dummy hint of type C");
+  assert(_dflt4(i32, i32(0)) == i32(0), "dummy parameter unrelated to C");
+});
+test("an all-comptime-args call is not CTFE-executed", {
+  assert(_runtime_body(i32) == i32(8), "runtime body runs at runtime");
+});
+test("type constructors keep one identity per instantiation", {
+  x := _Box(i32)(v : i32(3));
+  y := _Box(i32)(v : i32(4));
+  assert(_takes_box(x) == i32(3), "first instantiation");
+  assert(_takes_box(y) == i32(4), "second instantiation is the same type");
+});
+// A generic impl's method on a struct whose parameters are PHANTOM (used by no
+// field) must be found through a `comptime(K) : Type` helper parameter: the
+// helper was not deferred, so its body was checked against the abstract
+// `_Phantom(K, V)` and `b.size()` reported "No method" (imm/map's `MapBranch`
+// shape). issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md
+_Phantom :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(struct(n : u8));
+impl(generic(K : Type, V : Type), _Phantom(K, V), size : (fn(self : &Self) -> u8)(self.n));
+_phantom_size :: (fn(comptime(K) : Type, comptime(V) : Type, b : &_Phantom(K, V)) -> u8)(b.size());
+test("A method on a phantom generic struct resolves through a comptime type parameter", {
+  x := _Phantom(i32, i32)(n : u8(3));
+  assert(_phantom_size(i32, i32, &x) == u8(3), "struct");
+  y := _Phantom(bool, u8)(n : u8(7));
+  assert(_phantom_size(bool, u8, &y) == u8(7), "a second instantiation");
+});
+// A `comptime(T) : Type` argument that is (or holds) a SomeT already resolved
+// to a concrete type — `IoFuture :: Impl(Concrete(__yo_io_future_t),
+// Future(i32))`, std/async/waker's `Park` — was treated as an unresolved
+// placeholder, so the call never specialized and codegen dropped it: an
+// internal compiler error in `main`, an abort stub anywhere else.
+// issues/fixed/a-comptime-type-argument-holding-a-resolved-impl-never-specializes.md
+_FutHolder :: struct(f : IoFuture);
+_ignore_t :: (fn(comptime(T) : Type, n : usize) -> usize)(n);
+test("A comptime type argument holding a resolved Impl specializes", {
+  (m : usize) = usize(4);
+  assert(_ignore_t(IoFuture, m) == usize(4), "the Impl itself");
+  assert(_ignore_t(_FutHolder, m) == usize(4), "a struct holding one");
+  assert(!size_would_overflow(Park, usize(4)), "std's Park");
+  xs := ArrayList(Park).with_capacity(usize(0), alloc : .Some(Allocator.global()));
+  assert(xs.len() == usize(0), "an ArrayList of Park in an explicit allocator");
+});
+// The enum twin: an enum instantiation's type arguments live on the type
+// (`EnumT.type_arguments`), so the helper defers on a phantom `_PhantomTag(K)`
+// and its specialization calls the method of the call's own `_PhantomTag(i32)`.
+// issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md
+_PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
+derive(generic(K : Type), _PhantomTag(K), Copy, Clone);
+impl(generic(K : Type), _PhantomTag(K), code : (fn(self : &Self) -> u8)(match(self, .A => u8(0), .B(n) => n.*)));
+_phantom_code :: (fn(comptime(K) : Type, t : &_PhantomTag(K)) -> u8)(t.code());
+test("A method on a phantom generic enum resolves through a comptime type parameter", {
+  t := _PhantomTag(i32).B(n : u8(5));
+  assert(_phantom_code(i32, &t) == u8(5), "enum");
+  u := _PhantomTag(bool).A;
+  assert(_phantom_code(bool, &u) == u8(0), "a second instantiation");
+});
+// Each instantiation gets its own specialization: a body that reads the
+// phantom `K` answers for the receiver's own `K`. `_PhantomTag(u8)` and
+// `_PhantomTag(i64)` have identical payloads, so their C type key once
+// ignored `K` and all three calls below shared the first one's
+// specialization (1, 1, 1; and 8, 8 through the helper).
+impl(generic(K : Type), _PhantomTag(K), ksize : (fn(self : &Self) -> usize)(size_of(K)));
+_phantom_ksize :: (fn(comptime(K) : Type, t : &_PhantomTag(K)) -> usize)(t.ksize());
+test("A method on a phantom generic enum is specialized per instantiation", {
+  assert(_PhantomTag(u8).A.ksize() == usize(1), "u8, which a payload also spells");
+  assert(_PhantomTag(i64).A.ksize() == usize(8), "i64");
+  assert(_PhantomTag(i32).B(n : u8(1)).ksize() == usize(4), "i32");
+  assert(_phantom_ksize(i64, _PhantomTag(i64).A) == usize(8), "through a comptime type parameter");
+  assert(_phantom_ksize(u8, _PhantomTag(u8).A) == usize(1), "a second instantiation through it");
+});
+// A COMPOUND phantom argument: `Option(K)` sits at a position the constructor
+// never names, so the helper defers on it, substitution rewrites it, and
+// `K := Option(i64)` / `Option(u8)` reach the method. It once printed
+// 16 16 16 16 (one specialization) and then failed to compile in C.
+_opt_ksize :: (fn(comptime(K) : Type, t : _PhantomTag(Option(K))) -> usize)(t.ksize());
+test("A compound phantom argument of an enum reaches the method's generic", {
+  assert(_opt_ksize(i64, _PhantomTag(Option(i64)).A) == size_of(Option(i64)), "Option(i64)");
+  assert(_opt_ksize(u8, _PhantomTag(Option(u8)).A) == size_of(Option(u8)), "Option(u8)");
+  assert(_PhantomTag(Option(i64)).A.ksize() == size_of(Option(i64)), "directly, Option(i64)");
+  assert(_PhantomTag(Option(u8)).A.ksize() == size_of(Option(u8)), "directly, Option(u8)");
+});
+// Phantomness is what the enum DEPENDS on, not what its constructor spells:
+// each constructor below names `K` and still mints the same payloads for
+// every `K`, so `K` must key its instantiations apart. A first version of the
+// fix decided phantom positions from spelling, and all three printed one
+// instantiation's `sizeof(K)` for every receiver.
+_Discard :: (fn(comptime(X) : Type) -> comptime(Type))(u8);
+_DiscardTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : _Discard(K))));
+impl(generic(K : Type), _DiscardTag(K), ksize : (fn(self : &Self) -> usize)(size_of(K)));
+_BoundTag :: (fn(comptime(K) : Type) -> comptime(Type))({
+  _k :: K;
+  enum(A, B(n : u8))
+});
+impl(generic(K : Type), _BoundTag(K), ksize : (fn(self : &Self) -> usize)(size_of(K)));
+_LabelTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, K(n : u8)));
+impl(generic(K : Type), _LabelTag(K), ksize : (fn(self : &Self) -> usize)(size_of(K)));
+test("A parameter the enum's payloads do not depend on is phantom, however its constructor spells it", {
+  assert(_DiscardTag(u8).A.ksize() == usize(1), "passed to a constructor that ignores it, u8");
+  assert(_DiscardTag(i64).A.ksize() == usize(8), "passed to a constructor that ignores it, i64");
+  assert(_BoundTag(u8).A.ksize() == usize(1), "bound to an unused local, u8");
+  assert(_BoundTag(i64).A.ksize() == usize(8), "bound to an unused local, i64");
+  assert(_BoundTag(i32).B(n : u8(1)).ksize() == usize(4), "bound to an unused local, i32");
+  assert(_LabelTag(u8).A.ksize() == usize(1), "spelled as a variant label, u8");
+  assert(_LabelTag(i64).A.ksize() == usize(8), "spelled as a variant label, i64");
+});

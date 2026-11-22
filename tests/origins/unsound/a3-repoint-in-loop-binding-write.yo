@@ -1,0 +1,22 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)): the re-point freezes `n` whole for `cur`'s live range across a loop's back edge, so `n.next = .None` after it is E0911 (VERDICTS-71 addendum B, a3).
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        cur = &mut n.next;
+        n.next = .None;
+      },
+      .None => ()
+    );
+  });
+  println(&l1.head.is_some());
+});
+export(main);

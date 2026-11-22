@@ -2,7 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { printf, FILE } :: import("std/libc/stdio.yo");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { AnyError, Error, Exception, IoExn } :: import("std/error");
 { path_join } :: import("./helper.yo");
 TestDyn :: trait(
@@ -1341,18 +1341,23 @@ test("a Box(Dyn) and a *Dyn are two words, and a struct holding one is laid out 
   b := Box.new(_SzHolder(tag : usize(7), err : inner));
   assert(b.*.tag == usize(7), "the boxed holder reads back");
 });
-// A `ref` object erased by the alias is boxed (decision 49 S2): the box's
-// payload slot holds the handle, so a downcast through an `&AnyError` loads it
-// there (issues/fixed/2026-11-15-a-downcast-of-a-boxed-ref-struct-reads-the-payload-slot-as-the-object.md).
-_DrsObj :: ref(struct(n : i32));
+// An `Rc` erased by the alias is boxed (decision 49 S2): the box's payload
+// slot holds the handle, so a downcast through an `&AnyError` loads it there
+// (issues/fixed/2026-11-15-a-downcast-of-a-boxed-ref-struct-reads-the-payload-slot-as-the-object.md).
+_DrsObjInner :: struct(n : i32);
+_DrsObj :: Rc(_DrsObjInner);
 impl(_DrsObj, ToString(to_string : (fn(self : &Self) -> String)(String.from("drs"))));
 impl(_DrsObj, Error());
-impl(_DrsObj, Clone(clone : (fn(self : &Self) -> Self)(_DrsObj(n : self.n))));
 _drs_n :: (fn(err : &AnyError) -> i32)(match(downcast(err, _DrsObj), .Some(o) => o.n, .None => i32(0)));
-test("a downcast of a boxed ref-struct payload reads the object", {
-  (e : AnyError) = dyn(Box.new(_DrsObj(n : i32(7))));
-  assert(_drs_n(&e) == i32(7), "the ref object behind the box");
+test("a downcast of a boxed Rc payload reads the object", {
+  (e : AnyError) = dyn(Box.new(Rc.new(_DrsObjInner(n : i32(7)))));
+  assert(_drs_n(&e) == i32(7), "the Rc handle behind the box");
   assert(e.to_string() == String.from("drs"), "and the erased value still dispatches");
+  // The `Dyn`'s clone slot reads the handle where the data word points, not
+  // the cell's field (issues/fixed/2026-11-19-a-dyn-clone-of-a-boxed-rc-payload-reads-the-cell-as-the-handle.md).
+  e2 := e.clone();
+  assert(_drs_n(&e2) == i32(7), "the clone's handle reads the same object");
+  assert(e2.to_string() == String.from("drs"), "and the clone dispatches");
 });
 // Decision 49 S2's ASan rows (VERDICTS-61 decision 15) the files above do not
 // already hold: a closure's captures through `Box(Dyn(Fn))` and the interim
@@ -1446,21 +1451,20 @@ test("a call through a Box(Dyn(Fn(...) -> &T)) yields a reference", {
   assert(_pj_via(f, &t) == i32(7), "the result reads the caller's place");
 });
 // Decision 49 S3b: `dyn` unsizes a pointer, so a plain value is E0620, whose
-// help names `dyn(Box.new(v))` and v0.2.78's migration (until v0.2.79 a plain
-// `dyn(v)` was the legacy alias of `dyn(Box.new(v))`). Each case has its own
-// value: a rejected site may still have moved it.
+// help names `dyn(Box.new(v))`. Each case has its own value: a rejected site
+// may still have moved it.
 _S3bSpeak :: trait(s3b_speak : (fn(self : &Self) -> i32));
 _S3bCat :: struct(n : i32);
 impl(_S3bCat, _S3bSpeak(s3b_speak : (self -> self.n)));
 _s3b_lent :: (fn(d : &Dyn(_S3bSpeak)) -> i32)(d.s3b_speak());
-test("a plain dyn(v) is E0620 naming dyn(Box.new(v)) and the v0.2.78 migration", {
+test("a plain dyn(v) is E0620 naming dyn(Box.new(v))", {
   c1 := _S3bCat(n : i32(1));
   comptime_expect_error({
     (b : Box(Dyn(_S3bSpeak))) = dyn(c1);
   }, "erases a pointer, and its argument is a");
   comptime_expect_error({
     (b : Box(Dyn(_S3bSpeak))) = dyn(_S3bCat(n : i32(2)));
-  }, "yo version install 0.2.78 && yo fix <path> --migrate unsized");
+  }, "own it, `dyn(Box.new(v))`");
   c3 := _S3bCat(n : i32(3));
   (ok : Box(Dyn(_S3bSpeak))) = dyn(Box.new(_S3bCat(n : i32(4))));
   assert(ok.*.s3b_speak() == i32(4), "the spelled box erases");

@@ -35,29 +35,30 @@ import("std/fmt");
   BK_ASSIGN,
   BK_INIT_ASSIGN,
   BK_CONST,
-  BK_TUPLE
+  BK_TUPLE,
+  is_maybe_sized_kind_spelling
 }
 :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr-info.yo");
 { Environment, get_variables_from_env, add_variable_to_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, EvalValueNode, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, trait_t_body, shared_list, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
-{ t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
+{ TypeValue, TypeValueNode, trait_t_body, shared_list, no_types, no_labels, t_slot_pointee, t_maybe_sized_kind } :: import("../../types/definitions.yo");
+{ t_some_t, t_some_t_of_kind, generate_some_type_id } :: import("../../types/creators.yo");
+{ is_some_type, is_trait_type, is_function_type, is_type_kind } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
-{ find_some_type_missing_comptime_constraint } :: import("../trait_checking.yo");
+{ find_some_type_missing_comptime_constraint } :: import("../trait-checking.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { _add_where_clause_constraint, _trait_has_receiver, get_func_requires_exprs, get_func_ensures_exprs, get_func_return_label } :: import("./function.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { stable_type_id } :: import("../../utils.yo");
-{ register_trait_default, register_trait_method_contracts } :: import("../values/type_trait_methods.yo");
+{ register_trait_default, register_trait_method_contracts } :: import("../values/type-trait-methods.yo");
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
@@ -745,7 +746,12 @@ _evaluate_trait_field :: (
   (field_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
   match(
     type_expr_opt,
-    .Some(type_expr) => {
+    // `Target : ?Sized` (decision 49): an associated type that drops the
+    // implicit `Sized` bound. `?Sized` is read as a kind in this slot, as in
+    // a binder's (`generic(T : ?Sized)`); evaluated, `?X` is `Option(X)`.
+    .Some(type_expr) => if(is_maybe_sized_kind_spelling(&type_expr), {
+      field_ty_opt = .Some(t_maybe_sized_kind());
+    }, {
       // Set expected type on ctx temporarily
       old_expected_type := ctx.expected_type.clone();
       match(
@@ -812,7 +818,7 @@ _evaluate_trait_field :: (
           get_func_return_label(ast_expr_id(&type_expr).to_string())
         );
       });
-    },
+    }),
     .None => ()
   );
   // Phase 5: evaluate assigned value if present
@@ -1036,10 +1042,9 @@ _evaluate_trait_field :: (
   unit_info := new_expr_info(env_mut, Rc.new(TypeValueNode.Unit));
   unit_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
-  // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
+  // Phase 7: detect associated type (a `Type` or `?Sized` kind + !assignedValue + isForEvaluatingTraitType)
   (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
-  is_type_uni_0 := match(&field_ty, Rc(.TypeUni(lvl)) => (lvl.* == usize(0)), _ => false);
-  if(is_for_evaluating_trait_ty && assigned_val_opt.is_none() && is_type_uni_0, {
+  if(is_for_evaluating_trait_ty && assigned_val_opt.is_none() && is_type_kind(&field_ty), {
     // Check if a SomeType for this label already exists in env
     existing_vars := get_variables_from_env(env_mut, &label_str);
     (found_existing : bool) = false;
@@ -1070,7 +1075,9 @@ _evaluate_trait_field :: (
     if(!found_existing, {
       top_frame := env_mut.frames_len();
       if(top_frame > usize(0), {
-        new_some_ty := t_some_t(&label_str, top_frame - usize(1));
+        // A `?Sized` associated type's variable carries the kind, so
+        // `Self.Target` is known to be possibly unsized (decision 49).
+        new_some_ty := t_some_t_of_kind(&label_str, top_frame - usize(1), &field_ty);
         assoc_some_ty_opt = .Some(new_some_ty);
       });
     });
@@ -1356,7 +1363,7 @@ evaluate_trait_type :: (
   // the pending where-clause retry above: `Self.Output <: Comptime` lands
   // on the assoc SomeT only then (and only reaches the field types at all
   // because `Self.Output` resolves to the ONE env-bound assoc SomeT — see
-  // the property_access.yo assoc branch). Only the RETURN side is checked;
+  // the property-access.yo assoc branch). Only the RETURN side is checked;
   // the parameter side needs the per-param comptime side
   // table, which trait FIELD fn-types do not register — no known witness.
   (vf_i : usize) = usize(0);

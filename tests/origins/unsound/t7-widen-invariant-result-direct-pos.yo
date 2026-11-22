@@ -1,0 +1,21 @@
+// expect: accept
+// The positive twin of t7-widen-invariant-result-direct: a COVARIANT holder (`View(p)`, a `&(T, p)` field) widens
+// through a result, as a reference's own origin does.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(Rc(X), p))));
+View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+put :: (fn(generic(p : Origin), s : &mut Slot(p), v : &(Rc(X), p)) -> unit)({
+  s.dst.* = .Some(v);
+});
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+widenv :: (fn(generic(p : Origin, q : Origin), v : View(p), w : &(Rc(X), q)) -> View((p, q)))(v);
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  y := Rc.new(X(s : String.from(LONG)));
+  v2 := widenv(View(x)(r : &x), &y);
+  println(`OUT: ${v2.r.*.s.len().to_string()}`);
+  ()
+});
+export(main);

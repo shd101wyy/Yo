@@ -1,0 +1,209 @@
+//! io_budget — the deterministic syscall/behavior budgets of
+//! plans/reference/DROP_LIBURING.md Phase 6 (G3): counts, not clocks, so a shared CI
+//! runner can enforce them. Run via scripts/io-budget-check.sh (which also
+//! drives it under both backends). Exits non-zero on any violation.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ socketpair } :: import("std/sys/socketpair");
+tcp :: import("std/sys/tcp");
+{ AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
+{ O_NONBLOCK } :: import("std/sys/constants");
+{
+  __yo_async_send_start,
+  __yo_async_recv_start,
+  __yo_sync_fcntl_getfl,
+  __yo_sync_fcntl_setfl,
+  __yo_io_stats_kernel_enters,
+  __yo_io_stats_zero_timeout_enters,
+  __yo_io_stats_io_syscalls,
+  __yo_io_stats_recv_would_block
+} :: import("std/sys/externs");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc } :: GlobalAllocator;
+{ sleep } :: import("std/sys/timer");
+{ panic } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+
+N_ECHO :: usize(200);
+N_TIMERS :: usize(50);
+N_TASK_ECHO :: usize(500);
+
+/// One side of a two-task socketpair echo (the shape of io_bench's
+/// `uecho_1`): the server receives then echoes, the client sends then waits.
+_echo_side :: (fn(fd : i32, server : bool, rounds : usize, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    ebuf := (*u8)(malloc(usize(64)).unwrap());
+    (k : usize) = usize(0);
+    (bad : i32) = i32(0);
+    while(k < rounds, k = (k + usize(1)), {
+      if(server, {
+        got := io.await(__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io);
+        if(got != i32(32), {
+          bad = (bad + i32(1));
+        });
+        io.await(__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
+      }, {
+        io.await(__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
+        got := io.await(__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io);
+        if(got != i32(32), {
+          bad = (bad + i32(1));
+        });
+      });
+    });
+    bad
+  })
+);
+
+/// Every syscall the runtime made on the operations' behalf: the kernel
+/// entries (io_uring_enter / epoll_wait) plus the rest (inline and retried
+/// I/O, epoll_ctl). Budgets over this total compare the backends honestly —
+/// the epoll fallback does its I/O inline, so counting only its epoll_waits
+/// made it look free.
+_syscalls :: (fn() -> u64)(__yo_io_stats_kernel_enters() + __yo_io_stats_io_syscalls());
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : (_e -> unwind(())));
+
+  // --- Budget A: an N-round socketpair ping-pong whose every op can complete
+  // at once (each send precedes its recv) is LINEAR in the syscall total —
+  // no storms, batching preserved. Expected: ONE syscall per op on both
+  // backends — each op is tried inline (MSG_DONTWAIT) and completes there,
+  // with no enter at all on the ring. 6 per round (4 ops) + 64
+  // leaves headroom and still catches the ring's old two-enters-per-op poll
+  // (8 per round; issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md)
+  // as well as any per-op storm.
+  sv := (*i32)(MaybeUninit(Array(i32, usize(2))).new().as_ptr());
+  if(socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) != i32(0), {
+    panic(String.from("socketpair failed"));
+  });
+  fd_a := (sv.add(usize(0))).*;
+  fd_b := (sv.add(usize(1))).*;
+  __yo_sync_fcntl_setfl(fd_a, __yo_sync_fcntl_getfl(fd_a) | O_NONBLOCK);
+  __yo_sync_fcntl_setfl(fd_b, __yo_sync_fcntl_getfl(fd_b) | O_NONBLOCK);
+  buf := (*u8)(malloc(usize(64)).unwrap());
+  before := _syscalls();
+  i := usize(0);
+  while(i < N_ECHO, {
+    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    io.await(__yo_async_recv_start(fd_b, buf, usize(64), i32(0)), io);
+    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    io.await(__yo_async_recv_start(fd_a, buf, usize(64), i32(0)), io);
+    i = (i + usize(1));
+  });
+  a_delta := (_syscalls() - before);
+  budget_a := ((u64(N_ECHO) * u64(6)) + u64(64));
+  println(`budget A (inline ping-pong, ${N_ECHO} rounds): syscalls=${a_delta} <= ${budget_a}`);
+  if(a_delta > budget_a, {
+    panic(String.from("BUDGET A VIOLATED"));
+  });
+
+  // --- Budget D: the same ping-pong with every recv issued BEFORE its peer
+  // sends, so each one PARKS: the inline attempt fails, then readiness
+  // registration, a wait, and the retry. Linear too: the fallback pays recv
+  // (EAGAIN) + one EPOLLONESHOT re-arm (epoll_ctl) + epoll_wait + recv per
+  // parked op, the ring the failed recv plus the enter that submits and reaps
+  // the SQE. 16 per round (2 parked recvs, 2 sends) + 64.
+  before = _syscalls();
+  i = usize(0);
+  while(i < N_ECHO, {
+    rb := __yo_async_recv_start(fd_b, buf, usize(64), i32(0));
+    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    io.await(rb, io);
+    ra := __yo_async_recv_start(fd_a, buf, usize(64), i32(0));
+    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    io.await(ra, io);
+    i = (i + usize(1));
+  });
+  d_delta := (_syscalls() - before);
+  budget_d := ((u64(N_ECHO) * u64(16)) + u64(64));
+  println(`budget D (parked ping-pong, ${N_ECHO} rounds): syscalls=${d_delta} <= ${budget_d}`);
+  if(d_delta > budget_d, {
+    panic(String.from("BUDGET D VIOLATED"));
+  });
+  io.await(tcp.close(fd_a), io);
+  io.await(tcp.close(fd_b), io);
+
+  // --- Budget B: N timer ticks are LINEAR in the syscall total. A sleep is a
+  // node in the loop's userspace timer heap on both backends: arming it costs
+  // nothing, and the only syscall per tick is the wait it bounds (plus a
+  // non-blocking poll). It used to be a TIMEOUT SQE on the ring and a timerfd
+  // (create/settime/epoll_ctl/read/epoll_ctl/close) on the fallback.
+  before = _syscalls();
+  i = usize(0);
+  while(i < N_TIMERS, {
+    io.await(sleep(u64(1)), IoExn(io : io, exn : exn));
+    i = (i + usize(1));
+  });
+  b_delta := (_syscalls() - before);
+  budget_b := ((u64(N_TIMERS) * u64(6)) + u64(64));
+  println(`budget B (${N_TIMERS} timer ticks): syscalls=${b_delta} <= ${budget_b}`);
+  if(b_delta > budget_b, {
+    panic(String.from("BUDGET B VIOLATED"));
+  });
+
+  // --- Budget C (anti-spin): with a recv PARKED on a socket and a single
+  // timer, a 150 ms window must accrue almost no syscalls — the loop is
+  // BLOCKED in its wait, not polling. A spin storm (the DEFER_TASKRUN class)
+  // would accrue thousands.
+  sv2 := (*i32)(MaybeUninit(Array(i32, usize(2))).new().as_ptr());
+  if(socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv2) != i32(0), {
+    panic(String.from("socketpair 2 failed"));
+  });
+  parked_a := (sv2.add(usize(0))).*;
+  parked_b := (sv2.add(usize(1))).*;
+  __yo_sync_fcntl_setfl(parked_a, __yo_sync_fcntl_getfl(parked_a) | O_NONBLOCK);
+  parked := __yo_async_recv_start(parked_a, buf, usize(64), i32(0));
+  before = _syscalls();
+  before_zt := __yo_io_stats_zero_timeout_enters();
+  io.await(sleep(u64(150)), IoExn(io : io, exn : exn));
+  c_delta := (_syscalls() - before);
+  c_zt := (__yo_io_stats_zero_timeout_enters() - before_zt);
+  println(`budget C (150 ms blocked window, one parked recv): syscalls=${c_delta} zero_timeout=${c_zt} (both must be <= 8)`);
+  if(c_delta > u64(8), {
+    panic(String.from("BUDGET C VIOLATED (syscalls)"));
+  });
+  if(c_zt > u64(8), {
+    panic(String.from("BUDGET C VIOLATED (zero-timeout probes)"));
+  });
+  // The parked recv is still live: complete it.
+  io.await(__yo_async_send_start(parked_b, buf, usize(1), i32(0)), io);
+  if(io.await(parked, io) != i32(1), {
+    panic(String.from("the parked recv did not complete"));
+  });
+  io.await(tcp.close(parked_a), io);
+  io.await(tcp.close(parked_b), io);
+
+  // --- Budget E: a two-task echo (each side parks its recv and the peer
+  // task answers it) pays about NO inline recv that would block. The
+  // recv-parks hint parks each socket's next recv directly once one has
+  // blocked, and keeps it while deliveries need a later harvest. It used to be
+  // cleared on every hop, one EAGAIN recv a hop: 2 per round
+  // (issues/fixed/linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md).
+  sv3 := (*i32)(MaybeUninit(Array(i32, usize(2))).new().as_ptr());
+  if(socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv3) != i32(0), {
+    panic(String.from("socketpair 3 failed"));
+  });
+  echo_a := (sv3.add(usize(0))).*;
+  echo_b := (sv3.add(usize(1))).*;
+  before_wb := __yo_io_stats_recv_would_block();
+  hs := io.spawn(_echo_side(echo_b, true, N_TASK_ECHO, io), io);
+  hc := io.spawn(_echo_side(echo_a, false, N_TASK_ECHO, io), io);
+  if(match(hc.await(io), .Some(b) => (b != i32(0)), .None => true), {
+    panic(String.from("budget E echo client failed"));
+  });
+  if(match(hs.await(io), .Some(b) => (b != i32(0)), .None => true), {
+    panic(String.from("budget E echo server failed"));
+  });
+  e_wb := (__yo_io_stats_recv_would_block() - before_wb);
+  budget_e := ((u64(N_TASK_ECHO) / u64(10)) + u64(8));
+  println(`budget E (two-task echo, ${N_TASK_ECHO} rounds): recv_would_block=${e_wb} <= ${budget_e}`);
+  if(e_wb > budget_e, {
+    panic(String.from("BUDGET E VIOLATED"));
+  });
+  io.await(tcp.close(echo_a), io);
+  io.await(tcp.close(echo_b), io);
+
+  println("ALL BUDGETS OK");
+});
+export(main);

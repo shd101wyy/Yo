@@ -1,0 +1,211 @@
+//! The cached prelude's load outcome must still DESCRIBE the prelude.
+//!
+//! `mm_load_file` refuses to re-evaluate `std/prelude.yo` once its env is
+//! cached — re-registering its impls under fresh type identities corrupts
+//! where-constrained generic-impl resolution for every file checked afterwards
+//! (`issues/fixed/seed-built-stage1-array-fill-method-miss.md`). That guard is
+//! right. What it USED to return was `module_value : UnitVal` with
+//! `module_type : Unit`, and that is not a description of anything: `yo doc`
+//! asks `is_module_type(module_type)` before it reads a single declaration, so
+//! `std/prelude.yo` — `Option`, `Result`, `Rc`, `Io`, `JoinHandle`, every
+//! numeric type and every core trait — rendered as an empty page, and the core
+//! traits were never available to donate their method docs to the 454
+//! trait-impl methods across `std/`
+//! (`issues/fixed/yo-doc-renders-the-prelude-empty.md`).
+//!
+//! The namespace is now rebuilt from the cached env instead of from a second
+//! evaluation, so the guard is untouched and the outcome is honest.
+//!
+//! The labels alone were still not a description a DOC page can use: the
+//! value-derived namespace typed every fn-valued binding `unit` (a `FuncVal`
+//! carries no type), so `Option`, `Result`, `Rc`, `Eq`, `Ord` and the whole
+//! operator-trait family collapsed into `<fn(...)>` constants on the prelude
+//! page instead of rendering as type-functions and trait-functions
+//! (issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md). The outcome now
+//! carries the export namespace the FIRST prelude evaluation already
+//! recorded — labels, values AND the per-field types the export walk read off
+//! the bindings.
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+{ mm_load_file, resolve_std_path } :: import("../../src/module-manager.yo");
+{ empty_value_cell } :: import("../../src/value.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../src/types/definitions.yo");
+{ is_module_type, is_function_type, is_function_type_and_is_type_function } :: import(
+  "../../src/types/guards.yo"
+);
+{ build_doc_module } :: import("../../src/doc/builder.yo");
+{ extract_doc_comments } :: import("../../src/doc/extractor.yo");
+{ DocModule } :: import("../../src/doc/model.yo");
+{ tokenize } :: import("../../src/lexer.yo");
+pragma(Pragma.AllowUnsafe);
+/// The field labels of a source-namespace module type, or an empty list for
+/// anything else.
+_ns_labels :: (fn(t : &TypeValue) -> SharedList(String))(
+  match(t, Rc(.Struct({ field_labels })) => Rc.clone(field_labels), _ => no_labels())
+);
+/// The field types of a source-namespace module type, or an empty list for
+/// anything else.
+_ns_types :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
+  match(t, Rc(.Struct({ field_types })) => Rc.clone(field_types), _ => no_types())
+);
+/// A namespace field's TYPE by label — the type the export walk recorded for
+/// that binding, which is what `build_doc_module` routes a declaration on.
+/// `TypeValue.Unit` when the label is absent.
+_ns_field_type :: (fn(t : &TypeValue, label : &String) -> TypeValue)({
+  labels := _ns_labels(t);
+  tys := _ns_types(t);
+  (mut(i) : usize) = usize(0);
+  while(i < labels.len(), {
+    if(labels(i) == label.*, {
+      return(
+        match(
+          tys.get(i),
+          .Some(ft) => ft,
+          .None => Rc.new(TypeValueNode.Unit)
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  Rc.new(TypeValueNode.Unit)
+});
+/// The names of a doc module's `types` list.
+_doc_type_names :: (fn(m : &DocModule) -> ArrayList(String))({
+  mut(out) := ArrayList(String).new();
+  (mut(i) : usize) = usize(0);
+  while(i < m.types.len(), {
+    out.push(m.types(i).name.clone());
+    i = (i + usize(1));
+  });
+  out
+});
+/// The names of a doc module's `traits` list.
+_doc_trait_names :: (fn(m : &DocModule) -> ArrayList(String))({
+  mut(out) := ArrayList(String).new();
+  (mut(i) : usize) = usize(0);
+  while(i < m.traits.len(), {
+    out.push(m.traits(i).name.clone());
+    i = (i + usize(1));
+  });
+  out
+});
+test("the cached prelude loads as a module, not as Unit", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `prelude load threw: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  prelude := `${std_path}/prelude.yo`;
+  // First load populates the cached prelude env (or finds it already warm —
+  // every other file in this batch cloned it). Either way the SECOND call is
+  // the cache-hit branch this test is about.
+  _first := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
+  outcome := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
+  assert(outcome.ok, "the cached prelude is a successful load");
+  assert(is_module_type(&outcome.module_type), "the outcome's type is a module type, not Unit");
+  labels := _ns_labels(&outcome.module_type).*.items.clone();
+  assert(labels.len() > usize(100), `the prelude namespace is populated, got ${labels.len().to_string()} field(s)`);
+  // Three declarations a reader of the prelude page must find: a type, a
+  // generic type constructor and a trait.
+  assert(labels.contains(String.from("Option")), "Option is in the namespace");
+  assert(labels.contains(String.from("JoinHandle")), "JoinHandle is in the namespace");
+  assert(labels.contains(String.from("Drop")), "Drop is in the namespace");
+  // The values must come with it — `build_doc_module` dispatches on the VALUE
+  // (a TypeVal classifies as a struct/enum/trait; anything else falls through
+  // to the constant list), so a namespace of labels with no values would
+  // document every declaration as an untyped constant.
+  vals := match(&outcome.module_value, Rc(.StructVal(_, _, field_values)) => Rc.clone(field_values), _ => empty_value_cell());
+  assert(vals.len() == labels.len(), `one value per label, got ${vals.len().to_string()} for ${labels.len().to_string()}`);
+});
+test("the cached prelude's parameterised bindings carry their fn field types", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `prelude load threw: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  prelude := `${std_path}/prelude.yo`;
+  _first := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
+  outcome := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
+  assert(outcome.ok, "the cached prelude is a successful load");
+  // A parameterised declaration (`Option :: (fn(comptime(T) : Type) ->
+  // comptime(Type))(enum(...))`) is an fn-VALUED binding: its value is a
+  // FuncVal, which carries no type, so the field type must come from the
+  // binding's recorded type. Typed `unit` — what reconstructing the type from
+  // the value alone produces — makes `yo doc` render the declaration as a
+  // `<fn(T)>` constant instead of a type-function.
+  option_ty := _ns_field_type(&outcome.module_type, String.from("Option"));
+  assert(is_function_type(&option_ty), "Option's namespace field type is its comptime-fn type, not unit");
+  assert(is_function_type_and_is_type_function(&option_ty), "Option routes into the type-function doc branch");
+  eq_ty := _ns_field_type(&outcome.module_type, String.from("Eq"));
+  assert(is_function_type(&eq_ty), "Eq's namespace field type is its comptime-fn type, not unit");
+  ord_ty := _ns_field_type(&outcome.module_type, String.from("Ord"));
+  assert(is_function_type(&ord_ty), "Ord's namespace field type is its comptime-fn type, not unit");
+});
+test("the doc builder renders the cached prelude's parameterised declarations", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `prelude load threw: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  lex_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected lexer error");
+        unwind(());
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  prelude := `${std_path}/prelude.yo`;
+  _first := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
+  outcome := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
+  assert(outcome.ok, "the cached prelude is a successful load");
+  // Empty tokens: this tests the evaluator half of the pipeline (routing on
+  // the outcome's value/type pair), not the token-side comment joins.
+  tokens := tokenize(String.new(), `file://prelude.yo`, lex_exn);
+  doc := build_doc_module(
+    String.from("prelude"),
+    String.from("prelude"),
+    &outcome.module_value,
+    &outcome.module_type,
+    extract_doc_comments(&tokens),
+    &tokens,
+    &outcome.env
+  );
+  type_names := _doc_type_names(&doc);
+  trait_names := _doc_trait_names(&doc);
+  assert(type_names.contains(String.from("Option")), "Option documents as a type, not a constant");
+  assert(type_names.contains(String.from("Result")), "Result documents as a type, not a constant");
+  assert(type_names.contains(String.from("Rc")), "Rc documents as a type, not a constant");
+  assert(trait_names.contains(String.from("Eq")), "Eq documents as a trait, not a constant");
+  assert(trait_names.contains(String.from("Ord")), "Ord documents as a trait, not a constant");
+  assert(trait_names.contains(String.from("Index")), "Index documents as a trait, not a constant");
+  // No declaration may collapse into a `<fn(...)>` constant — a constant's
+  // value is `value_to_string` of the binding, and a FuncVal there means the
+  // field type was lost and the function-family branch was skipped.
+  (mut(ci) : usize) = usize(0);
+  while(ci < doc.constants.len(), {
+    match(
+      doc.constants.get_cloned(ci),
+      .Some(c) => {
+        cval := match(&c.value, .Some(v) => v.clone(), .None => String.new());
+        assert(!cval.starts_with(String.from("<fn")), `constant "${c.name}" holds a fn placeholder (${cval}) — its field type was lost`);
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+});

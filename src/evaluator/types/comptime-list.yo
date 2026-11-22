@@ -1,0 +1,120 @@
+//! evaluate_comptime_list_type — handles `ComptimeList(ElementType)` type expressions.
+//!
+//! `ComptimeList(T)` creates a compile-time list type with element type T.
+pragma(Pragma.AllowUnsafe);
+import("std/string");
+import("std/fmt");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  BK_COMPTIME_LIST_TYPE,
+  make_err_expr
+} :: import("../../expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set,
+  expr_info_adopt_env
+} :: import("../../expr-info.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_comptime_list, t_i32 } :: import("../../types/creators.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ format_error_message } :: import("../../error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+evaluate_comptime_list_type :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  if(!ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE, .Some(usize(1))), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "ComptimeList" with 1 argument, got:\n${ast_expr_to_string(expr)}`
+          )
+        )
+      )
+    );
+  });
+  // Get the element type argument
+  elem_expr := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(usize(0)),
+      .Some(a) => a,
+      .None => make_err_expr()
+    ),
+    Rc(.Atom(_, _)) => make_err_expr()
+  );
+  // Evaluate the element type expression
+  evaluated := evaluate_expression_raw(&elem_expr, env, ctx, exn);
+  // Read the expr info for the evaluated element type
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
+  match(
+    &info_opt,
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&elem_expr),
+              `Failed to evaluate the element type expression:\n${ast_expr_to_string(&elem_expr)}`
+            )
+          )
+        )
+      );
+    },
+    .Some(_) => ()
+  );
+  elem_info := match(
+    info_opt,
+    .Some(i) => Rc.clone(i),
+    .None => new_expr_info(env, t_i32()) // unreachable: guarded by throw above
+  );
+  // Validate it's a type value
+  if(!is_type_value(&elem_info.value()), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(&elem_expr),
+            `Expected type for element type, got:\n${ast_expr_to_string(&elem_expr)}`
+          )
+        )
+      )
+    );
+  });
+  // Extract the inner TypeValue
+  child_ty := match(
+    elem_info.value(),
+    .Some(v) => match(
+      v,
+      Rc(.TypeVal(inner)) => Rc.clone(inner),
+      _ => t_i32() // unreachable: is_type_value guard above
+    ),
+    .None => t_i32() // unreachable
+  );
+  // Create the ComptimeList type and annotate
+  clist_ty := t_comptime_list(&child_ty);
+  clist_val := create_type_value(&clist_ty);
+  meta_type := type_of_type(&clist_ty);
+  next_env := expr_info_adopt_env(&elem_info);
+  out_info := new_expr_info(&next_env, &meta_type);
+  out_info.set_value(.Some(clist_val));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+  Rc.clone(expr.*)
+});
+export(evaluate_comptime_list_type);

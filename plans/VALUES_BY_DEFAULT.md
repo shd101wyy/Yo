@@ -1832,8 +1832,8 @@ instead.
 ### 3.14 What happens to the compile-time RC machinery
 
 Reviewed 2026-10-05 against develop's code.
-`docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` describes today's
-machinery.
+`docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` described the
+machinery at that date (deleted in v0.2.80; see the last bullet).
 
 - **Gone with the hidden copies:**
   - the rule "every assignment, constructor argument, return and block tail
@@ -1869,13 +1869,15 @@ machinery.
 - **The RC runtime survives** for `Rc`/`Arc` cells, for the cycle collector
   (`Rc` only), for the compiler's trees, and for the futures' own counts
   until A1.
-- **The doc** is replaced, not rescoped (2026-10-13): its successor is drafted
-  in [`backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md),
-  kept current as each phase lands, and promoted to
-  `docs/en-US/OWNERSHIP_AND_BORROWING.md` and `docs/zh-CN/` at V5, when the
-  old page is deleted. The same edits reach
-  `README.md`, `docs/zh-CN/README.md` and the debugging and c-codegen
-  instruction files.
+- **The doc** is replaced, not rescoped (2026-10-13). Amended 2026-11-21
+  (VERDICTS-70 Q5): the old page is deleted with the pair optimizer in v0.2.80.
+  Its user facts moved to `docs/*/DESIGN.md` ("Shared Cells and Memory
+  Management") and `ARC.md`, its implementer facts to the c-codegen
+  instruction file; its successor, decoupled from that deletion, was promoted
+  in v0.2.80 to
+  [`docs/en-US/OWNERSHIP_AND_BORROWING.md`](../docs/en-US/OWNERSHIP_AND_BORROWING.md)
+  and `docs/zh-CN/`, without the draft's §15 on compile-time reference
+  counting; the draft was deleted.
 
 ## 4. Decisions
 
@@ -5004,7 +5006,7 @@ and in git, not a silent edit.
       `xs`; `ArrayList(T)` and `Array(T, N)` implement `Deref(Target :
       [T])`, `String` implements `Deref(Target : str)` (`Deref.Target :
       ?Sized`, which waits on
-      `issues/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`;
+      `issues/fixed/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`;
       VERDICTS-63: `Deref` on `Array` is v0.2.79, on `ArrayList`/`String`
       v0.2.80), and R-PROBE's deref step reaches the slice's and `str`'s
       methods and impls from them.

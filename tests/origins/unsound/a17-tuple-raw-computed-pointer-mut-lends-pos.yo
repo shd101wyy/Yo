@@ -1,0 +1,26 @@
+// expect: accept
+// Positive control (A17): a raw pointer a call computes (`base.add(i)`) points into no place of a binding, so two
+// `&mut` lends of its pointees, in one tuple or as two arguments of one call, are not lends of `base`
+// (issues/fixed/2026-11-20-two-mut-lends-through-computed-raw-pointers-are-judged-as-lends-of-the-pointer-binding.md).
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+two :: (fn(a : &mut i32, b : &mut i32) -> unit)({
+  a.* = i32(5);
+  b.* = i32(6);
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  unsafe({
+    base := xs.ptr().unwrap();
+    (a, b) := (&mut base.add(usize(0)).*, &mut base.add(usize(1)).*);
+    a.* = i32(3);
+    b.* = i32(4);
+    two(&mut base.add(usize(0)).*, &mut base.add(usize(1)).*);
+  });
+  println(`OUT: ${xs(usize(0)).to_string()} ${xs(usize(1)).to_string()}`);
+  ()
+});
+export(main);

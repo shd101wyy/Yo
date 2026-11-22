@@ -22,7 +22,7 @@
 # The list is EMPTY, which is the point: the sweep now demands a fully clean
 # corpus on its own, and any new failure — HOLLOW or RED — turns CI red.
 # The three HOLLOW files found 2026-08-08 are FIXED (2026-08-08):
-#   tests/variadic_comptime.test.yo          — a comptime variadic parameter
+#   tests/variadic-comptime.test.yo          — a comptime variadic parameter
 #     (`...(comptime(t) : ComptimeList(T))`) was never bound into the CALLEE
 #     env, so every call ran the body with the name unbound. The quote sibling
 #     was bound; the comptime one had no branch at all.
@@ -31,7 +31,7 @@
 #     range-type test matched on a struct NAME that is always empty, and
 #     Range/RangeInclusive are structurally identical so every `..` read as
 #     `..=`. Discriminated by the type constructor id.
-#   tests/safe_code_structural_gates.test.yo — `comptime_expect_error`'s
+#   tests/safe-code-structural-gates.test.yo — `comptime_expect_error`'s
 #     restore snapshotted only the frame DEPTH, so a throw that unwound past a
 #     `pop_frame` lost the MODULE frame for good; and a rejected module-level
 #     binding left its name in the codegen module-global registry.
@@ -45,7 +45,7 @@
 #     batch, whose `cond` dispatch nests one brace level per test (261 deep),
 #     past clang's default -fbracket-depth=256. Fixed by porting TS's test
 #     batching (TEST_BATCH_SIZE=100).
-#   tests/ref_local_binding.test.yo  — the dup/drop pair optimizer walked the
+#   tests/ref-local-binding.test.yo  — the dup/drop pair optimizer walked the
 #     frame forwards where TS walks it reversed, so an alias binding's drop
 #     survived alongside the saved-old-value temp's: a double free on one rc=1
 #     object. Fixed in src/evaluator/exprs/begin.yo.

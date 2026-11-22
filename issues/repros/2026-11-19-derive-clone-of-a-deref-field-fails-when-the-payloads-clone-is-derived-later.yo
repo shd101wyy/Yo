@@ -1,0 +1,13 @@
+// `derive(A, Clone)` takes the derive rule's `Deref`-field arm for `xs`,
+// `(type_of(self.xs) <: Clone).clone(&self.xs)`, and fails: `Box(B)`'s
+// `Clone` needs `B <: Clone`, which the later `derive(B, Clone)` provides.
+// Moving `derive(A, Clone)` below `derive(B, Clone)` checks.
+A :: struct(xs : Box(B), n : i32);
+derive(A, Clone);
+B :: struct(n : i32);
+derive(B, Clone);
+main :: (fn() -> unit)({
+  a := A(xs : Box.new(B(n : i32(2))), n : i32(1));
+  _b := a.clone();
+});
+export(main);

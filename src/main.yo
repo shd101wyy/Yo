@@ -26,14 +26,14 @@ pragma(Pragma.AllowUnsafe);
   clean_version_cache,
   ensure_cached_version,
   fetch_remote_versions
-} :: import("./version_cache.yo");
+} :: import("./version-cache.yo");
 { Regex } :: import("std/regex");
 { run_lsp_server } :: import("./lsp/server.yo");
 { Path } :: import("std/path");
 { File, read, write_string, exists } :: import("std/fs/file");
 { sha256_hex } :: import("std/crypto/sha256");
 { metadata } :: import("std/fs/metadata");
-{ read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
+{ read_dir, FileType, remove_file, create_dir_all, rename } :: import("std/fs/dir");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
 { Instant } :: import("std/time/instant");
@@ -66,27 +66,27 @@ pragma(Pragma.AllowUnsafe);
 { environ, execve } :: import("std/libc/unistd");
 { GlobalAllocator } :: import("std/allocator");
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
 { AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BF_DOT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
-{ ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, ExprInfo } :: import("./expr_info.yo");
+{ ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, ExprInfo } :: import("./expr-info.yo");
 { Token, TokenKind } :: import("./token.yo");
 { parse, Parser } :: import("./parser.yo");
 { tokenize } :: import("./lexer.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
-{ AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
-{ BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build_runner.yo");
+{ AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install-command.yo");
+{ BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build-runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
 { stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, set_match_arms_table_enabled, canonical_module_path } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
-{ DocCommandOptions, run_doc } :: import("./doc_command.yo");
-{ run_context } :: import("./context_command.yo");
-{ context_lock, context_unlock, context_tree_key } :: import("./doc/context_index.yo");
-{ set_cli_lang_override, cli_lang, tr } :: import("./cli_lang.yo");
-{ generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe_report.yo");
-{ generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
-{ HashMap } :: import("std/collections/hash_map");
+{ DocCommandOptions, run_doc } :: import("./doc-command.yo");
+{ run_context } :: import("./context-command.yo");
+{ context_lock, context_unlock, context_tree_key } :: import("./doc/context-index.yo");
+{ set_cli_lang_override, cli_lang, tr } :: import("./cli-lang.yo");
+{ generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe-report.yo");
+{ generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public-safe-report.yo");
+{ HashMap } :: import("std/collections/hash-map");
 { remove_dir_all, gc_store } :: import("./fetch.yo");
 {
   verify_mode_of_string,
@@ -115,7 +115,7 @@ json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
 { Environment, new_environment } :: import("./env.yo");
 // The demand-driven module loader, the cached prelude env, the shared codegen
-// ExprInfoTable and std-path resolution all live in `module_manager.yo` so that
+// ExprInfoTable and std-path resolution all live in `module-manager.yo` so that
 // every subcommand that needs to evaluate a `.yo` file (build, fetch, install,
 // doc) shares one copy instead of growing its own.
 {
@@ -131,16 +131,17 @@ json :: import("std/encoding/json");
   mm_shared_expr_info_table,
   mm_reset,
   mm_resolve_entry_abs,
+  mm_register_manifest_import_roots,
   mm_invalidate_document,
   mm_eval_entry_exprs,
   module_load_outcome_ctx,
   mm_load_file,
   mm_preload_prelude,
   _take_load_error
-} :: import("./module_manager.yo");
-{ record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
+} :: import("./module-manager.yo");
+{ record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input-record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ set_migrate_unsized, take_unsized_sites, DerefSite, set_migrate_deref, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files, note_deref_assumed_migrated } :: import("./expr_info.yo");
+{ set_migrate_unsized, take_unsized_sites, DerefSite, set_migrate_deref, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files, note_deref_assumed_migrated } :: import("./expr-info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -152,33 +153,35 @@ json :: import("std/encoding/json");
   set_warnings_enabled,
   warnings_enabled,
   take_warnings,
+  emit_scoped_warning,
   flush_user_warnings,
   emit_rendered_text,
   emit_chatter,
   register_std_export
 } :: import("./diagnostics.yo");
 { eval_context_new, set_retain_walk_contexts, print_rprobe_stats_if_requested } :: import("./evaluator/context.yo");
-{ register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
-{ evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
+{ register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/dispatch.yo");
+{ evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous-module.yo");
 { decode_str_lit_escapes } :: import("./evaluator/values/string.yo");
-{ clear_module_cache } :: import("./evaluator/module_loader.yo");
-{ reset_trait_type_args } :: import("./expr_info.yo");
-{ run_check_watch, run_watch_once, watch_snapshot, wait_for_change, invalidate_changed_files } :: import("./check_watch.yo");
+{ clear_module_cache, module_cache_keys } :: import("./evaluator/module-loader.yo");
+{ resolve_module_path_ex, lookup_import_root, module_name_offends, module_name_kebab, renamed_module_candidates } :: import("./evaluator/exprs/import.yo");
+{ reset_trait_type_args } :: import("./expr-info.yo");
+{ run_check_watch, run_watch_once, watch_snapshot, wait_for_change, invalidate_changed_files } :: import("./check-watch.yo");
 {
   lookup_explain,
   registry_entries,
   suggest_code,
   explain_to_json
-} :: import("./diagnostics_registry.yo");
+} :: import("./diagnostics-registry.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, get_current_target, comptime_distinct_targets, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi, _find_available_compiler } :: import("./target.yo");
 { set_target_pointer_size, type_lacks_clone } :: import("./types/utils.yo");
 { TypeValue, TypeValueNode, SharedList, no_types, no_labels, slot_pointee_at, t_slot_pointee } :: import("./types/definitions.yo");
 { is_function_type } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
-{ compile_module } :: import("./codegen/codegen_c.yo");
+{ compile_module } :: import("./codegen/codegen-c.yo");
 { get_needs_intel_asm_syntax, get_uses_parallelism, fresh_local_counts_reset } :: import("./codegen/utils/index.yo");
-{ ref_spill_counter_reset } :: import("./codegen/exprs/other_fn_call.yo");
+{ ref_spill_counter_reset } :: import("./codegen/exprs/other-fn-call.yo");
 { closure_capture_counter_reset } :: import("./codegen/exprs/closures.yo");
 { panic, assert } :: import("std/assert");
 { RefCell, cell_map_len } :: import("std/sync/refcell");
@@ -646,8 +649,8 @@ _index_std_dir :: (
       continue;
     });
     full := `${dir}/${name}`;
-    // `<root>/fmt/index.yo` → `std/fmt`; `<root>/collections/array_list.yo`
-    // → `std/collections/array_list`.
+    // `<root>/fmt/index.yo` → `std/fmt`; `<root>/collections/array-list.yo`
+    // → `std/collections/array-list`.
     rel := full.substring(root.len(), full.len() - usize(3));
     spec := `std${rel}`;
     if(spec.ends_with(String.from("/index")), {
@@ -832,7 +835,7 @@ collect_check_files :: (
 /// diagnostic has already been printed by the time the throw fires, so the
 /// caller just needs to log which file failed.
 ///
-/// The loading itself lives in `module_manager.yo` — `check` is one caller of
+/// The loading itself lives in `module-manager.yo` — `check` is one caller of
 /// that service, not its owner.
 /// V3 (plan task 6, the check/compile integration): drain the VerifyTask
 /// registry after an evaluation whose entry file was armed as a
@@ -2018,6 +2021,753 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
     exn.throw(dyn(Box.new(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; what evaluation did not reach was not migrated`)));
   });
 });
+// ── Module file and directory names (plans/backlog/KEBAB_CASE_NAMES.md Part C) ──
+/// Paths whose NAMES the naming rule leaves alone even inside a project:
+/// cli-case fixtures (their trees are goldens), the origins corpus and issue
+/// repros (inputs kept exactly as reported). The content store is excluded by
+/// its root, the caller's other check. `--module-names` still rewrites the
+/// imports inside such a file, so it keeps resolving after the rename.
+_module_name_exempt :: (fn(abs : &String) -> bool)(
+  abs.contains("/tests/cli-cases/") || abs.contains("/tests/origins/corpus/") || abs.contains("/issues/repros/")
+);
+/// `abs` as a person reads it: relative to the working directory when it
+/// lives under it, else as given.
+_mn_display :: (fn(abs : &String) -> String)({
+  cwd_str := _resolve_for_match(String.from("."));
+  if(abs.* == cwd_str, {
+    return(String.from("."));
+  });
+  prefix := `${cwd_str}/`;
+  if(abs.starts_with(&prefix), {
+    return(abs.substring(prefix.len(), abs.len()));
+  });
+  abs.clone()
+});
+/// The parent directory of a normalized absolute path.
+_mn_parent :: (fn(abs : &String) -> String)(
+  match(
+    abs.last_index_of("/"),
+    .Some(k) => if(k == usize(0), String.from("/"), abs.substring(usize(0), k)),
+    .None => String.from(".")
+  )
+);
+/// The last component of a normalized path.
+_mn_base :: (fn(abs : &String) -> String)(
+  match(
+    abs.last_index_of("/"),
+    .Some(k) => abs.substring(k + usize(1), abs.len()),
+    .None => abs.clone()
+  )
+);
+/// Warn once per project-local module file or directory whose name is not
+/// kebab-case (plans/backlog/KEBAB_CASE_NAMES.md Part C). `paths` are the
+/// modules a `check`/`compile` evaluated, either spelling; `anchor` is the
+/// entry. The project is the directory of the `yo.toml` nearest the anchor,
+/// and a module is project-local when it lives under it and not in the
+/// content store: so a checkout's own `std` is covered when the checkout is
+/// the project, and an installed std or another project's files are not. A
+/// warning, never an error, and `yo fmt` never renames: a file name is a
+/// repository fact, so the compiler points at it and names
+/// `yo fix <root> --module-names`.
+warn_module_names :: (fn(paths : &ArrayList(String), anchor : &String) -> unit)({
+  if(!warnings_enabled(), {
+    return;
+  });
+  anchor_abs := _resolve_for_match(anchor.replace(String.from("file://"), String.new()));
+  root := match(
+    find_manifest(&_mn_parent(&anchor_abs)),
+    .Some(m) => _mn_parent(&_resolve_for_match(&m)),
+    .None => {
+      return;
+    }
+  );
+  root_disp := _mn_display(&root);
+  cache_root := _resolve_for_match(get_global_cache_dir());
+  seen := HashSet(String).new();
+  (mut(i) : usize) = usize(0);
+  while(i < paths.len(), i = (i + usize(1)), {
+    abs := _resolve_for_match(paths(i).replace(String.from("file://"), String.new()));
+    if(!abs.ends_with(".yo") || !abs.starts_with(`${root}/`) || abs.starts_with(`${cache_root}/`) || _module_name_exempt(&abs), {
+      continue;
+    });
+    comps := abs.substring(root.len() + usize(1), abs.len()).split(String.from("/"));
+    (mut(cur) : String) = root.clone();
+    (mut(ci) : usize) = usize(0);
+    while(ci < comps.len(), ci = (ci + usize(1)), {
+      comp := comps(ci).clone();
+      cur = `${cur}/${comp}`;
+      if(!module_name_offends(&comp) || !seen.insert(cur.clone()), {
+        continue;
+      });
+      is_file := ((ci + usize(1)) == comps.len());
+      kebab := module_name_kebab(&comp);
+      message := if(
+        is_file,
+        tr(`module file name \`${comp}\` is not kebab-case`, `模块文件名 \`${comp}\` 不是 kebab-case`),
+        tr(`module directory name \`${comp}\` is not kebab-case`, `模块目录名 \`${comp}\` 不是 kebab-case`)
+      );
+      help := tr(
+        `rename it \`${kebab}\`: \`yo fix ${root_disp} --module-names\` renames every such file and directory under the project and rewrites the imports, \`[modules]\` entries and \`build.yo\` roots that reach them`,
+        `将其重命名为 \`${kebab}\`：\`yo fix ${root_disp} --module-names\` 会重命名项目中所有这样的文件和目录，并改写指向它们的 import、\`[modules]\` 条目与 \`build.yo\` 的 root`
+      );
+      emit_scoped_warning(
+        Diagnostic(
+          code : Option(String).None,
+          severity : Severity.Warning,
+          message : message,
+          span : Span(path : _mn_display(&cur), row : usize(0), col : usize(0), len : usize(0)),
+          source_line : String.new(),
+          help : Option(String).Some(help)
+        )
+      );
+    });
+  });
+});
+/// One string literal the module-names fix may rewrite: its position (the
+/// token's 0-based row and rune column) and its text, quotes included.
+_MnLit :: struct(row : usize, col : usize, raw : String);
+derive(_MnLit, Clone);
+/// A `"…"` literal with no escape in it: the only spelling the fix rewrites
+/// (an import path never needs an escape).
+_mn_plain_string :: (fn(raw : &String) -> bool)(
+  (raw.len() >= usize(2)) && raw.starts_with("\"") && raw.ends_with("\"") && !raw.contains("\\")
+);
+/// The rune count of `s` (a UTF-8 continuation byte starts no rune).
+_mn_rune_len :: (fn(s : &String) -> usize)({
+  (mut(n) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
+  while(i < s.len(), i = (i + usize(1)), {
+    if((s.byte_at(i) & u8(192)) != u8(128), {
+      n = (n + usize(1));
+    });
+  });
+  n
+});
+/// True when `raw` is the text at rune column `col` of `line`. A literal the
+/// parser synthesized (the template-literal desugar's
+/// `import("std/fmt")`) carries a position that is not its own, and
+/// is not source to rewrite.
+_mn_text_at :: (fn(line : &String, col : usize, raw : &String) -> bool)({
+  want := _mn_rune_len(raw);
+  mut(got) := String.new();
+  it := line.clone().chars();
+  (mut(i) : usize) = usize(0);
+  (mut(go) : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(r) => {
+        if((i >= col) && (i < (col + want)), {
+          got.push_rune(r);
+        });
+        i = (i + usize(1));
+        go = (i < (col + want));
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  got == raw.*
+});
+/// Collect every `import("…")` literal in `e`, and with `want_roots` every
+/// `root : "…"` field value (a `build.yo` artifact's root).
+_mn_collect_literals :: (
+  fn(e : &AstExpr, want_roots : bool, imports : &mut ArrayList(_MnLit), roots : &mut ArrayList(_MnLit)) -> unit
+)({
+  match(
+    e,
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, func, Rc(args), _, _)) => {
+      fname := match(func, Rc(.Atom(_, ft)) => ft.value.*.clone(), _ => String.new());
+      if((fname == BK_IMPORT) && (args.len() == usize(1)), {
+        match(
+          args.get_cloned(usize(0)),
+          .Some(arg) => match(
+            arg,
+            Rc(.Atom(_, at)) => if(_mn_plain_string(&at.value.*), {
+              imports.push(_MnLit(row : usize(at.row), col : usize(at.column), raw : at.value.*.clone()));
+            }),
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
+      if(want_roots && (fname == ":") && (args.len() == usize(2)), {
+        is_root := match(
+          args.get_cloned(usize(0)),
+          .Some(k) => match(k, Rc(.Atom(_, kt)) => (kt.value.* == "root"), _ => false),
+          .None => false
+        );
+        if(is_root, {
+          match(
+            args.get_cloned(usize(1)),
+            .Some(v) => match(
+              v,
+              Rc(.Atom(_, vt)) => if(_mn_plain_string(&vt.value.*), {
+                roots.push(_MnLit(row : usize(vt.row), col : usize(vt.column), raw : vt.value.*.clone()));
+              }),
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+      });
+      _mn_collect_literals(&func.*, want_roots, imports, roots);
+      (mut(ai) : usize) = usize(0);
+      while(ai < args.len(), ai = (ai + usize(1)), {
+        _mn_collect_literals(&args(ai), want_roots, imports, roots);
+      });
+    }
+  );
+});
+/// Rewrite the path segments `segs[from..]`, walked from the directory
+/// `base` as the resolver walks them, through the rename map `ren` (old
+/// absolute path of a renamed file or directory → its new name). With
+/// `import_like`, the last segment may name `<seg>.yo` or `<seg>/index.yo`,
+/// as `resolve_module_path` resolves it. `.`, `..` and empty segments are
+/// kept. `.None` when no segment moves.
+_mn_walk :: (
+  fn(segs : &ArrayList(String), from : usize, base : &String, ren : &HashMap(String, String), import_like : bool) -> Option(String)
+)({
+  out := ArrayList(String).new();
+  (mut(cur) : String) = base.clone();
+  (mut(changed) : bool) = false;
+  (mut(si) : usize) = from;
+  while(si < segs.len(), si = (si + usize(1)), {
+    seg := segs(si).clone();
+    if((seg == "") || (seg == "."), {
+      out.push(seg);
+      continue;
+    });
+    if(seg == "..", {
+      out.push(seg);
+      cur = _mn_parent(&cur);
+      continue;
+    });
+    next := `${cur}/${seg}`;
+    is_last := ((si + usize(1)) == segs.len());
+    (mut(new_seg) : String) = seg.clone();
+    match(
+      ren.get_cloned(&next),
+      .Some(nm) => {
+        new_seg = nm;
+      },
+      .None => if(is_last && import_like && !seg.ends_with(".yo"), {
+        match(
+          ren.get_cloned(&`${next}.yo`),
+          .Some(nm) => {
+            new_seg = nm.substring(usize(0), nm.len() - usize(3));
+          },
+          .None => ()
+        );
+      })
+    );
+    if(new_seg != seg, {
+      changed = true;
+    });
+    out.push(new_seg);
+    cur = next;
+  });
+  if(changed, Option(String).Some(String.from("/").join(&out)), Option(String).None)
+});
+/// The new spelling of the import path `spec` written in a file in
+/// `file_dir`, or `.None` when it reaches nothing the fix renames. The
+/// walk starts where `resolve_module_path_ex` starts: a mapped import root
+/// (`pkg` / `pkg/key` / `pkg/sub/path`), `std/`, a relative path, or the
+/// working directory.
+_mn_new_import :: (
+  fn(spec : &String, file_dir : &String, std_abs : &String, ren : &HashMap(String, String), key_ren : &HashMap(String, String)) -> Option(String)
+)({
+  if(spec.* == "std", {
+    return(Option(String).None);
+  });
+  segs := spec.split(String.from("/"));
+  head := segs(usize(0)).clone();
+  if(head.starts_with(".") || (head == "std"), {
+    if(head == "std", {
+      return(match(_mn_walk(&segs, usize(1), std_abs, ren, true), .Some(r) => Option(String).Some(`std/${r}`), .None => Option(String).None));
+    });
+    return(_mn_walk(&segs, usize(0), file_dir, ren, true));
+  });
+  // Rule 0: an exact `pkg` / `pkg/key` mapping names a `[modules]` key, and
+  // only a renamed key moves it.
+  if(lookup_import_root(spec.clone()).is_some(), {
+    return(key_ren.get_cloned(spec));
+  });
+  match(
+    lookup_import_root(head.clone()),
+    .Some(root) => {
+      root_dir := _mn_parent(&_resolve_for_match(&root));
+      match(_mn_walk(&segs, usize(1), &root_dir, ren, true), .Some(r) => Option(String).Some(`${head}/${r}`), .None => Option(String).None)
+    },
+    .None => _mn_walk(&segs, usize(0), &_resolve_for_match(String.from(".")), ren, true)
+  )
+});
+/// The `[modules]` table of the manifest `text`: for each entry line, its
+/// row and the byte spans of its key and of its string value. A line that is
+/// not a plain `key = "value"` entry is left alone.
+_MnModLine :: struct(row : usize, key_start : usize, key_end : usize, val_start : usize, val_end : usize);
+derive(_MnModLine, Clone);
+_mn_modules_lines :: (fn(lines : &ArrayList(String)) -> ArrayList(_MnModLine))({
+  out := ArrayList(_MnModLine).new();
+  (mut(in_modules) : bool) = false;
+  (mut(ri) : usize) = usize(0);
+  while(ri < lines.len(), ri = (ri + usize(1)), {
+    line := lines(ri).clone();
+    t := line.trim();
+    if(t.starts_with("["), {
+      in_modules = (t.starts_with("[modules]") && !t.starts_with("[modules]."));
+      continue;
+    });
+    if(!in_modules || t.is_empty() || t.starts_with("#"), {
+      continue;
+    });
+    eq := match(
+      line.index_of("="),
+      .Some(k) => k,
+      .None => {
+        continue;
+      }
+    );
+    // The key: bare, or one `"…"` string.
+    (mut(ks) : usize) = usize(0);
+    while((ks < eq) && ((line.byte_at(ks) == u8(32)) || (line.byte_at(ks) == u8(9))), {
+      ks = (ks + usize(1));
+    });
+    (mut(ke) : usize) = eq;
+    while((ke > ks) && ((line.byte_at(ke - usize(1)) == u8(32)) || (line.byte_at(ke - usize(1)) == u8(9))), {
+      ke = (ke - usize(1));
+    });
+    if((ke > (ks + usize(1))) && (line.byte_at(ks) == u8(34)) && (line.byte_at(ke - usize(1)) == u8(34)), {
+      ks = (ks + usize(1));
+      ke = (ke - usize(1));
+    });
+    // The value: one `"…"` string without escapes.
+    vq := match(
+      line.index_of("\"", eq),
+      .Some(k) => k,
+      .None => {
+        continue;
+      }
+    );
+    ve := match(
+      line.index_of("\"", vq + usize(1)),
+      .Some(k) => k,
+      .None => {
+        continue;
+      }
+    );
+    if(line.substring(vq, ve).contains("\\"), {
+      continue;
+    });
+    out.push(_MnModLine(row : ri, key_start : ks, key_end : ke, val_start : (vq + usize(1)), val_end : ve));
+  });
+  out
+});
+/// An old absolute path's new path: every renamed component on the way
+/// applied.
+_mn_new_path :: (fn(p : &String, ren : &HashMap(String, String)) -> String)({
+  parts := p.split(String.from("/"));
+  (mut(old_acc) : String) = parts(usize(0)).clone();
+  (mut(new_acc) : String) = parts(usize(0)).clone();
+  (mut(pi) : usize) = usize(1);
+  while(pi < parts.len(), pi = (pi + usize(1)), {
+    old_acc = `${old_acc}/${parts(pi)}`;
+    nm := match(ren.get_cloned(&old_acc), .Some(n) => n, .None => parts(pi).clone());
+    new_acc = `${new_acc}/${nm}`;
+  });
+  new_acc
+});
+/// `yo fix <path>... --module-names`: rename every project-local module
+/// file and directory under the paths whose name is not kebab-case, and
+/// rewrite everything that RESOLVES to one of them — `import("…")` strings
+/// (resolved as `resolve_module_path` resolves them, so `./foo_bar.yo`,
+/// `pkg/foo_bar`, `std/…/foo_bar` and `foo_bar/index` all move), the
+/// `[modules]` keys and values of the manifests above the paths, and the
+/// `root : "…"` paths of `build.yo` files. Paths are rewritten segment by
+/// segment, so a segment the fix does not rename is kept as written.
+/// Exempt files (`_module_name_exempt`) keep their names; their imports are
+/// rewritten like any other file's.
+/// The rename map is printed, so a downstream package can apply it; a
+/// second run renames nothing. A name whose new spelling already exists is
+/// refused before anything is written (plans/backlog/KEBAB_CASE_NAMES.md
+/// Part C, VERDICTS-67).
+_run_module_names :: (
+  fn(target_paths : &ArrayList(String), excludes : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit
+)({
+  // The files, each with the directory its names are counted from (a file
+  // target names only itself).
+  files := ArrayList(String).new();
+  file_roots := ArrayList(String).new();
+  file_renamable := ArrayList(bool).new();
+  seen_files := HashSet(String).new();
+  (mut(ti) : usize) = usize(0);
+  while(ti < target_paths.len(), ti = (ti + usize(1)), {
+    target_abs := _resolve_for_match(&target_paths(ti));
+    found := collect_check_files(&target_paths(ti), excludes, io, exn);
+    is_file_target := ((found.len() == usize(1)) && (_resolve_for_match(&found(usize(0))) == target_abs));
+    (mut(fi) : usize) = usize(0);
+    while(fi < found.len(), fi = (fi + usize(1)), {
+      abs := _resolve_for_match(&found(fi));
+      if(!seen_files.insert(abs.clone()), {
+        continue;
+      });
+      files.push(abs.clone());
+      file_roots.push(if(is_file_target, _mn_parent(&abs), target_abs.clone()));
+      file_renamable.push(!_module_name_exempt(&abs));
+    });
+  });
+  if(files.len() == usize(0), {
+    exn.throw(dyn(Box.new(`fix: no .yo files found`)));
+  });
+  // The rename map: old absolute path → new name, for files and
+  // directories; `ren_order` keeps the discovery order for printing.
+  ren := HashMap(String, String).new();
+  ren_order := ArrayList(String).new();
+  ren_is_dir := ArrayList(bool).new();
+  (mut(fi2) : usize) = usize(0);
+  while(fi2 < files.len(), fi2 = (fi2 + usize(1)), {
+    if(!file_renamable(fi2), {
+      continue;
+    });
+    abs := files(fi2).clone();
+    root := file_roots(fi2).clone();
+    comps := abs.substring(root.len() + usize(1), abs.len()).split(String.from("/"));
+    (mut(cur) : String) = root.clone();
+    (mut(ci) : usize) = usize(0);
+    while(ci < comps.len(), ci = (ci + usize(1)), {
+      comp := comps(ci).clone();
+      cur = `${cur}/${comp}`;
+      if(module_name_offends(&comp) && !ren.contains_key(&cur), {
+        ren.insert(cur.clone(), module_name_kebab(&comp));
+        ren_order.push(cur.clone());
+        ren_is_dir.push((ci + usize(1)) < comps.len());
+      });
+    });
+  });
+  // Refuse a name whose new spelling already exists, or two names that
+  // collapse onto one, before anything is written. A case-only rename is
+  // not a collision (a case-insensitive filesystem reports the new name as
+  // existing: it is the same file).
+  conflicts := ArrayList(String).new();
+  claimed := HashMap(String, String).new();
+  (mut(ri) : usize) = usize(0);
+  while(ri < ren_order.len(), ri = (ri + usize(1)), {
+    old := ren_order(ri).clone();
+    nm := ren.get_cloned(&old).unwrap();
+    sibling := `${_mn_parent(&old)}/${nm}`;
+    case_only := (_mn_base(&old).to_lowercase() == nm);
+    if(nm.is_empty(), {
+      conflicts.push(`fix: ${_mn_display(&old)} has no kebab-case spelling; rename it by hand`);
+    }, if(!case_only && file_exists_sync(sibling.clone()), {
+      conflicts.push(`fix: ${_mn_display(&old)} cannot be renamed: ${_mn_display(&sibling)} already exists`);
+    }));
+    match(
+      claimed.get_cloned(&sibling),
+      .Some(other) => conflicts.push(`fix: ${_mn_display(&old)} and ${_mn_display(&other)} both become ${_mn_display(&sibling)}`),
+      .None => {
+        claimed.insert(sibling.clone(), old.clone());
+      }
+    );
+  });
+  // `[modules]` keys and values of the manifests at or above the targets.
+  manifests := ArrayList(String).new();
+  (mut(mi) : usize) = usize(0);
+  while(mi < target_paths.len(), mi = (mi + usize(1)), {
+    t_abs := _resolve_for_match(&target_paths(mi));
+    start := if(file_exists_sync(`${t_abs}/.`), t_abs.clone(), _mn_parent(&t_abs));
+    match(
+      find_manifest(&start),
+      .Some(m) => {
+        m_abs := _resolve_for_match(&m);
+        if(!manifests.contains(&m_abs), {
+          manifests.push(m_abs);
+        });
+      },
+      .None => ()
+    );
+  });
+  key_ren := HashMap(String, String).new();
+  manifest_texts := ArrayList(String).new();
+  manifest_notes := ArrayList(String).new();
+  (mut(n_modules) : usize) = usize(0);
+  (mut(mj) : usize) = usize(0);
+  while(mj < manifests.len(), mj = (mj + usize(1)), {
+    m_path := manifests(mj).clone();
+    m_dir := _mn_parent(&m_path);
+    pkg := match(
+      load_manifest(m_path.clone(), exn),
+      .Ok(m) => m.name.clone(),
+      .Err(msg) => {
+        exn.throw(dyn(Box.new(`fix: ${msg}`)));
+        String.new()
+      }
+    );
+    text := String.from_bytes(io.await(read(Path.new(m_path.clone()), io), IoExn(io : io, exn : exn)));
+    mut(lines) := text.split(String.from("\n"));
+    entries := _mn_modules_lines(&lines);
+    keys := ArrayList(String).new();
+    (mut(ek) : usize) = usize(0);
+    while(ek < entries.len(), ek = (ek + usize(1)), {
+      keys.push(lines(entries(ek).row).substring(entries(ek).key_start, entries(ek).key_end));
+    });
+    (mut(changed) : bool) = false;
+    // Backwards, so a later span on a line is replaced before an earlier one.
+    (mut(ej) : usize) = entries.len();
+    while(ej > usize(0), {
+      ej = (ej - usize(1));
+      en := entries(ej).clone();
+      line := lines(en.row).clone();
+      key := keys(ej).clone();
+      value := line.substring(en.val_start, en.val_end);
+      new_value := match(_mn_walk(&value.split(String.from("/")), usize(0), &m_dir, &ren, false), .Some(v) => v, .None => value.clone());
+      new_key := if(module_name_offends(&key), module_name_kebab(&key), key.clone());
+      if((new_key != key) && keys.contains(&new_key), {
+        conflicts.push(`fix: ${_mn_display(&m_path)}: [modules] ${key} cannot be renamed: ${new_key} already exists`);
+      });
+      if((new_key != key) || (new_value != value), {
+        changed = true;
+        n_modules = (n_modules + usize(1));
+        if(new_key != key, {
+          key_ren.insert(`${pkg}/${key}`, `${pkg}/${new_key}`);
+          manifest_notes.push(`${_mn_display(&m_path)}: [modules] ${key} -> ${new_key}`);
+        });
+        lines(en.row) = `${line.substring(usize(0), en.key_start)}${new_key}${line.substring(en.key_end, en.val_start)}${new_value}${line.substring(en.val_end, line.len())}`;
+      });
+    });
+    manifest_texts.push(if(changed, String.from("\n").join(&lines), String.new()));
+  });
+  if(conflicts.len() > usize(0), {
+    (mut(ck) : usize) = usize(0);
+    while(ck < conflicts.len(), ck = (ck + usize(1)), {
+      println(&conflicts(ck));
+    });
+    exn.throw(dyn(Box.new(`fix: ${conflicts.len().to_string()} name(s) cannot be renamed; nothing was written`)));
+  });
+  // Resolve as the evaluator resolves: the std the files would import and
+  // the manifest's import roots.
+  prefer_entry_std_root(&files);
+  std_abs := _resolve_for_match(resolve_std_path());
+  mm_register_manifest_import_roots(files(usize(0)).clone(), exn);
+  // The edits, per file, and what each rewritten import must reach after
+  // the renames.
+  edits_per_file := ArrayList(ArrayList(_PendingFix)).new();
+  verify_file := ArrayList(String).new();
+  verify_spec := ArrayList(String).new();
+  verify_target := ArrayList(String).new();
+  verify_at := ArrayList(String).new();
+  (mut(n_imports) : usize) = usize(0);
+  (mut(n_repointed) : usize) = usize(0);
+  (mut(n_roots) : usize) = usize(0);
+  (mut(n_unparsed) : usize) = usize(0);
+  (mut(fk) : usize) = usize(0);
+  while(fk < files.len(), fk = (fk + usize(1)), {
+    file := files(fk).clone();
+    fixes := ArrayList(_PendingFix).new();
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    match(
+      _parse_or_none(&src, &file),
+      .None => {
+        // A fixture that does not parse on purpose (a cli case's error under
+        // test) is noted; any other file fails the run.
+        if(file_renamable(fk), {
+          n_unparsed = (n_unparsed + usize(1));
+        });
+        println(`fix: ${_mn_display(&file)} does not parse; its imports are left as written`);
+      },
+      .Some(exprs) => {
+        imports := ArrayList(_MnLit).new();
+        roots := ArrayList(_MnLit).new();
+        want_roots := (_mn_base(&file) == "build.yo");
+        (mut(xk) : usize) = usize(0);
+        while(xk < exprs.len(), xk = (xk + usize(1)), {
+          _mn_collect_literals(&exprs(xk), want_roots, &mut imports, &mut roots);
+        });
+        file_dir := _mn_parent(&file);
+        src_lines := src.split(String.from("\n"));
+        (mut(ik) : usize) = usize(0);
+        while(ik < imports.len(), ik = (ik + usize(1)), {
+          lit := imports(ik).clone();
+          if((lit.row >= src_lines.len()) || !_mn_text_at(&src_lines(lit.row), lit.col, &lit.raw), {
+            continue;
+          });
+          spec := lit.raw.substring(usize(1), lit.raw.len() - usize(1));
+          // What the import reaches now: itself, or, when it no longer
+          // resolves (a std or dependency module renamed upstream), the ONE
+          // module its kebab-case spelling reaches (`renamed_module_candidates`,
+          // the repair `check` offers on the same error).
+          (mut(reach) : String) = String.new();
+          (mut(spec_now) : String) = spec.clone();
+          // An explicit `.yo` path resolves without a probe, so a missing
+          // file counts as not resolving.
+          reach = match(
+            resolve_module_path_ex(spec.clone(), file_dir.clone(), std_abs.clone(), true),
+            .Found(p) => if(file_exists_sync(p.replace(String.from("file://"), String.new())), p, String.new()),
+            _ => String.new()
+          );
+          // An exempt file (a cli-case fixture) keeps a broken import as
+          // written: it may be the error under test.
+          if(reach.is_empty() && file_renamable(fk), {
+            cands := renamed_module_candidates(&spec, &file_dir, &std_abs);
+            if(cands.len() == usize(1), {
+              spec_now = cands(usize(0)).clone();
+              match(
+                resolve_module_path_ex(spec_now.clone(), file_dir.clone(), std_abs.clone(), true),
+                .Found(p) => {
+                  reach = p;
+                  n_repointed = (n_repointed + usize(1));
+                },
+                _ => ()
+              );
+            });
+            if(cands.len() > usize(1), {
+              println(`fix: ${_mn_display(&file)}:${(lit.row + usize(1)).to_string()}:${(lit.col + usize(1)).to_string()}: import("${spec}") does not resolve and several modules match its kebab-case spelling (${String.from(", ").join(&cands)}); left as written`);
+            });
+          });
+          if(!reach.is_empty(), {
+            new_spec := match(
+              _mn_new_import(&spec_now, &file_dir, &std_abs, &ren, &key_ren),
+              .Some(ns) => ns,
+              .None => spec_now.clone()
+            );
+            if(new_spec != spec, {
+              fixes.push(_PendingFix(row : lit.row, col : lit.col, len : _mn_rune_len(&lit.raw), replacement : `"${new_spec}"`, description : String.from("module-names")));
+              n_imports = (n_imports + usize(1));
+              verify_file.push(file.clone());
+              verify_spec.push(new_spec);
+              verify_target.push(_mn_new_path(&_resolve_for_match(reach.replace(String.from("file://"), String.new())), &ren));
+              verify_at.push(`${_mn_display(&file)}:${(lit.row + usize(1)).to_string()}:${(lit.col + usize(1)).to_string()}`);
+            });
+          });
+        });
+        (mut(rk2) : usize) = usize(0);
+        while(rk2 < roots.len(), rk2 = (rk2 + usize(1)), {
+          lit := roots(rk2).clone();
+          if((lit.row >= src_lines.len()) || !_mn_text_at(&src_lines(lit.row), lit.col, &lit.raw), {
+            continue;
+          });
+          path := lit.raw.substring(usize(1), lit.raw.len() - usize(1));
+          match(
+            _mn_walk(&path.split(String.from("/")), usize(0), &file_dir, &ren, false),
+            .Some(new_path) => {
+              fixes.push(_PendingFix(row : lit.row, col : lit.col, len : _mn_rune_len(&lit.raw), replacement : `"${new_path}"`, description : String.from("module-names")));
+              n_roots = (n_roots + usize(1));
+            },
+            .None => ()
+          );
+        });
+      }
+    );
+    edits_per_file.push(fixes);
+  });
+  // The rename map, sorted, as the downstream record.
+  map_lines := ArrayList(String).new();
+  (mut(rk) : usize) = usize(0);
+  (mut(n_dirs) : usize) = usize(0);
+  while(rk < ren_order.len(), rk = (rk + usize(1)), {
+    old := ren_order(rk).clone();
+    slash := if(ren_is_dir(rk), String.from("/"), String.new());
+    if(ren_is_dir(rk), {
+      n_dirs = (n_dirs + usize(1));
+    });
+    map_lines.push(`fix: rename ${_mn_display(&old)}${slash} -> ${_mn_display(&_mn_new_path(&old, &ren))}${slash}`);
+  });
+  map_lines.sort();
+  (mut(pk) : usize) = usize(0);
+  while(pk < map_lines.len(), pk = (pk + usize(1)), {
+    println(&map_lines(pk));
+  });
+  (mut(nk) : usize) = usize(0);
+  while(nk < manifest_notes.len(), nk = (nk + usize(1)), {
+    println(`fix: ${manifest_notes(nk)}`);
+  });
+  n_files := (ren_order.len() - n_dirs);
+  if(!dry_run, {
+    // Contents first, at the old paths; then the files; then the
+    // directories, deepest first, so every rename names a path that still
+    // exists.
+    (mut(wk) : usize) = usize(0);
+    while(wk < files.len(), wk = (wk + usize(1)), {
+      if(edits_per_file(wk).len() > usize(0), {
+        mut(file_fixes) := edits_per_file(wk).clone();
+        _apply_fixes_to_file(files(wk).clone(), &mut file_fixes, io, exn);
+      });
+    });
+    (mut(wm) : usize) = usize(0);
+    while(wm < manifests.len(), wm = (wm + usize(1)), {
+      if(!manifest_texts(wm).is_empty(), {
+        io.await(write_string(Path.new(manifests(wm).clone()), manifest_texts(wm).clone(), io), IoExn(io : io, exn : exn));
+      });
+    });
+    order := ArrayList(String).new();
+    (mut(ok) : usize) = usize(0);
+    while(ok < ren_order.len(), ok = (ok + usize(1)), {
+      if(!ren_is_dir(ok), {
+        order.push(ren_order(ok).clone());
+      });
+    });
+    dirs := ArrayList(String).new();
+    (mut(od) : usize) = usize(0);
+    while(od < ren_order.len(), od = (od + usize(1)), {
+      if(ren_is_dir(od), {
+        dirs.push(ren_order(od).clone());
+      });
+    });
+    // Deepest first: a longer path sorts after its own ancestors, so the
+    // reversed sort renames every child before its parent.
+    dirs.sort();
+    (mut(dd) : usize) = dirs.len();
+    while(dd > usize(0), {
+      dd = (dd - usize(1));
+      order.push(dirs(dd).clone());
+    });
+    (mut(rn) : usize) = usize(0);
+    while(rn < order.len(), rn = (rn + usize(1)), {
+      old := order(rn).clone();
+      nm := ren.get_cloned(&old).unwrap();
+      dst := `${_mn_parent(&old)}/${nm}`;
+      if(_mn_base(&old).to_lowercase() == nm, {
+        // Two steps, so a case-insensitive filesystem sees a real move.
+        tmp := `${dst}.yo-rename-tmp`;
+        io.await(rename(&Path.new(old.clone()), &Path.new(tmp.clone()), io), IoExn(io : io, exn : exn));
+        io.await(rename(&Path.new(&tmp), &Path.new(&dst), io), IoExn(io : io, exn : exn));
+      }, {
+        io.await(rename(&Path.new(old.clone()), &Path.new(&dst), io), IoExn(io : io, exn : exn));
+      });
+    });
+    // Every rewritten import must reach the renamed file from the renamed
+    // importer, through the rewritten manifest.
+    mm_register_manifest_import_roots(_mn_new_path(&files(usize(0)), &ren), exn);
+    (mut(n_bad) : usize) = usize(0);
+    (mut(vk) : usize) = usize(0);
+    while(vk < verify_file.len(), vk = (vk + usize(1)), {
+      new_file := _mn_new_path(&verify_file(vk), &ren);
+      reached := match(
+        resolve_module_path_ex(verify_spec(vk).clone(), _mn_parent(&new_file), std_abs.clone(), true),
+        .Found(p) => _resolve_for_match(p.replace(String.from("file://"), String.new())),
+        _ => String.new()
+      );
+      if(reached != verify_target(vk), {
+        n_bad = (n_bad + usize(1));
+        println(`fix: ${verify_at(vk)}: import("${verify_spec(vk)}") does not reach ${_mn_display(&verify_target(vk))} after the rename`);
+      });
+    });
+    if(n_bad > usize(0), {
+      exn.throw(dyn(Box.new(`fix: ${n_bad.to_string()} rewritten import(s) do not resolve; see above`)));
+    });
+  });
+  verb := if(dry_run, String.from("would rename"), String.from("renamed"));
+  verb2 := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
+  // The repointed count is named only when an import no longer resolved.
+  repointed_part := if(n_repointed > usize(0), ` (${n_repointed.to_string()} of them no longer resolved and now reach the one module their kebab-case spelling names)`, String.new());
+  println(
+    `fix: ${verb} ${n_files.to_string()} file(s) and ${n_dirs.to_string()} directory(ies); ${verb2} ${n_imports.to_string()} import(s)${repointed_part}, ${n_modules.to_string()} [modules] entry(ies) and ${n_roots.to_string()} build.yo root(s)`
+  );
+  if(n_unparsed > usize(0), {
+    exn.throw(dyn(Box.new(`fix: ${n_unparsed.to_string()} file(s) do not parse; their imports were not rewritten`)));
+  });
+});
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -2035,11 +2785,12 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(Box.new(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|unsized]`)));
+    exn.throw(dyn(Box.new(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|unsized | --module-names]`)));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
   (migrate : String) = String.new();
+  (module_names : bool) = false;
   (target_triple : String) = String.new();
   excludes := ArrayList(String).new();
   (ai : usize) = usize(2);
@@ -2066,6 +2817,10 @@ run_fix :: (
         migrate = argv(next_m).clone();
         ai = (ai + usize(2));
       },
+      (a == "--module-names") => {
+        module_names = true;
+        ai = (ai + usize(1));
+      },
       (a == "--exclude") => {
         next_i := (ai + usize(1));
         if(next_i < argv.len(), {
@@ -2076,7 +2831,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(Box.new(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|unsized]`)));
+        exn.throw(dyn(Box.new(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|unsized | --module-names]`)));
       },
       true => {
         target_paths.push(a.clone());
@@ -2086,6 +2841,15 @@ run_fix :: (
   });
   if(target_paths.len() == usize(0), {
     exn.throw(dyn(Box.new(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--dry-run]`)));
+  });
+  // `--module-names` renames files and rewrites the path strings that reach
+  // them; it evaluates nothing, so it runs before the prelude is loaded.
+  if(module_names, {
+    if(migrate.len() > usize(0), {
+      exn.throw(dyn(Box.new(`fix: --module-names and --migrate are separate runs; pass one of them`)));
+    });
+    _run_module_names(&target_paths, &excludes, dry_run, io, exn);
+    return(());
   });
   // Evaluate for TARGET, as `compile --target` does: std's
   // `cond(platform == ...)` arms are selected during evaluation, so a repair
@@ -2271,7 +3035,7 @@ run_fix :: (
       //
       // This used to fire for EVERY evaluator error, because the def-time
       // trial flattened the diagnostics to text before the typed stash saw
-      // them (fixed: evaluator/calls/function_type.yo now re-raises the typed
+      // them (fixed: evaluator/calls/function-type.yo now re-raises the typed
       // error; issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md).
       // Both paths are pinned: fix-applies-an-evaluator-rename asserts the
       // repair lands, fix-says-what-it-cannot-repair asserts this message.
@@ -2495,8 +3259,12 @@ run_check :: (
     passed := (total - failed);
     emit_chatter(`check: ${passed.to_string()}/${total.to_string()} file(s) passed`);
   });
+  // The naming warning covers the targets and every module they reached.
+  mut(name_scope) := module_cache_keys();
+  name_scope.extend(files.clone());
+  warn_module_names(&name_scope, &files(usize(0)));
   // Watch modes survive a failing initial pass — that is their whole point.
-  // (Phase C, plans/reference/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
+  // (Phase C, plans/reference/INCREMENTAL_COMPILATION.md; src/check-watch.yo.)
   if(watch_once, {
     run_watch_once(&files, std_path.clone(), io, exn);
   });
@@ -4873,7 +5641,7 @@ run_compile :: (
   (emcc_environment : String) = String.new();
   // Cooperative evaluator deadline in milliseconds; empty = disarmed. Set by
   // the test runner on its batch-compile children (see `set_evaluator_deadline`
-  // in evaluator/exprs/_expr.yo for why this travels as a flag).
+  // in evaluator/exprs/dispatch.yo for why this travels as a flag).
   (compile_timeout_ms : String) = String.new();
   // Phase 0 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): print the
   // per-phase / per-module timing table on stderr after the compile, and
@@ -5096,7 +5864,7 @@ run_compile :: (
       // build then falls back to the whole-tree walk — conservative, which is
       // the safe direction for a cache.
       //
-      // The hash is recorded AS EACH FILE IS READ (input_record.yo), which is
+      // The hash is recorded AS EACH FILE IS READ (input-record.yo), which is
       // what makes the build runner's recorded stamp describe the bytes this
       // compile consumed rather than whatever is on disk when it finishes
       // (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md). Hashing is
@@ -5519,7 +6287,7 @@ run_compile :: (
       // std module a second time in one round (26 loads for 16 modules,
       // duplicate impl registrations), and the re-evaluation degraded
       // `Array(u8, usize(20)).fill` to a valueless callee — "No matching
-      // call found" at std/string/string_builder.yo:182
+      // call found" at std/string/string-builder.yo:182
       // (issues/fixed/warm-in-process-array-fill-call-stops-matching.md).
       // Cache
       // coherence in watch mode belongs to mm_revalidate_plan's per-def
@@ -5633,6 +6401,10 @@ run_compile :: (
     module_value := Rc.clone(outcome.module_value);
     env := Rc.clone(outcome.env);
     mut(ctx) := module_load_outcome_ctx(outcome);
+    // The naming warning covers the entry and every module it reached.
+    mut(name_scope) := module_cache_keys();
+    name_scope.push(entry_abs.clone());
+    warn_module_names(&name_scope, &entry_abs);
     // §4.9: the evaluation is what opens files, so the record is complete now.
     // Written before codegen so `--skip-codegen` and `--skip-c-compiler`
     // callers get a depfile too.
@@ -6086,7 +6858,7 @@ run_compile :: (
       // joins the link line for this allocator.
       println(`Using fixed-region allocator (${_format_heap_size(heap_size)} heap)`);
     }, {
-      // The debug arm (src/codegen/c/allocator_debug.yo) tracks blocks over
+      // The debug arm (src/codegen/c/allocator-debug.yo) tracks blocks over
       // the system heap: nothing joins the link line either.
       println(if(allocator == "debug", String.from("Using debug allocator (leak check at exit)"), String.from("Using system allocator")));
     });
@@ -6821,16 +7593,10 @@ _exec_argv :: (fn(exec_cstrs : &ArrayList(ArrayList(u8))) -> unit)({
 // the runner replays in file order, so the stream, the totals and the exit
 // code are the sequential runner's. POSIX only (Linux, macOS).
 //
-// Two runtime symbols (src/codegen/async/runtime_io_*.yo):
-// - `__yo_io_cleanup`: the async runtime's per-thread backend teardown, the
-//   call its thread-exit hook and async-main driver make. It is idempotent,
-//   and the next submission creates the backend again.
-// - `__yo_errno`: errno as a call (the C macro is an lvalue).
-extern(
-  "Yo",
-  __yo_io_cleanup : (fn() -> unit),
-  __yo_errno : (fn() -> i32)
-);
+// `reset_io_backend` is the async runtime's per-thread backend teardown
+// (std/sys/process); `last_errno` reads errno (std/libc/errno).
+{ reset_io_backend } :: import("std/sys/process");
+{ last_errno } :: import("std/libc/errno");
 /// A `YO_TEST_FORK` worker that exited: its pid (-1 when no child is left)
 /// and its raw wait status.
 _TestForkExit :: struct(pid : i32, status : i32);
@@ -6888,7 +7654,7 @@ _test_fork_posix :: (fn() -> i32)({
   { fork } :: import("std/libc/unistd");
   unsafe(fflush(.Some(stdout)));
   unsafe(fflush(.Some(stderr)));
-  __yo_io_cleanup();
+  reset_io_backend();
   i32(unsafe(fork()))
 });
 /// In a worker: send stdout and stderr to `<base>.out` and `<base>.err`, the
@@ -6943,7 +7709,7 @@ _test_fork_wait_any_posix :: (fn() -> _TestForkExit)({
   { EINTR } :: import("std/libc/errno");
   (st : int) = int(0);
   (r : int) = unsafe(waitpid(int(-1), addr_of(st), int(0)));
-  while((r < int(0)) && (__yo_errno() == i32(EINTR)), {
+  while((r < int(0)) && (last_errno() == i32(EINTR)), {
     r = unsafe(waitpid(int(-1), addr_of(st), int(0)));
   });
   _TestForkExit(pid : i32(r), status : i32(st))
@@ -7642,7 +8408,7 @@ run_test :: (
   // (issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md).
   // YO_EXE: this process's own executable, exported so a batch's tests can
   // re-invoke the compiler running them
-  // (tests/internal/concurrent_test_runs.test.yo).
+  // (tests/internal/concurrent-test-runs.test.yo).
   // An RSS-valve exec-restart re-executes this block in the resumed process,
   // which keeps the SAME pid — the names stay consistent across the restart.
   runner_pid := pid().to_string();
@@ -8126,7 +8892,7 @@ run_test :: (
         );
         // The same flag stages the `--allocator debug` verdict off: the test
         // binary reads YO_DEBUG_ALLOC_VERDICT and, at 0, lists its live blocks
-        // without failing the exit (src/codegen/c/allocator_debug.yo).
+        // without failing the exit (src/codegen/c/allocator-debug.yo).
         debug_alloc_verdict := if(leak_verdict, String.from("1"), String.from("0"));
         if(test_allocator == "debug", {
           _sv_dbg := proc_env.set(String.from("YO_DEBUG_ALLOC_VERDICT"), debug_alloc_verdict.clone());
@@ -8225,7 +8991,7 @@ run_test :: (
           // unless staged off via YO_TEST_LEAK_VERDICT=0 (hoisted above,
           // where it also disables LSan's own exit-code).
           has_asan_leak := (leak_verdict && (test_cc != "emcc") && use_asan && (combined.contains("LeakSanitizer") || combined.contains("detected memory leaks") || combined.contains("Direct leak") || combined.contains("Indirect leak")));
-          // `--allocator debug` (src/codegen/c/allocator_debug.yo): the test
+          // `--allocator debug` (src/codegen/c/allocator-debug.yo): the test
           // binary itself fails with status 23 and this line when the test
           // body returned with blocks still live. Named as a leak, not as a
           // bare exit status.
@@ -9428,7 +10194,7 @@ run_build_cmd :: (
   if(watch, {
     // Hash from the start: the build-file evaluation loads modules the
     // in-process artifact compiles then find cached, and a cached module
-    // replays the hashes its load recorded (input_record.yo).
+    // replays the hashes its load recorded (input-record.yo).
     set_input_hashing(true);
     set_in_process_compile_fn(
       (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> bool)({
@@ -9522,7 +10288,7 @@ run_build_cmd :: (
 /// (html|markdown|json, default html), --version, --logo, --favicon,
 /// --allow-token-only.
 /// `yo unsafe-report [path] [--json]` — the unsafe-surface audit (scanning
-/// lives in unsafe_report.yo). A nonexistent
+/// lives in unsafe-report.yo). A nonexistent
 /// path reports on stderr and exits 1.
 run_unsafe_report_cmd :: (
   fn(
@@ -9561,7 +10327,7 @@ run_unsafe_report_cmd :: (
 });
 /// `yo public-safe-report [path] [--json]` — the public-signature raw-
 /// pointer lint (scanning lives in
-/// public_safe_report.yo). Informational: findings do NOT fail the exit.
+/// public-safe-report.yo). Informational: findings do NOT fail the exit.
 run_public_safe_report_cmd :: (
   fn(
     argv : &ArrayList(String),
@@ -10117,7 +10883,7 @@ run_explain :: (
   (show_list : bool) = false;
   (as_json : bool) = false;
   // The global `--lang` pre-scan and YO_LANG both resolve here now
-  // (src/cli_lang.yo); explain keeps no private language handling.
+  // (src/cli-lang.yo); explain keeps no private language handling.
   lang := cli_lang();
   (target : String) = String.new();
   (ai : usize) = usize(1);
@@ -10537,6 +11303,14 @@ Options:
                             accepts its spelling: v0.2.77 for the bare
                             Dyn(...) types, v0.2.78 for the plain dyn(v)
                             (yo version install 0.2.78), then this one
+  --module-names            Rename every module file and directory whose
+                            name holds _ or upper case to kebab-case
+                            (array_list.yo -> array-list.yo) and rewrite
+                            the imports, [modules] entries and build.yo
+                            roots that reach them; an import that no
+                            longer resolves is pointed at the one module
+                            its kebab-case spelling reaches. Prints the
+                            rename map; not a migration, never retired
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10545,7 +11319,8 @@ Options:
 Examples:
   $ yo fix ./src
   $ yo fix main.yo --dry-run
-  $ yo fix ./std ./tests --migrate deref`,
+  $ yo fix ./std ./tests --migrate deref
+  $ yo fix . --module-names --dry-run`,
         `用法：yo fix <file-or-dir>... [options]
 
 应用编译器已经算出的机械修复。只有当恰好存在唯一一种修改能修复该诊断时，
@@ -10567,6 +11342,12 @@ Examples:
                             接受其拼写的版本：裸 Dyn(...) 类型用 v0.2.77，
                             裸 dyn(v) 用 v0.2.78（yo version install
                             0.2.78），再运行本迁移
+  --module-names            把名字含 _ 或大写字母的每个模块文件与目录重命名
+                            为 kebab-case（array_list.yo -> array-list.yo），
+                            并改写指向它们的 import、[modules] 条目与
+                            build.yo 的 root；不再能解析的 import 改为指向其
+                            kebab-case 写法所指的唯一模块。打印重命名映射；
+                            它不是迁移，永不退役
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
@@ -10574,7 +11355,8 @@ Examples:
 示例：
   $ yo fix ./src
   $ yo fix main.yo --dry-run
-  $ yo fix ./std ./tests --migrate deref`
+  $ yo fix ./std ./tests --migrate deref
+  $ yo fix . --module-names --dry-run`
       )
     ),
     "check" => Option(String).Some(
@@ -10652,7 +11434,7 @@ Examples:
   $ yo verify ./src
   $ yo verify --solver-path /usr/bin/z3 --format json
   $ yo verify ./spec --strict
-  $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`,
+  $ yo verify ./tests/spec/verify-straight-line.test.yo --explain abs`,
         `用法：yo verify [路径] [选项]
 
 使用固定版本的 Z3 求解器做编译期验证（Dafny/SPARK 模型；
@@ -10686,7 +11468,7 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
   $ yo verify ./src
   $ yo verify --solver-path /usr/bin/z3 --format json
   $ yo verify ./spec --strict
-  $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`
+  $ yo verify ./tests/spec/verify-straight-line.test.yo --explain abs`
       )
     ),
     "fmt" => Option(String).Some(
@@ -11170,7 +11952,7 @@ an index of the bundled std, built once on first use and cached by content.
 Queries:
   yo context --list              Every module, one line each, with item counts
   yo context <module>            One module's items (a full path such as
-                                 std/collections/array_list, a unique last
+                                 std/collections/array-list, a unique last
                                  segment such as array_list, or a unique suffix)
   yo context <module> <name>     One item's full entry; a method is <Type>.<name>
   yo context <name>              A name across the corpus: one hit prints its
@@ -11204,7 +11986,7 @@ $YO_CONTEXT_CACHE overrides where the index is cached.
 Examples:
   $ yo context
   $ yo context --search hash
-  $ yo context collections/array_list ArrayList.push
+  $ yo context collections/array-list ArrayList.push
   $ yo context --doc MEMORY_SAFETY
   $ yo context --deps --list --format json`,
         `用法：yo context [<module> [<name>] | <name>] [选项]
@@ -11216,7 +11998,7 @@ Examples:
 查询：
   yo context --list              列出全部模块，每行一个，附条目数
   yo context <module>            某个模块的条目（完整路径如
-                                 std/collections/array_list、唯一的末段如
+                                 std/collections/array-list、唯一的末段如
                                  array_list，或唯一的后缀）
   yo context <module> <name>     某个条目的完整说明；方法写作 <Type>.<name>
   yo context <name>              在整个语料中查找名字：唯一命中时输出其说明，
@@ -11247,7 +12029,7 @@ $YO_CONTEXT_CACHE 可覆盖索引的缓存位置。
 示例：
   $ yo context
   $ yo context --search hash
-  $ yo context collections/array_list ArrayList.push
+  $ yo context collections/array-list ArrayList.push
   $ yo context --doc MEMORY_SAFETY
   $ yo context --deps --list --format json`
       )
@@ -11390,7 +12172,7 @@ main :: (fn(io : Io) -> unit)({
   raw_argv := argv1;
   // Global `--std-path <dir>` flag: strip it from argv before subcommand
   // dispatch and stash the override with the module manager.
-  // The global `--lang <lc>` flag (CLI output language, src/cli_lang.yo)
+  // The global `--lang <lc>` flag (CLI output language, src/cli-lang.yo)
   // strips the same way and also matches anywhere in argv.
   argv := ArrayList(String).new();
   ai := usize(0);
@@ -11406,7 +12188,7 @@ main :: (fn(io : Io) -> unit)({
     }, {
       // Global `--imports <file>`: the build runner's per-artifact
       // `name=/abs/root.yo` mapping for bare `import("name")` resolution
-      // (module_manager.yo loads it on the first module load).
+      // (module-manager.yo loads it on the first module load).
       if(a == "--imports", {
         if((ai + usize(1)) < raw_argv.len(), {
           set_imports_file_override(raw_argv(ai + usize(1)).clone());

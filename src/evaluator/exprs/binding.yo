@@ -10,7 +10,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   ast_expr_token,
@@ -26,7 +26,7 @@ import("std/fmt");
 } :: import("../../expr.yo");
 { TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr-info.yo");
 { Environment, add_variable_to_env, get_variables_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, in_def_time_trial } :: import("../context.yo");
 { EvalValue, EvalValueNode, is_type_value, create_unknown_val } :: import("../../value.yo");
@@ -49,7 +49,7 @@ import("std/fmt");
 } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_repair, format_error_messages, TokenAndError, YoError, format_eval_failure, with_code } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
-{ type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
+{ type_implements_comptime, type_implements_runtime_full } :: import("../trait-checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
 { reject_annotation_naming_its_binding } :: import("../types/function.yo");
@@ -65,15 +65,13 @@ set_defer_generic_fn_type_check :: (fn(v : bool) -> unit)({
 // Return type
 // ---------------------------------------------------------------------------
 /// The result of `evaluate_binding`.
-BindingResult :: ref(
-  struct(
-    /// The fully annotated `:` expression.
-    expr : AstExpr,
-    /// The lhs name expression (after stripping `comptime(...)` / `given(...)`).
-    variable_expr : AstExpr,
-    /// The plain string name of the variable being declared.
-    variable_name : String
-  )
+BindingResult :: struct(
+  /// The fully annotated `:` expression.
+  expr : AstExpr,
+  /// The lhs name expression (after stripping `comptime(...)` / `given(...)`).
+  variable_expr : AstExpr,
+  /// The plain string name of the variable being declared.
+  variable_name : String
 );
 // ---------------------------------------------------------------------------
 // evaluate_binding
@@ -341,11 +339,11 @@ evaluate_binding :: (
   });
   // Reject type annotations that require comptime but binding is runtime.
   // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
-  // in initialization_assignment.yo.
+  // in initialization-assignment.yo.
   binding_requires_ct := (type_requires_comptime_modifier(&user_defined_type) || (type_implements_comptime(&user_defined_type, &env) && !type_implements_runtime_full(&user_defined_type, &env)));
   // In a DEFINITION-time body trial a type still carrying unresolved SomeTs
   // cannot be judged comptime-only — the twin of the ::-vs-:= skip in
-  // initialization_assignment.yo (root 7837, IterFilter's
+  // initialization-assignment.yo (root 7837, IterFilter's
   // `(loop_result : Option(A)) = .None` — A is the where-constraint SomeT;
   // issues/fixed/def-eval-swallow-remaining-roots.md). The specialization-time
   // re-eval re-checks with concrete types.
@@ -423,7 +421,7 @@ evaluate_binding :: (
     is_compile_time_only => Option(EvalValue).Some(create_unknown_val(&user_defined_type)),
     true => Option(EvalValue).None
   );
-  // No-shadowing rule — same check as initialization_assignment.yo; see the
+  // No-shadowing rule — same check as initialization-assignment.yo; see the
   // comment there for why it lives at the user binding-introduction sites.
   if(variable_name != String.from("__yo_self"), {
     shadow_existing := get_variables_from_env(&env, &variable_name);
@@ -479,7 +477,7 @@ evaluate_binding :: (
       // patched onto the variable for the `(name : T) = ...` binding form
       // (add_variable_to_env has no is_module_level parameter). Also record
       // it in the data-keyed registry, which survives env copies (see
-      // expr_info.yo g_module_level_globals).
+      // expr-info.yo g_module_level_globals).
       new_binding_var.set_is_module_level(is_module_level.clone());
       if(is_module_level, {
         register_module_level_global(&ast_expr_token(&lhs).module_path.*, variable_name.clone());

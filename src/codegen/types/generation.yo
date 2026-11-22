@@ -7,13 +7,13 @@
 //! type-walk).
 { String } :: import("std/string");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
+{ HashMap } :: import("std/collections/hash-map");
 { TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee, t_refine_inner } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
-{ some_resolution } :: import("../../expr_info.yo");
+{ some_resolution } :: import("../../expr-info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 {
@@ -176,7 +176,7 @@ generate_str_type_declaration :: (fn(context : &mut CodeGenContext) -> unit)({
 /// opening line is emitted.
 ///
 /// `get_type_string` can fire the ON-DEMAND declaration hook
-/// (`_on_demand_collect_and_declare`, src/codegen/codegen_c.yo), which writes a
+/// (`_on_demand_collect_and_declare`, src/codegen/codegen-c.yo), which writes a
 /// `typedef` and a full type body straight into the DECLARATION buffer. Called
 /// from inside `_emit_runtime_fields`, that append lands between the
 /// `struct X_struct {` line and the field that demanded it — a storage-class
@@ -202,7 +202,7 @@ _prewarm_runtime_field_types :: (fn(fields : &ArrayList(RuntimeStructField), con
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(field) => if(!is_unit_type(&field.ty), {
         get_type_string(&field.ty, context);
       }),
@@ -217,14 +217,14 @@ _emit_runtime_fields :: (fn(fields : &ArrayList(RuntimeStructField), context : &
   (emitted : bool) = false;
   while(i < n, {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       // A `unit` field is a zero-sized type and emits NO member — C struct
       // members are accessed by name, so erasing one shifts nothing. Every
       // consumer of the layout skips the same fields: the `__yo_new_` ctor's
       // parameters and stores (functions/constructors.yo, declarations.yo),
       // the ctor call and the value-struct compound literal
-      // (exprs/other_fn_call.yo, exprs/comptime_value.yo), and a read of the
-      // field (exprs/property_access.yo). A struct whose every field is `unit`
+      // (exprs/other-fn-call.yo, exprs/comptime-value.yo), and a read of the
+      // field (exprs/property-access.yo). A struct whose every field is `unit`
       // is an empty C struct (GNU extension, sizeof 0 — same as Rust).
       .Some(field) => if(!is_unit_type(&field.ty), {
         fname := sanitize_for_c_identifier(field.label.clone(), false);
@@ -1134,8 +1134,8 @@ static inline void* __yo_rc_owner_vtable(void* p) {
 }
 ${alloc_in_fn}`
   );
-  // Whether the program runs on `--allocator debug` (allocator_debug.yo), as
-  // the program can read it (extern "Yo"): tests/debug_allocator.test.yo
+  // Whether the program runs on `--allocator debug` (allocator-debug.yo), as
+  // the program can read it (extern "Yo"): std/allocator.test.yo
   // checks the allocator's aborts only when they are armed.
   context.emitter.emit_declaration_line(
     cond(
@@ -1143,9 +1143,37 @@ ${alloc_in_fn}`
       true => "static inline bool __yo_debug_alloc_on(void) { return false; }"
     )
   );
-  // Generic Future + I/O Future struct types.
+  // Generic Future + I/O Future struct types, under the ABI comment block
+  // (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §3).
   context.emitter.emit_declaration_string_line(
     `
+// ============================================================================
+// THE ABI BETWEEN GENERATED STATE MACHINES AND AN EXECUTOR
+// (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §3)
+// ============================================================================
+// The stable contract between the state machines this compiler emits and
+// any executor, native or Yo-written. A change to anything below is a codegen
+// PR that updates §3 and the async suite in the same PR; std never reads
+// these offsets.
+//   * Future prefix: __YO_FUTURE_PREFIX = { header, state, vt,
+//     continuation_fn, continuation_sm }; the _Static_asserts below pin the
+//     four offsets every future kind shares.
+//   * Per-type future vtable: __yo_future_vtable_t = { resume, set_effect,
+//     cancel_pending, bundle_offset, bundle_size }, one static table per type.
+//   * Continuation protocol: an awaiter reads state, cold-starts a 0 and
+//     writes itself into the single continuation slot. Completion sets -1,
+//     schedules the continuation on its thread's queue and releases one
+//     reference. -2 is aborted, with cancel_pending(pre_state).
+//   * Bundle injection: __yo_future_set_bundle, at io.await(f, e) and
+//     io.spawn(f, e).
+//   * Waker token: __yo_waker_token_t and its ownership counter (the
+//     cross-thread inbox of __yo_loop_t).
+//   * IoFuture: __yo_io_future_t = the prefix plus int32_t result, cancel_fn
+//     and backend_link.
+//   * Executor entries: IoVTable.spawn, run_until, now, sleep and park
+//     (__yo_io_spawn_task, __yo_io_run_until, __yo_io_now_ns,
+//     __yo_async_sleep_start, __yo_async_park_start in the native Io).
+
 // The prefix EVERY future starts with: a state machine, a no-await
 // sync future, an I/O future, the erased \`Impl(Future)\` interface. The
 // runtime (JoinHandle, abort, waiter registration) reads only this, so it
@@ -1196,7 +1224,7 @@ static inline void __yo_future_set_bundle(void* fut, const void* value) {
 // async runtime (a sync future nothing awaits), which has no thread-exit hook
 // to drain them. The pools and these functions are defined at the end of the
 // program, where the number of pooled types is known (emit_sm_pools,
-// codegen_c.yo).
+// codegen-c.yo).
 #define __YO_SM_POOL_CAP 32
 #if defined(__SANITIZE_ADDRESS__)
 #define __YO_SM_POOLS 0
@@ -1477,7 +1505,8 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
   )
 );
 /// A type collected for topological ordering: (typeId, type, cName, kind).
-_TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, kind : String));
+_TypeWalkEntry :: struct(type_id : String, ty : TypeValue, c_name : String, kind : String);
+derive(_TypeWalkEntry, Clone);
 /// The type ids in `context.types` not yet in `seen`, in bucket order, each
 /// added to `seen`. A walk whose body can register a type (an on-demand
 /// typedef resolving a member's C type) must not iterate the live map: a
@@ -1515,7 +1544,7 @@ generate_dyn_forward_declarations :: (fn(context : &mut CodeGenContext) -> unit)
   while(i < n, {
     key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
-      context.types.get(key.clone()),
+      context.types.get_cloned(key.clone()),
       .Some(entry) => if(is_dyn_type(&entry.ty), {
         if(!has_any, {
           context.emitter.emit_declaration_line("");
@@ -1690,7 +1719,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
   context.emitter.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
   context.emitter.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
   // The payload's RC functions and its clone, in `__yo_vtable_prefix_t`'s
-  // layout (functions/gc_runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`
+  // layout (functions/gc-runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`
   // / `__yo_dyn_clone`.
   context.emitter.emit_declaration_line("  size_t __yo_size; // size_of_val: the payload's size");
   context.emitter.emit_declaration_line("  size_t __yo_align; // align_of_val: the payload's alignment");
@@ -1728,7 +1757,7 @@ generate_dyn_box_types :: (fn(context : &mut CodeGenContext) -> unit)({
   while(i < n, {
     key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
-      context.dyn_impls.get(key.clone()),
+      context.dyn_impls.get_cloned(key.clone()),
       .Some(impl_entry) => {
         // A SomeT with a resolved concrete falls through
         // to that concrete (the expr_info resolved-concrete side-table
@@ -1988,7 +2017,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   (ei : usize) = usize(0);
   while(ei < ne, {
     match(
-      entries.get(ei),
+      entries.get_cloned(ei),
       .Some(e) => {
         dset := HashSet(String).new();
         cond(
@@ -1998,7 +2027,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
             (fi : usize) = usize(0);
             while(fi < nf, {
               match(
-                rfs.get(fi),
+                rfs.get_cloned(fi),
                 .Some(field) => {
                   ft := Rc.clone(field.ty);
                   match(_walk_pointee_newtype(&ft), .Some(p) => _walk_add_dep(&mut dset, &p, e.type_id.clone(), &cname_to_typeid, context), .None => ());
@@ -2052,7 +2081,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   (di : usize) = usize(0);
   while(di < ne, {
     match(
-      entries.get(di),
+      entries.get_cloned(di),
       // The dependency set is read in place (a value since B9).
       .Some(e) => cond(
         deps.contains_key(&e.type_id) => {
@@ -2070,7 +2099,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   (qi : usize) = usize(0);
   while(qi < ne, {
     match(
-      entries.get(qi),
+      entries.get_cloned(qi),
       .Some(e) => match(
         in_degree.get(e.type_id.clone()),
         .Some(d) => if(d == usize(0), {
@@ -2092,7 +2121,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
     (oi : usize) = usize(0);
     while(oi < ne, {
       match(
-        entries.get(oi),
+        entries.get_cloned(oi),
         // The dependency set is read in place (a value since B9).
         .Some(other) => cond(
           deps.contains_key(&other.type_id) => if(deps(other.type_id.clone()).contains(tid.clone()), {
@@ -2115,7 +2144,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
     (ci : usize) = usize(0);
     while(ci < ne, {
       match(
-        entries.get(ci),
+        entries.get_cloned(ci),
         .Some(e) => {
           (seen : bool) = false;
           (si : usize) = usize(0);
@@ -2151,7 +2180,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
     (found : bool) = false;
     while((yi < ne) && !found, {
       match(
-        entries.get(yi),
+        entries.get_cloned(yi),
         .Some(e) => if(e.type_id == sid, {
           found = true;
           if(

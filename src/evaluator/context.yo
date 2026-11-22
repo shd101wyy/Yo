@@ -4,20 +4,20 @@
 //!
 //! * Interfaces are Yo `object` types; optional fields (`field?: T`) are
 //!   `Option(T)` fields; discriminated-union result fields are Yo enum variants.
-//! * `Map<K,V>` → `HashMap(K, V)` from std/collections/hash_map.
-//! * `Set<K>` → `HashSet(K)` from std/collections/hash_set.
+//! * `Map<K,V>` → `HashMap(K, V)` from std/collections/hash-map.
+//! * `Set<K>` → `HashSet(K)` from std/collections/hash-set.
 //! * `PathCollection` → `PathCollection :: ArrayList(ArrayList(String))`
-//!   imported from `src/expr_info.yo`.
+//!   imported from `src/expr-info.yo`.
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
 { TypeValue, t_slot_pointee, t_slot_is_borrow } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { note_move_only_possible, is_drop_trait_name } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, make_environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, variable_value_type, variable_set_value_type } :: import("../env.yo");
+{ Environment, make_environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, variable_value_type, variable_set_value_type, new_environment } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -46,7 +46,7 @@
   BF_DERIVE,
   BF_GHOST_FN
 } :: import("../expr.yo");
-{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef, ExprInfo } :: import("../expr_info.yo");
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef, ExprInfo } :: import("../expr-info.yo");
 { Token } :: import("../token.yo");
 { YoError } :: import("../error.yo");
 { Exception } :: import("std/error");
@@ -84,7 +84,7 @@ _module_ordered_read_keys :: (fn(m : &HashMap(String, HashMap(String, HashSet(St
 /// Node ids of identifier atoms inside `ensures(...)` predicates spliced into
 /// bodies of UNLABELED non-unit-return functions. Populated by
 /// `wrap_function_body_with_contracts` (builtins/contracts.yo) at splice time;
-/// read by the identifier resolver (exprs/identifer_and_operator.yo) so the
+/// read by the identifier resolver (exprs/identifer-and-operator.yo) so the
 /// ordinary `Variable "x" not found.` error can append the label-the-return
 /// hint (decision D3: no magic `result` identifier). With a LABELED return an
 /// unbound name is an ordinary typo and nothing registers here.
@@ -140,7 +140,7 @@ FuncOrAsyncBlockCtx :: struct(
   /// function called with every argument known, not reached through an
   /// untaken arm of an enclosing comptime body. A `__yo_panic` it reaches
   /// is a compile error (`evaluate_panic`). Set only by
-  /// `calls/comptime_fn.yo`.
+  /// `calls/comptime-fn.yo`.
   (ctfe_live : bool) ?= false,
   /// `EvalContext.ctfe_untaken_arm_depth` at this body's entry: a panic at
   /// a deeper count sits in an arm the execution does not take.
@@ -260,13 +260,17 @@ CalledComptimeFnCache :: struct(
 ///
 /// Stored globally in `EvalContext` instead of on the `FuncVal` to avoid
 /// circular imports between `value.yo` and `env.yo`.
-ComptimeFnCacheEntry :: ref(
-  struct(
-    func_id : String,
-    caches : ArrayList(CalledComptimeFnCache)
+ComptimeFnCacheEntry :: struct(
+  func_id : String,
+  caches : ArrayList(CalledComptimeFnCache)
+);
+derive(CalledComptimeFnCache, Clone);
+impl(
+  ComptimeFnCacheEntry,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(ComptimeFnCacheEntry(func_id : self.func_id.clone(), caches : self.caches.clone()))
   )
 );
-impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // Specialization cache types
 // ---------------------------------------------------------------------------
@@ -294,12 +298,12 @@ SpecializedFunctionCache :: struct(
   owner : String
 );
 /// Per-function bucket of specialization caches, keyed by `func_id`.
-SpecializedFunctionCacheEntry :: ref(
-  struct(
-    func_id : String,
-    caches : ArrayList(SpecializedFunctionCache)
-  )
+SpecializedFunctionCacheEntry :: struct(
+  func_id : String,
+  caches : ArrayList(SpecializedFunctionCache)
 );
+derive(SpecializedFunctionCache, Clone);
+derive(SpecializedFunctionCacheEntry, Clone);
 // ---------------------------------------------------------------------------
 // Main EvaluatorContext
 // ---------------------------------------------------------------------------
@@ -527,31 +531,39 @@ eval_context_new :: (fn(std_path : &String, module_path : &String) -> EvalContex
 // ArgValues
 // ---------------------------------------------------------------------------
 /// One entry in the args / forallArgs / implicitArgs / variadicArgs arrays.
-ArgEntry :: ref(
-  struct(
-    value : Option(EvalValue),
-    parameter_type : TypeValue,
-    arg_type : TypeValue
-  )
+ArgEntry :: struct(
+  value : Option(EvalValue),
+  parameter_type : TypeValue,
+  arg_type : TypeValue
 );
+derive(ArgEntry, Clone);
 /// Variadic argument entry (no parameterType).
-VarArgEntry :: ref(
-  struct(
-    value : Option(EvalValue),
-    arg_type : TypeValue
+VarArgEntry :: struct(
+  value : Option(EvalValue),
+  arg_type : TypeValue
+);
+derive(VarArgEntry, Clone);
+ArgValues :: struct(
+  forall_args : ArrayList(ArgEntry),
+  args : ArrayList(ArgEntry),
+  implicit_args : Option(ArrayList(ArgEntry)),
+  variadic_args : ArrayList(VarArgEntry)
+);
+/// A deep copy of the four lists (each `ArgEntry` is plain data over counted
+/// cells, so an element copy is the count bump it always was).
+impl(
+  ArgValues,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      ArgValues(
+        forall_args : self.forall_args.clone(),
+        args : self.args.clone(),
+        implicit_args : self.implicit_args.clone(),
+        variadic_args : self.variadic_args.clone()
+      )
+    )
   )
 );
-ArgValues :: ref(
-  struct(
-    forall_args : ArrayList(ArgEntry),
-    args : ArrayList(ArgEntry),
-    implicit_args : Option(ArrayList(ArgEntry)),
-    variadic_args : ArrayList(VarArgEntry)
-  )
-);
-/// A handle copy: `ArgValues` is still a `ref` (its `ArgEntry` elements are
-/// written in place), so a clone shares the record.
-impl(ArgValues, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // FunctionCallResult
 // ---------------------------------------------------------------------------
@@ -918,7 +930,7 @@ track_variable_usage_resolved :: (
 // records call-site ExprInfos with no FuncVal — codegen's fn-pointer
 // fallback then emits the raw identifier. The def-time trial eval is
 // therefore re-run after the forward declaration is FILLED (assignment.yo
-// calls through this hook into function_type.yo's pending table).
+// calls through this hook into function-type.yo's pending table).
 /// Returns the first re-run that still fails once every forward declaration
 /// it waited for is filled — the caller, which has `exn`, raises it.
 RerunPendingDefEvalsFn :: (fn(env : &Environment, ctx : &EvalContext) -> Option(YoError));
@@ -936,9 +948,9 @@ call_rerun_pending_def_evals :: (fn(env : &Environment, ctx : &EvalContext) -> O
 );
 // --- write-position `Index` promotion hook (VALUES_BY_DEFAULT V2b) ----------
 // A write through `x(i)` re-dispatches the element access to `index_mut`
-// (calls/index_trait.yo's `promote_index_places_for_write`). The write
+// (calls/index-trait.yo's `promote_index_places_for_write`). The write
 // sites (assignment, `&mut` arguments, `addr_of`, `&mut` local borrows)
-// cannot import calls/index_trait.yo without a cycle, so they call through
+// cannot import calls/index-trait.yo without a cycle, so they call through
 // this hook, installed by `register_evaluate_expression`.
 /// `is_addr_of`: the write is `addr_of(place)`, which a diagnostic names.
 PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception, is_addr_of : bool) -> unit);
@@ -956,9 +968,9 @@ call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment,
 );
 // --- index-place detection hook (a marked match scrutinee's route) ---------
 // `recv(i)` whose receiver is a runtime binding of a type that dispatches
-// `Index` (calls/index_trait.yo's `has_index_impl`). exprs/match.yo cannot
-// import calls/index_trait.yo without a cycle, so it asks through this hook,
-// installed by index_trait.yo's `register_promote_index_places`.
+// `Index` (calls/index-trait.yo's `has_index_impl`). exprs/match.yo cannot
+// import calls/index-trait.yo without a cycle, so it asks through this hook,
+// installed by index-trait.yo's `register_promote_index_places`.
 IsIndexPlaceFn :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool);
 (mut(g_is_index_place_fn) : Option(IsIndexPlaceFn)) = Option(IsIndexPlaceFn).None;
 set_is_index_place_fn :: (fn(f : IsIndexPlaceFn) -> unit)({
@@ -976,7 +988,7 @@ call_is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext)
 // Evaluate an expression AS A FUNCTION BODY (through the begin machinery, so a
 // bare `return(...)` body resolves `return`), for modules that cannot import
 // exprs/begin.yo without a cycle (values/impl.yo's trait-default
-// materialization). Installed by calls/function_type.yo.
+// materialization). Installed by calls/function-type.yo.
 EvaluateFnBodyFn :: (fn(body : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr);
 (mut(g_evaluate_fn_body_fn) : Option(EvaluateFnBodyFn)) = Option(EvaluateFnBodyFn).None;
 set_evaluate_fn_body_fn :: (fn(f : EvaluateFnBodyFn) -> unit)({
@@ -991,9 +1003,9 @@ call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &mut Eva
   )
 );
 // --- P0 forward-reference diagnostic plumbing (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6) ---
-// The module walker (values/anonymous_module.yo) records the begin_exprs
+// The module walker (values/anonymous-module.yo) records the begin_exprs
 // list it is currently walking and how far in it is, so a def-time trial
-// that swallows an unbound-name error (calls/function_type.yo's trial cell)
+// that swallows an unbound-name error (calls/function-type.yo's trial cell)
 // can tell "bound LATER in this module" from "never bound" — the former is
 // a forward reference, which must ERROR at check time instead of hollowing
 // the body silently. Nested module loads save/restore around their own
@@ -1208,7 +1220,7 @@ hard_swallow_diagnostic :: (fn(msg : &String) -> Option(String))(_hard_swallow_c
 hard_swallow_diagnostic_in_generic_trial :: (fn(msg : &String) -> Option(String))(_hard_swallow_classes(msg, false));
 // --- Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4, P1 + P2) ---
 //
-// A module walk (values/anonymous_module.yo) PRE-SCANS its begin_exprs and
+// A module walk (values/anonymous-module.yo) PRE-SCANS its begin_exprs and
 // records every deferrable statement — a `name :: <rhs>` definition (P1) or an
 // `impl(<receiver>, ...)` registration (P2) — as a PendingDef. The walk still
 // evaluates statements in source order, but a statement whose entry was
@@ -1221,7 +1233,7 @@ hard_swallow_diagnostic_in_generic_trial :: (fn(msg : &String) -> Option(String)
 //
 // The model lives HERE (every evaluator module imports context.yo) while the
 // forcing itself — which needs `evaluate_expression_raw` — is installed by
-// anonymous_module.yo through `set_force_pending_def_fn` (the
+// anonymous-module.yo through `set_force_pending_def_fn` (the
 // g_rerun_pending_def_evals_fn pattern: a fn slot cannot take the propagating
 // `Exception`, so the forcer reports failure as a message and the caller, which
 // has `exn` in scope, throws it).
@@ -1739,13 +1751,13 @@ record_module_member_read :: (fn(importer : &String, target_module : &String, fi
 //
 // On a real definition edit the watch round no longer drops the changed
 // module's whole reverse import closure: the invalidator
-// (`mm_revalidate_plan` / `mm_revalidate_apply`, module_manager.yo)
+// (`mm_revalidate_plan` / `mm_revalidate_apply`, module-manager.yo)
 // grafts the re-parsed statement onto the walk's PendingDef, resets it plus every reverse-edge
 // dependent in `g_def_deps`, re-forces in walk order, and patches the cached
 // module value's slot IN PLACE (importers share the StructVal). These are the
 // evaluator half; the orchestration and its conservative file-level
 // fallbacks (impls, type producers, ordered-statement readers, structural
-// edits) live in module_manager.yo.
+// edits) live in module-manager.yo.
 // ---------------------------------------------------------------------------
 /// Total `force_pending_def` invocations this process — the watch tests'
 /// oracle for "only the changed definition (+ its dependents) re-evaluated".
@@ -1997,7 +2009,7 @@ set_force_pending_def_fn :: (fn(f : ForcePendingDefFn) -> unit)({
 // captured state is AND its code reaches no thread-affine module global
 // (issues/fixed/function-values-bypass-the-d1-reach-walk.md). The judgement lives
 // in `utils/closure.yo` (it needs the D1 reach walk, which imports
-// `trait_checking.yo`); `trait_checking.yo` and `types/function.yo` reach it
+// `trait-checking.yo`); `trait-checking.yo` and `types/function.yo` reach it
 // through this slot, registered by `register_evaluate_expression`.
 //
 // `witness` is the value when the caller has it (an argument, a captured
@@ -2295,7 +2307,7 @@ note_borrowing_argument :: (fn(arg : &AstExpr) -> unit)({
 /// True when the closure literal `e` is the direct argument of a borrowing
 /// parameter (`note_borrowing_argument`).
 closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_args.with({ e : &e.* }(m) => m.contains_key(ast_expr_id(e))));
-/// `YO_AUDIT_COPY_TRAIT`'s question, answered by trait_checking.yo (installed
+/// `YO_AUDIT_COPY_TRAIT`'s question, answered by trait-checking.yo (installed
 /// at init, which this module cannot import): the named types `ty` is not
 /// `Copy` through, the types decision 36's sweep must give `Copy` before a
 /// copy of `ty` stays implicit (`copy_trait_blockers`).
@@ -3488,15 +3500,94 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   match(
     missed,
     .Some(m) => {
-      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()), false);
-      match(&declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None, in_own_impl), _ => declaring)
+      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()), false, Option(String).None);
+      match(&declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None, in_own_impl, Option(String).None), _ => declaring)
     },
-    .None => _force_pending_impls_pass(type_name, Option(String).None, false)
+    .None => _force_pending_impls_pass(type_name, Option(String).None, false, Option(String).None)
   )
+});
+/// The name an `impl(...)`/`derive(...)` argument spells a trait with: `Clone`
+/// for `Clone`, `Clone(...)`, `Eq(T)`, and the member of a qualified
+/// `IoTraits.Reader(...)`. Empty for any other shape.
+_impl_arg_trait_name :: (fn(arg : &AstExpr) -> String)(
+  cond(
+    ast_expr_is_atom(arg) => ast_expr_token(arg).value.*.clone(),
+    ast_expr_is_fn_call_of(arg, BF_DOT, .Some(usize(2))) => match(
+      arg,
+      Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(member) => recur(&member), .None => String.new()),
+      Rc(.Atom(_, _)) => String.new()
+    ),
+    true => match(
+      arg,
+      Rc(.FnCall(_, callee, _, _, _)) => cond(
+        (ast_expr_is_atom(&callee.*) || ast_expr_is_fn_call_of(&callee.*, BF_DOT, .Some(usize(2)))) => recur(&callee.*),
+        true => String.new()
+      ),
+      Rc(.Atom(_, _)) => String.new()
+    )
+  )
+);
+/// Does the `impl(...)`/`derive(...)` statement `expr` name the trait
+/// `trait_name` among its arguments (`impl(B, Clone(...))`,
+/// `derive(B, Clone, Hash)`)? Only such a statement can register that trait
+/// for its type.
+_impl_expr_names_trait :: (fn(expr : &AstExpr, trait_name : &String) -> bool)(
+  match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => {
+      (found : bool) = false;
+      (i : usize) = usize(1);
+      while((i < args.len()) && !found, {
+        match(
+          args.get_cloned(i),
+          .Some(a) => {
+            found = (_impl_arg_trait_name(&a) == trait_name.*);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    Rc(.Atom(_, _)) => false
+  )
+);
+/// Force the Unforced pending impls and derives of `type_name` that name the
+/// trait `trait_name`, across the active walks, as
+/// `force_pending_impls_for_type_name` does for a trait-satisfaction check.
+/// A generic impl's `where` bound asks this when it fails: `Box(B) <: Clone`
+/// needs `B <: Clone` from a `derive(B, Clone)` further down. Only an impl
+/// that names the trait can answer, and the others are left in place: the
+/// bound also fails for a type that legitimately lacks the trait, and for a
+/// recursive type whose check the recursion guard cut, where forcing an
+/// unrelated impl of a type still being defined is a cycle
+/// (issues/fixed/2026-11-19-derive-clone-of-a-deref-field-fails-when-the-payloads-clone-is-derived-later.md).
+force_pending_trait_impls_for_type_name :: (fn(type_name : &String, trait_name : &String) -> PendingImplOutcome)({
+  if((type_name.len() == usize(0)) || (trait_name.len() == usize(0)), {
+    return(PendingImplOutcome.NoneForced);
+  });
+  if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
+    eprintln(`[force-miss] ${type_name} <: ${trait_name}`);
+  });
+  // An impl of this type in flight owns its own registration, exactly as
+  // for an unnamed trait-satisfaction miss in `force_pending_impls_for_type_name`.
+  (fi : usize) = usize(0);
+  while(fi < g_forcing_stack.with(_c_len_4), {
+    match(
+      g_forcing_stack.with(xs => xs.get_cloned(fi)),
+      .Some(fd) => if((fd.is_impl && !(fd.is_derive())) && (fd.name == type_name.*), {
+        return(PendingImplOutcome.NoneForced);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  _force_pending_impls_pass(type_name, Option(String).None, false, Option(String).Some(trait_name.clone()))
 });
 /// One forcing pass over the active walks (innermost first): every Unforced
 /// impl whose receiver head is `type_name` (or is un-nameable), restricted to
-/// the impls that declare `declaring` when it is given, and to derives when
+/// the impls that declare `declaring` when it is given, to the impls and
+/// derives that name the trait `naming` when it is given, and to derives when
 /// `derives_only`.
 ///
 /// Walks nest strictly, so every walk below the innermost is parked on the
@@ -3507,7 +3598,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
 /// An outer walk is searched only when it declares `type_name` itself, which
 /// is the import-cycle case (the running module reached back into a module
 /// still loading, whose own type's impl is pending).
-_force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String), derives_only : bool) -> PendingImplOutcome)({
+_force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String), derives_only : bool, naming : &Option(String)) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
   (wi : usize) = g_module_walks.with(_c_len_1);
@@ -3522,7 +3613,7 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
           match(
             walk.defs.get_cloned(di),
             .Some(def) => {
-              is_target := (def.is_impl && (def.is_derive() || !(derives_only)) && match(def.state(), .Unforced => true, _ => false) && ((def.name == type_name.*) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr(), &m.*), .None => true));
+              is_target := (def.is_impl && (def.is_derive() || !(derives_only)) && match(def.state(), .Unforced => true, _ => false) && ((def.name == type_name.*) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr(), &m.*), .None => true) && match(naming, .Some(tn) => _impl_expr_names_trait(&def.expr(), &tn.*), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(&walk, &def),
@@ -3600,56 +3691,218 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
 // in-flight stack with the others; the evaluators live in values/impl.yo.
 ImplFieldState :: enum(Unforced, Forcing, Done, Failed);
 derive(ImplFieldState, Copy, Clone);
-ImplPendingField :: ref(
-  struct(
-    label : String,
-    /// The `name : value` colon pair.
-    colon_expr : AstExpr,
-    /// Index of the impl argument this field belongs to — the field's own
-    /// index for a direct field, the trait constructor's for an inner one.
-    top_index : usize,
-    is_inner : bool,
-    state : ImplFieldState,
-    failure : Option(String),
-    /// The forcing-stack entry (phase-A publication target).
-    def : PendingDef,
-    /// Case 2 results, pushed into the impl's field arrays IN SOURCE ORDER by
-    /// the field loop whether the field was forced early or evaluated in place.
-    result_ty : Option(TypeValue),
-    result_value : Option(EvalValue),
-    /// True once a phase-A entry for this field is in the method registry
-    /// (the completing evaluation then updates that entry in place).
-    phase_a_registered : bool
-  )
+ImplPendingField :: struct(
+  label : String,
+  /// The `name : value` colon pair.
+  colon_expr : AstExpr,
+  /// Index of the impl argument this field belongs to — the field's own
+  /// index for a direct field, the trait constructor's for an inner one.
+  top_index : usize,
+  is_inner : bool,
+  state : ImplFieldState,
+  failure : Option(String),
+  /// The forcing-stack entry (phase-A publication target).
+  def : PendingDef,
+  /// Case 2 results, pushed into the impl's field arrays IN SOURCE ORDER by
+  /// the field loop whether the field was forced early or evaluated in place.
+  result_ty : Option(TypeValue),
+  result_value : Option(EvalValue),
+  /// True once a phase-A entry for this field is in the method registry
+  /// (the completing evaluation then updates that entry in place).
+  phase_a_registered : bool
 );
-ImplInFlight :: ref(
-  struct(
-    recv_id : String,
-    is_generic : bool,
-    receiver_ty : TypeValue,
-    receiver_name : String,
-    /// The impl's live env (Case 3 `local_env` / Case 2 `forall_env`); the loops
-    /// sync it in and out around each field so a force sees the env at the
-    /// current position.
-    env : Environment,
-    ctx : EvalContext,
-    fields : ArrayList(ImplPendingField),
-    /// The impl argument the field loop is on, and — inside a trait
-    /// constructor — that trait's type. An inner field is forcible only from
-    /// within its OWN trait entry (its expected type and working bindings
-    /// belong to that entry).
-    current_top_index : usize,
-    current_trait_ty : Option(TypeValue),
-    forall_names : ArrayList(String)
+derive(ImplPendingField, Clone);
+ImplInFlight :: struct(
+  recv_id : String,
+  is_generic : bool,
+  receiver_ty : TypeValue,
+  receiver_name : String,
+  /// The impl's live env (Case 3 `local_env` / Case 2 `forall_env`); the loops
+  /// sync it in and out around each field so a force sees the env at the
+  /// current position.
+  env : Environment,
+  ctx : EvalContext,
+  fields : ArrayList(ImplPendingField),
+  /// The impl argument the field loop is on, and — inside a trait
+  /// constructor — that trait's type. An inner field is forcible only from
+  /// within its OWN trait entry (its expected type and working bindings
+  /// belong to that entry).
+  current_top_index : usize,
+  current_trait_ty : Option(TypeValue),
+  forall_names : ArrayList(String)
+);
+/// A full working copy — the ctx via `copy_eval_context`, the counted fields
+/// via their handles. Taken only where a whole record must be lent `&mut`
+/// for a member's evaluation (`_run_impl_field_in_place`); the commits that
+/// follow are FIELD-SCOPED, so a sibling force that lands in place under the
+/// copy is never reverted.
+impl(
+  ImplInFlight,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      ImplInFlight(
+        recv_id : self.recv_id.clone(),
+        is_generic : self.is_generic,
+        receiver_ty : Rc.clone(self.receiver_ty),
+        receiver_name : self.receiver_name.clone(),
+        env : Rc.clone(self.env),
+        ctx : copy_eval_context(&self.ctx),
+        fields : self.fields.clone(),
+        current_top_index : self.current_top_index,
+        current_trait_ty : self.current_trait_ty.clone(),
+        forall_names : self.forall_names.clone()
+      )
+    )
   )
 );
 (g_impls_in_flight : RefCell(ArrayList(ImplInFlight))) = RefCell(ArrayList(ImplInFlight)).new(ArrayList(ImplInFlight).new());
-push_impl_in_flight :: (fn(rec : &ImplInFlight) -> unit)({
-  g_impls_in_flight.with_mut(xs => xs.push(rec.*));
+push_impl_in_flight :: (fn(rec : ImplInFlight) -> unit)({
+  g_impls_in_flight.with_mut({ rec }(xs) => xs.push(rec));
 });
+/// The stack's current depth — the index `push_impl_in_flight` just wrote.
+/// A field loop holds ITS entry's index: nested impls pushed during the
+/// loop land above it and pop before it does.
+impl_in_flight_len :: (fn() -> usize)(g_impls_in_flight.with(_c_len_5));
 pop_impl_in_flight :: (fn() -> unit)({
   g_impls_in_flight.with_mut(xs => xs.pop());
   ()
+});
+/// The stack index of the newest in-flight impl for `recv_id` — the in-place
+/// accessors below key on it. The record never leaves the stack (the env
+/// lookup hook keeps finding it while one of its fields is being evaluated,
+/// which a take-out would break); every read takes a copy and every write
+/// lands in place at the same boundary it used to hit the shared cell.
+newest_impl_in_flight_index_for :: (fn(recv_id : &String) -> Option(usize))({
+  (found : Option(usize)) = Option(usize).None;
+  rid := recv_id.clone();
+  (i : usize) = g_impls_in_flight.with(_c_len_5);
+  while((i > usize(0)) && found.is_none(), {
+    i = (i - usize(1));
+    if(g_impls_in_flight.with({ &rid, i }(xs) => (xs(i).recv_id == rid.*)), {
+      found = Option(usize).Some(i);
+    });
+  });
+  found
+});
+/// The scalar header of the in-flight entry at `index`: its receiver id,
+/// genericity, and current top index. The record itself is never copied out
+/// (it owns an `EvalContext`); reads are projectional, writes go through
+/// `_mutate_impl_in_flight_at`.
+ImplInFlightHeader :: struct(
+  recv_id : String,
+  is_generic : bool,
+  current_top_index : usize,
+  current_trait_type_id : String
+);
+impl_in_flight_header_at :: (fn(index : usize) -> Option(ImplInFlightHeader))(
+  g_impls_in_flight.with(
+    xs => match(
+      (index < xs.len()),
+      true => Option(ImplInFlightHeader).Some(
+        ImplInFlightHeader(
+          recv_id : xs(index).recv_id.clone(),
+          is_generic : xs(index).is_generic,
+          current_top_index : xs(index).current_top_index,
+          current_trait_type_id : match(&xs(index).current_trait_ty, .Some(tt) => match(&tt.*, Rc(.TraitT(_, _, ttid, _, _, _)) => ttid.clone(), _ => String.from("")), .None => String.from(""))
+        )
+      ),
+      false => Option(ImplInFlightHeader).None
+    )
+  )
+);
+/// A full working copy of the entry at `index` (see `ImplInFlight`'s Clone).
+impl_in_flight_clone_at :: (fn(index : usize) -> Option(ImplInFlight))(
+  g_impls_in_flight.with(
+    xs => match(
+      (index < xs.len()),
+      true => Option(ImplInFlight).Some(xs(index).clone()),
+      false => Option(ImplInFlight).None
+    )
+  )
+);
+/// A clone of the pending field `field_idx` of the entry at `index`.
+impl_in_flight_field_clone_at :: (fn(index : usize, field_idx : usize) -> Option(ImplPendingField))(
+  g_impls_in_flight.with(
+    xs => match(
+      ((index < xs.len()) && (field_idx < xs(index).fields.len())),
+      true => Option(ImplPendingField).Some(xs(index).fields(field_idx).clone()),
+      false => Option(ImplPendingField).None
+    )
+  )
+);
+/// Whether the pending field `field_idx` of the entry at `index` has a
+/// phase-A entry in the method registry, read LIVE: `force_in_flight_field`
+/// sets the flag in the stack while the field's own evaluation (running on a
+/// copy) is still in progress, so the completing registration must ask the
+/// stack, not its copy.
+impl_in_flight_field_phase_a_at :: (fn(index : usize, field_idx : usize) -> bool)(
+  g_impls_in_flight.with(xs => ((index < xs.len()) && (field_idx < xs(index).fields.len()) && xs(index).fields(field_idx).phase_a_registered))
+);
+/// The entry's live env.
+impl_in_flight_env_at :: (fn(index : usize) -> Environment)(
+  g_impls_in_flight.with(xs => Rc.clone(xs(index).env))
+);
+/// A copy of the entry's evaluation context.
+impl_in_flight_ctx_copy_at :: (fn(index : usize) -> Option(EvalContext))(
+  g_impls_in_flight.with(
+    xs => match(
+      (index < xs.len()),
+      true => Option(EvalContext).Some(copy_eval_context(&xs(index).ctx)),
+      false => Option(EvalContext).None
+    )
+  )
+);
+/// Lend the in-flight entry at `index` `&mut`, IN PLACE. `body` must be a
+/// boundary write: it must not evaluate user code, or it would re-enter this
+/// RefCell (the field evaluators run on copies for exactly that reason).
+/// Sync an in-flight record's env and ctx at `index` in one trip: the field
+/// loops write the env they built and the ctx they ran under back into the
+/// stack entry. Borrows both at the call site (a sink body cannot hold
+/// second-class captures), clones the env handle, and syncs the same ctx
+/// fields `_run_impl_field_in_place` lent out.
+sync_in_flight_ctx_at :: (fn(index : usize, env : &Environment, ctx : &EvalContext) -> unit)(
+  g_impls_in_flight.with_mut({ index, env : &env.*, ctx : &ctx.* }(xs) => {
+    if(index < xs.len(), {
+      mut(rec) := xs(index).clone();
+      rec.env = Rc.clone(env);
+      rec.ctx.self_type = ctx.self_type.clone();
+      rec.ctx.self_trait_type = ctx.self_trait_type.clone();
+      rec.ctx.self_module_type = ctx.self_module_type.clone();
+      rec.ctx.receiver_type = ctx.receiver_type.clone();
+      rec.ctx.expected_type = ctx.expected_type.clone();
+      rec.ctx.current_impl_trait_field_labels = ctx.current_impl_trait_field_labels.clone();
+      rec.ctx.current_impl_trait_field_types = ctx.current_impl_trait_field_types.clone();
+      xs(index) = rec;
+    });
+  })
+);
+_mutate_impl_in_flight_at :: (fn(index : usize, sink(body) : Impl(FnOnce(rec : &mut ImplInFlight) -> unit)) -> unit)({
+  g_impls_in_flight.with_mut({ body, index }(xs) => {
+    mut(rec) := xs(index).clone();
+    body(&mut rec);
+    xs(index) = rec;
+  });
+});
+/// The in-flight entry's CURRENT env, read fresh: a sibling force completing
+/// while a field is being evaluated replaces the stack entry's env, and the
+/// running field's later env reads must see the replacement exactly as they
+/// did when the record was one shared cell.
+_in_flight_env_at :: (fn(index : usize) -> Environment)(
+  cond(
+    (index < g_impls_in_flight.with(_c_len_5)) => g_impls_in_flight.with(xs => Rc.clone(xs(index).env)),
+    true => new_environment(Rc.new(String.from("<no impl in flight>")))
+  )
+);
+/// Persist the in-flight entry's env at `index` (the re-stamp sites inside
+/// the field evaluators replace `st.env` on their working copy; this puts the
+/// new binding back where the hook and the field loop read it).
+_persist_in_flight_env_at :: (fn(index : usize, env : &Environment) -> unit)({
+  env_own := Rc.clone(env);
+  g_impls_in_flight.with_mut({ env_own, index }(xs) => {
+    mut(rec) := xs(index).clone();
+    rec.env = env_own;
+    xs(index) = rec;
+  });
 });
 truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
   while(g_impls_in_flight.with(_c_len_5) > depth, {
@@ -3677,21 +3930,6 @@ truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
   truncate_impls_in_flight(d.impls);
 });
 /// The newest in-flight impl on `recv_id`, if any.
-newest_impl_in_flight_for :: (fn(recv_id : &String) -> Option(ImplInFlight))({
-  (found : Option(ImplInFlight)) = Option(ImplInFlight).None;
-  (i : usize) = g_impls_in_flight.with(_c_len_5);
-  while((i > usize(0)) && found.is_none(), {
-    i = (i - usize(1));
-    match(
-      g_impls_in_flight.with(xs => xs.get(i)),
-      .Some(r) => if(r.recv_id == recv_id.*, {
-        found = Option(ImplInFlight).Some(r);
-      }),
-      .None => ()
-    );
-  });
-  found
-});
 make_impl_pending_field :: (fn(label : &String, colon_expr : &AstExpr, top_index : usize, is_inner : bool) -> ImplPendingField)(
   ImplPendingField(
     label : label.clone(),
@@ -3708,54 +3946,126 @@ make_impl_pending_field :: (fn(label : &String, colon_expr : &AstExpr, top_index
 );
 /// The DIRECT field at impl argument `top_index`, if that argument is a
 /// pending colon pair.
-impl_direct_field_at :: (fn(rec : &ImplInFlight, top_index : usize) -> Option(ImplPendingField))({
-  (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
-  (i : usize) = usize(0);
-  while((i < rec.fields.len()) && found.is_none(), {
+impl_direct_field_at :: (fn(index : usize, top_index : usize) -> Option(ImplPendingField))(
+  g_impls_in_flight.with({ index, top_index }(xs) => {
+    (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
     match(
-      rec.fields.get(i),
-      .Some(f) => if(!(f.is_inner) && (f.top_index == top_index), {
-        found = Option(ImplPendingField).Some(f);
-      }),
-      .None => ()
+      (index < xs.len()),
+      true => {
+        (i : usize) = usize(0);
+        while((i < xs(index).fields.len()) && found.is_none(), {
+          if(!(xs(index).fields(i).is_inner) && (xs(index).fields(i).top_index == top_index), {
+            found = Option(ImplPendingField).Some(xs(index).fields(i).clone());
+          });
+          i = (i + usize(1));
+        });
+      },
+      false => ()
     );
-    i = (i + usize(1));
-  });
-  found
-});
+    found
+  })
+);
 /// The INNER field `label` of the trait constructor at `top_index`.
-impl_inner_field_at :: (fn(rec : &ImplInFlight, top_index : usize, label : &String) -> Option(ImplPendingField))({
-  (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
-  (i : usize) = usize(0);
-  while((i < rec.fields.len()) && found.is_none(), {
+impl_inner_field_at :: (fn(index : usize, top_index : usize, label : &String) -> Option(ImplPendingField))(
+  g_impls_in_flight.with({ index, top_index, label : &label.* }(xs) => {
+    (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
     match(
-      rec.fields.get(i),
-      .Some(f) => if(f.is_inner && (f.top_index == top_index) && (f.label == label.*), {
-        found = Option(ImplPendingField).Some(f);
-      }),
-      .None => ()
+      (index < xs.len()),
+      true => {
+        (i : usize) = usize(0);
+        while((i < xs(index).fields.len()) && found.is_none(), {
+          if(xs(index).fields(i).is_inner && (xs(index).fields(i).top_index == top_index) && (xs(index).fields(i).label == label.*), {
+            found = Option(ImplPendingField).Some(xs(index).fields(i).clone());
+          });
+          i = (i + usize(1));
+        });
+      },
+      false => ()
     );
-    i = (i + usize(1));
-  });
-  found
-});
+    found
+  })
+);
+/// `impl_inner_field_at`'s INDEX (see `impl_direct_field_index_at`).
+impl_inner_field_index_at :: (fn(index : usize, top_index : usize, label : &String) -> Option(usize))(
+  g_impls_in_flight.with({ index, top_index, label : &label.* }(xs) => {
+    (found : Option(usize)) = Option(usize).None;
+    match(
+      (index < xs.len()),
+      true => {
+        (i : usize) = usize(0);
+        while((i < xs(index).fields.len()) && found.is_none(), {
+          if(xs(index).fields(i).is_inner && (xs(index).fields(i).top_index == top_index) && (xs(index).fields(i).label == label.*), {
+            found = Option(usize).Some(i);
+          });
+          i = (i + usize(1));
+        });
+      },
+      false => ()
+    );
+    found
+  })
+);
 /// The field a sibling miss on `label` may force: a direct field, or an inner
 /// field of the trait entry currently being evaluated.
-impl_forcible_field :: (fn(rec : &ImplInFlight, label : &String) -> Option(ImplPendingField))({
-  (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
-  (i : usize) = usize(0);
-  while((i < rec.fields.len()) && found.is_none(), {
+impl_forcible_field_at :: (fn(index : usize, label : &String) -> Option(ImplPendingField))(
+  g_impls_in_flight.with({ index, label : &label.* }(xs) => {
+    (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
     match(
-      rec.fields.get(i),
-      .Some(f) => if((f.label == label.*) && (!(f.is_inner) || (f.top_index == rec.current_top_index)), {
-        found = Option(ImplPendingField).Some(f);
-      }),
-      .None => ()
+      (index < xs.len()),
+      true => {
+        (i : usize) = usize(0);
+        while((i < xs(index).fields.len()) && found.is_none(), {
+          if((xs(index).fields(i).label == label.*) && (!(xs(index).fields(i).is_inner) || (xs(index).fields(i).top_index == xs(index).current_top_index)), {
+            found = Option(ImplPendingField).Some(xs(index).fields(i).clone());
+          });
+          i = (i + usize(1));
+        });
+      },
+      false => ()
     );
-    i = (i + usize(1));
-  });
-  found
-});
+    found
+  })
+);
+/// The DIRECT field at impl argument `top_index`, if that argument is a
+/// pending colon pair — `impl_direct_field_at`'s INDEX.
+impl_direct_field_index_at :: (fn(index : usize, top_index : usize) -> Option(usize))(
+  g_impls_in_flight.with({ index, top_index }(xs) => {
+    (found : Option(usize)) = Option(usize).None;
+    match(
+      (index < xs.len()),
+      true => {
+        (i : usize) = usize(0);
+        while((i < xs(index).fields.len()) && found.is_none(), {
+          if(!(xs(index).fields(i).is_inner) && (xs(index).fields(i).top_index == top_index), {
+            found = Option(usize).Some(i);
+          });
+          i = (i + usize(1));
+        });
+      },
+      false => ()
+    );
+    found
+  })
+);
+impl_forcible_field_index_at :: (fn(index : usize, label : &String) -> Option(usize))(
+  g_impls_in_flight.with({ index, label : &label.* }(xs) => {
+    (found : Option(usize)) = Option(usize).None;
+    match(
+      (index < xs.len()),
+      true => {
+        (i : usize) = usize(0);
+        while((i < xs(index).fields.len()) && found.is_none(), {
+          if((xs(index).fields(i).label == label.*) && (!(xs(index).fields(i).is_inner) || (xs(index).fields(i).top_index == xs(index).current_top_index)), {
+            found = Option(usize).Some(i);
+          });
+          i = (i + usize(1));
+        });
+      },
+      false => ()
+    );
+    found
+  })
+);
 /// A pending-impl / impl-field force that FAILED while answering a method
 /// miss. The lookup helpers have no `exn`, so the failure is parked here and
 /// thrown by the no-method arm of `evaluate_function_call` (calls/function.yo),
@@ -3771,7 +4081,7 @@ take_pending_impl_force_error :: (fn() -> Option(String))({
   r
 });
 /// True while a DEFINITION-time body trial is running
-/// (`_trial_eval_fn_body`, calls/function_type.yo — set/restored at its
+/// (`_trial_eval_fn_body`, calls/function-type.yo — set/restored at its
 /// call sites, since a swallowed error unwinds out of the helper itself).
 /// Read by impl.yo's `_resolve_one_forall_binding`: the NAME-channel
 /// acceptance of an abstract (different-SomeT) generic binding is scoped
@@ -4047,14 +4357,28 @@ export(
   ForcingDepths,
   forcing_depths,
   truncate_forcing_depths,
-  newest_impl_in_flight_for,
+  newest_impl_in_flight_index_for,
+  impl_in_flight_clone_at,
+  impl_in_flight_header_at,
+  impl_in_flight_field_clone_at,
+  impl_in_flight_field_phase_a_at,
+  impl_in_flight_ctx_copy_at,
+  impl_in_flight_len,
+  sync_in_flight_ctx_at,
+  _mutate_impl_in_flight_at,
+  _in_flight_env_at,
+  _persist_in_flight_env_at,
   make_impl_pending_field,
   impl_direct_field_at,
+  impl_direct_field_index_at,
   impl_inner_field_at,
-  impl_forcible_field,
+  impl_inner_field_index_at,
+  impl_forcible_field_at,
+  impl_forcible_field_index_at,
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
+  force_pending_trait_impls_for_type_name,
   note_reference_impl_head,
   reference_impl_head_noted,
   note_reference_impl_method,

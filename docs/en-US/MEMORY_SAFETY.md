@@ -1,6 +1,6 @@
 # Memory Safety
 
-Yo is **memory-safe by default**. The code you write as a regular user cannot dereference a dangling pointer, walk off the end of an array, double-free, or otherwise trigger undefined behavior. You do not need to learn a borrow checker, manage lifetimes, or annotate references to get this guarantee — the safety story is structural: the constructs that cause memory unsafety in C (raw pointers, address-of, pointer arithmetic, FFI, inline assembly) are simply unavailable in safe code. Where static analysis reaches its limit, a lightweight runtime borrow flag (zero extra memory, ~0% overhead) turns the one remaining interior-reference shape into a deterministic panic instead of silent corruption.
+Yo is **memory-safe by default**. The code you write as a regular user cannot dereference a dangling pointer, walk off the end of an array, double-free, or otherwise trigger undefined behavior. The guarantee has two halves. References are checked at compile time, as in Rust, but their origins are elided in most code, so you rarely write one ([OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md)). The rest is structural: the constructs that cause memory unsafety in C (raw pointers, address-of, pointer arithmetic, FFI, inline assembly) are simply unavailable in safe code. Where static analysis reaches its limit, a lightweight runtime borrow flag (zero extra memory, ~0% overhead) turns the one remaining interior-reference shape into a deterministic panic instead of silent corruption.
 
 Stdlib internals use raw pointers to build the safe abstractions you call. That code opts into a per-file unsafe-capable mode via `pragma(Pragma.AllowUnsafe);` and is audited as the trusted base. Your code stays clean.
 
@@ -30,7 +30,8 @@ Everything you'd expect from a modern general-purpose language:
 This is the default user experience. No pragma needed, no `addr_of(...)` calls, no `*(T)` types, no `unsafe(...)` wraps:
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
   mut(list) := ArrayList(i32).new();
@@ -38,11 +39,11 @@ main :: (fn() -> unit)({
   list.push(i32(2));
   list.push(i32(3));
 
-  total := i32(0);
+  mut(total) := i32(0);
   for(list, item => {
     total = (total + item);
   });
-  println("total = ${total}");
+  println(`total = ${total}`);
 });
 ```
 
@@ -93,6 +94,8 @@ Exempt: `tests/*.test.yo` (a failed unwrap fails the test loudly — the test do
 The pattern C/Rust solve with a pointer or `&mut T` is solved in safe Yo with a `&mut T` parameter:
 
 ```yo
+{ assert } :: import("std/assert");
+
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   tmp := a.*;
   a.* = b.*;
@@ -100,14 +103,14 @@ swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
 });
 
 main :: (fn() -> unit)({
-  x := i32(1);
-  y := i32(2);
+  mut(x) := i32(1);
+  mut(y) := i32(2);
   swap(&mut x, &mut y); // the call site lends each place; no raw pointer
   assert(x == i32(2), "swapped");
 });
 ```
 
-A reference (`&T`, `&mut T`) is a **first-class value whose type carries its origin**: the set of places it may point into (`&(T, p)`, elided in most signatures; decision 43, `plans/backlog/REFERENCES_AND_ORIGINS.md`). It stands in parameter position (`name : &mut T`, `name : &T`), as a local binding (`name := &mut place`), as a function result (a projection rooted at one of the function's reference parameters, reached through the subscript `x(i)` or a direct call `t.index_mut(i)`; see [INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)), as a struct field, a tuple component or an `Option`/enum payload, and as a closure capture. A value that holds a reference carries the reference's origin and is checked as the reference is. Two limits remain. Not yet: a reference as a container element or a cell payload (`ArrayList(&T)`, `RefCell(&T)` are E0909 until those phases land). Never: a reference inside an `Rc`/`Arc` payload, in a module-level binding, or in a value handed to another thread (E0909). A `&mut` argument or binding names a simple lvalue place (a variable, or a field path rooted at one); a binding through an RC object pins that object for its scope. A reference, and any value holding one, is live until its last use and freezes its places for that range: no write or move of them under a `&` borrow, no access at all except through the borrow under a `&mut` one (E0911) — so the borrowed storage is alive and unaliased for the whole borrow. A reference may not outlive what it points into: one rooted at a local cannot be returned (E0912), and cannot be stored in a place that lives longer than the local (E0911, E0923). Element places are not bindable with `&xs(i)`; an element is borrowed through a projection call (`r := xs.index(i)`) or through `for(&mut coll, x => …)` (or the read-only `for(&coll, x => …)`), which holds a borrow of the collection for the loop (so the body cannot write the collection, nor name it at all under `&mut`, E0911) and, for a collection that is a reference object, its runtime borrow flag against other handles; a value collection (`ArrayList`, `String`) has no other handle, so its static borrow is the whole check. The built checker does not yet enforce every one of these rules in every position; see [What This Doesn't Guarantee](#what-this-doesnt-guarantee). See [FLOWABILITY.md](./FLOWABILITY.md).
+A reference (`&T`, `&mut T`) is a value whose type carries its **origin**, the set of places it may point into. It can be a parameter, a local binding, a function result, a struct field, a tuple or `Option` component and a closure capture, and the compiler checks every use, as Rust's borrow checker does: while a reference is live, its place is not written or moved (under `&`) or not accessed except through the reference (under `&mut`), E0911; and a reference never outlives what it points into (E0912, E0923). A collection element, a heap-cell payload, a module-level binding and a value sent to another thread accept no reference. [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) explains moves, copies, references and origins with examples; the built checker's known gaps are under [What This Doesn't Guarantee](#what-this-doesnt-guarantee).
 
 Use cases:
 
@@ -129,14 +132,14 @@ The language also closes the **dangling-view hole** that other languages with ra
 - **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
 - **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for a `Copy` element it is a copy, written back with `xs(i) = v`; a `String`, an `Rc(T)` handle or another element that is not `Copy` is copied out with `xs.get_cloned(i)` (an `Rc` clone is a second handle to the same cell, which survives the container's growth/realloc) and written in place with `xs.with(i, s => …)`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
 
-The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
+The walkthrough of these rules is in [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#element-access-and-iteration); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 
 ## Explicit Allocators
 
 An explicit allocator decides **where** a block lives. Reference counting still decides **when** it dies. An object placed by an explicit allocator is released the moment its last reference goes away, exactly like any other object, and the release is routed back to the allocator that made it: every block carries its owner in a 16-byte prefix, so there is no way to free it into the wrong allocator.
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Point :: struct(x : i32, y : i32);
 
@@ -151,16 +154,15 @@ ys := ArrayList(i32).new(); // no argument: the global allocator
 - **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`, so one allocator may serve several threads as long as its own callbacks are thread-safe.
 - **The allocator must outlive its blocks.** Yo does not check this: a user-written allocator's context and vtable must stay valid until every block it handed out is released.
 
-std ships no arena: `std/arena` was deleted on 2026-10-24, and a `FixedBufferAllocator` and an `ArenaAllocator` are planned (`plans/backlog/ZIG_STYLE_ALLOCATORS.md`).
+std ships no arena or fixed-buffer allocator; one is written against the `Allocator` interface ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
 
-Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `alloc` argument and the `_in` constructors do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md); the design record is `plans/archive/EXPLICIT_ALLOCATORS.md`.
+Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `alloc` argument and `clone_in(a)` do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
 
 ## Reference Cycles Leak
 
 Reference counting frees a cell when its last strong handle goes, so it cannot
 free a cycle: each cell of the cycle keeps the next one's count above zero.
-Yo has no cycle collector (it was removed in v0.2.75, decision 48,
-`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6). As with Rust's `Rc`, a cycle of
+Yo has no cycle collector. As with Rust's `Rc`, a cycle of
 strong handles leaks: its cells are never freed and their `Drop` never runs.
 `Drop` therefore runs at one deterministic point, the last handle's drop. A leak
 is not unsafe: no pointer dangles.
@@ -317,7 +319,7 @@ Top extern callees (by unsafe-wrapped call-site count):
      ...
 
 Findings (file:line:col):
-  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
+  std/collections/array-list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
     SAFETY: assert above bounds `pos < self._length` and the
   ...
 ```
@@ -432,8 +434,7 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 ## Further Reading
 
 - `plans/reference/MEMORY_SAFETY.md` — the design document for the safety model. Covers the full rationale, phase rollout, alternatives considered.
-- [FLOWABILITY.md](./FLOWABILITY.md) — the user-facing `&`/`&mut` borrow rules (flowability + borrow invalidation).
-- `plans/archive/SLICE_REWORK.md` — the design that removed heap-backed slices (builtin `str`, copying ranges).
+- [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) — ownership, moves, copies, `&`/`&mut` references and their origins.
 - `plans/archive/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
 - `plans/archive/ITERATOR_REDESIGN.md` — how iteration works under the safe model.
 - `docs/en-US/DESIGN.md` — the broader language design; the pointer / unsafe sections cross-reference this page.

@@ -2,9 +2,9 @@
 //!
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
+{ HashMap } :: import("std/collections/hash-map");
 { TypeValue, no_types } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, t_str } :: import("./creators.yo");
 { t_refine_inner, slot_pointee_at, t_slot_pointee } :: import("./definitions.yo");
@@ -434,7 +434,7 @@ shared_cell_canonical_names :: (fn() -> SharedCellNames)(
 );
 /// The ONE list of the shared cell's spellings, canonical first; `.None` past
 /// the end. Every name check on the cell reads it: the instance-name stamp
-/// (`comptime_fn.yo`), `is_box_type` / `is_boxed_type` below, and the
+/// (`comptime-fn.yo`), `is_box_type` / `is_boxed_type` below, and the
 /// `dyn(Rc.new(<closure>))` recognition (`values/dyn.yo`).
 ///
 /// plans/VALUES_BY_DEFAULT.md §6 V1 step 1 renames `Box` to `Rc`. It is
@@ -562,7 +562,7 @@ is_counted_handle_value_type :: (fn(t : &TypeValue) -> bool)(is_box_type(t) || i
 /// plans/VALUES_BY_DEFAULT.md §3.2, V1 step 2), or `.None` for any other
 /// type. A `Box` is a newtype over a raw pointer to its payload (its one field,
 /// `_cell`), so its C value IS that pointer; the comptime-fn call stamps its
-/// name `Box(V)` (`evaluator/calls/comptime_fn.yo`), and a prelude name cannot
+/// name `Box(V)` (`evaluator/calls/comptime-fn.yo`), and a prelude name cannot
 /// be shadowed, so the stamped name plus the shape identifies it. It is not a
 /// shared cell: `is_box_type`/`is_boxed_type` stay `Rc`-only.
 unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
@@ -762,7 +762,7 @@ is_type_parameter_type :: (fn(t : &TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// True for an RC handle whose reference count other threads update
 /// atomically: an atomic reference struct or an atomic reference enum — the
-/// cases `drop_dup.yo` lowers to
+/// cases `drop-dup.yo` lowers to
 /// `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic`. Every READ of that count
 /// (`ref_count(x)`) must be an atomic load too, or it races the atomic RC ops
 /// (issues/fixed/rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md).

@@ -1,0 +1,20 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)): `cur = &mut n.next; n.value = i32(7);` with `cur` unused afterwards. A conservative rejection that Rust accepts: `n` keeps `cur` live, and `cur` freezes `n` (issues/2026-11-21-a-re-point-through-a-match-binding-keeps-the-binding-and-the-cursor-exclusive-longer-than-needed.md; VERDICTS-71 addendum 2, a2).
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  match(
+    cur,
+    .Some(n) => {
+      cur = &mut n.next;
+      n.value = i32(7);
+    },
+    .None => ()
+  );
+  println(&l1.head.is_some());
+});
+export(main);

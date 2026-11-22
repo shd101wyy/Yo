@@ -1,0 +1,908 @@
+//! evaluator/builtins/ptr-fns — implements evaluate_address_call.
+//!
+//! Handles the `addr_of(expr)` address-of builtin. Creates a pointer type and,
+//! when the target is compile-time known, a PtrVal.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ AstExpr, AstExprNode, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, value_tail_mode, projection_tail_is_read, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
+{ is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ fn_param_is_ptr_borrow, type_carries_origin } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ E_ADDR_OF_BORROW_PARAM, E_LOCAL_BORROW_ESCAPES, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
+{
+  ExprInfo,
+  ComptimeRef,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get,
+  expr_info_adopt_env,
+  expr_info_comptime_ref,
+  expr_info_index_trait_ptr_type,
+  expr_info_set_comptime_ref,
+  expr_info_set_is_index_trait_address_of
+} :: import("../../expr-info.yo");
+{ note_rewritten_node } :: import("../../expr.yo");
+{ Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at, variable_value_type, variable_slot_type } :: import("../../env.yo");
+{ EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
+{
+  EvalValue,
+  EvalValueNode,
+  is_unknown_val,
+  create_unknown_val,
+  is_type_value,
+  ValueCell,
+  value_cell_new
+} :: import("../../value.yo");
+{ TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain, t_slot_is_mut_ref, t_reference } :: import("../../types/definitions.yo");
+{ t_ptr } :: import("../../types/creators.yo");
+{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, lend_place_reference_type, deref_is_owning_handle_step } :: import("../utils.yo");
+{ evaluate_expression_guarded } :: import("../exprs/expr.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
+{ call_promote_index_places_for_write } :: import("../context.yo");
+{ Exception } :: import("std/error");
+/// A fresh single-element PtrVal cell.
+_cell1 :: (fn(v : &EvalValue) -> ValueCell)({
+  mut(c) := ArrayList(EvalValue).new();
+  c.push(Rc.clone(v.*));
+  value_cell_new(c)
+});
+{ panic, assert } :: import("std/assert");
+// The type of the aggregate an element/field place points into: the object
+// of `obj.f`, else the receiver of `a(i)` (the callee, or the first argument
+// of a lowered index builtin) — whichever is an array, struct or tuple.
+_aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeValue))(
+  match(
+    place,
+    Rc(.FnCall(_, callee, Rc(args), _, _)) => {
+      mut(candidates) := ArrayList(AstExpr).new();
+      if(!ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).None), {
+        candidates.push(Rc.clone(callee.*));
+      });
+      match(args.get_cloned(usize(0)), .Some(a0) => candidates.push(a0), .None => ());
+      (mut(found) : Option(TypeValue)) = .None;
+      (mut(k) : usize) = usize(0);
+      while((k < candidates.len()) && found.is_none(), k = (k + usize(1)), {
+        match(
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&candidates(k))),
+          .Some(ci) => if(is_array_type(&ci.ty()) || is_struct_type(&ci.ty()) || is_tuple_type(&ci.ty()), {
+            found = .Some(Rc.clone(ci.ty()));
+          }),
+          .None => ()
+        );
+      });
+      found
+    },
+    Rc(.Atom(_, _)) => .None
+  )
+);
+/// A projection result's root error: the message and its code (E0912 for a
+/// place whose storage ends with the call, E0923 for a parameter outside the
+/// spelled result origin; `.None` for a mode mismatch, which has no code).
+_ProjRootError :: struct(msg : String, code : Option(str));
+_proj_err :: (fn(msg : String, code : Option(str)) -> Option(_ProjRootError))(Option(_ProjRootError).Some(_ProjRootError(msg : msg, code : code)));
+/// The enclosing function's type, when the evaluation is inside a function
+/// body (a projection's result is checked against it).
+_enclosing_fn_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
+  match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(fb.kind, .FunctionBody => match(&fb.func_type, .Some(eft) => Option(TypeValue).Some(Rc.clone(eft)), .None => Option(TypeValue).None), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
+);
+/// The return rule against a SPELLED result origin (decision 43 step 2, N1c;
+/// plans/backlog/REFERENCES_AND_ORIGINS.md O3): the borrow parameter `name`
+/// a projection's place is reached from must be one the result's origin
+/// names — its own place (`-> &(T, xs)`), or an origin parameter its slot
+/// carries (`xs : &(T, p)` under `-> &(T, p)`). An elided result origin is
+/// the union of every reference parameter (O2), which any root satisfies.
+_spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_ProjRootError))({
+  ft := match(_enclosing_fn_type(ctx), .Some(t) => t, .None => return(Option(_ProjRootError).None));
+  names := match(fn_result_origin_names(&ft), .Some(n) => n, .None => return(Option(_ProjRootError).None));
+  labels := match(&ft, Rc(.Func({ meta : so_m })) => Rc.clone(so_m.param_labels), _ => return(Option(_ProjRootError).None));
+  (mut(i) : usize) = usize(0);
+  while(i < labels.len(), {
+    if(match(labels.get_cloned(i), .Some(l) => (l == name.*), .None => false), {
+      if(fn_param_in_result_origin(&ft, i, &names), {
+        return(Option(_ProjRootError).None);
+      });
+      origin_text := if(names.len() == usize(1), match(names.get(usize(0)), .Some(n) => n, .None => String.new()), `(${_join_names(&names)})`);
+      return(
+        _proj_err(
+          `This projection's result is declared \`&(T, ${origin_text})\`, and this place is reached from \`${name}\`, which that origin does not name: a result points only into the places its origin lists (decision 43, O3's return rule).`,
+          Option(str).Some(E_ORIGIN_MISMATCH)
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(_ProjRootError).None
+});
+/// A reference field's referent (N1e-2: `v.r` with `r : &(T, p)`) lives in
+/// the places the field's origin names, whatever holder it is read from: a
+/// projection's spelled result origin must list each of them. `.None` when
+/// the field's origin is elided, which names no places (the holder
+/// parameter's rule decides then); `.Some(.None)` when the result lists them
+/// or spells none.
+_field_origin_error :: (fn(field_ty : &TypeValue, ctx : &EvalContext) -> Option(Option(_ProjRootError)))({
+  fo := match(t_slot_origin_names(field_ty), .Some(n) => n, .None => return(Option(Option(_ProjRootError)).None));
+  ft := match(_enclosing_fn_type(ctx), .Some(t) => t, .None => return(Option(Option(_ProjRootError)).Some(Option(_ProjRootError).None)));
+  names := match(fn_result_origin_names(&ft), .Some(n) => n, .None => return(Option(Option(_ProjRootError)).Some(Option(_ProjRootError).None)));
+  (i : usize) = usize(0);
+  while(i < fo.len(), {
+    fo_n := match(fo.get(i), .Some(n) => n, .None => String.new());
+    if(!origin_names_contain(&names, &fo_n), {
+      origin_text := if(names.len() == usize(1), match(names.get(usize(0)), .Some(n) => n, .None => String.new()), `(${_join_names(&names)})`);
+      return(
+        Option(Option(_ProjRootError)).Some(
+          _proj_err(
+            `This projection's result is declared \`&(T, ${origin_text})\`, and this place is what a reference field refers to, in the places of origin \`${fo_n}\`, which that origin does not name: a result points only into the places its origin lists (decision 43, O3's return rule).`,
+            Option(str).Some(E_ORIGIN_MISMATCH)
+          )
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(Option(_ProjRootError)).Some(Option(_ProjRootError).None)
+});
+/// The enclosing body's parameter names as written: a closure's own (its
+/// body context's `FuncValData.params`), which may differ from its expected
+/// `Fn` slot's labels; otherwise (a named function's body context carries
+/// none) the function type's labels.
+_enclosing_param_names :: (fn(ctx : &EvalContext) -> Option(ArrayList(String)))(
+  match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(
+      fb.kind,
+      .FunctionBody => match(
+        &fb.func_value,
+        .Some(Rc(.FuncVal(epn_d, _))) => if(!epn_d.params.is_empty(), Option(ArrayList(String)).Some(epn_d.params.clone()), _enclosing_type_labels(&fb.func_type)),
+        _ => _enclosing_type_labels(&fb.func_type)
+      ),
+      _ => Option(ArrayList(String)).None
+    ),
+    .None => Option(ArrayList(String)).None
+  )
+);
+_enclosing_type_labels :: (fn(ft : &Option(TypeValue)) -> Option(ArrayList(String)))(
+  match(ft, .Some(Rc(.Func({ meta : etl_m }))) => Option(ArrayList(String)).Some(etl_m.param_labels.items.clone()), _ => Option(ArrayList(String)).None)
+);
+/// Whether `name` (bound to `v`) is a binding of an ENCLOSING function,
+/// which a closure or handler body reaches as a capture: a parameter the
+/// function being evaluated does not declare, or a local bound in a frame
+/// below the one its own parameters are bound in (both frame indices are
+/// read in the current environment, so they compare within one generation).
+_place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
+  !v.is_module_level() && match(
+    _enclosing_param_names(ctx),
+    .Some(labels) => {
+      (mut(own) : bool) = false;
+      (mut(i) : usize) = usize(0);
+      while(i < labels.len(), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == name.*), .None => false), {
+          own = true;
+        });
+        i = (i + usize(1));
+      });
+      cond(
+        own => false,
+        v.is_parameter() => true,
+        true => match(
+          labels.get_cloned(usize(0)),
+          .Some(first) => {
+            mut(p_idx) := ArrayList(usize).new();
+            mut(n_idx) := ArrayList(usize).new();
+            match(
+              find_variable_in_env_at(env, &first, &mut p_idx),
+              .Some(_) => match(
+                find_variable_in_env_at(env, name, &mut n_idx),
+                .Some(_) => match(p_idx.get(usize(0)), .Some(pi) => match(n_idx.get(usize(0)), .Some(ni) => (ni < pi), .None => false), .None => false),
+                .None => false
+              ),
+              .None => false
+            )
+          },
+          .None => false
+        )
+      )
+    },
+    .None => false
+  )
+);
+_join_names :: (fn(names : &SharedList(String)) -> String)({
+  mut(out) := String.new();
+  (mut(i) : usize) = usize(0);
+  while(i < names.len(), {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    match(names.get(i), .Some(n) => out.push_string(&n), .None => ());
+    i = (i + usize(1));
+  });
+  out
+});
+/// `_projection_root_error` of the place the binding `name` names.
+_projection_root_name_error :: (fn(name : &String, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))(
+  match(
+    get_variables_from_env(env, name.clone()).last_cloned(),
+    .Some(v) => cond(
+      // A closure's result origin is per-call (O2): its own reference
+      // parameters, never a capture, which outlives the call.
+      _place_root_is_closure_capture(name, &v, env, ctx) => _proj_err(
+        `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${name}\` is a binding of the enclosing function, which the closure captures.`,
+        Option(str).Some(E_ORIGIN_MISMATCH)
+      ),
+      // A `match` binding of a reference payload (decision 43 step 3):
+      // the place is wherever the scrutinee's reference points.
+      (!v.is_parameter() && (!v.is_compile_time_only() && ref_payload_source(v.id()).is_some())) => _ref_payload_root_error(name, &v, is_mut, env, ctx),
+      // A binding of a borrowed `match` (VERDICTS-13 §14): a place inside
+      // the scrutinee's place, so it is rooted where that place is.
+      (!v.is_parameter() && (!v.is_compile_time_only() && (v.is_borrow_match_binding() && borrow_match_source(v.id()).is_some()))) => _borrow_match_root_error(name, &v, is_mut, env, ctx),
+      // A local borrow (`r := &b.v`): its place is the one it freezes, so
+      // that place must be rooted at this projection's own borrow
+      // parameters (`return(r)`, `&r.*`).
+      (!v.is_parameter() && (!v.is_compile_time_only() && local_borrow_info_of_variable(&v).is_some())) => _local_borrow_root_error(name, &v, is_mut, env, ctx),
+      (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
+        `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
+        if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+      ),
+      (is_mut && (!v.is_ref() || v.is_imm_borrow())) => _proj_err(
+        `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`,
+        Option(str).None
+      ),
+      true => _spelled_origin_error(name, ctx)
+    ),
+    .None => _proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${name}\` is not one.`, Option(str).None)
+  )
+);
+/// Decision 24's root rule (the first cut of `REFERENCES_AND_ORIGINS.md` O3's return rule; R3 before 2026-10-20): the
+/// place a projection yields is reached from one of its own borrow
+/// parameters, through field steps, element accesses, an owning handle's
+/// `.*` (a field step: `&h.*.s` is rooted at `h`) and derefs through a
+/// reference or a raw pointer (`p.*`, which only a `pragma(AllowUnsafe)` file
+/// can write; the place is wherever it points). A `&mut place`
+/// result needs a `&mut` parameter. A place whose storage ends with the call
+/// (a local, a by-value parameter, a temporary) is E0912; a root outside a
+/// spelled result origin is E0923. Returns the error, or `.None`.
+_projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  // `f(x).*` on a projection call reads as the call itself
+  // (`note_rewritten_node_as`, a node of its own id): its place is the
+  // call's, rooted at the call's borrowed arguments.
+  pr_rw := ast_rewritten_node(place);
+  if(ast_expr_id(&pr_rw) != ast_expr_id(place), {
+    return(_projection_root_error(&pr_rw, is_mut, env, ctx));
+  });
+  match(
+    pr_rw,
+    Rc(.Atom(_, pr_tok)) => _projection_root_name_error(&pr_tok.value.*, is_mut, env, ctx),
+    Rc(.FnCall(_, pr_callee, Rc(pr_args), _, _)) => cond(
+      ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
+        pr_args.get_cloned(usize(1)),
+        // A `.*` through a reference or a raw pointer: the place is wherever
+        // it points. A `.*` on an OWNING handle (`Box`, `Rc`, `Arc`) is a
+        // field step: the payload lives as long as the handle, so the place
+        // is rooted where the handle is (O3's return rule, A30).
+        .Some(f) => if(ast_expr_is_atom_of(&f, "*"), {
+          star_base := match(pr_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
+          if(deref_is_owning_handle_step(&star_base, ctx), _projection_root_error(&star_base, is_mut, env, ctx), Option(_ProjRootError).None)
+        }, {
+          base := match(pr_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
+          // A reference field of a holder parameter (N1e-2: `v.r` with
+          // `v : _View(p)`, `r : &(T, p)`) is a place OUTSIDE the holder,
+          // in the places its origins name: the result's origin must list
+          // them (`fn_param_in_result_origin`'s holder rule).
+          rb_param := match(
+            ast_rewritten_node(&base),
+            Rc(.Atom(_, rb_tok)) => match(
+              get_variables_from_env(env, rb_tok.value.*.clone()).last_cloned(),
+              .Some(rb_v) => if(rb_v.is_parameter() && !rb_v.is_compile_time_only(), Option(String).Some(rb_tok.value.*.clone()), Option(String).None),
+              .None => Option(String).None
+            ),
+            _ => Option(String).None
+          );
+          // The field's own spelled origin decides when it has one; an
+          // elided one is judged by the holder parameter's origins.
+          match(
+            reference_field_read_type(ast_expr_id(place)),
+            .Some(rb_fty) => match(
+              _field_origin_error(&rb_fty, ctx),
+              .Some(rb_fe) => rb_fe,
+              .None => match(rb_param, .Some(rb_name) => _spelled_origin_error(&rb_name, ctx), .None => _projection_root_error(&base, is_mut, env, ctx))
+            ),
+            .None => _projection_root_error(&base, is_mut, env, ctx)
+          )
+        }),
+        .None => Option(_ProjRootError).None
+      ),
+      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => expr_info_index_trait_ptr_type(&pi).is_some(), .None => false) => _projection_root_error(&pr_callee, is_mut, env, ctx),
+      projection_call_mode_of(place, ctx).is_some() => _projection_call_root_error(place, is_mut, env, ctx),
+      true => _proj_err(String.from("A projection yields a place, and this is a temporary: its storage ends with the call (decision 24, the single-root rule)."), Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+    )
+  )
+});
+/// The root rule through the local borrow `name` (`r := &b.v`,
+/// `local_borrow_info_of_variable`): every place it freezes, the union over
+/// its re-points, must be rooted at this projection's own borrow parameters.
+/// A place below a reference cell is the cell's storage, never a parameter's.
+_local_borrow_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  info := match(local_borrow_info_of_variable(v), .Some(i) => i, .None => return(Option(_ProjRootError).None));
+  if(is_mut && !info.is_mut, {
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+  });
+  (li : usize) = usize(0);
+  while(li < info.places.len(), li = (li + usize(1)), {
+    lp := info.places(li).clone();
+    if(lp.through_cell || (lp.module_root || (lp.root_name == name.clone())), {
+      return(
+        _proj_err(
+          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` borrows \`${lp.text}\`, which is not reached from one: its storage ends with the call (decision 24, the single-root rule).`,
+          Option(str).Some(E_LOCAL_BORROW_ESCAPES)
+        )
+      );
+    });
+    match(_projection_root_name_error(&lp.root_name, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+  });
+  if(info.places.len() == usize(0), {
+    return(_proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is a local: its storage ends with the call (decision 24, the single-root rule).`, Option(str).Some(E_LOCAL_BORROW_ESCAPES)));
+  });
+  Option(_ProjRootError).None
+});
+/// The root rule through a `match` binding `name` of a reference payload
+/// (decision 43 step 3, `note_ref_payload_source`): the reference came out
+/// of the scrutinee's value, which a call computed from its borrowed
+/// arguments (`projection_call_root_args`: the result's spelled origins, or
+/// every reference argument for an elided one), so each of them must be
+/// rooted at this projection's own borrow parameters. A scrutinee that is
+/// not a call keeps the local rule's error.
+_ref_payload_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  if(is_mut && v.is_imm_borrow(), {
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+  });
+  scr := match(ref_payload_source(v.id()), .Some(e) => e, .None => make_err_expr());
+  roots := projection_call_root_args(&scr, ctx);
+  (checked : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < roots.len(), {
+    if(!is_mut || roots(i).is_mut, {
+      match(_projection_root_error(&roots(i).arg, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+      checked = (checked + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  cond(
+    (checked == usize(0)) => _proj_err(
+      `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` binds a reference out of \`${ast_expr_to_string(&scr)}\`, which borrows none of them: its storage ends with the call (decision 24, the single-root rule).`,
+      Option(str).Some(E_LOCAL_BORROW_ESCAPES)
+    ),
+    true => Option(_ProjRootError).None
+  )
+});
+/// The root rule through a binding of a borrowed `match`
+/// (`match(&self.v, .Some(x) => &x, …)`, `note_borrow_match_source`): the
+/// binding is a place inside the scrutinee's place, so the scrutinee place
+/// must be rooted at this projection's own borrow parameters. The binding is
+/// a shared borrow, so a `&mut` result cannot yield it.
+_borrow_match_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  if(is_mut, {
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+  });
+  scr := match(borrow_match_source(v.id()), .Some(e) => e, .None => make_err_expr());
+  _projection_root_error(&ast_expr_strip_borrow_marker(&scr), false, env, ctx)
+});
+/// A projection that yields another projection's result (decision 24): the
+/// inner call's place is rooted at its borrowed arguments
+/// (`projection_call_root_args`, narrowed to a spelled result origin), so
+/// each of them must be rooted at this projection's own borrow parameters.
+/// A `&mut` inner projection's place is rooted at its `&mut` arguments
+/// alone (its own root rule). A `&mut` result needs a `&mut` inner
+/// projection.
+_projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  inner_mut := match(projection_call_mode_of(call, ctx), .Some(m) => m, .None => false);
+  if(is_mut && !inner_mut, {
+    return(_proj_err(`A \`&mut\` projection yields a place it may write, and \`${ast_expr_to_string(call)}\` is the result of a read projection (\`-> &T\`).`, Option(str).None));
+  });
+  roots := projection_call_root_args(call, ctx);
+  (mut(checked) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
+  while(i < roots.len(), {
+    root_arg := roots(i).arg.clone();
+    // A holder argument (`h.get()` on `h : H(x)`, an impl's origin
+    // parameter bound from the receiver's type): the place lies where the
+    // holder's references point (`origin_of`), not in the holder.
+    held := if(
+      !roots(i).is_mut && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root_arg)), .Some(ri) => type_carries_origin(&ri.ty()), .None => false),
+      origin_of(&root_arg, env, ctx),
+      ArrayList(OriginRootPlace).new()
+    );
+    if(held.len() > usize(0), {
+      (hi : usize) = usize(0);
+      while(hi < held.len(), hi = (hi + usize(1)), {
+        if(!is_mut || held(hi).is_mut, {
+          match(_held_place_root_error(&held(hi), is_mut, &root_arg, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+          checked = (checked + usize(1));
+        });
+      });
+    }, if(!inner_mut || roots(i).is_mut, {
+      match(_projection_root_error(&root_arg, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+      checked = (checked + usize(1));
+    }));
+    i = (i + usize(1));
+  });
+  cond(
+    (checked == usize(0)) => _proj_err(String.from("A projection yields a place, and this call borrows no argument: its storage ends with the call (decision 24, the single-root rule)."), Option(str).Some(E_LOCAL_BORROW_ESCAPES)),
+    true => Option(_ProjRootError).None
+  )
+});
+/// The root rule for a place a holder argument's reference points into
+/// (`hp`, one of `origin_of(holder)`): it must be one of this projection's
+/// own borrow parameters, as a place written directly would be.
+_held_place_root_error :: (fn(hp : &OriginRootPlace, is_mut : bool, holder : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))(
+  match(
+    get_variables_from_env(env, hp.place.root_name.clone()).last_cloned(),
+    .Some(v) => cond(
+      (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
+        `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${ast_expr_to_string(holder)}\` points into \`${hp.place.text}\`, ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
+        if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+      ),
+      (is_mut && (!v.is_ref() || v.is_imm_borrow())) => _proj_err(
+        `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${hp.place.root_name}\` is a shared borrow (\`&T\`).`,
+        Option(str).None
+      ),
+      true => _spelled_origin_error(&hp.place.root_name, ctx)
+    ),
+    .None => Option(_ProjRootError).None
+  )
+);
+/// Whether `v` is a `&T` parameter passed BY VALUE: decision 34 passes a
+/// `&T` parameter as a copy, except a projection's (`-> &T`, decision 24),
+/// which `fn_param_is_ptr_borrow` passes as a pointer and binds `is_ref`. When
+/// `v` is a parameter of the innermost function being evaluated, the
+/// function's declared modes decide: a specialization's runtime-placeholder
+/// re-bind marks every non-`&mut` parameter `is_imm_borrow`
+/// (`create_specialized_function_inline`), a by-value one included.
+_is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
+  if(!v.is_parameter() || !v.is_imm_borrow() || v.is_ref() || v.is_compile_time_only(), {
+    return(false);
+  });
+  match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(
+      fb.kind,
+      .FunctionBody => match(
+        &fb.func_type,
+        .Some(ft) => match(
+          ft,
+          Rc(.Func({ meta : bp_m })) => {
+            (mut(i) : usize) = usize(0);
+            n := bp_m.param_labels.len();
+            while(i < n, {
+              if(match(bp_m.param_labels.get_cloned(i), .Some(l) => (l == v.name), .None => false), {
+                return(
+                  !fn_param_is_mut_ref(&ft.*, i) && !fn_param_is_by_value(&ft.*, i) && !fn_param_is_ptr_borrow(&ft.*, i)
+                );
+              });
+              i = (i + usize(1));
+            });
+            true
+          },
+          _ => true
+        ),
+        .None => true
+      ),
+      _ => true
+    ),
+    .None => true
+  )
+});
+/// A value aggregate holds its fields and elements inline, so a place inside
+/// it is inside its storage; a `ref(struct(...))` handle's fields live in the
+/// shared cell, a pointer's target elsewhere.
+_holds_its_places_inline :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+    .Some(hi) => ((is_struct_type(&hi.ty()) && !is_reference_struct_type(&hi.ty())) || is_tuple_type(&hi.ty()) || is_union_type(&hi.ty()) || is_array_type(&hi.ty())),
+    .None => false
+  )
+);
+/// The by-value `&T` parameter (`_is_by_value_borrow_param`) whose own
+/// storage `place` names: the parameter itself, or a place reached from it
+/// through field steps of value aggregates and element accesses of fixed-size
+/// arrays. A raw-pointer dereference (`p.*`), a `ref` handle's field and an
+/// `Index` element of a collection reach storage the parameter does not hold.
+_by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
+  br_rw := ast_rewritten_node(place);
+  if(ast_expr_id(&br_rw) != ast_expr_id(place), {
+    return(_by_value_borrow_param_root(&br_rw, env, ctx));
+  });
+  match(
+    br_rw,
+    Rc(.Atom(_, br_tok)) => match(
+      get_variables_from_env(env, br_tok.value.*.clone()).last_cloned(),
+      .Some(v) => if(_is_by_value_borrow_param(&v, ctx), Option(Variable).Some(v), Option(Variable).None),
+      .None => Option(Variable).None
+    ),
+    Rc(.FnCall(_, br_callee, Rc(br_args), _, _)) => cond(
+      ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
+        br_args.get_cloned(usize(1)),
+        .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(Variable).None, {
+          base := match(br_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
+          if(_holds_its_places_inline(&base, ctx), _by_value_borrow_param_root(&base, env, ctx), Option(Variable).None)
+        }),
+        .None => Option(Variable).None
+      ),
+      ((br_args.len() == usize(1)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&br_callee)), .Some(ci) => is_array_type(&ci.ty()), .None => false)) =>
+        _by_value_borrow_param_root(&br_callee, env, ctx),
+      true => Option(Variable).None
+    )
+  )
+});
+evaluate_address_call :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  arg_expr := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
+      fargs.get_cloned(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(Rc.clone(expr.*));
+      }
+    ),
+    _ => {
+      return(Rc.clone(expr.*));
+    }
+  );
+  // A projection result written as a bare name (`return(key)`,
+  // `PROJECTION_*_READ_PATH`): a reference binding is read as the reference
+  // the `&T` result expects (the read rule, decision 43 step 2 N1e-2b,
+  // VERDICTS-23 R1), so the node stays `addr_of(name.*)`, `&name.*`. Any
+  // other name is evaluated as written, and the body check judges it.
+  if(projection_tail_is_read(expr), {
+    pr_name := match(
+      &arg_expr,
+      Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.get_cloned(usize(0)), .Some(n) => n, .None => make_err_expr()),
+      Rc(.Atom(_, _)) => make_err_expr()
+    );
+    pr_var := get_variables_from_env(env, ast_expr_token(&pr_name).value.*.clone()).last_cloned();
+    pr_ref := match(&pr_var, .Some(v) => variable_is_reference_binding(v), .None => false);
+    if(!pr_ref, {
+      mut(pr_out) := ArrayList(AstExpr).new();
+      pr_err := evaluate_expression_guarded(&pr_name, env, ctx, &mut pr_out);
+      match(pr_err, .Some(pre) => exn.throw(pre), .None => ());
+      po := match(pr_out.get_cloned(usize(0)), .Some(po_e) => po_e, .None => make_err_expr());
+      // A by-value reference result (`VALUE_*_READ_PATH`) that is no reference
+      // binding is the bare name: this node reads as it, under its own id.
+      if(value_tail_mode(expr).is_some(), {
+        match(
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&po)),
+          .Some(po_info) => {
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &po_info);
+            vr_atom := Rc.new(AstExprNode.Atom(ast_expr_id(expr), ast_expr_token(&po).clone()));
+            note_rewritten_node(&vr_atom);
+            return(vr_atom);
+          },
+          .None => ()
+        );
+      });
+      return(po);
+    });
+    // A `&mut T` result hands out an exclusive reference: a `&` binding
+    // has none to give.
+    if(match(projection_tail_mode(expr), .Some(m) => m, .None => match(value_tail_mode(expr), .Some(vm) => vm, .None => false)) && match(&pr_var, .Some(v) => !t_slot_is_mut_ref(&variable_slot_type(v)), .None => false), {
+      pr_tok := ast_expr_token(&pr_name);
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              &pr_tok,
+              `This function returns \`&mut T\`, an exclusive reference, and \`${pr_tok.value.*}\` is a \`&\` reference: it cannot be handed out as \`&mut\`.`
+            )
+          )
+        )
+      );
+    });
+  });
+  // Phase C structural gate: `addr_of(expr)` produces a raw pointer value
+  // (`*(T)`). In safe code that value would have type `*(T)`, which the
+  // surrounding rules forbid. Reject at the construction site so the
+  // diagnostic points at `addr_of(...)` rather than some downstream use.
+  ptok := ast_expr_token(expr);
+  if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.*.clone())), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            &ptok,
+            `Taking an address with 'addr_of(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use a 'name : &mut T' parameter on the receiving function (the caller lends with '&mut x'); to read without copying, a 'name : &T' parameter (the caller lends with '&x'). For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+          )
+        )
+      )
+    );
+  });
+  // Adjust expected type: if expected is a pointer, use the pointee type.
+  // Build a FRESH ExpectedTypeCtx — ExpectedTypeCtx is an
+  // `object` (reference semantics), so mutating an alias of the current
+  // one would corrupt the EXPECTED TYPE captured by enclosing
+  // expressions (e.g. a match arm's `et.ty` became the pointee, making
+  // `.None => __yo_panic(...)` arms fail "Expected u8, Actual *(u8)").
+  old_expected := ctx.expected_type.clone();
+  match(
+    ctx.expected_type.clone(),
+    .Some(ectx) => {
+      match(
+        &ectx.ty,
+        Rc(.Pointer(pointee_box)) => {
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(
+            ExpectedTypeCtx(ty : Rc.clone(pointee_box), env : Rc.clone(ectx.env))
+          );
+        },
+        _ => ()
+      );
+    },
+    .None => ()
+  );
+  mut(eval_arg_gout) := ArrayList(AstExpr).new();
+  eval_arg_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut eval_arg_gout);
+  ctx.expected_type = old_expected;
+  match(eval_arg_gerr, .Some(eval_arg_ge) => exn.throw(eval_arg_ge), .None => ());
+  eval_arg := match(eval_arg_gout.get_cloned(usize(0)), .Some(eval_arg_g) => eval_arg_g, .None => make_err_expr());
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
+  match(
+    &arg_info_opt,
+    .Some(_) => (),
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("&: failed to evaluate the argument expression for reference.")
+            )
+          )
+        )
+      );
+    }
+  );
+  arg_info := match(
+    arg_info_opt,
+    .Some(i) => Rc.clone(i),
+    .None => {
+      return(Rc.clone(expr.*));
+    }
+  );
+  (cur_env : Environment) = expr_info_adopt_env(&arg_info);
+  // Error if the argument is a type value — use * for pointer-to-type.
+  if(is_type_value(&arg_info.value()), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("Cannot create a pointer to a type. Did you mean to use \"*\"?")
+          )
+        )
+      )
+    );
+  });
+  // A raw pointer and a `&mut` projection's result write the place, so its
+  // element accesses dispatch `IndexMut` (decision 34, V2b); a `&`
+  // projection's result only reads it.
+  if(match(projection_tail_mode(expr), .Some(ptm) => ptm, .None => match(value_tail_mode(expr), .Some(vtm) => vtm, .None => true)), {
+    call_promote_index_places_for_write(&eval_arg, env, ctx, exn, is_addr_of : true);
+  });
+  // A projection's result (`rewrite_projection_tails`): the place must be
+  // rooted at the projection's own borrow parameters.
+  match(
+    projection_tail_mode(expr),
+    .Some(pt_mut) => match(
+      _projection_root_error(&eval_arg, pt_mut, env, ctx),
+      .Some(pt_err) => {
+        pt_e := format_error_message(ast_expr_token(&arg_expr), &pt_err.msg);
+        exn.throw(dyn(Box.new(match(pt_err.code, .Some(c) => with_code(&pt_e, c), .None => pt_e))));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  // E0921: a `&T` parameter is passed as a copy (decision 34), so its
+  // address — or a place inside it — is the callee's copy, not the caller's
+  // place, and dangles once the call returns. Exempt: a projection's result
+  // node (its `&T` parameters are pointers, and it yields a borrow), and the
+  // `addr_of(receiver)` synthesized for a pointer-receiver method call, whose
+  // pointer lives for the call.
+  if(projection_tail_mode(expr).is_none() && (!projection_tail_is_read(expr) && !ast_expr_is_auto_ref_receiver(expr)), {
+    match(
+      _by_value_borrow_param_root(&eval_arg, env, ctx),
+      .Some(bp) => {
+        bp_place := ast_place_text(&arg_expr);
+        bp_ty := type_to_string(&variable_value_type(&bp));
+        bp_what := if(match(Rc.clone(eval_arg), Rc(.Atom(_, _)) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
+        exn.throw(
+          dyn(
+            Box.new(
+              with_code(
+                format_error_message_with_help(
+                  &ptok,
+                  `\`addr_of(${bp_place})\` takes the address of ${bp_what}, and a \`&T\` parameter has no stable address: it is passed as a copy (decision 34), so the pointer would point at the callee's copy, not at the caller's place, and dangle once the call returns.`,
+                  Option(String).Some(
+                    `for the caller's address, declare the parameter \`${bp.name} : *${bp_ty}\` and pass \`addr_of(place)\` at the call, or \`${bp.name} : &mut ${bp_ty}\` (passed as a pointer); to read the value, use \`${bp.name}\` itself`
+                  )
+                ),
+                E_ADDR_OF_BORROW_PARAM
+              )
+            )
+          )
+        );
+      },
+      .None => ()
+    );
+  });
+  arg_type := Rc.clone(arg_info.ty());
+  pointer_type := t_ptr(&arg_type);
+  // Determine compile-time pointer value from comptimeRef.
+  comptime_ref_opt := expr_info_comptime_ref(&arg_info);
+  // Each arm wraps the AGGREGATE value in a FRESH single-element cell;
+  // aliasing is preserved through the aggregate's SHARED inner
+  // elements list, and `target_index` selects the element within it.
+  agg_ty := _aggregate_type_of(&eval_arg, ctx);
+  ptr_val_from_comptime_ref := match(
+    &comptime_ref_opt,
+    .Some(cref) => Option(EvalValue).Some(
+      match(
+        cref,
+        .ArrayRef(elements, index) =>
+          Rc.new(EvalValueNode.PtrVal(_cell1(Rc.new(EvalValueNode.ArrayVal(Rc.clone(elements)))), index.*, agg_ty)),
+        .ComptimeListRef(elements, index) =>
+          Rc.new(EvalValueNode.PtrVal(_cell1(Rc.new(EvalValueNode.ComptimeListVal(Rc.clone(elements)))), index.*, agg_ty)),
+        .StructRef(field_values, field_index) =>
+          // Treat field_values as an array to enable indexed access.
+          Rc.new(EvalValueNode.PtrVal(_cell1(Rc.new(EvalValueNode.ArrayVal(Rc.clone(field_values)))), field_index.*, agg_ty)),
+        .TupleRef(fields, field_index) =>
+          Rc.new(EvalValueNode.PtrVal(_cell1(Rc.new(EvalValueNode.ArrayVal(Rc.clone(fields)))), field_index.*, agg_ty))
+      )
+    ),
+    .None => Option(EvalValue).None
+  );
+  // A compile-time PLACE: `comptimeRef` first, then `sourceVariable`
+  // — kept separate from the UnknownValue fallback so the ladder
+  // below keeps its order.
+  ptr_place_val_opt := match(
+    ptr_val_from_comptime_ref.clone(),
+    .Some(_) => ptr_val_from_comptime_ref.clone(),
+    .None => match(
+      arg_info.source_variable(),
+      // Hand the variable's OWN value cell to the pointer
+      // — writes through `p.*` land in the SAME list the variable reads,
+      // the arm-22 mutable-reference semantics. Empty cell = runtime
+      // variable — no comptime place.
+      //
+      // A RUNTIME parameter is never a compile-time place in code that is
+      // emitted: a specialization binds it with the call's argument VALUE
+      // (`bind_parameter`, so a CTFE execution of the body can read it), and
+      // taking `&v` of that cell made the pointer a comptime value codegen
+      // cannot emit — `uint64_t* p = /* skip generating value */;` for `&v` in
+      // a generic fn called with a literal
+      // (issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md).
+      // Only an executing (CTFE) evaluation addresses the cell.
+      .Some(src_var) => if(
+        (src_var.value().len() > usize(0)) && (!(src_var.is_parameter() && !src_var.is_compile_time_only()) || ctx.is_executing),
+        Option(EvalValue).Some(Rc.new(EvalValueNode.PtrVal(Rc.clone(src_var.value()), usize(0), .None))),
+        Option(EvalValue).None
+      ),
+      .None => Option(EvalValue).None
+    )
+  );
+  // Last arm: the argument itself is a comptime
+  // UnknownValue, so `&(arg)` is a comptime unknown pointer too.
+  ptr_unknown_val_opt := match(
+    arg_info.value(),
+    .Some(v) => if(
+      is_unknown_val(&v),
+      Option(EvalValue).Some(create_unknown_val(&pointer_type)),
+      Option(EvalValue).None
+    ),
+    .None => Option(EvalValue).None
+  );
+  // A by-value reference result's read (`VALUE_*_READ_PATH`) is the reference
+  // VALUE: `&place`'s pointer, typed `&U` / `&mut U`, never a raw `*(U)`.
+  match(
+    value_tail_mode(expr),
+    .Some(vt_mut) => {
+      vt_ty := t_reference(&arg_type, vt_mut);
+      vt_info := new_expr_info(&cur_env, &vt_ty);
+      vt_info.set_path_collection(arg_info.path_collection());
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &vt_info);
+      attach_temp_variable_to_expr(expr, false, ctx);
+      return(Rc.clone(expr.*));
+    },
+    .None => ()
+  );
+  out_info := new_expr_info(&cur_env, &pointer_type);
+  // The ladder runs IN ORDER, and the order
+  // is load-bearing: the place arm must be checked BEFORE index-trait
+  // pointers because comptime arrays set both properties, and the place arm
+  // creates a comptime pointer whereas the index-trait arm would return a
+  // runtime-only pointer (with the index-trait arm first, `p :: &(arr(0))` on
+  // a COMPTIME array always took it and every later `p.*` / `p.* = v` failed
+  // — tests/comptime.test.yo arms 22/23). The place arm
+  // deliberately leaves `ty` at `pointer_type` and does NOT set
+  // `is_index_trait_address_of`.
+  match(
+    ptr_place_val_opt.clone(),
+    .Some(_) => {
+      out_info.set_value(ptr_place_val_opt);
+    },
+    .None => match(
+      expr_info_index_trait_ptr_type(&arg_info),
+      .Some(itp_ty) => {
+        // Use the Index-trait pointer type; value is runtime only.
+        out_info.set_ty(itp_ty);
+        expr_info_set_is_index_trait_address_of(&out_info, Option(bool).Some(true));
+      },
+      .None => {
+        out_info.set_value(ptr_unknown_val_opt);
+      }
+    )
+  );
+  // Propagate path_collection from arg.
+  out_info.set_path_collection(arg_info.path_collection());
+  // Propagate comptime_ref so callers can mutate through the pointer.
+  expr_info_set_comptime_ref(&out_info, &comptime_ref_opt);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+  // Attach a temp variable name (for ownership tracking / codegen).
+  attach_temp_variable_to_expr(expr, false, ctx);
+  Rc.clone(expr.*)
+});
+/// A lend `&place` / `&mut place` at a leaf of a `:=` initializer's result
+/// chain (R-TAIL, VERDICTS-41 Q1; P2's `&x` as an expression): the node is a
+/// reference value `&(T, place)` — the marker stays in the tree, so R-LEND
+/// reads it and codegen takes the place's address (`generate_address_of`).
+/// The operand is evaluated as a place; the binding's roots are frozen by the
+/// `:=` that binds the chain (`_bind_projection_result`).
+evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  operand := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(l_args), _, _)) => match(l_args.get_cloned(usize(0)), .Some(a) => a, .None => return(Rc.clone(expr.*))),
+    Rc(.Atom(_, _)) => return(Rc.clone(expr.*))
+  );
+  l_gout := ArrayList(AstExpr).new();
+  l_gerr := evaluate_expression_guarded(&operand, env, ctx, &mut l_gout);
+  match(l_gerr, .Some(l_ge) => exn.throw(l_ge), .None => ());
+  evaluated := match(l_gout.get_cloned(usize(0)), .Some(g) => g, .None => make_err_expr());
+  info := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+    .Some(i) => Rc.clone(i),
+    .None => {
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&operand), String.from("&: failed to evaluate the place this lend borrows.")))));
+      return(Rc.clone(expr.*));
+    }
+  );
+  lend_ty := match(
+    lend_place_reference_type(&evaluated, &info, is_mut, ctx),
+    .Some(t) => t,
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `\`${if(is_mut, "&mut ", "&")}${ast_place_text(&operand)}\` cannot be a block's or an arm's result: a result lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
+            )
+          )
+        )
+      );
+      return(Rc.clone(expr.*));
+    }
+  );
+  out := new_expr_info(&expr_info_adopt_env(&info), &lend_ty);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
+  Rc.clone(expr.*)
+});
+export(evaluate_address_call, evaluate_chain_lend);

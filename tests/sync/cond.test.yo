@@ -4,6 +4,11 @@
 /// v0.2.30 seed, which is the first one whose emitted runtime carries
 /// `__yo_cond_timedwait` (the compiler half landed in #529; `std/` cannot call
 /// a new `__yo_*` primitive until a seed ships it).
+///
+/// `Mutex`, `Cond` and the atomics are move-only values: a `with_lock` body
+/// borrows the ones it waits on through its capture list (`{ &m, &cv }`), and
+/// a second thread shares them through `Arc.clone` (Rust's shape), so the
+/// waiter passes the mutex as `&m.*.*` through its borrowed `Arc`.
 pragma(Pragma.AllowUnsafe);
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
@@ -15,30 +20,30 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Instant } :: import("std/time/instant");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 // ============================================================================
 // wait_timeout
 // ============================================================================
 test("wait_timeout reports a timeout when nobody signals", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  woken := m.with_lock(_v => cv.wait_timeout_with(&m, Duration.from_millis(i64(40))));
+  woken := m.with_lock({ &m, &cv }(_v) => cv.wait_timeout_with(m, Duration.from_millis(i64(40))));
   assert(!woken, "an unsignalled wait reports false");
 });
 test("wait_timeout returns true when signalled before the deadline", {
   // The signaller takes the mutex, which is what proves the waiter has
   // already released it and is inside the wait.
-  m := Mutex(i64).new(i64(0));
-  cv := Cond.new();
+  m := Arc.new(Mutex(i64).new(i64(0)));
+  cv := Arc.new(Cond.new());
   ready := Channel(i32).new(usize(1));
-  signaller := Thread(unit).spawn(io => {
+  signaller := Thread(unit).spawn({ m : Arc.clone(m), cv : Arc.clone(cv), ready : ready.clone() }(io) => {
     ready.recv();
-    m.with_lock(_v => cv.signal());
+    m.with_lock({ &cv }(_v) => cv.signal());
   });
-  woken := m.with_lock(_v => {
+  woken := m.with_lock({ &m, &cv, &ready }(_v) => {
     _ := ready.send(i32(1));
     // A 10s budget that must not be consumed.
-    cv.wait_timeout_with(&m, Duration.from_secs(i64(10)))
+    cv.wait_timeout_with(&m.*.*, Duration.from_secs(i64(10)))
   });
   signaller.join();
   assert(woken, "a signalled wait reports true, not a timeout");
@@ -46,12 +51,12 @@ test("wait_timeout returns true when signalled before the deadline", {
 test("wait_timeout treats a zero and a negative Duration as 'do not block'", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  m.with_lock(_v => {
-    assert(!cv.wait_timeout_with(&m, Duration.zero()), "zero times out");
+  m.with_lock({ &m, &cv }(_v) => {
+    assert(!cv.wait_timeout_with(m, Duration.zero()), "zero times out");
     // A negative Duration must clamp to zero rather than becoming a very long
     // wait through an unsigned conversion.
     assert(
-      !cv.wait_timeout_with(&m, Duration.from_millis(i64(-5))),
+      !cv.wait_timeout_with(m, Duration.from_millis(i64(-5))),
       "a negative Duration times out too"
     );
   });
@@ -63,8 +68,8 @@ test("wait_timeout re-acquires the mutex before returning", {
   // following acquisition from another thread would then be able to interleave.
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  m.with_lock(_v => {
-    cv.wait_timeout_with(&m, Duration.from_millis(i64(20)));
+  m.with_lock({ &m, &cv }(_v) => {
+    cv.wait_timeout_with(m, Duration.from_millis(i64(20)));
     // Still held here, so the guard's unlock at the closure's end is on a
     // mutex we hold, and a try after it must be the only thing that can
     // take it.
@@ -75,43 +80,49 @@ test("wait_timeout re-acquires the mutex before returning", {
 // wait / signal / broadcast — the untimed forms, which had no coverage either
 // ============================================================================
 test("wait blocks until signalled, with the predicate re-checked", {
-  m := Mutex(i64).new(i64(0));
-  cv := Cond.new();
-  flag := AtomicI32.new(i32(0));
+  m := Arc.new(Mutex(i64).new(i64(0)));
+  cv := Arc.new(Cond.new());
+  flag := Arc.new(AtomicI32.new(i32(0)));
   waiting := Channel(i32).new(usize(1));
-  setter := Thread(unit).spawn(io => {
+  setter := Thread(unit).spawn({ m : Arc.clone(m), cv : Arc.clone(cv), flag : Arc.clone(flag), waiting : waiting.clone() }(io) => {
     waiting.recv();
-    m.with_lock(_v => {
+    m.with_lock({ &flag, &cv }(_v) => {
       flag.store(i32(1), MemoryOrder.SeqCst);
       cv.signal();
     });
   });
-  m.with_lock(_v => {
+  m.with_lock({ &m, &cv, &flag, &waiting }(_v) => {
     _ := waiting.send(i32(1));
     // The predicate loop is the contract: a spurious wake must not be mistaken
     // for the condition becoming true.
     while(flag.load(MemoryOrder.SeqCst) == i32(0), {
-      cv.wait_with(&m);
+      cv.wait_with(&m.*.*);
     });
   });
   setter.join();
   assert(flag.load(MemoryOrder.SeqCst) == i32(1), "the waiter observed the condition");
 });
 test("broadcast releases every waiter", {
-  m := Mutex(i64).new(i64(0));
-  cv := Cond.new();
-  flag := AtomicI32.new(i32(0));
-  woken := AtomicI32.new(i32(0));
+  m := Arc.new(Mutex(i64).new(i64(0)));
+  cv := Arc.new(Cond.new());
+  flag := Arc.new(AtomicI32.new(i32(0)));
+  woken := Arc.new(AtomicI32.new(i32(0)));
   parked := Channel(i32).new(usize(4));
   mut(handles) := ArrayList(Thread(unit)).new();
   (mut(t) : i64) = i64(0);
   while(t < i64(4), {
     handles.push(
-      Thread(unit).spawn(io => {
-        m.with_lock(_v => {
+      Thread(unit).spawn({
+        m : Arc.clone(m),
+        cv : Arc.clone(cv),
+        flag : Arc.clone(flag),
+        woken : Arc.clone(woken),
+        parked : parked.clone()
+      }(io) => {
+        m.with_lock({ &m, &cv, &flag, &parked }(_v) => {
           _ := parked.send(i32(1));
           while(flag.load(MemoryOrder.SeqCst) == i32(0), {
-            cv.wait_with(&m);
+            cv.wait_with(&m.*.*);
           });
         });
         woken.fetch_add(i32(1), MemoryOrder.SeqCst);
@@ -125,7 +136,7 @@ test("broadcast releases every waiter", {
     parked.recv();
     p = (p + i64(1));
   });
-  m.with_lock(_v => {
+  m.with_lock({ &flag, &cv }(_v) => {
     flag.store(i32(1), MemoryOrder.SeqCst);
     cv.broadcast();
   });

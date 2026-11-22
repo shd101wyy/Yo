@@ -15,7 +15,7 @@
 pragma(Pragma.AllowUnsafe);
 
 { String, StringBuilder } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { VcSort, VcOp, VcTerm, VcQuantKind, VcQuery, VcFunDecl } :: import("./terms.yo");
 // ============================================================================
 // Name mangling
@@ -54,13 +54,13 @@ mangle_vc_name :: (fn(fn_prefix : &String, name : &String) -> String)(
 encode_sort :: (fn(s : &VcSort) -> String)(
   match(
     s,
-    .BoolS => String.from("Bool"),
-    .BvS(w) => `(_ BitVec ${w.to_string()})`,
-    .DataS(name) => name.clone(),
-    .SeqS(elem) => `(Seq ${encode_sort(&elem.*)})`,
-    .FunS(domain, range) => `(Array ${encode_sort(&domain.*)} ${encode_sort(&range.*)})`,
-    .ArrS(elem, _) => `(Array (_ BitVec 64) ${encode_sort(&elem.*)})`,
-    .Uninterpreted(name) => name.clone()
+    Rc(.BoolS) => String.from("Bool"),
+    Rc(.BvS(w)) => `(_ BitVec ${w.to_string()})`,
+    Rc(.DataS(name)) => name.clone(),
+    Rc(.SeqS(elem)) => `(Seq ${encode_sort(&elem.*)})`,
+    Rc(.FunS(domain, range)) => `(Array ${encode_sort(&domain.*)} ${encode_sort(&range.*)})`,
+    Rc(.ArrS(elem, _)) => `(Array (_ BitVec 64) ${encode_sort(&elem.*)})`,
+    Rc(.Uninterpreted(name)) => name.clone()
   )
 );
 // ============================================================================
@@ -130,7 +130,7 @@ encode_fun_decl :: (fn(d : &VcFunDecl) -> String)({
     if(ai > usize(0), {
       sb.write_byte(u8(0x20));
     });
-    sb.write_string(encode_sort(d.args.get(ai).unwrap()));
+    sb.write_string(encode_sort(d.args.get_cloned(ai).unwrap()));
     ai = (ai + usize(1));
   });
   sb.write_string(`) ${encode_sort(&d.result)})`);
@@ -144,13 +144,13 @@ encode_fundecl :: (fn(elem : &VcSort) -> String)(
 _msof_key :: (fn(elem : &VcSort) -> String)(
   match(
     elem,
-    .BoolS => String.from("bool"),
-    .BvS(w) => `bv${w.to_string()}`,
-    .DataS(name) => name.clone(),
-    .SeqS(e) => `seq_${_msof_key(&e.*)}`,
-    .FunS(d, r) => `arr_${_msof_key(&d.*)}_${_msof_key(&r.*)}`,
-    .ArrS(e, _) => `arr_${_msof_key(&e.*)}`,
-    .Uninterpreted(name) => name.clone()
+    Rc(.BoolS) => String.from("bool"),
+    Rc(.BvS(w)) => `bv${w.to_string()}`,
+    Rc(.DataS(name)) => name.clone(),
+    Rc(.SeqS(e)) => `seq_${_msof_key(&e.*)}`,
+    Rc(.FunS(d, r)) => `arr_${_msof_key(&d.*)}_${_msof_key(&r.*)}`,
+    Rc(.ArrS(e, _)) => `arr_${_msof_key(&e.*)}`,
+    Rc(.Uninterpreted(name)) => name.clone()
   )
 );
 // ============================================================================
@@ -248,7 +248,7 @@ encode_term :: (fn(t : &VcTerm) -> String)(
       while(i < names.len(), {
         n := match(names.get_cloned(i), .Some(x) => x, .None => String.from("_"));
         s := match(
-          sorts.get(i),
+          sorts.get_cloned(i),
           .Some(x) => encode_sort(&x),
           .None => String.from("Bool")
         );
@@ -483,7 +483,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
   (fi : usize) = usize(0);
   while(fi < q.fundecls.len(), {
     match(
-      q.fundecls.get(fi),
+      q.fundecls.get_cloned(fi),
       .Some(fs) => {
         sb.write_string(`${encode_fundecl(&fs)}\n`);
       },

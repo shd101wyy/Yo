@@ -13,7 +13,7 @@
 //!     `auto_derive_traits_for_enum_type` once the final type is built, with
 //!     the struct rules (reference rules for `ref(enum(…))`).
 //!   - RC functions (___drop/___dup) for reference-semantics enums
-//!     (`ref(enum(…))`) are lowered DIRECTLY in codegen (drop_dup.yo), like ref
+//!     (`ref(enum(…))`) are lowered DIRECTLY in codegen (drop-dup.yo), like ref
 //!     structs — the value-enum TypeValue has no trait fields for evaluator-side
 //!     method synthesis to mutate (see
 //!     [[yo-self-typevalue-enum-interning]]); the direct lowering is equivalent.
@@ -37,7 +37,7 @@ import("std/fmt");
   BK_CONST,
   BF_RECUR
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr-info.yo");
 { Environment, get_variables_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
@@ -59,11 +59,11 @@ import("std/fmt");
 { TypeField, EvalTypeFieldResult, evaluate_type_field } :: import("./field.yo");
 { stable_position_id, stable_type_id, stable_decl_key, parse_raw_int } :: import("../../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ is_prelude_or_generated_file } :: import("../memory_safety.yo");
+{ is_prelude_or_generated_file } :: import("../memory-safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { auto_derive_traits_for_enum_type } :: import("./utils.yo");
-{ register_gadt_enum, register_gadt_type_constructor_args } :: import("./gadt_registry.yo");
+{ register_gadt_enum, register_gadt_type_constructor_args } :: import("./gadt-registry.yo");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -367,7 +367,7 @@ evaluate_enum_type :: (
   register_enum_decl_identity(&shell_id, &decl_key);
   // Only a declaration in std/prelude.yo itself (not compiler-generated
   // code) may stand for an undeclared synthetic rendition of its shape
-  // (`create_option_type`'s `Option`, types/type_key.yo).
+  // (`create_option_type`'s `Option`, types/type-key.yo).
   if(!decl_tok.module_path.*.starts_with(String.from("auto-generated://")) && is_prelude_or_generated_file(Option(String).Some(decl_tok.module_path.*.clone()), ctx.std_path.clone()), {
     register_prelude_enum_decl(&decl_key);
   });
@@ -817,7 +817,7 @@ evaluate_enum_type :: (
               Box.new(
                 format_error_message(
                   ast_expr_token(expr),
-                  `recursive value enum: variant '${vname}' contains the enum itself by value (a path with no reference indirection) — a plain 'enum(...)' would have infinite size. Make it 'ref(enum(...))', or route the recursion through a reference type (ArrayList, Rc, ref(struct)).`
+                  `recursive value enum: variant '${vname}' contains the enum itself by value (a path with no reference indirection) — a plain 'enum(...)' would have infinite size. Route the recursion through an indirection (Box, ArrayList, or Rc).`
                 )
               )
             )

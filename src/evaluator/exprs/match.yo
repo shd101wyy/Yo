@@ -2,7 +2,7 @@
 //! (plans/reference/MATCH_PATTERN_MATCHING.md P1/P2).
 //!
 //! One arm loop for every scrutinee type: each arm's pattern is compiled by
-//! `pattern_compile.yo` into a `Pattern` (variants at any depth, literals and
+//! `pattern-compile.yo` into a `Pattern` (variants at any depth, literals and
 //! constants, or-patterns, `(name := p)` bindings, ranges, string constants,
 //! identifier catch-alls) and an optional guard `(p && (g))`; the compiled
 //! arms are registered for codegen; exhaustiveness and unreachability come
@@ -15,7 +15,7 @@
 pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   AstExprNode,
@@ -57,11 +57,11 @@ pragma(Pragma.AllowUnsafe);
   scope_release_note_binding,
   ExprInfo,
   note_lent_temporary
-} :: import("../../expr_info.yo");
-{ expr_info_set_origin, OriginRootPlace } :: import("../../expr_info.yo");
+} :: import("../../expr-info.yo");
+{ expr_info_set_origin, OriginRootPlace } :: import("../../expr-info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
-{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
+{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
 {
   EvalValue,
@@ -95,9 +95,9 @@ pragma(Pragma.AllowUnsafe);
 { generate_new_temp_variable_name, is_temp_variable_name, canonical_module_path } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_mut_binding, for_desugar_site_of, ast_rewritten_node } :: import("../../expr.yo");
-{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/env-lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
+{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt-registry.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
@@ -138,7 +138,7 @@ pragma(Pragma.AllowUnsafe);
   match_value,
   arm_is_classic,
   pattern_const_values
-} :: import("./pattern_compile.yo");
+} :: import("./pattern-compile.yo");
 { Exception, AnyError } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
@@ -393,6 +393,54 @@ _arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
 // ---------------------------------------------------------------------------
 // evaluate_match
 // ---------------------------------------------------------------------------
+/// Register the loans of a `mut` arm's places (decision 26): each copy below
+/// a cell (`cell_copy_vars`) and each place binding (`place_vars`) is an
+/// exclusive local borrow of the scrutinee's place `mut_place` (R-ARM),
+/// whatever the scrutinee is rooted at, live from its binding to its last
+/// mention in the arm's `body`, else its `guard`: while it lives, the
+/// scrutinee is reached only through it, so a write, read or call through
+/// `cur` (or its root) under it is E0911 (audit A3; VERDICTS-71 rule (c)).
+/// Reached from a local borrow (decision 25's cursor, `match(cur, .Some(n) =>
+/// { cur = &mut n.next; })`), it is also a place a re-point goes through
+/// (`local_borrow_note_pattern_binding`): the re-point names `cur` without
+/// touching what it points at, and skips the binding it goes through
+/// (`local_borrow_require_no_live_derived`). In an `io.async` body the place
+/// may live across an await: rule 4 rejects it there when the borrow it
+/// points through passes through a cell or a module-level place, judged at
+/// each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+_register_mut_arm_place_loans :: (
+  fn(
+    cell_copy_vars : &ArrayList(Variable),
+    place_vars : &ArrayList(Variable),
+    lb_scr_source : &Option(LocalBorrowInfo),
+    mut_place : &Option(LocalBorrowPlace),
+    body : &AstExpr,
+    guard : &Option(AstExpr)
+  ) -> unit
+)({
+  (ci : usize) = usize(0);
+  while(ci < cell_copy_vars.len(), ci = (ci + usize(1)), {
+    match(
+      cell_copy_vars.get_cloned(ci),
+      .Some(cv) => {
+        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, body, guard : guard.clone()), .None => ());
+        match(mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, body, true, guard : guard.clone()), .None => ());
+      },
+      .None => ()
+    );
+  });
+  (pi : usize) = usize(0);
+  while(pi < place_vars.len(), pi = (pi + usize(1)), {
+    match(
+      place_vars.get_cloned(pi),
+      .Some(pv) => {
+        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, body, guard : guard.clone()), .None => ());
+        match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, body, true, guard : guard.clone()), .None => ());
+      },
+      .None => ()
+    );
+  });
+});
 /// The help line of a non-exhaustive `match` whose missing value a guarded
 /// arm would match.
 _GUARD_HELP :: "an arm with a guard (`p && (guard)`) does not count toward exhaustiveness, because the guard can fail; add an arm without a guard for these values";
@@ -1203,7 +1251,7 @@ evaluate_match :: (
   // here. Without this, the variant lookup throws "variant not found in
   // <enum:..._self_shell>" (the def-time body-eval of `is_function_boundary_arrow`
   // swallowed exactly that). Mirrors the resolve_enum_shell use sites in
-  // synthesizer.yo / property_access.yo.
+  // synthesizer.yo / property-access.yo.
   matched_type = resolve_enum_shell(&matched_type);
   scrutinee_is_enum := is_enum_type(&matched_type);
   scrutinee_is_primitive := is_matchable_primitive_type(&matched_type);
@@ -1563,7 +1611,7 @@ evaluate_match :: (
       if(!b_ct_known, {
         match(&_added, .Some(sc_var) => note_second_class_binding(&sc_var.*, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
       });
-      match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
+      match(&lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs.*), .None => ());
       // A binding of a `match(&x, …)`, or of a reference binding matched
       // bare (`match(r, …)`, VERDICTS-13 §14), borrows the part it
       // binds: it reads as a whole value with `.*`
@@ -1622,13 +1670,13 @@ evaluate_match :: (
       });
       match(
         &imm_place,
-        .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip.*, &body_ast, false),
+        .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip.*, &body_ast, false, guard : guard_ast.clone()),
         .None => ()
       );
       // A22: a binding into a temporary scrutinee points into the temporary
       // (a reference payload points where the temporary's references do).
       if(!b_ct_known && ref_binds && ref_payload.is_none() && !p_view && !is_mut_binding(&b_tok, &b.name), {
-        match(&scr_temp_place, .Some(tp) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), tp, &body_ast, false), .None => ());
+        match(&scr_temp_place, .Some(tp) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), tp, &body_ast, false, guard : guard_ast.clone()), .None => ());
         // A3: a reference binding matched bare (`r := &o; match(r, …)`, or
         // `b := idr(&x)`): the binding is a place in the referent, so it
         // borrows what the reference borrows (R-ARM: "the arm bindings of
@@ -1644,7 +1692,7 @@ evaluate_match :: (
           );
           (a3i : usize) = usize(0);
           while(a3i < a3_roots.len(), a3i = (a3i + usize(1)), {
-            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &a3_roots(a3i).place, &body_ast, false);
+            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &a3_roots(a3i).place, &body_ast, false, guard : guard_ast.clone());
           });
         });
       });
@@ -1661,7 +1709,7 @@ evaluate_match :: (
           match(&_added, .Some(rf_var) => note_ref_payload_held(rf_var.id(), &rf_roots), .None => ());
           (rfi : usize) = usize(0);
           while(rfi < rf_roots.len(), {
-            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut);
+            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut, guard : guard_ast.clone());
             rfi = (rfi + usize(1));
           });
         },
@@ -1724,7 +1772,7 @@ evaluate_match :: (
       all_classic = false;
     });
     arm := Arm(pattern : pat, guard : guard_ast.clone(), body : Rc.clone(body_ast), arm_expr : Rc.clone(arm_expr), pattern_expr : Rc.clone(pattern_ast), classic : classic);
-    arms.push(arm);
+    arms.push(arm.clone());
     match(
       arm_pat,
       .Some(ap) => cg_arms.push(Arm(pattern : ap, guard : guard_ast.clone(), body : Rc.clone(body_ast), arm_expr : Rc.clone(arm_expr), pattern_expr : Rc.clone(pattern_ast), classic : false)),
@@ -1740,6 +1788,17 @@ evaluate_match :: (
     );
     // Compile-time arm selection.
     mv := cond(ct_known => match_value(&arm.pattern, &scrutinee_val_opt, ctx), true => Option(bool).None);
+    // A guarded `mut` arm's places are live in its guard: the guard runs
+    // after the pattern binds them and before the body, so their loans are
+    // registered before it is evaluated, and a write of the scrutinee in the
+    // guard (`(.Some(Box(s)) && { o = .None; true }) => s`, a call
+    // `kill(&mut o)`) is judged against them (E0911) as the same write in the
+    // body is. An unguarded arm registers them when it is selected.
+    (mut_place_loans_registered : bool) = false;
+    if(mut_places && guard_ast.is_some(), {
+      _register_mut_arm_place_loans(&cell_copy_vars, &place_vars, &lb_scr_source, &mut_place, &body_ast, &guard_ast);
+      mut_place_loans_registered = true;
+    });
     // The guard, with the pattern's bindings in scope.
     (guard_val : Option(bool)) = Option(bool).None;
     match(
@@ -1929,17 +1988,9 @@ evaluate_match :: (
         });
       });
       if(mut_places, {
-        (ci0 : usize) = usize(0);
-        while(ci0 < cell_copy_vars.len(), ci0 = (ci0 + usize(1)), {
-          match(
-            cell_copy_vars.get_cloned(ci0),
-            .Some(cv) => match(
-              lb_scr_source,
-              .Some(lbs) => local_borrow_note_match_place(&lbs, cv.name.clone(), &cv.token, &body_ast),
-              .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ())
-            ),
-            .None => ()
-          );
+        // A guarded arm registered its places' loans before its guard ran.
+        if(!mut_place_loans_registered, {
+          _register_mut_arm_place_loans(&cell_copy_vars, &place_vars, &lb_scr_source, &mut_place, &body_ast, &guard_ast);
         });
         (pi0 : usize) = usize(0);
         while(pi0 < place_vars.len(), {
@@ -1951,23 +2002,8 @@ evaluate_match :: (
                 &mut_root,
                 .Some(rv) => {
                   variable_set_inout_borrow_root_id(&pv, rv.id());
-                  variable_mark_inout_borrow_root(&rv.*);
                 },
                 .None => ()
-              );
-              // A scrutinee reached from a local borrow (decision 25's
-              // cursor, `match(cur, .Some(n) => { mut(cur) = n.next; })`):
-              // its bindings are already tracked as places a re-point goes
-              // through (`local_borrow_note_pattern_binding`), and the
-              // re-point must not read as an access of `cur` while `n` lives.
-              // In an `io.async` body the place may live across an await:
-              // rule 4 rejects it there when the borrow it points through
-              // passes through a cell or a module-level place, judged at
-              // each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
-              match(
-                lb_scr_source,
-                .Some(lbs) => local_borrow_note_match_place(&lbs, pv.name.clone(), &pv.token, &body_ast),
-                .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ())
               );
             },
             .None => ()
@@ -2238,7 +2274,7 @@ evaluate_match :: (
     (gci : usize) = usize(0);
     while(gci < arms.len(), {
       match(
-        arms.get(gci),
+        arms.get_cloned(gci),
         .Some(ga) => match(
           &ga.pattern,
           .Variant(_, gvidx, _, _, _, _, _) => {
@@ -2276,7 +2312,7 @@ evaluate_match :: (
       (ai3 : usize) = usize(0);
       while(ai3 < arms.len(), {
         match(
-          arms.get(ai3),
+          arms.get_cloned(ai3),
           .Some(aa) => match(
             &aa.pattern,
             .Variant(an, aidx, _, _, aety, aptr, aar) => if(aidx.* == target_idx, {
@@ -2302,16 +2338,15 @@ evaluate_match :: (
           // already carry the test expansions recorded in the arm loop).
           (fi3 : usize) = usize(0);
           while(fi3 < arms.len(), {
-            match(
-              arms.get(fi3),
-              .Some(fa) => match(
+            arms.with(
+              fi3,
+              fa => match(
                 &fa.pattern,
                 .Variant(_, fidx, _, _, _, _, _) => if(fidx.* == target_idx, {
                   fa.classic = false;
                 }),
                 _ => ()
-              ),
-              .None => ()
+              )
             );
             fi3 = (fi3 + usize(1));
           });
@@ -2354,7 +2389,7 @@ evaluate_match :: (
   (ui : usize) = usize(0);
   while(ui < arms.len(), {
     ua := match(
-      arms.get(ui),
+      arms.get_cloned(ui),
       .Some(a) => a,
       .None => {
         return(Rc.clone(expr.*));

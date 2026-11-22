@@ -3,20 +3,20 @@
 //! KNOWN LIMITATION (none reached by the no-RC/no-effect corpus):
 //! evidence-parameter forwarding for `using()`/effects (Phase 3/5).
 { String } :: import("std/string");
-{ HashSet } :: import("std/collections/hash_set");
+{ HashSet } :: import("std/collections/hash-set");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
 { get_variable_name_for_codegen_at, get_type_string, get_variable_type_string, fresh_local_name, element_wise_dup_target } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ expr_info_converted_runtime_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
-{ generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
+{ expr_info_converted_runtime_type, expr_info_deferred_dup_expressions } :: import("../../expr-info.yo");
+{ generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop-dup.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ _apply_ref_amp } :: import("./other_fn_call.yo");
+{ _apply_ref_amp } :: import("./other-fn-call.yo");
 { fn_abi_param_is_ptr } :: import("../../types/utils.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
 /// scope drops don't run before the call).
@@ -159,7 +159,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
             // argument the recursion was about to consume — the stage-2
             // dup-for-value UAF, gmalloc-traced: clone at +5276, freed at
             // +5320, consumed at +5340). Expression-level flush: skip
-            // param-targeted drops (drop_dup.yo _drop_target_is_parameter).
+            // param-targeted drops (drop-dup.yo _drop_target_is_parameter).
             generate_call_deferred_drops(expr, indent.clone(), context, true);
             // Escape propagation (see generate_recur's doc comment): drops
             // and a dummy return, so a throw inside the recursion cannot be

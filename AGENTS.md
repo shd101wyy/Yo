@@ -4,37 +4,39 @@ mode: agent
 
 You are a programming language and compiler expert.
 
-Detailed instructions for specific areas are in `.github/instructions/`. Always read and follow the relevant file before working in that area.
+Detailed instructions live in `.github/instructions/`. Read the relevant file before working in that area.
 
 | Area                             | Instruction file                                     |
 | -------------------------------- | ---------------------------------------------------- |
 | C code generation                | `.github/instructions/c-codegen.instructions.md`     |
 | Debugging evaluator / C output   | `.github/instructions/debugging.instructions.md`     |
-| Running / writing tests          | `.github/instructions/testing.instructions.md`       |
+| Running / writing tests, gates   | `.github/instructions/testing.instructions.md`       |
 | Yo language design & std library | `.github/instructions/yo-design.instructions.md`     |
 | Yo syntax rules                  | `.github/instructions/yo-syntax.instructions.md`     |
 | Documentation                    | `.github/instructions/documentation.instructions.md` |
 
 ## Reading historical documents
 
-`plans/`, `issues/` and `code-reviews/` are historical records and are not rewritten. Translate as you read:
+`plans/`, `issues/` and `code-reviews/` are records and are not rewritten. Translate old names as you read:
 
-- `src/**.ts` (and `bun`, `package.json`, `./yo-cli`) is the **retired TypeScript compiler**, deleted 2026-08-20 and frozen at the git tag `src-attic-final`. `src/**.yo` is always the current compiler. The file extension disambiguates.
-- `yo-self/` is today's `src/`; `yo-self/tests/` is today's `tests/internal/`; `./yo-cli <args>` is `yo <args>`; `src/tests/fixme.yo` is `tmp/fixme.yo`.
-- `open(...)` is pre-2026-09-10 spelling: a glob import is `{ ... } :: import("m")`, a module value destructures as `{ a, b } :: SomeModule`, a struct as `{ x, y } := s` (`plans/reference/REMOVE_OPEN_BUILTIN.md`).
-- `plans/backlog/NON_ESCAPABLE_TYPES.md` is the pre-2026-10-20 name of `plans/backlog/REFERENCES_AND_ORIGINS.md` (decision 43's design; renamed when references became first-class with origins — "non-escapable" is now just O10's `Escapable` bound); `plans/backlog/FUTURE_ORIGINS.md` was the 2025 sketch, deleted the same day (its verdict is that doc's §6 row).
-- `escape` is the old name of `unwind`; the `phase6*` test files were renamed to `quote_macro_eval`, `macro_expansion`, `ast_reflection`, `macro_helpers`; `macro_expansion`, `macro_registry`, `tests/macro_def_pragma`, `tests/macro_def_gate` and `tests/codegen-bootstrap/try_macro_assign` were deleted with the user-macro fixtures on 2026-10-24 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` C5).
-- `imm(x) : T` / `mut(x) : T` (and the older `inout(x) : T`) are pre-decision-42 spellings of `x : &T` / `x : &mut T`; `imm(self)` is `self : &Self`, `-> imm(T)` is `-> &T`, `{ imm(y) : &y }` is `{ y : &y }`, `for(xs, inout(x) => …)` is `for(&mut xs, x => …)` (`plans/VALUES_BY_DEFAULT.md` decision 42, 2026-10-10). Generation B deleted the old forms: the tree spells only the sigils, and a mode word in source is error E0009 (`yo fix --migrate borrow-spelling` on v0.2.76 rewrites it). The meaning is identical; only the spelling changes (decision 43 makes `&T` a second-class type).
-- A bare `{ a, b }` / `{ k : v }` / `{ x }` VALUE is the pre-v0.2.78 spelling of the record `.{ a, b }` / `.{ k : v }` / `.{ x }`, and a value `{}` was the empty record (now `.{}`; `{}` is the unit block). Binders (`{ a } := s`, imports, patterns, capture lists) are unchanged (`plans/reference/BRACE_BLOCKS.md`).
-- `markdown_yo` is the pre-2026-10-30 spelling of `markdown-yo` (package names are kebab-case since v0.2.74). The path `vendor/markdown_yo` (the submodule retired 2026-09-13) keeps its old spelling.
-- `raylib_yo`, `tetris_yo`, `markdown_it_yo`, `http_server_demo_yo` and `yo_http_benchmark` are the pre-2026-11-05 names of `raylib-yo`, `tetris-yo`, `markdown-it-yo`, `http-server-demo-yo` and `yo-http-benchmark` (repositories and packages; the tetris demo moved to `https://shd101wyy.github.io/tetris-yo/`, Pages URLs do not redirect).
-- "yo-self" survives as a NAME in two REQUIRED CI check names ("Bootstrap fixpoint (yo-self self-compile)", "Self-hosted `test` subcommand (yo-self tier-1 gates)") and in artifact names like `/tmp/yo-self-bin`. Renaming those checks would block every PR; leave them alone.
+| Old (in records)                                                                                         | Today                                                                                                   |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `src/**.ts`, `bun`, `package.json`, `./yo-cli <args>`                                                    | the retired TypeScript compiler (git tag `src-attic-final`); `src/**.yo` is the compiler; `yo <args>`    |
+| `yo-self/`, `yo-self/tests/`, `src/tests/fixme.yo`                                                       | `src/`, `tests/internal/`, `tmp/fixme.yo`                                                               |
+| snake_case module files/dirs (`array_list`, `expr_info.yo`, `tests/foo_bar.test.yo`)                     | kebab-case (`array-list`, `expr-info.yo`, `tests/foo-bar.test.yo`); identifiers unchanged (`array_list :: import("std/collections/array-list")`). `exprs/_expr.yo` → `exprs/dispatch.yo`, `_fsm.yo` → `fsm.yo`; `std/fmt/to_string.yo` is still snake_case |
+| `markdown_yo`, `raylib_yo`, `tetris_yo`, `markdown_it_yo`, `http_server_demo_yo`, `yo_http_benchmark`    | the kebab-case package/repo names (`markdown-yo`, …); the path `vendor/markdown_yo` (a retired submodule) keeps its spelling |
+| `open(...)`                                                                                              | `{ ... } :: import("m")`, `{ a, b } :: SomeModule`, `{ x, y } := s` (`plans/reference/REMOVE_OPEN_BUILTIN.md`) |
+| `imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self)`, `-> imm(T)`, `for(xs, inout(x) => …)`           | `x : &T`, `x : &mut T`, `self : &Self`, `-> &T`, `for(&mut xs, x => …)` (decision 42; a mode word is now E0009) |
+| a bare `{ a, b }` / `{ k : v }` VALUE; a value `{}`                                                      | the record `.{ a, b }` / `.{ k : v }`; `.{}` (`{}` is the unit block). Binders are unchanged (`plans/reference/BRACE_BLOCKS.md`) |
+| `escape`                                                                                                 | `unwind`                                                                                                |
+| `plans/backlog/NON_ESCAPABLE_TYPES.md`, `FUTURE_ORIGINS.md`                                              | `plans/backlog/REFERENCES_AND_ORIGINS.md` (decision 43; "non-escapable" is O10's `Escapable` bound)     |
+| `phase6*` tests; `macro_expansion`, `macro_registry`, `macro_def_*`, `try_macro_assign` tests            | `quote-macro-eval`, `ast-reflection`, `macro-helpers`; the rest were deleted with the user-macro fixtures |
 
 ---
 
 ## Architecture
 
-The Yo compiler is **written in Yo**, lives in `src/`, and is self-hosting: the `yo` binary that compiles this tree was itself compiled from this tree. It compiles Yo to C11 and hands the C to a system C compiler:
+The compiler is **written in Yo**, lives in `src/`, and is self-hosting. It compiles Yo to C11 and hands the C to a system C compiler:
 
 ```
 Yo source → Lexer → Parser → AST (expr.yo)
@@ -48,193 +50,127 @@ Yo source → Lexer → Parser → AST (expr.yo)
                           C compiler (clang/gcc/zig)
 ```
 
-Building it needs an existing `yo`: a **seed release** (the previous published version) or, with no binary at all, the published single-file `yo.c` (`scripts/make-portable-c.sh`). `scripts/install.sh` installs a bundle; `build.yo` at the repo root is how the compiler builds itself (`yo build`). Record: `plans/archive/BOOTSTRAPPING.md`.
+Building it needs an existing `yo`: a **seed release** (`SEED_VERSION` in `.github/workflows/test.yml`) or the published single-file `yo.c` (`scripts/make-portable-c.sh`). `build.yo` at the repo root builds the compiler (`yo build`). Record: `plans/archive/BOOTSTRAPPING.md`.
 
-### Key directories
+| Path                                                                                                                  | Role                                                                                                                       |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/`                                                                                                                | The compiler; `src/README.md` has the layout                                                                               |
+| `src/main.yo`                                                                                                         | CLI entry point and subcommand dispatch                                                                                    |
+| `src/lexer.yo`, `src/token.yo`, `src/parser.yo`, `src/expr.yo`                                                        | Tokens → AST; `expr.yo` holds the node types and builtin keyword constants                                                 |
+| `src/expr-info.yo`                                                                                                    | `ExprInfo`: the per-expression side table the evaluator fills and codegen reads                                            |
+| `src/evaluator/`                                                                                                      | Type checking, CTFE, trait resolution; `exprs/` per node, `calls/` specialization and dispatch, `effects/`, `builtins/`    |
+| `src/verifier/`                                                                                                       | Formal verifier: `terms.yo` (VC IR), `vc.yo`, `encode.yo` (SMT-LIB 2), `z3.yo`, `driver.yo` (`plans/backlog/FORMAL_VERIFICATION.md`) |
+| `src/codegen/`                                                                                                        | C11 emission; `exprs/`, `async/` (state machines, per-platform I/O runtimes), `functions/`, `parallelism/`, `c/allocator-fixed.yo` (TLSF) |
+| `src/emitter.yo`                                                                                                      | The header / declaration / code buffers                                                                                    |
+| `src/types/`                                                                                                          | Type values and compatibility helpers                                                                                      |
+| `src/module-manager.yo`                                                                                               | Demand loader, cached prelude env, shared codegen `ExprInfoTable`, std-path resolution                                     |
+| `src/manifest.yo`, `src/resolver.yo`, `src/fetch.yo`, `src/lock-file.yo`, `src/cache.yo`, `src/install-command.yo`, `src/toml-edit.yo` | `yo.toml`, `yo.lock` v2, the content-addressed store, `yo add\|remove\|install\|update`, `yo cache`             |
+| `src/build-runner.yo`                                                                                                 | `yo build`: the build DAG and its scheduler                                                                                |
+| `src/formatter.yo`, `src/lsp/`, `src/doc/`, `src/doc-command.yo`                                                      | `yo fmt`, `yo lsp`, `yo doc`                                                                                               |
+| `src/init.yo`, `src/cli-lang.yo`, `src/version.yo`, `src/version-cache.yo`, `src/pkg-config.yo`, `src/target.yo`      | `yo init`, `--lang`/`YO_LANG` (en, zh-CN), `.yo-version`, release-bundle cache, pkg-config, target triples                 |
+| `std/`                                                                                                                | Standard library; `std/build.yo` is the build API; `std/spec/` the verification vocabulary                                 |
+| `tests/`                                                                                                              | Language tests (`*.test.yo`); `tests/spec/` the verifier's; `tests/internal/` the compiler's own (each file compiles the compiler); build-system and CLI subsystems are tested there |
+| `tests/cli-cases/`, `scripts/cli-diff-test.sh`                                                                        | CLI goldens, each case sandboxed (own project dir and `HOME`), comparing rc + stdout + trees; `--record` writes goldens     |
+| `scripts/bootstrap/`                                                                                                  | Gate batteries: `gates_fast.sh`, `fixpoint_only.sh`, `hollow_sweep69.sh`, `known-failing.tsv`                              |
+| `plans/`                                                                                                              | Design docs: root = active, `reference/` = landed (authoritative), `backlog/` = not started, `archive/` = closed. `plans/README.md`, `plans/ROADMAP.md` |
+| `issues/`                                                                                                             | Root = open bugs (each with `**Severity:**`); `questions/` = design decisions awaiting a verdict; `fixed/`, `retired/`, `repros/`, `patches/` (`issues/README.md`) |
+| `docs/en-US/`, `docs/zh-CN/`                                                                                          | User docs, always both languages                                                                                           |
+| `vscode-extension/`                                                                                                   | The only npm tree (`npm ci`, `npm run package`): a plain-JS LSP client spawning `yo lsp` (`yo.binPath`; `yo.lsp.enabled: false` = highlighting only) |
 
-| Path                              | Role                                                                                                                                                 |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/`                            | The Yo compiler. `src/README.md` has the layout and test instructions                                                                                |
-| `src/main.yo`                     | CLI entry point: argument parsing and subcommand dispatch                                                                                            |
-| `src/lexer.yo`, `src/token.yo`, `src/parser.yo`, `src/expr.yo` | Tokens → AST; `expr.yo` holds the core node types and the builtin keyword constants                                                     |
-| `src/expr_info.yo`                | `ExprInfo`: the per-expression annotation side table the evaluator fills in and codegen reads                                                        |
-| `src/evaluator/`                  | Type checking, CTFE, trait resolution; `exprs/` per node, `calls/` specialization and dispatch, `effects/` algebraic-effects analysis, `builtins/`     |
-| `src/verifier/`                   | The formal verifier: `terms.yo` (VC IR), `vc.yo` (symbolic walk), `encode.yo` (SMT-LIB 2), `z3.yo` (solver harness), `driver.yo`. Plan: `plans/backlog/FORMAL_VERIFICATION.md` |
-| `src/codegen/`                    | C11 emission; `exprs/` per node, `async/` state machines + per-platform I/O runtimes, `functions/`, `parallelism/`, `c/allocator_fixed.yo` (TLSF allocator) |
-| `src/emitter.yo`                  | The header / declaration / code buffers everything writes into                                                                                       |
-| `src/types/`                      | Type values and compatibility helpers                                                                                                                |
-| `src/module_manager.yo`           | "Evaluate a `.yo` file and read its exports": demand loader, cached prelude env, shared codegen `ExprInfoTable`, std-path resolution                  |
-| `src/manifest.yo`, `src/resolver.yo`, `src/fetch.yo`, `src/lock_file.yo`, `src/cache.yo`, `src/install_command.yo`, `src/toml_edit.yo` | `yo.toml` / `yo.lock` v2 / the content-addressed store / `yo add\|remove\|install\|update` / `yo cache` |
-| `src/build_runner.yo`             | `yo build`: the build DAG, its level-based scheduler, artifact compilation                                                                            |
-| `src/formatter.yo`, `src/lsp/`, `src/doc/`, `src/doc_command.yo` | `yo fmt`, `yo lsp` (one module per feature), `yo doc`                                                                                    |
-| `src/init.yo`, `src/cli_lang.yo`, `src/version.yo`, `src/version_cache.yo`, `src/pkg_config.yo`, `src/target.yo` | `yo init`, `--lang`/`YO_LANG` (en + zh-CN), `.yo-version`, release-bundle cache, pkg-config, target triples |
-| `std/`                            | The standard library; `std/build.yo` is the build API; `std/spec/` the verification vocabulary                                                        |
-| `tests/`                          | Language tests (`*.test.yo`); `tests/spec/` the verifier's; `tests/internal/` the compiler's own (heavy: each file compiles the compiler)              |
-| `tests/cli-cases/`, `scripts/cli-diff-test.sh` | CLI subcommand goldens: each case runs in a sandbox (own project dir, own `HOME`) comparing rc + stdout + trees; `--record` writes goldens |
-| `scripts/bootstrap/`              | Gate batteries: `gates_fast.sh`, `fixpoint_only.sh`, `hollow_sweep69.sh`, `known-failing.tsv`                                                        |
-| `plans/`                          | Design docs. Root = active, `reference/` = landed decisions (authoritative), `backlog/` = written-not-started, `archive/` = closed. Index: `plans/README.md`; roadmap: `plans/ROADMAP.md` |
-| `issues/`                         | Root = open bugs, each with a `**Severity:**` line; `questions/` = design decisions awaiting a verdict; `fixed/`, `retired/`, `repros/`, `patches/` (see `issues/README.md`)                                          |
-| `docs/en-US/`, `docs/zh-CN/`      | User docs, always in both languages                                                                                                                  |
+### Design decisions to know before writing Yo
 
-### Design decisions you must know before writing Yo
-
-One line each; the linked doc is authoritative.
+The linked doc is authoritative.
 
 - **Brace groups**: `.{ … }` builds a record, `{ names }` on a binding side picks fields, every other `{ … }` is a block (`{ e }` yields `e`, `{}` is unit) (`plans/reference/BRACE_BLOCKS.md`).
 - **No function overloading** (`plans/reference/FUNCTION_OVERLOADING_POLICY.md`); the prelude's operator pairs are the only exported multi-candidate `Call` tuples.
-- **No operator precedence**: parenthesize when mixing adjacent operators — `a && b || c` is a parse error (`plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`). A chain of ONE operator left-associates at any length (`a - b - c - d` is `(((a - b) - c) - d)`) and `yo fmt` flattens the redundant parens; parens on a RIGHT operand (`3 + (4 + 5)`) are kept.
-- **Macros kept but gated**: definitions need `Pragma.AllowMacroDef`; `if(...)` is desugared to `cond(...)` at parse time (`plans/reference/MACRO_POLICY.md`).
+- **No operator precedence**: parenthesize mixed adjacent operators (`a && b || c` is a parse error). A chain of ONE operator left-associates (`a - b - c` is `((a - b) - c)`) and `yo fmt` drops the redundant parens; parens on a RIGHT operand are kept (`plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`).
+- **Macros are gated**: definitions need `Pragma.AllowMacroDef`; `if(...)` desugars to `cond(...)` at parse time (`plans/reference/MACRO_POLICY.md`).
 - **`::` definitions and `impl` registration are order-independent within a module** (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`).
 - **`--target` is the canonical Rust triple**, no aliases (`plans/reference/TARGET_TRIPLES.md`).
 - **`--allocator fixed`** is a TLSF allocator over one static region sized by `--heap-size` (`plans/reference/FIXED_REGION_ALLOCATOR.md`).
-- **Dependencies live in `yo.toml`, not `build.yo`**; `import("dep")` resolves through the nearest manifest in every command; only `yo build` fetches, so every other command needs `yo install` first on a fresh clone (`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`).
-- **No runtime dependent types**; runtime properties go through the verifier (`plans/reference/DEPENDENT_TYPES_POSITION.md`, `plans/backlog/FORMAL_VERIFICATION.md`).
-- **`match` is real pattern matching** (`plans/reference/MATCH_PATTERN_MATCHING.md`, landed): nested/literal/or/string/range/guard/`:=`/tuple/struct/`Box` patterns in every emitter; exhaustiveness is usefulness (fixed-width integer constants and ranges are intervals); an arm the earlier arms cover only collectively is a warning, single-arm subsumption an error; every infix pattern is parenthesized (`(p && (g))`, `(x := p)`); a bare identifier binds unless it names a literal/enum `::` constant.
-- **No backward-compatibility scaffolding** (single user): no deprecation windows, aliases or shims; the only gate is the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
-
-### Algebraic effects model
-
-- `return(expr)` inside an effect handler **resumes** the continuation.
-- `unwind(expr)` inside an effect handler **discards** the continuation and exits the enclosing `fn`. An unwound async task enters `FutureState.Aborted` (state = -2).
-- C's `abort()` (process termination on panic) is a different thing. Never confuse the two.
-
-### Async/await threading model
-
-Yo's async/await is **single-threaded per thread** (like JavaScript's event loop, or tokio's `current_thread`/`LocalSet`; NOT like C#, whose continuations resume on any thread-pool thread): all I/O submissions and completions run on one event loop thread, and a started task never migrates. Do not add mutexes or atomics to async runtime variables. The parallelism runtime (`src/codegen/parallelism/`) is a separate multi-threaded concern.
+- **Dependencies live in `yo.toml`, not `build.yo`**; `import("dep")` resolves through the nearest manifest; only `yo build` fetches, so other commands need `yo install` first on a fresh clone (`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`).
+- **No runtime dependent types**; runtime properties go through the verifier (`plans/reference/DEPENDENT_TYPES_POSITION.md`).
+- **`match` is real pattern matching** (`plans/reference/MATCH_PATTERN_MATCHING.md`): exhaustiveness is usefulness (integer constants and ranges are intervals); an arm covered only collectively by earlier arms is a warning, single-arm subsumption an error; every infix pattern is parenthesized (`(p && (g))`, `(x := p)`); a bare identifier binds unless it names a literal/enum `::` constant.
+- **No backward-compatibility scaffolding** (no external users): no deprecation windows, aliases or shims; the only gate is the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+- **Algebraic effects**: in a handler, `return(expr)` **resumes** the continuation; `unwind(expr)` **discards** it and exits the enclosing `fn` (an unwound async task enters `FutureState.Aborted`, state -2). C's `abort()` (process termination on panic) is unrelated.
+- **Async is single-threaded per thread** (like JavaScript's event loop or tokio's `current_thread`, not C#): one event-loop thread owns all I/O submissions and completions, and a started task never migrates. No mutexes or atomics on async runtime variables. The parallelism runtime (`src/codegen/parallelism/`) is a separate, multi-threaded concern.
 
 ---
 
-## Build & Test Commands
+## Build & test
 
-The compiler is the `yo` binary on your PATH (install with `scripts/install.sh`; on Windows `scripts/install.ps1`, where Git Bash needs `yo.cmd`).
+`yo` on `PATH` is the seed (`scripts/install.sh`, `--no-deps` on nix boxes; Windows: `scripts/install.ps1`, Git Bash needs `yo.cmd`). **Use the latest published release** (`yo --version`): the tree can need runtime symbols only the newest seed emits. Detail, timings and the incremental loop: `testing.instructions.md`.
 
 ```bash
-yo build --std-path ./std     # build the compiler → yo-out/<target>/bin/yo. --std-path is LOAD-BEARING: without it the seed compiles its own std, so a std change the seed cannot lower passes locally and breaks CI (#996)
-yo check ./src --std-path ./std   # type-check the whole compiler tree (evaluator-only) — run this FIRST. --std-path matters: an installed yo otherwise resolves `std` to its BUNDLED copy, so src using a std export newer than the seed fails (`No member "pid"`, measured 2026-10-04 with v0.2.50)
-yo check ./std --std-path ./std   # the flag is optional for a compiler carrying the entry-side fix (a seed older than that fix still imports its BUNDLED std beside ./std; every entry inside one std tree makes check/test/compile/fix/verify/effects/doc resolve THAT tree, issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md); keeping it spelled out pins the root explicitly. No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
-yo compile src/main.yo --skip-c-compiler   # ~3 min; catches the one async rule `check` cannot see (a hollow `io.async` body, E0905, fires in codegen)
+yo check ./src --std-path ./std    # run FIRST; evaluator only. --std-path: without it the seed resolves its BUNDLED std
+yo check ./std --std-path ./std
+yo build --std-path ./std          # → yo-out/<target>/bin/yo; --std-path is load-bearing (CI builds stage 1 with the tree's std)
+yo compile src/main.yo --skip-c-compiler   # catches what check cannot: a hollow `io.async` body (E0905) fires in codegen
+nix develop . --command bash -c 'yo build --std-path ./std --cc clang'   # CI's C compiler; run the built binary inside the same wrapper
 
-# The C compiler: gcc and clang do NOT agree on emitted-C warnings. The driver's optimized arm passes
-# clang-only `-Wno-everything`, while `-Werror=return-type` stays load-bearing under gcc — C that is
-# warning-clean under clang can still fail a gcc build (a statement-position match emitting no trailing
-# return, 2026-10-18). CI builds with clang. For a matching local clang use the repo's nix shell, and
-# keep runs of the built binaries inside the same wrapper: outside it, the nix-glibc/system-lib mix
-# dies on a pthread assertion (allocate_stack: size != 0). --cc takes ONLY cc|gcc|clang|zig|emcc — a
-# path is rejected, so clang must resolve on PATH.
-nix develop . --command bash -c 'yo build --std-path ./std --cc clang'
-
-# Incremental loop: keep ONE resident checker alive instead of re-running the ~105 s cold `check ./src`.
-# A round re-forces only the edited fn-literal definitions (+ dependents): comment-only 6 ms, one body
-# 80 ms; a body whose readers destructure a re-forced name still re-checks that closure (`token.yo`: 47 s).
-# Structural edits (new def, struct field, constant, ordered statement) fall back to the file-level
-# reverse-import closure. `YO_DEBUG_P3DIFF=1` explains a slow round. Details: testing.instructions.md.
-yo check ./src --watch                       # `--watch-once` reads changed paths from stdin: one round, rc = failures
-yo build --watch --profile [--max-rss-mb N]  # in-process artifact rebuilds; `profile: watch round N <ms> rss=…MB`
-yo compile src/main.yo --emit-chunks auto --jobs 8 --profile   # N translation units + `.o` cache: an edit recompiles only dirty units
-YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal/<file>.test.yo --parallel 1   # in-process knob, ~10 GB resident: never CI, and never the whole directory as a gate (see Tier 1)
-
-# Language tests. --parallel 1 for single files. Always save verbose output to a file.
-yo test ./tests/algebraic_effects.test.yo --bail -v --parallel 1 &> output.txt
-yo test ./tests/algebraic_effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
-
-# Fast language suite (~30 min on a Mac Mini M4; mirrors CI). Both excludes matter:
-# tests/internal compiles the compiler ~60 times; tests/cli-cases fixtures contain
-# .test.yo harness inputs, one of which MUST fail — without the exclude ~4 false failures.
-yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
-
-# std's own tests (sibling *.test.yo files + in-file test(...) declarations)
+yo test ./tests/algebraic-effects.test.yo --bail -v --parallel 1 &> output.txt   # one file; save verbose output
+yo test ./tests/algebraic-effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
+yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail          # language suite (both excludes required)
 yo test ./std --bail
+yo test ./tests/internal/parser.test.yo --parallel 1   # internal tests: ONE file at a time, never the whole directory
+yo verify ./std/collections --format json              # verifier; verify tests/spec per path, not as one directory
 
-# Compiler-internal tests: ONE FILE AT A TIME (one compiler-sized file needs up to 6.5 GB;
-# two concurrent children swap and trip the runner's 600 s deadline, manufacturing
-# failures). The whole directory takes ~78 min and peaks at 8.8 GB (measured
-# 2026-09-21, Mac Mini M4; the older "~22 min" predates most of these files).
-yo test ./tests/internal/parser.test.yo --parallel 1
-
-# Verifier: what the FV CI job runs. Verify tests/spec PER PATH: `yo verify ./tests/spec` as one directory
-# exits 1 with no JSON, because fixtures/negative and fixtures/invalid hold inputs that fail evaluation by design
-yo verify ./std/spec --format json
-yo verify ./std/collections --format json
-yo verify ./tests/spec/verify_straight_line.test.yo --strict
-for p in tests/spec/*.test.yo tests/spec/fixtures/valid tests/spec/fixtures/elision; do yo verify ./$p --format json; done
-
-# Self-hosted gate batteries (need a built binary in $S1)
-S1=/tmp/yo-s1 P=local bash scripts/bootstrap/gates_fast.sh
-S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
-BIN=/tmp/yo-s1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh   # every language test through the self-hosted binary, ratcheted against scripts/bootstrap/known-failing.tsv
-
-# Single-file iteration (tmp/fixme.yo is the scratch file; tmp* is gitignored)
-yo check ./tmp/fixme.yo
-yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2      # inspect the C
-yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out
+yo check ./tmp/fixme.yo                                # tmp/ is the gitignored scratch area
+yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2
 yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o test && ./test
 ```
 
-`yo compile` on a `*.test.yo` file compiles the Yo side but synthesizes no `main`, so the C link fails (`undefined reference to 'main'`; `--skip-c-compiler` succeeds). To iterate on a failing test, extract the case into a standalone `.yo` file with a `main` function and `export(main);`.
-
-Build-system and CLI subsystems (`build_runner`, `fetch`, `lock_file`, `install_command`, `cache`, `init`, `version`, `pkg_config`, …) are tested under `tests/internal/`.
-
-### Project commands
-
-```bash
-yo init [dir] --name my-project
-yo build [run|test] [--list-steps] [-Dname=value]
-yo doc ./std [-o dir] [--format html|markdown|json]
-yo add user/repo[@^1.2] | yo add ./path      # declare + fetch a dependency in yo.toml
-yo remove name | yo install [--locked|--offline] | yo update [name...] [--latest]
-yo cache path|clean|gc
-yo version [pin [X.Y.Z] | install X.Y.Z | list [--remote] | clean]
-yo explain E0xxx | yo fix <path>             # diagnostics registry / structured repairs
-yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format json]  # the language pack, or the API index
-```
+- A missing Z3 is a skip-with-hint for `check` and a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify <file>` installs the pinned Z3.
+- `yo compile` on a `*.test.yo` synthesizes no `main` (link fails). Extract the case into a standalone file with `main` and `export(main);`.
+- Self-hosted gate batteries (`S1=<stage-1 binary> P=<prefix>`): `scripts/bootstrap/gates_fast.sh`, `fixpoint_only.sh`; `BIN=… OUT=… hollow_sweep69.sh` runs every language test through a built binary against `known-failing.tsv`.
+- Project commands: `yo init`, `yo build [step] [--list-steps] [-Dname=value]`, `yo add|remove|install|update`, `yo cache path|clean|gc`, `yo version pin|install|list|clean`, `yo doc`, `yo explain E0xxx`, `yo fix <path>`, `yo context` (the language pack / API index). `yo <cmd> --help` for flags.
 
 ---
 
-## Workflow Rules
+## Workflow rules
 
-### Before, during, after a change
+### Every change
 
-- **Use the LATEST published seed** (`yo --version` = newest GitHub release). A current tree can need runtime symbols only the newest seed emits. Update with `bash scripts/install.sh` (`--no-deps` on nix boxes).
-- **Heavy steps take a slot of the machine-wide FIFO lock** (`source scripts/heavy-lock.sh; heavy_take "<who>: <job>"` … `heavy_drop`; `exclusive` for timings and >5 GB steps; never backdate a ticket). Memory-admitted slots, sized per machine in `~/Workspace/Yo-wt/heavy-lock.conf` (default 3); details in `testing.instructions.md` ("The heavy lock").
-- **Coordinating background sub-agents:** ping each idle sub-agent every 40 minutes to keep its prompt cache warm under a 1h `subagentPromptCacheTtl` (the margin covers cron lateness; 50 minutes can reach 65). Ask for a reply of one or two lines from what it already knows, with no tool calls unless something changed. A cold resume costs about 20 pings. Never message an agent inside a Workflow run: the message resumes a duplicate copy that writes the same worktree.
-- Run `yo check ./src` before any longer command. `check` is evaluator-only: the hollow-`io.async`-body rule (E0905) is enforced in codegen, so gate it with `yo compile src/main.yo --skip-c-compiler`.
-- Make commands succeed yourself. Do not ask the user to run them, and do not end the conversation until they pass.
-- No hardcoding, no shortcuts, no simplifications in the evaluator or codegen. When asked to refactor, refactor everything: no placeholders, no TODOs.
+- Run `yo check ./src` before any longer command, and `yo compile src/main.yo --skip-c-compiler` when async code changed.
+- Make commands succeed yourself; do not ask the user to run them, and do not stop until they pass. If you have not modified code, do not re-run commands.
+- No hardcoding, shortcuts or simplifications in the evaluator or codegen. A refactor covers everything: no placeholders, no TODOs.
 - Do not create new `.yo` files unless told to.
-- Never skip a bug discovered during implementation. Every bug gets an `issues/YYYY-MM-DD-<name>.md` entry (filing date first, `issues/README.md`) carrying a `**Severity:**` verdict (S1–S3, scale in `issues/README.md`) and a test that fails before the fix and passes after, added to `tests/`. An open design/API/policy decision — not broken code — is not a bug: file it in `issues/questions/` with a `## Recommendation` stating a position. `scripts/check-issue-refs.sh` enforces both.
-- `issues/TRIAGE.md` is UNTRACKED (gitignored since 2026-10-07): a locally generated index (`python scripts/gen-issue-triage.py`), never committed — it can never conflict or ship stale. Run the generator whenever you want the overview; never `git add` it. CI's `tree-hygiene` job rejects any committed `<<<<<<<` conflict markers anywhere in the tree and enforces `check-issue-refs.sh`'s issues/ discipline (since 2026-10-07, after #1231 shipped six marker hunks in through a branch merge).
-- **Run `yo fmt <file.yo>` on every `.yo` file you create or modify** (`yo fmt --check` verifies). There is no pre-commit hook. **Verify formatting diffs with the same binary the gate uses** — a tree-built `yo-out/<target>/bin/yo fmt --check <files>` — not the installed seed: the formatter changes between releases, so a seed can lay a file out differently from the tree's fmt gate (GATE 6). A `cancelled` develop battery left NO fmt verdict (that is how #1110/#1102 went red unnoticed): a cancelled run means "unknown", not "green".
-- Review `git diff` before considering work done: leftover debug code, unused imports, consistency across files.
-- After any change, check whether instruction files (`.github/instructions/`), the context pack (`pack/context.md`), plans or docs need updating. **Whenever you learn something about Yo syntax, semantics or pitfalls by trial and error, update the pack, the manual, or `.github/instructions/` immediately, whichever is the fact's home (`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md` D2).**
-- Plans go in `plans/` (taxonomy in `plans/README.md`); bugs in `issues/` with a severity; design questions in `issues/questions/` (taxonomy in `issues/README.md`). Docs under `docs/` are written in both `docs/en-US/` and `docs/zh-CN/`. **Every Yo code block is fenced ` ```yo `, in Markdown and in doc comments, in every directory (`plans/` and `issues/` included) — never ` ```rust `, even when a document copies that fence from older sections; ` ```rust ` is only for actual Rust code (maintainer directive 2026-10-10).** `yo fmt` formats ` ```yo ` blocks and CI checks `docs/`, `plans/`, `.github/`, `README.md` and the Markdown under `issues/`, so a block there must parse (fence a fragment or an intentionally invalid example ` ```yo ignore `).
-- There is no JavaScript runtime at the repo root. The one exception is `vscode-extension/`, a deliberate npm-only island (`npm ci`, `npm run package`).
-- If you have not modified code, do not re-run commands.
+- **Every bug you find gets filed**, never skipped: `issues/YYYY-MM-DD-<name>.md` (filing date) with a `**Severity:**` line (S1–S3, `issues/README.md`), a minimal reproducer (`tmp/fixme.yo`), the verbatim error and the root cause, plus a test in `tests/` that fails before the fix and passes after. When fixed, move the doc to `issues/fixed/`. An open design/API/policy decision is not a bug: `issues/questions/` with a `## Recommendation`. `scripts/check-issue-refs.sh` enforces both (CI `tree-hygiene`, which also rejects committed `<<<<<<<` markers).
+- `issues/TRIAGE.md` is generated locally (`python scripts/gen-issue-triage.py`) and gitignored; never `git add` it.
+- **`yo fmt` every `.yo` file you create or modify.** Verify with the tree-built binary (`yo-out/<target>/bin/yo fmt --check <files>`), not the seed: the formatter changes between releases and CI's fmt gate uses the tree binary. A `cancelled` battery means fmt is unverified, not green.
+- **Every Yo code block is fenced ` ```yo `** in Markdown and doc comments, everywhere (`plans/` and `issues/` included); ` ```rust ` only for Rust. CI fmt-checks `docs/`, `plans/`, `.github/`, `README.md` and `issues/**.md`, so a block must parse; fence fragments and invalid examples ` ```yo ignore `.
+- Docs under `docs/` are written in both `docs/en-US/` and `docs/zh-CN/`. Plans go in `plans/` (`plans/README.md`).
+- Review `git diff` before calling work done: debug leftovers, unused imports, cross-file consistency.
+- After a change, update what it made stale: `.github/instructions/`, `pack/context.md`, plans, docs. **A fact about Yo learned by trial and error goes immediately into the pack, the manual or `.github/instructions/`**, whichever is its home (`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md` D2).
+- **Heavy steps take a slot of the machine-wide FIFO lock**: `source scripts/heavy-lock.sh; heavy_take "<who>: <job>"` … `heavy_drop` (`testing.instructions.md`, "The heavy lock").
+- **Sub-agents**: ping each idle sub-agent every 40 minutes (its prompt cache lives 1 h) for a one- or two-line reply with no tool calls. Never message an agent inside a Workflow run: that resumes a duplicate writing the same worktree.
 
-### Git: worktrees, branches, merges
+### Git
 
-- **The main checkout `$HOME/Workspace/Yo` is shared with other sessions: never `checkout -b`, `pull`, `stash` or edit there.**
-- **Worktrees live under `$HOME/Workspace/Yo-wt/<name>` (or another durable path), never under `/tmp` or `/private/tmp`** (macOS clears them on reboot; one reboot deleted 27 agents' uncommitted worktrees). Create with `git worktree add -b <branch> $HOME/Workspace/Yo-wt/<name> origin/develop`, then `git -c protocol.file.allow=always submodule update --init`. Remove with `git worktree remove --force <path>` (the `vendor/` submodules make plain `remove` refuse).
-- **Commit and push before every heavy step.** WIP commits are fine (PRs are squash-merged); `git push -u origin <branch>` right after the first commit. A worktree is not a backup; only a pushed commit is.
-- **PR bodies follow `.github/pull_request_template.md`** (Summary, Verification, LLM attribution, Deferred). `gh pr create --body`/`--body-file` does not apply the template, so write its sections into the body yourself.
-- **Gating is three-tier (maintainer, 2026-10-14). A PR is admin-merged as soon as its Tier 1 passes; develop's own battery is the full check, and its failures are fixed forward.**
-  - **Tier 1 is the merge gate:** a targeted local gate of about 20–30 minutes, run before the PR is opened.
-    - `yo build --std-path ./std`, only when `src/` changed; a std- or tests-only change reuses a develop-built binary.
-    - `check ./src` and `check ./std`.
-    - The feature's own test files and the tests that name a changed identifier, run ONE file per `yo test` call (it takes one path), plus every `tests/internal` file that imports a changed `src/` module or names a changed identifier. #1343 broke develop by skipping `gc_runtime_atomics`. A std- or prelude-only change does NOT select every internal file (each re-evaluates the compiler, ~4.5 min). Cap the selection at ~8 files, the most relevant ones; leave the rest to develop's battery and say so under Deferred. Selection recipe: `testing.instructions.md` ("Choosing a Tier 1 gate").
-    - cli-diff-test, only when std, CLI output, diagnostics text, skills or a `yo fix` migration changed; read each GOLDEN-DIFF before `--record`.
-    - When a change alters what parses or type-checks outside `src/`/`std/` (a Generation A that sweeps `tests/`), three places escape both the migration and a tree-binary Tier 1. First, `yo test` steps a SEED runs: grep `.github/workflows/` and run those files with the seed. Second, Yo programs inside workflow `run:` blocks and shell here-documents: run `scripts/check-embedded-yo.sh` and check each probe with the tree binary. Third, programs embedded in test string literals, which a `yo` subprocess compiles: put the tree binary first on `PATH` as `yo`, because locally `yo` is the seed. #1440 turned four develop jobs red this way (`issues/fixed/2026-10-18-the-fv-job-runs-generation-a-test-files-with-the-seed.md`).
-    - fmt and `check-issue-refs.sh`.
-    - Not in Tier 1: the full language suite, `yo test ./std`, the fixpoint and the full `tests/internal`.
-    - **Never run the whole `tests/internal` directory locally** (maintainer, 2026-10-23). This applies to branch gates, reviews and regenerations alike, in-process or serial. It is develop's battery's job. On 2026-10-23 four concurrent in-process runs took 4–5 h each on a box whose CPU was two-thirds idle, and they collided on shared `/tmp` fixtures, which produced false watch and module_invalidation failures.
-  - **Tier 2, the PR's battery, is not waited for.** It still fires when the PR opens. Once the PR is merged, cancel it, since it gates nothing.
-  - **Tier 3 is develop's battery.** Several PRs can be admin-merged in a row; the next develop battery covers all of them.
-    - Watch it on its pinned run ID.
-    - On a red job, find the PR that caused it, then fix it forward in a `fix(develop): …` PR. That fix PR also merges on its own Tier 1.
-    - A flaky job gets one rerun, as below.
-  - **Releases are unchanged.** Cut only when develop's battery is green on the exact tip (the battery-head diff below).
-  - **Why:** the per-PR full gate (about 1.5–2 h on a serialized local machine) and the per-PR battery both duplicated develop's battery. Before 2026-10-14, local-only admin merges did turn develop red (#970, #973, #989 and #991 on 2026-09-28, #1329 and #1343 later), because one Linux or macOS box covers no Windows, arm64, TSan, wasm or seed-with-tree-std build. That cost is accepted and paid by fixing forward quickly; it is not paid by waiting on every PR.
-- **A flaky failure gets one rerun**: `gh run rerun <run-id> --failed`. A second failure of the same job is real: investigate it and file an `issues/` doc, even if the job looks unrelated.
-- **Stack only for dependent pieces** (with Tier-1 admin merges a PR rarely waits). **Keep working while a PR waits: stack.** Branch the next piece off the waiting branch and open it as a draft on top (`gh pr create --draft --base <waiting-branch>`; see the draft rule below). A stacked PR merges into its PARENT branch once its local gates pass; the ruleset guards only `develop`. When the bottom PR squash-merges, restack the next one:
+- **The main checkout `$HOME/Workspace/Yo` is shared: never `checkout -b`, `pull`, `stash` or edit there.** Never `git stash` in a worktree either (the stash list is shared).
+- **Worktrees live under `$HOME/Workspace/Yo-wt/<name>`, never `/tmp`** (cleared on reboot): `git worktree add -b <branch> $HOME/Workspace/Yo-wt/<name> origin/develop`, then `git -c protocol.file.allow=always submodule update --init`. Remove with `git worktree remove --force <path>`.
+- **Commit and push before every heavy step** (`git push -u origin <branch>` after the first commit). Only a pushed commit is a backup.
+- **PR bodies follow `.github/pull_request_template.md`** (Summary, Verification, LLM attribution, Deferred); `gh pr create --body` does not apply it.
+- **Squash-merge and delete the branch**: `gh pr merge <n> --squash --delete-branch`. If that errors on a worktree, check `git ls-remote --heads origin <name>` and finish by hand (`git push origin --delete <name>`, `git worktree remove`, `git branch -D`). Set `GIT_TERMINAL_PROMPT=0` for `git ls-remote` against possibly missing repos.
+
+### Gating: three tiers
+
+A PR is admin-merged as soon as its Tier 1 passes; develop's battery is the full check and its failures are fixed forward. (One local box covers no Windows, arm64, TSan, wasm or seed-with-tree-std build; that cost is accepted.)
+
+- **Tier 1, the merge gate** (~20–30 min, local, before opening the PR). Selection recipe: `testing.instructions.md`, "Choosing a Tier 1 gate".
+  - `yo build --std-path ./std` when `src/` changed (otherwise reuse a develop-built binary); `check ./src` and `check ./std`.
+  - The feature's own tests and tests naming a changed identifier, one file per `yo test` call, plus the `tests/internal` files that import a changed `src/` module or name a changed identifier, capped at ~8 (list the rest under Deferred).
+  - `scripts/cli-diff-test.sh` when std, CLI output, diagnostics text or a `yo fix` migration changed; read each GOLDEN-DIFF before `--record`.
+  - A change to what parses or type-checks outside `src/`/`std/` also needs: seed-run `yo test` steps in `.github/workflows/` run with the seed; `scripts/check-embedded-yo.sh`; and the tree binary first on `PATH` as `yo` for programs embedded in test string literals (`issues/fixed/2026-10-18-the-fv-job-runs-generation-a-test-files-with-the-seed.md`).
+  - fmt and `scripts/check-issue-refs.sh`, on the final rebased head.
+  - Not Tier 1: the full language suite, `yo test ./std`, the fixpoint. **Never run the whole `tests/internal` directory locally**, for any purpose.
+- **Tier 2, the PR's battery**: not waited for; cancel it once the PR merges.
+- **Tier 3, develop's battery**: covers every merge since the last one. Watch it by run ID; on red, find the causing PR and fix forward in a `fix(develop): …` PR (merged on its own Tier 1).
+- **A flaky job gets one rerun** (`gh run rerun <run-id> --failed`). A second failure is real: investigate and file an `issues/` doc, even if the job looks unrelated.
+
+### Stacking
+
+- Stack only dependent pieces. Branch the next piece off the waiting one and open it as a **draft** (`gh pr create --draft --base <parent-branch>`): a stacked PR runs no CI. It merges into its parent once its own local gates pass. After the parent squash-merges:
 
   ```bash
   git fetch origin
@@ -243,106 +179,81 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
   gh pr edit <n> --base develop && gh pr ready <n>                 # the retarget fires the full battery
   ```
 
-- **One battery for a whole stack** when the pieces only make sense together: merge each stacked PR into its parent on local gates, then retarget the TOP one to `develop`. Its battery covers the combined diff and it squash-merges once. That is one ~1–2 h battery instead of one per PR.
-- **The ruleset requires the branch to be up to date**, so every merge to `develop` makes other open PRs stale. Rebase right before the battery you intend to merge on, not earlier.
-- **Squash-merge and delete the branch**: `gh pr merge <n> --squash --delete-branch`. If `--delete-branch` errors (`used by worktree at ...` / `'<base>' is already used by worktree`), the REMOTE branch usually survives too: check with `git ls-remote --heads origin <name>` (empty = gone) and finish by hand with `git push origin --delete <name>`, `git worktree remove <path>`, `git branch -D <name>`.
-- Set `GIT_TERMINAL_PROMPT=0` when running `git ls-remote` against possibly non-existent repos.
+- **One battery for a whole stack**: merge each piece into its parent on local gates, retarget only the top PR to `develop`.
 
-### CI runs: cancelling, freezing, and what a battery covers
+### CI runs
 
-Three views of one rule: the only question is "does the battery I am about to trust cover the code I am about to act on".
+The question is always: does the battery I am about to trust cover the code I am about to act on?
 
-- **Cancel runs a merge made pointless.** A squash-merged branch's run gates nothing (its commit no longer exists on any branch), and a backlog of such runs has held every runner for hours. Keep every open PR's runs, the newest running `develop` battery, **every `Release` run**, and every run of the scheduled/dispatched workflows `UndefinedBehaviorSanitizer (language suite)` (`ubsan.yml`) and `Bootstrap fixpoint (linux-arm64)` (`fixpoint-arm64.yml`). Those run on `develop` by construction, so a `headBranch` filter selects them too, and each takes one to two hours to redo (a sweep cancelled `ubsan.yml` run 36386258094 44 minutes in, 2026-09-28). Cancel the rest:
+- **Triggers.** A push to `develop` runs the full battery; the docs-only fast path (`code=false`) is PR-only. PRs run only when their base is `develop`. A skip count is not a diagnosis: read the `changes` job's log (`classification: code=…`). A PR with `mergeable=CONFLICTING` gets no runs: rebase. A `cancelled` PR run with no newer run means no verdict: `gh run rerun <id>`.
+- **The one required check is `merge-gate`** ("Merge gate (all checks)"): skipped dependencies satisfy it, failed or cancelled ones fail it. "Require branches up to date" is OFF: a PR green on its own head may merge behind develop. Add every new CI job to merge-gate's `needs:` in `test.yml`, not to the ruleset.
+- **Do not merge to `develop` while a battery you are waiting on is in flight**: the push supersedes the pending run. Park work by pushing the branch without opening a PR (an open PR runs on every push, draft or not).
+- **Cancel runs a merge made pointless** (a squash-merged branch's runs gate nothing). Keep every open PR's runs, the newest running `develop` battery, **every `Release` run**, and every `ubsan.yml` and `fixpoint-arm64.yml` run (scheduled/dispatched on `develop`; 1–2 h to redo). Cancellation is asynchronous: re-list instead of cancelling twice. When in doubt about someone else's branch, leave it.
 
   ```bash
-  # workflowName is NOT optional here — see the Release rule below.
+  # workflowName is NOT optional: a Release run's headBranch is `develop`.
   gh run list --limit 30 --json databaseId,headBranch,workflowName,status \
     --jq '.[]|select(.status=="queued" or .status=="in_progress" or .status=="pending")|"\(.databaseId) \(.status) \(.workflowName) \(.headBranch)"'
   gh pr list --state open --limit 50 --json headRefName --jq '[.[].headRefName]|join(" ")'
-  gh run cancel <id>   # for each run whose branch is not an open PR's head
+  gh run cancel <id>   # each run whose branch is not an open PR's head
   ```
 
-  Cancellation is asynchronous; re-list rather than cancelling twice. When in doubt about someone else's branch, leave it.
-- **NEVER cancel a `Release` run, and check the workflow name before every cancel.** A release is dispatched with `workflow_dispatch --ref develop`, so its `headBranch` is `develop`: it is not an open PR's head, and it is not "the newest running `develop` battery" either. **The recipe above, read on `headBranch` alone, tells you to cancel it.** Measured 2026-09-19: run `35412206049` had its `release` job finish green — bumping `src/version.yo` to 0.2.37, pushing the bump commit, and creating the draft release — and was then cancelled ~30 minutes in, killing all six bundle jobs plus publish, seed-bundle, portable-C, site-deploy and the `SEED_VERSION` bump. It left the repository in a genuinely confusing half-released state: a `v0.2.37` draft with no tag, `src/version.yo` already saying 0.2.37, and `SEED_VERSION` still pinned to v0.2.36. Recovery is not a re-run — dispatch `bump=none`, which is the documented resume ("RESUMES an interrupted release at the version already in `src/version.yo`") and re-releases that version instead of skipping to 0.2.38.
+- **"Yo-self" survives in two REQUIRED check names** ("Bootstrap fixpoint (yo-self self-compile)", "Self-hosted `test` subcommand (yo-self tier-1 gates)") and in artifact names like `/tmp/yo-self-bin`. Do not rename them.
 
-  The `Cancel runs for closed PRs` workflow is NOT the hazard here: it guards long-lived branches by name and cancels only runs on the closed PR's own head ref, and its log for that window shows it cancelling exactly one unrelated run. The hazard is the manual sweep, which is why the listing above now prints `workflowName`.
+### Releases
 
-  **A `bump=none` resume leaves the draft pointing at the WRONG commit — fix it before the publish job runs.** The draft was created by the dead run with `target_commitish` = that run's HEAD (the bump commit). The resume re-runs `Create GitHub Release` with `target_commitish: $(git rev-parse HEAD)`, which is now the *current* tip — but GitHub does not move `target_commitish` on a release that already exists, so the draft silently keeps the old value. Publishing then creates the tag on a commit the released binaries were NOT built from. Measured on v0.2.37: draft targeted `3869b9944` (the bump commit) while every bundle was built from `0c360b28e`, two commits later. A draft's target is still mutable because no tag exists yet, so correct it while the bundles build:
-
-  ```bash
-  gh api -X PATCH repos/:owner/:repo/releases/<draft-id> \
-    -f tag_name=v<version> -f target_commitish=$(git rev-parse origin/develop) \
-    --jq '{tag_name,target_commitish,draft}'
-  ```
-
-  Send `tag_name` on every draft PATCH — a body-only PATCH resets it to `untagged-…`. The publish job finds the draft by `tag_name == "v<version>" and .draft`, so keeping both fields intact is what keeps the handoff working. Re-read the draft afterwards and confirm `draft: true` before the publish job reaches it.
-
-- **A push to `develop` always runs the full battery (28 jobs)**; `test.yml`'s docs-only fast path (`code=false`: 18 jobs with 15 skipped, reporting `success` having compiled nothing) is **PR-only**. **PRs run only when their BASE is `develop`** (reversed 2026-09-22; until then a stacked PR ran a deliberately REDUCED battery) — a stacked PR gets **no** run at all; the retarget to `develop`, or the rebase after its base merges, fires the full battery. A skip count is not a diagnosis: read the `changes` job's log (`classification: code=…`, `battery: FULL|REDUCED` — REDUCED is now an unreachable guard branch).
-- **Open a stacked PR (base is not `develop`) as a DRAFT**: `gh pr create --draft --base <parent-branch>`. It runs no CI, so a non-draft stacked PR looks mergeable while carrying no signal; draft says "not reviewable against `develop` yet". Once its base merges, retarget it (`gh pr edit <n> --base develop`), which fires the full battery, then `gh pr ready <n>`. Merging a stacked PR into its parent branch still needs its own local gates to pass: nothing else checks it.
-- **Never merge a docs-only PR to `develop` while a battery you are waiting on is in flight.** The push supersedes the pending run (one pending run per concurrency group), so the verdict you wanted never arrives. Back-to-back merges have the same effect: the gate becomes "whatever the LAST merge triggered". Park work under a freeze by pushing the branch without opening the PR (a bare branch push runs nothing; an open PR runs on every push, draft or not).
-- **Before cutting a release, diff the code directories against the battery's head; do not reason from run ordering:**
+- **Cut only when develop's battery is green on the exact tip.** Diff the code directories against the battery's head; do not reason from run ordering. Empty ⇒ covered; otherwise wait for a battery on the new tip:
 
   ```bash
   git diff --stat <battery-head-sha>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo
   ```
 
-  Empty ⇒ the battery gates the tip. Non-empty ⇒ wait for a battery on the new tip.
-- A `cancelled` PR run with no newer run on that branch means the PR has no verdict: `gh run rerun <id>`. A PR with `mergeable=CONFLICTING` gets no runs at all: rebase and force-push. The ruleset's ONE required check is the `merge-gate` job (`Merge gate (all checks)`, since 2026-10-06): it always runs — skipped dependencies satisfy it (the docs-only fast path), failed or cancelled ones fail it — so nothing merges while any check is pending. Strict ("require branches up to date") is OFF by the maintainer's decision (2026-10-06): a PR green on its own head may merge while behind develop, and the combination is scored by develop's own battery after the merge — the pre-release battery-head diff below is the guard that matters. Add every new CI job to merge-gate's `needs:` list in `test.yml` (an in-file, reviewable edit), not to the ruleset.
+- **NEVER cancel a `Release` run; check the workflow name before every cancel.** A Release cancelled after its `release` job (version bump pushed, draft created) leaves a half-released repo: a draft with no tag, `src/version.yo` bumped, `SEED_VERSION` not.
+  - **Resume** by dispatching Release with `bump=none` (re-releases the version already in `src/version.yo`), not by a re-run.
+  - **Then fix the draft's target before the publish job runs**: GitHub keeps the dead run's `target_commitish` (the bump commit), so the tag would land on a commit the bundles were not built from. A draft's target is mutable until tagged:
 
-### Release notes: one curation pass per release, right after it publishes
+    ```bash
+    gh api -X PATCH repos/:owner/:repo/releases/<draft-id> \
+      -f tag_name=v<version> -f target_commitish=$(git rev-parse origin/develop) \
+      --jq '{tag_name,target_commitish,draft}'
+    ```
 
-The Release workflow drafts the body from a fixed template (`release.yml`, the "Create GitHub Release" step): line 1 is `Patch|Minor release vX.Y.Z`, `## Changes` contains ONLY the last pre-bump commit's message — a squash-merge commit, with its `*` sub-commit bullets and `Co-Authored-By` trailers — and then the fixed `## Native bundles` section. That raw commit dump is never good enough to ship, so the moment a release is public, rewrite `## Changes` (`v0.2.38` is the canonical example; `v0.2.37` and `v0.2.39` shipped the raw dump and had to be fixed after the fact):
-
-```bash
-gh release view vX.Y.Z --json body --jq .body > /tmp/old-body.md   # keep the original
-# write the curated body to /tmp/new-body.md, then:
-gh release edit vX.Y.Z --notes-file /tmp/new-body.md
-```
-
-The format (modeled on v0.2.38 — read it with `gh release view v0.2.38 --json body --jq .body` before writing one):
-
-- Line 1 (`Patch release vX.Y.Z`) and the whole `## Native bundles (bootstrap seed chain)` section stay byte-for-byte. Only `## Changes` is rewritten.
-- `## Changes` groups user-visible changes under `###` headings by audience; the established section vocabulary: Type checking, Toolchain for agents (CLI, LSP, test runner, diagnostics), Compile and codegen, Async runtime, Build system and verification, Compiler performance and memory (always with the measured before → after numbers), ending with `### Retracted claims` (a published sentence, badge or number from an earlier release that turned out to be wrong: what it said, what is true, which PR fixed the artifact) and `### Known open issues filed this cycle`. Drop a section that has nothing in it this cycle.
-- One bullet per user-visible change: what a compiler user observes first, the mechanism after a dash or semicolon, the PR number `(#NNN)`. Plans-only and CI-only PRs are omitted; a research PR appears only through what it made observable (a knob, a measurement, the issues it filed).
-- Known-issue bullets are backticked `issues/<name>.md` paths — open at the tag, filed during the window — with no PR refs.
-- Derive the candidate list from the commits between the two tags, then read the PR bodies for the numbers and mechanisms:
+    Send `tag_name` on every draft PATCH (a body-only PATCH resets it to `untagged-…`, and the publish job finds the draft by `tag_name == "v<version>" and .draft`). Re-read it and confirm `draft: true`.
+- **Curate the release notes right after publishing.** The workflow writes line 1 (`Patch|Minor release vX.Y.Z`), a `## Changes` holding only the last squash commit's raw message, and the fixed `## Native bundles (bootstrap seed chain)` section. Rewrite only `## Changes` (model: `gh release view v0.2.38 --json body --jq .body`):
 
   ```bash
+  gh release view vX.Y.Z --json body --jq .body > /tmp/old-body.md   # keep the original
+  gh release edit vX.Y.Z --notes-file /tmp/new-body.md
   gh api repos/:owner/:repo/compare/vPREV...vX.Y.Z --jq '.commits[] | .sha[0:9] + " " + (.commit.message | split("\n")[0])'
   gh pr list --state merged --limit 60 --json number,title,body,mergedAt   # filter on the two tags' publish times
   ```
 
-- No `*` commit bullets, no `Co-Authored-By` trailers, no AI attribution in a release body.
+  - Line 1 and `## Native bundles` stay byte-for-byte.
+  - `###` sections by audience, dropping empty ones: Type checking; Toolchain for agents (CLI, LSP, test runner, diagnostics); Compile and codegen; Async runtime; Build system and verification; Compiler performance and memory (always measured before → after); then `### Retracted claims` (an earlier published sentence, badge or number that was wrong: what it said, what is true, which PR fixed it) and `### Known open issues filed this cycle` (backticked `issues/<name>.md` paths open at the tag, no PR refs).
+  - One bullet per user-visible change: what a user observes first, the mechanism after a dash, then `(#NNN)`. Omit plans-only and CI-only PRs; a research PR appears only through what it made observable.
+  - No `*` commit bullets, no `Co-Authored-By` trailers, no AI attribution.
 
 ---
 
-## Common Pitfalls
+## Common pitfalls
 
-- **`ExprInfo.value` of `.None`** means a runtime value; `EvalValue.UnknownVal` means the type is known but the value is not.
-- **`assumed()` and `outside-subset` pass `yo verify`** by design (std dogfooding); a green `yo verify` is not "everything proved". Read the per-fn outcomes.
-- **Two spellings of a module path coexist; never compare them with `==`.** Entry-module tokens carry the path as typed; demand-loaded ones carry the `file://<abs>` cache key. Canonicalize (`_canonical_module_path`) before comparing (`issues/fixed/static-library-exports-no-symbols.md`).
-- **A `-O0` binary that SIGSEGVs (rc=139) on deep recursion is stack exhaustion, not heap corruption.** `main` runs on a worker thread with a 1 GiB stack (`YO_MAIN_STACK_MB` overrides); `-O0` frames of the big evaluator functions are multi-MB. Validate deep recursion with `--optimize 2`, or `YO_MAIN_STACK_MB=4096 <binary> check ./src`.
-- **A "move" of a named local into a struct/enum field is NOT a consumption in the evaluator.** The move you see in the C is manufactured by the dup/drop pair optimizer (`_optimize_dup_drop_pairs`, `src/evaluator/exprs/begin.yo`), so a missing drop is an optimizer bug. Any tree walk in that family must follow `ExprInfo.macro_expansion` for macro calls (`issues/fixed/where-constraints-arraylist-96b-leak.md`).
-- **Cancelling a dup/drop pair is only sound when the container outlives the local, and the optimizer does not check that.** Closure definitions with deferred dups are skipped for this reason (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`); the inner-scope container case is documented in `issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md`. Any change here needs the dup/drop emit-diff gate plus an over-cancellation canary.
-- **A single-expression begin block shares its AST node id with its tail expr**: the begin epilogue must concat, not replace, the tail's deferred lists; idempotence of drop emission comes from `FunctionGenerationContext.emitted_deferred_drop_ids`, never from list removal (`issues/fixed/ref-local-scope-drop-missing-after-value-call.md`).
-- **A parameter is bound in three places** (`_build_def_time_body_env`, `_evaluate_funcval_runtime_call`, `check_if_function_parameter_matches_argument`); a function with `generic(...)` params defers its body to call time, so a new binding site must mirror the def-time binder's `own` flags (`issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md`). A leak that only reproduces through a generic callee is this before it is codegen.
-- **A new build builtin in `std/build.yo`**: ANY use of it there — a module-level `::` VALUE binding or a FUNCTION wrapper's body — fails the whole module under the seed with E0401 (`yo check ./std` AND `yo build`, measured 2026-09-30 with v0.2.46: the seed trial-evaluates comptime fn bodies at definition time). Land the builtin first (Generation A: a build file calls `__yo_build_*` directly, cli-case), park the std wrapper in `plans/backlog/SEED_VERSION_AUTOMATION.md`, and add it once `SEED_VERSION` carries the builtin (Generation B). The repository's own `build.yo` must not use a builtin until `SEED_VERSION` carries it. Pre-v0.2.31 seeds swallow build-file errors and print `No build steps defined.`.
-- **`yo install` auto-prunes stale lock entries; the store is content-addressed** (`<cache>/store/sha256/<integrity>`), reclaimed only by `yo cache gc`. Every git child runs with `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=echo`.
-- **The VS Code extension bundles a plain-JS LSP client** spawning `yo lsp` (`yo.binPath`); with `yo.lsp.enabled: false` it degrades to syntax highlighting.
-- **Plans state their status up top.** `plans/archive/` docs are closed records with frozen numbers; `plans/reference/` docs are authoritative.
-
-## Debugging codegen / C compilation issues
-
-1. Document the issue in `issues/YYYY-MM-DD-<name>.md` (the filing date) with a `**Severity:**` line (S1–S3, scale in `issues/README.md`): the verbatim error, a minimal `.yo` reproducer (use `tmp/fixme.yo`), the root cause.
-2. Fix the codegen in `src/codegen/`.
-3. Verify: the repro compiles, the full project's error count decreases.
-4. Move the doc to `issues/fixed/` and commit.
+- **`ExprInfo.value == .None`** is a runtime value; `EvalValue.UnknownVal` is a known type with an unknown value.
+- **`assumed()` and `outside-subset` pass `yo verify`** by design; a green `yo verify` is not "everything proved". Read the per-fn outcomes.
+- **Never compare module paths with `==`**: entry-module tokens carry the path as typed, demand-loaded ones the `file://<abs>` cache key. Canonicalize (`_canonical_module_path`) first.
+- **A `-O0` binary that SIGSEGVs (rc=139) on deep recursion is stack exhaustion**, not heap corruption: `main` runs on a worker thread with a 1 GiB stack and `-O0` evaluator frames are multi-MB. Use `--optimize 2`, or `YO_MAIN_STACK_MB=4096 <binary> check ./src`.
+- **gcc and clang disagree on emitted-C warnings**: CI builds with clang; `-Werror=return-type` stays load-bearing under gcc, so C clean under clang can fail a gcc build. `--cc` takes only `cc|gcc|clang|zig|emcc`.
+- **A tree walk over evaluated code must follow `ExprInfo.macro_expansion` for macro calls**: an `if(...)` keeps its macro head in the AST; only the recorded `cond` expansion (the nodes codegen emits) shows the branches and carries their deferred dup and drop lists (`issues/fixed/where-constraints-arraylist-96b-leak.md`).
+- **A single-expression begin block shares its AST node id with its tail expr**: the epilogue must concat, not replace, the tail's deferred lists; drop emission is idempotent through `FunctionGenerationContext.emitted_deferred_drop_ids`, never list removal.
+- **A parameter is bound in three places** (`_build_def_time_body_env`, `_evaluate_funcval_runtime_call`, `check_if_function_parameter_matches_argument`). A `generic(...)` function defers its body to call time, so a new binding site must mirror the def-time binder's `own` flags; a leak reproducing only through a generic callee is this before it is codegen (`issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md`).
+- **A new build builtin**: any use of it in `std/build.yo` (a `::` value or a wrapper body) fails the whole module under the seed (E0401, in `check ./std` and `yo build`). Land the builtin first (build files call `__yo_build_*` directly; a cli-case covers it), park the std wrapper in `plans/backlog/SEED_VERSION_AUTOMATION.md`, add it once `SEED_VERSION` carries the builtin. The repo's own `build.yo` waits for the seed too.
+- **`yo install` auto-prunes stale lock entries**; the store is content-addressed (`<cache>/store/sha256/<integrity>`), reclaimed only by `yo cache gc`. Git children run with `GIT_TERMINAL_PROMPT=0` and `GIT_ASKPASS=echo`.
+- **Plans state their status up top**; `plans/archive/` numbers are frozen, `plans/reference/` is authoritative.
 
 ---
 
-## Karpathy-Inspired Coding Guidelines
+## Karpathy-inspired coding guidelines
 
-Behavioral guidelines to reduce common LLM coding mistakes (source: [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)). They bias toward caution over speed; for trivial tasks, use judgment.
+From [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills); they bias toward caution over speed. For trivial tasks, use judgment.
 
 1. **Think before coding.** State assumptions; if several interpretations exist, present them instead of picking silently; if a simpler approach exists, say so; if something is unclear, stop and ask.
 2. **Simplicity first.** Minimum code that solves the problem: no speculative features, no abstractions for single-use code, no unrequested configurability, no error handling for impossible cases. If 200 lines could be 50, rewrite.

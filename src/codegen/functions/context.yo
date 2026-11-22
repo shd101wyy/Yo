@@ -4,17 +4,17 @@
 //! CodeGenContext` field; functions that take a FunctionGenerationContext read
 //! base fields as `ctx.base.<field>`.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
+{ HashMap } :: import("std/collections/hash-map");
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { replace } :: import("std/mem");
-{ CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
+{ CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await-analysis-types.yo");
 { CodeGenContext, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { Token } :: import("../../token.yo");
-{ get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
-{ SmUnwindCatch } :: import("../exprs/async_completion.yo");
+{ get_state_machine_field_name } :: import("../async/state-machine-naming.yo");
+{ SmUnwindCatch } :: import("../exprs/async-completion.yo");
 /// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
 /// via `__yo_future_set_bundle(fut, &value)`, stored in a dedicated `__yo_param_<i>`
 /// slot on the SM struct. Defined here (not in exprs/async.yo) so
@@ -189,7 +189,7 @@ FunctionGenerationContext :: struct(
   /// Temp variable names already declared in the C output (avoid duplicates).
   declared_temp_vars : Option(HashSet(String)),
   /// Var names whose drops were already emitted inside short-circuit branches.
-  /// CONSUME-ONCE: every reader (begin.yo, while_loop.yo, drop_dup.yo) REMOVES
+  /// CONSUME-ONCE: every reader (begin.yo, while-loop.yo, drop-dup.yo) REMOVES
   /// the entry on hit, because it means "suppress the next scope-end flush of
   /// this target, once". It is therefore useless as a dedup signal for a
   /// SECOND consideration of the same drop inside the short-circuit family —
@@ -273,7 +273,7 @@ FunctionGenerationContext :: struct(
   /// not-yet-defined temp, so the skip needs this explicit flag.
   current_assignment_save_temp : Option(String),
   /// Deferred-drop expression ids (ast_expr_id) already emitted as C — the
-  /// emitted-once guard for the node-list drop flushes (drop_dup.yo
+  /// emitted-once guard for the node-list drop flushes (drop-dup.yo
   /// generate_deferred_drop_expressions, begin.yo _emit_deferred_drops). A
   /// shared single-expression begin node carries BOTH the begin's scope-end
   /// drops and the tail call's Stage-0 balancing drops (evaluator begin.yo
@@ -350,10 +350,10 @@ impl(
 /// `sm->var_X` for a hoisted local. Returns the name unchanged outside a state
 /// machine, or when it is a real C temp rather than a hoisted local.
 ///
-/// Lives here rather than in `exprs/other_fn_call.yo` because
-/// `return.yo` needs it too and `other_fn_call.yo` already imports `return.yo`
+/// Lives here rather than in `exprs/other-fn-call.yo` because
+/// `return.yo` needs it too and `other-fn-call.yo` already imports `return.yo`
 /// — the loader rejects the destructuring import cycle. Same structural
-/// necessity as `state_machine_naming.yo`.
+/// necessity as `state-machine-naming.yo`.
 resolve_var_name_in_context :: (
   fn(var_name : &String, context : &FunctionGenerationContext) -> String
 )({
@@ -603,7 +603,7 @@ sm_lowering_restore_scope :: (fn(context : &mut FunctionGenerationContext, sink(
     .Some(scope) => match(
       &mut context.sm_inline_lowering,
       .Some(low) => {
-        low.analysis = scope.analysis;
+        low.analysis = scope.analysis.clone();
         low.emitted = scope.emitted.clone();
         low.moved_reads = scope.moved_reads.clone();
       },
@@ -614,7 +614,7 @@ sm_lowering_restore_scope :: (fn(context : &mut FunctionGenerationContext, sink(
 );
 /// The suspension analysis of the body being lowered.
 sm_lowering_analysis :: (fn(context : &FunctionGenerationContext) -> Option(AwaitAnalysisResult))(
-  match(&context.sm_inline_lowering, .Some(low) => Option(AwaitAnalysisResult).Some(low.analysis), .None => Option(AwaitAnalysisResult).None)
+  match(&context.sm_inline_lowering, .Some(low) => Option(AwaitAnalysisResult).Some(low.analysis.clone()), .None => Option(AwaitAnalysisResult).None)
 );
 export(
   record_declared_temp_var,

@@ -1,0 +1,31 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)): decision 38 A inside an arm: the sibling binding `tag` is a live borrow derived from `cur` after the re-point, so it is "Cannot re-point `cur` here" (VERDICTS-71 addendum A, sib1).
+// A conservative rejection that Rust accepts, tracked by issues/2026-11-21-a-re-point-through-a-match-binding-keeps-the-binding-and-the-cursor-exclusive-longer-than-needed.md.
+{ println } :: import("std/fmt");
+Pair :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(Two(l : Option(Box(T)), tag : i32))
+);
+PNode :: struct(v : i32, kids : Pair(Self));
+main :: (fn() -> unit)({
+  mut(root) := Pair(PNode).Two(l : .Some(Box.new(PNode(v : i32(1), kids : Pair(PNode).Two(l : .None, tag : i32(0))))), tag : i32(0));
+  cur := &mut root;
+  match(
+    cur,
+    .Two(l, tag) => match(
+      l,
+      .Some(b) => {
+        cur = &mut b.kids;
+        tag.* = i32(1);
+      },
+      .None => ()
+    )
+  );
+  match(
+    cur,
+    .Two(_, t) => {
+      t.* = i32(9);
+    }
+  );
+  println(&i32(0));
+});
+export(main);

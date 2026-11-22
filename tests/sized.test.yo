@@ -6,7 +6,7 @@
 //! for a concrete type, at the definition for a `?Sized` binder.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { Fnv1aHasher } :: import("std/hash");
 
 Show :: trait(show : (fn(self : &Self) -> i32));
@@ -78,10 +78,10 @@ test("an unsized type by value is E0619", {
 });
 
 _SzSpeak :: trait(sz_speak : (fn(self : &Self) -> i32));
-test("a bare Dyn by value is E0619 and names the v0.2.77 migration", {
+test("a bare Dyn by value is E0619 and names the owning pointer", {
   comptime_expect_error(Option(Dyn(_SzSpeak)), "is not `Sized`");
-  comptime_expect_error(Option(Dyn(_SzSpeak)), "yo version install 0.2.77 && yo fix <path> --migrate unsized");
-  comptime_expect_error(struct(a : Dyn(_SzSpeak), b : i32), "--migrate unsized");
+  comptime_expect_error(Option(Dyn(_SzSpeak)), "held through the pointer that owns or lends it");
+  comptime_expect_error(struct(a : Dyn(_SzSpeak), b : i32), "`Box(Dyn(...))`");
   comptime_assert(Type.impls(Option(Box(Dyn(_SzSpeak))), Sized), "the owning box is sized");
 });
 
@@ -223,4 +223,38 @@ test("a reference type argument at a ?Sized parameter keeps its reference", {
   comptime_assert(Type.eq(_SzId(&mut i32), &mut i32), "`&mut i32` stays `&mut i32`");
   comptime_assert(!Type.eq(Eq(&_SzEqA), Eq(_SzEqA)), "`Eq(&C)` is not `Eq(C)`");
   comptime_assert(Type.impls(_SzEqA, Eq(&_SzEqB)), "an impl over a reference Rhs registers as written");
+});
+// An associated type declared `?Sized` (decision 49) is an associated type:
+// `Self.Target` names it in a signature, an impl may bind it to an unsized
+// or a sized type, and a written `str` stays the unsized `str` (the legacy
+// value-`str` alias applies at a `Type` slot only)
+// (issues/fixed/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md).
+_SzPeek :: trait(
+  Target : ?Sized,
+  peek : (fn(self : &Self) -> &Self.Target)
+);
+_SzPeekRow :: struct(a : Array(i32, 3));
+impl(_SzPeekRow, _SzPeek(Target : [i32], peek : (fn(self : &Self) -> &Self.Target)(&self.a.*)));
+_SzPeekName :: struct(s : &str);
+impl(_SzPeekName, _SzPeek(Target : str, peek : (fn(self : &Self) -> &Self.Target)(&self.s.*)));
+_SzPeekCell :: struct(n : i32);
+impl(_SzPeekCell, _SzPeek(Target : i32, peek : (fn(self : &Self) -> &Self.Target)(&self.n)));
+_sz_peek_len :: (fn(generic(T : Type), x : &T, where(T <: _SzPeek(Target := [i32]))) -> usize)(x.peek().len());
+_sz_peek_of :: (fn(generic(T : Type), x : &T, where(T <: _SzPeek)) -> &T.Target)(&x.peek().*);
+test("an associated type declared ?Sized names an unsized or a sized type", {
+  r := _SzPeekRow(a : Array(i32, 3)(i32(1), i32(2), i32(3)));
+  assert(r.peek().len() == usize(3), "a [i32] target");
+  assert(_sz_peek_len(&r) == usize(3), "through a where-bound naming the target");
+  assert(_sz_peek_of(&r).len() == usize(3), "a generic projection of T.Target");
+  s := _SzPeekName(s : "abc");
+  assert(s.peek().len() == usize(3), "a str target");
+  c := _SzPeekCell(n : i32(7));
+  assert(c.peek().* == i32(7), "a sized target");
+  comptime_assert(Type.impls(_SzPeekRow, _SzPeek(Target := [i32])), "bound to [i32]");
+  comptime_assert(Type.impls(_SzPeekName, _SzPeek(Target := str)), "a written str stays the unsized str");
+  comptime_assert(Type.impls(_SzPeekCell, _SzPeek(Target := i32)), "bound to i32");
+});
+test("a ?Sized associated type is required and is unsized by value", {
+  comptime_expect_error(impl(_SzPoint, _SzPeek(peek : (fn(self : &Self) -> &i32)(&self.x))), "is not provided");
+  comptime_expect_error(trait(Target : ?Sized, get : (fn(self : &Self) -> Self.Target)), "is not `Sized`");
 });

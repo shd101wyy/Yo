@@ -1,0 +1,22 @@
+// expect: E0923
+// A generic free function's `dst : &mut Option(T)` lent a `&mut` PARAMETER over `p`, given a reference over `q`:
+// the write-back into the parameter is the store `s.* = .Some(v)`, which `p` does not cover.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+store :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+f :: (fn(generic(p : Origin, q : Origin), s : &mut Option(&(Rc(X), p)), v : &(Rc(X), q)) -> unit)({
+  store(s, v);
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(slot) := Option(&(Rc(X), x)).Some(&x);
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    f(&mut slot, &y);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

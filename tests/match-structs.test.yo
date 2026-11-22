@@ -1,0 +1,377 @@
+//! Struct scrutinees and struct sub-patterns (plans/reference/MATCH_PATTERN_MATCHING.md
+//! P4): named `S(label : p, name)` and anonymous `{label : p, name}` forms,
+//! partial destructuring, any sub-pattern per field, on runtime and
+//! compile-time scrutinees.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+Point :: struct(x : i32, y : i32);
+derive(Point, Copy, Clone);
+Person :: struct(name : String, age : i32);
+test("a named struct pattern discriminates by field", {
+  f :: (fn(p : Point) -> i32)(
+    match(
+      p,
+      Point(x : 0, y) => y,
+      Point(x, y : 0) => (x * i32(10)),
+      Point(x, y) => ((x * i32(100)) + y)
+    )
+  );
+  assert(f(Point(0, 7)) == i32(7));
+  assert(f(Point(3, 0)) == i32(30));
+  assert(f(Point(3, 7)) == i32(307));
+});
+test("an anonymous struct pattern binds same-named fields", {
+  g :: (fn(p : Point) -> i32)(
+    match(p, { x : 0, y } => y, { x, y } => (x + y))
+  );
+  assert(g(Point(0, 7)) == i32(7));
+  assert(g(Point(3, 7)) == i32(10));
+});
+test("a struct pattern is partial: unlisted fields match anything", {
+  h :: (fn(p : &Person) -> i32)(
+    match(
+      p,
+      Person(age : 0) => i32(-1),
+      Person(name : "alice") => i32(1),
+      Person(name, age) => age.*
+    )
+  );
+  assert(h(Person(String.from("bob"), 0)) == i32(-1));
+  assert(h(Person(String.from("alice"), 42)) == i32(1));
+  assert(h(Person(String.from("bob"), 42)) == i32(42));
+});
+test("a field may carry any sub-pattern", {
+  Cell :: enum(Full(v : i32), Empty);
+  derive(Cell, Copy, Clone);
+  Holder :: struct(tag : Cell, note : i32);
+  k :: (fn(hh : &Holder) -> i32)(
+    match(
+      hh,
+      Holder(tag : .Full(7), note) => (note.* + i32(100)),
+      Holder(tag : .Full(v), note) => (v.* + note.*),
+      Holder(tag : .Empty, note) => (note.* * i32(-1))
+    )
+  );
+  assert(k(Holder(Cell.Full(7), 1)) == i32(101));
+  assert(k(Holder(Cell.Full(9), 1)) == i32(10));
+  assert(k(Holder(Cell.Empty, 5)) == i32(-5));
+});
+test("a guard sees the struct pattern's bindings", {
+  m :: (fn(p : Point) -> i32)(
+    match(
+      p,
+      (Point(x, y) && ((x + y) > i32(10))) => i32(1),
+      _ => i32(0)
+    )
+  );
+  assert(m(Point(5, 6)) == i32(1));
+  assert(m(Point(5, 5)) == i32(0));
+});
+test("compile-time scrutinee: the struct arm is selected at compile time", {
+  K :: Point(3, 9);
+  r :: match(
+    K,
+    Point(x : 3, y) => y,
+    _ => i32(0)
+  );
+  assert(r == i32(9));
+});
+test("an enum payload holding a struct takes a struct sub-pattern", {
+  Wrap :: enum(W(p : Point), Nothing);
+  w :: (fn(e : &Wrap) -> i32)(
+    match(
+      e,
+      .W(Point(x : 0, y)) => y.*,
+      .W(Point(x, y)) => (x.* - y.*),
+      .Nothing => i32(0)
+    )
+  );
+  assert(w(Wrap.W(Point(0, 9))) == i32(9));
+  assert(w(Wrap.W(Point(9, 3))) == i32(6));
+  assert(w(Wrap.Nothing) == i32(0));
+});
+test("a whole-value binding of a struct pattern", {
+  n :: (fn(p : Point) -> i32)(
+    match(
+      p,
+      ((whole := Point(x : 0, y)) && (y > i32(5))) => (whole.x + whole.y),
+      Point(x, _) => x
+    )
+  );
+  assert(n(Point(0, 9)) == i32(9));
+  assert(n(Point(0, 3)) == i32(0));
+  assert(n(Point(4, 1)) == i32(4));
+});
+test("a struct pattern reads through a borrowed parameter", {
+  SharedPoint :: struct(x : i32, y : i32);
+  s :: (fn(p : &SharedPoint) -> i32)(
+    match(p, { x : 0, y } => y.*, { x, y } => (x.* + y.*))
+  );
+  assert(s(SharedPoint(0, 7)) == i32(7));
+  assert(s(SharedPoint(3, 7)) == i32(10));
+});
+// A `match` through a borrowed ELEMENT reads the element in place
+// (decision 26's "A projection scrutinee"): `match(&xs(i), …)` binds its
+// arms through the element's place, as a `&xs(i)` argument does. Before the
+// in-place route the scrutinee's begin evaluation attached an OWNING temp,
+// and owning a projection's element means copying it — E0901 for a
+// move-only element, although `&xs(i)` is the repair E0901 itself names
+// (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md).
+// Plain data without `Copy`/`Clone` is move-only: the element read must not
+// copy it (a struct with an RC field (a `String`) is still implicitly
+// copyable, which does not exercise the rule).
+_MvElem :: struct(a : i32, b : i64);
+test("a match through a borrowed element of a move-only struct", {
+  mut(xs) := ArrayList(_MvElem).new();
+  xs.push(_MvElem(a : i32(3), b : i64(30)));
+  xs.push(_MvElem(a : i32(4), b : i64(40)));
+  match(
+    &xs(usize(1)),
+    _MvElem(a : v, b : s) => {
+      assert(v.* == i32(4), "the borrowed element's first field");
+      assert(s.* == i64(40), "and its second field, read through the place");
+    }
+  );
+  // The list still owns its elements: nothing was moved or dropped out of it.
+  assert(xs.len() == usize(2), "the list keeps both elements");
+  assert(xs(usize(1)).a == i32(4), "and the matched element is intact");
+});
+_MvTree :: enum(Leaf(v : i32), At(sub : Box(Self)));
+test("a match through a borrowed element of a Box-children enum", {
+  mut(xs) := ArrayList(_MvTree).new();
+  xs.push(_MvTree.Leaf(v : i32(7)));
+  xs.push(_MvTree.At(sub : Box.new(_MvTree.Leaf(v : i32(9)))));
+  match(
+    &xs(usize(1)),
+    .Leaf(v) => assert(false, "the second element is not a Leaf: got ${v}"),
+    // The Box pattern binds the payload through the element's place.
+    .At(Box(s)) => assert(s.v == i32(9), "the boxed leaf's value through the borrowed element")
+  );
+  assert(xs.len() == usize(2), "the list keeps both elements");
+});
+// A marked scrutinee that is a projection chain THROUGH an element — a field
+// of a borrowed element (`&ts(i).c`), an element of a collection reached
+// through a field (`&s.metas(i)`) or through a raw pointer
+// (`&p.*.metas(i)`) — is a place too: it is read in place, not copied
+// (issues/fixed/2026-11-05-a-borrowed-element-field-scrutinee-is-e0901.md).
+_PcT :: struct(c : Option(ArrayList(i32)));
+_PcS :: struct(metas : ArrayList(Option(ArrayList(i32))));
+_pc_count_field :: (fn(ts : &ArrayList(_PcT)) -> usize)(
+  match(&ts(usize(0)).c, .Some(c) => c.len(), .None => usize(0))
+);
+_pc_count_ref :: (fn(s : &_PcS) -> usize)(
+  match(&s.metas(usize(0)), .Some(m) => m.len(), .None => usize(0))
+);
+_pc_count_ptr :: (fn(p : *_PcS) -> usize)(
+  match(&p.*.metas(usize(0)), .Some(m) => m.len(), .None => usize(0))
+);
+test("a marked match through a field of an element, or an element behind a field or a pointer", {
+  mut(ts) := ArrayList(_PcT).new();
+  mut(one) := ArrayList(i32).new();
+  one.push(i32(1));
+  one.push(i32(2));
+  ts.push(_PcT(c : .Some(one)));
+  assert(_pc_count_field(&ts) == usize(2), "the field of the borrowed element");
+  mut(s) := _PcS(metas : ArrayList(Option(ArrayList(i32))).new());
+  mut(inner) := ArrayList(i32).new();
+  inner.push(i32(3));
+  s.metas.push(.Some(inner));
+  assert(_pc_count_ref(&s) == usize(1), "an element reached through a field");
+  assert(_pc_count_ptr(addr_of(s)) == usize(1), "the same through a raw pointer");
+  assert(s.metas.len() == usize(1), "the list keeps its element");
+  assert(_pc_count_field(&ts) == usize(2), "the element was read in place, not moved out");
+});
+// A newtype's C type IS its single field's type (a transparent typedef), so a
+// struct pattern on a newtype binds the value itself: the arm used to render
+// `self._b`, a member the C type does not have, and the C compiler rejected
+// the program. A `sink(self)` method moving its field out through the
+// pattern is B8's `String.into_bytes` shape
+// (issues/fixed/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md).
+(mut(g_nt_dropped) : i32) = i32(0);
+_NtB :: struct(n : i32);
+impl(
+  _NtB,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_nt_dropped = (g_nt_dropped + self.n);
+    })
+  )
+);
+_NtW :: newtype(_b : _NtB);
+impl(
+  _NtW,
+  into_b : (fn(sink(self) : Self) -> _NtB)(
+    match(self, _NtW(_b : b) => b)
+  )
+);
+test("a sink method moves a newtype's field out through a struct pattern", {
+  before := g_nt_dropped;
+  {
+    w := _NtW(_b : _NtB(n : i32(4)));
+    b := w.into_b();
+    assert(b.n == i32(4), "the moved-out field");
+    assert(g_nt_dropped == before, "the move out drops nothing");
+  };
+  assert(g_nt_dropped == (before + i32(4)), "the moved-out field is dropped once, by its new owner");
+});
+test("a borrow match and a `&mut` match on a newtype read and write its field", {
+  before := g_nt_dropped;
+  {
+    mut(w) := _NtW(_b : _NtB(n : i32(5)));
+    assert(match(&w, _NtW(_b : b) => b.n) == i32(5), "a borrow match reads the field");
+    match(
+      &mut w,
+      _NtW(_b : b) => {
+        b.n = i32(9);
+      }
+    );
+    assert(w._b.n == i32(9), "a `&mut` match writes through the field's place");
+    assert(g_nt_dropped == before, "neither match drops the field");
+  };
+  assert(g_nt_dropped == (before + i32(9)), "the owner drops the written field once");
+});
+_NtE :: enum(Has(w : _NtW), Nil);
+test("a newtype pattern inside an enum payload pattern", {
+  e := _NtE.Has(w : _NtW(_b : _NtB(n : i32(6))));
+  got := match(&e, .Has(_NtW(_b : b)) => b.n, .Nil => i32(0));
+  assert(got == i32(6));
+  assert(match(&_NtE.Nil, .Has(_NtW(_b : b)) => b.n, .Nil => i32(0)) == i32(0));
+});
+_NtName :: newtype(_s : String);
+impl(_NtName, into_string : (fn(sink(self) : Self) -> String)(match(self, _NtName(_s : s) => s)));
+_NtBytes :: newtype(_v : ArrayList(u8));
+impl(_NtBytes, into_list : (fn(sink(self) : Self) -> ArrayList(u8))(match(self, _NtBytes(_v : v) => v)));
+test("a newtype over a String or an ArrayList moves its buffer out", {
+  s := _NtName(_s : String.from("hello")).into_string();
+  assert(s == "hello");
+  mut(xs) := ArrayList(u8).new();
+  xs.push(u8(1));
+  xs.push(u8(2));
+  v := _NtBytes(_v : xs).into_list();
+  assert(v.len() == usize(2));
+  assert(v(usize(1)) == u8(2));
+});
+_NtMeters :: newtype(_m : i32);
+derive(_NtMeters, Copy, Clone);
+test("a newtype pattern tests its field, at runtime and at compile time", {
+  f :: (fn(m : _NtMeters) -> i32)(
+    match(m, _NtMeters(_m : 0) => i32(-1), _NtMeters(_m : v) => v)
+  );
+  assert(f(_NtMeters(_m : i32(0))) == i32(-1));
+  assert(f(_NtMeters(_m : i32(7))) == i32(7));
+  K :: _NtMeters(_m : i32(3));
+  r :: match(K, _NtMeters(_m : 0) => i32(0), _NtMeters(_m : x) => x);
+  assert(r == i32(3));
+});
+// A scrutinee that reads a field of a call result, or applies an operator to
+// one, owns the call's result in its own frame: the result is released right
+// after the subject is read, once per evaluation, also when an arm leaves the
+// loop or the function. A call scrutinee (`&mk()`, an enum payload binding)
+// was already released once and must stay so
+// (issues/fixed/2026-10-25-a-match-scrutinee-that-reads-a-field-of-a-call-result-never-releases-the-result.md).
+(mut(g_scr_tok_drops) : i32) = i32(0);
+_ScrTok :: struct(n : i32, s : String);
+impl(
+  _ScrTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_scr_tok_drops = (g_scr_tok_drops + i32(1));
+    })
+  )
+);
+_scr_tok :: (fn(x : i32) -> _ScrTok)(_ScrTok(n : x, s : String.from("payload")));
+_scr_tok_opt :: (fn(x : i32) -> Option(_ScrTok))(.Some(_scr_tok(x)));
+test("a scrutinee over a field of a call result releases the result once per evaluation", {
+  before := g_scr_tok_drops;
+  (mut(i) : i32) = i32(0);
+  (mut(hits) : i32) = i32(0);
+  while(i < i32(4), i = (i + i32(1)), {
+    a := match(_scr_tok(i).n, i32(2) => i32(1), _ => i32(0));
+    b := match(_scr_tok(i).s.clone(), "payload" => i32(1), _ => i32(0));
+    // `.clone()`: a borrowed scrutinee of a call result's move-only field is a false E0901
+    // (issues/2026-10-31-a-borrowed-match-scrutinee-of-a-call-results-move-only-field-is-a-false-e0901.md).
+    c := match(_scr_tok(i).s.clone(), x => x.len());
+    d := match(_scr_tok(i).n + i32(1), i32(3) => i32(1), _ => i32(0));
+    hits = (hits + a + b + i32(c) + d);
+  });
+  assert(hits == i32(34), "a and d hold once, b four times, c is 7 each time");
+  assert(g_scr_tok_drops == (before + i32(16)), "each scrutinee's call result released once");
+});
+// A whole-call subject is released by the call tail's own post-call flush or
+// at the enclosing scope's end (a borrowed `&call` subject keeps its value
+// alive until then), so the probe runs in its own function and the counter is
+// read after that scope closed. Guards against a DOUBLE release of a subject
+// the new scrutinee flush also covers.
+_scr_call_probe :: (fn() -> i32)({
+  a := match(&_scr_tok(i32(5)), r => r.n);
+  b := match(_scr_tok_opt(i32(6)), .Some(r) => r.s.len(), .None => usize(0));
+  (a * i32(10)) + i32(b)
+});
+test("a call scrutinee is still released exactly once", {
+  before := g_scr_tok_drops;
+  v := _scr_call_probe();
+  assert(v == i32(57));
+  assert(g_scr_tok_drops == (before + i32(2)), "one release per call, no more");
+});
+_scr_return_at :: (fn(stop : i32) -> i32)({
+  (mut(k) : i32) = i32(0);
+  while(k < i32(5), {
+    k = (k + i32(1));
+    match(
+      _scr_tok(k).n,
+      (n && (n == stop)) => {
+        return(n);
+      },
+      _ => ()
+    );
+  });
+  k
+});
+test("a scrutinee's call result is released when an arm returns, breaks or continues", {
+  before := g_scr_tok_drops;
+  assert(_scr_return_at(i32(2)) == i32(2));
+  assert(g_scr_tok_drops == (before + i32(2)), "two evaluations, the last one returning");
+  before2 := g_scr_tok_drops;
+  (mut(k) : i32) = i32(0);
+  (mut(t) : i32) = i32(0);
+  while(k < i32(6), {
+    k = (k + i32(1));
+    match(
+      _scr_tok(k).n,
+      i32(2) => {
+        continue;
+      },
+      i32(5) => {
+        break;
+      },
+      _ => {
+        t = (t + i32(1));
+      }
+    );
+  });
+  assert(t == i32(3));
+  assert(g_scr_tok_drops == (before2 + i32(5)), "one release per evaluation, on every exit edge");
+});
+// A field read of a struct value with a runtime field: a literal
+// (`Point(x : f(), y : 1).x`) or a `match` binding over an inline literal. The
+// evaluator knows the value's shape, so codegen read the field like a module
+// member's: a runtime field's NAME was emitted as a variable (an undeclared
+// `__yo_v_name`)
+// (issues/fixed/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md).
+_lit_value :: (fn(v : i32) -> i32)(v);
+test("a method on a field of a match binding over an inline literal", {
+  a := match(Option(Person).Some(Person(name : String.from("exe"), age : i32(3))), .Some(t) => t.name.len(), .None => usize(0));
+  assert(a == usize(3), "the binding's field");
+  b := match(&Option(Person).Some(Person(name : String.from("book"), age : i32(4))), .Some(t) => t.name.len(), .None => usize(0));
+  assert(b == usize(4), "the borrowed binding's field");
+});
+test("a field of a struct literal with a runtime field", {
+  x := Point(x : _lit_value(i32(4)), y : i32(1)).x;
+  assert(x == i32(4), "the runtime field");
+  y := Point(x : _lit_value(i32(5)), y : i32(1)).y;
+  assert(y == i32(1), "the constant field");
+  n := Person(name : String.from("abcd"), age : _lit_value(i32(2))).name.len();
+  assert(n == usize(4), "a method on the field");
+});

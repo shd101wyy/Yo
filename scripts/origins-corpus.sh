@@ -3,7 +3,7 @@
 # §8, phase N0). Each row of tests/origins/corpus.tsv names a Yo program,
 # tests/origins/corpus/<id>.yo, spelled in the origin syntax decision 43 will
 # land, and the same row encoded in the reference checker's toy language
-# (tests/origins/model_corpus.test.yo, which the language suite runs).
+# (tests/origins/model-corpus.test.yo, which the language suite runs).
 #
 # The programs are plain `.yo` files, never `.test.yo`, so `yo test ./tests`
 # never runs them: most of them cannot pass before N1/N2. This script is their
@@ -53,7 +53,7 @@ PHASES=${PHASES:-"N1 N2 N3"}
 ROOT=$PWD
 MANIFEST=tests/origins/corpus.tsv
 CORPUS=tests/origins/corpus
-MODEL_TEST=tests/origins/model_corpus.test.yo
+MODEL_TEST=tests/origins/model-corpus.test.yo
 [ -f "$MANIFEST" ] && [ -d std ] || { echo "run from the repository root" >&2; exit 2; }
 case "$MODE" in today | target) ;; *) echo "mode is today or target, got $MODE" >&2; exit 2 ;; esac
 

@@ -1,0 +1,353 @@
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ assert } :: import("std/assert");
+{ arch, Arch } :: import("std/process");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ Channel } :: import("std/sync/channel");
+{ yield } :: import("std/async");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+// ============================================================================
+// Pool configuration
+// ============================================================================
+test("ThreadPool new reports the requested thread count", {
+  if(arch == Arch.Wasm32, return(()));
+  // The runtime pool has not started in this process yet, so the request
+  // is honoured exactly.
+  pool := ThreadPool.new(usize(3));
+  assert(pool.num_threads() == usize(3), "pool should report 3 threads");
+  assert(!pool.is_shutdown(), "a fresh pool is not shut down");
+});
+test("ThreadPool with_hardware_threads sizes itself from the runtime", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.with_hardware_threads();
+  assert(pool.num_threads() > usize(0), "hardware-sized pool has at least 1 thread");
+});
+// ============================================================================
+// spawn + join_all
+// ============================================================================
+test("ThreadPool spawn runs the task", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(2));
+  ran := Arc.new(AtomicI32.new(i32(0)));
+  spawn(&pool, { ran : Arc.clone(ran) }(io) => {
+    ran.store(i32(7), MemoryOrder.Release);
+    ()
+  });
+  pool.join_all();
+  assert(ran.load(MemoryOrder.Acquire) == i32(7), "task body ran before join_all returned");
+});
+test("ThreadPool spawn with i32 capture", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(2));
+  value := 42;
+  seen := Arc.new(AtomicI32.new(i32(0)));
+  spawn(&pool, { value, seen : Arc.clone(seen) }(io) => {
+    assert(value == 42, "captured value visible on the worker thread");
+    seen.store(value, MemoryOrder.Release);
+    ()
+  });
+  pool.join_all();
+  assert(seen.load(MemoryOrder.Acquire) == i32(42), "capture reached the worker");
+});
+test("ThreadPool spawn with multiple captures", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(2));
+  x := 100;
+  y := 200;
+  sum := Arc.new(AtomicI32.new(i32(0)));
+  spawn(&pool, { x, y, sum : Arc.clone(sum) }(io) => {
+    sum.store(x + y, MemoryOrder.Release);
+    ()
+  });
+  pool.join_all();
+  assert(sum.load(MemoryOrder.Acquire) == i32(300), "both captures reached the worker");
+});
+test("ThreadPool join_all waits for every submitted task", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(4));
+  counter := Arc.new(AtomicI32.new(i32(0)));
+  mut(i) := i32(0);
+  while(i < i32(32), {
+    spawn(&pool, { counter : Arc.clone(counter) }(io) => {
+      counter.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ()
+    });
+    i = (i + i32(1));
+  });
+  pool.join_all();
+  assert(counter.load(MemoryOrder.Acquire) == i32(32), "all 32 tasks completed");
+});
+test("ThreadPool join_all is reusable across batches", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(4));
+  counter := Arc.new(AtomicI32.new(i32(0)));
+  mut(round) := i32(0);
+  while(round < i32(3), {
+    mut(i) := i32(0);
+    while(i < i32(8), {
+      spawn(&pool, { counter : Arc.clone(counter) }(io) => {
+        counter.fetch_add(i32(1), MemoryOrder.AcqRel);
+        ()
+      });
+      i = (i + i32(1));
+    });
+    pool.join_all();
+    assert(
+      counter.load(MemoryOrder.Acquire) == ((round + i32(1)) * i32(8)),
+      "each round is fully drained before the next starts"
+    );
+    round = (round + i32(1));
+  });
+  assert(counter.load(MemoryOrder.Acquire) == i32(24), "3 rounds of 8 tasks all completed");
+});
+test("ThreadPool join_all on an unused pool returns immediately", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(2));
+  pool.join_all();
+  assert(!pool.is_shutdown(), "join_all does not close the pool");
+});
+test("ThreadPool shared with another OS thread that submits into it", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(4));
+  counter := Arc.new(AtomicI32.new(i32(0)));
+  // Submit from the main thread...
+  mut(i) := i32(0);
+  while(i < i32(4), {
+    spawn(&pool, { counter : Arc.clone(counter) }(io) => {
+      counter.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ()
+    });
+    i = (i + i32(1));
+  });
+  // ...and from a dedicated OS thread sharing the same pool object.
+  submitter := Thread(unit).spawn({ pool, counter : Arc.clone(counter) }(io) => {
+    mut(j) := i32(0);
+    while(j < i32(4), {
+      spawn(&pool, { counter : Arc.clone(counter) }(io) => {
+        counter.fetch_add(i32(1), MemoryOrder.AcqRel);
+        ()
+      });
+      j = (j + i32(1));
+    });
+  });
+  submitter.join();
+  pool.join_all();
+  assert(counter.load(MemoryOrder.Acquire) == i32(8), "both submitters' tasks ran");
+});
+// ============================================================================
+// shutdown
+// ============================================================================
+test("ThreadPool shutdown drains outstanding work", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(4));
+  counter := Arc.new(AtomicI32.new(i32(0)));
+  mut(i) := i32(0);
+  while(i < i32(16), {
+    spawn(&pool, { counter : Arc.clone(counter) }(io) => {
+      counter.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ()
+    });
+    i = (i + i32(1));
+  });
+  pool.shutdown();
+  assert(pool.is_shutdown(), "pool reports shut down");
+  assert(counter.load(MemoryOrder.Acquire) == i32(16), "shutdown drained all 16 tasks");
+});
+test("ThreadPool shutdown is idempotent", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(2));
+  pool.shutdown();
+  pool.shutdown();
+  assert(pool.is_shutdown(), "still shut down after a second shutdown");
+});
+// ============================================================================
+// Tasks with their own async event loop
+// ============================================================================
+test("ThreadPool tasks of several async shapes in one program", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(4));
+  out := Arc.new(AtomicI32.new(i32(0)));
+  // Shape 1: no io use at all.
+  spawn(&pool, { out : Arc.clone(out) }(io) => {
+    out.fetch_add(i32(1), MemoryOrder.AcqRel);
+    ()
+  });
+  // Shape 2: await a unit future.
+  spawn(&pool, { out : Arc.clone(out) }(io) => {
+    task := io.async((io : Io) => {
+      io.await(yield(io), io);
+    });
+    io.await(task, io);
+    out.fetch_add(i32(2), MemoryOrder.AcqRel);
+    ()
+  });
+  // Shape 3: await a future returning a value.
+  spawn(&pool, { out : Arc.clone(out) }(io) => {
+    x := 10;
+    y := 20;
+    task := io.async((io : Io) => {
+      io.await(yield(io), io);
+      return(x + y);
+    });
+    result := io.await(task, io);
+    assert(result == i32(30), "async result should be 30");
+    out.fetch_add(i32(4), MemoryOrder.AcqRel);
+    ()
+  });
+  // Shape 4: await a future with a loop.
+  spawn(&pool, { out : Arc.clone(out) }(io) => {
+    task := io.async((io : Io) => {
+      mut(counter) := 0;
+      while(counter < i32(3), {
+        counter = (counter + 1);
+        io.await(yield(io), io);
+      });
+      return(counter);
+    });
+    result := io.await(task, io);
+    assert(result == i32(3), "counter should be 3");
+    out.fetch_add(i32(8), MemoryOrder.AcqRel);
+    ()
+  });
+  pool.join_all();
+  assert(out.load(MemoryOrder.Acquire) == i32(15), "all four task shapes ran");
+});
+// ============================================================================
+// Result delivery (Channel is the value-carrying route — join_all carries
+// completion only)
+// ============================================================================
+test("ThreadPool tasks return values over a Channel", {
+  if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.new(usize(4));
+  out := Channel(i32).new(usize(8));
+  mut(i) := i32(0);
+  while(i < i32(8), {
+    spawn(&pool, { out : out.clone() }(io) => {
+      _ := out.send(i32(11));
+      ()
+    });
+    i = (i + i32(1));
+  });
+  pool.join_all();
+  mut(sum) := i32(0);
+  mut(j) := i32(0);
+  while(j < i32(8), {
+    sum = (sum + out.recv().unwrap());
+    j = (j + i32(1));
+  });
+  assert(sum == i32(88), "eight tasks delivered 11 each");
+});
+test("a task may spawn on its own pool: the nested task runs and join_all returns", {
+  // issues/fixed/thread-pool-spawn-self-deadlocked-in-the-inline-fallback.md —
+  // `spawn` holds the pool's submission lock across __yo_worker_spawn, which
+  // in the runtime's inline fallback (no worker thread could be created) runs
+  // the task on the submitting thread; a task that spawned then blocked on
+  // the lock it already held. With worker threads this shape exercises the
+  // same re-entrancy bookkeeping.
+  pool := ThreadPool.new(usize(2));
+  count := Arc.new(AtomicI32.new(i32(0)));
+  done := Channel(i32).new(usize(1));
+  spawn(&pool, { pool, count : Arc.clone(count), done : done.clone() }(io) => {
+    count.fetch_add(i32(1), MemoryOrder.SeqCst);
+    spawn(&pool, { count, done }(io) => {
+      total := count.fetch_add(i32(10), MemoryOrder.SeqCst);
+      _ := done.send(total + i32(10));
+      ()
+    });
+    ()
+  });
+  assert(done.recv().unwrap() == i32(11), "outer then nested task both ran");
+  pool.join_all();
+  assert(count.load(MemoryOrder.SeqCst) == i32(11), "count settled");
+  pool.shutdown();
+});
+
+test("a second pool submitting concurrently cannot make join_all return early", {
+  // issues/fixed/threadpool-join-all-barrier-is-defeated-by-a-second-pool-and-shutdown-races-spawn.md:
+  // the sentinel barrier relies on the runtime's process-global round-robin,
+  // so every submission in the process goes through ONE lock. A second pool
+  // spamming the runtime while the first drains must not steal a sentinel's
+  // worker slot.
+  a := ThreadPool.new(usize(2));
+  b := ThreadPool.new(usize(2));
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  (mut(i) : i32) = i32(0);
+  while(i < i32(4), {
+    spawn(&a, { hits : Arc.clone(hits) }(io) => {
+      sleep_blocking(Duration.from_millis(i64(20)));
+      hits.fetch_add(i32(1), MemoryOrder.SeqCst);
+      ()
+    });
+    i = (i + i32(1));
+  });
+  spammer := Thread(unit).spawn(io => {
+    (mut(k) : i32) = i32(0);
+    while(k < i32(400), {
+      spawn(&b, io => ());
+      k = (k + i32(1));
+    });
+    ()
+  });
+  a.join_all();
+  assert(hits.load(MemoryOrder.SeqCst) == i32(4), "every task submitted to a ran before join_all returned");
+  spammer.join();
+  b.join_all();
+  a.shutdown();
+  b.shutdown();
+});
+// Phase 5.4 of plans/archive/PARALLELISM_SOUNDNESS.md: `join_all` is a per-pool
+// completion counter. Pool B's task blocks until the main thread opens the
+// gate, which it does only AFTER pool A's `join_all` returns — so A's drain
+// must not wait for B's work. The sentinel barrier it replaced queued A's
+// sentinels behind B's blocked task on the shared worker threads and hung
+// here.
+test("join_all waits for its own pool's tasks only", {
+  a := ThreadPool.new(usize(2));
+  b := ThreadPool.new(usize(2));
+  gate := Channel(bool).new(usize(1));
+  opened := gate.clone();
+  spawn(&b, (io : Io) => {
+    _o := opened.recv();
+    ()
+  });
+  done := Arc.new(AtomicI32.new(i32(0)));
+  spawn(&a, { done : Arc.clone(done) }(io : Io) => {
+    _d := done.fetch_add(i32(1), MemoryOrder.AcqRel);
+    ()
+  });
+  a.join_all();
+  assert(done.load(MemoryOrder.Acquire) == i32(1), "pool A's task ran before its join_all returned");
+  _ := gate.send(true);
+  b.join_all();
+});
+
+// `spawn(pool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send))`
+// (plans/VALUES_BY_DEFAULT.md decision 37, Generation B): a task runs once, so
+// a capture-list task may move a captured value out; it is disposed exactly
+// once, by its new owner.
+(g_pool_once_disposed : AtomicI32) = AtomicI32.new(i32(0));
+_PoolOnceTok :: struct(n : i32);
+impl(
+  _PoolOnceTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _ := g_pool_once_disposed.fetch_add(i32(1), MemoryOrder.AcqRel);
+    })
+  )
+);
+_pool_take :: (fn(sink(t) : _PoolOnceTok) -> i32)(t.n);
+test("ThreadPool spawn: a call-once task moves its captured value out", {
+  if(arch == Arch.Wasm32, return(()));
+  before := g_pool_once_disposed.load(MemoryOrder.Acquire);
+  pool := ThreadPool.new(usize(2));
+  got := Arc.new(AtomicI32.new(i32(0)));
+  t := _PoolOnceTok(n : i32(9));
+  spawn(&pool, { t, got : Arc.clone(got) }(io : Io) => {
+    got.store(_pool_take(t), MemoryOrder.Release);
+    ()
+  });
+  pool.join_all();
+  assert(got.load(MemoryOrder.Acquire) == i32(9), "the task consumed t");
+  assert(g_pool_once_disposed.load(MemoryOrder.Acquire) == (before + i32(1)), "t was disposed once");
+});

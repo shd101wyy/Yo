@@ -10,7 +10,7 @@
 //!   are_function_types_compatible(actual, expected) -> bool
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, fn_trait_base_serves } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
@@ -95,9 +95,9 @@ _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
 // ---------------------------------------------------------------------------
 // trait-implements hook (types/ -> evaluator/ cycle breaker)
 // ---------------------------------------------------------------------------
-/// Hook to `type_implements_trait_bool` (evaluator/trait_checking.yo), installed
+/// Hook to `type_implements_trait_bool` (evaluator/trait-checking.yo), installed
 /// by its init block. Routed through a fn-pointer slot because compatibility.yo
-/// (types/) cannot import evaluator/ modules (trait_checking.yo imports THIS
+/// (types/) cannot import evaluator/ modules (trait-checking.yo imports THIS
 /// file). Used by the concrete-vs-constrained-SomeT rule in `_compat_impl`.
 CompatImplementsTraitFn :: (fn(t : &TypeValue, trait_type : &TypeValue) -> bool);
 (mut(g_compat_type_implements_trait_fn) : Option(CompatImplementsTraitFn)) =
@@ -1293,7 +1293,7 @@ _compat_impl :: (
         // Nominal REJECT (exact only): two DECLARED enums with different
         // names are different types however alike their variants are. The
         // name is stamped by the `Name :: enum(...)` binding
-        // (initialization_assignment.yo), so re-registered eras of ONE
+        // (initialization-assignment.yo), so re-registered eras of ONE
         // declaration still share it and keep converging structurally,
         // and generic instantiations (`Option(i32)`/`Option(String)`)
         // share "Option" and are still told apart by the field compare
@@ -1406,7 +1406,7 @@ _compat_impl :: (
     // CONCRETE (`Impl : (Future(i32, Io))` written at a binding annotation
     // vs the same wrapper produced by the callee's return-type resolution).
     // Without it, two such wrappers compared as unequal even when they PRINT
-    // identically (tests/async_await.test.yo arm 65; scratchpad/t5/
+    // identically (tests/async-await.test.yo arm 65; scratchpad/t5/
     // B_io_variant.yo). The acceptance is deliberately narrow (an unguarded
     // trait-SUBSET walk would self-recurse unboundedly in stage 2): it
     // requires equal names,

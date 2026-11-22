@@ -102,7 +102,7 @@ class Builder:
     def render(self, ret_unit=True):
         yo = (
             '{ String } :: import("std/string");\n{ println } :: import("std/fmt");\n'
-            '{ ArrayList } :: import("std/collections/array_list");\n'
+            '{ ArrayList } :: import("std/collections/array-list");\n'
             + "\n".join(self.pre_yo)
             + "\nmain :: (fn() -> unit)({\n"
             + "\n".join(self.yo)

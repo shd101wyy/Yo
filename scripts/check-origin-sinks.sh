@@ -9,8 +9,14 @@
 #   2. The conflict check `_lb_raise_conflict` is called only from
 #      `_local_borrow_access_live`, the one `access` (`local_borrow_access` and
 #      `local_borrow_access_at` delegate to it); the loan table
-#      `g_local_borrows` is written only by the registrar and the block-end
-#      truncation.
+#      `g_local_borrows` is written only by the registrar, the block-end
+#      truncation and the two entry updates (`local_borrow_update`, which
+#      writes a binding form's completed record back over the entry it
+#      registered, and `_lb_shorten_holder_entries`, which moves an entry's
+#      end earlier). The updates replace an existing entry in place and never
+#      add a loan; they were always writers, but until v0.2.79 the entry was a
+#      `ref` record mutated through shared identity, which this grep could not
+#      see. As a value struct the write goes through `with_mut`.
 #   3. Every lowering of §5's table calls its sink at least once in the file
 #      that lowers it (LOWERINGS below, one line per lowering). A new lowering
 #      adds a row to §5 and a line here in the same PR.
@@ -58,7 +64,7 @@ totality() {
   local targets=(./src ./std tests/origins/corpus)
   local t
   for t in tests/ref_*.test.yo tests/local_borrows*.test.yo tests/impl_ref*.test.yo \
-           tests/origin_*.test.yo tests/for_macro_borrow*.test.yo tests/async_await.test.yo \
+           tests/origin_*.test.yo tests/for_macro_borrow*.test.yo tests/async-await.test.yo \
            tests/origins/*.test.yo; do
     [ -f "$t" ] && targets+=("$t")
   done
@@ -121,6 +127,9 @@ done < <(callers_of '_lb_raise_conflict\(' $(grep -rlE '_lb_raise_conflict\(' sr
 while read -r site fn; do
   case "$fn" in
     local_borrow_register | local_borrows_truncate) ;;
+    # Entry updates, not registrars: each overwrites an entry found by its
+    # name+decl identity and never pushes (see the header).
+    local_borrow_update | _lb_shorten_holder_entries) ;;
     *) problem "$site: the loan table \`g_local_borrows\` is written from \`$fn\`" ;;
   esac
 done < <(callers_of 'g_local_borrows\.with_mut' $(grep -rlE 'g_local_borrows\.with_mut' src --include='*.yo'))
@@ -128,11 +137,11 @@ done < <(callers_of 'g_local_borrows\.with_mut' $(grep -rlE 'g_local_borrows\.wi
 # --- 3. every lowering calls its sink ------------------------------------------
 # lowering | file | the sink call it must contain (ERE)
 LOWERINGS="
-identifier read of a reference binding|$EV/exprs/identifer_and_operator.yo|local_borrow_access\(
+identifier read of a reference binding|$EV/exprs/identifer-and-operator.yo|local_borrow_access\(
 a lend as a call argument (decision 28)|$EV/calls/function.yo|_check_call_value_root_overlap\(
-:= binding|$EV/exprs/initialization_assignment.yo|[^_]bind\(
-destructuring|$EV/exprs/initialization_assignment.yo|runtime_destructurings
-y := &x local borrow|$EV/exprs/initialization_assignment.yo|local_borrow_register\(
+:= binding|$EV/exprs/initialization-assignment.yo|[^_]bind\(
+destructuring|$EV/exprs/initialization-assignment.yo|runtime_destructurings
+y := &x local borrow|$EV/exprs/initialization-assignment.yo|local_borrow_register\(
 = whole-holder join|$EV/exprs/assignment.yo|bind_join\(
 place write|$EV/exprs/assignment.yo|place_write_join\(
 place write access|$EV/exprs/assignment.yo|local_borrow_access\(
@@ -141,7 +150,7 @@ call result origin (R-CALL)|$EV/utils.yo|projection_call_root_args\(
 match arm bindings of a borrowed scrutinee|$EV/exprs/match.yo|local_borrow_register_match_place\(
 match reference payload bindings|$EV/exprs/match.yo|origin_held_by\(
 return and body tail|$EV/exprs/begin.yo|return_check\(
-closure literal capture stores|$EV/values/anonymous_function.yo|apply_capture_store_joins\(
+closure literal capture stores|$EV/values/anonymous-function.yo|apply_capture_store_joins\(
 io.async captures (R-ASYNC)|$EV/calls/function.yo|note_future_roots\(
 macro expansion in the caller's coordinates|$EV/calls/function.yo|local_borrow_enter_macro_site\(
 temporaries (R-TEMP)|$EV/utils.yo|origin_temporary_entry\(
@@ -159,8 +168,8 @@ done <<<"$LOWERINGS"
 # --- 4. every sink is audited --------------------------------------------------
 # The totality audit sees only the sinks that call `audit_origin_totality`.
 AUDITED="
-:=|$EV/exprs/initialization_assignment.yo|audit_origin_totality\(\":=\"
-destructuring|$EV/exprs/initialization_assignment.yo|audit_origin_totality\(\"destructuring\"
+:=|$EV/exprs/initialization-assignment.yo|audit_origin_totality\(\":=\"
+destructuring|$EV/exprs/initialization-assignment.yo|audit_origin_totality\(\"destructuring\"
 =|$EV/exprs/assignment.yo|audit_origin_totality\(\"=\"
 typed declaration|$EV/exprs/assignment.yo|audit_origin_totality_elided\(\"typed-declaration\"
 place write|$EV/exprs/assignment.yo|audit_origin_totality\(\"place-write\"

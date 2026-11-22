@@ -10,8 +10,8 @@ pretraining), but it is also the fastest orientation for a person.
 ```bash
 yo context                                   # the pack (language guide)
 yo context --list                            # every std module, one line each
-yo context collections/array_list            # one module's items
-yo context collections/array_list ArrayList.push   # one item's full entry
+yo context collections/array-list            # one module's items
+yo context collections/array-list ArrayList.push   # one item's full entry
 yo context push                              # a name across the corpus
 yo context --search hash                     # ranked search
 yo context --docs                            # the bundled manuals
@@ -23,8 +23,9 @@ yo context --doc MEMORY_SAFETY               # one manual, this version's copy
 The pack is one markdown file, capped at 24 KB so it fits in any model's
 context window. It covers **language facts only**:
 
-- the declaration forms and the brace rule (a `{ ... }` group is a record
-  unless it has a `;`),
+- the declaration forms and the brace rule (`.{ ... }` builds a record,
+  `{ names }` on a binding side picks fields, every other `{ ... }` is a
+  block),
 - the no-precedence rule (parenthesize every infix chain),
 - control flow (`cond`, `match`, `if`), pattern matching, traits, impls,
   derives,
@@ -92,9 +93,9 @@ for the manuals. The zh-CN translations live in the repository under
 | `yo context <name>`           | The name across the corpus (see below)                        |
 | `yo context --search <query>` | Ranked hits over names, modules, signatures and doc lines      |
 
-A **module** argument is the full path (`std/collections/array_list`), a
+A **module** argument is the full path (`std/collections/array-list`), a
 unique last segment (`array_list`) or a unique suffix
-(`collections/array_list`). An argument that matches several modules lists
+(`collections/array-list`). An argument that matches several modules lists
 them and exits 1.
 
 An **item** is a plain name, or `Type.name` for a method (`ArrayList.push`).
@@ -131,7 +132,7 @@ A miss prints up to three did-you-mean names on stderr:
 
 ```text
 yo: error: context: no module or item 'hashmap' in the corpus
-  Did you mean: std/collections/hash_map
+  Did you mean: std/collections/hash-map
 ```
 
 ### JSON output

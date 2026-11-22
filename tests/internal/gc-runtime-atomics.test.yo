@@ -1,0 +1,303 @@
+//! Tests for the atomic-RC + worker-pool codegen pins.
+//!
+//! Port of `src/tests/thread-safety-codegen.test.ts` (Phase G / P2.5 step 15,
+//! plans/archive/P2_5_RETIRE_EXECUTION.md). The TS version compiles a whole program and
+//! greps the emitted C; a cli-case cannot replace it because
+//! scripts/cli-diff-test.sh ignores `*.yo.c` by design. This port instead calls
+//! the yo-self emitter functions directly — pinning the same template text at
+//! its source:
+//!   1. `__yo_incr_rc_atomic` uses atomic_fetch_add_explicit + relaxed.
+//!   2. `__yo_decr_rc_atomic` uses atomic_fetch_sub_explicit + acq_rel.
+//!   3. Drop dispatch runs INSIDE the decrement function (the type-tag
+//!      dispatch, the path the TS test's `arc(i32(42))` program hits).
+//!   4. `__yo_worker_pool_init` is guarded (idempotent).
+//!   5. The allocator interface the runtime speaks follows the shape of std's
+//!      `AllocatorVTable` (version 1 unchanged, version 2 aligned and sized).
+{ String } :: import("std/string");
+{ Emitter } :: import("../../src/emitter.yo");
+{ expr_info_table_new } :: import("../../src/expr-info.yo");
+{ host_target } :: import("../../src/target.yo");
+{ CodeGenContext } :: import("../../src/codegen/utils/index.yo");
+{ FunctionGenerationContext } :: import("../../src/codegen/functions/context.yo");
+{ generate_atomic_gc_runtime_functions } :: import("../../src/codegen/functions/gc-runtime.yo");
+{ generate_parallelism_runtime } :: import("../../src/codegen/parallelism/runtime.yo");
+{ dispose_fn_thunk } :: import("../../src/codegen/functions/constructors.yo");
+{ _emit_type_runtime_preamble } :: import("../../src/codegen/types/generation.yo");
+{ allocator_vtable_abi_version } :: import("../../src/codegen/utils/index.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
+{ t_func_simple, t_usize, t_ptr, t_void } :: import("../../src/types/creators.yo");
+{ ArrayList } :: import("std/collections/array-list");
+{ stable_position_id, stable_id_module_path } :: import("../../src/utils.yo");
+{ assert, panic } :: import("std/assert");
+/// Build a fresh per-function generation context over an empty program,
+/// mirroring codegen-c.yo's construction (`Emitter.new()` → `CodeGenContext.new`
+/// → `FunctionGenerationContext.new`). The RC-runtime emitters only touch
+/// `base.emitter`, `base.target_info` and the (empty) `unwind_value_c_types`,
+/// so empty registries are the production shape here.
+mk_context :: (fn() -> FunctionGenerationContext)({
+  base := CodeGenContext.new(
+    Emitter.new(),
+    expr_info_table_new(),
+    host_target(),
+    String.from("system"),
+    usize(16777216),
+    false,
+    false,
+    false,
+    false
+  );
+  FunctionGenerationContext.new(base)
+});
+/// Emit the RC runtime through the production entry point
+/// (`generate_atomic_gc_runtime_functions`) and return the full C text
+/// (headers + declarations + code).
+emit_rc_runtime :: (fn() -> String)({
+  mut(ctx) := mk_context();
+  generate_atomic_gc_runtime_functions(&mut ctx);
+  ctx.base.emitter.print()
+});
+/// Emit the parallelism runtime (thread + worker pool) for the host target and
+/// return the full C text.
+emit_parallelism_runtime :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  generate_parallelism_runtime(&mut em, false, host_target(), false, false);
+  em.print()
+});
+/// index_of that panics when the marker is missing (so a template rename fails
+/// loudly instead of slicing from index 0).
+must_find :: (fn(hay : &String, needle : str, from : usize) -> usize)(
+  match(
+    hay.index_of(&needle, from),
+    .Some(i) => i,
+    .None => {
+      mut(msg) := String.from("codegen pin marker not found in emitted C: ");
+      msg.push_str(needle);
+      panic(&msg);
+      usize(0)
+    }
+  )
+);
+test("__yo_incr_rc_atomic uses atomic_fetch_add_explicit with relaxed", {
+  incr_line := "atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed)";
+  c := emit_rc_runtime();
+  assert(c.contains("atomic_fetch_add_explicit"), "incr uses atomic_fetch_add_explicit");
+  assert(c.contains(&incr_line), "incr fetch_add is memory_order_relaxed");
+});
+test("__yo_decr_rc_atomic uses atomic_fetch_sub_explicit with acq_rel", {
+  decr_line := "atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel)";
+  c := emit_rc_runtime();
+  assert(c.contains(&decr_line), "decr fetch_sub is memory_order_acq_rel");
+});
+test("drop dispatch runs within the decrement function", {
+  c := emit_rc_runtime();
+  // Mirror the TS slice: from the decr definition to its first `}` (which
+  // closes the `if (header->type_id)` block, past the dispatch call) + 500.
+  start := must_find(&c, "static void __yo_decr_rc_atomic", usize(0));
+  close := must_find(&c, "}", start);
+  body := c.substring(start, close + usize(500));
+  assert(body.contains("atomic_fetch_sub_explicit"), "decr body contains the atomic fetch_sub");
+  assert(body.contains("memory_order_acq_rel"), "decr body fetch_sub is acq_rel");
+  assert(body.contains("__yo_dispose_dispatch"), "dispose dispatch runs inside __yo_decr_rc_atomic");
+});
+test("__yo_worker_pool_init is guarded (idempotent)", {
+  c := emit_parallelism_runtime();
+  assert(c.contains("__yo_worker_pool_initialized"), "pool init flag is emitted");
+  assert(c.contains("static void __yo_worker_pool_init"), "pool init function is emitted");
+  // Mirror the TS slice: from the init definition to its first `}` (which
+  // closes the guard's early-return block) + 500.
+  start := must_find(&c, "static void __yo_worker_pool_init(", usize(0));
+  close := must_find(&c, "}", start);
+  body := c.substring(start, close + usize(500));
+  assert(body.contains("if (__yo_worker_pool_initialized)"), "init body checks the flag");
+  assert(body.contains("return"), "init body returns early when already initialized");
+});
+/// The C text of one emitted runtime function: from its definition line to
+/// the first line that is exactly `}`.
+fn_body :: (fn(c : &String, signature : str) -> String)({
+  start := must_find(c, signature, usize(0));
+  close := must_find(c, "\n}", start);
+  c.substring(start, close)
+});
+// The uniqueness lock behind Arc.make_mut and Arc.try_unwrap is one CAS of
+// the strong count from 1 to 0, acquire on success, and gives the count back
+// with release; the end of a locked cell sets the dead bit in one acq_rel RMW
+// (issues/fixed/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md).
+test("the Arc uniqueness lock is a CAS from 1 to 0 with acquire, the unlock a release", {
+  c := emit_rc_runtime();
+  lock := fn_body(&c, "static inline bool __yo_arc_lock_unique(void* ptr) {");
+  assert(lock.contains("if ((cur & __YO_RC_COUNT) != 1u) return false;"), "the lock takes only a count of 1");
+  assert(
+    lock.contains("atomic_compare_exchange_weak_explicit(rc, &cur, cur & __YO_RC_TAG, memory_order_acquire, memory_order_relaxed)"),
+    "the lock CASes the count to 0, keeping the tag, acquire on success"
+  );
+  unlock := fn_body(&c, "static inline void __yo_arc_unlock_unique(void* ptr) {");
+  assert(unlock.contains("ref_count, 1u, memory_order_release)"), "the unlock gives the count back with release");
+  raw := fn_body(&c, "static inline size_t __yo_arc_weak_count_raw(void* ptr) {");
+  assert(!raw.contains("strong_count"), "the raw weak count does not consult the strong count");
+  dead := fn_body(&c, "static inline void __yo_arc_release_locked(void* slot) {");
+  assert(dead.contains("*(void**)slot = NULL;"), "the end of a locked cell clears the holder's handle");
+  assert(dead.contains("(uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel)"), "the dead bit is set in one acq_rel RMW");
+});
+/// Pin: the dispose dispatch calls a `void*` thunk, never the typed
+/// `___dispose` behind a cast. The dispatch calls it as `void (*)(void*)`,
+/// and a typed function called that way is UB, which UBSan's
+/// `-fsanitize=function` aborts on at the first release
+/// (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
+test("a dispose thunk is a void* forwarder, emitted once per dispose function", {
+  mut(ctx) := mk_context();
+  by_value := String.new();
+  id7 := String.from("yo_id_7");
+  id8 := String.from("yo_id_8");
+  first := dispose_fn_thunk(&id7, &by_value, &mut ctx);
+  second := dispose_fn_thunk(&id7, &by_value, &mut ctx);
+  other := dispose_fn_thunk(&id8, &by_value, &mut ctx);
+  assert(first == "__yo_dispose_thunk_yo_id_7", "the thunk is named after its dispose function");
+  assert(second == first, "a second request returns the same thunk");
+  assert(other == "__yo_dispose_thunk_yo_id_8", "each dispose function gets its own thunk");
+  c := ctx.base.emitter.print();
+  thunk := "static inline void __yo_dispose_thunk_yo_id_7(void* ptr) { yo_id_7(ptr); }";
+  at := must_find(&c, thunk, usize(0));
+  assert(match(c.index_of(&thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
+  assert(c.contains("static inline void __yo_dispose_thunk_yo_id_8(void* ptr) { yo_id_8(ptr); }"), "the second thunk is emitted");
+});
+/// Pin: a `Drop` impl's `___dispose` takes `self : &mut Self`, so its thunk
+/// passes the address of a local holding the handle (decision 45, #1343).
+test("a pointer-receiver dispose thunk passes the address of the handle", {
+  mut(ctx) := mk_context();
+  id9 := String.from("yo_id_9");
+  handle_c := String.from("struct yo_id_10*");
+  thunk := dispose_fn_thunk(&id9, &handle_c, &mut ctx);
+  assert(thunk == "__yo_dispose_thunk_yo_id_9", "the thunk is named after its dispose function");
+  c := ctx.base.emitter.print();
+  assert(c.contains("static inline void __yo_dispose_thunk_yo_id_9(void* ptr) { struct yo_id_10* __yo_self = (struct yo_id_10*)ptr; yo_id_9(&__yo_self); }"), "the thunk passes the handle's address");
+});
+/// The type runtime preamble (the RC header, the allocator prefix and the
+/// placed-cell allocation) as the allocator interface `alloc_abi_v2` selects it.
+emit_type_preamble :: (fn(alloc_abi_v2 : bool) -> String)({
+  mut(ctx) := mk_context();
+  ctx.base.alloc_abi_v2 = alloc_abi_v2;
+  _emit_type_runtime_preamble(&mut ctx.base);
+  ctx.base.emitter.print()
+});
+/// A function type of `arity` pointer-sized parameters (the vtable slots'
+/// parameter types do not decide the version; their count does).
+mk_slot_type :: (fn(arity : usize) -> TypeValue)({
+  mut(labels) := ArrayList(String).new();
+  mut(types) := ArrayList(TypeValue).new();
+  (mut(i) : usize) = usize(0);
+  while(i < arity, {
+    labels.push(`p${i.to_string()}`);
+    types.push(t_usize());
+    i = (i + usize(1));
+  });
+  t_func_simple(labels, types, &t_ptr(&t_void()))
+});
+/// A stand-in for std's `AllocatorVTable` whose `alloc`, `realloc` and `free`
+/// take `alloc_n`, `realloc_n` and `free_n` parameters, declared in that
+/// order, or in the reverse order when `reversed`.
+mk_vtable_type :: (fn(alloc_n : usize, realloc_n : usize, free_n : usize, reversed : bool) -> TypeValue)({
+  mut(field_labels) := ArrayList(String).new();
+  mut(field_types) := ArrayList(TypeValue).new();
+  if(reversed, {
+    field_labels.push(String.from("free"));
+    field_types.push(mk_slot_type(free_n));
+    field_labels.push(String.from("realloc"));
+    field_types.push(mk_slot_type(realloc_n));
+    field_labels.push(String.from("alloc"));
+    field_types.push(mk_slot_type(alloc_n));
+  }, {
+    field_labels.push(String.from("alloc"));
+    field_types.push(mk_slot_type(alloc_n));
+    field_labels.push(String.from("realloc"));
+    field_types.push(mk_slot_type(realloc_n));
+    field_labels.push(String.from("free"));
+    field_types.push(mk_slot_type(free_n));
+  });
+  Rc.new(
+    TypeValueNode.Struct(
+      id : String.from("struct_decl_std__prelude_1_1"),
+      name : String.from("AllocatorVTable"),
+      field_labels : shared_list(field_labels),
+      field_types : shared_list(field_types),
+      is_reference_semantics : false,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.new(),
+      type_arguments : no_types(),
+      is_source_namespace : false
+    )
+  )
+});
+/// Pin: the version is read off the whole vtable the runtime mirrors (field
+/// order and every slot's arity), and every other shape is 0, which
+/// `std_allocator_abi_is_v2` reports as an internal compiler error instead of
+/// silently emitting version 1.
+test("the allocator interface version is read off AllocatorVTable's shape", {
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(2), usize(3), usize(2), false)) == usize(1), "alloc(ctx, size), realloc(ctx, ptr, new_size), free(ctx, ptr) is version 1");
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(5), usize(4), false)) == usize(2), "the aligned alloc/realloc and the sized free are version 2");
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(5), usize(2), false)) == usize(0), "an aligned alloc with an unsized free is neither version");
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(3), usize(4), false)) == usize(0), "an aligned alloc with version 1's realloc is neither version");
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(5), usize(4), true)) == usize(0), "the slots out of the runtime's field order are neither version");
+  assert(allocator_vtable_abi_version(&t_usize()) == usize(0), "a non-struct is neither version");
+});
+/// Pin: the switch recognizes std's `AllocatorVTable` by the module that
+/// minted its struct id, which survives std moving the struct and a std
+/// directory not called `std` (an id keeps only two path segments).
+test("a stable id maps back to the module that minted it", {
+  mp := String.from("file:///opt/yo-lib/prelude.yo");
+  id := stable_position_id(&String.from("struct_decl_"), &mp, usize(7), usize(1));
+  assert(match(stable_id_module_path(&id), .Some(m) => (m == mp), .None => false), "the minting module's path comes back");
+  assert(match(stable_id_module_path(&String.from("struct_decl_never_minted_r1c1")), .Some(_) => false, .None => true), "an id this process never minted has no module");
+});
+/// Pin: version 1 is today's runtime text, so a std that has not moved emits
+/// exactly the C it always did (the emit-diff gate of Generation A).
+test("allocator interface version 1 keeps the 16-byte prefix and the unsized vtable", {
+  c := emit_type_preamble(false);
+  assert(c.contains("void* (*alloc)(void* ctx, size_t size);"), "v1: alloc(ctx, size)");
+  assert(c.contains("void (*free)(void* ctx, void* ptr);"), "v1: free(ctx, ptr)");
+  assert(c.contains("((const __yo_alloc_vtable_t*)pre->vtable)->free(pre->ctx, raw);"), "v1: the release passes the raw block only");
+  assert(c.contains("static inline void* __yo_rc_alloc_in(__yo_alloc_scope_t s, size_t size) {"), "v1: the placed allocation takes no alignment");
+  assert(!c.contains("__yo_current_allocator"), "no thread allocation scope (B2b)");
+  assert(!c.contains("__yo_alloc_extent_t"), "v1: no extent record");
+  mut(ctx) := mk_context();
+  call := ctx.base.rc_alloc_in_call(&String.from("__yo_sc"), &String.from("T"));
+  assert(call == "__yo_rc_alloc_in(__yo_sc, sizeof(T))", "v1: the call passes the size only");
+});
+/// Pin: version 2 passes the alignment to `alloc`, records the extent in
+/// the 16 bytes before the owner, and hands `free` the size and alignment
+/// `alloc` was asked for.
+test("allocator interface version 2 aligns, records the extent and frees by size", {
+  c := emit_type_preamble(true);
+  assert(c.contains("void* (*alloc)(void* ctx, size_t size, size_t align);"), "v2: alloc(ctx, size, align)");
+  assert(c.contains("void* (*realloc)(void* ctx, void* ptr, size_t old_size, size_t new_size, size_t align);"), "v2: realloc(ctx, ptr, old_size, new_size, align)");
+  assert(c.contains("void (*free)(void* ctx, void* ptr, size_t size, size_t align);"), "v2: free(ctx, ptr, size, align)");
+  assert(c.contains("#define __YO_RC_CELL_PREFIX_SIZE 32"), "v2: a 32-byte cell prefix");
+  assert(c.contains("return align > __YO_RC_CELL_PREFIX_SIZE ? align : __YO_RC_CELL_PREFIX_SIZE;"), "v2: the prefix spans max(32, align)");
+  assert(c.contains("return align > __YO_ALLOC_MIN_ALIGN ? align : __YO_ALLOC_MIN_ALIGN;"), "v2: the block is at least 16-aligned");
+  assert(c.contains("->alloc(s.ctx, span + size, __yo_rc_cell_block_align(align));"), "v2: alloc is told the block's alignment");
+  assert(c.contains("->free(pre->ctx, (char*)ptr - span, block_size, block_align);"), "v2: free is told the block's size and alignment");
+  assert(c.contains("static inline void* __yo_rc_alloc_in(__yo_alloc_scope_t s, size_t size, size_t align) {"), "v2: the placed allocation takes the alignment");
+  assert(!c.contains("__yo_scope_current") && !c.contains("__yo_scopes_ever_entered"), "no scope read, no scope flag (B2b)");
+  // The owner stays where version 1 keeps it, so the owner lookup is shared.
+  assert(c.contains("return *(const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE);"), "v2: the owner is the 16 bytes before the object");
+  mut(ctx) := mk_context();
+  ctx.base.alloc_abi_v2 = true;
+  call := ctx.base.rc_alloc_in_call(&String.from("__yo_sc"), &String.from("T"));
+  assert(call == "__yo_rc_alloc_in(__yo_sc, sizeof(T), _Alignof(T))", "v2: the call passes the alignment");
+});
+/// Pin: both interface versions emit the owner hooks the prelude reads for
+/// `make_mut` (plans/backlog/SEED_VERSION_AUTOMATION.md, "make_mut reuses the
+/// owner"): the owner prefix's ctx and vtable, NULL for a global cell, with
+/// the tag bit read by a relaxed atomic load, because an `Arc` cell's count
+/// is updated through `_Atomic` casts while other threads hold handles.
+test("the owner hooks read the tag bit atomically and the owner prefix under both interface versions", {
+  tag_read := "if (atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)p)->ref_count, memory_order_relaxed) & __YO_RC_TAG) {";
+  for(array(false, true), v2 => {
+    c := emit_type_preamble(v2);
+    assert(c.contains("static inline void* __yo_rc_owner_ctx(void* p) {"), "the ctx hook");
+    assert(c.contains("static inline void* __yo_rc_owner_vtable(void* p) {"), "the vtable hook");
+    assert(c.contains("return ((const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE))->ctx;"), "ctx: the 16 bytes before the object");
+    assert(c.contains("return (void*)((const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE))->vtable;"), "vtable: the 16 bytes before the object");
+    assert(c.split(&tag_read).len() == usize(3), "each hook reads the tag bit with a relaxed atomic load");
+  });
+});

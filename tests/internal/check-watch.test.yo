@@ -1,0 +1,847 @@
+//! Phase C gates (plans/reference/INCREMENTAL_COMPILATION.md — the revised, in-process
+//! watch mode; src/check-watch.yo): a `watch_round` over changed DISK files
+//! must invalidate the changed modules' reverse closure and re-check exactly
+//! the affected entry files, error→fix→clean, with registry sizes stable
+//! across repeated rounds (the long-lived-process guarantee).
+{ String } :: import("std/string");
+{ EvalValue } :: import("../../src/value.yo");
+{ Exception, IoExn } :: import("std/error");
+{ ArrayList } :: import("std/collections/array-list");
+{ assert } :: import("std/assert");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
+{ watch_round, invalidate_changed_files } :: import("../../src/check-watch.yo");
+{ mm_load_file, mm_invalidate_document, mm_definitions_changed, mm_revalidate_plan, resolve_std_path } :: import("../../src/module-manager.yo");
+{ force_pending_count, PendingDef, set_retain_walk_contexts, finished_walk_for } :: import("../../src/evaluator/context.yo");
+{ AstExpr } :: import("../../src/expr.yo");
+{ RevalPlan, RebindEntry } :: import("../../src/module-manager.yo");
+{ type_trait_methods_entry_count, inherent_method_site_count } :: import("../../src/evaluator/values/type-trait-methods.yo");
+{ generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
+
+_LIB_OK :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
+_LIB_RENAMED :: "answer_renamed :: (fn() -> i32)(i32(42));\nexport(answer_renamed);\n";
+_APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n";
+
+/// Unreachable unwrap helper for plan matches (an assert precedes every use).
+p0 :: (fn() -> RevalPlan)(
+  RevalPlan(
+    module_key : String.new(),
+    changed : ArrayList(PendingDef).new(),
+    fresh_exprs : ArrayList(AstExpr).new(),
+    closure_keys : ArrayList(String).new(),
+    fallback_modules : ArrayList(String).new(),
+    rebinds : ArrayList(RebindEntry).new()
+  )
+);
+/// One watch round with `lib.yo` as the changed file. Returns failed count.
+_round :: (
+  fn(lib_path : &String, files : &ArrayList(String), std_path : &String, io : Io, exn : Exception) -> usize
+)({
+  mut(changed) := ArrayList(String).new();
+  changed.push(lib_path.clone());
+  watch_round(&changed, files, std_path, io, exn)
+});
+
+test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_APP), io), ioexn);
+  std_path := resolve_std_path();
+  // Drop any earlier state for these paths (suite processes are reused).
+  _pre1 := mm_invalidate_document(lib_path.clone());
+  _pre2 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  files.push(lib_path.clone());
+  // Initial pass: both clean, both cached (mm_load_file registers entries).
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  assert(mm_load_file(lib_path.clone(), std_path.clone(), true, io, exn).ok, "initial lib check should pass");
+  // 1. Break lib on DISK (rename the export) -> the round must recheck the
+  //    reverse closure and fail exactly the importer.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_RENAMED), io), ioexn);
+  failed1 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed1 == usize(1), `broken lib: expected 1 failed, got ${failed1.to_string()}`);
+  // 2. Fix lib on disk -> the next round is clean again.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
+  failed2 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), `fixed lib: expected 0 failed, got ${failed2.to_string()}`);
+  // 3. Long-lived-process guarantee: repeated rounds keep the registry
+  //    sizes flat (B2 purge-on-invalidation, consumed by watch_round).
+  ttm_before := type_trait_methods_entry_count();
+  gi_before := generic_impl_entry_count();
+  (mut(r) : usize) = usize(0);
+  while(r < usize(5), {
+    _f := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+    r = (r + usize(1));
+  });
+  ttm_after := type_trait_methods_entry_count();
+  gi_after := generic_impl_entry_count();
+  assert(ttm_after == ttm_before, `type_trait_methods grew across rounds: ${ttm_before.to_string()} -> ${ttm_after.to_string()}`);
+  assert(gi_after == gi_before, `generic impls grew across rounds: ${gi_before.to_string()} -> ${gi_after.to_string()}`);
+});
+
+test("Phase 3a: mm_definitions_changed — comment/whitespace edits are no-ops, semantic edits are not", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_p3`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("{ String } :: import(\"std/string\");\nanswer :: (fn() -> i32)({ x := i32(41); (x + i32(1)) });\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  io.await(
+    write_string(
+      Path.new(app_path.clone()),
+      String.from("{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({ _x := answer(); });\nexport(main);\n"),
+      io
+    ),
+    ioexn
+  );
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  // Initial pass records the def hashes of the last walk.
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // 1. Same content on disk: no change.
+  assert(
+    match(
+      mm_definitions_changed(lib_path.clone()),
+      .Some(v) => !v,
+      .None => false
+    ),
+    "identical content must report no change"
+  );
+  // 2. Comment + reformatting (whitespace) edits: still no change — the
+  //    hashes are over the canonical rendering, and the def keys are
+  //    row-free.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("//! a doc comment\n{ String } :: import(\"std/string\");\n\n\nanswer :: (fn() -> i32)({\n  x := i32(41);\n  (x + i32(1))\n});\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  assert(
+    match(
+      mm_definitions_changed(lib_path.clone()),
+      .Some(v) => !v,
+      .None => false
+    ),
+    "comment-only and whitespace-only edits must report no change"
+  );
+  // 3. A body edit moves the def hash.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("{ String } :: import(\"std/string\");\nanswer :: (fn() -> i32)({ x := i32(41); (x + i32(2)) });\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  assert(
+    match(
+      mm_definitions_changed(lib_path.clone()),
+      .Some(v) => v,
+      .None => false
+    ),
+    "a body edit must report a change"
+  );
+  // 4. An ordered-statement edit (the import line) reports a change.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("{ String, StringBuilder } :: import(\"std/string\");\nanswer :: (fn() -> i32)({ x := i32(41); (x + i32(2)) });\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  assert(
+    match(
+      mm_definitions_changed(lib_path.clone()),
+      .Some(v) => v,
+      .None => false
+    ),
+    "an ordered-statement edit must report a change"
+  );
+  // 5. A comment-only round is a no-op end to end: nothing fails and the
+  //    module cache entries survive the round untouched.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("//! back to comments only\n{ String } :: import(\"std/string\");\nanswer :: (fn() -> i32)({ x := i32(41); (x + i32(2)) });\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  files.push(lib_path.clone());
+  mut(changed) := ArrayList(String).new();
+  changed.push(lib_path.clone());
+  failed := watch_round(&changed, &files, std_path.clone(), io, exn);
+  assert(failed == usize(0), "comment-only round must not fail anything");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3b (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6 step 4): the
+// per-DEFINITION path. A body edit in an imported module re-evaluates exactly
+// the changed definition plus its def-level dependents, measured with the
+// `force_pending_def` counter — in-order settlements never call it, so the
+// FILE-LEVEL path measures 0 and the per-def path measures the revalidated
+// count. The importer binds the WHOLE module (`lib_mod :: import(...)`), the
+// shape whose member reads carry def-level edges; a type-producer edit
+// (struct field) must fall back to file-level.
+// ---------------------------------------------------------------------------
+_P3B_LIB_V1 :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(41)));\nexport(answer, helper);\n";
+_P3B_LIB_V2 :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(42)));\nexport(answer, helper);\n";
+_P3B_LIB_SIG :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn(n : i32) -> i32)((helper() + n));\nexport(answer, helper);\n";
+_P3B_LIB_BRK :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + true));\nexport(answer, helper);\n";
+_P3B_APP :: "lib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := lib_mod.answer();\n});\nexport(main);\n";
+
+test("Phase 3b: a body edit re-evaluates only the changed def + its dependents", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_p3b`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_P3B_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // Body edit: answer's constant moves. Per-def must re-evaluate exactly
+  // `answer` (lib) and `main` (app, the def-edge dependent) — NOT `helper`
+  // (unchanged, no dependent edge).
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  before := force_pending_count();
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  delta := (force_pending_count() - before);
+  assert(failed == usize(0), `body edit must not fail: ${failed.to_string()}`);
+  assert(delta == usize(2), `body edit must re-force exactly answer+main, forced ${delta.to_string()}`);
+  // Long-lived-process guarantee on the per-def path: five more rounds
+  // (alternating bodies keeps the def hash moving every round) leave the
+  // registries flat.
+  ttm_before := type_trait_methods_entry_count();
+  gi_before := generic_impl_entry_count();
+  (mut(r) : usize) = usize(0);
+  while(r < usize(5), {
+    body := cond(((r % usize(2)) == usize(0)) => _P3B_LIB_V1, true => _P3B_LIB_V2);
+    io.await(write_string(Path.new(lib_path.clone()), String.from(body), io), ioexn);
+    _f := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+    r = (r + usize(1));
+  });
+  assert(type_trait_methods_entry_count() == ttm_before, "type_trait_methods grew across per-def rounds");
+  assert(generic_impl_entry_count() == gi_before, "generic impls grew across per-def rounds");
+  // Failure -> recovery through the per-def channel: a body that stops
+  // type-checking fails the round; fixing it cleans the next round (the
+  // failed def must not stay failed after its hash moves again).
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_BRK), io), ioexn);
+  failed_b := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed_b == usize(1), `broken body must fail the round, failed=${failed_b.to_string()}`);
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  failed_f := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed_f == usize(0), `fixed body must clean the round, failed=${failed_f.to_string()}`);
+});
+// A per-def round re-evaluates a dependent from a fresh-id clone of its
+// definition, and the clone is the definition as written: its `&m.*` reads as
+// `&m.*`. Before the fix the clone carried the first pass's rewrite of `m.*`
+// to the name `m`, so the unchanged `walk` failed the round with E0926 on the
+// `&m.*` it asks for
+// (issues/fixed/2026-11-06-a-borrowed-for-over-a-mut-param-is-rejected-when-the-fn-also-takes-an-impl-fn-param.md).
+_DEREF_LIB_V1 :: "{ ArrayList } :: import(\"std/collections/array-list\");\nhelper :: (fn() -> usize)(usize(1));\nwalk :: (fn(m : &mut ArrayList(i32)) -> usize)({\n  y := &m.*;\n  (y.len() + helper())\n});\nexport(walk, helper);\n";
+_DEREF_LIB_V2 :: "{ ArrayList } :: import(\"std/collections/array-list\");\nhelper :: (fn() -> usize)(usize(2));\nwalk :: (fn(m : &mut ArrayList(i32)) -> usize)({\n  y := &m.*;\n  (y.len() + helper())\n});\nexport(walk, helper);\n";
+_DEREF_APP :: "{ walk } :: import(\"./lib.yo\");\n{ ArrayList } :: import(\"std/collections/array-list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  _n := walk(&mut xs);\n});\nexport(main);\n";
+test("Phase 3b: a re-forced dependent reads its reference with .* as written", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_p3b_deref`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_DEREF_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_DEREF_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _pre1 := mm_invalidate_document(lib_path.clone());
+  _pre2 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // Body edit of `helper`: the round re-forces `walk`, which reads it.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_DEREF_LIB_V2), io), ioexn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `the re-forced walk must read &m.* as written, failed=${failed.to_string()}`);
+});
+
+test("Phase 3b: a signature edit takes the per-def path and the re-forced dependent fails on arity", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
+  // Own fixture directory: the contract is asserted from a clean load, not
+  // on top of the preceding test's warm per-def state.
+  dir := `/tmp/yo_check_watch_fixture_p3b_sig`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_P3B_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _pre1 := mm_invalidate_document(lib_path.clone());
+  _pre2 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // Signature edit: answer takes a parameter now. The round re-forces exactly
+  // `answer` and its def-edge dependent `main`; `main`'s trial re-derives the
+  // call against the PATCHED slot (the importer's `lib_mod` shares the cached
+  // module's slot array — issues/fixed/per-def-dependent-trial-resolves-
+  // stale-callee.md) and fails on arity through the per-def channel.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_SIG), io), ioexn);
+  before := force_pending_count();
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  delta := (force_pending_count() - before);
+  assert(failed == usize(1), `signature edit must fail the dependent, failed=${failed.to_string()}`);
+  assert(delta == usize(2), `signature edit must re-force exactly answer+main, forced ${delta.to_string()}`);
+  // Fix: back to the parameterless body — the next round is clean again.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  failed2 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), "fixed signature must be clean again");
+});
+
+test("Phase 3b: a DIRECTORY check attributes destructured reads to the right module", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
+  // Reproduces the sns id->module mis-attribution of
+  // issues/fixed/per-def-dependent-trial-resolves-stale-callee.md: every module's
+  // FIRST source-namespace mint collided on `source_namespace_0` (the
+  // occurrence counter is per module), so the attribution map was
+  // last-wins — in a directory check a later module's mint overwrote the
+  // entry a LATER importer was about to look up, and that importer's
+  // destructured read was recorded against the wrong module. The per-def
+  // plan then found no reader and left the importer holding a stale copy.
+  dir := `/tmp/yo_check_watch_fixture_p3b_dir`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  first_path := `${dir}/first.yo`;
+  mid_path := `${dir}/mid.yo`;
+  second_path := `${dir}/second.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V1), io), ioexn);
+  io.await(
+    write_string(Path.new(first_path.clone()), String.from("{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n"), io),
+    ioexn
+  );
+  io.await(
+    write_string(Path.new(mid_path.clone()), String.from("extra :: (fn() -> i32)(i32(7));\nexport(extra);\n"), io),
+    ioexn
+  );
+  io.await(
+    write_string(Path.new(second_path.clone()), String.from("{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n"), io),
+    ioexn
+  );
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(first_path.clone());
+  _p3 := mm_invalidate_document(mid_path.clone());
+  _p4 := mm_invalidate_document(second_path.clone());
+  // The directory-check ordering: first's destructure demand-loads lib (its
+  // sns registration is correct while lib is the latest mint), then mid is
+  // checked as its own entry (its mint used to OVERWRITE the shared id),
+  // then second's destructure of the cached lib looks the id up.
+  assert(mm_load_file(first_path.clone(), std_path.clone(), true, io, exn).ok, "first should pass");
+  assert(mm_load_file(mid_path.clone(), std_path.clone(), true, io, exn).ok, "mid should pass");
+  assert(mm_load_file(second_path.clone(), std_path.clone(), true, io, exn).ok, "second should pass");
+  // Body edit: the plan must treat BOTH destructured importers as
+  // ordered-reader fallbacks — their copies cannot be patched in place.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  plan := mm_revalidate_plan(lib_path.clone());
+  assert(plan.is_some(), "a signature-stable body edit must produce a per-def plan");
+  p := match(plan, .Some(pp) => pp, .None => p0());
+  (mut(second_is_fallback) : bool) = false;
+  (mut(fi) : usize) = usize(0);
+  while(fi < p.fallback_modules.len(), {
+    match(
+      p.fallback_modules.get_cloned(fi),
+      .Some(mk) => if(mk.ends_with(String.from("second.yo")), {
+        second_is_fallback = true;
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  assert(second_is_fallback, "a destructured importer after another module's mint must still be attributed");
+});
+
+test("Phase 3b: a struct-field edit (type producer) falls back to file-level", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_p3b_ty`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(41)));\nP :: struct(x : i32);\nexport(answer, helper, P);\n"),
+      io
+    ),
+    ioexn
+  );
+  io.await(write_string(Path.new(app_path.clone()), String.from(_P3B_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // `P`'s field type moves: P is a type producer, so the round must take the
+  // FILE-LEVEL path — zero per-def forces, app re-checked from a full reload.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(41)));\nP :: struct(x : i64);\nexport(answer, helper, P);\n"),
+      io
+    ),
+    ioexn
+  );
+  before := force_pending_count();
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  delta := (force_pending_count() - before);
+  assert(failed == usize(0), "unused struct edit must not fail");
+  assert(delta == usize(0), `type-producer edit must stay file-level (no per-def forces), forced ${delta.to_string()}`);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 (§6) — the destructured-reader RE-BIND. `{ helper } :: import(...)`
+// binds the name BY VALUE into the importer's own module frame, so the
+// importer's definitions resolve it locally and carry no def-level edge to
+// the changed definition. That is why the importer used to be dropped whole,
+// taking its entire reverse import closure with it (a `src/token.yo` hub edit
+// dropped `src/lexer.yo` + 143 files, ~355 s). The round now re-points the
+// binding and re-forces the importer's own definitions that mention it.
+// ---------------------------------------------------------------------------
+// `comptime(i32)`, not `i32`: the freshness oracle below is a module-level
+// `::` binding computed from `helper()`, and a `::` binding REQUIRES a
+// compile-time value ("Expected compile-time value ... Got runtime value").
+// A plain `fn() -> i32` makes the fixture itself fail to check.
+_RB_LIB_V1 :: "helper :: (fn() -> comptime(i32))(i32(1));\nexport(helper);\n";
+_RB_LIB_V2 :: "helper :: (fn() -> comptime(i32))(i32(2));\nexport(helper);\n";
+_RB_READER :: "{ helper } :: import(\"./lib.yo\");\ndoubled :: (helper() + helper());\nuse_it :: (fn() -> i32)((helper() + i32(10)));\nexport(use_it, doubled);\n";
+_RB_APP :: "reader_mod :: import(\"./reader.yo\");\nmain :: (fn() -> unit)({\n  _x := reader_mod.use_it();\n});\nexport(main);\n";
+// An import RENAME: the frame carries `h`, never `helper`, so the by-name
+// re-bind cannot find it and the importer must go back to the file path.
+_RB_READER_RENAMED :: "{ helper : h } :: import(\"./lib.yo\");\nuse_it :: (fn() -> i32)((h() + i32(10)));\nexport(use_it);\n";
+// An ordered statement that COMPUTED with the old value: a re-bind refreshes
+// bindings, it cannot re-run a computation, so this importer falls back too.
+_RB_READER_ORDERED :: "{ helper } :: import(\"./lib.yo\");\n{ println } :: import(\"std/fmt\");\nuse_it :: (fn() -> i32)((helper() + i32(10)));\nexport(use_it);\n";
+
+/// The comptime value of `name` in `module_key`'s finished walk, rendered —
+/// the freshness oracle: a stale re-bind leaves the OLD number here.
+_def_int_value :: (fn(module_key : &String, name : &String) -> String)(
+  match(
+    finished_walk_for(module_key),
+    .Some(w) => {
+      (mut(i) : usize) = usize(0);
+      while(i < w.defs.len(), {
+        match(
+          w.defs.get_cloned(i),
+          .Some(d) => if(d.name == name.*, {
+            return(
+              match(
+                d.variable(),
+                .Some(v) => match(
+                  v.value().get(usize(0)),
+                  .Some(val) => match(val, Rc(.IntLit(t)) => t.clone(), _ => String.from("<not-int>")),
+                  .None => String.from("<no-value>")
+                ),
+                .None => String.from("<no-variable>")
+              )
+            );
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      String.from("<no-def>")
+    },
+    .None => String.from("<no-walk>")
+  )
+);
+
+test("Phase 3 re-bind: a destructured importer is re-bound, not dropped, and its value is fresh", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_rebind`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  reader_path := `${dir}/reader.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(reader_path.clone()), String.from(_RB_READER), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_RB_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _r1 := mm_invalidate_document(lib_path.clone());
+  _r2 := mm_invalidate_document(reader_path.clone());
+  _r3 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  reader_key := `file://${reader_path}`;
+  before_value := _def_int_value(reader_key.clone(), String.from("doubled"));
+  assert(before_value == "2", `doubled should start at 2, was ${before_value}`);
+  // Body edit: helper returns 2. The importer destructured `helper`, so
+  // before this change it was a file-level fallback.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
+  plan := match(
+    mm_revalidate_plan(lib_path.clone()),
+    .Some(p) => p,
+    .None => {
+      assert(false, "a body edit must still take the per-def path");
+      p0()
+    }
+  );
+  assert(plan.rebinds.len() == usize(1), `expected exactly one re-bound importer, got ${plan.rebinds.len().to_string()}`);
+  assert(
+    plan.fallback_modules.len() == usize(0),
+    `the re-bound importer must not also be a fallback, got ${plan.fallback_modules.len().to_string()}`
+  );
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `re-bind round must not fail: ${failed.to_string()}`);
+  after_value := _def_int_value(reader_key.clone(), String.from("doubled"));
+  assert(after_value == "4", `the re-bound importer must see helper() == 2, so doubled == 4, got ${after_value}`);
+});
+
+test("Phase 3 re-bind: an import RENAME falls back instead of re-binding", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_rebind_renamed`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  reader_path := `${dir}/reader.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(reader_path.clone()), String.from(_RB_READER_RENAMED), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_RB_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _n1 := mm_invalidate_document(lib_path.clone());
+  _n2 := mm_invalidate_document(reader_path.clone());
+  _n3 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial renamed-import app check should pass");
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `renamed-import round must not fail: ${failed.to_string()}`);
+});
+
+test("Phase 3 re-bind: an ordered statement that computed with the old value falls back", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_rebind_ordered`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  reader_path := `${dir}/reader.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(reader_path.clone()), String.from(_RB_READER_ORDERED), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_RB_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _o1 := mm_invalidate_document(lib_path.clone());
+  _o2 := mm_invalidate_document(reader_path.clone());
+  _o3 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial ordered-reader app check should pass");
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `ordered-reader round must not fail: ${failed.to_string()}`);
+});
+
+// Regression (issues/fixed/build-watch-reuses-a-stale-imported-module.md):
+// `yo build --watch` compiles each round in process against the warm module
+// cache, which does not re-read a file on load. The watch loop never
+// invalidated anything, so an edited IMPORT was served from the cache: the
+// rebuilt binary kept the old code and a broken import still built. The loop
+// now calls `invalidate_changed_files` on the round's changed paths first.
+_D1W_LIB_CLEAN :: "{ ArrayList } :: import(\"std/collections/array-list\");\ng := ArrayList(i32).new();\nwork :: (fn() -> unit)({\n  _n := i32(1);\n});\nexport(work);\n";
+_D1W_LIB_REACH :: "{ ArrayList } :: import(\"std/collections/array-list\");\ng := ArrayList(i32).new();\nwork :: (fn() -> unit)({\n  g.push(i32(1));\n});\nexport(work);\n";
+_D1W_APP :: "{ Thread } :: import(\"std/thread\");\nlib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  t := Thread(unit).spawn((io : Io) => {\n    lib_mod.work();\n    ()\n  });\n  t.join();\n});\nexport(main);\n";
+test("Phase 3b: rule D1 re-judges a re-forced body — the reach memo answers only for the body it walked", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_d1_memo`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_D1W_LIB_CLEAN), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_D1W_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  // `work` lives in lib.yo, whose table is gone once it loads: the spawned
+  // closure in app.yo is judged from lib's end-of-load summary
+  // (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "a thread closure calling a clean imported function must pass check");
+  // `work` now pushes to the non-Send global `g`. The edit re-forces `work`
+  // (same func id: definition ids are stable) and `main`; the reach memo of
+  // the old body must not answer for the new one
+  // (issues/fixed/mutation-summary-memos-answer-for-a-re-evaluated-body.md).
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_D1W_LIB_REACH), io), ioexn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(1), `a re-forced body that reaches a non-Send global must fail the thread closure, failed=${failed.to_string()}`);
+  // And back: the re-forced clean body is summarized again, so the next round
+  // is clean (not "never evaluated").
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_D1W_LIB_CLEAN), io), ioexn);
+  failed2 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), `the clean body must pass again, failed=${failed2.to_string()}`);
+});
+
+// Regression (issues/fixed/watch-per-def-round-skips-same-module-callers.md):
+// a module's definitions read each other through the module frame, so an
+// in-order reference records no def edge, and the per-def round re-forced the
+// edited definition alone. Its same-module callers kept their old verdicts: a
+// signature change that breaks `answer`, and a body change that makes
+// `run`'s thread closure reach the non-Send `g` through the unchanged `mid`,
+// both passed the round while a cold `check` rejects them.
+_SMC_LIB_OK :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(41)));\nexport(answer, helper);\n";
+_SMC_LIB_SIG :: "helper :: (fn() -> bool)(true);\nanswer :: (fn() -> i32)((helper() + i32(41)));\nexport(answer, helper);\n";
+_SMC_APP :: "lib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := lib_mod.answer();\n});\nexport(main);\n";
+_SMC_D1_CLEAN :: "{ ArrayList } :: import(\"std/collections/array-list\");\n{ Thread } :: import(\"std/thread\");\ng := ArrayList(i32).new();\ncallee :: (fn() -> unit)({\n  _n := i32(1);\n});\nmid :: (fn() -> unit)(callee());\nrun :: (fn() -> unit)({\n  t := Thread(unit).spawn((io : Io) => {\n    mid();\n    ()\n  });\n  t.join();\n});\nexport(run);\n";
+_SMC_D1_REACH :: "{ ArrayList } :: import(\"std/collections/array-list\");\n{ Thread } :: import(\"std/thread\");\ng := ArrayList(i32).new();\ncallee :: (fn() -> unit)({\n  g.push(i32(1));\n});\nmid :: (fn() -> unit)(callee());\nrun :: (fn() -> unit)({\n  t := Thread(unit).spawn((io : Io) => {\n    mid();\n    ()\n  });\n  t.join();\n});\nexport(run);\n";
+_SMC_D1_APP :: "lib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)(lib_mod.run());\nexport(main);\n";
+test("Phase 3b: an edit re-judges the edited definition's same-module callers, transitively", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  std_path := resolve_std_path();
+  // 1. Type check: `helper` now returns bool, `answer` (unchanged, same
+  //    module) adds it to an i32.
+  dir := `/tmp/yo_check_watch_fixture_same_module_sig`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_OK), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_SMC_APP), io), ioexn);
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial same-module app check should pass");
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_SIG), io), ioexn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(1), `a same-module caller of a re-typed definition must fail the round, failed=${failed.to_string()}`);
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_OK), io), ioexn);
+  failed2 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), `the reverted helper must pass again, failed=${failed2.to_string()}`);
+  // 2. Rule D1 through an unchanged middle function: only `callee` is edited;
+  //    `mid` calls it, `run`'s thread closure calls `mid`.
+  dir_d1 := `/tmp/yo_check_watch_fixture_same_module_d1`;
+  io.await(create_dir_all(Path.new(dir_d1.clone()), io), ioexn);
+  lib_d1 := `${dir_d1}/lib.yo`;
+  app_d1 := `${dir_d1}/app.yo`;
+  io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_CLEAN), io), ioexn);
+  io.await(write_string(Path.new(app_d1.clone()), String.from(_SMC_D1_APP), io), ioexn);
+  _p3 := mm_invalidate_document(lib_d1.clone());
+  _p4 := mm_invalidate_document(app_d1.clone());
+  mut(files_d1) := ArrayList(String).new();
+  files_d1.push(app_d1.clone());
+  assert(mm_load_file(app_d1.clone(), std_path.clone(), true, io, exn).ok, "initial same-module D1 app check should pass");
+  io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_REACH), io), ioexn);
+  failed3 := _round(lib_d1.clone(), &files_d1, std_path.clone(), io, exn);
+  assert(failed3 == usize(1), `a thread closure reaching g through mid -> callee must fail the round, failed=${failed3.to_string()}`);
+  io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_CLEAN), io), ioexn);
+  failed4 := _round(lib_d1.clone(), &files_d1, std_path.clone(), io, exn);
+  assert(failed4 == usize(0), `the reverted callee must pass again, failed=${failed4.to_string()}`);
+});
+
+test("build --watch: invalidate_changed_files makes an edited import re-read on the next load", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_build_watch`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  reader_path := `${dir}/reader.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(reader_path.clone()), String.from(_RB_READER), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_RB_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _r1 := mm_invalidate_document(lib_path.clone());
+  _r2 := mm_invalidate_document(reader_path.clone());
+  _r3 := mm_invalidate_document(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app load should pass");
+  reader_key := `file://${reader_path}`;
+  assert(_def_int_value(reader_key.clone(), String.from("doubled")) == "2", "doubled starts at 2");
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
+  // The premise the watch loop has to handle: the warm cache serves the
+  // edited import unchanged until something invalidates it.
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "a warm reload should pass");
+  assert(_def_int_value(reader_key.clone(), String.from("doubled")) == "2", "without invalidation the cache still serves the old import");
+  mut(changed) := ArrayList(String).new();
+  changed.push(lib_path.clone());
+  dropped := invalidate_changed_files(&changed, std_path.clone());
+  assert(dropped >= usize(2), `the edited import and its importer must leave the cache, dropped ${dropped.to_string()}`);
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "the reload after invalidation should pass");
+  after := _def_int_value(reader_key.clone(), String.from("doubled"));
+  assert(after == "4", `the reloaded importer must see helper() == 2, so doubled == 4, got ${after}`);
+});
+/// An inherent impl whose members a body edit moves down one line
+/// (issues/fixed/2026-11-02-a-watch-round-that-moves-an-impl-member-reports-it-as-a-duplicate-method.md).
+_IMS_APP :: "P :: struct(_d : i32);\nimpl(\n  P,\n  a : (fn(x : i32) -> i32)({\n    y := (x + i32(1));\n    y\n  }),\n  b : (fn(x : i32) -> i32)({\n    z := P.a(x);\n    z\n  })\n);\nmain :: (fn() -> unit)({\n  _x := P.b(i32(1));\n});\nexport(main);\n";
+_IMS_APP_SHIFTED :: "P :: struct(_d : i32);\nimpl(\n  P,\n  a : (fn(x : i32) -> i32)({\n    w := i32(0);\n    y := ((x + i32(1)) + w);\n    y\n  }),\n  b : (fn(x : i32) -> i32)({\n    z := P.a(x);\n    z\n  })\n);\nmain :: (fn() -> unit)({\n  _x := P.b(i32(1));\n});\nexport(main);\n";
+test("watch: an edit that moves an inherent impl member to another line is not a duplicate method (E0612)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  std_path := resolve_std_path();
+  dir := `/tmp/yo_check_watch_fixture_impl_sites`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(app_path.clone()), String.from(_IMS_APP), io), ioexn);
+  _p1 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial impl app check should pass");
+  sites_before := inherent_method_site_count();
+  // `b` now starts one line lower: its previous site must not answer as a
+  // first definition.
+  io.await(write_string(Path.new(app_path.clone()), String.from(_IMS_APP_SHIFTED), io), ioexn);
+  failed := _round(app_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `a line-shifting body edit must not fail the round, failed=${failed.to_string()}`);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_IMS_APP), io), ioexn);
+  failed2 := _round(app_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), `reverting the edit must not fail the round, failed=${failed2.to_string()}`);
+  // The invalidated module's sites are purged, not accumulated.
+  sites_after := inherent_method_site_count();
+  assert(sites_after == sites_before, `inherent method sites grew across rounds: ${sites_before.to_string()} -> ${sites_after.to_string()}`);
+});

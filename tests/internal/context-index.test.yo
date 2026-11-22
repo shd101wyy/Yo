@@ -1,0 +1,328 @@
+/// Tests for src/doc/context-index.yo — the `yo context` index
+/// (plans/reference/YO_CONTEXT.md C2, C7). Heavy: this file imports the compiler's own
+/// doc pipeline, so each run evaluates compiler modules. The invariants pinned
+/// here are the ones the CLI's correctness leans on:
+///   - the content key is stable across identical builds, moves on any
+///     content edit, and moves with the corpus NAME (two identical trees
+///     under different names must not share one index);
+///   - a fixture mini-std round-trips through build → load with the
+///     expected entries (TSV format stability), and a barrel gets `origin=`;
+///   - a module the evaluator cannot load is marked degraded, never silent;
+///   - an existing index is REUSED without `refresh` and rebuilt with it, and
+///     the rebuild is byte-identical to the first build (D3 determinism).
+/// Every test writes its own fixture into its own temporary directory, so the
+/// tests are independent of each other and of other runs.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ Path } :: import("std/path");
+{ Exception, IoExn } :: import("std/error");
+{ write_string, read } :: import("std/fs/file");
+{ create_dir_all } :: import("std/fs/dir");
+{ TempDir } :: import("std/fs/temp");
+{ assert } :: import("std/assert");
+{
+  ContextIndexEntry,
+  ContextIndexModule,
+  context_tree_key,
+  context_index_dir,
+  context_index_ensure,
+  context_index_load,
+  context_index_load_modules,
+  context_module_name
+} :: import("../../src/doc/context-index.yo");
+{ search_score, _search_entries, LoadedWorld } :: import("../../src/context-command.yo");
+/// Write `text` to `<root>/<rel>`, creating parent directories.
+_put :: (fn(root : &String, rel : &String, text : &String, io : Io, exn : Exception) -> unit)({
+  path := Path.new(root).join(Path.new(rel));
+  io.await(create_dir_all(path.parent().unwrap_or(Path.new(String.from("."))), io), IoExn(io : io, exn : exn));
+  io.await(write_string(&path, text, io), IoExn(io : io, exn : exn));
+});
+/// The fixture under `<base>/t`: `alpha_api` defines the API, `alpha/index.yo`
+/// re-exports it (the barrel `origin=` case), `beta` is a second module so
+/// name-uniqueness has something to be unique against. Returns the tree root.
+_write_fixture :: (fn(base : &String, io : Io, exn : Exception) -> String)({
+  root := `${base}/t`;
+  _put(root.clone(), String.from("alpha_api.yo"), String.from("//! Alpha: the fixture's defining module.\nalpha_add :: (fn(a : i32, b : i32) -> i32)((a + b));\nAlpha :: struct(v : i32);\nALPHA_LIMIT :: 10;\nexport(alpha_add, Alpha, ALPHA_LIMIT);\n"), io, exn);
+  _put(root.clone(), String.from("beta.yo"), String.from("//! Beta: a second module.\nbeta_hi :: (fn() -> unit)(());\nexport(beta_hi);\n"), io, exn);
+  // The house barrel shape (std/string/index.yo et al): `_`-prefixed module
+  // values + glob-spread exports.
+  _put(root.clone(), String.from("alpha/index.yo"), String.from("//! Barrel for alpha.\n_alpha_api :: import(\"../alpha_api.yo\");\nexport(...(_alpha_api));\n"), io, exn);
+  root
+});
+_find_entry :: (
+  fn(entries : &ArrayList(ContextIndexEntry), module : &String, name : &String) -> Option(ContextIndexEntry)
+)({
+  (mut(i) : usize) = usize(0);
+  while(i < entries.len(), {
+    e := entries(i).clone();
+    if((e.module == module.*) && (e.name == name.*), {
+      return(Option(ContextIndexEntry).Some(e));
+    });
+    i = (i + usize(1));
+  });
+  Option(ContextIndexEntry).None
+});
+_read_text :: (fn(path : &String, io : Io, exn : Exception) -> String)(
+  String.from_bytes(io.await(read(Path.new(path), io), IoExn(io : io, exn : exn)))
+);
+test("context_tree_key: stable, moves on a content edit, moves with the corpus name", {
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
+  root := _write_fixture(td.path().to_string(), io, exn);
+  k1 := context_tree_key(root.clone(), String.new(), io, exn);
+  k2 := context_tree_key(root.clone(), String.new(), io, exn);
+  assert(k1 == k2, "the same tree keys the same");
+  assert(k1.len() == usize(12), `a 12-hex key, got ${k1}`);
+  // The same bytes under another corpus name index DIFFERENTLY: every
+  // module name in the index carries the name.
+  named := context_tree_key(root.clone(), String.from("utils"), io, exn);
+  assert(named != k1, "a dependency prefix is part of the key");
+  _put(root.clone(), String.from("beta.yo"), String.from("//! Beta, edited.\nbeta_hi :: (fn() -> unit)(());\nexport(beta_hi);\n"), io, exn);
+  k3 := context_tree_key(&root, String.new(), io, exn);
+  assert(k3 != k1, "one content edit moves the key");
+});
+test("context_module_name: the corpus name prefixes, index.yo collapses", {
+  name := context_module_name(String.from("/w/std/alpha/index.yo"), String.from("/w/std"), String.new());
+  assert(name == "std/alpha", `index.yo collapses to its dir, got ${name}`);
+  name2 := context_module_name(String.from("/w/std/beta.yo"), String.from("/w/std"), String.new());
+  assert(name2 == "std/beta", `plain file keeps its path, got ${name2}`);
+  name3 := context_module_name(String.from("/w/mylib/util.yo"), String.from("/w/mylib"), String.from("dep"));
+  assert(name3 == "dep/util", `an explicit prefix wins, got ${name3}`);
+});
+// ONE build serves the round-trip, reuse, refresh and determinism checks
+// (they used to build the same fixture five times over).
+test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, byte-identical rebuild", {
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
+  base := td.path().to_string();
+  root := _write_fixture(base.clone(), io, exn);
+  cache := `${base}/cache`;
+  key := context_index_ensure(root.clone(), cache.clone(), false, String.new(), io, exn);
+  entries := context_index_load(cache.clone(), key.clone(), io, exn);
+  add := match(_find_entry(&entries, `t/alpha_api`, `alpha_add`), .Some(e) => e, .None => __yo_panic("alpha_add is indexed"));
+  assert(add.kind == "fn", `alpha_add is a fn, got ${add.kind}`);
+  assert(add.signature.contains(String.from("i32")), "signature carries the param types");
+  assert(add.origin.len() == usize(0), "the defining entry has no origin");
+  assert(match(_find_entry(&entries, `t/alpha_api`, `Alpha`), .Some(e) => (e.kind == "type"), .None => false), "Alpha is a type");
+  assert(match(_find_entry(&entries, `t/alpha_api`, `ALPHA_LIMIT`), .Some(e) => (e.kind == "constant"), .None => false), "ALPHA_LIMIT is a constant");
+  assert(_find_entry(&entries, `t/beta`, `beta_hi`).is_some(), "beta_hi is indexed");
+  barrel := match(_find_entry(&entries, `t/alpha`, `alpha_add`), .Some(e) => e, .None => __yo_panic("the barrel re-export is indexed"));
+  assert(barrel.origin == "t/alpha_api", `barrel origin= t/alpha_api, got '${barrel.origin}'`);
+  mods := context_index_load_modules(cache.clone(), key.clone(), io, exn);
+  assert(mods.len() == usize(3), `three modules, got ${mods.len().to_string()}`);
+  (mut(saw_alpha) : bool) = false;
+  (mut(i) : usize) = usize(0);
+  while(i < mods.len(), {
+    m := mods(i).clone();
+    if(m.module == "t/alpha_api", {
+      saw_alpha = true;
+      assert(m.doc.contains(String.from("Alpha")), "alpha's module doc first line survived");
+      assert(m.items == usize(3), `alpha has 3 items, got ${m.items.to_string()}`);
+      assert(!m.degraded, "alpha loads through the evaluator");
+    });
+    i = (i + usize(1));
+  });
+  assert(saw_alpha, "modules.txt has t/alpha_api");
+  // Snapshot the built index: the refresh below must reproduce it byte for
+  // byte (D3 determinism), with no absolute path recorded.
+  idx_dir := context_index_dir(cache.clone(), key.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(String.from("index.txt"));
+  files.push(String.from("modules.txt"));
+  files.push(String.from("manifest.txt"));
+  files.push(String.from("modules/t/alpha_api.md"));
+  mut(snapshot) := ArrayList(String).new();
+  (mut(fi) : usize) = usize(0);
+  while(fi < files.len(), {
+    text := _read_text(Path.new(idx_dir.clone()).join(Path.new(&files(fi))).to_string(), io, exn);
+    assert(!text.contains(base.clone()), `${files(fi)} records no absolute path`);
+    snapshot.push(text);
+    fi = (fi + usize(1));
+  });
+  // Plant a sentinel where a rebuild would write: a reuse must return it,
+  // a refresh must replace it.
+  index_path := Path.new(idx_dir.clone()).join(Path.new(String.from("index.txt"))).to_string();
+  io.await(write_string(Path.new(&index_path), String.from("t/x\tsentinel\tfn\t()\t\n"), io), IoExn(io : io, exn : exn));
+  key2 := context_index_ensure(root.clone(), cache.clone(), false, String.new(), io, exn);
+  assert(key2 == key, "reuse keeps the key");
+  reused := context_index_load(cache.clone(), key.clone(), io, exn);
+  assert(_find_entry(&reused, `t/x`, `sentinel`).is_some(), "without refresh the index is not rebuilt");
+  key3 := context_index_ensure(&root, cache.clone(), true, String.new(), io, exn);
+  assert(key3 == key, "refresh keeps the key");
+  rebuilt := context_index_load(&cache, &key, io, exn);
+  assert(_find_entry(&rebuilt, `t/x`, `sentinel`).is_none(), "refresh rebuilds the index");
+  (mut(fj) : usize) = usize(0);
+  while(fj < files.len(), {
+    again := _read_text(Path.new(idx_dir.clone()).join(Path.new(&files(fj))).to_string(), io, exn);
+    assert(again == snapshot(fj), `${files(fj)} is byte-identical across builds`);
+    fj = (fj + usize(1));
+  });
+});
+test("a module the evaluator cannot load is marked degraded", {
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
+  base := td.path().to_string();
+  root := `${base}/d`;
+  _put(root.clone(), String.from("ok.yo"), String.from("//! Fine.\nfine :: (fn() -> i32)(i32(1));\nexport(fine);\n"), io, exn);
+  _put(root.clone(), String.from("broken.yo"), String.from("//! Broken.\nbroken :: (fn() -> i32)(no_such_name);\nexport(broken);\n"), io, exn);
+  cache := `${base}/cache`;
+  key := context_index_ensure(&root, cache.clone(), false, String.new(), io, exn);
+  mods := context_index_load_modules(&cache, &key, io, exn);
+  (mut(i) : usize) = usize(0);
+  (mut(saw) : usize) = usize(0);
+  while(i < mods.len(), {
+    m := mods(i).clone();
+    if(m.module == "d/broken", {
+      saw = (saw + usize(1));
+      assert(m.degraded, "the unloadable module is degraded");
+      assert(m.doc.contains(String.from("(untyped)")), `its doc line says so, got '${m.doc}'`);
+    });
+    if(m.module == "d/ok", {
+      saw = (saw + usize(1));
+      assert(!m.degraded, "the loadable module is not");
+    });
+    i = (i + usize(1));
+  });
+  assert(saw == usize(2), `both modules listed, saw ${saw.to_string()}`);
+});
+test("search scoring: exact > prefix > substring > signature > doc", {
+  mk :: (fn(nm : &String, sig : &String, dc : &String) -> ContextIndexEntry)(
+    ContextIndexEntry(
+      module : `t/m`,
+      name : nm.clone(),
+      kind : `fn`,
+      signature : sig.clone(),
+      doc : dc.clone(),
+      origin : String.new()
+    )
+  );
+  q := String.from("add");
+  exact := search_score(mk(String.from("add"), String.from("i32"), String.new()), q.clone());
+  cased := search_score(mk(String.from("ADD"), String.new(), String.new()), q.clone());
+  prefix := search_score(mk(String.from("additional"), String.new(), String.new()), q.clone());
+  inner := search_score(mk(String.from("readd"), String.new(), String.new()), q.clone());
+  insig := search_score(mk(String.from("x"), String.from("fn(add : i32) -> i32"), String.new()), q.clone());
+  indoc := search_score(mk(String.from("y"), String.new(), String.from("use add here")), q.clone());
+  none := search_score(mk(String.from("z"), String.new(), String.new()), &q);
+  assert(exact == usize(400), `exact 400, got ${exact.to_string()}`);
+  assert(cased == usize(400), `case-insensitive, got ${cased.to_string()}`);
+  assert(prefix == usize(300), `prefix 300, got ${prefix.to_string()}`);
+  assert(inner == usize(200), `name substring 200, got ${inner.to_string()}`);
+  assert(insig == usize(100), `signature 100, got ${insig.to_string()}`);
+  assert(indoc == usize(50), `doc 50, got ${indoc.to_string()}`);
+  assert(none == usize(0), `no match 0, got ${none.to_string()}`);
+});
+test("search scoring: a multi-word query ANDs its tokens over name, module, signature and doc", {
+  // "hash string" used to be matched as ONE literal substring and hit
+  // nothing. Tokens are whitespace-split, lowercased, and EVERY token must
+  // match somewhere; the entry scores its WEAKEST token's best tier.
+  mkm :: (fn(mod : &String, nm : &String, sig : &String, dc : &String) -> ContextIndexEntry)(
+    ContextIndexEntry(
+      module : mod.clone(),
+      name : nm.clone(),
+      kind : `fn`,
+      signature : sig.clone(),
+      doc : dc.clone(),
+      origin : String.new()
+    )
+  );
+  // The motivating shape: `hash` names the method, `string` only its module
+  // and signature — the module tier is what lets the recall query hit.
+  e_mod := mkm(
+    `std/string`,
+    `hash`,
+    `(String) fn(generic(H) self : &mut String, hasher : &mut H) -> unit`,
+    String.new()
+  );
+  s_mod := search_score(&e_mod, String.from("hash string"));
+  assert(s_mod == usize(150), `name-exact ∧ module-substring → the weaker token's tier 150, got ${s_mod.to_string()}`);
+  e_doc := mkm(`std/x`, `hash`, String.new(), `Hashes a string quickly.`);
+  assert(search_score(&e_doc, String.from("hash string")) == usize(50), `a doc-only token scores the doc tier 50`);
+  e_sig := mkm(`std/x`, `hash`, `fn(s : String) -> u64`, String.new());
+  assert(search_score(&e_sig, String.from("hash string")) == usize(100), `a signature-only token scores 100`);
+  e_none := mkm(`std/x`, `hash`, String.new(), String.new());
+  assert(search_score(&e_none, String.from("hash string")) == usize(0), `a token matching nowhere kills the entry`);
+  assert(search_score(&e_mod, String.from("  Hash   string ")) == usize(150), `whitespace runs collapse and tokens are lowercased`);
+  assert(search_score(&e_mod, String.from("   ")) == usize(0), `a whitespace-only query is no query`);
+  e_file := mkm(`std/fs/file`, `read`, String.new(), String.new());
+  assert(search_score(&e_file, String.from("file")) == usize(150), `the module tier also serves one-token queries, above signature and doc`);
+});
+test("_search_entries: byte-identical rows collapse; a multi-word query matches", {
+  // An IO failure fails the test. deep=false never touches io/exn, but the
+  // signature demands them.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  // std/async/channel's shape: one `close` per receiver type, and every
+  // signature says `Self`, so several index lines are byte-identical.
+  row :: (fn(nm : &String, sig : &String) -> ContextIndexEntry)(
+    ContextIndexEntry(
+      module : `t/channel`,
+      name : nm.clone(),
+      kind : `method`,
+      signature : sig.clone(),
+      doc : String.new(),
+      origin : String.new()
+    )
+  );
+  mut(entries) := ArrayList(ContextIndexEntry).new();
+  entries.push(row(`close`, `(fn(self : Self) -> unit)`));
+  entries.push(row(`is_closed`, `(fn(self : Self) -> bool)`));
+  entries.push(row(`close`, `(fn(self : Self) -> unit)`));
+  entries.push(row(`close`, `(fn(self : Self) -> unit)`));
+  entries.push(row(`close`, `(fn(self : Self) -> bool)`));
+  world := LoadedWorld(entries : entries, mods : ArrayList(ContextIndexModule).new());
+  hits := _search_entries(String.from("close"), false, &world, io, exn);
+  // `is_closed` is a legitimate name-substring hit, so the row count is 3
+  // (the deduped trio + is_closed + the distinct-signature close) where the
+  // unfixed stream printed 5.
+  assert(hits.len() == usize(3), `the trio collapsed and is_closed still hits: 3 rows, got ${hits.len().to_string()}`);
+  (mut(closes) : usize) = usize(0);
+  (mut(saw_bool) : bool) = false;
+  (mut(i) : usize) = usize(0);
+  while(i < hits.len(), {
+    h := hits(i).clone();
+    i = (i + usize(1));
+    if(h.entry.name == String.from("close"), {
+      closes = (closes + usize(1));
+      if(h.entry.signature.contains(String.from("bool")), {
+        saw_bool = true;
+      });
+    });
+  });
+  assert(closes == usize(2), `the byte-identical trio is ONE row, the distinct signature stays: 2 close rows, got ${closes.to_string()}`);
+  assert(saw_bool, `the distinct-signature close survived`);
+  // The token fix runs through the whole hit stream: `channel` matches only
+  // the module.
+  hits2 := _search_entries(String.from("close channel"), false, &world, io, exn);
+  assert(hits2.len() == usize(3), `every distinct row matches the module token: 3, got ${hits2.len().to_string()}`);
+  assert(hits2(usize(0)).score == usize(150), `name-exact ∧ module-substring → 150, got ${hits2(usize(0)).score.to_string()}`);
+});

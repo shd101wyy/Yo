@@ -1,0 +1,658 @@
+//! Compile-time value → C literal emission (`generate_comptime_value`).
+//!
+//! `EvalValue` is type-less (IntLit/FloatLit store raw
+//! text; EnumVal/StructVal carry no TypeValue), so the resolved type is
+//! THREADED IN as the `ty` parameter — callers pass the ExprInfo type
+//! (`ei.ty` / `ei.converted_runtime_type`). Numeric suffix/format derive from
+//! `ty`; enum/struct/tuple/array cName + field types come from `ty`'s
+//! structure. All nested value emission is `recur` (no mutual recursion
+//! across helpers).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ EvalValue, EvalValueNode, ValueCell } :: import("../../value.yo");
+{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_types, no_labels } :: import("../../types/definitions.yo");
+{ is_unit_type, is_str_type, is_primitive_type, is_some_type, is_reference_enum_type, is_array_type, is_cell_primitive_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{
+  CodeGenContext,
+  type_key,
+  get_type_string,
+  get_enum_variant_c_name,
+  sanitize_for_c_identifier,
+  c_field_name,
+  c_variant_member_name,
+  can_optimize_as_nullable_pointer,
+  can_optimize_as_simple_enum
+} :: import("../utils/index.yo");
+{ fn_value_c_name } :: import("../functions/declarations.yo");
+/// C integer-literal suffix for an integer type (ValueTag suffix logic, driven
+/// by the threaded type).
+_int_suffix :: (fn(ty : &TypeValue) -> str)(
+  match(
+    ty,
+    Rc(.Int(bits, signed)) => cond(
+      ((bits.* == u8(64)) && !signed.*) => "ULL",
+      ((bits.* == u8(64)) && signed.*) => "LL",
+      ((bits.* == u8(32)) && !signed.*) => "U",
+      true => ""
+    ),
+    Rc(.Usize) => "ULL",
+    Rc(.Isize) => "LL",
+    _ => ""
+  )
+);
+/// True if the type is a 32-bit float (needs the `f` suffix).
+_is_f32 :: (fn(ty : &TypeValue) -> bool)(
+  match(ty, Rc(.Float(bits)) => (bits.* == u8(32)), _ => false)
+);
+/// True if `ty` is the comptime_string type.
+_is_comptime_string :: (fn(ty : &TypeValue) -> bool)(
+  match(ty, Rc(.ComptimeString) => true, _ => false)
+);
+/// Strip the surrounding `"` delimiters that the `StrLit` convention
+/// keeps (see evaluator/values/string.yo:5 — `StrLit.raw` stores the raw token
+/// text *including* the quotes).
+/// Codegen renders the string CONTENT, so the delimiters must come off here
+/// before re-escaping / length computation. Defensive: only strips when both
+/// ends are `"` and the string is at least 2 bytes (synthetic StrLits built
+/// without delimiters pass through unchanged).
+_strip_str_delims :: (fn(raw : &String) -> String)({
+  // BYTE count, NOT String.len() (which counts CHARACTERS — std skips UTF-8
+  // continuation bytes): this function walks BYTES, and a char-counted bound
+  // made byte_at(n-1) miss the closing quote on multibyte content (strip
+  // no-op) while _c_string_literal below truncated the tail bytes — the
+  // em-dash template corruption in the stage-2 binary.
+  n := raw.len();
+  if((n >= usize(2)) && (raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34)), {
+    // Byte-exact strip of the first/last byte (the ASCII `"` delimiters).
+    // `len()`/`byte_at` are byte-indexed but `substring` is rune-indexed, so
+    // rebuild from the inner byte range to stay correct for multibyte UTF-8.
+    bytes := raw.clone();
+    mut(inner) := ArrayList(u8).new();
+    (mut(i) : usize) = usize(1);
+    while(i < (n - usize(1)), {
+      inner.push(match(bytes.get_byte(i), .Some(b) => b, .None => u8(0)));
+      i = (i + usize(1));
+    });
+    String.from_bytes(inner)
+  }, raw.clone())
+});
+/// Produce a C string literal `"..."` from raw bytes, escaping C-special
+/// characters. Control bytes have NO valid `\uXXXX` spelling in C ("universal character
+/// name refers to a control character"), so besides the named escapes they
+/// become unambiguous 3-digit octal. A NUL byte pushed verbatim (the old
+/// behavior) poisons the emitted C — see
+/// issues/fixed/c-string-literal-control-chars-emitted-as-unicode-escapes.md
+_c_string_literal :: (fn(raw : &String) -> String)({
+  mut(out) := String.from("\"");
+  // BYTE count (see _strip_str_delims note): this loop reads raw BYTES.
+  n := raw.len();
+  (mut(i) : usize) = usize(0);
+  while(i < n, {
+    b := raw.byte_at(i);
+    cond(
+      (b == u8(34)) => out.push_str("\\\""),
+      (b == u8(92)) => out.push_str("\\\\"),
+      (b == u8(10)) => out.push_str("\\n"),
+      (b == u8(9)) => out.push_str("\\t"),
+      (b == u8(13)) => out.push_str("\\r"),
+      (b == u8(8)) => out.push_str("\\b"),
+      (b == u8(12)) => out.push_str("\\f"),
+      (b < u8(32)) => {
+        out.push_byte(u8(92));
+        out.push_byte(u8(48) + (b / u8(64)));
+        out.push_byte(u8(48) + ((b / u8(8)) % u8(8)));
+        out.push_byte(u8(48) + (b % u8(8)));
+      },
+      true => out.push_byte(b)
+    );
+    i = (i + usize(1));
+  });
+  out.push_str("\"");
+  out
+});
+/// Find a variant's index in an EnumT by name (or `.None`).
+_enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize))(
+  match(
+    enum_ty,
+    Rc(.EnumT({ variant_names })) => {
+      n := variant_names.len();
+      (mut(i) : usize) = usize(0);
+      (mut(found) : Option(usize)) = .None;
+      while(i < n, {
+        match(
+          variant_names.get(i),
+          .Some(vn) => if(vn == name.*, {
+            found = .Some(i);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => Option(usize).None
+  )
+);
+/// True iff `t` is one of the extern("Yo") io-builtin fn types (the
+/// `Func` io-builtin marker set: io.async / io.await / io.state / io.spawn and
+/// JoinHandle.await). These are markers with no C body — every call site is
+/// inlined into direct runtime calls — so a struct-literal field of one of
+/// these types lowers to a NULL fn pointer.
+_is_io_builtin_fn_type :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t,
+    Rc(.Func({ meta : __ibm1 })) => match(
+      &__ibm1.is_extern,
+      .Some(lang) => if(
+        lang.* == "yo",
+        match(
+          &__ibm1.extern_name,
+          .Some(en) => (
+            (en.* == "__yo_io_async") || (en.* == "__yo_io_await") ||
+              (en.* == "__yo_io_state") || (en.* == "__yo_io_spawn")
+              ||
+                (en.* == "__yo_join_handle_await")
+          ),
+          .None => false
+        ),
+        false
+      ),
+      .None => false
+    ),
+    _ => false
+  )
+);
+/// `generate_comptime_value` HEAP-ALLOCATES for exactly two shapes: a
+/// reference-semantics enum variant becomes `__yo_new_<cName>_<Variant>(…)` and
+/// a reference-semantics struct / `object` value becomes `__yo_new_<cName>(…)`.
+/// Both malloc with `ref_count = 1`, so the expression owns an RC value and
+/// needs a C binding to hang its `___drop` on. Every other comptime value
+/// renders as a literal or a compound literal and owns nothing — materializing
+/// one into a temp would make the scope-end pass emit a `___drop` against
+/// memory that was never allocated.
+///
+/// Keep in sync with the branches in `generate_comptime_value` below, and with
+/// `can_optimize_as_simple_enum` / `can_optimize_as_nullable_pointer` — both
+/// collapse a ref-enum into a non-allocating form: a plain C enum constant, or
+/// `NULL` / a bare pointer.
+comptime_value_allocates_rc_object :: (fn(value : &EvalValue, ty : &TypeValue) -> bool)(
+  match(
+    value,
+    Rc(.EnumVal(_, _)) => cond(
+      !is_reference_enum_type(ty) => false,
+      can_optimize_as_nullable_pointer(ty).is_some() => false,
+      can_optimize_as_simple_enum(ty) => false,
+      true => true
+    ),
+    Rc(.StructVal(_, _, field_values)) => match(
+      ty,
+      Rc(.Struct({ field_types, is_reference_semantics, is_newtype })) => cond(
+        // A newtype renders as a cast over its single underlying field.
+        (is_newtype.* && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => false,
+        true => is_reference_semantics.*
+      ),
+      _ => false
+    ),
+    _ => false
+  )
+);
+/// Generate the C literal/initializer for a compile-time value of type `ty`.
+/// Self-recursion via recur.
+// `(&S<path>)` for a static `S` holding the compile-time `value` of type `ty`
+// (`path` selects an element or field inside it; empty for the whole value).
+// A value that allocates reference-counted objects cannot be a static
+// initializer, and neither can one with an unrenderable part: both keep the
+// placeholder.
+_static_address :: (fn(value : &EvalValue, ty : &TypeValue, path : &String, context : &mut CodeGenContext) -> String)(
+  cond(
+    comptime_value_allocates_rc_object(value, ty) => String.from("/* skip generating value */"),
+    true => {
+      init := generate_comptime_value(value, ty, context);
+      cond(
+        init.contains(String.from("/* skip generating value */")) => init,
+        true => `(&${context.comptime_pointer_static(get_type_string(ty, context), &init)}${path})`
+      )
+    }
+  )
+);
+generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &mut CodeGenContext) -> String)(
+  match(
+    value,
+    Rc(.IntLit(raw)) => {
+      // `-9223372036854775808LL` is NOT a valid signed literal in C: the
+      // digits 9223372036854775808 don't fit long long, so clang types the
+      // literal `unsigned long long` (-Wimplicitly-unsigned-literal, hidden
+      // by -w) and any comparison it is inlined into silently goes UNSIGNED
+      // — `_i64_op_wrapped`'s `a < (i64.MIN + b)` then returned TRUE for
+      // `isize(3) - isize(1)`, making the self-hosted binary reject EVERY
+      // comptime signed subtraction. Emit the portable INT64_MIN idiom.
+      suffix := _int_suffix(ty);
+      if((suffix == "LL") && (raw.* == "-9223372036854775808"), {
+        return(String.from("(-9223372036854775807LL - 1)"));
+      });
+      out := raw.clone();
+      out.push_str(suffix);
+      out
+    },
+    Rc(.FloatLit(raw)) => {
+      // The three NON-FINITE doubles come out of C `%g` as `inf`, `-inf` and
+      // `nan` — none of which carries a radix point or an exponent, so the
+      // float-marker test below appended `.0` and produced `inf.0`, which is
+      // not C at all (issues/fixed/comptime-float-infinity-emits-invalid-c.md).
+      // They are reachable from any comptime arithmetic that overflows the
+      // range, and `f64(1.0e400)` is the only spelling of `f64.INFINITY`
+      // available today. `HUGE_VAL`/`HUGE_VALF`/`NAN` are the C11 <math.h>
+      // spellings (7.12/4, 7.12/5); `(1.0/0.0)` is NOT a substitute, being a
+      // division by zero in a context that may require a constant expression.
+      // Matched by PREFIX, not equality, because the spelling is the HOST C
+      // library's and they disagree: glibc and Apple libc print `nan` /
+      // `-nan`, while the MS CRT prints `-nan(ind)` for the indefinite NaN
+      // (and `nan(snan)` for a signalling one). An equality test passed on
+      // macOS and Linux and emitted `-nan(ind).0` on Windows — not C at all,
+      // and clang read the payload as an identifier: "use of undeclared
+      // identifier 'ind'; did you mean 'bind'?"
+      // (issues/fixed/msvc-nan-spelling-escapes-the-non-finite-float-match.md).
+      // No finite raw can collide: `%g` renders one starting with a digit,
+      // `-`, `+` or `.`, never with `i` or `n` after an optional sign.
+      //
+      // A NaN's SIGN and PAYLOAD are dropped on purpose. C offers no portable
+      // constant expression for either, `NAN` is the canonical quiet NaN, and
+      // no operation except `copysign`/`signbit` can observe the difference.
+      lowered := raw.clone().to_lowercase();
+      non_finite := cond(
+        (lowered.starts_with("inf") || lowered.starts_with("+inf")) => if(_is_f32(ty), String.from("HUGE_VALF"), String.from("HUGE_VAL")),
+        lowered.starts_with("-inf") => if(_is_f32(ty), String.from("(-HUGE_VALF)"), String.from("(-HUGE_VAL)")),
+        (
+          lowered.starts_with("nan") || lowered.starts_with("+nan") || lowered.starts_with("-nan")
+        ) => if(_is_f32(ty), String.from("NAN"), String.from("((double)NAN)")),
+        true => String.from("")
+      );
+      // No `add_c_include` here: `emit_c_includes` has already run by the time
+      // any value is generated. `<math.h>` is in codegen_c's unconditional base
+      // include set for exactly this reason.
+      if(non_finite.len() > usize(0), {
+        return(non_finite);
+      });
+      // A C floating constant is already float-typed if it has a radix point
+      // (`.`) OR an exponent (`e`/`E`). Float raws come from f64
+      // `.to_string()` (C `%g`), which renders large magnitudes in exponent
+      // form (`1e+09`), not decimal form (`1000000000`).
+      // A `.`-only float-marker check then appended
+      // `.0` to an exponent form, producing invalid C like `1e+09.0`. Treat
+      // `e`/`E` as a float marker too so only bare integer-form raws get `.0`.
+      has_float_marker := (
+        raw.contains(".") || raw.contains("e") || raw.contains("E")
+      );
+      base := if(has_float_marker, raw.clone(), {
+        r := raw.clone();
+        r.push_str(".0");
+        r
+      });
+      if(_is_f32(ty), {
+        base.push_str("f");
+      });
+      base
+    },
+    Rc(.BoolVal(b)) => if(b.*, String.from("true"), String.from("false")),
+    Rc(.StrLit(raw_with_delims)) => {
+      // StrLit keeps the surrounding `"` delimiters; codegen emits
+      // the CONTENT, so strip them before re-escaping / length computation.
+      raw := _strip_str_delims(&raw_with_delims.*);
+      cond(
+        (is_str_type(ty) || _is_comptime_string(ty)) => {
+          lit := String.from("(__yo_str){ .ptr = (const uint8_t*)");
+          lit.push_string(_c_string_literal(raw.clone()));
+          lit.push_str(", .len = ");
+          // __yo_str .len is BYTES.
+          lit.push_string(raw.len().to_string());
+          lit.push_str(" }");
+          lit
+        },
+        true => _c_string_literal(&raw)
+      )
+    },
+    // --- enum (nullable-pointer / simple / tagged-union) ---
+    Rc(.EnumVal(variant_raw, fields)) => {
+      // An enum VALUE's variant name carries the leading `.` of the `.Variant`
+      // source form (e.g. `.Just`); the EnumT's variant_names are clean. Strip
+      // it so `_enum_variant_index` finds the variant (else None → the payload
+      // `.data` is silently dropped) and so the `.data.<variant>` field name is
+      // valid. Same strip as get_enum_variant_c_name.
+      variant := if(variant_raw.starts_with("."), variant_raw.substring(usize(1), variant_raw.len()), variant_raw.clone());
+      ptr_opt := can_optimize_as_nullable_pointer(ty);
+      cond(
+        (ptr_opt.is_some() && (fields.len() == usize(0))) => String.from("NULL"),
+        (ptr_opt.is_some() && (fields.len() == usize(1))) => match(
+          ptr_opt,
+          .Some(pt) => recur(match(fields.get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal)), &pt, context),
+          .None => String.from("NULL")
+        ),
+        can_optimize_as_simple_enum(ty) => get_enum_variant_c_name(ty, variant.clone(), context),
+        true => {
+          c_name := match(context.get_type_c_name(type_key(ty)), .Some(cn) => cn, .None => String.from("__yo_unknown_enum"));
+          variant_tag := get_enum_variant_c_name(ty, variant.clone(), context);
+          // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
+          // per-variant constructor `__yo_new_<cName>_<variant>(positional…)`;
+          // value enums use a designated compound literal.
+          is_ref := is_reference_enum_type(ty);
+          vidx := _enum_variant_index(ty, variant.clone());
+          inits := String.from("");
+          positional := String.from("");
+          (any_field : bool) = false;
+          match(
+            ty,
+            Rc(.EnumT({ variant_fields, variant_field_labels })) => match(
+              vidx,
+              .Some(vi) => {
+                vftys := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+                vflabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
+                nf := fields.len();
+                (fi : usize) = usize(0);
+                while(fi < nf, {
+                  fty := match(vftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                  if(!is_unit_type(&fty), {
+                    fcode := match(fields.get(fi), .Some(fv) => recur(&fv, &fty, context), .None => String.from(""));
+                    if(any_field, {
+                      inits.push_str(", ");
+                      positional.push_str(", ");
+                    });
+                    any_field = true;
+                    flabel := match(vflabels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
+                    inits.push_str(".");
+                    inits.push_string(sanitize_for_c_identifier(&flabel, false));
+                    inits.push_str(" = ");
+                    inits.push_string(fcode.clone());
+                    positional.push_string(&fcode);
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+          cond(
+            is_ref => {
+              out := String.from("__yo_new_");
+              out.push_string(&c_name);
+              out.push_str("_");
+              out.push_string(variant.clone());
+              out.push_str("(");
+              out.push_string(&positional);
+              out.push_str(")");
+              out
+            },
+            true => {
+              out := String.from("(");
+              out.push_string(&c_name);
+              out.push_str("){ .tag = ");
+              out.push_string(&variant_tag);
+              if(any_field, {
+                out.push_str(", .data = { .");
+                out.push_string(c_variant_member_name(variant.clone()));
+                out.push_str(" = { ");
+                out.push_string(&inits);
+                out.push_str(" } }");
+              });
+              out.push_str(" }");
+              out
+            }
+          )
+        }
+      )
+    },
+    Rc(.TupleVal(fields)) => match(
+      ty,
+      Rc(.Tuple({ field_types })) => {
+        out := String.from("(");
+        out.push_string(get_type_string(ty, context));
+        out.push_str("){ ");
+        n := fields.len();
+        (i : usize) = usize(0);
+        (any_elem : bool) = false;
+        while(i < n, {
+          fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+          // A `unit` element is zero-sized and has no `_N` member
+          // (types/generation.yo): no initializer.
+          if(!is_unit_type(&fty), {
+            if(any_elem, {
+              out.push_str(", ");
+            });
+            any_elem = true;
+            out.push_str("._");
+            out.push_string(i.to_string());
+            out.push_str(" = ");
+            match(fields.get(i), .Some(fv) => out.push_string(recur(&fv, &fty, context)), .None => ());
+          });
+          i = (i + usize(1));
+        });
+        out.push_str(" }");
+        out
+      },
+      _ => String.from("/* skip generating tuple value */")
+    ),
+    Rc(.ArrayVal(elements)) => match(
+      ty,
+      // `Array(unit, N)` is zero-sized: its wrapper has no `data` member
+      // (types/generation.yo), so the literal is the empty struct.
+      Rc(.Array({ element })) => if(is_unit_type(&element.*), {
+        out := String.from("(");
+        out.push_string(get_type_string(ty, context));
+        out.push_str("){ }");
+        out
+      }, {
+        out := String.from("(");
+        out.push_string(get_type_string(ty, context));
+        out.push_str("){ .data = { ");
+        n := elements.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          if(i > usize(0), {
+            out.push_str(", ");
+          });
+          match(elements.get(i), .Some(ev) => out.push_string(recur(&ev, &element.*, context)), .None => ());
+          i = (i + usize(1));
+        });
+        out.push_str(" } }");
+        out
+      }),
+      _ => String.from("/* skip generating array value */")
+    ),
+    // --- struct (newtype / object-constructor / plain literal) ---
+    Rc(.StructVal(_, field_names, field_values)) => match(
+      ty,
+      Rc(.Struct({ id, field_types, is_reference_semantics, is_newtype })) => {
+        c_name := match(context.get_type_c_name(type_key(ty)), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
+        // Comptime-only field flags, by FULL declaration index: pair
+        // `type.fields[i]` with `value.fields[i]` and then FILTER to
+        // `getRuntimeStructFields`, so comptime-only
+        // fields are erased from the emitted literal / constructor args exactly
+        // as they are erased from the C struct layout. Both branches below
+        // previously indexed by the RUNTIME position (ref-semantics) or skipped
+        // only unit fields (plain literal) — a struct with a comptime-only
+        // field (e.g. `tag :: "..."`) emitted a `.tag = ...` designator that
+        // does not exist in the C type (tests/module-struct-unification.test.yo
+        // "Phase 1: comptime-only struct fields are erased from C layout").
+        ct_flags := get_struct_field_comptime_flags(id.clone());
+        cond(
+          (is_newtype.* && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => {
+            uty := match(field_types.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+            uval := match(field_values.get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
+            out := String.from("((");
+            out.push_string(&c_name);
+            out.push_str(")(");
+            out.push_string(recur(&uval, &uty, context));
+            out.push_str("))");
+            out
+          },
+          is_reference_semantics.* => {
+            out := String.from("__yo_new_");
+            out.push_string(&c_name);
+            out.push_str("(");
+            nf := field_types.len();
+            (i : usize) = usize(0);
+            (any_arg : bool) = false;
+            // A cell primitive's constructor takes the allocator first
+            // (functions/constructors.yo); a value carries no allocator, so
+            // its cell is global.
+            if(is_cell_primitive_type(ty), {
+              out.push_str("(__yo_alloc_scope_t){ 0, 0 }");
+              any_arg = true;
+            });
+            while(i < nf, {
+              field_is_ct := match(
+                ct_flags.clone(),
+                .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),
+                .None => false
+              );
+              fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+              // A `unit` field is zero-sized: the ctor has no parameter for it
+              // (functions/constructors.yo).
+              if(!field_is_ct && !is_unit_type(&fty), {
+                if(any_arg, {
+                  out.push_str(", ");
+                });
+                any_arg = true;
+                match(field_values.get(i), .Some(fv) => out.push_string(recur(&fv, &fty, context)), .None => ());
+              });
+              i = (i + usize(1));
+            });
+            out.push_str(")");
+            out
+          },
+          true => {
+            out := String.from("(");
+            out.push_string(&c_name);
+            out.push_str("){ ");
+            n := field_names.len();
+            (i : usize) = usize(0);
+            (any : bool) = false;
+            while(i < n, {
+              fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+              field_is_ct2 := match(
+                ct_flags.clone(),
+                .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),
+                .None => false
+              );
+              if(!is_unit_type(&fty) && !field_is_ct2, {
+                if(any, {
+                  out.push_str(", ");
+                });
+                any = true;
+                flabel := match(field_names.get_cloned(i), .Some(l) => l, .None => String.from(""));
+                out.push_str(".");
+                out.push_string(c_field_name(ty, &flabel));
+                out.push_str(" = ");
+                match(field_values.get(i), .Some(fv) => out.push_string(recur(&fv, &fty, context)), .None => ());
+              });
+              i = (i + usize(1));
+            });
+            out.push_str(" }");
+            out
+          }
+        )
+      },
+      _ => String.from("/* skip generating struct value */")
+    ),
+    // A primitive scalar is never in the collected-type registry — its C
+    // name is structural (`int`, `size_t`, …). `sizeof(int)` on a target
+    // whose `int` width is not folded reaches here as a runtime
+    // `sizeof(<TypeVal>)` (issues/fixed/sizeof-of-a-c-platform-type-has-no-c-type-name.md).
+    Rc(.TypeVal(t)) => cond(
+      is_str_type(&t.*) => String.from("__yo_str"),
+      (is_primitive_type(&t.*) && !is_unit_type(&t.*)) => get_type_string(&t.*, context),
+      // A SomeT is never in the collected-type registry either: it lowers
+      // through its resolution — `IoFuture`, an `Impl(Concrete(
+      // __yo_io_future_t), …)`, to `__yo_io_future_t*`
+      // (issues/fixed/sizeof-of-a-resolved-impl-type-has-no-c-type-name.md).
+      is_some_type(&t.*) => get_type_string(&t.*, context),
+      // Nor is an extern opaque type (`atomic_int`, `FILE`): its C name is its
+      // C spelling, so `sizeof(atomic_int)` lowers to `sizeof(atomic_int)`
+      // (issues/fixed/2026-10-28-sizeof-of-an-extern-opaque-type-has-no-c-type-name.md).
+      match(t, Rc(.ExternOpaqueT(_, _)) => true, _ => false) => get_type_string(&t.*, context),
+      true => match(
+        context.get_type_c_name(type_key(&t.*)),
+        .Some(cn) => cn,
+        .None => {
+          c := String.from("/* Error: no C type name for ");
+          c.push_string(type_to_string(&t.*));
+          c.push_str(" */");
+          c
+        }
+      )
+    ),
+    // A first-class function VALUE lowers to its registered C function name —
+    // i.e. a function pointer, through `fn_value_c_name`'s erased-signature
+    // thunk when the function returns a concrete future. The
+    // function must have been collected for codegen; if not, emit a diagnostic.
+    Rc(.FuncVal(__fvd1, _)) => match(
+      fn_value_c_name(&__fvd1.func_id, context),
+      .Some(cn) => cn,
+      .None => {
+        c := String.from("/* Error: no C function name for func value ");
+        c.push_string(&__fvd1.func_id);
+        c.push_str(" */");
+        c
+      }
+    ),
+    // An io-builtin fn field (Io / JoinHandle struct literal) arrives as an
+    // UnknownVal carrying the extern("Yo") fn type (extern decls bind
+    // `create_unknown_val_with_name(field_ty_with_extern, …)`) — emit a NULL
+    // fn pointer so the initializer is valid C. Detection is the
+    // extern("Yo") name on the CARRIED type (the
+    // declared field type on the Io struct is a plain unmarked Func).
+    Rc(.UnknownVal(unk_ty, _)) => if(
+      _is_io_builtin_fn_type(&unk_ty.*) || _is_io_builtin_fn_type(ty),
+      String.from("NULL"),
+      String.from("/* skip generating value */")
+    ),
+    // `&(K)` of a compile-time constant reaching emitted code: the pointer
+    // must address static storage, because a compound literal in a function
+    // has automatic storage and dangles once the pointer is returned
+    // (issues/fixed/address-of-a-module-level-constant-emits-a-placeholder.md).
+    // An element or field pointer (`&(A(i))`, `&(K.f)`, `&(t.0)`) carries the
+    // type of the aggregate it points into, and the WHOLE aggregate becomes
+    // the static, so pointer arithmetic across an array stays inside it
+    // (issues/fixed/address-of-an-element-of-a-compile-time-constant-emits-a-placeholder.md).
+    Rc(.PtrVal(cell, index, aggregate)) => match(
+      ty,
+      Rc(.Pointer(pointee)) => match(
+        cell.get(usize(0)),
+        .Some(target) => match(
+          aggregate,
+          // A whole value. An element list with no recorded aggregate type
+          // cannot be told apart from its siblings: keep the placeholder.
+          .None => cond(
+            (match(Rc.clone(target), Rc(.ArrayVal(_)) => true, Rc(.ComptimeListVal(_)) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
+            true => _static_address(&target, &pointee.*, String.new(), context)
+          ),
+          .Some(agg_ty) => {
+            parts := match(target, Rc(.ArrayVal(elems)) => Option(ValueCell).Some(Rc.clone(elems)), Rc(.ComptimeListVal(elems)) => .Some(Rc.clone(elems)), _ => .None);
+            match(
+              parts,
+              .None => String.from("/* skip generating value */"),
+              .Some(elems) => match(
+                agg_ty,
+                Rc(.Struct({ field_labels : labels })) => match(
+                  labels.get(index.*),
+                  .Some(label) => _static_address(Rc.new(EvalValueNode.StructVal(String.new(), Rc.clone(labels), Rc.clone(elems))), &agg_ty.*, `.${c_field_name(&agg_ty.*, &label)}`, context),
+                  .None => String.from("/* skip generating value */")
+                ),
+                Rc(.Tuple(_, _)) => _static_address(Rc.new(EvalValueNode.TupleVal(Rc.clone(elems))), &agg_ty.*, `._${index}`, context),
+                _ => cond(
+                  is_array_type(&agg_ty.*) => _static_address(Rc.new(EvalValueNode.ArrayVal(Rc.clone(elems))), &agg_ty.*, `.data[${index}]`, context),
+                  true => String.from("/* skip generating value */")
+                )
+              )
+            )
+          }
+        ),
+        .None => String.from("/* skip generating value */")
+      ),
+      _ => String.from("/* skip generating value */")
+    ),
+    _ => if(_is_io_builtin_fn_type(ty), String.from("NULL"), String.from("/* skip generating value */"))
+  )
+);
+export(generate_comptime_value, comptime_value_allocates_rc_object, _c_string_literal, _strip_str_delims);

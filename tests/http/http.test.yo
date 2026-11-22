@@ -14,7 +14,7 @@ _wire :: import("std/http/wire.yo");
 { Exception, IoExn, AnyError } :: import("std/error");
 { println, eprintln } :: import("std/fmt");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { RefCell } :: import("std/sync/refcell");
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
@@ -995,16 +995,17 @@ test("parse_response slices a binary body as bytes", {
 // REFUSED and the test fails in a second, instead of hanging on a socket
 // nobody will ever answer.
 //
-// The counters live in a `ref(struct(...))` handed to the server rather than
-// in module-level mutable bindings, and that is not a style choice: a
+// The counters live in an `Rc(RefCell(...))` handed to the server rather
+// than in module-level mutable bindings, and that is not a style choice: a
 // module-level mutable written across a SUSPENSION POINT in an `io.async`
 // body operates on a copy, so the writes are lost
 // (issues/fixed/a-module-global-is-lost-across-an-async-suspension.md) — and this
-// server's loop suspends on every read. A reference-semantics value is
-// shared by construction.
-_KaStats :: ref(struct(accepts : usize, requests : usize, saw_close : bool));
+// server's loop suspends on every read. A shared cell is shared by
+// construction.
+_KaStatsInner :: struct(accepts : usize, requests : usize, saw_close : bool);
+_KaStats :: Rc(RefCell(_KaStatsInner));
 _ka_stats :: (fn() -> _KaStats)(
-  _KaStats(accepts : usize(0), requests : usize(0), saw_close : false)
+  Rc.new(RefCell(_KaStatsInner).new(_KaStatsInner(accepts : usize(0), requests : usize(0), saw_close : false)))
 );
 // HTTP/1.1 + Content-Length; the connection stays open (reusable).
 _KA_KEEP :: i32(0);
@@ -1069,14 +1070,18 @@ _ka_conn :: (fn(stream : &TcpStream, mode : i32, stats : _KaStats, io : Io) -> I
           open = false;
         },
         true => {
-          stats.requests = (stats.requests + usize(1));
+          stats.with_mut(st => {
+            st.requests = (st.requests + usize(1));
+          });
           cond(
             raw.to_lowercase().contains(`connection: close`) => {
-              stats.saw_close = true;
+              stats.with_mut(st => {
+                st.saw_close = true;
+              });
             },
             true => ()
           );
-          answer = _ka_response(mode, stats.requests, raw.starts_with(`HEAD `));
+          answer = _ka_response(mode, stats.with(st => st.requests), raw.starts_with(`HEAD `));
         }
       );
       cond(
@@ -1125,7 +1130,9 @@ _ka_serve :: (
     mut(n) := usize(0);
     while(n < max_conns, {
       stream := e.io.await(listener.accept(e.io), e);
-      stats.accepts = (stats.accepts + usize(1));
+      stats.with_mut(st => {
+        st.accepts = (st.accepts + usize(1));
+      });
       n = (n + usize(1));
       // Stop listening the moment the budget is spent, so an unexpected
       // reconnect is REFUSED rather than left hanging.
@@ -1135,7 +1142,7 @@ _ka_serve :: (
         },
         true => ()
       );
-      e.io.await(_ka_conn(&stream, mode, stats, e.io), e);
+      e.io.await(_ka_conn(&stream, mode, Rc.clone(&stats), e.io), e);
       // `stream` is move-only: the list owns it once its exchange is done.
       held.push(stream);
     });
@@ -1163,7 +1170,7 @@ test("HttpClient: a second request runs on the pooled connection, with no reconn
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19840), io), e);
-  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19840/one`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
@@ -1173,9 +1180,9 @@ test("HttpClient: a second request runs on the pooled connection, with no reconn
   // the proof of reuse; the accept count states it directly.
   b := io.await(client.fetch(`http://127.0.0.1:19840/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.accepts == usize(1), `one accept for two requests, got ${stats.accepts}`);
-  assert(stats.requests == usize(2), `the server framed two requests, got ${stats.requests}`);
-  assert(!stats.saw_close, "a pooled request does not announce Connection: close");
+  assert(stats.with(st => st.accepts) == usize(1), `one accept for two requests, got ${stats.with(st => st.accepts)}`);
+  assert(stats.with(st => st.requests) == usize(2), `the server framed two requests, got ${stats.with(st => st.requests)}`);
+  assert(!stats.with(st => st.saw_close), "a pooled request does not announce Connection: close");
   assert(client.idle_count() == usize(1), "and it is pooled again");
   client.close_idle();
   assert(client.idle_count() == usize(0), "close_idle empties the pool");
@@ -1193,15 +1200,15 @@ test("HttpClient: the free fetch stays one-shot — it announces Connection: clo
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19841), io), e);
-  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, Rc.clone(&stats), io), e);
   a := io.await(fetch(`http://127.0.0.1:19841/one`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
-  assert(stats.saw_close, "the one-shot fetch sent Connection: close");
+  assert(stats.with(st => st.saw_close), "the one-shot fetch sent Connection: close");
   // A second one-shot fetch opens its own connection — there is no hidden
   // global pool behind `fetch`.
   b := io.await(fetch_with(`http://127.0.0.1:19841/two`, FetchOptions.new(), io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.accepts == usize(2), `two one-shot fetches, two accepts, got ${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(2), `two one-shot fetches, two accepts, got ${stats.with(st => st.accepts)}`);
   task.await(io);
 });
 test("HttpClient: Connection: close retires the connection", {
@@ -1216,14 +1223,14 @@ test("HttpClient: Connection: close retires the connection", {
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19842), io), e);
-  task := io.spawn(_ka_serve(listener, usize(2), _KA_CLOSE, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_CLOSE, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19842/one`, io), e);
   assert(a.body == `n=1`, `response: ${a.body}`);
   assert(client.idle_count() == usize(0), `Connection: close is not pooled, idle=${client.idle_count()}`);
   b := io.await(client.fetch(`http://127.0.0.1:19842/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.accepts == usize(2), `each request got its own connection, accepts=${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(2), `each request got its own connection, accepts=${stats.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1239,7 +1246,7 @@ test("HttpClient: an HTTP/1.0 response without Connection: keep-alive retires th
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19843), io), e);
-  task := io.spawn(_ka_serve(listener, usize(1), _KA_HTTP10, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HTTP10, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19843/one`, io), e);
   assert(a.version == `HTTP/1.0`, `the version is kept as received: ${a.version}`);
@@ -1259,14 +1266,14 @@ test("HttpClient: an HTTP/1.0 response WITH Connection: keep-alive is reused", {
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19844), io), e);
-  task := io.spawn(_ka_serve(listener, usize(1), _KA_HTTP10_KEEP, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HTTP10_KEEP, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19844/one`, io), e);
   assert(a.version == `HTTP/1.0`, `version: ${a.version}`);
   assert(client.idle_count() == usize(1), `an explicit keep-alive opts in, idle=${client.idle_count()}`);
   b := io.await(client.fetch(`http://127.0.0.1:19844/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.accepts == usize(1), `one accept, got ${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(1), `one accept, got ${stats.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1282,7 +1289,7 @@ test("HttpClient: a response of unknown length is close-delimited and retires th
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19845), io), e);
-  task := io.spawn(_ka_serve(listener, usize(1), _KA_UNSIZED, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_UNSIZED, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19845/one`, io), e);
   assert(a.body == `n=1`, `the body arrived with the close: ${a.body}`);
@@ -1304,7 +1311,7 @@ test("HttpClient: a connection the server closed while idle is retried once on a
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19846), io), e);
-  task := io.spawn(_ka_serve(listener, usize(2), _KA_HALF_CLOSE, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_HALF_CLOSE, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19846/one`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
@@ -1314,7 +1321,7 @@ test("HttpClient: a connection the server closed while idle is retried once on a
   assert(client.idle_count() == usize(1), `pooled, idle=${client.idle_count()}`);
   b := io.await(client.fetch(`http://127.0.0.1:19846/two`, io), e);
   assert(b.body == `n=2`, `the retried request succeeded: ${b.body}`);
-  assert(stats.accepts == usize(2), `the retry opened a fresh connection, accepts=${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(2), `the retry opened a fresh connection, accepts=${stats.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1330,7 +1337,7 @@ test("HttpClient: the idle cap is respected", {
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19847), io), e);
-  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, Rc.clone(&stats), io), e);
   // `max_idle == 0` is the degenerate cap: nothing is ever pooled, so the
   // client behaves like the one-shot `fetch` while still speaking keep-alive
   // on the wire.
@@ -1340,7 +1347,7 @@ test("HttpClient: the idle cap is respected", {
   assert(client.idle_count() == usize(0), `nothing pooled at cap 0, idle=${client.idle_count()}`);
   b := io.await(client.fetch(`http://127.0.0.1:19847/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.accepts == usize(2), `each request connected, accepts=${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(2), `each request connected, accepts=${stats.with(st => st.accepts)}`);
   assert(client.idle_count() == usize(0), "still nothing pooled");
   task.await(io);
 });
@@ -1356,7 +1363,7 @@ test("HttpClient: the idle age limit closes a connection instead of reusing it",
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19848), io), e);
-  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, Rc.clone(&stats), io), e);
   // A 1 ms age limit expires between two requests without a sleep long
   // enough to slow the suite down.
   client := HttpClient.new().with_idle_timeout(Duration.from_millis(i64(1)));
@@ -1366,7 +1373,7 @@ test("HttpClient: the idle age limit closes a connection instead of reusing it",
   io.await(sleep(Duration.from_millis(i64(20)), io), e);
   b := io.await(client.fetch(`http://127.0.0.1:19848/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.accepts == usize(2), `the expired connection was not reused, accepts=${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(2), `the expired connection was not reused, accepts=${stats.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1402,8 +1409,8 @@ test("HttpClient: dispose closes every idle connection", {
   stats := _ka_stats();
   l1 := io.await(_ka_bind(u16(19849), io), e);
   l2 := io.await(_ka_bind(u16(19855), io), e);
-  t1 := io.spawn(_ka_serve(l1, usize(1), _KA_KEEP, stats, io), e);
-  t2 := io.spawn(_ka_serve(l2, usize(1), _KA_KEEP, stats, io), e);
+  t1 := io.spawn(_ka_serve(l1, usize(1), _KA_KEEP, Rc.clone(&stats), io), e);
+  t2 := io.spawn(_ka_serve(l2, usize(1), _KA_KEEP, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19849/one`, io), e);
   b := io.await(client.fetch(`http://127.0.0.1:19855/two`, io), e);
@@ -1442,8 +1449,8 @@ test("HttpClient: the pool never crosses ports", {
   stats := _ka_stats();
   l1 := io.await(_ka_bind(u16(19850), io), e);
   l2 := io.await(_ka_bind(u16(19851), io), e);
-  t1 := io.spawn(_ka_serve(l1, usize(1), _KA_KEEP, stats, io), e);
-  t2 := io.spawn(_ka_serve(l2, usize(1), _KA_KEEP, stats, io), e);
+  t1 := io.spawn(_ka_serve(l1, usize(1), _KA_KEEP, Rc.clone(&stats), io), e);
+  t2 := io.spawn(_ka_serve(l2, usize(1), _KA_KEEP, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19850/a`, io), e);
   assert(a.body == `n=1`, `first server: ${a.body}`);
@@ -1451,12 +1458,12 @@ test("HttpClient: the pool never crosses ports", {
   // be handed over — it is wired to another peer.
   b := io.await(client.fetch(`http://127.0.0.1:19851/b`, io), e);
   assert(b.body == `n=2`, `second server: ${b.body}`);
-  assert(stats.accepts == usize(2), `each port got its own connection, accepts=${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(2), `each port got its own connection, accepts=${stats.with(st => st.accepts)}`);
   assert(client.idle_count() == usize(2), `both are pooled, idle=${client.idle_count()}`);
   // And the first target's connection is still the one reused for it.
   c := io.await(client.fetch(`http://127.0.0.1:19850/c`, io), e);
   assert(c.body == `n=3`, `back to the first server: ${c.body}`);
-  assert(stats.accepts == usize(2), `still two accepts, got ${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(2), `still two accepts, got ${stats.with(st => st.accepts)}`);
   client.close_idle();
   t1.await(io);
   t2.await(io);
@@ -1495,7 +1502,7 @@ test("HttpClient: the pool never crosses hosts", {
   // HALF_CLOSE so the server task FINISHES after one exchange: the throw
   // below unwinds the test body, and a server left parked on a read would
   // keep the event loop alive and stop the process from exiting.
-  task := io.spawn(_ka_serve(listener, usize(1), _KA_HALF_CLOSE, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HALF_CLOSE, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19852/a`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
@@ -1528,7 +1535,7 @@ test("HttpClient: a 204 ends at its headers, whatever its Content-Length says", 
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19853), io), e);
-  task := io.spawn(_ka_serve(listener, usize(1), _KA_204, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_204, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   opts := FetchOptions.new().with_timeout(Duration.from_secs(i64(10)));
   a := io.await(client.fetch_with(`http://127.0.0.1:19853/one`, &opts, io), e);
@@ -1540,8 +1547,8 @@ test("HttpClient: a 204 ends at its headers, whatever its Content-Length says", 
   assert(client.idle_count() == usize(1), `pooled, idle=${client.idle_count()}`);
   b := io.await(client.fetch_with(`http://127.0.0.1:19853/two`, &opts, io), e);
   assert(b.status.as_u16() == u16(204), `second status ${b.status.as_u16()}`);
-  assert(stats.accepts == usize(1), `one accept, got ${stats.accepts}`);
-  assert(stats.requests == usize(2), `two requests framed, got ${stats.requests}`);
+  assert(stats.with(st => st.accepts) == usize(1), `one accept, got ${stats.with(st => st.accepts)}`);
+  assert(stats.with(st => st.requests) == usize(2), `two requests framed, got ${stats.with(st => st.requests)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1557,7 +1564,7 @@ test("HttpClient: a HEAD response ends at its headers and the connection is reus
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19854), io), e);
-  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, Rc.clone(&stats), io), e);
   client := HttpClient.new();
   head := FetchOptions.new().with_method(.HEAD).with_timeout(Duration.from_secs(i64(10)));
   a := io.await(client.fetch_with(`http://127.0.0.1:19854/one`, &head, io), e);
@@ -1569,7 +1576,7 @@ test("HttpClient: a HEAD response ends at its headers and the connection is reus
   get := FetchOptions.new().with_timeout(Duration.from_secs(i64(10)));
   b := io.await(client.fetch_with(`http://127.0.0.1:19854/two`, &get, io), e);
   assert(b.body == `n=2`, `the GET after a HEAD is framed correctly: ${b.body}`);
-  assert(stats.accepts == usize(1), `one accept, got ${stats.accepts}`);
+  assert(stats.with(st => st.accepts) == usize(1), `one accept, got ${stats.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1580,29 +1587,32 @@ test("HttpClient: a HEAD response ends at its headers and the connection is reus
 // in one read on demand, so this drives the framing through a scripted reader
 // — the same technique as `tests/http/wire.test.yo`, and the reason it is
 // repeated here is that these two cases are the ones the pool introduced.
-_PipeReader :: ref(struct(data : ArrayList(u8), pos : usize, reads : usize));
+_PipeReaderState :: struct(data : ArrayList(u8), pos : usize, reads : usize);
+_PipeReader :: struct(state : RefCell(_PipeReaderState));
 _pipe :: (fn(text : &String) -> _PipeReader)(
-  _PipeReader(data : text.to_bytes(), pos : usize(0), reads : usize(0))
+  _PipeReader(state : RefCell(_PipeReaderState).new(_PipeReaderState(data : text.to_bytes(), pos : usize(0), reads : usize(0))))
 );
 impl(
   _PipeReader,
-  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(e => {
-      self.reads = (self.reads + usize(1));
-      // `size` is copied to a body-local before it is used in a branch: a
-      // captured parameter read in a `cond`'s SECOND arm was emitted
-      // unrewritten before the "one capture predicate" codegen fix, and this
-      // file has to build under an older seed as well.
-      room := size;
-      mut(n) := usize(0);
-      while((n < room) && (self.pos < self.data.len()), {
-        consume((buf.add(n)).* = self.data(self.pos));
-        self.pos = (self.pos + usize(1));
-        n = (n + usize(1));
-      });
-      n
+  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    // `size` is copied to a body-local before it is used in a branch: a
+    // captured parameter read in a `cond`'s SECOND arm was emitted
+    // unrewritten before the "one capture predicate" codegen fix, and this
+    // file has to build under an older seed as well.
+    room := size;
+    io.async({ self, buf, room }(e : IoExn) => {
+      self.state.with_mut(st => {
+        st.reads = (st.reads + usize(1));
+        mut(n) := usize(0);
+        while((n < room) && (st.pos < st.data.len()), {
+          consume((buf.add(n)).* = st.data(st.pos));
+          st.pos = (st.pos + usize(1));
+          n = (n + usize(1));
+        });
+        n
+      })
     })
-  )
+  })
 );
 impl(
   _PipeReader,
@@ -1637,7 +1647,7 @@ test("wire: a 204 followed by another response in one read carries the tail", {
   );
   assert(raw1 == String.from(_P204), `the 204 is framed at its header section, got ${raw1.len()} bytes`);
   assert(carry.with(c => c.len()) == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.with(c => c.len())})`);
-  reads_before := r.reads;
+  reads_before := r.state.with(st => st.reads);
   raw2 := match(
     io.await(_wire.read_http_message_buffered(&r, usize(0), _wire.MessageKind.Response, &carry, io), e),
     .Ok(x) => x,
@@ -1647,7 +1657,7 @@ test("wire: a 204 followed by another response in one read carries the tail", {
     }
   );
   assert(raw2 == String.from(_PNEXT), `the second message is framed from the carry, got ${raw2.len()} bytes`);
-  assert(r.reads == reads_before, "a message already carried costs no read");
+  assert(r.state.with(st => st.reads) == reads_before, "a message already carried costs no read");
   assert(parse_response(&raw2).unwrap().body == `ok`, "and it parses");
 });
 test("wire: a HEAD response ignores its Content-Length and carries the tail", {

@@ -1,0 +1,18 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c), m04), bare `match(r, …)`: the variant switches under the arm binding `s`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+E :: enum(A(s : String), B(n : i32));
+main :: (fn() -> unit)({
+  mut(e) := E.A(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  r := &mut e;
+  match(
+    r,
+    .A(s) => {
+      r.* = E.B(i32(1));
+      println(`OUT: ${s.*}`);
+    },
+    .B(_) => ()
+  );
+});
+export(main);

@@ -1,7 +1,7 @@
 # Arc(T) — Shared Ownership with Atomic Reference Counting
 
 `Arc(T)` provides shared ownership of a single value via atomic reference counting.
-It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
+`Arc` is defined
 in `std/prelude.yo` as a newtype over an atomically counted cell, so `Arc` and
 `Arc.new(...)` are available everywhere through the prelude. `Arc(T)` itself requires
 `T <: (Send, Sync)`, which keeps `Arc` from laundering non-thread-safe values into a
@@ -52,12 +52,16 @@ places it on the global allocator (see [Placing the cell](#placing-the-cell)).
   captures and what its code reaches must be `Send` and `Sync` (rules D4 and D9,
   `THREAD_SAFETY.md`).
 
-Many standard-library types need no extra `Arc(...)` wrapper. For example, the
-`std/sync` primitives are built over an atomically counted cell and are `Send`
-and `Sync`, so they are directly shareable.
+The `std/sync` primitives are values, not handles, as in Rust: `Mutex(T)`,
+`RwLock(T)`, the `Atomic*` types and the other locks keep their state in a
+private `Box`, so a copy is E0901 and threads share one through an `Arc`. Create
+it with `Arc.new(...)` and give each sharer its own `Arc.clone(...)`.
+`Channel(T)` is the exception: it already holds an `Arc` of its queue, and
+`ch.clone()` is another handle on it.
 
 If you need shared mutable state, put it behind one of those primitives and
-share that: `Arc(Mutex(State))`, an `RwLock`, or an atomic.
+share that: `Arc(Mutex(State))`, an `Arc(RwLock(State))`, or an `Arc` of an
+atomic.
 
 ## Basic usage
 
@@ -97,8 +101,7 @@ assert(copied == i32(42), "inner value is 42");
 ### Copying
 
 `Arc.clone(a)` makes a second handle: it increments the reference count and keeps sharing the
-same value. A second handle is spelled, as in Rust (decision 17 of
-[the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)): an implicit copy whose source is
+same value. A second handle is spelled, as in Rust: an implicit copy whose source is
 used again is E0901, whose note names `Arc.clone(a)`, and a handle's last use moves it. `Arc(T)` is `Clone` for every `T`, and its clone is always a second
 handle; a deep copy of the value is spelled `Arc.new(a.*.clone())`.
 
@@ -132,8 +135,7 @@ An `Arc`'s payload is read-only through the handle: a write through it is
 rejected in safe code, and shared mutation goes through an `Arc(Mutex(T))`,
 an `Arc(RwLock(T))` or an atomic. `Arc(RefCell(T))` is rejected, because a
 `RefCell` is never `Sync`. Two doors prove the handle is the only one, as
-Rust's do (decision 46 of
-[the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)):
+Rust's do:
 
 - **`Arc.try_unwrap(h)`** consumes the handle and returns `.Ok(payload)` when
   no other handle exists on any thread (the cell is freed), else `.Err(h)`.
@@ -167,7 +169,8 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 
 ## Semantics
 
-- **Atomic RC**: `Arc` uses atomic increment/decrement operations.
+- **Atomic RC**: `Arc` uses atomic increment/decrement operations, and `ref_count(a)` reads the
+  count with an atomic load ([DESIGN.md](./DESIGN.md#reading-the-count)).
 - **Shared ownership**: `Arc.clone(a)` shares the underlying allocation; an implicit copy of a
   handle whose source is used again is E0901.
 - **Borrowed deref**: `.*` gives borrowed access to the wrapped value.

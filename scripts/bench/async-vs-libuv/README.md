@@ -7,7 +7,7 @@ shared machine the noise is of the same order as the differences.
 
 | Pair | Level | Workloads | Driver |
 | --- | --- | --- | --- |
-| `../io_bench.yo` + `io_bench_uv.c` | runtime (the `__yo_async_*` ops) | socketpair echo; loopback-TCP echo over 1 and 64 connections; zero-delay timer churn; a 16 KiB file write+read cycle | `scripts/bench-vs-libuv.sh` (POSIX; prints medians and Yo/libuv ratios; runs informationally in CI's I/O budgets job) |
+| `../io-bench.yo` + `io_bench_uv.c` | runtime (the `__yo_async_*` ops) | socketpair echo; loopback-TCP echo over 1 and 64 connections; zero-delay timer churn; a 16 KiB file write+read cycle | `scripts/bench-vs-libuv.sh` (POSIX; prints medians and Yo/libuv ratios; runs informationally in CI's I/O budgets job) |
 | `bench.yo` + `bench_uv.c` | std (`TcpStream`, `Channel`, `sleep` tasks) | `pingpong` (1 TCP connection), `multi` (8 connections), `timers` (500 timers, 1 ms each) | manual, below (the Windows flow) |
 
 ## Running

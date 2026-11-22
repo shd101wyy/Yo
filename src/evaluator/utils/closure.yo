@@ -12,11 +12,11 @@
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
-{ function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation-summary.yo");
+{ is_implicitly_unsafe_capable_file, is_destroying_builtin_call_capable, ownership_builtin_error_message } :: import("../memory-safety.yo");
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 {
   AstExpr,
   AstExprNode,
@@ -37,14 +37,15 @@
   get_variables_from_env,
   variable_value_type
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref, t_reference } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ get_trait_type_from_env } :: import("../../types/env_lookup.yo");
-{ type_key } :: import("../../types/type_key.yo");
+{ get_trait_type_from_env } :: import("../../types/env-lookup.yo");
+{ type_key } :: import("../../types/type-key.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_fn_trait_type, is_some_type, is_function_type } :: import("../../types/guards.yo");
-{ format_error_message } :: import("../../error.yo");
-{ type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
+{ E_TRAIT_NOT_IMPLEMENTED, E_BORROW_ESCAPES } :: import("../../diagnostics.yo");
+{ type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait-checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 {
   some_resolution,
@@ -58,8 +59,8 @@
   record_macro_expansion,
   expr_info_index_trait_ptr_type,
   expr_info_index_method_type
-} :: import("../../expr_info.yo");
-{ get_closure_capture_info, get_func_type } :: import("../../function_value.yo");
+} :: import("../../expr-info.yo");
+{ get_closure_capture_info, get_func_type } :: import("../../function-value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
 // capture field signature, so the SAME closure (re-evaluated across the eval and
 // codegen passes) gets the SAME capture-struct id. A fresh `random_id` per call
@@ -94,7 +95,7 @@
   register_capture_field_decl_site
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, resolution_chain_end, type_first_mut_borrow, capture_struct_is_fnmut, capture_struct_typed_fnmut } :: import("../../types/utils.yo");
+{ type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, resolution_chain_end, type_first_mut_borrow, capture_struct_is_fnmut, capture_struct_typed_fnmut, CaptureBorrow, capture_struct_borrows, capture_borrow_place_string } :: import("../../types/utils.yo");
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -164,13 +165,49 @@ build_path_collection_from_captured_variables :: (
 // ---------------------------------------------------------------------------
 /// Raise a capture-trait violation so it SURVIVES the def-time trial wall. A
 /// closure body is usually created inside a def-time TRIAL evaluation, which
-/// swallows thrown errors (anonymous_function.yo's def-eval wall); a `Send`
+/// swallows thrown errors (anonymous-function.yo's def-eval wall); a `Send`
 /// violation is a deliberate rejection, so it takes the wall's re-raise
 /// channel — flag a flow violation first, then throw — the same shape as the
 /// callable-argument and C19 checks in calls/helper.yo.
+/// A closure that misses a marker trait its slot requires is E0602; one
+/// that would carry a borrow to another thread passes `E_BORROW_ESCAPES`.
 _raise_capture_trait_violation :: (
-  fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit
-)(raise_flow_violation(format_error_message(tok, msg), ctx, exn));
+  fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String, (code : str) ?= E_TRAIT_NOT_IMPLEMENTED) -> unit
+)(raise_flow_violation(with_code(format_error_message(tok, msg), code), ctx, exn));
+/// The capture-list borrow entry of the capture struct `capture_ty` that the
+/// closure names `var_name`: a `{ &x }` / `{ &mut x }` entry, or the by-value
+/// entry `{ r }` of a reference binding, which copies the reference.
+_capture_borrow_entry :: (fn(var_name : &String, capture_ty : &TypeValue) -> Option(CaptureBorrow))({
+  match(
+    capture_struct_borrows(&_capture_id_of(capture_ty)),
+    .Some(bs) => {
+      (i : usize) = usize(0);
+      while(i < bs.len(), {
+        if(bs(i).label == var_name.*, {
+          return(Option(CaptureBorrow).Some(bs(i).clone()));
+        });
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  Option(CaptureBorrow).None
+});
+/// The type a diagnostic shows for the captured variable `var_name`. A
+/// borrow entry is held as a pointer field to its place, which is what the
+/// captured-variable record carries (`*(T)`); the source wrote a reference,
+/// so it shows as `&T` / `&mut T`.
+_captured_var_shown_type :: (fn(var_name : &String, ty : &TypeValue, capture_ty : &Option(TypeValue)) -> TypeValue)(
+  match(
+    capture_ty,
+    .Some(ct) => match(
+      _capture_borrow_entry(var_name, &ct.*),
+      .Some(b) => match(ty, Rc(.Pointer(inner)) => t_reference(&inner.*, b.is_mut), _ => Rc.clone(ty)),
+      .None => Rc.clone(ty)
+    ),
+    .None => Rc.clone(ty)
+  )
+);
 /// The type a captured variable is JUDGED by for a marker trait such as
 /// `Send`. A captured CLOSURE arrives as its `Impl(Fn(...))` wrapper SomeT,
 /// which carries no `Send` in its required traits — yet a closure is `Send`
@@ -224,7 +261,7 @@ _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> O
 ///
 /// Deliberately narrow: only a trait the declared wrapper itself lists. A
 /// capture whose declared type carries NO such bound is judged exactly as
-/// before, which is what keeps `tests/thread_safety.test.yo`'s
+/// before, which is what keeps `tests/thread-safety.test.yo`'s
 /// `_spawn_with_closure_over_ref` negative firing — `worker` there is declared
 /// `Impl(Fn() -> unit)`, with no `Send`, so nothing here applies to it.
 _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> bool)(
@@ -343,7 +380,7 @@ _is_function_like :: (fn(ty : &TypeValue) -> bool)(
 /// Keyed `fid|marker`; `.Some(reason)` names the first offending capture.
 (g_closure_capture_offense : RefCell(HashMap(String, Option(String)))) = RefCell(HashMap(String, Option(String))).new(HashMap(String, Option(String)).new());
 _captures_offense :: (
-  fn(cvwv : &HashMap(String, FuncCapturedVarInfo), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(String)
+  fn(cvwv : &HashMap(String, FuncCapturedVarInfo), capture_ty : &Option(TypeValue), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(String)
 )({
   mname := type_to_string(marker);
   key_iter := cvwv.keys_cloned().into_iter();
@@ -367,7 +404,7 @@ _captures_offense :: (
             .None => match(
               _capture_judgement_type(&info.ty, &info.value),
               .Some(judged) => if(!type_implements_trait_bool(&judged, marker, env), {
-                return(Option(String).Some(`its captured variable '${var_name}' (type ${type_to_string(&info.ty)}) does not implement ${mname}`));
+                return(Option(String).Some(`its captured variable '${var_name}' (type ${type_to_string(&_captured_var_shown_type(&var_name, &info.ty, capture_ty))}) does not implement ${mname}`));
               }),
               .None => ()
             )
@@ -419,7 +456,7 @@ record_closure_capture_verdicts :: (
         match(
           get_trait_type_from_env(env, mn.clone()),
           .Some(mt) => {
-            verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(&cv.*, &mt, env, ctx));
+            verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(&cv.*, capture_ty, &mt, env, ctx));
             verdict_owned := verdict.clone();
             g_closure_capture_offense.with_mut({ fid : fid.clone(), mn : mn.clone(), verdict_owned }(m) => m.insert(`${fid}|${mn}`, verdict_owned));
           },
@@ -483,7 +520,7 @@ _function_value_offense :: (
   });
   // The captures: the verdict taken at the closure's creation, per captured
   // variable; without one, the capture struct as a type.
-  cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
+  cap_hint := "a closure has a marker trait only when every value it captures does; capture a thread-safe value instead: an `Arc.clone(...)` of an `Arc(T)` — `Arc(Mutex(T))` for state it writes, `Arc(AtomicUsize)` for a counter";
   match(
     g_closure_capture_offense.with({ fid : &fid.*, &mname }(m) => m.get_cloned(`${fid}|${mname}`)),
     .Some(.Some(co)) => {
@@ -850,7 +887,8 @@ validate_capture_trait_requirements :: (
               ctx,
               exn,
               error_token,
-              `This closure does not implement Send: ${_borrowed_captures_offense}. A closure that crosses threads must own its captures: pass it to an owning (sink) parameter, which moves them in (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).`
+              `This closure does not implement Send: ${_borrowed_captures_offense}. A closure that crosses threads must own its captures: pass it to an owning (sink) parameter, which moves them in (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).`,
+              code : E_BORROW_ESCAPES
             );
           });
           // An `FnMut` closure's call is exclusive, and a `Sync` slot may
@@ -876,6 +914,33 @@ validate_capture_trait_requirements :: (
                     cvwv.get_cloned(var_name.clone()),
                     .None => (),
                     .Some(info) => if(!_declared_bound_requires(&info.ty, &trait_type), {
+                      // A borrow entry (`{ &x }`, `{ &mut x }`, or `{ r }` of
+                      // a reference binding) is never `Send`: the thread may
+                      // outlive the place it borrows (E0909, as for any value
+                      // that holds a borrow and is spawned).
+                      if(trait_name == "Send", {
+                        match(
+                          _capture_borrow_entry(&var_name, capture_type),
+                          .Some(cb) => {
+                            shown := type_to_string(&_captured_var_shown_type(&var_name, &info.ty, &Option(TypeValue).Some(Rc.clone(capture_type))));
+                            place := capture_borrow_place_string(&cb);
+                            raise_flow_violation(
+                              with_code(
+                                format_error_message_with_help(
+                                  &info.token,
+                                  `Captured variable \`${var_name}\` (type \`${shown}\`) borrows \`${place}\`, and a borrow cannot cross threads: the closure runs on another thread, which may outlive \`${place}\`.`,
+                                  Option(String).Some(String.from("capture the value instead of a borrow: a by-value entry (`{ x }`, `{ v : x.clone() }`) moves or copies it into the closure, and `{ v : r.* }` copies what a reference `r` refers to; or share the value through an `Arc`"))
+                                ),
+                                E_BORROW_ESCAPES
+                              ),
+                              ctx,
+                              exn
+                            );
+                            return(());
+                          },
+                          .None => ()
+                        );
+                      });
                       // A captured FUNCTION value holds a marker by its value
                       // — what it captures, what its code reaches (rules D4 +
                       // D1) — not by its type (`function_value_marker`).
@@ -886,7 +951,7 @@ validate_capture_trait_requirements :: (
                             ctx,
                             exn,
                             &info.token,
-                            `Captured variable '${var_name}' (type ${type_to_string(&info.ty)}) does not implement ${trait_name}: ${fvm_o}.`
+                            `Captured variable '${var_name}' (type ${type_to_string(&_captured_var_shown_type(&var_name, &info.ty, &Option(TypeValue).Some(Rc.clone(capture_type))))}) does not implement ${trait_name}: ${fvm_o}.`
                           );
                         },
                         .Some(.None) => (),
@@ -894,7 +959,7 @@ validate_capture_trait_requirements :: (
                           _capture_judgement_type(&info.ty, &info.value),
                           .None => (),
                           .Some(judged) => if(!type_implements_trait_bool(&judged, &trait_type, env), {
-                            var_msg := `Captured variable '${var_name}' (type ${type_to_string(&info.ty)}) does not implement ${trait_name}. To move it across threads, share it through an Arc (its contents must be Send + Sync), rebuild it on the other thread from ${trait_name} values, or capture a ${trait_name} projection of it instead.`;
+                            var_msg := `Captured variable '${var_name}' (type ${type_to_string(&_captured_var_shown_type(&var_name, &info.ty, &Option(TypeValue).Some(Rc.clone(capture_type))))}) does not implement ${trait_name}. To move it across threads, share it through an Arc (its contents must be Send + Sync), rebuild it on the other thread from ${trait_name} values, or capture a ${trait_name} projection of it instead.`;
                             _raise_capture_trait_violation(ctx, exn, &info.token, &var_msg);
                           })
                         )
@@ -924,7 +989,7 @@ validate_capture_trait_requirements :: (
                         details.push_str("\n  ");
                       });
                       fl := match(fls.get_cloned(fi), .Some(l) => l, .None => String.from(""));
-                      details.push_string(`'${fl}' has type ${type_to_string(&fty)} which does not implement ${trait_name}`);
+                      details.push_string(`'${fl}' has type ${type_to_string(&_captured_var_shown_type(&fl, &fty, &Option(TypeValue).Some(Rc.clone(capture_type))))} which does not implement ${trait_name}`);
                     }),
                     .None => ()
                   );
@@ -1198,7 +1263,7 @@ create_capture_type_and_value :: (
         // capture struct). One shared struct froze the FIRST era's field
         // types, so the resolved-era spec initialized a void* field with a
         // concrete struct value (clang error; the forwarded-closure family,
-        // tests/closure_param_forwarding.test.yo arm 2). Append the resolved
+        // tests/closure-param-forwarding.test.yo arm 2). Append the resolved
         // identity so the two eras mint DISTINCT capture structs.
         match(
           field_types.get_cloned(csi),
@@ -1572,7 +1637,7 @@ _clone_address_is_pure :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
   )
 );
 /// `e` was dispatched as an element read through an `Index` method
-/// (mirrors `_is_index_call`, evaluator/calls/index_trait.yo, spelled here
+/// (mirrors `_is_index_call`, evaluator/calls/index-trait.yo, spelled here
 /// to keep utils/ from importing calls/: the two ExprInfo markers it reads
 /// say the same thing).
 _is_index_read_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
@@ -1763,6 +1828,13 @@ structural_clone_expansion :: (
 evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   cf_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  // A read in place that a caller binds is a second owner of the field: the
+  // clone template that writes it is `auto-generated://` code
+  // (issues/fixed/2026-11-21-the-rc-ownership-builtins-are-callable-outside-unsafe.md).
+  cf_tok := ast_expr_token(expr);
+  if(!is_destroying_builtin_call_capable(Option(String).Some(cf_tok.module_path.*.clone())), {
+    exn.throw(dyn(Box.new(format_error_message(&cf_tok, ownership_builtin_error_message(&String.from(BF_YO_CAPTURE_FIELD), &ast_expr_to_string(&recv))))));
+  });
   idx_e := match(cf_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   ev_recv := evaluate_expression_raw(&recv, env, ctx, exn);
   _ := evaluate_expression_raw(&idx_e, env, ctx, exn);

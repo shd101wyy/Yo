@@ -40,7 +40,7 @@ env:
   # THE FIFTH PIN, guarded by test.yml's `changes` job and bumped by
   # release.yml's publish-release like the other four. Full rationale:
   # test.yml's SEED_VERSION comment. The guard requires all five to agree.
-  SEED_VERSION: v0.2.78
+  SEED_VERSION: v0.2.79
 
 jobs:
   leak-verdict:
@@ -103,7 +103,7 @@ jobs:
       # leak-verdicts-on run catalogued in
       # issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md;
       # the async files joined when that debt was paid (2026-10-16), and
-      # exit_release.test.yo is a NeedsLeakVerdict file this leg is the only
+      # exit-release.test.yo is a NeedsLeakVerdict file this leg is the only
       # CI run of. sys/socketpair.test.yo runs its parked-recv cases on both
       # Linux backends; its epoll twins leaked the backend's recycled records
       # at thread exit until 2026-10-17
@@ -114,13 +114,13 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          "$S1" test ./tests/short_circuit_drops.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/short-circuit-drops.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/rc.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/async/combinators.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/async/channel.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/async/waker.test.yo --c-compiler clang --verbose
-          "$S1" test ./tests/async/exit_release.test.yo --c-compiler clang --verbose
-          "$S1" test ./tests/cross_thread_wake.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/async/exit-release.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/cross-thread-wake.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/sys/socketpair.test.yo --c-compiler clang --verbose
           # http.test.yo joined when the aborted-read 8 KiB buffer leak was
           # fixed (issues/fixed/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md):
@@ -135,12 +135,12 @@ jobs:
           # An internal test: it evaluates the compiler source (~5 min, a few
           # GB), which this job's budget already covers elsewhere.
           "$S1" test ./tests/internal/error.test.yo --c-compiler clang --verbose
-          # spawn_blocking.test.yo joined when the awaiter began joining the
+          # spawn-blocking.test.yo joined when the awaiter began joining the
           # worker after taking the result
           # (issues/fixed/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md):
 
           # the flake is a timing window with no in-language oracle.
-          "$S1" test ./tests/spawn_blocking.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/spawn-blocking.test.yo --c-compiler clang --verbose
           # arc.test.yo joined when its ArcWeak-upgrade-on-another-thread row
           # leaked an Arc cell per round, unseen by every verdict-off job
           # (issues/fixed/2026-10-31-consume-of-an-fnonce-closure-s-capture-leaks-it.md):

@@ -20,7 +20,7 @@
 //!     so we read that.
 //!   * Options are passed as a `FlowOptions` object.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   ast_expr_token,
@@ -38,7 +38,7 @@
   ast_expr_to_string
 } :: import("../expr.yo");
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
-:: import("../expr_info.yo");
+:: import("../expr-info.yo");
 { Variable, Environment, get_variables_from_env, snapshot_env, variable_value_type } :: import("../env.yo");
 { format_error_message, error_message_text, YoError } :: import("../error.yo");
 { Exception, AnyError } :: import("std/error");
@@ -47,16 +47,16 @@
 { TypeValue, TypeValueNode, no_types, no_flags, t_refine_inner, slot_pointee_at, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_pointee } :: import("./definitions.yo");
 { is_function_type, is_pointer_type, is_counted_handle_type, is_reference_enum_type, is_weak_handle_type, unique_box_payload_type } :: import("./guards.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
-{ type_key } :: import("./type_key.yo");
-{ HashSet } :: import("std/collections/hash_set");
+{ type_key } :: import("./type-key.yo");
+{ HashSet } :: import("std/collections/hash-set");
 { type_to_string } :: import("./string.yo");
 { eprintln } :: import("std/fmt");
-{ expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
+{ expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr-info.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
 /// uses of the result needing methods fail (see refcell.yo's filler block).
-_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get(usize(0)));
+_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get_cloned(usize(0)));
 _c_clone_strings :: (fn(xs : &ArrayList(String)) -> ArrayList(String))(xs.clone());
 _c_first_bool :: (fn(xs : &ArrayList(bool)) -> Option(bool))(xs.get(usize(0)));
 _c_clone_sibling_rules :: (fn(xs : &ArrayList(_DeferredSiblingRule)) -> ArrayList(_DeferredSiblingRule))(xs.clone());
@@ -87,8 +87,9 @@ _c_len_1 :: (fn(xs : &ArrayList(YoError)) -> usize)(xs.len());
 /// Record `err` as a rejection for the def-time re-raise (unguarded: the
 /// caller decides; `raise_flow_violation` is the guarded flag-and-throw).
 flag_flow_violation :: (fn(err : &YoError) -> unit)({
+  err_own := err.clone();
   g_flow_violation_box.with_mut(xs => xs.clear());
-  g_flow_violation_box.with_mut(xs => xs.push(err.*));
+  g_flow_violation_box.with_mut({ err_own }(xs) => xs.push(err_own));
   ()
 });
 /// Reset the flag (called before each def-time body eval and after each catch).
@@ -114,6 +115,29 @@ flow_violation_error :: (fn() -> Option(YoError))(g_flow_violation_box.with(_c_f
 /// false again deterministically (the eval's local-unwinding exn returns control
 /// to the caller, which clears it), so no non-expect-error path is affected.
 (g_propagate_def_time_errors_box : RefCell(ArrayList(bool))) = RefCell(ArrayList(bool)).new(ArrayList(bool).new());
+/// Derive-scope depth: the derived-impl evaluation (builtins/derive.yo's
+/// `_derive_eval_guarded`) is running. The ctl-return rule (a function's
+/// declared result may not be control-bound) exempts functions evaluated
+/// inside this scope: a derived `clone` of an effect record — a record whose
+/// fields include `ctl(...) -> ret` handler slots — copies each field of the
+/// `&Self` receiver it was handed; it creates no handler and extends no
+/// handler's lifetime past a frame (the record already sits wherever its
+/// owner put it). Hand-written functions keep the full rule. The counter is
+/// a depth (derives nest); the guarded eval's exception handler pops too, so
+/// an unwind leaves it balanced.
+(g_in_derive_impl_box : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
+push_in_derive_impl :: (fn() -> unit)(
+  g_in_derive_impl_box.with_mut(xs => xs.push(usize(1)))
+);
+pop_in_derive_impl :: (fn() -> unit)(
+  g_in_derive_impl_box.with_mut(xs => {
+    _ := xs.pop();
+  })
+);
+/// True iff a derive-synthesized impl is being evaluated.
+in_derive_impl :: (fn() -> bool)(
+  g_in_derive_impl_box.with(xs => (xs.len() > usize(0)))
+);
 /// Enter/leave "propagate all def-time body-eval errors" mode.
 set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
   g_propagate_def_time_errors_box.with_mut(xs => xs.clear());
@@ -164,7 +188,7 @@ raise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : Exception)
   if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
     flag_flow_violation(err);
   });
-  exn.throw(dyn(Box.new(err.*)));
+  exn.throw(dyn(Box.new(err.clone())));
 });
 /// Re-raise `err`, the rejection a definition-time trial swallowed, from that
 /// trial's caller: clear the flag the trial left, then raise it again through
@@ -186,7 +210,7 @@ FlowOptions :: struct(
   /// Accept a same-frame (non-module) local (the assignment-target checks).
   /// Bounded by `max_local_frame_level` when that is `.Some`. (`inout(name)
   /// = …` bindings do not use this rule: their place shape is validated in
-  /// `_evaluate_inout_local_binding`, evaluator/exprs/initialization_assignment.yo.)
+  /// `_evaluate_inout_local_binding`, evaluator/exprs/initialization-assignment.yo.)
   allow_same_frame_local : bool,
   /// Accept a parameter of the enclosing function (slice-flowability).
   allow_parameter_source : bool,
@@ -999,7 +1023,8 @@ flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoErr
   label_owned := label.clone();
   // Owned key; `err` is a `ref` handle, cheap to capture (`with_mut`'s
   // callback is a sink parameter).
-  g_deferred_sibling_rules.with_mut({ label_owned, call_id : call_id.clone(), err : err.* }(xs) => xs.push(_DeferredSiblingRule(call_id : call_id, label : label_owned.clone(), err : err)));
+  err_owned := err.clone();
+  g_deferred_sibling_rules.with_mut({ label_owned, call_id : call_id.clone(), err : err_owned }(xs) => xs.push(_DeferredSiblingRule(call_id : call_id, label : label_owned.clone(), err : err)));
   ()
 });
 /// Settle the deferred rule-(b) rejections of call `call_id` now that A2 has
@@ -1034,7 +1059,7 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
             bi = (bi + usize(1));
           });
           if(!owned && first_unowned.is_none(), {
-            first_unowned = Option(YoError).Some(e.err);
+            first_unowned = Option(YoError).Some(e.err.clone());
           });
         }, {
           remaining.push(e);
@@ -1233,7 +1258,7 @@ _reject_if_container_reachable :: (
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&other)),
         .Some(oi) => {
           // The anonymous-fn eval does NOT set closure_function_value (documented
-          // convention in anonymous_function.yo — downstream must fall
+          // convention in anonymous-function.yo — downstream must fall
           // back); capture_type and closure_function_value are stamped
           // under the SAME closure-creation gate, so on an anon-fn ExprInfo
           // capture_type-is-set is the equivalent signal.
@@ -1489,7 +1514,10 @@ export(
   clear_cee_observed_error,
   cee_observed_error,
   record_cee_error_message,
-  cee_observed_messages
+  cee_observed_messages,
+  push_in_derive_impl,
+  pop_in_derive_impl,
+  in_derive_impl
 );
 derive(_DeferredSiblingRule, Clone);
 

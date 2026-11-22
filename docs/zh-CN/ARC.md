@@ -1,7 +1,6 @@
 # Arc(T) — 基于原子引用计数的共享所有权
 
-`Arc(T)` 用于通过原子引用计数共享单个值的所有权。它**不再是编译器内置类型**。
-在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为原子计数单元上的
+`Arc(T)` 用于通过原子引用计数共享单个值的所有权。`Arc` 在 `std/prelude.yo` 中被定义为原子计数单元上的
 newtype，因此 `Arc` 与 `Arc.new(...)` 会通过 prelude 自动可用。
 `Arc(T)` 本身要求 `T <: (Send, Sync)`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。每个约束各有原因：
 
@@ -39,11 +38,14 @@ impl(
 - `Arc(T)` 只接受同时实现了 `Send` 和 `Sync` 的子类型；`Rc(T)` 两者都不满足。是 `Send` 但不是 `Sync` 的类型（用 `impl(T, !(Sync()))` 退出 `Sync` 的类型）应放进 `Mutex(T)`，由它串行化访问。
 - 对函数值（闭包或具名函数）调用 `Arc.new(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 且 `Sync` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
 
-许多标准库类型不需要额外的 `Arc(...)` 包装。例如 `std/sync`
-原语建立在原子计数单元之上，本身就是 `Send` 和 `Sync`，可以直接跨线程共享。
+与 Rust 一样，`std/sync` 原语是值而不是句柄：`Mutex(T)`、`RwLock(T)`、
+`Atomic*` 类型以及其他锁把状态存放在私有的 `Box` 中，因此复制是 E0901，线程通过
+`Arc` 共享它们。用 `Arc.new(...)` 创建，并给每个共享者一个它自己的
+`Arc.clone(...)`。`Channel(T)` 是例外：它本身就持有队列的 `Arc`，`ch.clone()`
+是该队列上的另一个句柄。
 
 如果你需要共享可变状态，应该把它放在这些原语之后再共享：
-`Arc(Mutex(State))`、`RwLock` 或原子类型。
+`Arc(Mutex(State))`、`Arc(RwLock(State))` 或原子类型的 `Arc`。
 
 ## 基本用法
 
@@ -82,8 +84,7 @@ assert(copied == i32(42), "inner value is 42");
 
 ### 复制
 
-`Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出
-（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决定 17）：源值之后仍被使用的隐式拷贝是 E0901，其提示写出
+`Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出：源值之后仍被使用的隐式拷贝是 E0901，其提示写出
 `Arc.clone(a)`，句柄的最后一次使用会移动它。`Arc(T)` 对任何 `T` 都实现
 `Clone`，它的克隆总是第二个句柄；值的深拷贝写作 `Arc.new(a.*.clone())`。
 
@@ -113,7 +114,7 @@ assert(shared.* == i32(42), "main still sees shared value");
 
 ### 取出载荷与写时复制
 
-`Arc` 的载荷通过句柄只能读取：安全代码中通过它的写入会被拒绝，共享修改需要通过 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型进行。`Arc(RefCell(T))` 会被拒绝，因为 `RefCell` 永远不是 `Sync`。有两个入口可以证明句柄是唯一的，与 Rust 相同（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决策 46）：
+`Arc` 的载荷通过句柄只能读取：安全代码中通过它的写入会被拒绝，共享修改需要通过 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型进行。`Arc(RefCell(T))` 会被拒绝，因为 `RefCell` 永远不是 `Sync`。有两个入口可以证明句柄是唯一的，与 Rust 相同：
 
 - **`Arc.try_unwrap(h)`** 消耗该句柄：若任何线程上都没有其他句柄，返回 `.Ok(payload)`（单元被释放），否则返回 `.Err(h)`。
 - **`Arc.get_mut(&mut h)`** 在任何线程上都没有其他 `Arc` 或 `ArcWeak` 共享该单元时为 `.Some(&mut T)`，即指向单元内部的引用，否则为 `.None`；它从不克隆。即 Rust 的 `Arc::get_mut`。
@@ -138,7 +139,8 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 
 ## 语义
 
-- **原子引用计数**：`Arc` 使用原子递增/递减操作。
+- **原子引用计数**：`Arc` 使用原子递增/递减操作，`ref_count(a)` 以原子加载读取计数
+  （[DESIGN.md](./DESIGN.md#读取计数)）。
 - **共享所有权**：`Arc.clone(a)` 共享底层分配；源值之后仍被使用的句柄隐式拷贝是 E0901。
 - **借用解引用**：`.*` 提供对内部值的借用访问。
 - **销毁行为**：最后一个引用被释放时，会先 drop 内部值，再释放分配。

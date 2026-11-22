@@ -11,7 +11,7 @@
 //! ```yo
 //! { RefCell } :: import("std/sync/refcell");
 //! log := Rc.new(RefCell(i32).new(i32(0)));
-//! other := log; // a second handle to the same cell
+//! other := Rc.clone(log); // a second handle to the same cell
 //! other.replace_with(n => (n + i32(1))); // returns the old value, 0
 //! seen := log.with(n => n); // 1
 //! ```
@@ -30,9 +30,9 @@
 //! 46"). The value lives in a cell of its own (one allocation) until a `&T`
 //! receiver is passed by address (decision 43).
 pragma(Pragma.AllowUnsafe);
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
 { String } :: import("std/string");
 
 /// The marks and the value, behind the `RefCell`'s `Box`: a `self : &Self`

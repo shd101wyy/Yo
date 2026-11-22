@@ -1,0 +1,19 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)), spelled `match(&mut cur.*, …)`: a write to `cur`'s ROOT `l1.head` while the arm binding `n` is live drops the node under `n`.
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .None))));
+  cur := &mut l1.head;
+  match(
+    &mut cur.*,
+    .Some(n) => {
+      l1.head = .None;
+      (v : i32) = n.value;
+      println(&v);
+    },
+    .None => ()
+  );
+});
+export(main);

@@ -1,0 +1,33 @@
+// expect: E0911
+// The audit probe n02m: a GENERIC `fwd` forwards a trait method's borrowing future; the receiver moves before the await.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+sink :: (fn(v : String) -> unit)({
+  println(`sink ${v.len().to_string()}`);
+});
+Show :: trait(show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io))));
+W :: struct(s : String);
+impl(
+  W,
+  Show(
+    show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
+      io.async({ self : &self.* }(io : Io) => {
+        io.await(yield(io), io);
+        println(`OUT: ${self.*.s}`);
+      })
+    )
+  )
+);
+fwd :: (fn(generic(T : Type), t : &T, io : Io, where(T <: Show)) -> Impl(Future(unit, Io)))(t.show(io));
+sinkw :: (fn(v : W) -> unit)({
+  println(`sink ${v.s.len().to_string()}`);
+});
+main :: (fn(io : Io) -> unit)({
+  w := W(s : String.from(LONG));
+  f := fwd(&w, io);
+  sinkw(w);
+  io.await(f, io);
+});
+export(main);

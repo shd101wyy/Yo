@@ -1,27 +1,32 @@
 // A user collection walked with a borrowed `for` (plans/VALUES_BY_DEFAULT.md
 // decision 39).
 pragma(Pragma.AllowUnsafe);
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
 { assert } :: import("std/assert");
-Bag :: ref(struct(items : ArrayList(i32)));
-impl(
-  Bag,
-  rebuild : (fn(self : &Self) -> unit)({
-    mut(fresh) := ArrayList(i32).new();
-    fresh.push(i32(1)); // fresh storage: mutating it is not a mutation of the bag
-    self.items = fresh; // now reachable from self
-    fresh.push(i32(2)); // mutates the bag's storage
-  })
-);
-main :: (fn() -> unit)({
-  bag := Bag(items : ArrayList(i32).new());
-  bag.items.push(i32(1));
-  bag.items.push(i32(2));
-  other := bag; // a second handle: the loop's static borrow cannot see it
-  for(&mut bag, x => {
-    other.rebuild(); // panics: the method stores fresh storage into self and mutates it
-    x.* = i32(9);
+BagState :: struct(items : ArrayList(i32));
+Bag :: Rc(RefCell(BagState));
+rebuild :: (fn(self : &Bag) -> unit)({
+  mut(fresh) := ArrayList(i32).new();
+  fresh.push(i32(1)); // fresh storage: mutating it is not a mutation of the bag
+  self.with_mut({ fresh }(st) => {
+    st.items = fresh; // now reachable from the cell (and moved by the store)
   });
-  assert(false, "unreachable: rebuild must panic first");
+  fresh.push(i32(2)); // use of moved value: the static rule, before any runtime panic
+});
+main :: (fn() -> unit)({
+  bag := Rc.new(RefCell(BagState).new(BagState(items : ArrayList(i32).new())));
+  bag.with_mut(st => {
+    st.items.push(i32(1));
+    st.items.push(i32(2));
+  });
+  other := Rc.clone(&bag); // a second handle: the loop's static borrow cannot see it
+  bag.with_mut(st => {
+    for(&mut st.items, x => {
+      rebuild(&other);
+      x.* = i32(9);
+    });
+  });
+  assert(false, "unreachable");
 });
 export(main);

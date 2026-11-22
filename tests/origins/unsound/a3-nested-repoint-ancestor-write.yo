@@ -1,0 +1,27 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)): a nested walk re-points through `m`; its ancestor `n` is not frozen by the re-point, so `n` stays a live derived borrow and `n.next = .None` is E0911 (VERDICTS-71 addendum B, a5).
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  match(
+    cur,
+    .Some(n) => {
+      match(
+        &mut n.next,
+        .Some(m) => {
+          cur = &mut m.next;
+        },
+        .None => ()
+      );
+      n.next = .None;
+    },
+    .None => ()
+  );
+  cur.* = .Some(Box.new(BNode(value : i32(3), next : .None)));
+  println(&l1.head.is_some());
+});
+export(main);

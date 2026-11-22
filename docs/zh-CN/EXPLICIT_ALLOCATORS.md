@@ -42,7 +42,7 @@ Yo 不检查的是分配器自身的生命周期：它的上下文和 vtable 必
 
 ```yo
 { println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Point :: struct(x : i32, y : i32);
 
@@ -85,7 +85,7 @@ c := Arc.new(i32(3), alloc : .Some(a));
 例如 `a.alloc(n, align)`，仍然需要该 pragma：
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Node :: struct(name : i32, kids : ArrayList(i32));
 make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
@@ -95,8 +95,6 @@ make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
 
 程序中不带这种参数创建的一切都是全局的：
 
-- `ref` struct 和 `ref` enum 的构造（要放置它，把它改成值结构体再包装：
-  `Rc.new(v, alloc : .Some(a))`），
 - trait 对象的 box（`dyn(Box.new(v, alloc : .Some(a)))` 放置一个拥有型的
   `Box(Dyn(...))`，`dyn(Rc.new(v, alloc : .Some(a)))` 放置一个共享的 `Rc(Dyn(...))`），
 - 插值字符串（用 `StringBuilder.new(alloc : .Some(a))` 构建一个被放置的字符串），
@@ -122,13 +120,13 @@ make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
 | `String`        |                                                  | `clone_in(a)`  |
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 main :: (fn() -> unit)({
   a := Allocator.global(); // 任意 `Allocator` 值
   mut(xs) := ArrayList(i32).with_capacity(usize(8), alloc : .Some(a));
   xs.push(i32(1));
-  ys := xs.clone_in(Allocator.global()); // 显式放置的副本
+  mut(ys) := xs.clone_in(Allocator.global()); // 显式放置的副本
   ys.push(i32(2));
 });
 export(main);
@@ -143,17 +141,6 @@ export(main);
 被放置的容器在构造时就分配一次（`ArrayList`、`Deque` 和 `StringBuilder` 分配一个只
 含所有者前缀的块，`HashMap` 分配它的 16 个桶），因为容器靠缓冲区记住分配器。全局的
 `new()` 在第一次插入之前不分配任何内存。
-
-**v0.2.73 之前**，放置用的构造函数是单独的函数。它们已被删除，请这样改写每个调用：
-
-| 以前                                  | 现在                                              |
-| ------------------------------------- | ------------------------------------------------- |
-| `ArrayList(T).new_in(a)`              | `ArrayList(T).new(alloc : .Some(a))`              |
-| `ArrayList(T).with_capacity_in(a, n)` | `ArrayList(T).with_capacity(n, alloc : .Some(a))` |
-| `HashMap(K, V).new_in(a)`             | `HashMap(K, V).new(alloc : .Some(a))`             |
-| `HashSet(T).with_capacity_in(a, n)`   | `HashSet(T).with_capacity(n, alloc : .Some(a))`   |
-| `Deque(T).new_in(a)`                  | `Deque(T).new(alloc : .Some(a))`                  |
-| `StringBuilder.new_in(a)`             | `StringBuilder.new(alloc : .Some(a))`             |
 
 容器自身的大小不变：分配器记录在缓冲区的所有者前缀里，只用一个已有字段中的一位来
 标记。
@@ -172,9 +159,7 @@ export(main);
 它不是通用的提速手段：全局分配器（mimalloc）的快速路径已经很快，在期待提速之前先
 测量。
 
-std 目前不提供 arena。`std/arena` 已于 2026-10-24 删除；`FixedBufferAllocator` 和
-`ArenaAllocator` 在计划中（`plans/backlog/ZIG_STYLE_ALLOCATORS.md`）。在此之前，
-按[编写自己的分配器](#编写自己的分配器)写出你需要的分配器。
+std 不提供 arena 或固定缓冲区分配器：请按[编写自己的分配器](#编写自己的分配器)写出你需要的分配器。
 
 ## 线程与异步任务
 
@@ -318,7 +303,7 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
 
 ## 开销
 
-不带 `alloc` 参数的创建（`ref` 构造器、`dyn` 盒子、`io.async` 任务）不为放置付出任何代价：
+不带 `alloc` 参数的创建（`dyn` 盒子、`io.async` 任务）不为放置付出任何代价：
 它直接从全局分配器分配，没有需要检查的线程局部变量。容器大小不变，因为
 分配器存放在缓冲区的前缀里，而不是新增的字段。
 
@@ -334,9 +319,6 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
   可以满足任意 2 的幂的对齐，对齐超过 16 的类型的全局 `Box` 由对齐分配族提供。全局的
   `Rc`/`Arc` 单元只按 16 对齐，所以这种类型的 `Rc` 或 `Arc` 必须被放置。目前没有 Yo
   类型的对齐超过 16；`extern` C 类型可能超过。
-- **不能放置 `ref` 对象。** `ref` 构造器不接受 `alloc` 参数。把类型改成值结构体，
-  再用 `Rc.new(v, alloc : .Some(a))` 放置。
 
-设计记录（含测量数据和各阶段的历史）见 `plans/archive/EXPLICIT_ALLOCATORS.md`，
-已落地的决定汇总在 `plans/reference/EXPLICIT_ALLOCATORS.md`，放置规则（“默认全局，
+设计决定汇总在 `plans/reference/EXPLICIT_ALLOCATORS.md`，放置规则（“默认全局，
 放置靠参数”）见 `plans/backlog/ALLOCATOR_PLACEMENT.md`。

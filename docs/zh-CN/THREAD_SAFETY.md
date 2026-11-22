@@ -11,7 +11,7 @@ Yo 默认为安全代码（非 pragma 代码）提供**无数据竞争**保证�
 与 Rust 一样，两个标记特质回答两个不同的问题：
 
 - **`Send`**：该类型的值可以被**移动**到另一个线程。通道的载荷和被派生的闭包都以这种方式跨线程。
-- **`Sync`**：该类型的值的多个副本可以被多个线程同时**读取**。`Arc` 的载荷、原子对象和模块级全局变量都以这种方式共享。
+- **`Sync`**：该类型的值的多个副本可以被多个线程同时**读取**。`Arc` 的载荷（`Mutex(T)`、`AtomicUsize`、只读数据）和模块级全局变量都以这种方式共享。
 
 ### 自动派生
 
@@ -22,7 +22,7 @@ Yo 默认为安全代码（非 pragma 代码）提供**无数据竞争**保证�
 | 基本类型（`i32`、`bool`、`f64`、`str` 等）                    | 是                          | 是                          |
 | 结构体、枚举、联合体、元组或数组                              | 当且仅当每个字段都是 `Send` | 当且仅当每个字段都是 `Sync` |
 | 非原子单元（`Rc(T)`）                                         | 否                          | 否                          |
-| 原子对象（`Arc(T)`、`Mutex(T)`、`Atomic*` 类型）              | 当且仅当每个字段都是 `Sync` | 当且仅当每个字段都是 `Sync` |
+| 原子对象（`Arc(T)`）                                          | 当且仅当每个字段都是 `Sync` | 当且仅当每个字段都是 `Sync` |
 | 裸指针 `*(T)`                                                 | 否                          | 否                          |
 | `Dyn(Trait)`                                                  | 仅当写成 `Dyn(Trait, Send)` | 仅当写成 `Dyn(Trait, Sync)` |
 | 闭包                                                          | 见下文                      | 见下文                      |
@@ -38,7 +38,7 @@ Shared :: Rc(String);
 Raw :: struct(p : ?*u8);
 ```
 
-原子对象的所有副本共享同一个载荷，所以只有当该载荷是 `Sync` 时它才是 `Send`。`Mutex(T)` 是一个例外，恰好印证了这条规则：它一次只把 `T` 交给一个线程，所以只要 `T` 是 `Send`，它就是 `Sync`。
+原子对象的所有句柄共享同一个载荷，所以只有当该载荷是 `Sync` 时它才是 `Send`。`std/sync` 的类型不是原子对象：它们是带显式实现的值（见[共享 `std/sync` 值](#共享-stdsync-值)）。`Mutex(T)` 一次只把 `T` 交给一个线程，所以只要 `T` 是 `Send`，它就是 `Sync`，`Arc(Mutex(T))` 因此可以共享一个只是 `Send` 的 `T`。
 
 标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)` 和 `RwLock(T)`（并发的读守卫）要求 `T <: (Send, Sync)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: Send`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
 
@@ -54,7 +54,31 @@ Raw :: struct(p : ?*u8);
 | -------------- | ---------------------- | ----------------------------------- |
 | **引用计数**   | 非原子 RC（线程本地）  | 原子 RC（线程安全）                 |
 | **跨线程共享** | 不允许（非 Send）      | 允许（所有字段都是 Sync 时为 Send 和 Sync） |
-| **示例**       | `Rc(T)`                | `Arc(T)`, `Mutex(T)`, `Channel(T)`  |
+| **示例**       | `Rc(T)`                | `Arc(T)`                            |
+
+### 共享 `std/sync` 值
+
+`Mutex(T)`、`RawMutex`、`RwLock(T)`、`Cond`、`Barrier`、`Semaphore`、`WaitGroup`、`Once`、`OnceCell(T)` 和 `Atomic*` 类型与 Rust 一样是只能移动的值。它们的状态（操作系统原语、C11 原子量、受保护的数据）存放在私有的 `Box` 中，每个方法都以 `self : &Self` 为接收者：类型修改的是它自己的内部。会留下两个所有者的复制是 E0901。线程通过 `Arc` 共享它（`Arc(Mutex(T))`、`Arc(AtomicUsize)`）：用 `Arc.new(...)` 创建，给每个共享者一个它自己的 `Arc.clone(...)`，并在线程闭包中按值捕获这个克隆。方法调用经由自动解引用穿过 `Arc` 到达该值。
+
+```yo
+{ AtomicBool, MemoryOrder } :: import("std/sync/atomic");
+{ Thread } :: import("std/thread");
+{ assert } :: import("std/assert");
+
+local_data := MyList.new(); // 值：只有一个所有者，留在本线程
+
+ready := Arc.new(AtomicBool.new(false));
+mine := Arc.clone(ready); // 被派生线程的句柄
+t := Thread(unit).spawn({ mine }(io : Io) => {
+  mine.store(true, MemoryOrder.Release);
+});
+t.join();
+assert(ready.load(MemoryOrder.Acquire), "the thread stored true");
+```
+
+`Channel(T)` 本身就是句柄：它持有队列的 `Arc`，所以 `ch.clone()` 是同一个队列上的另一个句柄，队列随最后一个句柄释放。隐式复制在这里同样是 E0901。`Sender(T)` 的克隆会挂上一个被计数的生产者，而 `Receiver(T)` 既不能克隆也不能复制（[PARALLELISM.md](PARALLELISM.md)）。
+
+早期版本中这些类型是原子计数单元之上的句柄，所以 `m2 := m` 指向同一把锁；现在这样的复制是 E0901。
 
 ## 安全代码中禁止原子字段修改
 
@@ -99,9 +123,12 @@ Pragma 代码（带有 `pragma(Pragma.AllowUnsafe)` 的文件）绕过此规则�
 回绕，与 C11 `atomic_fetch_*` 完全一致。`AtomicBool` 不提供这些方法：它不是整
 数原子类型。
 
-所有方法的接收者都是 `self : Self`，与 `std/sync` 中其他原子类
-型的约定一致；只有 `compare_exchange` 的 `expected` 是 `&mut`，因为交换失败时
-会把实际观测到的值写回它。每个操作都需要显式的 `MemoryOrder`：
+所有方法的接收者都是 `self : &Self`，也就是每个 `std/sync` 类型使用的接收者：
+写入由 C11 操作完成，而不是 Yo 的位置写入，所以共享借用就足够了（相当于 Rust 中
+`AtomicUsize` 的 `&self`）。只有 `compare_exchange` 的 `expected` 是 `&mut`，因为
+交换失败时会把实际观测到的值写回它。`Atomic*` 是只能移动的值，它的 C11 原子对象
+存放在私有的 `Box` 中；线程以 `Arc(AtomicUsize)` 的形式共享它
+（[见上文](#共享-stdsync-值)）。每个操作都需要显式的 `MemoryOrder`：
 
 ```yo
 { AtomicBool, AtomicI32, AtomicU32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
@@ -160,14 +187,30 @@ compare-exchange 循环。该循环是无锁的，产生相同的返回值和相
 
 counter := Mutex(i32).new(i32(0));
 counter.with_lock(v => {
-  v = (v + i32(1));
+  v.* = (v.* + i32(1));
 });
-new_value := counter.with_lock(v => (v + i32(1)));
+new_value := counter.with_lock(v => (v.* + i32(1)));
+```
+
+`Mutex(T)` 是只能移动的值；要从多个线程加锁，就以 `Arc(Mutex(T))` 的形式共享它，并给每个线程一个它自己的 `Arc.clone(...)`：
+
+```yo
+{ Mutex } :: import("std/sync/mutex");
+{ Thread } :: import("std/thread");
+
+total := Arc.new(Mutex(i32).new(i32(0)));
+mine := Arc.clone(total);
+t := Thread(unit).spawn({ mine }(io : Io) => {
+  mine.with_lock(v => {
+    v.* = (v.* + i32(1));
+  });
+});
+t.join();
 ```
 
 闭包接收 `v : &mut T` — 一个**二级引用**，不能逃逸闭包作用域。
 
-解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都调用 `_raw_unlock()`，保证结构化解锁配对。**可重入锁定会导致死锁。**
+解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都会释放锁，保证结构化解锁配对。**可重入锁定会 panic。** 同一线程在同一个互斥锁的 `with_lock` 内部再次调用 `with_lock`，会在所有平台上以 `Mutex: locked again by the thread that already holds it` panic（规则 D5），而 Rust 的 `std::sync::Mutex` 可能死锁或 panic。Yo 不提供可重入互斥锁。
 
 在单个线程上，对应的闭包作用域类型是 `RefCell(T)`（`std/sync/refcell`）：`with` 和 `with_mut` 在运行时检查独占性，冲突时 panic 而不是阻塞。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝：跨线程请使用 `Arc(Mutex(T))`。
 
@@ -180,7 +223,7 @@ new_value := counter.with_lock(v => (v + i32(1)));
 
 ```yo
 LIMIT :: i32(5); // 常量：任何线程都可读
-hits := AtomicI32.new(i32(0)); // 原子对象：共享状态，可以
+hits := AtomicI32.new(i32(0)); // 原子量：Sync 的共享状态，可以
 (thread_local(mut(scratch)) : i32) = i32(0); // 每线程可变状态：可以
 mut(g) := ArrayList(i32).new(); // 只在主线程上可用
 fill :: (fn() -> unit)({
@@ -246,14 +289,14 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 
 ## 字段可见性 — `_` 前缀约定
 
-名称以 `_` 开头的字段仅对定义类型的**文件和目录**私有。用户代码无法访问 `mutex._cell`，因此也够不到其中的 `_value` 与 `_handle`。同一目录内的访问是被允许的。
+名称以 `_` 开头的字段仅对定义类型的**文件和目录**私有。用户代码无法访问 `mutex._state`（`Mutex` 定义为 `struct(_state : Box(_MutexState(T)))`），因此也够不到其中的 `_value` 与 `_core`。同一目录内的访问是被允许的。
 
 ## 信任边界
 
 | 层次                         | 信任内容                       | 强制执行                            |
 | ---------------------------- | ------------------------------ | ----------------------------------- |
 | **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语；手动 Send 与 Sync 实现被拒绝；原子对象写入被拒绝（字段与索引赋值、`&mut` 参数、`&mut self` 接收者）；跨线程的函数值按其捕获与其代码触及的东西判断（D4、D9），裸 `fn` 字段或载荷不是 Send |
-| **`std/sync/`**（有 pragma） | 原语正确实现合约               | 手动 Send 与 Sync 需要 `// SAFETY:` 注释；持有裸指针的原子对象以此选择加入 |
+| **`std/sync/`**（有 pragma） | 原语正确实现合约               | 手动 Send 与 Sync 需要 `// SAFETY:` 注释；每个 `std/sync` 类型（私有 `Box` 中的操作系统原语、C11 原子量或裸指针）以此选择加入；安全文件中的原子对象必须拥有 `Sync` 字段 |
 | **代码生成运行时**           | 原子 RC 操作使用正确的内存顺序 | C11 原子操作                        |
 | **`extern("c", ...)`**       | C 函数可重入安全               | 不在范围内                          |
 
@@ -261,8 +304,7 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 
 - **死锁预防**：与 Rust 相同，锁的顺序由使用者负责。
 - **`AtomicPtr(T)`**：用于无锁数据结构的泛型原子指针，暂缓。安全代码不能构造或解引用裸指针，这个原语只有带 pragma 的代码才能用；等 `std/` 中出现具体的使用者时再加入。
-- **`Sender(T)` / `Receiver(T)` 拆分**：目前 `Channel(T)` 在同一个句柄上同时暴露发送端和接收端，Rust 式的拆分是之后的易用性改进。
-- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread*.test.yo`、`arc`、`atomic_object`、`send_sync`、`cross_thread_wake`、`spawn_blocking`、`parallelism_soundness`、`encoding/html`、`unsafe_cast_rc_borrow`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread_safety.test.yo` 和 `tests/parallelism_soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
+- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread.test.yo`、`thread_pool`、`arc`、`send_sync`、`cross_thread_wake`、`spawn_blocking`、`parallelism_soundness`、`encoding/html`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread-safety.test.yo` 和 `tests/parallelism-soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
 
 ## 已知缺口
 

@@ -1,0 +1,20 @@
+// expect: E0923
+// `Option(H(p)).replace` on a `&mut` parameter stores a by-value holder parameter `v : H(q)`, whose origin `q` the
+// slot's `p` does not name. The caller fixes `p := x` and leaves `q` free.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+f :: (fn(generic(p : Origin, q : Origin), s : &mut Option(H(p)), v : H(q)) -> unit)({
+  _old := s.replace(v);
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(slot) := Option(H(x)).Some(H(x)(r : &x));
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    f(&mut slot, H(y)(r : &y));
+  };
+  match(slot, .Some(h) => println(`OUT: ${h.r.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

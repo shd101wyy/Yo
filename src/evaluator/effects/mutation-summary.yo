@@ -1,0 +1,4462 @@
+//! Aliasing Stage 1 — per-callee MUTATION SUMMARIES.
+//!
+//! See issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md for
+//! the full design rationale.
+//!
+//! Answers: "may a call to this function (transitively) mutate RC container
+//! storage reachable from its parameters, captures, or globals?" A borrowed
+//! RC PROJECTION argument only dangles when the callee reassigns the aliased
+//! storage during the call — for the read-only majority of callees the
+//! Stage-0 `+1` dup is pure overhead and is elided.
+//!
+//! The walk runs over EVALUATED bodies: macro heads are followed through
+//! `macro_expansion`; nested callees are resolved through the func node's
+//! ExprInfo value (plain calls) or the method-callee side-table (method
+//! calls). It is a MAY-analysis: anything unresolvable answers "mutates".
+//!
+//! Cycle handling: a call edge back into a function currently
+//! being walked contributes nothing (least-fixpoint optimism — sound because
+//! every SCC member's complete body is walked once from the entry point).
+//! Verdicts that depended on an in-progress walk are NOT memoized unless
+//! they found a real mutation. A body with no ExprInfo (not yet evaluated,
+//! e.g. mutual recursion through a definition in progress) answers "mutates"
+//! WITHOUT memoizing.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
+{
+  AstExpr,
+  ExprId,
+  ast_expr_id,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
+  ast_expr_token,
+  ast_expr_text,
+  BF_DOT,
+  BK_COLON,
+  BK_BORROW_MUT,
+  ast_expr_strip_borrow_marker
+} :: import("../../expr.yo");
+{ get_variables_from_env, Environment, Variable, variable_value_type } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
+{
+  ExprInfo,
+  ExprInfoTable,
+  expr_info_table_get,
+  expr_info_case_executed,
+  expr_info_closure_function_value,
+  lookup_method_callee_value,
+  lookup_method_callee_type,
+  expr_info_capture_type,
+  expr_info_index_method_value,
+  expr_info_is_anonymous_function_definition,
+  expr_info_macro_expansion,
+  scope_variables,
+  is_mut_lend_value
+} :: import("../../expr-info.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, value_contains_unknown, is_module_val, is_type_value } :: import("../../value.yo");
+{ TypeValue, no_labels, SharedList, no_types, slot_pointee_at, t_slot_is_mut_ref, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
+{ get_func_type, is_control_fn, is_closure_fn } :: import("../../function-value.yo");
+{ is_function_type, is_pointer_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, cell_handle_view, is_atomic_counted_handle_type, is_prelude_allocator_struct, is_prelude_io_struct } :: import("../../types/guards.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
+{ type_implements_trait_bool } :: import("../trait-checking.yo");
+{ get_trait_type_from_env } :: import("../../types/env-lookup.yo");
+{ is_thread_local } :: import("../../expr-info.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ ast_expr_to_string, BK_MUT, BK_IMM, BF_COMPTIME_EXPECT_ERROR, projection_tail_mode } :: import("../../expr.yo");
+{ eprintln } :: import("std/fmt");
+{
+  is_io_async_call,
+  is_io_await_call,
+  is_io_state_call,
+  is_io_spawn_call,
+  is_join_handle_await_call
+} :: import("../async/await-analysis.yo");
+{ debug_knob, display_module_path } :: import("../../utils.yo");
+{ box_inner_type } :: import("../../pattern.yo");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (3 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
+/// `HashMap(String, _MsMemo)` (1 use)
+_c_len_2 :: (fn(m : &HashMap(String, _MsMemo)) -> usize)(m.len());
+_c_len_3 :: (fn(m : &HashMap(String, _MspMemo)) -> usize)(m.len());
+_c_len_4 :: (fn(m : &HashMap(String, _GrMemo)) -> usize)(m.len());
+_c_len_5 :: (fn(m : &HashMap(String, HashMap(String, String))) -> usize)(m.len());
+_c_len_6 :: (fn(m : &HashMap(String, HashSet(String))) -> usize)(m.len());
+/// func_id → may-mutate verdict (true = may mutate), with the id of the body
+/// it was computed from.
+///
+/// A func id does NOT name one body for the life of the process: definition
+/// ids are `stable_func_id(module, row, column)`, so a definition that
+/// `check --watch` / the LSP re-evaluates after an edit keeps its id and gets
+/// a new body (fresh AST ids). Every memo in this file therefore answers only
+/// for the body it walked (the stored `body_id`); a different body is a
+/// miss and is walked afresh
+/// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+_MsMemo :: struct(body_id : ExprId, mutates : bool);
+derive(_MsMemo, Copy, Clone);
+(g_ms_summary_by_fid : RefCell(HashMap(String, _MsMemo))) = RefCell(HashMap(String, _MsMemo)).new(HashMap(String, _MsMemo).new());
+/// func_ids whose bodies are currently being walked (cycle guard).
+(g_ms_in_progress : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Builtin heads that are pure structure/control flow: walk the arguments,
+/// the head itself mutates nothing.
+_ms_head_is_safe_recurse :: (fn(h : &String) -> bool)(
+  (h.* == "begin") || (h.* == "cond") || (h.* == "while") || (h.* == "if") || (h.* == "&&") || (h.* == "||") || (h.* == "return") || (h.* == "break") || (h.* == "continue") || (h.* == "clone") || (h.* == "%") || (h.* == "unwind") || (h.* == "recur") || (h.* == "dyn") || (h.* == "runtime") || (h.* == "quote") || (h.* == ":") || (h.* == "consume") || (h.* == "the") || (h.* == "as") || (h.* == ".") || (h.* == "=>") || (h.* == "->") || (h.* == "tuple") || (h.* == "array") || (h.* == "___dup") || (h.* == "unsafe")
+);
+/// RC-DECREMENT primitives. Any of these can release the last reference to
+/// RC storage — including the container-held reference a borrowed projection
+/// depends on — so a callee containing one MAY invalidate the borrow.
+///
+/// These are user-reachable (`___drop(x)` appears in tests/basic.test.yo), and
+/// a call to one on a projection (`___drop(w.b)`) is a real invalidation the
+/// assignment rule does not see. Compiler-generated drops never reach this
+/// walk: they live in ExprInfo side-channels, not as AST children, and each
+/// is balanced against a generated dup.
+_ms_head_is_rc_decrement :: (fn(h : &String) -> bool)(
+  (h.* == "___drop") || (h.* == "___dispose") || (h.* == "drop") || (h.* == "__yo_decr_rc") || (h.* == "__yo_decr_rc_atomic") || (h.* == "__yo_dyn_drop") || (h.* == "__yo_sometype_drop") || (h.* == "__yo_drop_array_element") || (h.* == "__yo_drop_tuple_element")
+);
+/// Primitive builtin heads that are pure computations, reads, comptime-only
+/// reflection, or process aborts. Deliberately NOT safe: __yo_ptr_set,
+/// __yo_array_fill, __yo_drop_array_element / __yo_drop_tuple_element (drop
+/// a CONTAINER-held reference — exactly the aliasing hole), buffer writers.
+_ms_head_is_pure_builtin :: (fn(h : &String) -> bool)({
+  if(h.starts_with("__yo_op_") || h.starts_with("__yo_comptime_") || h.starts_with("__yo_expr_") || h.starts_with("__yo_type_"), {
+    return(true);
+  });
+  (h.* == "__yo_as") || (h.* == "__yo_ptr_add") || (h.* == "__yo_ptr_sub") || (h.* == "__yo_ptr_diff") || (h.* == "__yo_ptr_eq") || (h.* == "__yo_ptr_neq") || (h.* == "__yo_ptr_lt") || (h.* == "__yo_ptr_lte") || (h.* == "__yo_ptr_gt") || (h.* == "__yo_ptr_gte") || (h.* == "__yo_ptr_deref") || (h.* == "__yo_ptr_read") || (h.* == "__yo_str_from_raw_parts") || (h.* == "__yo_str_len") || (h.* == "__yo_str_ptr") || (h.* == "__yo_str_byte") || (h.* == "__yo_array_index") || (h.* == "__yo_panic") || (h.* == "ref_count") || (h.* == "size_of") || (h.* == "align_of") || (h.* == "type_id") || (h.* == "type_of") || (h.* == "downcast") || (h.* == "upcast") || (h.* == "__yo_noop") || (h.* == "__yo_return_self") || (h.* == "__yo_borrow_assert_unborrowed") || (h.* == "__yo_borrow_acquire") || (h.* == "__yo_borrow_release") || (h.* == "__yo_incr_rc") || (h.* == "__yo_rc_own") || (h.* == "__yo_rc_forget_payload") || (h.* == "__yo_dyn_dup") || (h.* == "__yo_sometype_dup") || (h.* == "__yo_dup_array_element") || (h.* == "__yo_dup_tuple_element") || (h.* == "__yo_capture_field")
+});
+/// Extern non-runtime C names that free memory Yo values may live in.
+_ms_extern_is_freeing :: (fn(h : &String) -> bool)(
+  (h.* == "free") || (h.* == "realloc") || (h.* == "reallocf")
+);
+/// A function-like type (callback channel through an extern).
+_ms_type_is_function_like :: (fn(t : &TypeValue) -> bool)({
+  if(is_function_type(t), {
+    return(true);
+  });
+  match(
+    t,
+    Rc(.Pointer({ pointee : p })) => is_function_type(&p.*),
+    _ => false
+  )
+});
+/// An extern runs no Yo code, and C code outside the Yo runtime never
+/// manipulates RC counts — a borrow only dangles when its box is FREED, and
+/// frees of RC storage come exclusively from (a) the runtime/allocator
+/// family (all `__yo_`-prefixed externs), (b) direct libc free/realloc
+/// bindings, or (c) callback parameters re-entering Yo code. Everything
+/// else (memcmp, printf, libc math) performs at most raw byte reads/writes,
+/// which cannot decrement a reference count.
+_ms_extern_may_mutate :: (
+  fn(
+    extern_name : &String,
+    param_types : &SharedList(TypeValue),
+    variadic_types : &SharedList(TypeValue)
+  ) -> bool
+)({
+  if(_ms_head_is_pure_builtin(extern_name.clone()), {
+    return(false);
+  });
+  if(_msp_extern_is_owner_read(extern_name.clone()), {
+    return(false);
+  });
+  if(extern_name.starts_with("__yo_"), {
+    return(true);
+  });
+  if(_ms_extern_is_freeing(extern_name.clone()), {
+    return(true);
+  });
+  (pi : usize) = usize(0);
+  n := param_types.len();
+  (found_cb : bool) = false;
+  while(pi < n, {
+    match(
+      slot_pointee_at(&param_types.*, pi),
+      .Some(pt) => if(_ms_type_is_function_like(&pt), {
+        found_cb = true;
+      }),
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  (vi : usize) = usize(0);
+  nv := variadic_types.len();
+  while(vi < nv, {
+    match(
+      variadic_types.get(vi),
+      .Some(vt) => if(_ms_type_is_function_like(&vt), {
+        found_cb = true;
+      }),
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  found_cb
+});
+_ms_touched_add :: (fn(touched : &mut ArrayList(String), fid : &String) -> unit)({
+  (i : usize) = usize(0);
+  n := touched.len();
+  (present : bool) = false;
+  while(i < n, {
+    match(
+      touched.get_cloned(i),
+      .Some(t) => if(t == fid.*, {
+        present = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(!present, {
+    touched.push(fid.clone());
+  });
+});
+/// Is `fid`'s body `___dup(p)` of its first parameter `p`? That is the
+/// prelude's `Rc`/`Arc` `Clone.clone`, the callee of every decision-17
+/// `Rc.clone(h)`. Its summary needs no walk: it writes nothing, and its
+/// result is the first argument's cell (`___dup` passes its operand through,
+/// `_msp_pass_through_head`). Answering from the body's shape matters because
+/// a specialization's body can have no ExprInfo in the table a caller is
+/// summarized against, and that conservative answer is never memoized and
+/// poisons the caller's memo too: every function calling `Rc.clone`, and each
+/// of its callers, was re-analysed on every query (the `Pattern.clone` /
+/// `clone_patterns` cycle 180,000 times in `check src/main.yo`,
+/// issues/fixed/2026-10-30-rc-clone-calls-defeat-the-mutation-summary-memo.md).
+_ms_body_dups_first_param :: (fn(fid : &String, body : &AstExpr) -> bool)(
+  match(
+    body,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => if(
+      ast_expr_is_fn_call_of(body, "___dup", Option(usize).Some(usize(1))),
+      match(
+        args.get_cloned(usize(0)),
+        .Some(a) => match(
+          a,
+          Rc(.Atom(_, tok)) => match(_msp_labels(fid).items.get_cloned(usize(0)), .Some(l0) => (l0 == tok.value.*), .None => false),
+          _ => false
+        ),
+        .None => false
+      ),
+      false
+    ),
+    _ => false
+  )
+);
+/// Namespace struct for the mutually recursive summary/walk pair —
+/// module-level bindings are define-before-use, so the mutual recursion
+/// (summary_for → walk → summary_for) needs the impl-block forward-decl
+/// shell machinery (see tests/forward-ref-impl-block.test.yo).
+_MsW :: struct(_d : i32);
+impl(
+  _MsW,
+  summary_for : (
+    fn(
+      fid : &String,
+      body : &AstExpr,
+      table : &ExprInfoTable,
+      touched : &mut ArrayList(String)
+    ) -> bool
+  )({
+    match(
+      g_ms_summary_by_fid.with({ fid : &fid.* }(m) => m.get_cloned(fid.clone())),
+      .Some(m) => if(m.body_id == ast_expr_id(body), {
+        return(m.mutates);
+      }),
+      .None => ()
+    );
+    if(_ms_body_dups_first_param(fid, body), {
+      return(false);
+    });
+    if(g_ms_in_progress.with({ fid : &fid.* }(m) => m.get(fid.clone())).is_some(), {
+      _ms_touched_add(touched, fid.clone());
+      return(false);
+    });
+    // A body with no ExprInfo has not been evaluated (definition in progress
+    // or a raw generic original): conservative, and NOT memoized.
+    if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
+      return(true);
+    });
+    fid_owned := fid.clone();
+    g_ms_in_progress.with_mut({ fid_owned }(m) => m.insert(fid_owned.clone(), true));
+    local_touched := ArrayList(String).new();
+    mutates := _MsW.walk(body, table, &mut local_touched);
+    fid_owned2 := fid.clone();
+    g_ms_in_progress.with_mut({ fid_owned2 }(m) => m.remove(fid_owned2.clone()));
+    // Remove the self edge (pure self-recursion does not poison memoization).
+    (li : usize) = usize(0);
+    filtered_touched := ArrayList(String).new();
+    while(li < local_touched.len(), {
+      match(
+        local_touched.get_cloned(li),
+        .Some(t) => if(!(t == fid.*), {
+          filtered_touched.push(t.clone());
+        }),
+        .None => ()
+      );
+      li = (li + usize(1));
+    });
+    if(mutates || (filtered_touched.len() == usize(0)), {
+      fid_owned3 := fid.clone();
+      g_ms_summary_by_fid.with_mut({ fid_owned3, mutates : mutates.clone(), body : body.clone() }(m) => m.insert(fid_owned3.clone(), _MsMemo(body_id : ast_expr_id(&body), mutates : mutates)));
+    });
+    (ti : usize) = usize(0);
+    while(ti < filtered_touched.len(), {
+      match(
+        filtered_touched.get_cloned(ti),
+        .Some(t) => _ms_touched_add(touched, t.clone()),
+        .None => ()
+      );
+      ti = (ti + usize(1));
+    });
+    mutates
+  }),
+  /// Walk every argument; true as soon as one may mutate.
+  walk_args : (
+    fn(
+      args : &ArrayList(AstExpr),
+      table : &ExprInfoTable,
+      touched : &mut ArrayList(String)
+    ) -> bool
+  )({
+    (i : usize) = usize(0);
+    n := args.len();
+    (found : bool) = false;
+    while((i < n) && !found, {
+      match(
+        args.get_cloned(i),
+        .Some(a) => if(_MsW.walk(&a, table, touched), {
+          found = true;
+        }),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    found
+  }),
+  /// Resolve the callee FuncVal of a call: the func node's ExprInfo value
+  /// (plain calls), falling back to the method-callee side-table (method
+  /// calls — the dot node is not stamped with the resolved FuncVal).
+  callee_value : (
+    fn(call_expr : &AstExpr, func_expr : &AstExpr, table : &ExprInfoTable) -> Option(EvalValue)
+  )({
+    from_info := match(
+      expr_info_table_get(table, ast_expr_id(func_expr)),
+      .Some(fi) => fi.value(),
+      .None => Option(EvalValue).None
+    );
+    is_fv := match(
+      from_info.clone(),
+      .Some(Rc(.FuncVal(_, _))) => true,
+      .Some(Rc(.TypeVal(_))) => true,
+      .Some(_) => false,
+      .None => false
+    );
+    if(is_fv, {
+      return(from_info);
+    });
+    lookup_method_callee_value(ast_expr_id(call_expr))
+  }),
+  /// True when this call is an io builtin (yields to the event loop — other
+  /// tasks run mid-call). Detected structurally, via the shape checks in
+  /// async/await-analysis.yo.
+  is_io_builtin_call : (fn(e : &AstExpr) -> bool)(
+    is_io_async_call(e) || is_io_await_call(e) || is_io_state_call(e) || is_io_spawn_call(e) || is_join_handle_await_call(e)
+  ),
+  walk : (
+    fn(e : &AstExpr, table : &ExprInfoTable, touched : &mut ArrayList(String)) -> bool
+  )({
+    info_opt := expr_info_table_get(table, ast_expr_id(e));
+    match(
+      &info_opt,
+      .Some(info) => {
+        // A macro call's raw arguments are not what executes — the expansion is.
+        match(
+          expr_info_macro_expansion(&info.*),
+          .Some(mx) => {
+            // A local borrow: a `&mx` argument to this method's own recursive
+            // call is rejected while the method is still being evaluated.
+            mx_ref := &mx;
+            return(_MsW.walk(mx_ref, table, touched));
+          },
+          .None => ()
+        );
+        // A cond/match arm the evaluator proved unexecuted is never emitted.
+        match(
+          expr_info_case_executed(&info.*),
+          .Some(ce) => if(!ce, {
+            return(false);
+          }),
+          .None => ()
+        );
+        // A function/closure DEFINITION does not run its body here.
+        match(
+          expr_info_is_anonymous_function_definition(&info.*),
+          .Some(an) => if(an, {
+            return(false);
+          }),
+          .None => ()
+        );
+        if(expr_info_closure_function_value(&info.*).is_some(), {
+          return(false);
+        });
+      },
+      .None => ()
+    );
+    if(ast_expr_is_atom(e), {
+      return(false);
+    });
+    (func_expr : AstExpr) = Rc.clone(e.*);
+    (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+    match(
+      e,
+      Rc(.FnCall(_, f, Rc(a), _, _)) => {
+        func_expr = Rc.clone(f.*);
+        args = a.clone();
+      },
+      Rc(.Atom(_, _)) => ()
+    );
+    (head : String) = String.new();
+    match(
+      Rc.clone(func_expr),
+      Rc(.Atom(_, ht)) => {
+        head = ht.value.*.clone();
+      },
+      _ => ()
+    );
+    // Assignment: the aliasing hole is a store that DROPS an RC-typed old
+    // value. Non-RC stores free nothing; recurse both sides.
+    if((head == "=") && (args.len() == usize(2)), {
+      lhs := match(args.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(e.*));
+      // The typed declaration `(name : T) = init` is a declaration, not a
+      // store: its lhs is a colon pair, and only the initializer runs.
+      // (Misreading it as a store rooted at the atom `:` made every method
+      // with a typed local — `ArrayList.index_of` — "mutating": a false
+      // invalidation panic inside a borrowed `for`.)
+      if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
+        rhs0 := match(args.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(e.*));
+        return(_MsW.walk(&rhs0, table, touched));
+      });
+      lhs_info := expr_info_table_get(table, ast_expr_id(&lhs));
+      match(
+        lhs_info,
+        .Some(li) => {
+          if(type_contains_rc_type(&li.ty()), {
+            return(true);
+          });
+        },
+        .None => {
+          return(true);
+        }
+      );
+      return(_MsW.walk_args(args, table, touched));
+    });
+    // Declarations create a fresh local — only the initializer runs.
+    if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
+      rhs := match(args.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(e.*));
+      return(_MsW.walk(&rhs, table, touched));
+    });
+    // match arms are `pattern => body`: the pattern side binds, it never
+    // executes runtime calls (Yo has no match guards) and its variant
+    // constructors have no resolvable callee. Walk the scrutinee and arm
+    // BODIES only.
+    if(head == "match", {
+      match(
+        args.get_cloned(usize(0)),
+        .Some(scrut) => if(_MsW.walk(&scrut, table, touched), {
+          return(true);
+        }),
+        .None => ()
+      );
+      (mi : usize) = usize(1);
+      while(mi < args.len(), {
+        match(
+          args.get_cloned(mi),
+          .Some(arm) => {
+            arm_case_off := match(
+              expr_info_table_get(table, ast_expr_id(&arm)),
+              .Some(ai) => match(
+                expr_info_case_executed(&ai),
+                .Some(ce) => !ce,
+                .None => false
+              ),
+              .None => false
+            );
+            if(!arm_case_off, {
+              (arm_body : Option(AstExpr)) = Option(AstExpr).None;
+              match(
+                Rc.clone(arm),
+                Rc(.FnCall(_, af, Rc(aargs), _, _)) => match(
+                  af,
+                  Rc(.Atom(_, at)) => if(((at.value.* == "=>") || (at.value.* == "->")) && (aargs.len() == usize(2)), {
+                    arm_body = aargs.get_cloned(usize(1));
+                  }),
+                  _ => ()
+                ),
+                Rc(.Atom(_, _)) => ()
+              );
+              match(
+                arm_body,
+                .Some(ab) => if(_MsW.walk(&ab, table, touched), {
+                  return(true);
+                }),
+                .None => if(_MsW.walk(&arm, table, touched), {
+                  return(true);
+                })
+              );
+            });
+          },
+          .None => ()
+        );
+        mi = (mi + usize(1));
+      });
+      return(false);
+    });
+    // An explicit RC decrement can release the container-held reference the
+    // borrowed projection depends on. Tested BEFORE the safe/pure head lists
+    // so a decrement can never be whitelisted by accident.
+    if((head.len() > usize(0)) && _ms_head_is_rc_decrement(head.clone()), {
+      return(true);
+    });
+    if((head.len() > usize(0)) && _ms_head_is_safe_recurse(head.clone()), {
+      return(_MsW.walk_args(&args, table, touched));
+    });
+    // A compile-time-known result is inlined by codegen — the call never runs
+    // at runtime, so nothing inside it can mutate.
+    //
+    // This MUST stay below the structural forms above. Every statement-shaped
+    // expression (an assignment, a declaration) carries a compile-time UNIT
+    // value simply because that is its type — not because it was folded away.
+    // Checking earlier made the walk skip `t = poke(w);` whole, never visiting
+    // the mutating call on its right-hand side, and report a mutating function
+    // as read-only.
+    match(
+      &info_opt,
+      .Some(vinfo) => match(
+        vinfo.value(),
+        .Some(v) => if(_msp_value_is_folded(&v), {
+          return(false);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    // io builtins yield to the event loop — other tasks run mid-call.
+    if(_MsW.is_io_builtin_call(e), {
+      return(true);
+    });
+    // General call: classify the callee. An index-trait call `xs(i)` carries
+    // no callee value on its func expr (that is the COLLECTION); the evaluator
+    // records the specialized `index` method on the call's own ExprInfo
+    // (`index_method_value`, the value codegen calls). Without this route the
+    // call was opaque and every method that READS an element by index was
+    // "mutating" (issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md).
+    index_callee := match(
+      info_opt,
+      .Some(ci) => match(
+        expr_info_index_method_value(&ci),
+        .Some(imv) => match(Rc.clone(imv), Rc(.FuncVal(_, _)) => Option(EvalValue).Some(Rc.clone(imv)), _ => Option(EvalValue).None),
+        .None => Option(EvalValue).None
+      ),
+      .None => Option(EvalValue).None
+    );
+    callee_opt := match(index_callee.clone(), .Some(_) => index_callee.clone(), .None => _MsW.callee_value(e, &func_expr, table));
+    match(
+      callee_opt,
+      .Some(callee) => match(
+        callee,
+        Rc(.TypeVal(_)) => {
+          // Type application: a cast or a struct/enum construction —
+          // allocates a fresh value, mutates nothing pre-existing.
+          if(_MsW.walk(&func_expr, table, touched), {
+            return(true);
+          });
+          return(_MsW.walk_args(&args, table, touched));
+        },
+        Rc(.FuncVal(fvd, _)) => {
+          fid := fvd.*.func_id.clone();
+          if(is_control_fn(fid.clone()), {
+            // Effect handler / ctl body — caller-side code runs mid-call.
+            return(true);
+          });
+          callee_ty := get_func_type(fid.clone());
+          (callee_extern : Option(String)) = Option(String).None;
+          (callee_ptypes : SharedList(TypeValue)) = no_types();
+          (callee_vtypes : SharedList(TypeValue)) = no_types();
+          match(
+            callee_ty,
+            Rc(.Func({ param_types : cpt, meta : cm, variadic_types : cvt })) => {
+              callee_extern = cm.*.extern_name.clone();
+              callee_ptypes = Rc.clone(cpt);
+              callee_vtypes = Rc.clone(cvt);
+            },
+            _ => ()
+          );
+          match(
+            callee_extern,
+            .Some(en) => {
+              if(_ms_extern_may_mutate(&en, &callee_ptypes, &callee_vtypes), {
+                return(true);
+              });
+            },
+            .None => {
+              if(_MsW.summary_for(fid.clone(), &fvd.*.body, table, touched), {
+                return(true);
+              });
+            }
+          );
+          if(_MsW.walk(&func_expr, table, touched), {
+            return(true);
+          });
+          return(_MsW.walk_args(&args, table, touched));
+        },
+        _ => {
+          return(true);
+        }
+      ),
+      .None => ()
+    );
+    // Primitive builtins with dedicated evaluator paths: pure computations,
+    // reads, and aborts are safe.
+    if((head.len() > usize(0)) && _ms_head_is_pure_builtin(head.clone()), {
+      return(_MsW.walk_args(&args, table, touched));
+    });
+    // Callee value unresolved but a resolved callee TYPE exists (extern C
+    // declarations resolve this way).
+    (type_only : Option(TypeValue)) = match(
+      expr_info_table_get(table, ast_expr_id(&func_expr)),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty())),
+      .None => Option(TypeValue).None
+    );
+    (type_only2 : Option(TypeValue)) = match(
+      type_only,
+      .Some(t0) => if(
+        is_function_type(&t0),
+        Option(TypeValue).Some(Rc.clone(t0)),
+        lookup_method_callee_type(ast_expr_id(e))
+      ),
+      .None => lookup_method_callee_type(ast_expr_id(e))
+    );
+    match(
+      type_only2,
+      .Some(t2) => match(
+        t2,
+        Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => {
+          match(
+            &tm.*.extern_name,
+            .Some(ten) => {
+              if(_ms_extern_may_mutate(&ten.*, &tpt, &tvt), {
+                return(true);
+              });
+              if(_MsW.walk(&func_expr, table, touched), {
+                return(true);
+              });
+              return(_MsW.walk_args(&args, table, touched));
+            },
+            .None => ()
+          );
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    // Unresolved callee: runtime closure, dyn dispatch, fn pointer, ctl
+    // parameter — arbitrary code may run.
+    true
+  })
+);
+/// Public entry: may the function `fid` (with evaluated `body`)
+/// transitively mutate RC container storage reachable from its parameters,
+/// captures, or globals?
+function_may_mutate_rc_storage :: (
+  fn(fid : &String, body : &AstExpr, ctx : &EvalContext) -> bool
+)({
+  touched := ArrayList(String).new();
+  _MsW.summary_for(fid, body, &ctx.expr_info_table, &mut touched)
+});
+// ===========================================================================
+// PARAM-STORAGE mode — per-parameter mutation masks
+// (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 C5, refined per §9 third pass).
+//
+// Answers, for a function F: WHICH of F's parameters have storage reachable
+// from them that F may (transitively) mutate — a field store, an index store,
+// a length decrement, a deref store through a pointer into that storage, a
+// `realloc`/`free`/`memmove` of it, or a call to a callee that does so. Codegen
+// emits `__yo_borrow_assert_unborrowed` at F's entry for every RC-object
+// parameter in the mask, so a collection held by a borrowed `for` (or an
+// interior `inout` argument) panics on any invalidating method, whoever wrote
+// the collection. The body decides, not the signature: today a plainly passed
+// reference-semantics handle can be written by its callee. Once V3b
+// Generation B makes a plain parameter by value, a write goes through a
+// `mut(x)` parameter the signature spells (plans/VALUES_BY_DEFAULT.md
+// decision 30).
+//
+// Precision comes from ROOTING every value: a local built by a constructor
+// or a fresh-returning callee is FRESH storage, a mutation of it is not a
+// mutation of parameter storage (`clone` pushing into its result); a fresh
+// object that was handed a parameter-rooted handle is a SHELL, whose OWN
+// fields may still be written freely (an iterator's cursor) while anything
+// reached THROUGH it is rooted. Every flow that could make fresh storage
+// reachable from a parameter (storing it into parameter storage, passing it
+// to a callee that mutates a rooted argument, capturing it in a closure)
+// taints it. MAY-analysis throughout: unresolvable = `all`.
+// ===========================================================================
+MSP_NONE :: u8(0);
+MSP_FRESH :: u8(1);
+MSP_SHELL :: u8(2);
+MSP_PARAM :: u8(3);
+MSP_ROOTED :: u8(4);
+/// Where a value's storage may live, relative to the function being walked.
+///   NONE   — inert (no RC handle, no pointer): can root nothing
+///   FRESH  — allocated in this frame, holding only fresh/inert values
+///   SHELL  — allocated in this frame, but may HOLD rooted handles
+///   PARAM  — storage reachable from parameter `param`; `deep` = through an
+///            RC-typed hop (another object), else the parameter's own storage;
+///            `contents` = may have been READ OUT of that storage (a field,
+///            element, deref or pattern payload, `_msp_extract`), else it is
+///            the parameter's value itself (a read, cast, pointer offset or
+///            transparent wrapper of it)
+///   ROOTED — unknown: may alias parameter or global storage
+_MspRoot :: struct(kind : u8, param : usize, deep : bool, contents : bool);
+derive(_MspRoot, Copy, Clone);
+_msp_root :: (fn(kind : u8) -> _MspRoot)(_MspRoot(kind : kind, param : usize(0), deep : false, contents : false));
+_msp_param_root :: (fn(i : usize, deep : bool) -> _MspRoot)(_MspRoot(kind : MSP_PARAM, param : i, deep : deep, contents : false));
+_msp_root_same :: (fn(a : _MspRoot, b : _MspRoot) -> bool)((a.kind == b.kind) && (a.param == b.param) && (a.deep == b.deep) && (a.contents == b.contents));
+/// `r`, marked as possibly read out of the parameter storage it names.
+_msp_as_contents :: (fn(r : _MspRoot) -> _MspRoot)(
+  if(r.kind == MSP_PARAM, _MspRoot(kind : MSP_PARAM, param : r.param, deep : r.deep, contents : true), r)
+);
+/// May alias parameter or global storage.
+_msp_is_rootedish :: (fn(r : _MspRoot) -> bool)((r.kind == MSP_PARAM) || (r.kind == MSP_ROOTED));
+/// Holds (or may hold) rooted handles.
+_msp_holds_rooted :: (fn(r : _MspRoot) -> bool)((r.kind == MSP_SHELL) || (r.kind == MSP_PARAM) || (r.kind == MSP_ROOTED));
+/// A pure builtin whose result is its argument's value itself: a pointer
+/// offset or a cast. Any other pure builtin's result may be read out of its
+/// arguments' storage (`__yo_ptr_read`, `__yo_array_index`).
+_msp_builtin_keeps_value :: (fn(h : &String) -> bool)(
+  (h.* == "__yo_ptr_add") || (h.* == "__yo_ptr_sub") || (h.* == "__yo_as")
+);
+/// Lattice join.
+_msp_join :: (fn(a : _MspRoot, b : _MspRoot) -> _MspRoot)(
+  cond(
+    (a.kind == MSP_NONE) => b,
+    (b.kind == MSP_NONE) => a,
+    ((a.kind == MSP_FRESH) && (b.kind == MSP_FRESH)) => a,
+    (((a.kind == MSP_FRESH) || (a.kind == MSP_SHELL)) && ((b.kind == MSP_FRESH) || (b.kind == MSP_SHELL))) => _msp_root(MSP_SHELL),
+    ((a.kind == MSP_PARAM) && (b.kind == MSP_PARAM) && (a.param == b.param)) => _MspRoot(kind : MSP_PARAM, param : a.param, deep : (a.deep || b.deep), contents : (a.contents || b.contents)),
+    // "Fresh or parameter i": a fresh value holds nothing rooted, so
+    // attributing the union to parameter i over-asserts and never
+    // under-asserts (a `malloc`-or-`realloc` result, a `.None`-or-payload).
+    ((a.kind == MSP_FRESH) && (b.kind == MSP_PARAM)) => b,
+    ((a.kind == MSP_PARAM) && (b.kind == MSP_FRESH)) => a,
+    true => _msp_root(MSP_ROOTED)
+  )
+);
+/// The root of CONTENTS read out of `r` (a field, an element, a deref, a
+/// pattern payload). `hop_is_rc`: the extracted value is itself an RC handle,
+/// so storage reached through it belongs to another object.
+_msp_extract :: (fn(r : _MspRoot, hop_is_rc : bool) -> _MspRoot)(
+  cond(
+    (r.kind == MSP_SHELL) => _msp_root(MSP_ROOTED),
+    (r.kind == MSP_PARAM) => _MspRoot(kind : MSP_PARAM, param : r.param, deep : (r.deep || hop_is_rc), contents : true),
+    true => r
+  )
+);
+/// The per-parameter verdict codegen consumes: `all` (unknown effects, every
+/// parameter), `deep(i)` (storage reached through parameter i's contents),
+/// `shallow(i)` (parameter i's own storage). Either bit means "asserts i".
+/// `lends_mut(i)`: the body makes a `&mut` reference VALUE of storage rooted
+/// in parameter i (a `&mut` lend that is not a `&mut` parameter's argument:
+/// `(&mut b.*).into_iter()`, `ys := &mut b.*`, a `&mut` field or payload; a
+/// `&mut` reference read into a by-value slot, `Handle(b)(bag : b)`), or
+/// passes it to a callee's `&mut` parameter whose bit is set (VERDICTS-57
+/// §3.1). Only the local-borrow judge of a call reads it
+/// (`d3_check_pending`): the cursor, holder or walk such a value is lets the
+/// caller write the place, so the argument is a write. Codegen, D3 and the
+/// runtime asserts never read it.
+ParamMutationMask :: struct(all : bool, deep : ArrayList(bool), shallow : ArrayList(bool), lends_mut : ArrayList(bool));
+param_mutation_mask_new :: (fn() -> ParamMutationMask)(
+  ParamMutationMask(all : false, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new(), lends_mut : ArrayList(bool).new())
+);
+derive(ParamMutationMask, Clone);
+_msp_bits_get :: (fn(bits : &ArrayList(bool), i : usize) -> bool)(match(bits.get(i), .Some(b) => b, .None => false));
+_msp_bits_set :: (fn(bits : &mut ArrayList(bool), i : usize) -> unit)({
+  while(bits.len() <= i, {
+    bits.push(false);
+  });
+  bits(i) = true;
+});
+_msp_bits_or :: (fn(dst : &mut ArrayList(bool), src : &ArrayList(bool)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < src.len(), {
+    if(_msp_bits_get(src, i), {
+      _msp_bits_set(dst, i);
+    });
+    i = (i + usize(1));
+  });
+});
+_msp_mask_or :: (fn(dst : &mut ParamMutationMask, src : &ParamMutationMask) -> unit)({
+  if(src.all, {
+    dst.all = true;
+  });
+  _msp_bits_or(&mut dst.deep, &src.deep);
+  _msp_bits_or(&mut dst.shallow, &src.shallow);
+  _msp_bits_or(&mut dst.lends_mut, &src.lends_mut);
+});
+/// Record a mutation of the storage `r` names.
+_msp_mask_add_root :: (fn(m : &mut ParamMutationMask, r : _MspRoot, deep : bool) -> unit)({
+  cond(
+    (r.kind == MSP_PARAM) => if(deep || r.deep, {
+      _msp_bits_set(&mut m.deep, r.param);
+    }, {
+      _msp_bits_set(&mut m.shallow, r.param);
+    }),
+    (r.kind == MSP_ROOTED) => {
+      m.all = true;
+      _msp_debug_all_reason(String.from("mutation of rooted storage"));
+    },
+    true => ()
+  );
+});
+/// The body makes a `&mut` reference value of storage rooted in parameter
+/// `i` (`ParamMutationMask.lends_mut`).
+param_mutation_mask_lends_mut :: (fn(m : &ParamMutationMask, i : usize) -> bool)(_msp_bits_get(&m.lends_mut, i));
+param_mutation_mask_hits :: (fn(m : &ParamMutationMask, i : usize) -> bool)(
+  m.all || _msp_bits_get(&m.deep, i) || _msp_bits_get(&m.shallow, i)
+);
+param_mutation_mask_is_empty :: (fn(m : &ParamMutationMask) -> bool)({
+  if(m.all, {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < m.deep.len(), {
+    if(_msp_bits_get(&m.deep, i), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  i = usize(0);
+  while(i < m.shallow.len(), {
+    if(_msp_bits_get(&m.shallow, i), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+/// Does a value of this type contain a raw pointer (which may point into
+/// parameter storage)? Same shape as `_type_contains_rc_inner`.
+///
+/// The prelude's `Allocator` does not count: its two words are the
+/// allocator's private state and its immortal vtable, never Yo storage a
+/// caller reaches, the contract `_msp_allocator_slot` reads for the vtable's
+/// `ctx` and that makes it an opaque handle in safe code
+/// (plans/backlog/ALLOCATOR_PLACEMENT.md A2). So the owner record a placed
+/// block carries roots nothing, and a constructor that may place its buffer
+/// (`ArrayList(T).new(alloc : …)`) still returns fresh storage
+/// (issues/fixed/2026-10-29-a-container-constructor-that-may-place-its-buffer-returns-a-shell.md).
+_msp_type_contains_pointer_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  cond(
+    (depth > u32(8)) => true,
+    is_prelude_allocator_struct(&ty) => false,
+    // The interface-shaped `Io` likewise: its context is the runtime's loop
+    // and its table immortal, never storage a caller reaches.
+    is_prelude_io_struct(&ty) => false,
+    is_pointer_type(&ty) => true,
+    true => match(
+      ty,
+      Rc(.Array(element : elem, length : _)) => recur(&elem, depth + u32(1)),
+      Rc(.Tuple(field_labels : _, field_types : fields)) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !found, {
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      Rc(.Union(name : _, field_labels : _, field_types : fields)) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !found, {
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      Rc(.Struct({ field_types : fields })) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !found, {
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      Rc(.EnumT({ variant_fields : all_fields })) => {
+        (found : bool) = false;
+        (vi : usize) = usize(0);
+        while((vi < all_fields.len()) && !found, {
+          match(
+            all_fields.get(vi),
+            .Some(v_fields) => {
+              (fi : usize) = usize(0);
+              while((fi < v_fields.len()) && !found, {
+                match(
+                  v_fields.get(fi),
+                  .Some(ft) => if(recur(&ft, depth + u32(1)), {
+                    found = true;
+                  }),
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        found
+      },
+      Rc(.SomeT({ bounds : _, resolution : resolved })) => match(
+        resolved,
+        .Some(concrete) => recur(&concrete, depth + u32(1)),
+        .None => true
+      ),
+      _ => false
+    )
+  )
+});
+/// Can a value of this type root storage at all? Inert types (integers,
+/// bools, `str`, `Type`, functions) cannot.
+_msp_type_may_root :: (fn(ty : &TypeValue) -> bool)(
+  type_contains_rc_type(ty) || _msp_type_contains_pointer_inner(ty, u32(0))
+);
+_msp_labels :: (fn(fid : &String) -> SharedList(String))(
+  match(get_func_type(fid), Rc(.Func({ meta : m })) => Rc.clone(m.*.param_labels), _ => no_labels())
+);
+/// Allocation externs hand back storage nothing else references. The aligned
+/// family is one of them: `Box(T).new` takes a payload aligned above 16 from
+/// `__yo_aligned_alloc`, and without it here the block was unknown storage,
+/// so the cell's header and payload stores counted as mutating every
+/// argument, and a function moving a `ref` parameter into `box(b)` got the
+/// borrowed-`for` entry assert
+/// (issues/fixed/2026-10-30-box-layout-trips-the-interior-reference-flag-in-a-borrowed-for-through-an-alias.md).
+_msp_extern_returns_fresh :: (fn(h : &String) -> bool)(
+  (h.* == "__yo_malloc")
+  || (h.* == "__yo_calloc")
+  || (h.* == "__yo_aligned_alloc")
+  || (h.* == "malloc")
+  || (h.* == "calloc")
+  || (h.* == "aligned_alloc")
+);
+/// The allocator-family contract for EXPLICIT allocators
+/// (plans/archive/EXPLICIT_ALLOCATORS.md): a call through a slot of std's
+/// `AllocatorVTable` is the allocator primitive the slot names, as `__yo_malloc`
+/// / `realloc` / `free` are for the global allocator. `alloc(ctx, size)` returns
+/// a fresh block and touches nothing a caller can reach — `ctx` is
+/// allocator-private state, never container storage; `realloc(ctx, p, n)`
+/// moves the block `p`; `free(ctx, p)` releases it. Interface version 2
+/// (`alloc(ctx, size, align)`, `realloc(ctx, p, old, new, align)`,
+/// `free(ctx, p, size, align)`) keeps the block at argument 1, so both shapes
+/// read the same here while std moves between them. Without this every
+/// allocation through an explicit allocator was an unresolvable call ("mutates
+/// everything"), and `ArrayList.clone` — which allocates from its source's
+/// allocator — tripped the borrowed-`for` check
+/// (issues/fixed/an-allocator-vtable-call-counts-as-mutating-everything.md).
+/// The slot's name, or "" for any other call.
+_msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> String)({
+  if(!ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+    return(String.new());
+  });
+  (recv_opt : Option(AstExpr)) = Option(AstExpr).None;
+  (field : String) = String.new();
+  match(
+    func_expr,
+    Rc(.FnCall(_, _, Rc(dargs), _, _)) => {
+      recv_opt = dargs.get_cloned(usize(0));
+      match(
+        dargs.get_cloned(usize(1)),
+        .Some(fa) => match(
+          fa,
+          Rc(.Atom(_, ft)) => {
+            field = ft.value.*.clone();
+          },
+          Rc(.FnCall(_, _, _, _, _)) => ()
+        ),
+        .None => ()
+      );
+    },
+    Rc(.Atom(_, _)) => ()
+  );
+  if(!((field == "alloc") || (field == "realloc") || (field == "free")), {
+    return(String.new());
+  });
+  recv_ty := match(
+    recv_opt,
+    .Some(recv) => match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())), .None => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
+  is_vtable := match(
+    recv_ty,
+    .Some(rt) => {
+      pointee := match(&rt, Rc(.Pointer({ pointee : pt })) => Rc.clone(pt), _ => Rc.clone(rt));
+      match(
+        resolve_struct_shell(&pointee),
+        // The declaring module is std/allocator.yo, or std/prelude.yo once
+        // the type moves there (plans/VALUES_BY_DEFAULT.md §3.11; std can
+        // only move it after a seed carries this arm): a struct id carries
+        // the module stem and an anchored position, not the struct's name
+        // (`stable_position_id`, utils.yo).
+        Rc(.Struct({ id : sid, name : sname })) => (
+          (sname == "AllocatorVTable")
+          && (sid.starts_with("struct_decl_std__allocator_") || sid.starts_with("struct_decl_std__prelude_"))
+        ),
+        _ => false
+      )
+    },
+    .None => false
+  );
+  cond(is_vtable => field, true => String.new())
+});
+/// The owner reads `__yo_rc_owner_ctx(cell)` and `__yo_rc_owner_vtable(cell)`:
+/// the allocator recorded in an RC cell's owner prefix, which `make_mut`
+/// places its fresh cell with (plans/backlog/SEED_VERSION_AUTOMATION.md,
+/// "make_mut reuses the owner"). They read the cell's count word and prefix
+/// and write and free nothing; their results are allocator-private pointers,
+/// never storage a caller writes through. Without this the `__yo_` prefix
+/// made reading a lent handle's owner count as mutating the handle (as it
+/// once made the deleted scope slots mutate every argument,
+/// issues/fixed/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md).
+_msp_extern_is_owner_read :: (fn(h : &String) -> bool)(
+  (h.* == "__yo_rc_owner_ctx") || (h.* == "__yo_rc_owner_vtable")
+);
+/// Reallocation externs hand back the (possibly moved) block of their FIRST
+/// argument: the result is rooted where that pointer was.
+_msp_extern_reallocs :: (fn(h : &String) -> bool)(
+  (h.* == "__yo_realloc") || (h.* == "realloc") || (h.* == "reallocf")
+);
+/// Byte writers: their FIRST argument's storage is mutated (no RC effect, so
+/// `_ms_extern_may_mutate` says no — but a moved element slot is exactly what
+/// a borrowed element reference must not survive).
+_msp_extern_writes_first_arg :: (fn(h : &String) -> bool)(
+  (h.* == "memmove") || (h.* == "memcpy") || (h.* == "memset")
+);
+_msp_extern_has_callback :: (fn(param_types : &SharedList(TypeValue), variadic_types : &SharedList(TypeValue)) -> bool)({
+  (pi : usize) = usize(0);
+  while(pi < param_types.len(), {
+    match(
+      slot_pointee_at(&param_types.*, pi),
+      .Some(pt) => if(_ms_type_is_function_like(&pt), {
+        return(true);
+      }),
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  (vi : usize) = usize(0);
+  while(vi < variadic_types.len(), {
+    match(
+      variadic_types.get(vi),
+      .Some(vt) => if(_ms_type_is_function_like(&vt), {
+        return(true);
+      }),
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  false
+});
+/// An extern callee: its C name and signature. Externs usually resolve by
+/// TYPE only (the func node carries no FuncVal), so both channels are read.
+_MspExtern :: struct(name : String, ptypes : SharedList(TypeValue), vtypes : SharedList(TypeValue));
+/// Per-function analysis state. `roots` is keyed by NAME (same-named locals
+/// in sibling scopes are joined — conservative); parameters and globals are
+/// resolved from the use site's env, not from this map.
+_MspCtx :: struct(
+  fid : String,
+  labels : ArrayList(String),
+  roots : HashMap(String, _MspRoot),
+  /// Insertion order of `roots` (for the debug dump).
+  names : ArrayList(String),
+  table : ExprInfoTable,
+  touched : ArrayList(String),
+  changed : bool
+);
+_msp_param_index :: (fn(ctx : &mut _MspCtx, name : &String) -> Option(usize))({
+  (i : usize) = usize(0);
+  while(i < ctx.labels.len(), {
+    match(
+      ctx.labels.get_cloned(i),
+      .Some(l) => if(l == name.*, {
+        return(Option(usize).Some(i));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// Is an expression's compile-time value a fold that codegen inlines, so the
+/// expression never runs? Only when no leaf is unknown: a runtime struct,
+/// enum or tuple construction — and a call returning one — carries a SHELL
+/// with an `UnknownVal` leaf and still runs. A module value (`import(...)`)
+/// is compile-time even when some of its members are runtime.
+_msp_value_is_folded :: (fn(v : &EvalValue) -> bool)(is_module_val(v) || !value_contains_unknown(v));
+/// Join `r` into the root of local `name`; flags the fixpoint on change.
+_msp_def :: (fn(ctx : &mut _MspCtx, name : &String, r : _MspRoot) -> unit)({
+  cur := match(ctx.roots.get(name.clone()), .Some(c) => c, .None => _msp_root(MSP_NONE));
+  j := _msp_join(cur, r);
+  if(!_msp_root_same(cur, j), {
+    if(ctx.roots.get(name.clone()).is_none(), {
+      ctx.names.push(name.clone());
+    });
+    ctx.roots.insert(name.clone(), j);
+    ctx.changed = true;
+  });
+});
+/// Taint local `name`: ROOTED makes it unknown unless it already names
+/// parameter storage (a pointer into param i stays "into param i" — where it
+/// points cannot change, only where else it is referenced from); SHELL only
+/// upgrades a FRESH local (its contents may now be rooted).
+_msp_taint :: (fn(ctx : &mut _MspCtx, name : &String, kind : u8) -> unit)({
+  cur := match(ctx.roots.get(name.clone()), .Some(c) => c, .None => _msp_root(MSP_NONE));
+  cond(
+    (kind == MSP_ROOTED) => if(cur.kind != MSP_PARAM, {
+      _msp_def(ctx, name, _msp_root(MSP_ROOTED));
+    }),
+    (kind == MSP_SHELL) => if(cur.kind == MSP_FRESH, {
+      _msp_def(ctx, name, _msp_root(MSP_SHELL));
+    }),
+    true => ()
+  );
+});
+/// Taint local `name` because its value now flows into storage rooted at
+/// `target`: into parameter i's storage → reachable from i through a hop
+/// (deep); into unknown storage → unknown (a local that already names
+/// parameter storage keeps its parameter).
+_msp_taint_to :: (fn(ctx : &mut _MspCtx, name : &String, target : _MspRoot) -> unit)({
+  if(target.kind != MSP_PARAM, {
+    _msp_taint(ctx, name, MSP_ROOTED);
+    return(());
+  });
+  cur := match(ctx.roots.get(name.clone()), .Some(c) => c, .None => _msp_root(MSP_NONE));
+  cond(
+    (cur.kind == MSP_PARAM) => if(cur.param != target.param, {
+      _msp_def(ctx, name, _msp_root(MSP_ROOTED));
+    }),
+    (cur.kind == MSP_ROOTED) => (),
+    true => _msp_def(ctx, name, _msp_param_root(target.param, true))
+  );
+});
+/// The variables an identifier read names. The atom's recorded env answers
+/// first; when it lacks the binding, the evaluator's `source_variable` stamp
+/// (set on every identifier read) does. A match arm body that is a bare
+/// pattern binding (`.Some(b) => b`) is such a read: the arm trims the body's
+/// recorded env to the match's depth, which pops the frame holding `b`, so
+/// the env lookup finds nothing and the read classified as unknown storage
+/// (issues/fixed/2026-10-28-a-match-arm-returning-its-pattern-binding-classifies-as-unknown-storage.md).
+_msp_atom_vars :: (fn(atom : &AstExpr, info : &ExprInfo, name : &String) -> ArrayList(Variable))({
+  vars := scope_variables(ast_expr_id(atom), &info.env(), name.clone());
+  if(vars.len() > usize(0), {
+    return(vars);
+  });
+  match(
+    info.source_variable(),
+    .Some(sv) => if(sv.name == name.*, {
+      vars.push(sv);
+    }),
+    .None => ()
+  );
+  vars
+});
+/// The root of a variable read.
+_msp_atom_root :: (fn(ctx : &mut _MspCtx, atom : &AstExpr) -> _MspRoot)({
+  info := match(expr_info_table_get(&ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(_msp_root(MSP_ROOTED)));
+  if(!_msp_type_may_root(&info.ty()), {
+    return(_msp_root(MSP_NONE));
+  });
+  // A compile-time-known value is inlined by codegen: no shared storage.
+  match(
+    info.value(),
+    .Some(v) => if(_msp_value_is_folded(&v), {
+      return(_msp_root(MSP_NONE));
+    }),
+    .None => ()
+  );
+  name := ast_expr_text(atom).*.clone();
+  // A payload-less variant (`.None`) constructs a value holding nothing.
+  if(name.starts_with("."), {
+    return(_msp_root(MSP_NONE));
+  });
+  vars := _msp_atom_vars(atom, &info, &name);
+  if(vars.len() == usize(0), {
+    return(_msp_root(MSP_ROOTED));
+  });
+  v := match(vars.last_cloned(), .Some(x) => x, .None => return(_msp_root(MSP_ROOTED)));
+  if(v.is_compile_time_only(), {
+    return(_msp_root(MSP_NONE));
+  });
+  mapped := ctx.roots.get(name.clone());
+  if(v.is_parameter(), {
+    base := match(_msp_param_index(ctx, name.clone()), .Some(i) => _msp_param_root(i, false), .None => _msp_root(MSP_ROOTED));
+    return(match(mapped, .Some(m) => _msp_join(base, m), .None => base));
+  });
+  if(v.is_module_level(), {
+    return(_msp_root(MSP_ROOTED));
+  });
+  // A local never defined in this body (a closure capture, an uncollected
+  // binding) may alias anything. A pointer whose definition roots nothing was
+  // fabricated from integers: unknown storage (as in `ctor_root`).
+  match(
+    mapped,
+    .Some(m) => if((m.kind == MSP_NONE) && _msp_type_contains_pointer_inner(&info.ty(), u32(0)), _msp_root(MSP_ROOTED), m),
+    .None => _msp_root(MSP_ROOTED)
+  )
+});
+/// Is this atom a LOCAL variable (not a parameter, global, or compile-time
+/// value) whose type can root storage? Such locals are what taint tracks.
+_msp_atom_local_name :: (fn(ctx : &mut _MspCtx, atom : &AstExpr) -> Option(String))({
+  info := match(expr_info_table_get(&ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(Option(String).None));
+  if(!_msp_type_may_root(&info.ty()), {
+    return(Option(String).None);
+  });
+  name := ast_expr_text(atom).*.clone();
+  vars := _msp_atom_vars(atom, &info, &name);
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  v := match(vars.last_cloned(), .Some(x) => x, .None => return(Option(String).None));
+  if(v.is_compile_time_only() || v.is_parameter() || v.is_module_level(), {
+    return(Option(String).None);
+  });
+  Option(String).Some(name)
+});
+/// Names bound by a match/destructuring pattern: every atom except variant
+/// heads (`.Some`), `_`, and the label side of a `label : alias` pair.
+_msp_pattern_names :: (fn(pat : &AstExpr, out : &mut ArrayList(String)) -> unit)({
+  match(
+    pat,
+    Rc(.Atom(_, t)) => if(!t.value.*.starts_with(".") && !(t.value.* == "_"), {
+      out.push(t.value.*.clone());
+    }),
+    Rc(.FnCall(_, f, Rc(args), _, _)) => {
+      is_colon := match(f, Rc(.Atom(_, ft)) => (ft.value.* == ":"), _ => false);
+      // A variant reference (`.None`, the head of `.Some(x)`) binds nothing.
+      is_variant := match(f, Rc(.Atom(_, fv)) => (fv.value.* == "."), _ => false);
+      if(is_variant, {
+        return(());
+      });
+      if(is_colon, {
+        match(args.get_cloned(usize(1)), .Some(a) => recur(&a, out), .None => ());
+      }, {
+        (i : usize) = usize(0);
+        while(i < args.len(), {
+          match(args.get_cloned(i), .Some(a) => recur(&a, out), .None => ());
+          i = (i + usize(1));
+        });
+      });
+    }
+  );
+});
+/// The recorded type of the first use of `name` inside `e` (a pattern
+/// binding's type, read off the arm body).
+_msp_type_of_name_in :: (fn(e : &AstExpr, name : &String, table : &ExprInfoTable) -> Option(TypeValue))(
+  match(
+    e,
+    Rc(
+      .Atom(
+        _,
+        t
+      )
+    ) => if(
+      t.value.* == name.*,
+      match(
+        expr_info_table_get(
+          table,
+          ast_expr_id(e)
+        ),
+        .Some(i) => Option(TypeValue).Some(Rc.clone(i.ty())),
+        .None => Option(TypeValue).None
+      ),
+      Option(TypeValue).None
+    ),
+    Rc(
+      .FnCall(
+        _,
+        f,
+        Rc(args),
+        _,
+        _
+      )
+    ) => {
+      r := recur(&f.*, name.clone(), table);
+      if(r.is_some(), {
+        return(r);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get_cloned(i),
+          .Some(a) => {
+            r2 := recur(&a, name.clone(), table);
+            if(r2.is_some(), {
+              return(r2);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      Option(TypeValue).None
+    }
+  )
+);
+/// The object whose storage a place store writes: `a.b = v` → `a`,
+/// `xs(i) = v` → `xs`, `p.* = v` → `p`.
+_msp_store_prefix :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
+  match(
+    lhs,
+    Rc(.FnCall(_, f, Rc(args), _, _)) => if(
+      ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))),
+      args.get_cloned(usize(0)),
+      Option(AstExpr).Some(Rc.clone(f.*))
+    ),
+    Rc(.Atom(_, _)) => Option(AstExpr).None
+  )
+);
+/// The local variable at the bottom of a place chain, if any.
+_msp_place_base_atom :: (fn(e : &AstExpr) -> Option(AstExpr))({
+  (cur : AstExpr) = ast_expr_strip_borrow_marker(e);
+  (walking : bool) = true;
+  while(walking, {
+    match(
+      Rc.clone(cur),
+      Rc(.Atom(_, _)) => {
+        walking = false;
+      },
+      Rc(.FnCall(_, f, Rc(args), _, _)) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+        cur = match(args.get_cloned(usize(0)), .Some(b) => b, .None => Rc.clone(cur));
+      }, {
+        cur = Rc.clone(f);
+      })
+    );
+  });
+  if(ast_expr_is_atom(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
+});
+/// The `inout` parameter of the function being walked that a PLACE is rooted
+/// in, by label — `self` in `self.n = v` or `self.slots(i)`. Type-blind on
+/// purpose: `_MsP.classify` answers NONE for an inert (value-typed) parameter
+/// because the aliasing analysis only cares about RC storage, but rule D3
+/// (plans/reference/PARALLELISM_RULES.md) asks "may the callee WRITE through
+/// this parameter at all", and a value-field store through `self : &mut
+/// Counter` is exactly the plain-memory race it exists to catch. A local that
+/// shadows a parameter's name over-approximates (an extra shallow hit), which
+/// is the safe direction.
+_msp_inout_param_of_place :: (fn(place : &AstExpr, ctx : &mut _MspCtx) -> Option(usize))(
+  match(
+    _msp_place_base_atom(place),
+    .Some(atom) => match(
+      _msp_param_index(ctx, ast_expr_token(&atom).value.*.clone()),
+      .Some(pi) => match(
+        get_func_type(ctx.fid.clone()),
+        Rc(.Func({ param_types : pm_pts })) => if(match(pm_pts.get(pi), .Some(pm_s) => t_slot_is_mut_ref(&pm_s), .None => false), Option(usize).Some(pi), Option(usize).None),
+        _ => Option(usize).None
+      ),
+      .None => Option(usize).None
+    ),
+    .None => Option(usize).None
+  )
+);
+/// A cond/match arm the evaluator never evaluated (a compile-time-decided
+/// sibling was taken) has no ExprInfo on its body and is never emitted.
+_msp_arm_is_dead :: (fn(arm : &AstExpr, table : &ExprInfoTable) -> bool)({
+  arm_off := match(
+    expr_info_table_get(table, ast_expr_id(arm)),
+    .Some(ai) => match(expr_info_case_executed(&ai), .Some(ce) => !ce, .None => false),
+    .None => false
+  );
+  if(arm_off, {
+    return(true);
+  });
+  match(
+    arm,
+    Rc(.FnCall(_, _, Rc(aargs), _, _)) => match(
+      aargs.get_cloned(usize(1)),
+      .Some(b) => expr_info_table_get(table, ast_expr_id(&b)).is_none(),
+      .None => false
+    ),
+    Rc(.Atom(_, _)) => false
+  )
+});
+/// An argument with its call-site marker peeled (decision 33): `&x` and
+/// `&mut x` lend the place itself, which is what the argument rules root.
+/// Since V3b step 3 a `&x` is never the address-of (that is `addr_of(x)`).
+_msp_unmarked_arg :: (fn(a : &AstExpr) -> AstExpr)(ast_expr_strip_borrow_marker(a));
+/// A call-site borrow marker node, `&x` or `&mut x`: it lends its operand's
+/// place, so every walk reads through it as through a field step, and the
+/// node itself is not a call.
+_msp_is_borrow_marker :: (fn(head : &String, n_args : usize) -> bool)(
+  ((head.* == "&") || (head.* == BK_BORROW_MUT)) && (n_args == usize(1))
+);
+/// A projection TAIL node (decision 24, `rewrite_projection_tails`): the body
+/// of a `-> &T` / `-> &mut T` function ends in a synthesized `addr_of(place)`
+/// whose token carries the auto-generated marker module path, so the mode
+/// rides the node, never a user-spelled `addr_of`. It LENDS its operand's
+/// place exactly as a call-site borrow marker does: every walk reads through
+/// it as through the marker, and the node itself is not a call — only the
+/// `walk` half additionally records the write-through a `&mut` tail grants
+/// (see `_MsP.walk`). Unrecognized, the mask walk and `classify` answered
+/// "unresolved = all", so EVERY projection-tail method of an RC object
+/// carried an entry `__yo_borrow_assert_unborrowed` on its receiver — one
+/// the borrowed `for`'s own guard then tripped, because the loop calls
+/// `walk_elem` while it holds the collection's borrow flag for the walk's
+/// extent (issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md;
+/// the codegen half of the fix skips the entry assert for a `-> &mut T`
+/// method, beside `is_index_entry_method`).
+_msp_is_projection_tail :: (fn(e : &AstExpr) -> bool)(projection_tail_mode(e).is_some());
+_msp_pass_through_head :: (fn(h : &String) -> bool)(
+  (h.* == "unsafe") || (h.* == "the") || (h.* == "runtime") || (h.* == "consume") || (h.* == "___dup") || (h.* == "clone") || (h.* == "dyn") || (h.* == "as") || (h.* == "recur")
+);
+_msp_statement_head :: (fn(h : &String) -> bool)(
+  (h.* == "=") || (h.* == ":=") || (h.* == "::") || (h.* == "return") || (h.* == "break") || (h.* == "continue") || (h.* == "unwind") || (h.* == "while") || (h.* == "&&") || (h.* == "||") || (h.* == "quote")
+);
+/// `YO_DEBUG_BORROW_MASK=1`: name the expression that made a mask `all`.
+_msp_debug_all :: (fn(why : &String, e : &AstExpr) -> unit)({
+  if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
+    eprintln(`[borrow-all] ${why}: ${ast_expr_to_string(e)}`);
+  });
+});
+/// `_msp_debug_all` for a site that has no expression in hand.
+_msp_debug_all_reason :: (fn(why : &String) -> unit)({
+  if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
+    eprintln(`[borrow-all] ${why}`);
+  });
+});
+/// A function's analysis: its parameter mask and the root of what it returns
+/// (`PARAM(j)` = storage reachable from its j-th argument).
+_MspAnalysis :: struct(mask : ParamMutationMask, ret : _MspRoot);
+/// The memoized analysis and the body it was computed from (a func id can
+/// name a new body after a watch re-evaluation — see `_MsMemo`).
+_MspMemo :: struct(body_id : ExprId, analysis : _MspAnalysis);
+derive(_MspMemo, Clone);
+(g_msp_by_fid : RefCell(HashMap(String, _MspMemo))) = RefCell(HashMap(String, _MspMemo)).new(HashMap(String, _MspMemo).new());
+(g_msp_in_progress : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// The `&mut` markers the walk met as the argument of a `&mut` parameter:
+/// the callee's own summary judges those (`_MsP.lends_through_call`), so the
+/// marker itself is no lend of this body.
+(g_msp_slot_markers : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
+_msp_set_lends_all :: (fn(m : &mut ParamMutationMask, ctx : &mut _MspCtx) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ctx.labels.len(), i = (i + usize(1)), {
+    _msp_bits_set(&mut m.lends_mut, i);
+  });
+});
+/// Record a `&mut` reference value made of `place` (`lends_mut`): the `&mut`
+/// parameter it is rooted in, else the parameter its storage is
+/// (`classify`); unknown storage may be any parameter's.
+_msp_note_lend :: (fn(m : &mut ParamMutationMask, place : &AstExpr, ctx : &mut _MspCtx) -> unit)(
+  match(
+    _msp_inout_param_of_place(place, ctx),
+    .Some(pi) => _msp_bits_set(&mut m.lends_mut, pi),
+    .None => {
+      r := _MsP.classify(&ast_expr_strip_borrow_marker(place), ctx);
+      cond(
+        (r.kind == MSP_PARAM) => _msp_bits_set(&mut m.lends_mut, r.param),
+        (r.kind == MSP_ROOTED) => _msp_set_lends_all(m, ctx),
+        true => ()
+      );
+    }
+  )
+);
+_MsP :: struct(_d : i32);
+impl(
+  _MsP,
+  /// The callee of a call: the recorded index-trait method for `xs(i)`,
+  /// else the func node's value / the method side table.
+  callee : (fn(e : &AstExpr, func_expr : &AstExpr, table : &ExprInfoTable) -> Option(EvalValue))({
+    match(
+      expr_info_table_get(table, ast_expr_id(e)),
+      .Some(ci) => match(
+        expr_info_index_method_value(&ci),
+        .Some(imv) => match(
+          Rc.clone(imv),
+          Rc(.FuncVal(_, _)) => {
+            return(Option(EvalValue).Some(Rc.clone(imv)));
+          },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    _MsW.callee_value(e, func_expr, table)
+  }),
+  is_index_call : (fn(e : &AstExpr, table : &ExprInfoTable) -> bool)(
+    match(
+      expr_info_table_get(table, ast_expr_id(e)),
+      .Some(ci) => match(expr_info_index_method_value(&ci), .Some(imv) => match(imv, Rc(.FuncVal(_, _)) => true, _ => false), .None => false),
+      .None => false
+    )
+  ),
+  /// The call's arguments in CALLEE PARAMETER order: the receiver first for a
+  /// method-form call (`xs.push(v)`, `xs(i)`), the plain list for a direct
+  /// call (`f(a)`, `Type.method(a)`). None when the arity does not line up.
+  argv : (
+    fn(
+      e : &AstExpr,
+      func_expr : &AstExpr,
+      args : &ArrayList(AstExpr),
+      labels_len : usize,
+      table : &ExprInfoTable
+    ) -> Option(ArrayList(AstExpr))
+  )({
+    out := ArrayList(AstExpr).new();
+    if(_MsP.is_index_call(e, table), {
+      out.push(Rc.clone(func_expr.*));
+      (i0 : usize) = usize(0);
+      while(i0 < args.len(), {
+        match(args.get_cloned(i0), .Some(a) => out.push(_msp_unmarked_arg(&a)), .None => ());
+        i0 = (i0 + usize(1));
+      });
+      return(if(out.len() == labels_len, Option(ArrayList(AstExpr)).Some(out), Option(ArrayList(AstExpr)).None));
+    });
+    if(args.len() == labels_len, {
+      (i1 : usize) = usize(0);
+      while(i1 < args.len(), {
+        match(args.get_cloned(i1), .Some(a) => out.push(_msp_unmarked_arg(&a)), .None => ());
+        i1 = (i1 + usize(1));
+      });
+      return(Option(ArrayList(AstExpr)).Some(out));
+    });
+    if(((args.len() + usize(1)) == labels_len) && ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+      match(
+        func_expr,
+        Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
+          dargs.get_cloned(usize(0)),
+          .Some(recv) => {
+            recv_is_type := match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => is_type_value(&ri.value()), .None => false);
+            if(!recv_is_type, {
+              out.push(recv);
+              (i2 : usize) = usize(0);
+              while(i2 < args.len(), {
+                match(args.get_cloned(i2), .Some(a) => out.push(_msp_unmarked_arg(&a)), .None => ());
+                i2 = (i2 + usize(1));
+              });
+              return(Option(ArrayList(AstExpr)).Some(out));
+            });
+          },
+          .None => ()
+        ),
+        Rc(.Atom(_, _)) => ()
+      );
+    });
+    // A plain call omitting trailing `?=` parameters (`Box.new(v)` for
+    // `Box(T).new(value, alloc ?= .None)`): the given arguments bind the leading
+    // parameters in order. A default is the callee's own value — it cannot
+    // name the caller's storage — so the omitted positions stay absent, and a
+    // caller that needs one (a mask hit, a returned root) stays conservative.
+    // Named arguments may skip a leading default: no positional reading.
+    if((args.len() < labels_len) && !ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+      (i3 : usize) = usize(0);
+      while(i3 < args.len(), {
+        match(
+          args.get_cloned(i3),
+          .Some(a) => {
+            if(ast_expr_is_fn_call_of(&a, ":", Option(usize).Some(usize(2))), {
+              return(Option(ArrayList(AstExpr)).None);
+            });
+            out.push(_msp_unmarked_arg(&a));
+          },
+          .None => ()
+        );
+        i3 = (i3 + usize(1));
+      });
+      return(Option(ArrayList(AstExpr)).Some(out));
+    });
+    Option(ArrayList(AstExpr)).None
+  }),
+  /// Analyse `fid`: mask + returned root. Memoized with the same cycle
+  /// discipline as `_MsW.summary_for` (optimistic on in-progress edges,
+  /// memoized only when no such edge was crossed — or when the verdict is
+  /// already `all`).
+  analyze : (
+    fn(fid : &String, body : &AstExpr, table : &ExprInfoTable, touched : &mut ArrayList(String)) -> _MspAnalysis
+  )({
+    match(
+      g_msp_by_fid.with({ fid : &fid.* }(m) => m.get_cloned(fid.clone())),
+      .Some(m) => if(m.body_id == ast_expr_id(body), {
+        return(m.analysis.clone());
+      }),
+      .None => ()
+    );
+    if(_ms_body_dups_first_param(fid, body), {
+      return(_MspAnalysis(mask : param_mutation_mask_new(), ret : _msp_param_root(usize(0), false)));
+    });
+    if(g_msp_in_progress.with({ fid : &fid.* }(m) => m.get(fid.clone())).is_some(), {
+      _ms_touched_add(touched, fid.clone());
+      return(_MspAnalysis(mask : param_mutation_mask_new(), ret : _msp_root(MSP_ROOTED)));
+    });
+    if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
+      // Not evaluated yet (a definition in progress, or a query from the
+      // evaluator before this callee was specialized): conservative, and the
+      // caller must not memoize a verdict built on it.
+      _ms_touched_add(touched, fid.clone());
+      all0 := param_mutation_mask_new();
+      all0.all = true;
+      return(_MspAnalysis(mask : all0, ret : _msp_root(MSP_ROOTED)));
+    });
+    fid_owned := fid.clone();
+    g_msp_in_progress.with_mut({ fid_owned }(m) => m.insert(fid_owned.clone(), true));
+    local_touched := ArrayList(String).new();
+    (mut(ctx) : _MspCtx) = _MspCtx(
+      fid : fid.clone(),
+      labels : _msp_labels(fid.clone()).items.clone(),
+      roots : HashMap(String, _MspRoot).new(),
+      names : ArrayList(String).new(),
+      table : table.clone(),
+      touched : local_touched.clone(),
+      changed : false
+    );
+    // Fixpoint over the body's definitions and flows (the lattice is finite;
+    // each name climbs at most three steps).
+    (iters : usize) = usize(0);
+    (go : bool) = true;
+    while(go, {
+      ctx.changed = false;
+      _MsP.collect(body, &mut ctx);
+      iters = (iters + usize(1));
+      if(!ctx.changed || (iters > usize(64)), {
+        go = false;
+      });
+    });
+    mask := _MsP.walk(body, &mut ctx);
+    if(iters > usize(64), {
+      mask.all = true;
+    });
+    // `YO_DEBUG_BORROW_MASK=1`: the roots this function's locals settled on.
+    if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
+      (dump : String) = String.new();
+      (di : usize) = usize(0);
+      while(di < ctx.names.len(), {
+        match(
+          ctx.names.get_cloned(di),
+          .Some(nm) => match(
+            ctx.roots.get(nm.clone()),
+            .Some(r) => {
+              dump.push_str(" ");
+              dump.push_string(nm.clone());
+              dump.push_str("=");
+              dump.push_string(
+                cond(
+                  (r.kind == MSP_FRESH) => String.from("fresh"),
+                  (r.kind == MSP_SHELL) => String.from("shell"),
+                  (r.kind == MSP_PARAM) => `param${r.param.to_string()}${if(r.deep, "d", "")}`,
+                  (r.kind == MSP_ROOTED) => String.from("rooted"),
+                  true => String.from("none")
+                )
+              );
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        di = (di + usize(1));
+      });
+      (lbl : String) = String.new();
+      (li2 : usize) = usize(0);
+      while(li2 < ctx.labels.len(), {
+        match(
+          ctx.labels.get_cloned(li2),
+          .Some(l) => {
+            lbl.push_string(l.clone());
+            lbl.push_str(",");
+          },
+          .None => ()
+        );
+        li2 = (li2 + usize(1));
+      });
+      eprintln(`[borrow-roots] ${fid} (${lbl}) all=${mask.all}${dump}`);
+    });
+    rets := ArrayList(AstExpr).new();
+    _MsP.return_exprs(body, table, &mut rets, true);
+    (ret : _MspRoot) = _msp_root(MSP_NONE);
+    (ri : usize) = usize(0);
+    while(ri < rets.len(), {
+      match(
+        rets.get_cloned(ri),
+        .Some(re) => {
+          ret = _msp_join(ret, _MsP.classify(&re, &mut ctx));
+        },
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+    fid_owned2 := fid.clone();
+    g_msp_in_progress.with_mut({ fid_owned2 }(m) => m.remove(fid_owned2.clone()));
+    filtered := ArrayList(String).new();
+    (li : usize) = usize(0);
+    while(li < local_touched.len(), {
+      match(
+        local_touched.get_cloned(li),
+        .Some(t) => if(!(t == fid.*), {
+          filtered.push(t.clone());
+        }),
+        .None => ()
+      );
+      li = (li + usize(1));
+    });
+    (mask_all : bool) = mask.all;
+    result := _MspAnalysis(mask : mask, ret : ret);
+    if(mask_all || (filtered.len() == usize(0)), {
+      // Owned captures (`with_mut`'s callback is a sink parameter); the
+      // memo copies `result` (a handle and a Copy root), which is returned below.
+      fid_owned3 := fid.clone();
+      memo := _MspMemo(body_id : ast_expr_id(body), analysis : result.clone());
+      g_msp_by_fid.with_mut({ fid_owned3, memo }(m) => m.insert(fid_owned3, memo));
+    });
+    (ti : usize) = usize(0);
+    while(ti < filtered.len(), {
+      match(filtered.get_cloned(ti), .Some(t) => _ms_touched_add(touched, t.clone()), .None => ());
+      ti = (ti + usize(1));
+    });
+    result
+  }),
+  /// Return-position expressions: the body's tail (through begin/cond/match)
+  /// and every `return(x)`.
+  return_exprs : (fn(e : &AstExpr, table : &ExprInfoTable, out : &mut ArrayList(AstExpr), is_tail : bool) -> unit)({
+    match(
+      expr_info_table_get(table, ast_expr_id(e)),
+      .Some(info) => {
+        match(
+          expr_info_macro_expansion(&info),
+          .Some(mx) => {
+            _MsP.return_exprs(&mx, table, out, is_tail);
+            return(());
+          },
+          .None => ()
+        );
+        match(
+          expr_info_is_anonymous_function_definition(&info),
+          .Some(an) => if(an, {
+            return(());
+          }),
+          .None => ()
+        );
+        if(expr_info_closure_function_value(&info).is_some(), {
+          return(());
+        });
+      },
+      .None => ()
+    );
+    match(
+      e,
+      Rc(.Atom(_, _)) => if(is_tail, {
+        out.push(Rc.clone(e.*));
+      }),
+      Rc(.FnCall(_, f, Rc(args), _, _)) => {
+        (head : String) = String.new();
+        match(
+          f,
+          Rc(.Atom(_, ht)) => {
+            head = ht.value.*.clone();
+          },
+          _ => ()
+        );
+        if(head == "return", {
+          match(args.get_cloned(usize(0)), .Some(a) => out.push(a), .None => ());
+          return(());
+        });
+        if(head == "begin", {
+          (i : usize) = usize(0);
+          while(i < args.len(), {
+            match(
+              args.get_cloned(i),
+              .Some(a) => _MsP.return_exprs(&a, table, out, is_tail && ((i + usize(1)) == args.len())),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          return(());
+        });
+        if((head == "cond") || (head == "match"), {
+          (i : usize) = usize(0);
+          while(i < args.len(), {
+            match(
+              args.get_cloned(i),
+              .Some(arm) => {
+                is_arm := (ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&arm, "->", Option(usize).Some(usize(2))));
+                if(is_arm && !_msp_arm_is_dead(&arm, table), {
+                  match(
+                    arm,
+                    Rc(.FnCall(_, _, Rc(aargs), _, _)) => {
+                      if(head == "cond", {
+                        match(aargs.get_cloned(usize(0)), .Some(t) => _MsP.return_exprs(&t, table, out, false), .None => ());
+                      });
+                      match(aargs.get_cloned(usize(1)), .Some(b) => _MsP.return_exprs(&b, table, out, is_tail), .None => ());
+                    },
+                    Rc(.Atom(_, _)) => ()
+                  );
+                }, {
+                  // the match scrutinee (or a malformed arm)
+                  _MsP.return_exprs(&arm, table, out, false);
+                });
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          return(());
+        });
+        (j : usize) = usize(0);
+        while(j < args.len(), {
+          match(args.get_cloned(j), .Some(a) => _MsP.return_exprs(&a, table, out, false), .None => ());
+          j = (j + usize(1));
+        });
+        _MsP.return_exprs(&f.*, table, out, false);
+        if(is_tail && !_msp_statement_head(&head), {
+          out.push(Rc.clone(e.*));
+        });
+      }
+    );
+  }),
+  /// The root of an expression's VALUE.
+  classify : (fn(e : &AstExpr, ctx : &mut _MspCtx) -> _MspRoot)({
+    info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
+    match(
+      &info_opt,
+      .Some(info) => {
+        match(
+          expr_info_macro_expansion(&info.*),
+          .Some(mx) => {
+            return(_MsP.classify(&mx, ctx));
+          },
+          .None => ()
+        );
+        if(!_msp_type_may_root(&info.ty()), {
+          return(_msp_root(MSP_NONE));
+        });
+        match(
+          info.value(),
+          .Some(v) => if(_msp_value_is_folded(&v), {
+            return(_msp_root(MSP_NONE));
+          }),
+          .None => ()
+        );
+        // A closure value carries copies of its captures.
+        match(
+          expr_info_is_anonymous_function_definition(&info.*),
+          .Some(an) => if(an, {
+            return(_msp_root(MSP_SHELL));
+          }),
+          .None => ()
+        );
+        if(expr_info_closure_function_value(&info.*).is_some(), {
+          return(_msp_root(MSP_SHELL));
+        });
+      },
+      .None => ()
+    );
+    if(ast_expr_is_atom(e), {
+      return(_msp_atom_root(ctx, e));
+    });
+    (func_expr : AstExpr) = Rc.clone(e.*);
+    (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+    match(
+      e,
+      Rc(.FnCall(_, f, Rc(a), _, _)) => {
+        func_expr = Rc.clone(f.*);
+        args = a.clone();
+      },
+      Rc(.Atom(_, _)) => ()
+    );
+    (head : String) = String.new();
+    match(
+      Rc.clone(func_expr),
+      Rc(.Atom(_, ht)) => {
+        head = ht.value.*.clone();
+      },
+      _ => ()
+    );
+    value_is_rc := match(&info_opt, .Some(i2) => type_contains_rc_type(&i2.ty()), .None => true);
+    value_is_ptr := match(&info_opt, .Some(i3) => is_pointer_type(&i3.ty()), .None => false);
+    // Field read or deref: contents of the base.
+    if((head == ".") && (args.len() == usize(2)), {
+      base := match(args.get_cloned(usize(0)), .Some(b) => b, .None => Rc.clone(e.*));
+      base_is_type := match(expr_info_table_get(&ctx.table, ast_expr_id(&base)), .Some(bi) => is_type_value(&bi.value()), .None => false);
+      if(base_is_type, {
+        return(_msp_root(MSP_NONE));
+      });
+      return(_msp_extract(_MsP.classify(&base, ctx), value_is_rc));
+    });
+    if((head == ":") && (args.len() == usize(2)), {
+      return(match(args.get_cloned(usize(1)), .Some(v) => _MsP.classify(&v, ctx), .None => _msp_root(MSP_ROOTED)));
+    });
+    if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e)) && (args.len() > usize(0)), {
+      return(match(args.get_cloned(usize(0)), .Some(a0) => _MsP.classify(&a0, ctx), .None => _msp_root(MSP_ROOTED)));
+    });
+    if(head == "begin", {
+      return(match(args.last_cloned(), .Some(last) => _MsP.classify(&last, ctx), .None => _msp_root(MSP_NONE)));
+    });
+    if((head == "cond") || (head == "match"), {
+      (acc : _MspRoot) = _msp_root(MSP_NONE);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get_cloned(i),
+          .Some(arm) => {
+            is_arm := (ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&arm, "->", Option(usize).Some(usize(2))));
+            if(is_arm && !_msp_arm_is_dead(&arm, &ctx.table), {
+              match(
+                arm,
+                Rc(.FnCall(_, _, Rc(aargs), _, _)) => match(
+                  aargs.get_cloned(usize(1)),
+                  .Some(b) => {
+                    acc = _msp_join(acc, _MsP.classify(&b, ctx));
+                  },
+                  .None => ()
+                ),
+                Rc(.Atom(_, _)) => ()
+              );
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      return(acc);
+    });
+    if(_msp_statement_head(head.clone()), {
+      return(_msp_root(MSP_NONE));
+    });
+    // Aggregate literals build fresh storage holding their arguments.
+    if((head == "tuple") || (head == "array"), {
+      return(_MsP.ctor_root(&args, ctx, value_is_ptr, false));
+    });
+    if(_MsP.is_index_call(e, &ctx.table), {
+      return(_msp_extract(_MsP.classify(&func_expr, ctx), value_is_rc));
+    });
+    // An allocator vtable slot (`_msp_allocator_slot`): `alloc` hands back a
+    // fresh block, `realloc` the moved block of its pointer argument.
+    slot_c := _msp_allocator_slot(&func_expr, &ctx.table);
+    if(slot_c.len() > usize(0), {
+      return(
+        cond(
+          (slot_c == "alloc") => _msp_root(MSP_FRESH),
+          (slot_c == "realloc") => match(args.get_cloned(usize(1)), .Some(ca1) => _msp_extract(_MsP.classify(&ca1, ctx), false), .None => _msp_root(MSP_ROOTED)),
+          true => _msp_root(MSP_NONE)
+        )
+      );
+    });
+    match(
+      _MsP.extern_of(e, &func_expr, &ctx.table),
+      .Some(ex) => {
+        return(_MsP.extern_result_root(&ex, &func_expr, &args, ctx));
+      },
+      .None => ()
+    );
+    callee_opt := _MsP.callee(e, &func_expr, &ctx.table);
+    match(
+      callee_opt,
+      .Some(callee) => match(
+        callee,
+        Rc(.TypeVal(_)) => {
+          value_is_struct := match(info_opt, .Some(i4) => match(resolve_struct_shell(&i4.ty()), Rc(.Struct({ is_source_namespace : ns })) => !ns, _ => false), .None => false);
+          return(_MsP.ctor_root(&args, ctx, value_is_ptr, value_is_struct));
+        },
+        Rc(.FuncVal(fvd, _)) => {
+          fid := fvd.*.func_id.clone();
+          if(is_control_fn(fid.clone()), {
+            return(_msp_root(MSP_ROOTED));
+          });
+          an := _MsP.analyze(fid.clone(), &fvd.*.body, &ctx.table, &mut ctx.touched);
+          if(an.ret.kind == MSP_PARAM, {
+            // Storage reachable from the callee's j-th argument.
+            labels := _msp_labels(fid.clone());
+            return(
+              match(
+                _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
+                .Some(av) => match(
+                  av.get_cloned(an.ret.param),
+                  // The callee returns argument j's value itself (a cast or
+                  // pointer offset of it, `p.add(n)`): it aliases what the
+                  // argument aliases, a fresh block included. Contents read
+                  // out of it are the argument's contents.
+                  .Some(aj) => if(!an.ret.deep && !an.ret.contents, _MsP.classify(&aj, ctx), _msp_extract(_MsP.classify(&aj, ctx), an.ret.deep)),
+                  .None => _msp_root(MSP_ROOTED)
+                ),
+                .None => _msp_root(MSP_ROOTED)
+              )
+            );
+          });
+          return(an.ret);
+        },
+        _ => {
+          return(_msp_root(MSP_ROOTED));
+        }
+      ),
+      .None => ()
+    );
+    // A pure builtin computes from its arguments (pointer arithmetic keeps
+    // the pointer's root); it allocates nothing.
+    if((head.len() > usize(0)) && _ms_head_is_pure_builtin(head.clone()), {
+      (acc2 : _MspRoot) = _msp_root(MSP_NONE);
+      (k : usize) = usize(0);
+      while(k < args.len(), {
+        match(
+          args.get_cloned(k),
+          .Some(a) => {
+            acc2 = _msp_join(acc2, _MsP.classify(&a, ctx));
+          },
+          .None => ()
+        );
+        k = (k + usize(1));
+      });
+      return(if(_msp_builtin_keeps_value(&head), acc2, _msp_as_contents(acc2)));
+    });
+    _msp_debug_all(String.from("classify-unresolved"), e);
+    _msp_root(MSP_ROOTED)
+  }),
+  /// A construction. A STRUCT (value or reference) is fresh storage of its own:
+  /// FRESH, or a SHELL if any argument may hold rooted handles (its own fields
+  /// stay freely writable — an iterator's cursor). An enum variant or a tuple
+  /// is a transparent wrapper with no storage worth tracking: it takes the
+  /// join of its arguments' roots (`.Some(p)` of a pointer into parameter i
+  /// is still "into parameter i", so `realloc(.Some(p), n)` and the pattern
+  /// that unwraps it keep the root). A pointer fabricated from integers is
+  /// unknown storage; a pointer CAST keeps the pointer's root.
+  ctor_root : (fn(args : &ArrayList(AstExpr), ctx : &mut _MspCtx, result_is_ptr : bool, result_is_struct : bool) -> _MspRoot)({
+    if(result_is_ptr, {
+      if(args.len() == usize(1), {
+        match(
+          args.get_cloned(usize(0)),
+          .Some(a0) => {
+            a0_is_ptr := match(expr_info_table_get(&ctx.table, ast_expr_id(&a0)), .Some(ai) => is_pointer_type(&ai.ty()), .None => false);
+            if(a0_is_ptr, {
+              return(_MsP.classify(&a0, ctx));
+            });
+          },
+          .None => ()
+        );
+      });
+      return(_msp_root(MSP_ROOTED));
+    });
+    (acc : _MspRoot) = _msp_root(MSP_NONE);
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      match(
+        args.get_cloned(i),
+        .Some(a) => {
+          acc = _msp_join(acc, _MsP.classify(&a, ctx));
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    if(result_is_struct, {
+      return(if(_msp_holds_rooted(acc), _msp_root(MSP_SHELL), _msp_root(MSP_FRESH)));
+    });
+    // Transparent wrapper: NONE/FRESH contents are fresh; anything else keeps
+    // the contents' root.
+    if((acc.kind == MSP_NONE) || (acc.kind == MSP_FRESH), _msp_root(MSP_FRESH), acc)
+  }),
+  /// The LOCALS whose storage the value of `e` may alias (what a store of `e`
+  /// makes reachable from the store's target).
+  flowing : (fn(e : &AstExpr, ctx : &mut _MspCtx, out : &mut ArrayList(String)) -> unit)({
+    info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
+    match(
+      info_opt,
+      .Some(info) => {
+        match(
+          expr_info_macro_expansion(&info),
+          .Some(mx) => {
+            _MsP.flowing(&mx, ctx, out);
+            return(());
+          },
+          .None => ()
+        );
+        if(!_msp_type_may_root(&info.ty()), {
+          return(());
+        });
+        match(
+          info.value(),
+          .Some(v) => if(_msp_value_is_folded(&v), {
+            return(());
+          }),
+          .None => ()
+        );
+        // A closure's captures were already rooted at its definition.
+        match(
+          expr_info_is_anonymous_function_definition(&info),
+          .Some(an) => if(an, {
+            return(());
+          }),
+          .None => ()
+        );
+        if(expr_info_closure_function_value(&info).is_some(), {
+          return(());
+        });
+      },
+      .None => ()
+    );
+    match(
+      e,
+      Rc(.Atom(_, _)) => {
+        match(_msp_atom_local_name(ctx, e), .Some(n) => out.push(n), .None => ());
+      },
+      Rc(.FnCall(_, f, Rc(args), _, _)) => {
+        (head : String) = String.new();
+        match(
+          f,
+          Rc(.Atom(_, ht)) => {
+            head = ht.value.*.clone();
+          },
+          _ => ()
+        );
+        if((head == ".") && (args.len() == usize(2)), {
+          match(args.get_cloned(usize(0)), .Some(b) => _MsP.flowing(&b, ctx, out), .None => ());
+          return(());
+        });
+        if((head == ":") && (args.len() == usize(2)), {
+          match(args.get_cloned(usize(1)), .Some(v) => _MsP.flowing(&v, ctx, out), .None => ());
+          return(());
+        });
+        if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e)) && (args.len() > usize(0)), {
+          match(args.get_cloned(usize(0)), .Some(a0) => _MsP.flowing(&a0, ctx, out), .None => ());
+          return(());
+        });
+        if(head == "begin", {
+          match(args.last_cloned(), .Some(last) => _MsP.flowing(&last, ctx, out), .None => ());
+          return(());
+        });
+        if((head == "cond") || (head == "match"), {
+          (i : usize) = usize(0);
+          while(i < args.len(), {
+            match(
+              args.get_cloned(i),
+              .Some(arm) => if((ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&arm, "->", Option(usize).Some(usize(2)))) && !_msp_arm_is_dead(&arm, &ctx.table), {
+                match(
+                  arm,
+                  Rc(.FnCall(_, _, Rc(aargs), _, _)) => match(aargs.get_cloned(usize(1)), .Some(b) => _MsP.flowing(&b, ctx, out), .None => ()),
+                  Rc(.Atom(_, _)) => ()
+                );
+              }),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          return(());
+        });
+        if(_msp_statement_head(head.clone()), {
+          return(());
+        });
+        if(_MsP.is_index_call(e, &ctx.table), {
+          _MsP.flowing(&f.*, ctx, out);
+          return(());
+        });
+        // A callee returning fresh storage aliases none of its arguments.
+        match(
+          _MsP.extern_of(e, &f.*, &ctx.table),
+          .Some(ex) => if(_msp_extern_returns_fresh(ex.name.clone()), {
+            return(());
+          }),
+          .None => ()
+        );
+        match(
+          _MsP.callee(e, &f.*, &ctx.table),
+          .Some(cv) => match(
+            cv,
+            Rc(.FuncVal(fvd, _)) => {
+              fid := fvd.*.func_id.clone();
+              (is_extern : bool) = false;
+              match(
+                get_func_type(fid.clone()),
+                Rc(.Func({ meta : cm })) => {
+                  is_extern = cm.*.extern_name.is_some();
+                },
+                _ => ()
+              );
+              if(!is_extern && !is_control_fn(fid.clone()), {
+                an := _MsP.analyze(fid.clone(), &fvd.*.body, &ctx.table, &mut ctx.touched);
+                if((an.ret.kind == MSP_FRESH) || (an.ret.kind == MSP_NONE), {
+                  return(());
+                });
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        _MsP.flowing(&f.*, ctx, out);
+        (j : usize) = usize(0);
+        while(j < args.len(), {
+          match(args.get_cloned(j), .Some(a) => _MsP.flowing(&a, ctx, out), .None => ());
+          j = (j + usize(1));
+        });
+      }
+    );
+  }),
+  taint_flowing : (fn(e : &AstExpr, ctx : &mut _MspCtx, kind : u8) -> unit)({
+    names := ArrayList(String).new();
+    _MsP.flowing(e, ctx, &mut names);
+    (i : usize) = usize(0);
+    while(i < names.len(), {
+      match(names.get_cloned(i), .Some(n) => _msp_taint(ctx, n.clone(), kind), .None => ());
+      i = (i + usize(1));
+    });
+  }),
+  taint_flowing_to : (fn(e : &AstExpr, ctx : &mut _MspCtx, target : _MspRoot) -> unit)({
+    names := ArrayList(String).new();
+    _MsP.flowing(e, ctx, &mut names);
+    (i : usize) = usize(0);
+    while(i < names.len(), {
+      match(names.get_cloned(i), .Some(n) => _msp_taint_to(ctx, n.clone(), target), .None => ());
+      i = (i + usize(1));
+    });
+  }),
+  /// Is a closure involved in this call — the callee itself, or any argument
+  /// (receiver included) of function type? A closure's captures are storage
+  /// the call does not name, so its effects cannot be mapped through the
+  /// arguments.
+  call_involves_closure : (fn(fid : &String, func_expr : &AstExpr, args : &ArrayList(AstExpr), table : &ExprInfoTable) -> bool)({
+    if(is_closure_fn(fid.clone()), {
+      return(true);
+    });
+    if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+      match(
+        func_expr,
+        Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
+          dargs.get_cloned(usize(0)),
+          .Some(recv) => match(
+            expr_info_table_get(table, ast_expr_id(&recv)),
+            .Some(ri) => if(is_function_type(&ri.ty()), {
+              return(true);
+            }),
+            .None => ()
+          ),
+          .None => ()
+        ),
+        Rc(.Atom(_, _)) => ()
+      );
+    });
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      match(
+        args.get_cloned(i),
+        .Some(a) => match(
+          expr_info_table_get(table, ast_expr_id(&a)),
+          .Some(ai) => if(is_function_type(&ai.ty()), {
+            return(true);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    false
+  }),
+  /// The extern an expression calls, if any (FuncVal channel first, then the
+  /// resolved callee TYPE, which is how extern declarations usually resolve).
+  extern_of : (fn(e : &AstExpr, func_expr : &AstExpr, table : &ExprInfoTable) -> Option(_MspExtern))({
+    match(
+      _MsP.callee(e, func_expr, table),
+      .Some(cv) => match(
+        cv,
+        Rc(.FuncVal(fvd, _)) => match(
+          get_func_type(fvd.*.func_id.clone()),
+          Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => match(
+            &cm.*.extern_name,
+            .Some(en) => {
+              return(Option(_MspExtern).Some(_MspExtern(name : en.clone(), ptypes : Rc.clone(p0), vtypes : Rc.clone(v0))));
+            },
+            .None => {
+              return(Option(_MspExtern).None);
+            }
+          ),
+          _ => {
+            return(Option(_MspExtern).None);
+          }
+        ),
+        _ => {
+          return(Option(_MspExtern).None);
+        }
+      ),
+      .None => ()
+    );
+    (type_only : Option(TypeValue)) = match(
+      expr_info_table_get(table, ast_expr_id(func_expr)),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty())),
+      .None => Option(TypeValue).None
+    );
+    (type_only2 : Option(TypeValue)) = match(
+      type_only,
+      .Some(t0) => if(is_function_type(&t0), Option(TypeValue).Some(Rc.clone(t0)), lookup_method_callee_type(ast_expr_id(e))),
+      .None => lookup_method_callee_type(ast_expr_id(e))
+    );
+    match(
+      type_only2,
+      .Some(t2) => match(
+        t2,
+        Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => match(
+          &tm.*.extern_name,
+          .Some(ten) => Option(_MspExtern).Some(_MspExtern(name : ten.clone(), ptypes : Rc.clone(tpt), vtypes : Rc.clone(tvt))),
+          .None => Option(_MspExtern).None
+        ),
+        _ => Option(_MspExtern).None
+      ),
+      .None => Option(_MspExtern).None
+    )
+  }),
+  /// The root of an extern call's result: allocation externs return fresh
+  /// storage, pure builtins compute from their arguments (pointer arithmetic
+  /// keeps the pointer's root), anything else is unknown.
+  extern_result_root : (fn(ex : &_MspExtern, func_expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &mut _MspCtx) -> _MspRoot)({
+    if(_msp_extern_returns_fresh(ex.name.clone()), {
+      return(_msp_root(MSP_FRESH));
+    });
+    if(_msp_extern_reallocs(ex.name.clone()), {
+      return(match(args.get_cloned(usize(0)), .Some(a0) => _msp_extract(_MsP.classify(&a0, ctx), false), .None => _msp_root(MSP_ROOTED)));
+    });
+    if(_ms_head_is_pure_builtin(ex.name.clone()), {
+      (acc0 : _MspRoot) = _msp_root(MSP_NONE);
+      (k0 : usize) = usize(0);
+      while(k0 < args.len(), {
+        match(
+          args.get_cloned(k0),
+          .Some(a) => {
+            acc0 = _msp_join(acc0, _MsP.classify(&a, ctx));
+          },
+          .None => ()
+        );
+        k0 = (k0 + usize(1));
+      });
+      if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+        match(
+          func_expr,
+          Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
+            dargs.get_cloned(usize(0)),
+            .Some(recv) => {
+              acc0 = _msp_join(acc0, _MsP.classify(&recv, ctx));
+            },
+            .None => ()
+          ),
+          Rc(.Atom(_, _)) => ()
+        );
+      });
+      return(if(_msp_builtin_keeps_value(&ex.name), acc0, _msp_as_contents(acc0)));
+    });
+    _msp_root(MSP_ROOTED)
+  }),
+  /// An extern that may write through its arguments: a FRESH argument may now
+  /// hold rooted bytes (a SHELL); pointers and rooted values are unchanged.
+  extern_taint_args : (fn(func_expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &mut _MspCtx) -> unit)({
+    _MsP.taint_flowing(func_expr, ctx, MSP_SHELL);
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      match(args.get_cloned(i), .Some(a) => _MsP.taint_flowing(&a, ctx, MSP_SHELL), .None => ());
+      i = (i + usize(1));
+    });
+  }),
+  /// `name` now holds the value of `rhs`: define it, and if `name` has been
+  /// raised ABOVE what this definition provides (it escaped into rooted
+  /// storage, or received rooted contents, somewhere else in the body), the
+  /// same happened to everything `rhs` aliases — `x := y; self.f = x` roots
+  /// `y` too. A root the definition itself supplies (`t := it.next()` is
+  /// unknown storage by classification) is not an escape of `rhs`.
+  define_from : (fn(ctx : &mut _MspCtx, name : &String, r : _MspRoot, rhs : &AstExpr) -> unit)({
+    // Record the local even when its root is NONE (a constant, a callee whose
+    // result aliases nothing): a local missing from `roots` reads back as
+    // "never defined in this body" — ROOTED — so `it := VLIter(src : VL(n :
+    // 3), i : 0)` then `it.next()` would count as a write to unknown storage.
+    if(ctx.roots.get(name.clone()).is_none(), {
+      ctx.names.push(name.clone());
+      ctx.roots.insert(name.clone(), _msp_root(MSP_NONE));
+      ctx.changed = true;
+    });
+    _msp_def(ctx, name.clone(), r);
+    cur := match(ctx.roots.get(name.clone()), .Some(c) => c, .None => _msp_root(MSP_NONE));
+    cond(
+      (_msp_is_rootedish(cur) && !_msp_is_rootedish(r)) => _MsP.taint_flowing_to(rhs, ctx, cur),
+      ((cur.kind == MSP_SHELL) && (r.kind == MSP_FRESH)) => _MsP.taint_flowing(rhs, ctx, MSP_SHELL),
+      true => ()
+    );
+  }),
+  /// One fixpoint pass: definitions, pattern bindings, and taint flows.
+  collect : (fn(e : &AstExpr, ctx : &mut _MspCtx) -> unit)({
+    info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
+    match(
+      &info_opt,
+      .Some(info) => {
+        match(
+          expr_info_macro_expansion(&info.*),
+          .Some(mx) => {
+            _MsP.collect(&mx, ctx);
+            return(());
+          },
+          .None => ()
+        );
+        match(
+          expr_info_case_executed(&info.*),
+          .Some(ce) => if(!ce, {
+            return(());
+          }),
+          .None => ()
+        );
+        is_closure := (match(expr_info_is_anonymous_function_definition(&info.*), .Some(an) => an, .None => false) || expr_info_closure_function_value(&info.*).is_some());
+        if(is_closure, {
+          // Captures are COPIED into the closure object, which can go
+          // anywhere: whatever they name may become reachable from a
+          // parameter, and the closure body's mutations run later.
+          match(
+            expr_info_capture_type(&info.*),
+            .Some(ct) => match(
+              ct,
+              Rc(.Struct({ field_labels : labels })) => {
+                (ci : usize) = usize(0);
+                while(ci < labels.len(), {
+                  match(labels.get(ci), .Some(l) => _msp_taint(ctx, l.clone(), MSP_ROOTED), .None => ());
+                  ci = (ci + usize(1));
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+          return(());
+        });
+      },
+      .None => ()
+    );
+    if(ast_expr_is_atom(e), {
+      return(());
+    });
+    (func_expr : AstExpr) = Rc.clone(e.*);
+    (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+    match(
+      e,
+      Rc(.FnCall(_, f, Rc(a), _, _)) => {
+        func_expr = Rc.clone(f.*);
+        args = a.clone();
+      },
+      Rc(.Atom(_, _)) => ()
+    );
+    (head : String) = String.new();
+    match(
+      Rc.clone(func_expr),
+      Rc(.Atom(_, ht)) => {
+        head = ht.value.*.clone();
+      },
+      _ => ()
+    );
+    // Declarations: `name := rhs`, a local borrow `name := &mut place`
+    // (the internal `__yo_mut(name) := place`), `(a, b) := rhs`.
+    if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
+      lhs := match(args.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(e.*));
+      rhs := match(args.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(e.*));
+      _MsP.collect(&rhs, ctx);
+      r := _MsP.classify(rhs, ctx);
+      match(
+        Rc.clone(lhs),
+        Rc(.Atom(_, lt)) => _MsP.define_from(ctx, lt.value.*.clone(), r, &rhs),
+        Rc(.FnCall(_, lf, Rc(largs), _, _)) => {
+          is_inout := match(lf, Rc(.Atom(_, lft)) => ((lft.value.* == BK_MUT) || (lft.value.* == BK_IMM)), _ => false);
+          if(is_inout, {
+            match(
+              largs.get_cloned(usize(0)),
+              .Some(la) => match(la, Rc(.Atom(_, lat)) => _msp_def(ctx, lat.value.*.clone(), r), _ => ()),
+              .None => ()
+            );
+          }, {
+            names := ArrayList(String).new();
+            _msp_pattern_names(&lhs, &mut names);
+            (ni : usize) = usize(0);
+            while(ni < names.len(), {
+              match(names.get_cloned(ni), .Some(n) => _msp_def(ctx, n.clone(), _msp_extract(r, true)), .None => ());
+              ni = (ni + usize(1));
+            });
+          });
+        }
+      );
+      return(());
+    });
+    // Stores.
+    if((head == "=") && (args.len() == usize(2)), {
+      lhs := match(args.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(e.*));
+      rhs := match(args.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(e.*));
+      _MsP.collect(&rhs, ctx);
+      // A local borrow re-point `cur = &mut place` (decision 25): `cur`
+      // aliases the new place too (the join keeps every target it had).
+      match(
+        Rc.clone(lhs),
+        Rc(.FnCall(_, rlf, Rc(rlargs), _, _)) => if(match(rlf, Rc(.Atom(_, rlft)) => ((rlft.value.* == BK_MUT) || (rlft.value.* == BK_IMM)), _ => false), {
+          match(
+            rlargs.get_cloned(usize(0)),
+            .Some(rla) => match(rla, Rc(.Atom(_, rlat)) => _msp_def(ctx, rlat.value.*.clone(), _MsP.classify(&rhs, ctx)), _ => ()),
+            .None => ()
+          );
+          return(());
+        }),
+        Rc(.Atom(_, _)) => ()
+      );
+      _MsP.collect(&lhs, ctx);
+      r := _MsP.classify(&rhs, ctx);
+      // Typed declaration `(name : T) = init`.
+      if(ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
+        match(
+          lhs,
+          Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(
+            cargs.get_cloned(usize(0)),
+            .Some(na) => match(na, Rc(.Atom(_, nt)) => _MsP.define_from(ctx, nt.value.*.clone(), r, &rhs), _ => ()),
+            .None => ()
+          ),
+          Rc(.Atom(_, _)) => ()
+        );
+        return(());
+      });
+      match(
+        Rc.clone(lhs),
+        Rc(.Atom(_, lt)) => {
+          // Whole-variable store.
+          env_opt := match(info_opt, .Some(si) => Option(Environment).Some(si.env()), .None => Option(Environment).None);
+          match(
+            env_opt,
+            .Some(env) => {
+              vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.*.clone());
+              match(
+                vars.last_cloned(),
+                .Some(v) => cond(
+                  // Through an `inout` parameter: into the caller's storage.
+                  (v.is_parameter() && v.is_ref()) => _MsP.taint_flowing_to(&rhs, ctx, match(_msp_param_index(ctx, lt.value.*.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
+                  // A reassigned by-value parameter names unknown storage.
+                  v.is_parameter() => _msp_def(ctx, lt.value.*.clone(), _msp_root(MSP_ROOTED)),
+                  v.is_module_level() => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED),
+                  true => _MsP.define_from(ctx, lt.value.*.clone(), r, &rhs)
+                ),
+                .None => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED)
+              );
+            },
+            .None => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED)
+          );
+        },
+        Rc(.FnCall(_, _, _, _, _)) => {
+          if(ast_expr_is_fn_call_of(&lhs, "tuple", Option(usize).None), {
+            // Destructuring assignment: each name receives contents of rhs.
+            names := ArrayList(String).new();
+            _msp_pattern_names(&lhs, &mut names);
+            (ni : usize) = usize(0);
+            while(ni < names.len(), {
+              match(names.get_cloned(ni), .Some(n) => _msp_def(ctx, n.clone(), _msp_extract(r, true)), .None => ());
+              ni = (ni + usize(1));
+            });
+          }, {
+            // Place store: the target object's storage receives rhs.
+            tr := match(_msp_store_prefix(&lhs), .Some(p) => _MsP.classify(&p, ctx), .None => _msp_root(MSP_ROOTED));
+            if(_msp_is_rootedish(tr), {
+              _MsP.taint_flowing_to(&rhs, ctx, tr);
+            });
+            if((tr.kind == MSP_FRESH) && _msp_holds_rooted(r), {
+              match(
+                _msp_place_base_atom(&lhs),
+                .Some(ba) => match(_msp_atom_local_name(ctx, &ba), .Some(bn) => _msp_def(ctx, &bn, _msp_root(MSP_SHELL)), .None => ()),
+                .None => ()
+              );
+            });
+          });
+        }
+      );
+      return(());
+    });
+    // match: pattern bindings receive the scrutinee's contents.
+    if(head == "match", {
+      scrut := match(args.get_cloned(usize(0)), .Some(sc) => sc, .None => Rc.clone(e.*));
+      _MsP.collect(&scrut, ctx);
+      sr := _MsP.classify(&scrut, ctx);
+      (mi : usize) = usize(1);
+      while(mi < args.len(), {
+        match(
+          args.get_cloned(mi),
+          .Some(arm) => {
+            if(!_msp_arm_is_dead(&arm, &ctx.table), {
+              match(
+                Rc.clone(arm),
+                Rc(.FnCall(_, af, Rc(aargs), _, _)) => {
+                  is_arm := (match(af, Rc(.Atom(_, at)) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
+                  if(is_arm, {
+                    pat := match(aargs.get_cloned(usize(0)), .Some(p) => p, .None => Rc.clone(arm));
+                    body := match(aargs.get_cloned(usize(1)), .Some(b) => b, .None => Rc.clone(arm));
+                    names := ArrayList(String).new();
+                    _msp_pattern_names(&pat, &mut names);
+                    (ni : usize) = usize(0);
+                    while(ni < names.len(), {
+                      match(
+                        names.get_cloned(ni),
+                        .Some(n) => {
+                          hop_is_rc := match(_msp_type_of_name_in(&body, n.clone(), &ctx.table), .Some(nt) => type_contains_rc_type(&nt), .None => true);
+                          _msp_def(ctx, n.clone(), _msp_extract(sr, hop_is_rc));
+                        },
+                        .None => ()
+                      );
+                      ni = (ni + usize(1));
+                    });
+                    _MsP.collect(&body, ctx);
+                  }, {
+                    _MsP.collect(&arm, ctx);
+                  });
+                },
+                Rc(.Atom(_, _)) => ()
+              );
+            });
+          },
+          .None => ()
+        );
+        mi = (mi + usize(1));
+      });
+      return(());
+    });
+    if(head == "cond", {
+      (ci : usize) = usize(0);
+      while(ci < args.len(), {
+        match(
+          args.get_cloned(ci),
+          .Some(arm) => if(!_msp_arm_is_dead(&arm, &ctx.table), {
+            _MsP.collect(&arm, ctx);
+          }),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      return(());
+    });
+    // Everything else: children first, then the call's own flows.
+    _MsP.collect(&func_expr, ctx);
+    (ai : usize) = usize(0);
+    while(ai < args.len(), {
+      match(args.get_cloned(ai), .Some(a) => _MsP.collect(&a, ctx), .None => ());
+      ai = (ai + usize(1));
+    });
+    if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _ms_head_is_rc_decrement(head.clone())), {
+      return(());
+    });
+    if(_msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e), {
+      return(());
+    });
+    match(
+      info_opt,
+      .Some(vinfo) => match(
+        vinfo.value(),
+        .Some(v) => if(_msp_value_is_folded(&v), {
+          return(());
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    // An allocator vtable slot writes only the block it is handed (`realloc`,
+    // `free`); `alloc` writes nothing a caller can reach.
+    slot_t := _msp_allocator_slot(&func_expr, &ctx.table);
+    if(slot_t.len() > usize(0), {
+      if(slot_t != "alloc", {
+        match(args.get_cloned(usize(1)), .Some(ta1) => _MsP.taint_flowing(&ta1, ctx, MSP_SHELL), .None => ());
+      });
+      return(());
+    });
+    match(
+      _MsP.extern_of(e, &func_expr, &ctx.table),
+      .Some(ex) => {
+        if(_msp_extern_has_callback(&ex.ptypes, &ex.vtypes), {
+          _MsP.taint_all_args(func_expr, &args, ctx);
+        }, {
+          if(_ms_extern_may_mutate(ex.name.clone(), &ex.ptypes, &ex.vtypes) || _msp_extern_writes_first_arg(ex.name.clone()), {
+            _MsP.extern_taint_args(func_expr, &args, ctx);
+          });
+        });
+        return(());
+      },
+      .None => ()
+    );
+    callee_opt := _MsP.callee(e, &func_expr, &ctx.table);
+    match(
+      callee_opt,
+      .Some(cv) => match(
+        cv,
+        Rc(.TypeVal(_)) => (),
+        Rc(.FuncVal(fvd, _)) => {
+          fid := fvd.*.func_id.clone();
+          if(is_control_fn(fid.clone()), {
+            _MsP.taint_all_args(&func_expr, &args, ctx);
+            return(());
+          });
+          an := _MsP.analyze(fid.clone(), &fvd.*.body, &ctx.table, &mut ctx.touched);
+          labels := _msp_labels(fid.clone());
+          match(
+            _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
+            .None => _MsP.taint_all_args(&func_expr, &args, ctx),
+            .Some(av) => {
+              if(an.mask.all, {
+                _MsP.taint_all_args(&func_expr, &args, ctx);
+                return(());
+              });
+              (any_hold : bool) = false;
+              (rooted_target : bool) = false;
+              (target_root : _MspRoot) = _msp_root(MSP_NONE);
+              roots := ArrayList(_MspRoot).new();
+              (j : usize) = usize(0);
+              while(j < av.len(), {
+                match(
+                  av.get_cloned(j),
+                  .Some(aj) => {
+                    rj := _MsP.classify(&aj, ctx);
+                    roots.push(rj);
+                    if(_msp_holds_rooted(rj), {
+                      any_hold = true;
+                    });
+                    if(param_mutation_mask_hits(&an.mask, j) && _msp_is_rootedish(rj), {
+                      rooted_target = true;
+                      target_root = _msp_join(target_root, rj);
+                    });
+                  },
+                  .None => ()
+                );
+                j = (j + usize(1));
+              });
+              // An omitted `?=` argument the callee mutates is storage this
+              // body cannot see (a default may name a global): unknown.
+              (jd : usize) = av.len();
+              while(jd < labels.len(), {
+                if(param_mutation_mask_hits(&an.mask, jd), {
+                  rooted_target = true;
+                  target_root = _msp_join(target_root, _msp_root(MSP_ROOTED));
+                });
+                jd = (jd + usize(1));
+              });
+              if(rooted_target, {
+                // The callee may store any argument into the mutated
+                // parameter storage: every argument now flows there.
+                _MsP.taint_flowing_to(&func_expr, ctx, target_root);
+                (ti : usize) = usize(0);
+                while(ti < args.len(), {
+                  match(args.get_cloned(ti), .Some(ta) => _MsP.taint_flowing_to(&ta, ctx, target_root), .None => ());
+                  ti = (ti + usize(1));
+                });
+                return(());
+              });
+              if(any_hold, {
+                // A fresh argument the callee mutates may receive a rooted handle.
+                (k : usize) = usize(0);
+                while(k < av.len(), {
+                  fresh_k := match(roots.get(k), .Some(rk) => (rk.kind == MSP_FRESH), .None => false);
+                  if(fresh_k && param_mutation_mask_hits(&an.mask, k), {
+                    match(av.get_cloned(k), .Some(ak) => _MsP.taint_flowing(&ak, ctx, MSP_SHELL), .None => ());
+                  });
+                  k = (k + usize(1));
+                });
+              });
+            }
+          );
+        },
+        _ => _MsP.taint_all_args(&func_expr, &args, ctx)
+      ),
+      .None => _MsP.taint_all_args(&func_expr, &args, ctx)
+    );
+  }),
+  /// An unresolvable or unknown-effect call: every argument (and the receiver)
+  /// may end up anywhere.
+  taint_all_args : (fn(func_expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &mut _MspCtx) -> unit)({
+    _MsP.taint_flowing(func_expr, ctx, MSP_ROOTED);
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      match(args.get_cloned(i), .Some(a) => _MsP.taint_flowing(&a, ctx, MSP_ROOTED), .None => ());
+      i = (i + usize(1));
+    });
+  }),
+  /// Mutations of every argument's storage (an extern with raw pointers).
+  roots_of_args : (fn(m : &mut ParamMutationMask, func_expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &mut _MspCtx) -> unit)({
+    if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+      match(
+        func_expr,
+        Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
+          dargs.get_cloned(usize(0)),
+          .Some(recv) => {
+            rr := _MsP.classify(&recv, ctx);
+            _msp_mask_add_root(m, rr, rr.deep);
+          },
+          .None => ()
+        ),
+        Rc(.Atom(_, _)) => ()
+      );
+    });
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      match(
+        args.get_cloned(i),
+        .Some(a) => {
+          ra := _MsP.classify(&a, ctx);
+          if(ra.kind == MSP_ROOTED, {
+            _msp_debug_all(String.from("extern-arg-rooted"), &a);
+          });
+          _msp_mask_add_root(m, ra, ra.deep);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  }),
+  /// `lends_mut` through a resolved call (VERDICTS-57 §3.1): the `&mut`
+  /// marker of a `&mut` parameter's argument is the callee's to judge (kept
+  /// out of the walk's own lends, `g_msp_slot_markers`), and a parameter the
+  /// callee's summary says it makes a `&mut` reference value of lends what
+  /// our argument names. With the arguments unmapped, a callee that lends
+  /// any parameter may lend any of ours.
+  lends_through_call : (
+    fn(m : &mut ParamMutationMask, fid : &String, callee_mask : &ParamMutationMask, e : &AstExpr, func_expr : &AstExpr, args : &ArrayList(AstExpr), labels_len : usize, ctx : &mut _MspCtx) -> unit
+  )({
+    match(
+      _MsP.argv(e, func_expr, args, labels_len, &ctx.table),
+      .None => {
+        (li : usize) = usize(0);
+        while(li < labels_len, li = (li + usize(1)), {
+          if(param_mutation_mask_lends_mut(callee_mask, li), {
+            _msp_set_lends_all(m, ctx);
+          });
+        });
+      },
+      .Some(av) => {
+        flags := fn_param_mut_ref_flags(&get_func_type(fid.clone()));
+        off := if(av.len() > args.len(), av.len() - args.len(), usize(0));
+        (j : usize) = usize(0);
+        while(j < av.len(), j = (j + usize(1)), {
+          if(match(flags.get(j), .Some(f) => f, .None => false), {
+            (raw : Option(AstExpr)) = if(
+              j < off,
+              match(
+                func_expr,
+                Rc(.FnCall(_, _, Rc(dargs), _, _)) => if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), dargs.get_cloned(usize(0)), Option(AstExpr).None),
+                Rc(.Atom(_, _)) => Option(AstExpr).None
+              ),
+              args.get_cloned(j - off)
+            );
+            match(
+              raw,
+              .Some(ra) => {
+                ru := if(
+                  ast_expr_is_fn_call_of(&ra, BK_COLON, Option(usize).Some(usize(2))),
+                  match(&ra, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(1)), .Some(v) => v, .None => ra.clone()), Rc(.Atom(_, _)) => ra.clone()),
+                  Rc.clone(ra)
+                );
+                if(ast_expr_is_fn_call_of(&ru, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+                  ru_id := ast_expr_id(&ru);
+                  g_msp_slot_markers.with_mut({ ru_id }(s) => s.insert(ru_id));
+                });
+              },
+              .None => ()
+            );
+            if(param_mutation_mask_lends_mut(callee_mask, j), {
+              match(av.get_cloned(j), .Some(aj) => _msp_note_lend(m, &aj, ctx), .None => ());
+            });
+          });
+        });
+      }
+    );
+  }),
+  walk_children : (fn(func_expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &mut _MspCtx) -> ParamMutationMask)({
+    m := _MsP.walk(func_expr, ctx);
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      match(args.get_cloned(i), .Some(a) => _msp_mask_or(&mut m, _MsP.walk(&a, ctx)), .None => ());
+      i = (i + usize(1));
+    });
+    m
+  }),
+  /// The mask of `e`: which parameters' storage it may mutate.
+  walk : (fn(e : &AstExpr, ctx : &mut _MspCtx) -> ParamMutationMask)({
+    m := param_mutation_mask_new();
+    info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
+    match(
+      &info_opt,
+      .Some(info) => {
+        match(
+          expr_info_macro_expansion(&info.*),
+          .Some(mx) => {
+            // A local borrow: a `&mx` argument to this method's own recursive
+            // call is rejected while the method is still being evaluated.
+            mx_ref := &mx;
+            return(_MsP.walk(mx_ref, ctx));
+          },
+          .None => ()
+        );
+        match(
+          expr_info_case_executed(&info.*),
+          .Some(ce) => if(!ce, {
+            return(m);
+          }),
+          .None => ()
+        );
+        // A function/closure DEFINITION does not run its body here.
+        match(
+          expr_info_is_anonymous_function_definition(&info.*),
+          .Some(an) => if(an, {
+            return(m);
+          }),
+          .None => ()
+        );
+        if(expr_info_closure_function_value(&info.*).is_some(), {
+          return(m);
+        });
+      },
+      .None => ()
+    );
+    // A `&mut` reference value the evaluator made of a place here (a lend
+    // into a by-value `&mut` slot, field or element; a `&mut` reference read
+    // passed on): `lends_mut` of the parameter it is rooted in.
+    if(is_mut_lend_value(ast_expr_id(e)), {
+      _msp_note_lend(&mut m, e, ctx);
+    });
+    if(ast_expr_is_atom(e), {
+      return(m);
+    });
+    (func_expr : AstExpr) = Rc.clone(e.*);
+    (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+    match(
+      e,
+      Rc(.FnCall(_, f, Rc(a), _, _)) => {
+        func_expr = Rc.clone(f.*);
+        args = a.clone();
+      },
+      Rc(.Atom(_, _)) => ()
+    );
+    (head : String) = String.new();
+    match(
+      Rc.clone(func_expr),
+      Rc(.Atom(_, ht)) => {
+        head = ht.value.*.clone();
+      },
+      _ => ()
+    );
+    // A call-site borrow marker is not a call: what it lends is walked as
+    // the place itself (decision 33).
+    // A `&mut` marker anywhere but at a `&mut` parameter (a binding, a
+    // `match` scrutinee, a field, a by-value slot) makes a `&mut` reference
+    // value of its place (`lends_mut`, VERDICTS-57 §3.1).
+    if(_msp_is_borrow_marker(head.clone(), args.len()), {
+      return(
+        match(
+          args.get_cloned(usize(0)),
+          .Some(mo) => {
+            mm := _MsP.walk(&mo, ctx);
+            mk_id := ast_expr_id(e);
+            if((head == BK_BORROW_MUT) && !g_msp_slot_markers.with(s => s.contains(&mk_id)), {
+              _msp_note_lend(&mut mm, &mo, ctx);
+            });
+            mm
+          },
+          .None => m
+        )
+      );
+    });
+    // A projection TAIL (decision 24, `rewrite_projection_tails`) hands the
+    // caller a borrow of its operand's place: a `&mut` tail lets the caller
+    // WRITE through the rooted parameter's storage — the mask records
+    // exactly that parameter, as a store would (E0908's write-through check
+    // and decision 18's local-borrow writes rely on it) — while a `&` tail
+    // writes nothing. The node itself is not a call. The place's parameter
+    // comes from `_msp_inout_param_of_place` (rule D3's own helper: the
+    // place may be a VALUE field, `self.a` of a `&mut` struct receiver,
+    // which `classify` roots as NONE because an i32 value roots nothing);
+    // `classify` still supplies the deep/shallow distinction when it does
+    // root the place (an RC hop, `self.items(cur)` of a ref receiver).
+    // Before the tail was recognized, the whole body answered "all": every
+    // projection-tail method of an RC object carried an entry invalidation
+    // assert its own callers then tripped (see the codegen skip beside
+    // `is_index_entry_method`).
+    if(_msp_is_projection_tail(e), {
+      return(
+        match(
+          args.get_cloned(usize(0)),
+          .Some(mo) => {
+            inner := _MsP.walk(&mo, ctx);
+            if(match(projection_tail_mode(e), .Some(pm) => pm, .None => false), {
+              match(
+                _msp_inout_param_of_place(&mo, ctx),
+                .Some(wpi) => {
+                  tr := _MsP.classify(&mo, ctx);
+                  if((tr.kind == MSP_PARAM) && (tr.param == wpi), {
+                    _msp_mask_add_root(&mut inner, tr, tr.deep);
+                  }, {
+                    _msp_bits_set(&mut inner.shallow, wpi);
+                  });
+                },
+                .None => ()
+              );
+            });
+            inner
+          },
+          .None => m
+        )
+      );
+    });
+    if((head == "=") && (args.len() == usize(2)), {
+      lhs := match(args.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(e.*));
+      rhs := match(args.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(e.*));
+      if(ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
+        return(_MsP.walk(&rhs, ctx));
+      });
+      match(
+        Rc.clone(lhs),
+        Rc(.Atom(_, lt)) => {
+          env_opt := match(info_opt, .Some(si) => Option(Environment).Some(si.env()), .None => Option(Environment).None);
+          match(
+            env_opt,
+            .Some(env) => {
+              vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.*.clone());
+              match(
+                vars.last_cloned(),
+                .Some(v) => cond(
+                  // Through an `inout` parameter: the caller's storage for it.
+                  (v.is_parameter() && v.is_ref()) => match(
+                    _msp_param_index(ctx, lt.value.*.clone()),
+                    .Some(pi) => _msp_bits_set(&mut m.shallow, pi),
+                    .None => {
+                      m.all = true;
+                      _msp_debug_all(String.from("walk"), e);
+                    }
+                  ),
+                  // Through an `inout` local binding: whatever it aliases.
+                  v.is_ref() => {
+                    br := match(ctx.roots.get(lt.value.*.clone()), .Some(r0) => r0, .None => _msp_root(MSP_ROOTED));
+                    _msp_mask_add_root(&mut m, br, br.deep);
+                  },
+                  // A global whose type can root storage (an RC handle, a
+                  // pointer) may alias any argument's storage, and a store
+                  // to one (or to a move-only value, a non-`Copy` struct
+                  // included) releases what it held, running drop glue:
+                  // unknown effects. An inert global (`i32`, a `Copy` struct
+                  // of scalars) is its own static and reaches no argument's
+                  // storage, the verdict `_msp_atom_root` already gives a
+                  // field store into one
+                  // (issues/fixed/2026-10-24-a-callee-that-writes-a-scalar-global-is-assumed-to-mutate-every-argument.md).
+                  // D1 records the write itself where it happens
+                  // (`d1_record_global_write`), not through this mask.
+                  v.is_module_level() => if(_msp_type_may_root(&variable_value_type(&v)), {
+                    m.all = true;
+                    _msp_debug_all(String.from("walk"), e);
+                  }),
+                  true => ()
+                ),
+                .None => {
+                  m.all = true;
+                  _msp_debug_all(String.from("walk"), e);
+                }
+              );
+            },
+            .None => {
+              m.all = true;
+              _msp_debug_all(String.from("walk"), e);
+            }
+          );
+        },
+        Rc(.FnCall(_, lf, Rc(largs), _, _)) => {
+          if(ast_expr_is_fn_call_of(&lhs, "tuple", Option(usize).None), {
+            (ti : usize) = usize(0);
+            while(ti < largs.len(), {
+              match(
+                largs.get_cloned(ti),
+                .Some(el) => if(!ast_expr_is_atom(&el), {
+                  tr0 := match(_msp_store_prefix(&el), .Some(p) => _MsP.classify(&p, ctx), .None => _msp_root(MSP_ROOTED));
+                  _msp_mask_add_root(&mut m, tr0, tr0.deep);
+                }),
+                .None => ()
+              );
+              ti = (ti + usize(1));
+            });
+          }, {
+            tr := match(_msp_store_prefix(&lhs), .Some(p) => _MsP.classify(&p, ctx), .None => _msp_root(MSP_ROOTED));
+            if(tr.kind == MSP_ROOTED, {
+              _msp_debug_all(String.from("store-through-rooted"), &lhs);
+            });
+            _msp_mask_add_root(&mut m, tr, tr.deep);
+            // A value-field / index store through an `inout` parameter is a
+            // write through it even when the parameter's type roots no RC
+            // storage (rule D3 — see _msp_inout_param_of_place).
+            match(
+              _msp_inout_param_of_place(&lhs, ctx),
+              .Some(wpi) => _msp_bits_set(&mut m.shallow, wpi),
+              .None => ()
+            );
+            // Index expressions inside the place may call.
+            _msp_mask_or(&mut m, _MsP.walk_children(lf, &largs, ctx));
+          });
+        }
+      );
+      _msp_mask_or(&mut m, _MsP.walk(&rhs, ctx));
+      return(m);
+    });
+    if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
+      return(match(args.get_cloned(usize(1)), .Some(r) => _MsP.walk(&r, ctx), .None => m));
+    });
+    if(head == "match", {
+      match(args.get_cloned(usize(0)), .Some(sc) => _msp_mask_or(&mut m, _MsP.walk(&sc, ctx)), .None => ());
+      (mi : usize) = usize(1);
+      while(mi < args.len(), {
+        match(
+          args.get_cloned(mi),
+          .Some(arm) => {
+            if(!_msp_arm_is_dead(&arm, &ctx.table), {
+              match(
+                Rc.clone(arm),
+                Rc(.FnCall(_, af, Rc(aargs), _, _)) => {
+                  is_arm := (match(af, Rc(.Atom(_, at)) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
+                  if(is_arm, {
+                    match(aargs.get_cloned(usize(1)), .Some(b) => _msp_mask_or(&mut m, _MsP.walk(&b, ctx)), .None => ());
+                  }, {
+                    _msp_mask_or(&mut m, _MsP.walk(&arm, ctx));
+                  });
+                },
+                Rc(.Atom(_, _)) => ()
+              );
+            });
+          },
+          .None => ()
+        );
+        mi = (mi + usize(1));
+      });
+      return(m);
+    });
+    if(head == "cond", {
+      (ci : usize) = usize(0);
+      while(ci < args.len(), {
+        match(
+          args.get_cloned(ci),
+          .Some(arm) => if(!_msp_arm_is_dead(&arm, &ctx.table), {
+            _msp_mask_or(&mut m, _MsP.walk(&arm, ctx));
+          }),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      return(m);
+    });
+    // An explicit RC decrement releases what its argument names.
+    if((head.len() > usize(0)) && _ms_head_is_rc_decrement(head.clone()), {
+      match(
+        args.get_cloned(usize(0)),
+        .Some(a0) => {
+          r0 := _MsP.classify(&a0, ctx);
+          _msp_mask_add_root(&mut m, r0, true);
+        },
+        .None => ()
+      );
+      _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
+      return(m);
+    });
+    if((head.len() > usize(0)) && _ms_head_is_safe_recurse(head.clone()), {
+      return(_MsP.walk_children(&func_expr, &args, ctx));
+    });
+    // A compile-time-known result is inlined: the call never runs.
+    match(
+      info_opt,
+      .Some(vinfo) => match(
+        vinfo.value(),
+        .Some(v) => if(_msp_value_is_folded(&v), {
+          return(m);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    if(_MsW.is_io_builtin_call(e), {
+      m.all = true;
+      _msp_debug_all(String.from("walk"), e);
+      return(m);
+    });
+    // An allocator vtable slot mutates only the block it is handed (`realloc`,
+    // `free`); `alloc` mutates nothing a caller can reach.
+    slot_w := _msp_allocator_slot(&func_expr, &ctx.table);
+    if(slot_w.len() > usize(0), {
+      if(slot_w != "alloc", {
+        match(
+          args.get_cloned(usize(1)),
+          .Some(wa1) => {
+            wr1 := _MsP.classify(&wa1, ctx);
+            _msp_mask_add_root(&mut m, wr1, wr1.deep);
+          },
+          .None => ()
+        );
+      });
+      _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
+      return(m);
+    });
+    callee_opt := _MsP.callee(e, &func_expr, &ctx.table);
+    match(
+      callee_opt,
+      .Some(callee) => match(
+        callee,
+        Rc(.TypeVal(_)) => {
+          return(_MsP.walk_children(&func_expr, &args, ctx));
+        },
+        Rc(.FuncVal(fvd, _)) => {
+          fid := fvd.*.func_id.clone();
+          if(is_control_fn(fid.clone()), {
+            m.all = true;
+            _msp_debug_all(String.from("walk"), e);
+            return(m);
+          });
+          (callee_extern : Option(String)) = Option(String).None;
+          (cpt : SharedList(TypeValue)) = no_types();
+          (cvt : SharedList(TypeValue)) = no_types();
+          match(
+            get_func_type(fid.clone()),
+            Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => {
+              callee_extern = cm.*.extern_name.clone();
+              cpt = Rc.clone(p0);
+              cvt = Rc.clone(v0);
+            },
+            _ => ()
+          );
+          match(
+            callee_extern,
+            .Some(en) => {
+              cond(
+                _msp_extern_has_callback(&cpt, &cvt) => {
+                  m.all = true;
+                  _msp_debug_all(String.from("walk"), e);
+                },
+                _ms_extern_may_mutate(&en, &cpt, &cvt) => _MsP.roots_of_args(&mut m, &func_expr, &args, ctx),
+                _msp_extern_writes_first_arg(&en) => match(
+                  args.get_cloned(usize(0)),
+                  .Some(a0) => {
+                    r0 := _MsP.classify(&a0, ctx);
+                    _msp_mask_add_root(&mut m, r0, r0.deep);
+                  },
+                  .None => ()
+                ),
+                true => ()
+              );
+              _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
+              return(m);
+            },
+            .None => ()
+          );
+          an := _MsP.analyze(fid.clone(), &fvd.*.body, &ctx.table, &mut ctx.touched);
+          labels := _msp_labels(fid.clone());
+          match(
+            _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
+            .None => {
+              if(!param_mutation_mask_is_empty(&an.mask), {
+                m.all = true;
+                _msp_debug_all(String.from("walk"), e);
+              });
+            },
+            .Some(av) => {
+              if(an.mask.all, {
+                // Unknown effects inside the callee. Unless a closure is
+                // involved (its captures are storage this call does not
+                // name), whatever it mutates is reachable from an argument:
+                // attribute the mutation to the arguments' roots, deeply.
+                if(_MsP.call_involves_closure(fid.clone(), &func_expr, &args, &ctx.table), {
+                  m.all = true;
+                  _msp_debug_all(String.from("walk-closure"), e);
+                }, {
+                  if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+                    match(
+                      Rc.clone(func_expr),
+                      Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
+                        dargs.get_cloned(usize(0)),
+                        .Some(recv) => {
+                          rr := _MsP.classify(&recv, ctx);
+                          if(rr.kind == MSP_ROOTED, {
+                            _msp_debug_all(String.from("walk-all-receiver-rooted"), &recv);
+                          });
+                          _msp_mask_add_root(&mut m, rr, true);
+                        },
+                        .None => ()
+                      ),
+                      Rc(.Atom(_, _)) => ()
+                    );
+                  });
+                  (ai2 : usize) = usize(0);
+                  while(ai2 < args.len(), {
+                    match(
+                      args.get_cloned(ai2),
+                      .Some(a2) => {
+                        ra2 := _MsP.classify(&a2, ctx);
+                        if(ra2.kind == MSP_ROOTED, {
+                          _msp_debug_all(String.from("walk-all-arg-rooted"), &a2);
+                        });
+                        _msp_mask_add_root(&mut m, ra2, true);
+                        // Unknown effects reachable from a place rooted in one
+                        // of OUR `inout` parameters: a write through it (D3).
+                        match(
+                          _msp_inout_param_of_place(&a2, ctx),
+                          .Some(wpi) => _msp_bits_set(&mut m.shallow, wpi),
+                          .None => ()
+                        );
+                      },
+                      .None => ()
+                    );
+                    ai2 = (ai2 + usize(1));
+                  });
+                });
+              }, {
+                (j : usize) = usize(0);
+                while(j < labels.len(), {
+                  deep_j := _msp_bits_get(&an.mask.deep, j);
+                  shallow_j := _msp_bits_get(&an.mask.shallow, j);
+                  if(deep_j || shallow_j, {
+                    match(
+                      av.get_cloned(j),
+                      .Some(aj) => {
+                        rj := _MsP.classify(&aj, ctx);
+                        // The callee writes through its parameter j; if our
+                        // argument is a place rooted in one of OUR `inout`
+                        // parameters, that is a write through it, whatever
+                        // its type (D3).
+                        match(
+                          _msp_inout_param_of_place(&aj, ctx),
+                          .Some(wpi) => _msp_bits_set(&mut m.shallow, wpi),
+                          .None => ()
+                        );
+                        cond(
+                          (rj.kind == MSP_PARAM) => if(deep_j || rj.deep, {
+                            _msp_bits_set(&mut m.deep, rj.param);
+                          }, {
+                            _msp_bits_set(&mut m.shallow, rj.param);
+                          }),
+                          (rj.kind == MSP_ROOTED) => {
+                            m.all = true;
+                            _msp_debug_all(String.from("walk"), e);
+                          },
+                          // A shell's OWN storage is fresh; what it holds is not.
+                          ((rj.kind == MSP_SHELL) && deep_j) => {
+                            m.all = true;
+                            _msp_debug_all(String.from("walk"), e);
+                          },
+                          true => ()
+                        );
+                      },
+                      .None => {
+                        m.all = true;
+                        _msp_debug_all(String.from("walk"), e);
+                      }
+                    );
+                  });
+                  j = (j + usize(1));
+                });
+              });
+            }
+          );
+          _MsP.lends_through_call(&mut m, &fid, &an.mask, e, &func_expr, &args, labels.len(), ctx);
+          _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
+          return(m);
+        },
+        _ => {
+          m.all = true;
+          _msp_debug_all(String.from("walk"), e);
+          return(m);
+        }
+      ),
+      .None => ()
+    );
+    if((head.len() > usize(0)) && _ms_head_is_pure_builtin(head.clone()), {
+      return(_MsP.walk_children(&func_expr, &args, ctx));
+    });
+    // Callee value unresolved but a resolved callee TYPE exists (extern C
+    // declarations resolve this way).
+    (type_only : Option(TypeValue)) = match(
+      expr_info_table_get(&ctx.table, ast_expr_id(&func_expr)),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty())),
+      .None => Option(TypeValue).None
+    );
+    (type_only2 : Option(TypeValue)) = match(
+      type_only,
+      .Some(t0) => if(is_function_type(&t0), Option(TypeValue).Some(Rc.clone(t0)), lookup_method_callee_type(ast_expr_id(e))),
+      .None => lookup_method_callee_type(ast_expr_id(e))
+    );
+    match(
+      type_only2,
+      .Some(t2) => match(
+        t2,
+        Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => match(
+          &tm.*.extern_name,
+          .Some(ten) => {
+            cond(
+              _msp_extern_has_callback(&tpt, &tvt) => {
+                m.all = true;
+                _msp_debug_all(String.from("walk"), e);
+              },
+              _ms_extern_may_mutate(&ten.*, &tpt, &tvt) => _MsP.roots_of_args(&mut m, &func_expr, &args, ctx),
+              _msp_extern_writes_first_arg(&ten.*) => match(
+                args.get_cloned(usize(0)),
+                .Some(a0) => {
+                  r0 := _MsP.classify(&a0, ctx);
+                  _msp_mask_add_root(&mut m, r0, r0.deep);
+                },
+                .None => ()
+              ),
+              true => ()
+            );
+            _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
+            return(m);
+          },
+          .None => ()
+        ),
+        _ => ()
+      ),
+      .None => ()
+    );
+    // Unresolved callee: runtime closure, dyn dispatch, fn pointer, ctl
+    // parameter — arbitrary code may run.
+    m.all = true;
+    _msp_debug_all(String.from("walk"), e);
+    m
+  })
+);
+derive(_MspAnalysis, Clone);
+/// Public entry, PARAM-STORAGE mode: which of `fid`'s parameters have storage
+/// reachable from them that the function may (transitively) mutate — not
+/// only stores that release an RC value, but a length decrement, a control-
+/// byte write, a node unlink, a `realloc`/`free`/`memmove`. This is the
+/// question the borrowed `for`'s runtime borrow flag needs answered
+/// (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 C5): codegen emits
+/// `__yo_borrow_assert_unborrowed` at the function's entry for every
+/// RC-object parameter in the mask, so a collection held by a borrowed loop
+/// panics on ANY invalidating method — with no annotation from the library
+/// author: the body decides, because today a plainly passed reference-
+/// semantics handle can be written by its callee (V3b Generation B's
+/// by-value plain parameters move writes into a signature-spelled `mut(x)`,
+/// plans/VALUES_BY_DEFAULT.md decision 30). Takes the ExprInfo
+/// table directly because codegen has no EvalContext.
+function_param_mutation_mask :: (
+  fn(fid : &String, body : &AstExpr, table : &ExprInfoTable) -> ParamMutationMask
+)({
+  touched := ArrayList(String).new();
+  {
+    analysis := _MsP.analyze(fid, body, table, &mut touched);
+    analysis.mask.clone()
+  }
+});
+// ===========================================================================
+// YO_AUDIT_RC_WRITE — decision 46 Generation A's census
+// (plans/VALUES_BY_DEFAULT.md §6 "Decision 46: `Rc` is read-only", step 1)
+//
+// An `Rc`'s payload becomes read-only through the handle (decision 46), so
+// every write the compiler admits today through one has to move behind a door
+// (`RefCell(T)`, `Rc.make_mut`, `Rc.get_mut`) before Generation B turns the
+// error on. With the knob set, `audit_rc_writes` runs on every function body
+// codegen emits (`compile`, `build`, `test`; `check` emits nothing, so it
+// lists nothing), and prints one stderr line per write whose PLACE crosses a
+// reference cell, once per line:
+//
+//   file:line:col [rc-write] kind=<assign|mut-arg|mut-recv> handle=<rc|ref>
+//     root=<fresh|shell|param|rooted|capture> proved=<yes|no> type=<cell>
+//     `<place>`
+//
+// - `kind`: an assignment into the place (`h.* = v`, `h.f = v`, `h.xs(i) =
+//   v`), a `&mut` argument (`f(&mut h.xs)`), or a `self : &mut Self`
+//   receiver (`h.xs.push(v)`) the callee's PARAM-STORAGE mask says it
+//   writes. A write inside a closure body reports `root=capture`.
+// - `handle=rc`: some step of the place goes through the prelude's `Rc` (the
+//   subject of decision 46); `handle=ref`: through another non-atomic
+//   `ref(struct(...))` / `ref(enum(...))` handle only, counted separately
+//   (V4/V5 classify those trees). Atomic cells are D3's and not listed.
+// - `root`/`proved`: §3.10's outcome (a) as today's summaries can state it.
+//   `root` is the PARAM-STORAGE root of the handle nearest the written
+//   storage; the write is proved when that cell was allocated in this
+//   function (`fresh`, or `shell`: a fresh cell that holds other handles,
+//   whose own storage is still fresh), so no borrow taken outside the
+//   function can reach it. Everything else is outcome (c), undecidable.
+//
+// Nothing is rejected here. Since Generation B the evaluator rejects every
+// `handle=rc` write (E0919, `reject_write_through_rc` in
+// src/evaluator/utils.yo), so a program that compiles lists `handle=ref`
+// lines only; the knob stays as V2b's and V4/V5's census of those.
+// ===========================================================================
+(g_audit_rc_write : bool) = debug_knob(`YO_AUDIT_RC_WRITE`).is_some();
+(g_audit_rc_write_printed : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// Whether `YO_AUDIT_RC_WRITE` is set.
+rc_write_audit_enabled :: (fn() -> bool)(g_audit_rc_write);
+/// The handle kind a step from a receiver of type `t` goes through: `rc` for
+/// the prelude's `Rc` (a non-atomic `ref` struct whose one field is `*`),
+/// `ref` for any other non-atomic `ref` struct or enum, "" otherwise.
+_rcw_handle_kind :: (fn(t : &TypeValue) -> String)(
+  cond(
+    // A cell handle (`cell_handle_view`): V5's `Rc` is `rc`, its `Arc`
+    // nothing, as an atomic object.
+    cell_handle_view(t).is_some() => if(is_atomic_counted_handle_type(t), String.new(), String.from("rc")),
+    is_atomic_reference_struct_type(t) => String.new(),
+    (is_reference_struct_type(t) && box_inner_type(t).is_some()) => String.from("rc"),
+    (is_reference_struct_type(t) || is_reference_enum_type(t)) => String.from("ref"),
+    true => String.new()
+  )
+);
+/// The cell step a written place goes through: the handle expression the
+/// step reads, its kind, and its type; `nearest` is the handle of the cell
+/// step nearest the written storage (the cell the write lands in).
+_RcwCross :: struct(handle : AstExpr, kind : String, ty : TypeValue, nearest : AstExpr);
+derive(_RcwCross, Clone);
+_rcw_type_of :: (fn(e : &AstExpr, table : &ExprInfoTable) -> Option(TypeValue))(
+  match(expr_info_table_get(table, ast_expr_id(e)), .Some(i) => Option(TypeValue).Some(Rc.clone(i.ty())), .None => Option(TypeValue).None)
+);
+/// The head name of a call's callee, "" for a callee that is not an atom.
+_rcw_head :: (fn(f : &AstExpr) -> String)(
+  match(f, Rc(.Atom(_, ft)) => ft.value.*.clone(), _ => String.new())
+);
+/// The cell step of `place` to report: the `Rc` step nearest the written
+/// storage when the place goes through any `Rc`, else the nearest `ref`
+/// step. Field steps (`.`) and element steps (an index place `xs(i)`, whose
+/// callee is the place) are followed; a label or a borrow marker is read
+/// through; a place that is a call's result is not followed.
+_rcw_crossing :: (fn(place : &AstExpr, table : &ExprInfoTable) -> Option(_RcwCross))({
+  (cur : AstExpr) = ast_expr_strip_borrow_marker(place);
+  (first_rc : Option(_RcwCross)) = Option(_RcwCross).None;
+  (first_ref : Option(_RcwCross)) = Option(_RcwCross).None;
+  (nearest : Option(AstExpr)) = Option(AstExpr).None;
+  (walking : bool) = true;
+  while(walking, {
+    (expanded : Option(AstExpr)) = match(
+      expr_info_table_get(table, ast_expr_id(&cur)),
+      .Some(ci) => match(expr_info_macro_expansion(&ci), .Some(mx) => Option(AstExpr).Some(mx), .None => Option(AstExpr).None),
+      .None => Option(AstExpr).None
+    );
+    match(
+      expanded,
+      .Some(mx) => {
+        cur = Rc.clone(mx);
+      },
+      .None => {
+        (step_base : Option(AstExpr)) = Option(AstExpr).None;
+        (pass_base : Option(AstExpr)) = Option(AstExpr).None;
+        match(
+          Rc.clone(cur),
+          Rc(.FnCall(_, f, Rc(args), _, _)) => {
+            head := _rcw_head(&f);
+            cond(
+              ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
+                step_base = args.get_cloned(usize(0));
+              },
+              ast_expr_is_fn_call_of(&cur, BK_COLON, Option(usize).Some(usize(2))) => {
+                pass_base = args.get_cloned(usize(1));
+              },
+              _msp_is_borrow_marker(&head, args.len()) => {
+                pass_base = args.get_cloned(usize(0));
+              },
+              _msp_is_projection_tail(&cur) => {
+                pass_base = args.get_cloned(usize(0));
+              },
+              match(_rcw_type_of(&f, table), .Some(ft) => !is_function_type(&ft), .None => false) => {
+                step_base = Option(AstExpr).Some(Rc.clone(f));
+              },
+              true => ()
+            );
+          },
+          Rc(.Atom(_, _)) => ()
+        );
+        match(
+          step_base,
+          .Some(base) => {
+            match(
+              _rcw_type_of(&base, table),
+              .Some(bt) => {
+                kind := _rcw_handle_kind(&bt);
+                if((kind.len() > usize(0)) && nearest.is_none(), {
+                  nearest = Option(AstExpr).Some(Rc.clone(base));
+                });
+                near := match(nearest.clone(), .Some(nb) => Rc.clone(nb), .None => Rc.clone(base));
+                if((kind == "rc") && first_rc.is_none(), {
+                  first_rc = Option(_RcwCross).Some(_RcwCross(handle : Rc.clone(base), kind : kind.clone(), ty : Rc.clone(bt), nearest : Rc.clone(near)));
+                });
+                if((kind == "ref") && first_ref.is_none(), {
+                  first_ref = Option(_RcwCross).Some(_RcwCross(handle : Rc.clone(base), kind : kind, ty : bt, nearest : near));
+                });
+              },
+              .None => ()
+            );
+            cur = Rc.clone(base);
+          },
+          .None => match(
+            pass_base,
+            .Some(pb) => {
+              cur = Rc.clone(pb);
+            },
+            .None => {
+              walking = false;
+            }
+          )
+        );
+      }
+    );
+  });
+  match(first_rc, .Some(c) => Option(_RcwCross).Some(c.clone()), .None => first_ref)
+});
+_rcw_root_name :: (fn(r : _MspRoot) -> String)(
+  cond(
+    (r.kind == MSP_FRESH) => String.from("fresh"),
+    (r.kind == MSP_SHELL) => String.from("shell"),
+    (r.kind == MSP_PARAM) => String.from("param"),
+    (r.kind == MSP_ROOTED) => String.from("rooted"),
+    true => String.from("none")
+  )
+);
+/// Print the census line for a write of `kind` at `place` through `cross`.
+_rcw_report :: (fn(kind : str, place : &AstExpr, cross : &_RcwCross, in_closure : bool, ctx : &mut _MspCtx) -> unit)({
+  tok := ast_expr_token(place);
+  if(tok.module_path.*.starts_with("auto-generated://"), {
+    return(());
+  });
+  // Inside a closure body the handle is (or may be) a capture: the closure
+  // can run while a borrow of the cell is live, which nothing here sees.
+  root_name := if(in_closure, String.from("capture"), _rcw_root_name(_MsP.classify(&cross.nearest, ctx)));
+  proved := ((root_name == "fresh") || (root_name == "shell"));
+  line := `${display_module_path(&tok.module_path.*)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()} [rc-write] kind=${kind} handle=${cross.kind} root=${root_name} proved=${if(proved, "yes", "no")} type=${type_to_string(&cross.ty)} \`${ast_expr_to_string(place)}\``;
+  line_key := line.clone();
+  if(g_audit_rc_write_printed.with_mut({ line_key }(s) => s.insert(line_key)), {
+    eprintln(&line);
+  });
+});
+/// The census walk over one evaluated body: assignments into cell-crossing
+/// places, and `&mut` arguments and receivers of calls whose callee writes
+/// them. A closure body is walked in place with `in_closure` set; codegen
+/// also audits the closure's own body, which prints the same lines, and the
+/// census prints a line once. Arms the evaluator decided never run are
+/// skipped.
+_rcw_walk :: (fn(e : &AstExpr, ctx : &mut _MspCtx, in_closure_in : bool) -> unit)({
+  (in_closure : bool) = in_closure_in;
+  match(
+    expr_info_table_get(&ctx.table, ast_expr_id(e)),
+    .Some(info) => {
+      match(
+        expr_info_macro_expansion(&info),
+        .Some(mx) => {
+          return(_rcw_walk(&mx, ctx, in_closure));
+        },
+        .None => ()
+      );
+      match(
+        expr_info_case_executed(&info),
+        .Some(ce) => if(!ce, {
+          return(());
+        }),
+        .None => ()
+      );
+      match(
+        expr_info_is_anonymous_function_definition(&info),
+        .Some(an) => if(an, {
+          in_closure = true;
+        }),
+        .None => ()
+      );
+      if(expr_info_closure_function_value(&info).is_some(), {
+        in_closure = true;
+      });
+    },
+    .None => ()
+  );
+  (func_expr : AstExpr) = Rc.clone(e.*);
+  (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  match(
+    e,
+    Rc(.FnCall(_, f, Rc(a), _, _)) => {
+      func_expr = Rc.clone(f.*);
+      args = a.clone();
+    },
+    Rc(.Atom(_, _)) => {
+      return(());
+    }
+  );
+  // A `comptime_expect_error` operand is evaluated at compile time and never
+  // reaches codegen, so a write it holds (the E0919 row a test pins) is not
+  // in the census
+  // (issues/fixed/2026-11-19-the-rc-write-census-lists-a-write-inside-comptime-expect-error.md).
+  if(ast_expr_is_fn_call_of(e, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), {
+    return(());
+  });
+  if(ast_expr_is_fn_call_of(e, "=", Option(usize).Some(usize(2))), {
+    match(
+      args.get_cloned(usize(0)),
+      .Some(lhs) => if(!ast_expr_is_atom(&lhs) && !ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
+        match(_rcw_crossing(&lhs, &ctx.table), .Some(cross) => _rcw_report("assign", &lhs, &cross, in_closure, ctx), .None => ());
+      }),
+      .None => ()
+    );
+  });
+  match(
+    _MsP.callee(e, &func_expr, &ctx.table),
+    .Some(Rc(.FuncVal(fvd, _))) => {
+      cfid := fvd.*.func_id.clone();
+      match(
+        get_func_type(cfid.clone()),
+        Rc(.Func({ param_types : cpts, meta : cm })) => if(cm.*.extern_name.is_none() && !is_control_fn(cfid.clone()), {
+          labels := Rc.clone(cm.*.param_labels);
+          match(
+            _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
+            .Some(av) => {
+              (mask : Option(ParamMutationMask)) = Option(ParamMutationMask).None;
+              (j : usize) = usize(0);
+              while(j < labels.len(), {
+                if(match(cpts.get(j), .Some(cj_s) => t_slot_is_mut_ref(&cj_s), .None => false), {
+                  match(
+                    av.get_cloned(j),
+                    .Some(aj) => {
+                      is_recv := ((j == usize(0)) && match(labels.get(usize(0)), .Some(l0) => (l0 == "self"), .None => false));
+                      // An auto-dereferenced receiver the AST still spells as
+                      // the handle: the method takes the payload.
+                      (cross : Option(_RcwCross)) = _rcw_crossing(&aj, &ctx.table);
+                      if(cross.is_none() && is_recv, {
+                        match(
+                          _rcw_type_of(&aj, &ctx.table),
+                          .Some(at) => {
+                            ak := _rcw_handle_kind(&at);
+                            if((ak.len() > usize(0)) && match(slot_pointee_at(&cpts, usize(0)), .Some(pt0) => (_rcw_handle_kind(&pt0) != ak), .None => false), {
+                              cross = Option(_RcwCross).Some(_RcwCross(handle : Rc.clone(aj), kind : ak, ty : at, nearest : Rc.clone(aj)));
+                            });
+                          },
+                          .None => ()
+                        );
+                      });
+                      match(
+                        cross,
+                        .Some(c) => {
+                          if(mask.is_none(), {
+                            mask = Option(ParamMutationMask).Some(function_param_mutation_mask(&cfid, &fvd.*.body, &ctx.table));
+                          });
+                          if(match(&mask, .Some(mk) => param_mutation_mask_hits(mk, j), .None => false), {
+                            // An argument that is itself a handle (`h.items` of
+                            // an `ArrayList`) lends the callee that handle's
+                            // storage: the write lands there.
+                            arg_is_handle := match(_rcw_type_of(&aj, &ctx.table), .Some(ajt) => (_rcw_handle_kind(&ajt).len() > usize(0)), .None => false);
+                            written := _RcwCross(handle : Rc.clone(c.handle), kind : c.kind.clone(), ty : Rc.clone(c.ty), nearest : if(arg_is_handle, Rc.clone(aj), Rc.clone(c.nearest)));
+                            _rcw_report(if(is_recv, "mut-recv", "mut-arg"), &aj, &written, in_closure, ctx);
+                          });
+                        },
+                        .None => ()
+                      );
+                    },
+                    .None => ()
+                  );
+                });
+                j = (j + usize(1));
+              });
+            },
+            .None => ()
+          );
+        }),
+        _ => ()
+      );
+    },
+    _ => ()
+  );
+  if(!ast_expr_is_atom(&func_expr), {
+    _rcw_walk(&func_expr, ctx, in_closure);
+  });
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    match(args.get_cloned(ai), .Some(a) => _rcw_walk(&a, ctx, in_closure), .None => ());
+    ai = (ai + usize(1));
+  });
+});
+/// `YO_AUDIT_RC_WRITE`: list the writes through a reference cell in the
+/// function `fid` (see the section comment). Codegen calls it for every
+/// function it emits when the knob is set.
+audit_rc_writes :: (fn(fid : &String, body : &AstExpr, table : &ExprInfoTable) -> unit)({
+  if(!g_audit_rc_write || expr_info_table_get(table, ast_expr_id(body)).is_none(), {
+    return(());
+  });
+  (mut(ctx) : _MspCtx) = _MspCtx(
+    fid : fid.clone(),
+    labels : _msp_labels(fid.clone()).items.clone(),
+    roots : HashMap(String, _MspRoot).new(),
+    names : ArrayList(String).new(),
+    table : table.clone(),
+    touched : ArrayList(String).new(),
+    changed : false
+  );
+  (iters : usize) = usize(0);
+  (go : bool) = true;
+  while(go, {
+    ctx.changed = false;
+    _MsP.collect(body, &mut ctx);
+    iters = (iters + usize(1));
+    if(!ctx.changed || (iters > usize(64)), {
+      go = false;
+    });
+  });
+  _rcw_walk(body, &mut ctx, is_closure_fn(fid.clone()));
+});
+// ===========================================================================
+// GLOBAL-REACH mode — rule D1 (plans/reference/PARALLELISM_RULES.md)
+//
+// Answers, for a closure that will run on another thread (one coerced to an
+// `Impl(Fn(...), Send)` or `Sync` slot): does its body, or any function it
+// can call, reference a module-level runtime global that is not `Sync`? A non-atomic RC
+// global (`ArrayList`, `HashMap`, `String`, any `ref(struct)`) is a static
+// every thread shares, and even a READ through its handle updates a refcount
+// (issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md).
+// The walk follows the STATIC call graph: a call through a closure value or a
+// dyn method has no body to descend into and is not followed
+// (issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md —
+// closed together with rule D4). Bodies defined in a pragma'd file are the audited base
+// and are not descended into (std/log's globals are under a mutex, std's
+// html tables under a lock). `thread_local` globals are per-thread and fine.
+// ===========================================================================
+/// A memoized reach verdict and the body it was computed from (see `_MsMemo`).
+_GrMemo :: struct(body_id : ExprId, reach : Option(String));
+(g_gr_by_fid : RefCell(HashMap(String, _GrMemo))) = RefCell(HashMap(String, _GrMemo)).new(HashMap(String, _GrMemo).new());
+// Cycle discipline. A recursive call to a function whose walk is in progress
+// answers `.None` optimistically, so a verdict computed under such an edge is
+// only CONDITIONAL: in `f → h → f`, `h` comes out clean although it reaches
+// whatever `f` reaches. Memoizing it unconditionally let a thread closure
+// calling `h` pass while one calling `f` was rejected
+// (issues/fixed/d1-reach-memo-caches-a-verdict-taken-inside-a-call-cycle.md).
+// Each walk records its stack depth; a hit on an in-progress function lowers
+// `g_gr_low` to that depth, and a clean verdict whose walk reached an
+// in-progress ANCESTOR (low < own depth) is parked in `g_gr_pending` with that
+// low instead of being memoized. When the walk the cycle closes at finishes
+// clean with no ancestor of its own, every verdict parked under it is final:
+// a reach found anywhere under it returns up through it, so it would not be
+// clean. Finishing with a reach drops the parked verdicts (they are re-walked
+// on demand). A parked function hit again under the same walk answers its
+// parked verdict with its low, rather than being re-walked (a call graph's
+// strongly connected component would otherwise be walked exponentially).
+(g_gr_in_progress : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
+(mut(g_gr_depth) : usize) = usize(0);
+(mut(g_gr_low) : Option(usize)) = Option(usize).None;
+_GrPend :: struct(body_id : ExprId, low : usize);
+derive(_GrPend, Copy, Clone);
+(g_gr_pending : RefCell(HashMap(String, _GrPend))) = RefCell(HashMap(String, _GrPend)).new(HashMap(String, _GrPend).new());
+(g_gr_pending_order : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+_gr_note_low :: (fn(d : usize) -> unit)({
+  g_gr_low = match(
+    g_gr_low,
+    .Some(l) => Option(usize).Some(if(d < l, d, l)),
+    .None => Option(usize).Some(d)
+  );
+});
+/// Retire the verdicts parked since `start`; `memoize` makes each final
+/// (clean), otherwise they are dropped.
+_gr_settle_pending :: (fn(start : usize, memoize : bool) -> unit)({
+  while(g_gr_pending_order.with(_c_len_1) > start, {
+    match(
+      g_gr_pending_order.with_mut(xs => xs.pop()),
+      .Some(pf) => match(
+        g_gr_pending.with_mut({ pf : pf.clone() }(m) => m.remove(&pf)),
+        .Some(pe) => if(memoize, {
+          memo := _GrMemo(body_id : pe.body_id, reach : Option(String).None);
+          g_gr_by_fid.with_mut({ pf, memo }(m) => m.insert(pf, memo));
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+});
+// The mutable-static half of D1. A VALUE-typed global (a `Send` scalar or
+// struct) that is WRITTEN is fine on one thread, and one that is only READ is
+// a constant another thread may share; both at once is a data race. The
+// write sites (`src/evaluator/exprs/assignment.yo`) record into
+// `g_d1_written`, the reachability walk into `g_d1_reached`, each keyed by the
+// global's declaration token, and each side consults the other as it records,
+// so the order the evaluator reaches the two sites in does not matter. The
+// value is the site's location, for the diagnostic.
+(g_d1_written : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+(g_d1_reached : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+_d1_global_key :: (fn(decl : &Token, name : &String) -> String)(
+  `${decl.module_path.*}:${decl.row.to_string()}:${decl.column.to_string()}:${name}`
+);
+derive(_GrMemo, Clone);
+_d1_location :: (fn(t : &Token) -> String)(
+  `${t.module_path.*}:${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`
+);
+/// Record a write to the module-level global declared at `decl`; returns where
+/// a closure that runs on another thread reaches it, if one does.
+d1_record_global_write :: (fn(decl : &Token, name : &String, write_tok : &Token) -> Option(String))({
+  key := _d1_global_key(decl, name);
+  match(
+    g_d1_written.with({ &key }(m) => m.get_cloned(key.clone())),
+    .Some(_) => (),
+    .None => {
+      loc := _d1_location(write_tok);
+      g_d1_written.with_mut({ key : key.clone(), loc }(m) => m.insert(key, loc));
+    }
+  );
+  g_d1_reached.with({ key }(m) => m.get_cloned(&key))
+});
+/// `fid` is the function whose body this walk covers: the globals it reads and
+/// the functions it calls are recorded under it (`g_gr_reads_by_fid`,
+/// `g_gr_callees_by_fid`), and only published as "reached by another thread"
+/// when a caller establishes that it runs on one (`d1_note_thread_reach`).
+_GrCtx :: struct(table : ExprInfoTable, env : Environment, send : Option(TypeValue), fid : String);
+/// Per function: the non-thread-local module globals its own body reads
+/// (key → first read location), and the functions its body calls. The walk
+/// used to write `g_d1_reached` directly — but it walks EVERY closure (the
+/// verdict is memoized for later type judgements), so an ordinary closure
+/// reading a global marked it thread-reached, and the next write anywhere
+/// was rejected (issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md).
+(g_gr_reads_by_fid : RefCell(HashMap(String, HashMap(String, String)))) = RefCell(HashMap(String, HashMap(String, String))).new(HashMap(String, HashMap(String, String)).new());
+(g_gr_callees_by_fid : RefCell(HashMap(String, HashSet(String)))) = RefCell(HashMap(String, HashSet(String))).new(HashMap(String, HashSet(String)).new());
+_gr_note_read :: (fn(fid : &String, key : &String, loc : &String) -> unit)({
+  // Taken out and stored back: the per-fid map is a value (B9), so a read
+  // copy would clone it on every note.
+  fid_own := fid.clone();
+  fid_rm := fid.clone();
+  reads := match(g_gr_reads_by_fid.with_mut({ fid_rm }(m) => m.remove(&fid_rm)), .Some(m) => m, .None => HashMap(String, String).new());
+  if(!reads.contains_key(key.clone()), {
+    reads.insert(key.clone(), loc.clone());
+  });
+  g_gr_reads_by_fid.with_mut({ fid_own, reads }(m) => m.insert(fid_own, reads));
+});
+_gr_note_callee :: (fn(ctx : &mut _GrCtx, callee : &String) -> unit)({
+  // Taken out and stored back (see `_gr_note_read`).
+  fid_own := ctx.fid.clone();
+  fid_rm := ctx.fid.clone();
+  set := match(g_gr_callees_by_fid.with_mut({ fid_rm }(m) => m.remove(&fid_rm)), .Some(c) => c, .None => HashSet(String).new());
+  set.insert(callee.clone());
+  g_gr_callees_by_fid.with_mut({ fid_own, set }(m) => m.insert(fid_own, set));
+});
+/// Function `fid` runs on another thread (it is a `Send` closure, or code a
+/// `Send` value exposes): every global it or anything it calls reads is now
+/// thread-reached, so a later write to one is a D1 violation. Transitive over
+/// the recorded call graph, which also covers the recursive calls the walk
+/// itself cuts short.
+///
+/// Returns the violation when one of those globals is ALREADY written. The
+/// walk checks writes as it reads, but a memoized verdict was taken when it
+/// ran: a function walked before the write (by an earlier closure, or by
+/// `check`'s end-of-module summary) answers "clean" for a thread closure that
+/// reaches it after the write
+/// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+/// Checking here, where the reads are published, makes the order the two
+/// sites are evaluated in irrelevant on this side too.
+d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
+  (violation : Option(String)) = Option(String).None;
+  seen := HashSet(String).new();
+  todo := ArrayList(String).new();
+  todo.push(fid.clone());
+  while(todo.len() > usize(0), {
+    f := match(todo.pop(), .Some(x) => x, .None => String.new());
+    if(!seen.contains(f.clone()), {
+      seen.insert(f.clone());
+      match(
+        g_gr_reads_by_fid.with({ &f }(m) => m.get_cloned(f)),
+        .Some(reads) => {
+          it := reads.keys_cloned().into_iter();
+          (go : bool) = true;
+          while(go, {
+            match(
+              it.next(),
+              .Some(k) => {
+                if(violation.is_none(), {
+                  match(
+                    g_d1_written.with({ &k }(m) => m.get_cloned(k.clone())),
+                    .Some(wloc) => {
+                      rloc := match(reads.get_cloned(k.clone()), .Some(l) => l, .None => String.new());
+                      gname := match(k.last_index_of(":"), .Some(ci) => k.substring(ci + usize(1), k.len()), .None => k.clone());
+                      violation = Option(String).Some(`reads the module-level global '${gname}' (at ${rloc}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${gname}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state`);
+                    },
+                    .None => ()
+                  );
+                });
+                if(!g_d1_reached.with({ &k }(m) => m.contains_key(k.clone())), {
+                  match(
+                    reads.get_cloned(k.clone()),
+                    .Some(loc) => {
+                      g_d1_reached.with_mut(m => m.insert(k.clone(), loc.clone()));
+                    },
+                    .None => ()
+                  );
+                });
+              },
+              .None => {
+                go = false;
+              }
+            );
+          });
+        },
+        .None => ()
+      );
+      match(
+        g_gr_callees_by_fid.with({ &f }(m) => m.get_cloned(f)),
+        .Some(cs) => {
+          // A read walk: `cs` shares the registry's set, whose entries a
+          // consuming iterator cannot move out.
+          for(&cs, c => {
+            todo.push(c.clone());
+          });
+        },
+        .None => ()
+      );
+    });
+  });
+  violation
+});
+_gr_env_of :: (fn(e : &AstExpr, ctx : &mut _GrCtx) -> Option(Environment))(
+  match(
+    expr_info_table_get(&ctx.table, ast_expr_id(e)),
+    .Some(i) => Option(Environment).Some(i.env()),
+    .None => Option(Environment).None
+  )
+);
+/// The violation an ATOM introduces, if it names a non-Sync, non-thread-local
+/// module-level runtime global.
+_gr_atom :: (fn(e : &AstExpr, ctx : &mut _GrCtx) -> Option(String))({
+  tok := ast_expr_token(e);
+  name := tok.value.*.clone();
+  if(name.is_empty(), {
+    return(Option(String).None);
+  });
+  // A recorded env is queried through `e`'s record; the fallback `ctx.env`
+  // is the walk's own env.
+  env_rec := _gr_env_of(e, ctx);
+  env := match(&env_rec, .Some(en) => Rc.clone(en), .None => Rc.clone(ctx.env));
+  vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(e), &env, name.clone()), .None => get_variables_from_env(&env, name.clone()));
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  v := match(vars.last_cloned(), .Some(v0) => v0, .None => return(Option(String).None));
+  if(!v.is_module_level() || v.is_compile_time_only() || is_thread_local(&tok.module_path.*, name.clone()), {
+    return(Option(String).None);
+  });
+  send_ok := match(
+    &ctx.send,
+    .Some(st) => type_implements_trait_bool(&variable_value_type(&v), &st.*, &env),
+    .None => true
+  );
+  if(send_ok, {
+    // A Sync global another thread reads: a violation iff it is also written.
+    key := _d1_global_key(&v.token, name.clone());
+    _gr_note_read(ctx.fid.clone(), key.clone(), _d1_location(&tok));
+    return(
+      match(
+        g_d1_written.with(m => m.get_cloned(&key)),
+        .Some(wloc) => Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&variable_value_type(&v))}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${name}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state (at ${_d1_location(&tok)})`),
+        .None => Option(String).None
+      )
+    );
+  });
+  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&variable_value_type(&v))}), which is not Sync — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Sync globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(&tok)})`)
+});
+/// A call whose callee is an atom bound to a compile-time closure value (a
+/// local `(k : Impl(Fn() -> R)) = (() => ...)` binding, or a captured one):
+/// walk the closure's body like any other callee's.
+_gr_walk_closure_callee :: (fn(f : &AstExpr, ctx : &mut _GrCtx) -> Option(String))({
+  if(!ast_expr_is_atom(f), {
+    return(Option(String).None);
+  });
+  name := ast_expr_token(f).value.*.clone();
+  if(name.is_empty(), {
+    return(Option(String).None);
+  });
+  env_rec := _gr_env_of(f, ctx);
+  env := match(&env_rec, .Some(en) => Rc.clone(en), .None => Rc.clone(ctx.env));
+  vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(f), &env, &name), .None => get_variables_from_env(&env, &name));
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  match(
+    vars.last_cloned(),
+    .Some(v) => match(
+      v.value().get(usize(0)),
+      .Some(vv) => match(
+        vv,
+        Rc(.FuncVal(fvd, _)) => match({
+          _gr_note_callee(ctx, fvd.*.func_id.clone());
+          function_reaches_non_send_global(fvd.*.func_id.clone(), &fvd.*.body, &ctx.table, &env)
+        }, .Some(m) => Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`), .None => Option(String).None),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
+/// A FUNCTION used as a value — passed as an argument, stored in a field,
+/// bound to a local: whatever receives it may call it, and the walk cannot
+/// follow the call (it has no compile-time callee), so the function is walked
+/// where it is used (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
+/// Resolved from the expression's evaluated value, or — for an atom naming a
+/// local closure — from the binding's value cell.
+_gr_value_function :: (fn(e : &AstExpr, ctx : &mut _GrCtx) -> Option(String))({
+  (fv : Option(EvalValue)) = match(
+    expr_info_table_get(&ctx.table, ast_expr_id(e)),
+    .Some(ei) => ei.value(),
+    .None => Option(EvalValue).None
+  );
+  if(fv.is_none() && ast_expr_is_atom(e), {
+    name := ast_expr_token(e).value.*.clone();
+    if(!name.is_empty(), {
+      vars := match(_gr_env_of(e, ctx), .Some(en) => scope_variables(ast_expr_id(e), &en, &name), .None => get_variables_from_env(&ctx.env, &name));
+      if(vars.len() > usize(0), {
+        fv = match(vars.last_cloned(), .Some(v) => v.value().get(usize(0)), .None => Option(EvalValue).None);
+      });
+    });
+  });
+  match(
+    fv,
+    .Some(v) => match(
+      v,
+      Rc(.FuncVal(fvd, _)) => {
+        fid := fvd.*.func_id.clone();
+        (is_extern : bool) = match(get_func_type(fid.clone()), Rc(.Func({ meta : cm })) => cm.*.extern_name.is_some(), _ => false);
+        if(is_extern, {
+          return(Option(String).None);
+        });
+        _gr_note_callee(ctx, fid.clone());
+        match(
+          function_reaches_non_send_global(&fid, &fvd.*.body, &ctx.table, &ctx.env),
+          .Some(m) => Option(String).Some(`uses the function '${ast_expr_to_string(e)}' as a value (whatever receives it may call it), which ${m}`),
+          .None => Option(String).None
+        )
+      },
+      _ => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
+_gr_walk :: (fn(e : &AstExpr, ctx : &mut _GrCtx) -> Option(String))({
+  // A macro call: the expansion is what runs.
+  match(
+    expr_info_table_get(&ctx.table, ast_expr_id(e)),
+    .Some(ei) => match(
+      expr_info_macro_expansion(&ei),
+      .Some(exp) => {
+        return(_gr_walk(&exp, ctx));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  match(
+    e,
+    Rc(.Atom(_, _)) => match(
+      _gr_atom(e, ctx),
+      .Some(m) => Option(String).Some(m),
+      .None => _gr_value_function(e, ctx)
+    ),
+    Rc(.FnCall(_, f, Rc(args), _, _)) => {
+      (head : String) = String.new();
+      match(
+        f,
+        Rc(.Atom(_, ht)) => {
+          head = ht.value.*.clone();
+        },
+        _ => ()
+      );
+      // Definitions and arms: the value expression / the arm body runs.
+      if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
+        return(match(args.get_cloned(usize(1)), .Some(r) => _gr_walk(&r, ctx), .None => Option(String).None));
+      });
+      // Labels: the value.
+      if((head == ":") && (args.len() == usize(2)), {
+        return(match(args.get_cloned(usize(1)), .Some(r) => _gr_walk(&r, ctx), .None => Option(String).None));
+      });
+      // Field access: the receiver — and the field's value when it is a
+      // function (`mod.f` passed along).
+      if((head == ".") && (args.len() == usize(2)), {
+        return(
+          match(
+            match(args.get_cloned(usize(0)), .Some(r) => _gr_walk(&r, ctx), .None => Option(String).None),
+            .Some(m) => Option(String).Some(m),
+            .None => _gr_value_function(e, ctx)
+          )
+        );
+      });
+      // Closure literals and match arms: the body (it runs on the thread).
+      if(((head == "=>") || (head == "->")) && (args.len() == usize(2)), {
+        return(match(args.get_cloned(usize(1)), .Some(b) => _gr_walk(&b, ctx), .None => Option(String).None));
+      });
+      // Structural / control builtins, RC primitives, pure builtins, statements:
+      // walk the children, the head itself reaches nothing.
+      (children_only : bool) = (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_rc_decrement(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_statement_head(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e));
+      if(!children_only, {
+        // A call: resolve the callee. Extern → runs no Yo code. A body in a
+        // pragma'd file → trusted. Otherwise descend (memoized, cycle-safe).
+        match(
+          _MsP.callee(e, &f.*, &ctx.table),
+          .Some(cv) => match(
+            cv,
+            Rc(.FuncVal(fvd, _)) => {
+              fid := fvd.*.func_id.clone();
+              (is_extern : bool) = false;
+              match(
+                get_func_type(fid.clone()),
+                Rc(.Func({ meta : cm })) => {
+                  is_extern = cm.*.extern_name.is_some();
+                },
+                _ => ()
+              );
+              if(!is_extern, {
+                _gr_note_callee(ctx, fid.clone());
+                match(
+                  function_reaches_non_send_global(&fid, &fvd.*.body, &ctx.table, &ctx.env),
+                  .Some(m) => {
+                    return(Option(String).Some(`calls '${ast_expr_to_string(&f.*)}', which ${m}`));
+                  },
+                  .None => ()
+                );
+              });
+            },
+            // Not a FuncVal on the call node: a call through a local
+            // closure VALUE, a dyn method, an operator the evaluator did not
+            // stamp. A local closure keeps its FuncVal in the binding's value
+            // cell, so resolve an atom callee there and descend into it
+            // (issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
+            _ => match(
+              _gr_walk_closure_callee(&f.*, ctx),
+              .Some(m) => {
+                return(Option(String).Some(m));
+              },
+              .None => ()
+            )
+          ),
+          .None => match(
+            _gr_walk_closure_callee(&f.*, ctx),
+            .Some(m) => {
+              return(Option(String).Some(m));
+            },
+            .None => ()
+          )
+        );
+      });
+      // The callee expression itself (a global closure, a receiver) and the
+      // arguments.
+      if(!ast_expr_is_atom(&f.*) || !children_only, {
+        match(
+          _gr_walk(&f.*, ctx),
+          .Some(m) => {
+            return(Option(String).Some(m));
+          },
+          .None => ()
+        );
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get_cloned(i),
+          .Some(a) => match(
+            _gr_walk(&a, ctx),
+            .Some(m) => {
+              return(Option(String).Some(m));
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      Option(String).None
+    }
+  )
+});
+/// Does function `fid` (body `body`), or anything it can call, reach a
+/// non-Send module-level global? `.Some(reason)` names the first one.
+function_reaches_non_send_global :: (
+  fn(fid : &String, body : &AstExpr, table : &ExprInfoTable, env : &Environment) -> Option(String)
+)({
+  body_id := ast_expr_id(body);
+  match(
+    g_gr_by_fid.with({ fid : &fid.* }(m) => m.get_cloned(fid.clone())),
+    .Some(m) => if(m.body_id == body_id, {
+      return(m.reach.clone());
+    }),
+    .None => ()
+  );
+  match(
+    g_gr_in_progress.with({ fid : &fid.* }(m) => m.get(fid.clone())),
+    .Some(d) => {
+      _gr_note_low(d);
+      return(Option(String).None);
+    },
+    .None => ()
+  );
+  match(
+    g_gr_pending.with({ fid : &fid.* }(m) => m.get(fid.clone())),
+    .Some(pe) => if(pe.body_id == body_id, {
+      _gr_note_low(pe.low);
+      return(Option(String).None);
+    }),
+    .None => ()
+  );
+  // A body defined in a pragma'd file is the audited base.
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).module_path.*.clone())), {
+    fid_owned := fid.clone();
+    g_gr_by_fid.with_mut({ fid_owned, body_id : body_id.clone() }(m) => m.insert(fid_owned.clone(), _GrMemo(body_id : body_id, reach : Option(String).None)));
+    return(Option(String).None);
+  });
+  if(expr_info_table_get(table, body_id).is_none(), {
+    return(Option(String).Some(String.from("has a body that was never evaluated (a forward reference?) — a closure that runs on another thread may only call functions whose bodies are known")));
+  });
+  my_depth := g_gr_depth;
+  g_gr_depth = (my_depth + usize(1));
+  saved_low := g_gr_low;
+  g_gr_low = Option(usize).None;
+  pending_start := g_gr_pending_order.with(_c_len_1);
+  fid_owned2 := fid.clone();
+  g_gr_in_progress.with_mut({ fid_owned2, my_depth : my_depth.clone() }(m) => m.insert(fid_owned2.clone(), my_depth));
+  // This walk records the function's reads and callees afresh.
+  fid_owned3 := fid.clone();
+  _r0 := g_gr_reads_by_fid.with_mut({ fid_owned3 }(m) => m.remove(fid_owned3.clone()));
+  fid_owned4 := fid.clone();
+  _r1 := g_gr_callees_by_fid.with_mut({ fid_owned4 }(m) => m.remove(fid_owned4.clone()));
+  // A module-level binding is one static every thread shares: the question is
+  // sharing, so the global must be `Sync` (Rust's `static: Sync`;
+  // plans/VALUES_BY_DEFAULT.md §3.8).
+  (mut(ctx) : _GrCtx) = _GrCtx(table : table.clone(), env : Rc.clone(env), send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
+  r := _gr_walk(body, &mut ctx);
+  fid_owned5 := fid.clone();
+  g_gr_in_progress.with_mut({ fid_owned5 }(m) => m.remove(fid_owned5.clone()));
+  g_gr_depth = my_depth;
+  // The lowest in-progress ANCESTOR this walk's subtree depended on.
+  (ancestor_low : Option(usize)) = match(
+    g_gr_low,
+    .Some(l) => if(l < my_depth, Option(usize).Some(l), Option(usize).None),
+    .None => Option(usize).None
+  );
+  g_gr_low = saved_low;
+  match(
+    ancestor_low,
+    .Some(al) => _gr_note_low(al),
+    .None => ()
+  );
+  cond(
+    r.is_some() => {
+      _gr_settle_pending(pending_start, false);
+      fid_owned6 := fid.clone();
+      r_owned := r.clone();
+      g_gr_by_fid.with_mut({ fid_owned6, r_owned, body_id : body_id.clone() }(m) => m.insert(fid_owned6.clone(), _GrMemo(body_id : body_id, reach : r_owned)));
+    },
+    ancestor_low.is_none() => {
+      _gr_settle_pending(pending_start, true);
+      fid_owned7 := fid.clone();
+      g_gr_by_fid.with_mut({ fid_owned7, body_id : body_id.clone() }(m) => m.insert(fid_owned7.clone(), _GrMemo(body_id : body_id, reach : Option(String).None)));
+    },
+    true => {
+      al := match(ancestor_low, .Some(x) => x, .None => usize(0));
+      // What was parked under this walk was conditional on THIS walk (or
+      // deeper ones, all finished); it now hangs on this walk's ancestor.
+      (pi : usize) = pending_start;
+      while(pi < g_gr_pending_order.with(_c_len_1), {
+        match(
+          g_gr_pending_order.with({ pi }(xs) => xs.get_cloned(pi)),
+          .Some(pf) => match(
+            g_gr_pending.with({ &pf }(m) => m.get(pf.clone())),
+            .Some(pe) => if(pe.low >= my_depth, {
+              g_gr_pending.with_mut(m => m.insert(pf.clone(), _GrPend(body_id : pe.body_id, low : al)));
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+      fid_owned8 := fid.clone();
+      g_gr_pending.with_mut({ fid_owned8, body_id : body_id.clone(), al : al.clone() }(m) => m.insert(fid_owned8.clone(), _GrPend(body_id : body_id, low : al)));
+      fid_owned9 := fid.clone();
+      g_gr_pending_order.with_mut({ fid_owned9 }(xs) => xs.push(fid_owned9.clone()));
+    }
+  );
+  r
+});
+/// `check` gives each demand-loaded module its own ExprInfo table and drops it
+/// when the module is done, so a later module's walk found an imported
+/// function's body "never evaluated" and rejected valid code
+/// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+/// While a module's table is still alive, the loader hands this the functions
+/// whose bodies were evaluated into it — the module's definitions and impl
+/// members, and the specializations its evaluation minted — and the two body
+/// summaries other modules' walks read are computed for each: the D1 reach
+/// verdict and the parameter mutation mask. Both are memoized by function
+/// id and body, which is all a later walk consults. A body with no ExprInfo in
+/// `table` (a generic body deferred to its specializations, a body evaluated
+/// into another module's table) is skipped, so no memo is written for it.
+/// Every module's own bodies are evaluated by the time it finishes, and the
+/// memos are sound to take early: a callee not yet evaluated keeps its caller
+/// unmemoized (or rejected), a call cycle parks its verdicts until the cycle
+/// closes, and the one order-dependent input — whether a Send global is
+/// written yet — is re-checked when a thread closure publishes its reads
+/// (`d1_note_thread_reach`). `compile` shares one table and never calls this.
+summarize_function_bodies :: (fn(values : &ArrayList(EvalValue), table : &ExprInfoTable, env : &Environment) -> unit)({
+  (summarized : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < values.len(), {
+    match(
+      values.get_cloned(i),
+      .Some(v) => match(
+        v,
+        Rc(.FuncVal(fvd, _)) => {
+          fid := fvd.*.func_id.clone();
+          (is_extern : bool) = match(get_func_type(fid.clone()), Rc(.Func({ meta : cm })) => cm.*.extern_name.is_some(), _ => false);
+          if(!is_extern && expr_info_table_get(table, ast_expr_id(&fvd.*.body)).is_some(), {
+            _r := function_reaches_non_send_global(fid.clone(), &fvd.*.body, table, env);
+            _m := function_param_mutation_mask(&fid, &fvd.*.body, table);
+            summarized = (summarized + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // `YO_DEBUG_BODY_SUMMARY=1`: per module, the functions offered and summarized.
+  if(match(debug_knob(`YO_DEBUG_BODY_SUMMARY`), .Some(d) => (d.len() > usize(0)), .None => false), {
+    eprintln(`[body-summary] ${env.module_path().*} offered=${values.len().to_string()} summarized=${summarized.to_string()}`);
+  });
+});
+/// Drop every memo keyed by one of `fids` (`mm_invalidate_document`: the
+/// functions of a module the LSP / `--watch` evaluates afresh).
+purge_mutation_summaries :: (fn(fids : &ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < fids.len(), {
+    match(
+      fids.get_cloned(i),
+      .Some(f) => {
+        _a := g_ms_summary_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
+        _b := g_msp_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
+        _c := g_gr_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
+        _d := g_gr_reads_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
+        _e := g_gr_callees_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Total memo entries (the LSP plateau probe).
+mutation_summary_entry_count :: (fn() -> usize)(
+  g_ms_summary_by_fid.with(_c_len_2) + g_msp_by_fid.with(_c_len_3) + g_gr_by_fid.with(_c_len_4) + g_gr_reads_by_fid.with(_c_len_5) + g_gr_callees_by_fid.with(_c_len_6)
+);
+/// The memoized reach verdict of function `fid`, if one was computed: the
+/// closure's own, taken with its DEFINING env (a closure literal is walked
+/// where it is created — `validate_send_closure_global_reach`), for a later
+/// judgement that holds only the closure's type.
+d1_reach_memo :: (fn(fid : &String) -> Option(Option(String)))(
+  match(g_gr_by_fid.with({ fid : &fid.* }(m) => m.get_cloned(fid)), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
+);
+export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_lends_mut, param_mutation_mask_is_empty, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

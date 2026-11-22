@@ -11,12 +11,12 @@
 //!     object identity.
 //!   - `add_variable_to_env` mutates in place via `*(Environment)`.
 //!   - SomeT carries no `resolvedConcreteType` field; resolved concrete types
-//!     are recorded in the id-keyed registry in expr_info.yo.
+//!     are recorded in the id-keyed registry in expr-info.yo.
 //!   - Struct comparisons use `id` only (no function-value comparison).
 //!   - FnTrait synthesis uses parallel arrays directly.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   Environment,
   Variable,
@@ -33,12 +33,12 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
-{ type_key } :: import("../../types/type_key.yo");
+{ type_key } :: import("../../types/type-key.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
+{ lookup_struct_ctor_fid, some_resolution } :: import("../../expr-info.yo");
 { type_value_tag, t_usize, resolve_enum_shell, enum_phantom_positions } :: import("../../types/creators.yo");
 {
   is_some_type,
@@ -71,10 +71,10 @@ _is_runtime_numeric :: (fn(t : &TypeValue) -> bool)(
 }
 :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env }
-:: import("../../types/env_lookup.yo");
+:: import("../../types/env-lookup.yo");
 { type_to_string, type_to_string_key } :: import("../../types/string.yo");
 { EvalValue, EvalValueNode, lookup_enum_cfid, lookup_type_ctor_value, value_to_string } :: import("../../value.yo");
-{ get_gadt_type_constructor_args } :: import("./gadt_registry.yo");
+{ get_gadt_type_constructor_args } :: import("./gadt-registry.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
@@ -83,16 +83,14 @@ _is_runtime_numeric :: (fn(t : &TypeValue) -> bool)(
 // Public data types
 // ---------------------------------------------------------------------------
 /// Options controlling type synthesis behavior.
-SynthesizeOptions :: ref(
-  struct(
-    /// Optional source token for variable bindings created during synthesis.
-    token : Option(Token),
-    /// The pair's orientation. Most callers synthesize (destination, source):
-    /// a parameter against its argument. A call's return type against the
-    /// caller's expected type is (source, destination), so it sets this.
-    /// Only a directional coercion reads it (`_flow_coercion_without_binders`).
-    expected_is_source : bool
-  )
+SynthesizeOptions :: struct(
+  /// Optional source token for variable bindings created during synthesis.
+  token : Option(Token),
+  /// The pair's orientation. Most callers synthesize (destination, source):
+  /// a parameter against its argument. A call's return type against the
+  /// caller's expected type is (source, destination), so it sets this.
+  /// Only a directional coercion reads it (`_flow_coercion_without_binders`).
+  expected_is_source : bool
 );
 /// Return type of `synthesize_types`.
 SynthesizeResult :: struct(
@@ -103,12 +101,11 @@ SynthesizeResult :: struct(
 // Checked-pair anti-circularity state
 // ---------------------------------------------------------------------------
 /// A pair of type IDs used to detect circular synthesis.
-TypePair :: ref(
-  struct(
-    expected_id : String,
-    given_id : String
-  )
+TypePair :: struct(
+  expected_id : String,
+  given_id : String
 );
+derive(TypePair, Clone);
 // ---------------------------------------------------------------------------
 // synthesize_types — global function pointer (like evaluate_expression)
 // ---------------------------------------------------------------------------
@@ -196,7 +193,7 @@ _has_type_pair :: (fn(pairs : &ArrayList(TypePair), exp_id : &String, giv_id : &
   (found : bool) = false;
   while((i < n) && !found, {
     p := match(
-      pairs.get(i),
+      pairs.get_cloned(i),
       .Some(p) => p,
       .None => {
         i = n;
@@ -513,6 +510,14 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     Rc(.ComptimeListT(child)) => recur(some_type_id, some_type_name, &child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
     Rc(.Pointer(_)) => false,
+    // A reference is structural: `&T` contains `T`, so `T := &T` is an
+    // infinite type. Without this arm a failed overload trial bound a generic
+    // body's own `K := &K` (a blanket `impl(generic(T), &T, …)` candidate
+    // offering `self : &Self` at `Self := &K` to a receiver place of type
+    // `K`), and the binding outlived the trial in the impl's frame
+    // (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md).
+    Rc(.Reference(ref_pointee, _, _)) => recur(some_type_id, some_type_name, &ref_pointee.*, visited, exn),
+    Rc(.ValueSlot(vs_inner)) => recur(some_type_id, some_type_name, &vs_inner.*, visited, exn),
     Rc(.Func({ param_types, implicit_types, result, meta : __fm1 })) => {
       forall_labels := Rc.clone(__fm1.forall_labels);
       // A generic declared by this Func's OWN signature SHADOWS the
@@ -1219,7 +1224,7 @@ _synthesize_types_impl :: (
     giv_cfid3 := match(given_ty, Rc(.Struct({ constructor_func_id : cfid })) => cfid.clone(), _ => ``);
     // An empty carried cfid may predate the constructor stamp (a self-recursive
     // shell, or a memoized instantiation that embedded one) — recover it from
-    // the id-keyed stamp table (see expr_info.yo g_struct_ctor_fids). Without
+    // the id-keyed stamp table (see expr-info.yo g_struct_ctor_fids). Without
     // this, `SortedSet(T)` vs `SortedSet(i32)` FAILED to unify: the top-level
     // pair matched by cfid but the `_inner : SortedMap(...)` FIELD instances
     // carried pre-stamp empty cfids and threw here.
@@ -1255,7 +1260,7 @@ _synthesize_types_impl :: (
     // unification below, which still does the real structural checking.
     // SCOPED to definition-time trials: unscoped, the looser matching
     // reached specialization/codegen channels and re-broke
-    // tests/derive_clone_complex.test.yo (the session's recurring lesson —
+    // tests/derive-clone-complex.test.yo (the session's recurring lesson —
     // abstract/looser products must stay out of stamps codegen consumes).
     // AND scoped to a MISSING nominal identity: the fallback exists to
     // rescue instantiations minted past the ctor stamp (empty cfid). When

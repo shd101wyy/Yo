@@ -7,6 +7,7 @@
 ## 基本用法
 
 ```yo
+{ assert } :: import("std/assert");
 { ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
@@ -149,7 +150,7 @@ derive(
 两点需要知道：
 
 - **消息必须按声明顺序排列**，并且每条都会与它落在的变体逐一核对——因此新增、删除、重命名或重排变体都是编译错误，不会静默地把消息串位。
-- 它同时生成两个特征，是因为 `Error` 要求 `Self <: ToString`。这就是一次 `derive` 能替代原先「一个 `ToString` impl 加一行单独的 `impl(T, Error());`」的原因。
+- 它同时生成两个特征，是因为 `Error` 要求 `Self <: ToString`。因此一次 `derive` 就相当于「一个 `ToString` impl 加一行单独的 `impl(T, Error());`」。
 
 ### ToJson / FromJson
 
@@ -190,7 +191,7 @@ derive(Shape, Eq(Shape), Clone, ToString);
 类型可以通过引用自身的字段进行派生，例如 `ArrayList(Self)` 或 `Rc(Self)`。派生出的方法借助容器自己的 impl 访问内部的值：下面 `Node` 派生的 `==` 用 `ArrayList(Node)` 的 `==` 比较 `children`，而后者又会调用 `Node` 的 `==`。
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { println, ToString } :: import("std/fmt");
 
 Node :: enum(Leaf, Branch(children : ArrayList(Self)));

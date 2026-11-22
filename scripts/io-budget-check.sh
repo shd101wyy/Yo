@@ -17,7 +17,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 BIN="${WORK}/io_budget"
 
-"${YO}" compile "${HERE}/bench/io_budget.yo" --optimize 2 -o "${BIN}" >/dev/null
+"${YO}" compile "${HERE}/bench/io-budget.yo" --optimize 2 -o "${BIN}" >/dev/null
 
 fail=0
 for backend in uring epoll; do

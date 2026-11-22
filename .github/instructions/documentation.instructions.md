@@ -1,28 +1,44 @@
 ---
-applyTo: "docs/**,src/doc/**,src/doc/**"
+applyTo: "docs/**,src/doc/**"
 description: "Use when writing or editing documentation files, or working on the doc generation system. Covers bilingual requirements, code block formatting, yo doc CLI, and the doc pipeline."
 ---
 
 # Documentation Conventions
 
-## Bilingual documentation
+## User docs
 
-All documentation in `docs/` must exist in both languages:
-
-- English: `docs/en-US/`
-- Chinese: `docs/zh-CN/`
-
-When creating or updating a doc, always update both versions.
+- Every doc under `docs/` exists in both `docs/en-US/` and `docs/zh-CN/`; update both together.
+- User-facing text describes only the current language: `docs/`, both READMEs (`README.md`, `docs/zh-CN/README.md`), `pack/context.md`, diagnostic messages and `yo explain` text. No history, no removed features, no migration or upgrade guidance (Yo has no external users). `plans/` and `issues/` stay historical.
 
 ## Code block language tag
 
-Use ` ```yo ` for Yo code blocks, in Markdown files and in `///` / `//!` doc comments alike. `yo fmt` formats every ` ```yo ` block (`yo fmt docs`, and a `.yo` file's doc comments with the file), and CI runs `yo fmt --check` over `docs/`, `plans/`, `.github/`, `README.md` and the Markdown under `issues/` (not `issues/repros/`, whose `.yo` files may be unformatted on purpose), so a ` ```yo ` block must parse and be written the way `yo fmt` writes code. A snippet that is not a complete, parseable piece of Yo (a fragment, an intentionally invalid "WRONG:" example, an error demo such as `a + b * c`) is fenced ` ```yo ignore `, which keeps the language tag and skips the check. Never use ` ```rust ` for Yo code. `yo doc --format markdown` still emits ` ```rust ` in its generated pages (GitHub has no Yo highlighting); that is the renderer's translation, not a convention for hand-written docs.
+- Fence Yo code ` ```yo `, in Markdown and in `///` / `//!` doc comments alike. Never ` ```rust ` for Yo code.
+- `yo fmt` formats every ` ```yo ` block (`yo fmt docs`; a `.yo` file's doc comments with the file). CI runs `yo fmt --check` over `docs/`, `plans/`, `.github/`, `README.md` and the Markdown under `issues/` (not `issues/repros/`), so a block must parse and be laid out the way `yo fmt` writes it.
+- A fragment, an intentionally invalid "WRONG:" example or an error demo (`a + b * c`) is fenced ` ```yo ignore `: the tag stays, the check is skipped.
+- `yo doc --format markdown` emits ` ```rust ` in its generated pages (GitHub has no Yo highlighting). That is the renderer's translation, not a convention for hand-written docs.
 
-## API Documentation Generation
+## Docs checks (`scripts/check-docs.py`)
+
+CI's `docs-checks` job (`test.yml`) runs three checks over `docs/en-US`, `docs/zh-CN` and the READMEs. It is REPORT-ONLY for now (findings in the job log and summary, not on merge-gate's needs); the docs plan's last step makes it blocking.
+
+- **examples**: a ` ```yo ` block containing `export(`, `test(` or `main ::` (comments aside) is a complete program and must pass the compiler: `yo test` when it has a top-level `test(` (`yo check` swallows test-body errors; its `--test-bodies` mode has known false positives), `yo check` otherwise. Each block is checked alone in an empty directory against the tree's `std`, so it imports what it uses (a test block imports `assert` from `std/assert`) and cannot import a sibling file. Other blocks are fragments: counted, not checked. ` ```yo ignore ` blocks are skipped and counted; a rising count gets questioned in review.
+- **Expected errors**: a block demonstrating a compile error declares its codes in the fence (` ```yo expect=E0917 `, ` ```yo expect=E0917,E0901 `). It is always checked, and passes only if the compiler rejects it AND reports every listed code. It must still parse (`yo fmt` formats it); a snippet that does not parse or cannot stand alone stays ` ```yo ignore `.
+- **links**: every relative link in `docs/**`, `README.md` and `CONTRIBUTING.md` resolves, and every `#anchor` names a heading (GitHub slug rules) or an `<a id>`. A link from `docs/en-US` to anything outside it is flagged: only that directory ships in a release bundle (`yo context --doc` prints it). Cite std as a code span (`std/collections/array-list`); do not cite plans or issues.
+- **parity**: `docs/en-US` and `docs/zh-CN` hold the same pages, each pair with the same number of ` ```yo ` blocks and H2 headings; `docs/zh-CN/README.md` and `CONTRIBUTING.md` are compared with the root files.
+
+```bash
+python3 scripts/check-docs.py --checks links,parity        # seconds
+python3 scripts/check-docs.py --changed origin/develop     # examples of the Markdown your branch changed
+python3 scripts/check-docs.py --yo yo-out/x86_64-unknown-linux-gnu/bin/yo --jobs 6   # everything; take a heavy-lock slot
+```
+
+Each distinct block is checked once (en/zh copies share a result), about 10–20 s per block. Pass `--yo` a tree-built binary when the docs describe a language change the seed lacks.
+
+## API documentation
 
 ### Doc comment syntax
 
-**Outer doc comments (`///`) — for items:**
+`///` (or `/** ... */`) documents an item; `//!` (or `/*! ... */`) documents a module. Sections are parsed by `src/doc/sections.yo`.
 
 ````yo
 /// Brief description of this function.
@@ -42,78 +58,37 @@ Use ` ```yo ` for Yo code blocks, in Markdown files and in `///` / `//!` doc com
 fn_name :: (fn(name: i32) -> i32)(...);
 ````
 
-**Inner doc comments (`//!`) — for modules:**
-
 ```yo
 //! Module for handling collections.
 //!
 //! Provides efficient list and map implementations.
 ```
 
-### `yo doc` CLI command
+Prefer `///` in new code. A block comment is still a doc comment, so a coverage script must not count only `///` lines.
+
+### `yo doc` CLI
 
 ```bash
-yo doc [path]                    # Document file or directory (default: cwd)
-yo doc ./src/                    # All .yo files in directory
-yo doc -o docs                   # Custom output directory (default: yo-out/doc)
-yo doc --title "My Project"      # Set doc site title
-yo doc --format html|markdown|json  # Output format (default: html)
-yo doc --version v1.0.0          # Release version (auto-detects from git if omitted)
-yo doc --document-private        # Include non-exported items
-yo doc --logo <path>             # Image shown in the sidebar header
-yo doc --favicon <path>          # Site icon
-yo doc ./std --std-path ./std    # Document THIS TREE's std (see below)
+yo doc [path]                       # file or directory (default: cwd)
+yo doc -o docs                      # output directory (default: yo-out/doc)
+yo doc --title "My Project"         # site title
+yo doc --format html|markdown|json  # default: html
+yo doc --version v1.0.0             # release version (default: from git)
+yo doc --document-private           # include non-exported items
+yo doc --logo <path> --favicon <path>
+yo doc ./std --std-path ./std       # document THIS tree's std
 ```
 
-**Pass `--std-path ./std` when documenting this tree's `std/`.** The installed
-`yo` otherwise evaluates against its own BUNDLED std, and any module the tree's
-version cannot evaluate against it degrades to token-only docs. Since the fix
-of `issues/fixed/yo-doc-without-std-path-silently-emits-token-only-docs.md`
-(2026-10-03) that degradation is LOUD: `yo doc` exits non-zero with
-`doc: N of M module(s) failed to evaluate ...` and writes nothing, unless
-`--allow-token-only` is passed (then the degraded modules render with doc
-comments attached to the right items, counted once per exported top-level
-declaration). Before the fix it printed `Warning: <module> evaluation failed,
-using token-only docs`, exited 0, and inflated the "items documented" count —
-measured 2026-09-11 on `develop`: 90 of 173 modules degraded that way. So a
-`///` coverage question must still be answered from the SOURCE, never from a
-`doc.json` produced by a degraded run. Same reason as `yo check`/`yo build` —
-see the `--std-path` note in AGENTS.md's std section.
+- **Pass `--std-path ./std` when documenting this tree's `std/`.** Otherwise the installed `yo` evaluates against its bundled std; a module that fails to evaluate makes `yo doc` exit non-zero (`doc: N of M module(s) failed to evaluate ...`) and write nothing. `--allow-token-only` accepts the degraded token-only docs instead. Never answer a coverage question from a degraded run; read the source.
+- `--format html` imports `markdown-yo`, a `yo.toml` dependency: a fresh clone needs `yo install` first.
 
-### Both doc-comment forms are extracted
+### Reading `yo doc` output for coverage
 
-`///` and `/** ... */` are BOTH doc comments (`TokenKind.DocComment` and
-`TokenKind.DocBlockComment`, handled in `src/doc/extractor.yo`), as are `//!`
-and `/*! ... */` for modules. A member documented with a block comment is not
-undocumented, so a coverage script that greps only for a `///` on the preceding
-line over-counts — measured 2026-09-11, by 134 members across `std/`. Prefer
-`///` in new code for one house style, but do not treat a block comment as a
-gap.
-
-Three things to know when reading `yo doc`'s output for coverage:
-
-- **A `///` on an impl member attaches to THAT type's member.** The comment
-  physically preceding a member of `impl(T, ...)` is joined by position and
-  recorded under `T.member`, so two types in one file documenting same-named
-  members (`new` on both, the common `std/collections` shape) each keep their
-  own prose. Until 2026-10-03 the lookup keyed by bare member name and the
-  later impl's comment rendered on BOTH methods
-  (`issues/fixed/stddoc-core-doc-comment-attached-by-bare-member-name.md`).
-- **Trait-impl methods are shown but never inherit the trait's doc.** A method
-  inside `impl(T, SomeTrait(...))` appears in the type's `methods` list with an
-  empty `doc` unless it carries its own comment, so `FsEventKind.to_string`,
-  `FsEventKind.format` and `Watcher.drop` all render blank even though
-  `ToString`, `Format` and `Drop` document those methods at the trait.
-  Rustdoc falls back to the trait's text here; `yo doc` does not
-  (`issues/fixed/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`).
-- **A doc comment does not follow a re-export.** A barrel module
-  (`std/string/index.yo`, `std/http/index.yo`, `std/fmt/index.yo`, …) lists
-  every re-exported name as an item of its own with no doc, because the comment
-  lives at the original definition.
+- A `///` on an impl member attaches to that type's member (`T.member`), so same-named members of two types keep their own prose.
+- A trait-impl method without its own comment inherits the trait method's doc (`_inherit_trait_method_docs`, `src/doc/builder.yo`).
+- A re-exported TYPE takes its docs from the declaring module (`_fill_re_exported_docs`, matched on name and signature). A re-exported function or constant does not: a barrel module (`std/string/index.yo`, …) lists it with no doc.
 
 ### `build.doc()` build step
-
-In `build.yo`, use `build.doc()` to add a documentation generation step:
 
 ```yo
 build :: import("std/build");
@@ -123,45 +98,22 @@ doc_step :: build.step("doc", "Generate documentation");
 doc_step.depend_on(docs);
 ```
 
-Then run: `yo build doc`
+Then run `yo build doc`.
 
-### Doc pipeline architecture
+### Pipeline and key files
 
-```
-Source .yo files
-  → Lexer (tokenize)
-  → Extractor (src/doc/extractor.yo) — extracts /// and //! comments
-  → Builder (src/doc/builder.yo) — combines comments + evaluator type info → DocModel
-  → Renderer — converts DocModel to output:
-      render_html.yo     → static HTML site
-      render_markdown.yo → Markdown files
-      render_json.yo     → JSON export
-```
+Source → lexer → `src/doc/extractor.yo` (doc comments) → `src/doc/builder.yo` (comments + evaluator type info → `DocModel`, `src/doc/model.yo`) → a renderer.
 
-### Key files
+| File                            | Role                                     |
+| ------------------------------- | ---------------------------------------- |
+| `src/doc-command.yo`            | `yo doc` CLI entry point                 |
+| `src/doc/sections.yo`           | Parses `## Returns`, `## Examples`, etc. |
+| `src/doc/render-html.yo`        | Static HTML site (Markdown via `markdown-yo`) |
+| `src/doc/render-html-assets.yo` | Inlined CSS/JS assets                    |
+| `src/doc/render-markdown.yo`    | Markdown output                          |
+| `src/doc/render-json.yo`        | JSON export                              |
 
-| File                              | Role                                             |
-| --------------------------------- | ------------------------------------------------ |
-| `src/doc_command.yo`          | `yo doc` CLI entry point                         |
-| `src/doc/extractor.yo`        | Extracts doc comments from source tokens         |
-| `src/doc/builder.yo`          | Builds DocModel from comments + evaluator output |
-| `src/doc/model.yo`            | DocModel type definitions                        |
-| `src/doc/sections.yo`         | Parses ## Returns, ## Examples, etc.             |
-| `src/doc/render_html.yo`      | Renders DocModel to static HTML site — Markdown→HTML goes through `import("markdown-yo")`, a `yo.toml` DEPENDENCY of this repo (it was the `vendor/markdown_yo` submodule until 2026-09-13), so a fresh clone needs `yo install` before `yo doc --format html` compiles |
-| `src/doc/render_html_assets.yo` | Inlined CSS/JS assets for the HTML site        |
-| `src/doc/render_markdown.yo`  | Renders DocModel to Markdown                     |
-| `src/doc/render_json.yo`      | Exports DocModel as JSON                         |
+### What the docs include
 
-### Internal symbol filtering
-
-Doc generation automatically filters:
-
-- `__yo_*` prefixed symbols (compiler builtins)
-- `___` prefixed symbols (internal implementation details)
-- Non-exported items (unless `--document-private`)
-
-### Type classification in docs
-
-- Functions returning `comptime(Trait)` → classified under **Traits / Modules**
-- Functions returning `comptime(Type)` with type params → classified as **type-function**
-- Direct module values → classified under **Traits / Modules**
+- Filtered out: `__yo_*` symbols (compiler builtins), `___`-prefixed symbols, non-exported items (unless `--document-private`).
+- Functions returning `comptime(Trait)` and direct module values are listed under **Traits / Modules**; functions returning `comptime(Type)` with type parameters are **type-functions**.

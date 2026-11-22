@@ -1,0 +1,206 @@
+// Unit tests for the path-shape logic behind the evaluator's per-file
+// privilege gates (src/evaluator/memory-safety.yo).
+//
+// `_lex_abs_path` used to absolutize with a leading-`/` check only, so every
+// Windows absolute path — `C:/...`, `C:\...`, `file://C:/...` — was
+// cwd-joined into `<cwd>/C:/...` garbage. The std exemptions in
+// `is_macro_def_capable_file` and `is_overload_set_capable_file` then never
+// matched on Windows: `yo compile` / `yo check` with a relative
+// `--std-path ./std` rejected std files that define macros ("requires
+// 'pragma(Pragma.AllowMacroDef);'"), which made every seed-gated build of
+// this tree fail on Windows. See
+// issues/fixed/windows-lex-abs-path-voids-std-exemption.md. The macro-def
+// gate has no std exemption any more (std files declare the pragma,
+// plans/reference/MACRO_POLICY.md Part 2); the overload-set one remains.
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+{ cwd } :: import("std/env");
+{
+  _lex_abs_path,
+  is_global_mut_rule_exempt,
+  is_macro_def_capable_file,
+  is_overload_set_capable_file
+} :: import("../../src/evaluator/memory-safety.yo");
+
+test("lex_abs_path: POSIX absolute path passes through unchanged", {
+  p := _lex_abs_path(String.from("/usr/lib/yo/std/m.yo"));
+  assert(p == String.from("/usr/lib/yo/std/m.yo"), "POSIX absolute is already absolute");
+});
+
+test("lex_abs_path: POSIX file:// URI strips the scheme", {
+  p := _lex_abs_path(String.from("file:///usr/lib/yo/std/m.yo"));
+  assert(p == String.from("/usr/lib/yo/std/m.yo"), "file:// scheme is stripped");
+});
+
+test("lex_abs_path: Windows drive-absolute forward-slash path is absolute", {
+  // Pre-fix this cwd-joined into `<cwd>/C:/Users/u/std/m.yo`.
+  p := _lex_abs_path(String.from("C:/Users/u/std/m.yo"));
+  assert(p == String.from("C:/Users/u/std/m.yo"), "drive-absolute path is not cwd-joined");
+});
+
+test("lex_abs_path: Windows file:// URI with drive letter is absolute", {
+  // The module-URI shape the loaders actually produce on Windows.
+  p := _lex_abs_path(String.from("file://C:/Users/u/std/m.yo"));
+  assert(p == String.from("C:/Users/u/std/m.yo"), "file://C:/ URI absolutizes to the drive path");
+});
+
+test("lex_abs_path: Windows backslash separators fold to forward slashes", {
+  p := _lex_abs_path(String.from("C:\\Users\\u\\std\\m.yo"));
+  assert(p == String.from("C:/Users/u/std/m.yo"), "backslashes normalize so prefix compares match");
+});
+
+test("lex_abs_path: relative path joins the working directory", {
+  p := _lex_abs_path(String.from("./std/m.yo"));
+  c := cwd();
+  match(
+    c,
+    .Ok(d) => {
+      want := `${d.to_string()}/std/m.yo`;
+      assert(p == want, "./std/m.yo absolutizes to <cwd>/std/m.yo");
+    },
+    .Err(_) => assert(true, "no cwd to compare against")
+  );
+});
+
+test("macro-def gate: a std file without the pragma is gated like any file", {
+  win := is_macro_def_capable_file(Option(String).Some(String.from("file://C:/prj/std/collections/array-list.yo")));
+  posix := is_macro_def_capable_file(Option(String).Some(String.from("file:///usr/lib/yo/std/prelude.yo")));
+  assert(!win && !posix, "being under a std root is no exemption: std files declare pragma(Pragma.AllowMacroDef)");
+});
+
+test("macro-def gate: non-std file stays gated", {
+  ok := is_macro_def_capable_file(Option(String).Some(String.from("file:///home/u/proj/m.yo")));
+  assert(!ok, "user file without the pragma may not define macros");
+});
+
+test("macro-def gate: a compiler-synthesized expansion inherits its caller's policy", {
+  ok := is_macro_def_capable_file(Option(String).Some(String.from("auto-generated://derive/m.yo")));
+  assert(ok, "auto-generated:// code may define macros");
+});
+
+test("macro-def gate: no module path stays gated", {
+  ok := is_macro_def_capable_file(Option(String).None);
+  assert(!ok, "no module path means no exemption");
+});
+
+test("overload gate: Windows prelude is the overload-set file", {
+  ok := is_overload_set_capable_file(
+    Option(String).Some(String.from("file://C:/prj/std/prelude.yo")),
+    String.from("C:/prj/std")
+  );
+  assert(ok, "prelude under Windows std path may define overload sets");
+});
+
+test("overload gate: other Windows std files are not", {
+  ok := is_overload_set_capable_file(
+    Option(String).Some(String.from("file://C:/prj/std/collections/array-list.yo")),
+    String.from("C:/prj/std")
+  );
+  assert(!ok, "only prelude may define overload sets");
+});
+
+// ---------------------------------------------------------------------------
+// Class-1 governance (plans/backlog/SAFE_MODE.md §3 0c, §14 R7): the ban is a NAME
+// list, so a new or renamed Option/Result extraction that traps would be a
+// silent hole. `scan_class1_extractions` lists every Option/Result method whose
+// body reaches `__yo_panic`; the prelude test below fails on any UNGATED one.
+// `Result.expect_err` was exactly such a hole
+// (issues/fixed/result-expect-err-escapes-the-class-1-ban.md).
+// Assumes the runner's cwd is the repo root (how `yo test` and CI run).
+// ---------------------------------------------------------------------------
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+fs_file :: import("std/fs/file");
+{ scan_class1_extractions, Class1Extraction } :: import("../../src/public-safe-report.yo");
+_class1_status :: (fn(found : &ArrayList(Class1Extraction), receiver : str, method : str) -> String)({
+  (mut(i) : usize) = usize(0);
+  while(i < found.len(), {
+    if((found(i).receiver == receiver) && (found(i).method == method), {
+      return(found(i).status.clone());
+    });
+    i = (i + usize(1));
+  });
+  String.from("absent")
+});
+
+test("class-1 scan: gated, comptime, UNGATED and non-panicking methods", {
+  src :=
+    `impl(
+  generic(T : Type),
+  Option(T),
+  unwrap : (fn(self : Self) -> T)(
+    match(self, .Some(v) => v, .None => __yo_panic("none"))
+  ),
+  expect_some : (fn(self : Self) -> T)(
+    match(self, .Some(v) => v, .None => __yo_panic("none"))
+  ),
+  is_some : (fn(self : Self) -> bool)(
+    match(self, .Some(_) => true, .None => false)
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Comptime),
+  Option(T),
+  comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(
+    match(self, .Some(v) => v, .None => __yo_panic("none"))
+  )
+);
+impl(
+  generic(T : Type),
+  Widget(T),
+  unwrap : (fn(self : Self) -> T)(__yo_panic("not an Option"))
+);
+`;
+  mut(found) := ArrayList(Class1Extraction).new();
+  scan_class1_extractions(String.from("fixture.yo"), &src, &mut found);
+  assert(found.len() == usize(3), "three panicking Option methods; Widget is not a class-1 receiver");
+  assert(_class1_status(&found, "Option", "unwrap") == "gated", "unwrap is gated");
+  assert(_class1_status(&found, "Option", "expect_some") == "UNGATED", "an unknown trapping extraction is UNGATED");
+  assert(_class1_status(&found, "Option", "comptime_unwrap") == "comptime", "a comptime(self) method is comptime");
+  assert(_class1_status(&found, "Option", "is_some") == "absent", "a method that cannot panic is not listed");
+});
+
+test("class-1 scan: every trapping Option/Result extraction in the prelude is gated", {
+  exn := Exception(
+    throw : (
+      err -> {
+        println(`  unexpected io error: ${err}`);
+        assert(false, "reading std/prelude.yo failed");
+        unwind(());
+      }
+    )
+  );
+  src := io.await(fs_file.read_to_string(Path.new(String.from("std/prelude.yo")), io), IoExn(io : io, exn : exn));
+  mut(found) := ArrayList(Class1Extraction).new();
+  scan_class1_extractions(String.from("std/prelude.yo"), &src, &mut found);
+  (mut(ungated) : usize) = usize(0);
+  for(&found, c => {
+    if(c.status == "UNGATED", {
+      println(`  UNGATED: ${c.receiver}.${c.method} (std/prelude.yo:${c.line})`);
+      ungated = (ungated + usize(1));
+    });
+  });
+  assert(ungated == usize(0), "a trapping Option/Result extraction is missing from is_class1_panic_method_name (see above)");
+  // The scan must SEE the known methods, or a zero above is vacuous.
+  assert(_class1_status(&found, "Option", "unwrap") == "gated", "Option.unwrap found and gated");
+  assert(_class1_status(&found, "Result", "unwrap_err") == "gated", "Result.unwrap_err found and gated");
+  assert(_class1_status(&found, "Result", "expect_err") == "gated", "Result.expect_err found and gated");
+  assert(_class1_status(&found, "Option", "comptime_unwrap") == "comptime", "Option.comptime_unwrap found as comptime");
+});
+// Decision 47 locals Generation B, the std half (v0.2.71): std is swept, so
+// it is no longer exempt from E0917 on a written unmarked local; the trees
+// the src half sweeps (v0.2.72) still are.
+test("is_global_mut_rule_exempt: std is checked, src, scripts, build.yo, the store and expansions are not yet", {
+  sp := String.from("/repo/std");
+  assert(!is_global_mut_rule_exempt(&String.from("/repo/std/prelude.yo"), &sp), "a std module is checked");
+  assert(!is_global_mut_rule_exempt(&String.from("file:///repo/std/collections/array-list.yo"), &sp), "a demand-loaded std module is checked");
+  assert(!is_global_mut_rule_exempt(&String.from("/repo/tests/a.test.yo"), &sp), "a test is checked");
+  assert(is_global_mut_rule_exempt(&String.from("/repo/src/main.yo"), &sp), "the compiler source is exempt");
+  assert(is_global_mut_rule_exempt(&String.from("/repo/scripts/build-site.yo"), &sp), "a repository script is exempt");
+  assert(is_global_mut_rule_exempt(&String.from("/repo/build.yo"), &sp), "the root build file is exempt");
+  assert(is_global_mut_rule_exempt(&String.from("/home/u/.cache/yo/store/sha256/abc/src/lib.yo"), &sp), "a fetched dependency is exempt");
+  assert(is_global_mut_rule_exempt(&String.from("auto-generated://expansion"), &sp), "a macro expansion is exempt");
+});

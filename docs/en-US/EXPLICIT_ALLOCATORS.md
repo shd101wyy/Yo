@@ -51,7 +51,7 @@ shows a counting one; the code below places the same way with either.
 
 ```yo
 { println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Point :: struct(x : i32, y : i32);
 
@@ -96,7 +96,7 @@ safe file (one without `pragma(Pragma.AllowUnsafe)`); using the handle's raw
 words, as `a.alloc(n, align)` does, still needs the pragma:
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Node :: struct(name : i32, kids : ArrayList(i32));
 make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
@@ -106,8 +106,6 @@ make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
 
 Everything a program creates without such an argument is global:
 
-- `ref` struct and `ref` enum constructors (to place one, make it a value
-  struct and wrap it: `Rc.new(v, alloc : .Some(a))`),
 - the box of a trait object (`dyn(Box.new(v, alloc : .Some(a)))` places an owned
   `Box(Dyn(...))`, `dyn(Rc.new(v, alloc : .Some(a)))` a shared `Rc(Dyn(...))`),
 - interpolated strings (build a placed one with
@@ -134,13 +132,13 @@ global, and so are the types built on them (`String`, an interpolation):
 | `String`        |                                          | `clone_in(a)`  |
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 main :: (fn() -> unit)({
   a := Allocator.global(); // any `Allocator` value
   mut(xs) := ArrayList(i32).with_capacity(usize(8), alloc : .Some(a));
   xs.push(i32(1));
-  ys := xs.clone_in(Allocator.global()); // a copy placed explicitly
+  mut(ys) := xs.clone_in(Allocator.global()); // a copy placed explicitly
   ys.push(i32(2));
 });
 export(main);
@@ -159,18 +157,6 @@ A placed container allocates once at construction (an `ArrayList`, `Deque` or
 `StringBuilder` takes a block holding only the owner prefix, a `HashMap` its
 16 buckets), because its buffer is how it remembers the allocator. A global
 `new()` allocates nothing until the first insertion.
-
-**Before v0.2.73** the placed constructors were separate functions. They are
-deleted; rewrite each call:
-
-| Before                                | Now                                            |
-| ------------------------------------- | ---------------------------------------------- |
-| `ArrayList(T).new_in(a)`              | `ArrayList(T).new(alloc : .Some(a))`           |
-| `ArrayList(T).with_capacity_in(a, n)` | `ArrayList(T).with_capacity(n, alloc : .Some(a))` |
-| `HashMap(K, V).new_in(a)`             | `HashMap(K, V).new(alloc : .Some(a))`          |
-| `HashSet(T).with_capacity_in(a, n)`   | `HashSet(T).with_capacity(n, alloc : .Some(a))` |
-| `Deque(T).new_in(a)`                  | `Deque(T).new(alloc : .Some(a))`               |
-| `StringBuilder.new_in(a)`             | `StringBuilder.new(alloc : .Some(a))`          |
 
 The container's own size does not change: the allocator is recorded in the
 owner prefix of its buffer, with one bit of an existing word marking it.
@@ -191,10 +177,8 @@ release still happens. What it does buy:
 It is not a general speedup: the global allocator (mimalloc) is already fast
 on its fast path, so measure before expecting a win.
 
-std ships no arena today. `std/arena` was deleted on 2026-10-24; a
-`FixedBufferAllocator` and an `ArenaAllocator` are planned
-(`plans/backlog/ZIG_STYLE_ALLOCATORS.md`). Until then, write the allocator you
-need as in [Writing your own allocator](#writing-your-own-allocator).
+std ships no arena or fixed-buffer allocator: write the allocator you need as
+in [Writing your own allocator](#writing-your-own-allocator).
 
 ## Threads and async tasks
 
@@ -354,8 +338,7 @@ one tells which subsystem a leaked block came from.
 
 ## Cost
 
-A creation without an `alloc` argument (a `ref` constructor, a `dyn` box, an
-`io.async` task) pays nothing for placement: it allocates from the global
+A creation without an `alloc` argument (a `dyn` box, an `io.async` task) pays nothing for placement: it allocates from the global
 allocator directly, with no thread-local to check. Containers keep their size,
 because the allocator lives in the buffer's prefix rather than in a new field.
 
@@ -376,11 +359,7 @@ bytes (the owner and the cell's extent), and a placed container buffer's is
   global `Rc`/`Arc` cell is only 16-aligned, so an `Rc` or `Arc` of such a type
   must be placed. No Yo type is aligned above 16 today; an `extern` C type can
   be.
-- **No placed `ref` objects.** A `ref` constructor takes no `alloc`
-  argument. Make the type a value struct and place it with
-  `Rc.new(v, alloc : .Some(a))`.
 
-The design record, with measurements and the phase-by-phase history, is
-`plans/archive/EXPLICIT_ALLOCATORS.md`. The landed decisions are summarized in
+The design decisions are summarized in
 `plans/reference/EXPLICIT_ALLOCATORS.md`, and the placement rules ("global by
 default, placement by argument") in `plans/backlog/ALLOCATOR_PLACEMENT.md`.

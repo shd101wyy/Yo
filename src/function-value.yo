@@ -1,0 +1,560 @@
+//! function-value.yo — FunctionValue-adjacent helpers for the self-hosted compiler.
+//!
+//! The `EvalValue.FuncVal` variant defined in
+//! `value.yo` doesn't currently carry the control-function, closure, or
+//! definition-site fields, so this file holds the side-table machinery
+//! that emulates them:
+//!   * `mark_as_control_fn` / `is_control_fn`           — control-fn marker
+//!   * `register_definition_site_return`                — records the
+//!     definition-site enclosing function's return type
+//!   * `get_definition_site_return`                     — accessor with
+//!     a `t_unit()` fallback
+//!
+//! Both registries are keyed by `func_id : String` (the unique function id).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ eprintln } :: import("std/fmt");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
+{ Frame } :: import("./env.yo");
+{ TypeValue } :: import("./types/definitions.yo");
+{ t_unit } :: import("./types/creators.yo");
+{ debug_knob } :: import("./utils.yo");
+{ record_owned_func_id } :: import("./evaluator/values/type-trait-methods.yo");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashMap(String, TypeValue)` (1 use)
+_c_len_1 :: (fn(m : &HashMap(String, TypeValue)) -> usize)(m.len());
+/// (seed window) See refcell.yo's filler block; concrete K for the `.into_iter()` chain.
+_capture_info_keys :: (fn(m : &HashMap(String, ClosureCaptureInfo)) -> ArrayList(String))(m.keys_cloned());
+// ---------------------------------------------------------------------------
+// Control-function side-table
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → `true` (only entries for control functions exist).
+(g_control_fn_registry : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Mark a function as a control function (uses `unwind`).
+/// Idempotent: calling multiple times with the same id is safe.
+mark_as_control_fn :: (fn(func_id : &String) -> unit)({
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  cf_key := func_id.clone();
+  g_control_fn_registry.with_mut({ cf_key }(m) => m.insert(cf_key, true));
+});
+/// Returns true if the function identified by `func_id` is a control function.
+is_control_fn :: (fn(func_id : &String) -> bool)(
+  match(
+    g_control_fn_registry.with({ func_id : &func_id.* }(m) => m.get(func_id.clone())),
+    .Some(_) => true,
+    .None => false
+  )
+);
+// ---------------------------------------------------------------------------
+// Closure side-table
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → `true` (only entries for closure functions exist).
+/// The flattened `Func` variant has
+/// no such field, so the marker is side-tabled by id (same pattern as the
+/// control-fn / default-args / func-type registries). Set when an anon-fn is typed
+/// as a closure (`evaluator/calls/closure-type.yo`); read by the codegen
+/// function-emission driver to prepend the `void* closure_context` capture param
+(g_closure_fn_registry : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Mark a function (by `func_id`) as a closure. Idempotent.
+mark_as_closure_fn :: (fn(func_id : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  g_closure_fn_registry.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
+});
+/// True if the function identified by `func_id` is a closure (takes a capture
+/// context as its first C parameter).
+is_closure_fn :: (fn(func_id : &String) -> bool)(
+  match(
+    g_closure_fn_registry.with({ func_id : &func_id.* }(m) => m.get(func_id.clone())),
+    .Some(_) => true,
+    .None => false
+  )
+);
+/// Closures whose body OWNS its captures: a capture-list closure typed against
+/// `FnOnce(...)` (plans/VALUES_BY_DEFAULT.md decision 37). Its call consumes
+/// the closure, so the body may move a by-value capture out, and it drops the
+/// captures it did not move when the call ends. Codegen reads this to keep the
+/// body's scope-end drops of capture fields, which an `Fn` body skips because
+/// its closure still owns them.
+(g_fnonce_closure_fn_registry : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Mark a closure (by `func_id`) as owning its captures. Idempotent.
+mark_as_fnonce_closure_fn :: (fn(func_id : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  g_fnonce_closure_fn_registry.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
+});
+/// The capture-struct type ids of the closures that own their captures: a
+/// value whose type is (or resolves to) one of these is such a closure, even
+/// where its function value is not at hand (a local typed `Impl(FnOnce(...))`).
+(g_fnonce_capture_struct_ids : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+mark_fnonce_capture_struct :: (fn(struct_id : &String) -> unit)({
+  struct_id_owned := struct_id.clone();
+  g_fnonce_capture_struct_ids.with_mut({ struct_id_owned }(m) => m.insert(struct_id_owned.clone(), true));
+});
+is_fnonce_capture_struct :: (fn(struct_id : &String) -> bool)(g_fnonce_capture_struct_ids.with({ struct_id : &struct_id.* }(m) => m.get(struct_id)).is_some());
+/// True if the closure identified by `func_id` owns its captures (its body
+/// was typed against `FnOnce(...)` with a capture list).
+is_fnonce_closure_fn :: (fn(func_id : &String) -> bool)(
+  match(
+    g_fnonce_closure_fn_registry.with({ func_id : &func_id.* }(m) => m.get(func_id.clone())),
+    .Some(_) => true,
+    .None => false
+  )
+);
+// ---------------------------------------------------------------------------
+// Closure capture info side-table (func_id → capture struct type + frame level)
+// ---------------------------------------------------------------------------
+/// A closure's capture-struct type + the frame level of its defining scope.
+/// `generate_function` uses these to set the closure-capture codegen context so
+/// the atom emitter rewrites a captured variable `base` to
+/// `((<cap>*)closure_context)->base` (`current_closure_capture_type_c_name` +
+/// `current_closure_captures` from the struct's field labels +
+/// `current_closure_capture_frame_level`). Recorded in
+/// `evaluate_anonymous_function_implementation` for io.async closures.
+ClosureCaptureInfo :: struct(capture_type : TypeValue, frame_level : usize);
+(g_closure_capture_info : RefCell(HashMap(String, ClosureCaptureInfo))) = RefCell(HashMap(String, ClosureCaptureInfo)).new(HashMap(String, ClosureCaptureInfo).new());
+/// Record a closure's capture-struct type + defining frame level, by func_id.
+// Source-position identity for closures: every re-eval of the SAME source
+// closure (def-time trial, enclosing-fn specialization, deferred completion)
+// mints a FRESH fid via clone_expr_fresh_ids, so fid-keyed capture info can
+// never merge across generations — the emitted generation may carry a SUBSET
+// capture struct while an earlier generation built the complete one
+// (issues/repros/dyn-closure-implfn-capture-loss.yo: nf=4 built under two
+// early fids, nf=2 emitted). The source token (module:row:col) is stable
+// across clones; keying capture info by it lets get_closure_capture_info
+// return the LARGEST struct any generation recorded for that source closure.
+(g_closure_fid_source : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+(g_closure_capture_by_source : RefCell(HashMap(String, ClosureCaptureInfo))) = RefCell(HashMap(String, ClosureCaptureInfo)).new(HashMap(String, ClosureCaptureInfo).new());
+/// Record the source key for a closure fid (at FuncVal mint).
+register_closure_fid_source :: (fn(func_id : &String, src_key : &String) -> unit)({
+  if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
+    eprintln(`[fid-src] fid=${func_id} src=${src_key}`);
+  });
+  src_key_owned := src_key.clone();
+  func_id_owned := func_id.clone();
+  g_closure_fid_source.with_mut({ src_key_owned, func_id_owned }(m) => m.insert(func_id_owned, src_key_owned.clone()));
+  ()
+});
+_capture_struct_field_count :: (fn(t : &TypeValue) -> usize)(
+  match(t, Rc(.Struct({ field_labels : cfl })) => cfl.len(), _ => usize(0))
+);
+derive(ClosureCaptureInfo, Clone);
+register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureInfo) -> unit)({
+  if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
+    (reg_flds : String) = String.new();
+    match(
+      &info.capture_type,
+      Rc(.Struct({ field_labels : rfl })) => {
+        (rgi : usize) = usize(0);
+        while(rgi < rfl.len(), rgi = (rgi + usize(1)), {
+          match(
+            rfl.get(rgi),
+            .Some(rfn) => {
+              reg_flds.push_string(&rfn);
+              reg_flds.push_str(",");
+            },
+            .None => ()
+          );
+        });
+      },
+      _ => ()
+    );
+    reg_src := match(g_closure_fid_source.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone())), .Some(sv) => sv, .None => `NO-SRC`.to_string());
+    eprintln(`[cap-reg] fid=${func_id} src=${reg_src} fields=${reg_flds}`);
+  });
+  // KEEP-LARGER: a closure definition can be re-evaluated (def-time trial,
+  // enclosing-fn specialization, deferred-generic completion) and each eval
+  // re-registers its own capture struct — but the capture TRACKER records an
+  // inconsistent subset per eval generation (an enclosing-fn spec re-eval
+  // missed its rebound params: issues/repros/dyn-closure-implfn-capture-loss
+  // .yo emitted `name`/`flag` as bare undeclared identifiers while the
+  // def-time eval HAD captured them). Last-writer-wins let the smaller set
+  // clobber the complete one; keep the registration with MORE fields.
+  match(
+    g_closure_capture_info.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone())),
+    .Some(prev_cci) => if(_capture_struct_field_count(&prev_cci.capture_type) > _capture_struct_field_count(&info.capture_type), {
+      return(());
+    }),
+    .None => ()
+  );
+  // Source-keyed keep-larger (cross-generation merge — see the note above).
+  match(
+    g_closure_fid_source.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone())),
+    .Some(src_key1) => {
+      (src_do_set : bool) = true;
+      match(
+        g_closure_capture_by_source.with({ &src_key1 }(m) => m.get_cloned(src_key1.clone())),
+        .Some(prev_src) => if(_capture_struct_field_count(&prev_src.capture_type) > _capture_struct_field_count(&info.capture_type), {
+          src_do_set = false;
+        }),
+        .None => ()
+      );
+      if(src_do_set, {
+        src_info := info.clone();
+        g_closure_capture_by_source.with_mut({ src_key1, src_info : src_info.clone() }(m) => m.insert(src_key1, src_info));
+      });
+    },
+    .None => ()
+  );
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  cci_key := func_id.clone();
+  cci_info := info.clone();
+  g_closure_capture_info.with_mut({ cci_key, cci_info : cci_info.clone() }(m) => m.insert(cci_key, cci_info));
+});
+/// The recorded capture info for `func_id`, if any.
+/// Reverse lookup: capture-struct id → the closure func_id that registered it.
+/// Used by the call path when a closure-typed FIELD's recorded type reached
+/// the call as the BARE capture struct (the where-clause `F` family): the
+/// struct id recovers the closure fid, whose registered func type carries the
+/// callable Func signature. Linear scan — only reached on the non-Func callee
+/// miss path.
+find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(String))({
+  it := g_closure_capture_info.with(_capture_info_keys).into_iter();
+  (out : Option(String)) = Option(String).None;
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(fid) => match(
+        g_closure_capture_info.with({ &fid }(m) => m.get_cloned(fid.clone())),
+        .Some(ci) => match(
+          &ci.capture_type,
+          Rc(.Struct({ id : csid })) => if(csid.* == struct_id.*, {
+            out = Option(String).Some(fid.clone());
+            go = false;
+          }),
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  out
+});
+get_closure_capture_info :: (fn(func_id : &String) -> Option(ClosureCaptureInfo))({
+  fid_info := g_closure_capture_info.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone()));
+  // Cross-generation fallback: prefer the LARGEST capture struct any
+  // generation of this SOURCE closure recorded (see g_closure_capture_by_source).
+  src_info := match(
+    g_closure_fid_source.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone())),
+    .Some(sk) => g_closure_capture_by_source.with({ &sk }(m) => m.get_cloned(&sk.*)),
+    .None => Option(ClosureCaptureInfo).None
+  );
+  match(
+    src_info,
+    .Some(si) => match(
+      fid_info,
+      .Some(fi) => if(_capture_struct_field_count(&si.capture_type) > _capture_struct_field_count(&fi.capture_type), Option(ClosureCaptureInfo).Some(si.clone()), Option(ClosureCaptureInfo).Some(fi.clone())),
+      .None => Option(ClosureCaptureInfo).Some(si.clone())
+    ),
+    .None => fid_info
+  )
+});
+// ---------------------------------------------------------------------------
+// isEffectRecordMember side-table (codegen)
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → `true` for functions that are effect-record
+/// members (e.g. `Exception.throw` handlers) and so must be emitted as
+/// standalone C functions. `FuncVal` is an immutable enum variant, so the
+/// mark lives here.
+(g_effect_record_member_registry : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Mark a function (by func_id) as an effect-record member. Idempotent.
+mark_as_effect_record_member :: (fn(func_id : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  g_effect_record_member_registry.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
+});
+// ---------------------------------------------------------------------------
+// Index-entry side-table (codegen)
+// ---------------------------------------------------------------------------
+/// Functions reached as the specialized `index` method of an index-trait call
+/// (`xs(i)`, the ExprInfo's `index_method_value`). The caller of an interior
+/// `inout` argument takes the container's borrow flag BEFORE the argument
+/// expression — the `index` call itself — runs, so the index method's
+/// `self : &mut Self` entry assert would always see its own caller's borrow and
+/// panic (a user `Index` impl on any object:
+/// issues/fixed/borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md).
+/// Its entry assert is skipped; any reallocation it performs goes through a
+/// callee that asserts on its own entry, or the realloc/free auto-assert.
+(g_index_entry_method_registry : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+mark_as_index_entry_method :: (fn(func_id : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  g_index_entry_method_registry.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
+});
+is_index_entry_method :: (fn(func_id : &String) -> bool)(
+  g_index_entry_method_registry.with({ func_id : &func_id.* }(m) => m.get(func_id)).is_some()
+);
+// ---------------------------------------------------------------------------
+// isIoAsyncStateMachineClosure side-table (codegen)
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → `true` for io.async closures whose body is
+/// emitted by the STATE-MACHINE resume function (the deferred async block
+/// system) — their standalone C closure fn must NOT also be emitted, or the
+/// body exists twice and the SM resume references temps declared only in the
+/// standalone copy.
+/// Populated when the closure has await analysis
+/// (io_async_await_analysis hit).
+(g_io_async_sm_closure_registry : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Mark a closure (by func_id) as an io.async state-machine closure. Idempotent.
+mark_io_async_sm_closure :: (fn(func_id : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  g_io_async_sm_closure_registry.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
+});
+/// Returns true if `func_id` is an io.async state-machine closure.
+is_io_async_sm_closure :: (fn(func_id : &String) -> bool)(
+  match(
+    g_io_async_sm_closure_registry.with({ func_id : &func_id.* }(m) => m.get(func_id.clone())),
+    .Some(_) => true,
+    .None => false
+  )
+);
+/// Global map from an io.async call EXPR id → its closure argument's func_id.
+/// The closure FuncVal lives in Option fields of the arg's ExprInfo whose reads
+/// are DESTRUCTIVE moves, and the FSM path reads it more than twice (preregister
+/// analysis probe, dispatcher routing, slot collection) — this registry, filled
+/// on the FIRST successful extraction (io_async_await_analysis), makes the later
+/// reads idempotent. Populated on the FSM path (closures with await analysis).
+(g_io_async_closure_fid_by_expr : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+/// Record the io.async call expr (by AST id, stringified) → closure func_id.
+register_io_async_closure_fid :: (fn(expr_id : &String, func_id : &String) -> unit)({
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  iac_expr := expr_id.clone();
+  iac_fid := func_id.clone();
+  g_io_async_closure_fid_by_expr.with_mut({ iac_expr, iac_fid }(m) => m.insert(iac_expr, iac_fid));
+});
+/// Look up the closure func_id recorded for an io.async call expr.
+lookup_io_async_closure_fid :: (fn(expr_id : &String) -> Option(String))(
+  g_io_async_closure_fid_by_expr.with({ expr_id : &expr_id.* }(m) => m.get_cloned(expr_id.clone()))
+);
+/// Returns true if the function identified by `func_id` is an effect-record member.
+is_effect_record_member :: (fn(func_id : &String) -> bool)(
+  match(
+    g_effect_record_member_registry.with({ func_id : &func_id.* }(m) => m.get(func_id.clone())),
+    .Some(_) => true,
+    .None => false
+  )
+);
+// ---------------------------------------------------------------------------
+// Definition-site enclosing-function return type side-table
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → return type of the enclosing function at the
+/// definition site. Only the return-type portion is stored, since that is
+/// the only portion `evaluate_ctl_function_body_inline`
+/// (`evaluator/calls/helper.yo`) reads.
+(g_definition_site_return_registry : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
+/// Global map from `func_id` → the function's own resolved `Func` TypeValue
+/// (the full signature: generic/param/implicit/where types + result + flags).
+/// Codegen needs this to emit a function's C prototype, but the registered
+/// `FuncVal` carries only param-NAME strings (not structured types) and
+/// `type_of_eval_value(FuncVal)` returns unit — so the type is recorded here at
+/// function-definition time, where it is known. Resolves Gap 10
+/// (issues/retired/codegen-port-type-model-gaps.md): the function-emission driver
+/// reads `get_func_type(func_id)` to build the prototype.
+(g_func_type_registry : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
+/// Register the enclosing function's return type at a function's definition site.
+///
+/// Called when creating a FuncVal (in `evaluator/values/anonymous-function.yo`)
+/// if the function is defined inside another function body.
+register_definition_site_return :: (fn(func_id : &String, return_ty : &TypeValue) -> unit)({
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  dsr_key := func_id.clone();
+  g_definition_site_return_registry.with_mut({ dsr_key, return_ty : Rc.clone(return_ty) }(m) => m.insert(dsr_key, Rc.clone(return_ty)));
+});
+/// Get the enclosing function's return type at a function's definition site.
+/// Returns `t_unit()` if the function was not defined inside another function
+/// body (e.g., top-level definitions, handlers defined in test blocks).
+get_definition_site_return :: (fn(func_id : &String) -> TypeValue)(
+  match(
+    g_definition_site_return_registry.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone())),
+    .Some(ty) => ty,
+    .None => t_unit()
+  )
+);
+/// The CONCRETE type a closure's body evaluated to at DEFINITION time, keyed
+/// by the closure's FuncVal id. Registered by the `=>` lambda path
+/// (evaluator/values/anonymous-function.yo) only when the def-time body eval
+/// succeeded AND produced a fully concrete (SomeT-free) type. Consumed by
+/// `check_and_add_argument`'s Step-6 synthesis (evaluator/calls/helper.yo):
+/// a closure passed as a call ARGUMENT whose own declared return never
+/// resolved (still `-> U`) contributes nothing to the callee's generic
+/// binding — `U` binds to itself, the callee's specialization body eval then
+/// throws on `List(U)`, and the throw unwinds the CALLER's whole statement
+/// chain (the hollow-batch blast radius; see
+/// issues/retired/yo-self-hollow-test-batch-main.md, fourth round). Substituting
+/// this body type as the given return lets `U` bind concretely through the
+/// SAME env channel the spec body eval reads.
+(g_closure_body_type_registry : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
+register_closure_body_type :: (fn(func_id : &String, body_ty : &TypeValue) -> unit)({
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  cbt_key := func_id.clone();
+  g_closure_body_type_registry.with_mut({ body_ty : Rc.clone(body_ty), cbt_key }(m) => m.insert(cbt_key, Rc.clone(body_ty)));
+});
+get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
+  g_closure_body_type_registry.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone()))
+);
+/// Record a function's own resolved `Func` type by func_id (called when the
+/// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
+/// The key SHARES the caller's id handle: `String.clone` is a byte copy, and a
+/// specialized id can run to 25 KB, so a cloned key was one more copy of an
+/// id the FuncVal already holds (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.23).
+/// Function ids are never mutated in place once minted.
+register_func_type :: (fn(func_id : &String, func_ty : &TypeValue) -> unit)({
+  record_owned_func_id(func_id);
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  ft_key := func_id.clone();
+  g_func_type_registry.with_mut({ ft_key, func_ty : Rc.clone(func_ty) }(m) => m.insert(ft_key, Rc.clone(func_ty)));
+});
+// ---------------------------------------------------------------------------
+// Unemittable-fn side-table
+// ---------------------------------------------------------------------------
+/// fids whose DEFINITION was rejected by a validation AFTER registration
+/// (e.g. the regular-fn-no-outer-capture check throwing from inside a
+/// `comptime_expect_error`): the mutable registries keep the definition, and
+/// codegen would emit a body referencing
+/// undeclared outer variables. should_skip_function_codegen consults this.
+(g_unemittable_fns : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+mark_fn_unemittable :: (fn(func_id : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  g_unemittable_fns.with_mut({ func_id_owned }(s) => s.insert(func_id_owned.clone()));
+});
+is_fn_unemittable :: (fn(func_id : &String) -> bool)(
+  g_unemittable_fns.with({ func_id : &func_id.* }(s) => s.contains(func_id.clone()))
+);
+// ---------------------------------------------------------------------------
+// CTFE-clone side-table
+// ---------------------------------------------------------------------------
+/// fids of the compile-time clones that CTFE capability analysis builds from
+/// a RUNTIME function (`comptime_fn(f)`, a runtime fn called with all-comptime
+/// arguments). A clone carries a comptime-returning type, but its body is the
+/// runtime function's body as the user wrote it, so it is not a compile-time
+/// context: a `:=` in it stays legal
+/// (issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
+(g_ctfe_clone_fns : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+mark_fn_ctfe_clone :: (fn(func_id : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  g_ctfe_clone_fns.with_mut({ func_id_owned }(s) => s.insert(func_id_owned.clone()));
+});
+is_fn_ctfe_clone :: (fn(func_id : &String) -> bool)(
+  g_ctfe_clone_fns.with({ func_id : &func_id.* }(s) => s.contains(func_id.clone()))
+);
+// ---------------------------------------------------------------------------
+// Specialized-original side-table
+// ---------------------------------------------------------------------------
+/// Original (def-era) func_ids from which create_specialized_function_inline
+/// minted at least one specialization. Codegen dispatches every such call
+/// through the specialization it recorded, so an original whose signature
+/// still carries a SomeT param (an `Impl(Fn)` closure param) is dead code —
+/// and ill-typed, since the SomeT renders as whichever capture struct was
+/// last registered under its id
+/// (issues/fixed/forwarded-closure-param-shares-specialization.md).
+(g_specialized_originals : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+mark_fn_specialized :: (fn(func_id : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  g_specialized_originals.with_mut({ func_id_owned }(s) => s.insert(func_id_owned.clone()));
+});
+fn_has_specializations :: (fn(func_id : &String) -> bool)(
+  g_specialized_originals.with({ func_id : &func_id.* }(s) => s.contains(func_id.clone()))
+);
+/// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
+/// Every function the evaluator registered a type for (std included) — the
+/// denominator of plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9's number.
+registered_func_type_count :: (fn() -> usize)(g_func_type_registry.with(_c_len_1));
+get_func_type :: (fn(func_id : &String) -> TypeValue)(
+  match(
+    g_func_type_registry.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone())),
+    .Some(ty) => ty,
+    .None => t_unit()
+  )
+);
+// ---------------------------------------------------------------------------
+// Parameters-frame side-table (STAGED for def-time body evaluation)
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` (the `fn(...)` type-expression id) → the parameter-
+/// bound `Frame` produced while evaluating the function's parameters.
+///
+/// The frame is pushed before body eval, so
+/// `Self`/trait params like `Idx` are BOUND when the body is type-checked. The
+/// `Func` TypeValue is flattened to parallel arrays with no frame field — putting
+/// `Frame` (from env.yo) on `Func` (in definitions.yo) would create a
+/// definitions↔env import cycle — so the bound frame is side-tabled here by id,
+/// the same pattern as the macro / default-args side-tables.
+///
+/// STAGED, NOT YET CONSUMED: the capture (in `evaluate_function_type`, immediately
+/// after `evaluate_function_parameters`) and the push (in
+/// `try_to_implement_function_by_function_type` before body eval) are part of the
+/// def-time body-eval wiring — the remaining multi-layer work
+/// (plans/archive/DEFTIME_BODY_EVAL.md). This is the proven storage API for that push.
+(g_func_parameters_frame : RefCell(HashMap(String, Frame))) = RefCell(HashMap(String, Frame)).new(HashMap(String, Frame).new());
+/// Store the parameter-bound frame for a function, keyed by its `fn(...)`
+/// type-expression id. (Capture timing is critical — see DEFTIME_BODY_EVAL.md.)
+register_func_parameters_frame :: (fn(func_id : &String, frame : &Frame) -> unit)({
+  record_owned_func_id(func_id.clone());
+  // Owned key; `frame` is a `ref` handle, cheap to capture (`with_mut`'s
+  // callback is a sink parameter).
+  fpf_key := func_id.clone();
+  g_func_parameters_frame.with_mut({ fpf_key, frame : Rc.clone(frame) }(m) => m.insert(fpf_key, frame));
+});
+/// Retrieve a function's parameter-bound frame, if captured.
+get_func_parameters_frame :: (fn(func_id : &String) -> Option(Frame))(
+  g_func_parameters_frame.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone()))
+);
+/// Drop the given function ids from this module's per-function registries
+/// (see `purge_function_side_tables`, plans/backlog/EVALUATOR_MEMORY_REDUCTION.md
+/// Phase 1 step 5).
+purge_function_value_tables :: (fn(ids : &ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get_cloned(i),
+      .Some(id) => {
+        // Owned keys (`with_mut`'s callback is a sink parameter).
+        pur_key0 := id.clone();
+        _r0 := g_func_type_registry.with_mut({ pur_key0 }(m) => m.remove(&pur_key0));
+        pur_key1 := id.clone();
+        _r1 := g_func_parameters_frame.with_mut({ pur_key1 }(m) => m.remove(&pur_key1));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+export(mark_fn_unemittable, is_fn_unemittable, mark_fn_ctfe_clone, is_fn_ctfe_clone, mark_fn_specialized, fn_has_specializations);
+export(purge_function_value_tables);
+export(
+  registered_func_type_count,
+  mark_as_control_fn,
+  is_control_fn,
+  mark_as_closure_fn,
+  is_closure_fn,
+  mark_as_fnonce_closure_fn,
+  mark_fnonce_capture_struct,
+  is_fnonce_capture_struct,
+  is_fnonce_closure_fn,
+  ClosureCaptureInfo,
+  register_closure_capture_info,
+  get_closure_capture_info,
+  find_closure_fid_by_capture_struct_id,
+  mark_as_effect_record_member,
+  mark_as_index_entry_method,
+  is_index_entry_method,
+  mark_io_async_sm_closure,
+  is_io_async_sm_closure,
+  register_io_async_closure_fid,
+  lookup_io_async_closure_fid,
+  is_effect_record_member,
+  register_definition_site_return,
+  get_definition_site_return,
+  register_closure_body_type,
+  get_closure_body_type,
+  register_func_type,
+  get_func_type,
+  register_func_parameters_frame,
+  get_func_parameters_frame,
+  register_closure_fid_source
+);
