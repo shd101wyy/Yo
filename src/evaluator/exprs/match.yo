@@ -393,6 +393,54 @@ _arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
 // ---------------------------------------------------------------------------
 // evaluate_match
 // ---------------------------------------------------------------------------
+/// Register the loans of a `mut` arm's places (decision 26): each copy below
+/// a cell (`cell_copy_vars`) and each place binding (`place_vars`) is an
+/// exclusive local borrow of the scrutinee's place `mut_place` (R-ARM),
+/// whatever the scrutinee is rooted at, live from its binding to its last
+/// mention in the arm's `body`, else its `guard`: while it lives, the
+/// scrutinee is reached only through it, so a write, read or call through
+/// `cur` (or its root) under it is E0911 (audit A3; VERDICTS-71 rule (c)).
+/// Reached from a local borrow (decision 25's cursor, `match(cur, .Some(n) =>
+/// { cur = &mut n.next; })`), it is also a place a re-point goes through
+/// (`local_borrow_note_pattern_binding`): the re-point names `cur` without
+/// touching what it points at, and skips the binding it goes through
+/// (`local_borrow_require_no_live_derived`). In an `io.async` body the place
+/// may live across an await: rule 4 rejects it there when the borrow it
+/// points through passes through a cell or a module-level place, judged at
+/// each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+_register_mut_arm_place_loans :: (
+  fn(
+    cell_copy_vars : &ArrayList(Variable),
+    place_vars : &ArrayList(Variable),
+    lb_scr_source : &Option(LocalBorrowInfo),
+    mut_place : &Option(LocalBorrowPlace),
+    body : &AstExpr,
+    guard : &Option(AstExpr)
+  ) -> unit
+)({
+  (ci : usize) = usize(0);
+  while(ci < cell_copy_vars.len(), ci = (ci + usize(1)), {
+    match(
+      cell_copy_vars.get_cloned(ci),
+      .Some(cv) => {
+        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, body, guard : guard.clone()), .None => ());
+        match(mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, body, true, guard : guard.clone()), .None => ());
+      },
+      .None => ()
+    );
+  });
+  (pi : usize) = usize(0);
+  while(pi < place_vars.len(), pi = (pi + usize(1)), {
+    match(
+      place_vars.get_cloned(pi),
+      .Some(pv) => {
+        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, body, guard : guard.clone()), .None => ());
+        match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, body, true, guard : guard.clone()), .None => ());
+      },
+      .None => ()
+    );
+  });
+});
 /// The help line of a non-exhaustive `match` whose missing value a guarded
 /// arm would match.
 _GUARD_HELP :: "an arm with a guard (`p && (guard)`) does not count toward exhaustiveness, because the guard can fail; add an arm without a guard for these values";
@@ -1622,13 +1670,13 @@ evaluate_match :: (
       });
       match(
         &imm_place,
-        .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip.*, &body_ast, false),
+        .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip.*, &body_ast, false, guard : guard_ast.clone()),
         .None => ()
       );
       // A22: a binding into a temporary scrutinee points into the temporary
       // (a reference payload points where the temporary's references do).
       if(!b_ct_known && ref_binds && ref_payload.is_none() && !p_view && !is_mut_binding(&b_tok, &b.name), {
-        match(&scr_temp_place, .Some(tp) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), tp, &body_ast, false), .None => ());
+        match(&scr_temp_place, .Some(tp) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), tp, &body_ast, false, guard : guard_ast.clone()), .None => ());
         // A3: a reference binding matched bare (`r := &o; match(r, …)`, or
         // `b := idr(&x)`): the binding is a place in the referent, so it
         // borrows what the reference borrows (R-ARM: "the arm bindings of
@@ -1644,7 +1692,7 @@ evaluate_match :: (
           );
           (a3i : usize) = usize(0);
           while(a3i < a3_roots.len(), a3i = (a3i + usize(1)), {
-            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &a3_roots(a3i).place, &body_ast, false);
+            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &a3_roots(a3i).place, &body_ast, false, guard : guard_ast.clone());
           });
         });
       });
@@ -1661,7 +1709,7 @@ evaluate_match :: (
           match(&_added, .Some(rf_var) => note_ref_payload_held(rf_var.id(), &rf_roots), .None => ());
           (rfi : usize) = usize(0);
           while(rfi < rf_roots.len(), {
-            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut);
+            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut, guard : guard_ast.clone());
             rfi = (rfi + usize(1));
           });
         },
@@ -1740,6 +1788,17 @@ evaluate_match :: (
     );
     // Compile-time arm selection.
     mv := cond(ct_known => match_value(&arm.pattern, &scrutinee_val_opt, ctx), true => Option(bool).None);
+    // A guarded `mut` arm's places are live in its guard: the guard runs
+    // after the pattern binds them and before the body, so their loans are
+    // registered before it is evaluated, and a write of the scrutinee in the
+    // guard (`(.Some(Box(s)) && { o = .None; true }) => s`, a call
+    // `kill(&mut o)`) is judged against them (E0911) as the same write in the
+    // body is. An unguarded arm registers them when it is selected.
+    (mut_place_loans_registered : bool) = false;
+    if(mut_places && guard_ast.is_some(), {
+      _register_mut_arm_place_loans(&cell_copy_vars, &place_vars, &lb_scr_source, &mut_place, &body_ast, &guard_ast);
+      mut_place_loans_registered = true;
+    });
     // The guard, with the pattern's bindings in scope.
     (guard_val : Option(bool)) = Option(bool).None;
     match(
@@ -1929,16 +1988,9 @@ evaluate_match :: (
         });
       });
       if(mut_places, {
-        (ci0 : usize) = usize(0);
-        while(ci0 < cell_copy_vars.len(), ci0 = (ci0 + usize(1)), {
-          match(
-            cell_copy_vars.get_cloned(ci0),
-            .Some(cv) => {
-              match(&lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, &body_ast), .None => ());
-              match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ());
-            },
-            .None => ()
-          );
+        // A guarded arm registered its places' loans before its guard ran.
+        if(!mut_place_loans_registered, {
+          _register_mut_arm_place_loans(&cell_copy_vars, &place_vars, &lb_scr_source, &mut_place, &body_ast, &guard_ast);
         });
         (pi0 : usize) = usize(0);
         while(pi0 < place_vars.len(), {
@@ -1953,22 +2005,6 @@ evaluate_match :: (
                 },
                 .None => ()
               );
-              // Each place binding is an exclusive borrow of the scrutinee's
-              // place (R-ARM), whatever the scrutinee is rooted at: while it
-              // lives, the scrutinee is reached only through it, so a write,
-              // read or call through `cur` (or its root) under it is E0911
-              // (audit A3; VERDICTS-71 rule (c)). Reached from a local borrow
-              // (decision 25's cursor, `match(cur, .Some(n) => { cur = &mut
-              // n.next; })`), it is also a place a re-point goes through
-              // (`local_borrow_note_pattern_binding`): the re-point names
-              // `cur` without touching what it points at, and skips the
-              // binding it goes through (`local_borrow_require_no_live_derived`).
-              // In an `io.async` body the place may live across an await:
-              // rule 4 rejects it there when the borrow it points through
-              // passes through a cell or a module-level place, judged at
-              // each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
-              match(&lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, &body_ast), .None => ());
-              match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ());
             },
             .None => ()
           );

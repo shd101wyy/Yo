@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, env_adopt } :: import("../../env.yo");
 { TypeValue, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
+{ same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_error } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { raise_function_value_origin_mismatch } :: import("../trait-checking.yo");
@@ -134,7 +134,7 @@ try_to_call_type_with_arguments :: (
           .Some(ci) => match(&ci.value(), .Some(Rc(.TypeVal(ct))) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
-        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown)))));
+        exn.throw(dyn(Box.new(origin_beyond_n2b_error(&o_shown, ast_expr_token(function_callee_expr)))));
       }),
       .None => ()
     );

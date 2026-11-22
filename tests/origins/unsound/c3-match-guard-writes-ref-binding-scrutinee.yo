@@ -1,0 +1,26 @@
+// expect: E0911
+// A reference binding matched bare (A3): `s` borrows what `r` borrows, `o`, and the guard writes `o` through
+// `kill` before reading `s`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+kill :: (fn(p : &mut Option(Box(String))) -> unit)({
+  p.* = .None;
+});
+peek :: (fn(p : &Option(Box(String))) -> bool)(p.is_some());
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(L()));
+  r := &o;
+  match(
+    r,
+    (
+      .Some(Box(s)) && {
+        kill(&mut o);
+        s.len() > usize(0)
+      }
+    ) => println("OUT: taken"),
+    _ => ()
+  );
+  ()
+});
+export(main);

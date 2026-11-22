@@ -76,13 +76,11 @@ TypeInfo :: enum(
   // === Metaprogramming (fieldless) ===
   Expr,
   TypeApplication,
-  // === References (decision 43) ===
+  // === References ===
   // `&T` (`mutable = false`) or `&mut T`, with its origin (a value of the
-  // `Origin` kind). Today only a function parameter's slot is a reference,
-  // and `ParamInfo.param_type` reports the pointee, so neither variant is
-  // reachable from user code yet.
-  // `origin` carries the origin value as a `Type`; `Type.get_info` has no
-  // arm for an origin value itself yet (decision 43 step 2 decides it).
+  // `Origin` kind): the info of a reference type such as a struct field's
+  // `&i32`. A function parameter's `ParamInfo.param_type` reports the pointee.
+  // `origin` carries the origin value as a `Type`.
   Reference(pointee : Type, mutable : bool, origin : Type),
   // The `Origin` kind: the type of an origin value.
   Origin

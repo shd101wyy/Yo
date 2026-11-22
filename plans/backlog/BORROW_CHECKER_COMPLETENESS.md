@@ -359,6 +359,22 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   `io.async` capturing a by-value origin-carrying parameter (`{ h }`, `h : H(p)`) names it in the future's origin, and
   the call lends the argument's origin, `mk(H(x)(r : &x), io)` freezing `x` (A51, O8's R-CALL). A move of a generic
   body's by-value parameter through its non-owning re-bind is a move access, E0911 against a borrow of it (A52).
+- 2026-11-20 (test 7's rehearsal, `v0280/s1-calls`): three S1 residuals of clusters 2, 6 and 3. First, a call
+  through a local `Impl(Fn)` closure reads its slots from the trait's call type whatever the closure returns, so a
+  `&` loan passed to its reference parameter is a carrier and stays live at a `&mut` argument's activation:
+  `c(&mut xs, e)` is E0911 as `plain(&mut xs, e)` is (`call_origin_operands`; the two `args:named/*/closure|fnptr/*`
+  rows leave `gen-known.tsv`). Second, a projection call passed on (`id(c.borrow_mut().get())`, the receiver
+  `c.borrow_mut().me()`) is a computed reference, not a place: its origin is R-CALL's, so the temporary guard is a
+  root (R-TEMP) and binding the result past the statement is E0911, where the place walk read the call as `c` and
+  `origin_of`'s entries, deduplicated by their written text, dropped the temporary's entry for the place `c` rendered
+  as the same call (they are deduplicated by place identity now);
+  `r := id(id(&x))`, falsely rejected as a temporary, is accepted. Third, a `match` arm binding is live in the arm's
+  guard: its range reads the guard when the body does not mention it, and a guarded `&mut` arm registers its places'
+  loans before the guard runs, so a guard writing the scrutinee under them is E0911 (Rust's E0510). 18 G-B files
+  (`c2-local-closure-*`, `c6-*`, `c3-match-guard-*`;
+  `issues/fixed/2026-11-19-a-mut-argument-to-a-local-closure-is-not-checked-against-a-reference-argument-of-the-same-call.md`,
+  `issues/fixed/2026-11-19-a-reference-read-through-a-temporary-guard-outlives-the-guards-drop.md`,
+  `issues/fixed/2026-11-19-a-match-guard-may-write-the-scrutinee-while-the-arms-pattern-bindings-borrow-it.md`).
 - 2026-11-09: R3 landed (VERDICTS-23: a specialization keeps the declared shape of its slots). A by-value slot whose
   type becomes a reference at a specialization (`-> T` / `v : T` at `T := &U`) is `ValueSlot(&U)`, a node of its own
   next to the borrow `Reference` slot, so `-> T` is a reference VALUE (a pointer), no longer lowered as a projection,

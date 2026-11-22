@@ -88,10 +88,8 @@ Types are values in Yo, enabling powerful compile-time type manipulation:
 ```yo
 // Create a generic container type at compile-time
 Container :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      value : T
-    )
+  struct(
+    value : T
   )
 );
 
@@ -262,8 +260,8 @@ During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
    a module-level `::` (or one of an enclosing function), or writes a runtime
    value to its own `::` local, is rejected, because every use of the binding
    was already folded to its value. Declare such a binding with `:=` (at
-   module level, `mut(G) := v`: a written global needs `mut`, decision 47); a
-   body's own `mut(a) :: 1; a = 2;` with a compile-time value still works (decision 47: a compile-time binding that is written is declared `mut(a) ::` or `comptime(mut(a)) :=`; an unmarked one is E0917)
+   module level, `mut(G) := v`: a written global needs `mut`); a
+   body's own `mut(a) :: 1; a = 2;` with a compile-time value works (a compile-time binding that is written is declared `mut(a) ::` or `comptime(mut(a)) :=`; an unmarked one is E0917)
    ([`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`](../../issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md)).
 2. Preserves function argument values for compile-time evaluation
 3. Marks parameters as compile-time only

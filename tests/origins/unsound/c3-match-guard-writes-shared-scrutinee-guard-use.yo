@@ -1,0 +1,25 @@
+// expect: E0911
+// A `&` match whose binding is used only in the guard, after the guard's write: `s` borrows `o` read-only for the
+// guard, so the write is E0911.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+kill :: (fn(p : &mut Option(Box(String))) -> unit)({
+  p.* = .None;
+});
+peek :: (fn(p : &Option(Box(String))) -> bool)(p.is_some());
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(L()));
+  match(
+    &o,
+    (
+      .Some(Box(s)) && {
+        o = .None;
+        s.len() > usize(0)
+      }
+    ) => println("OUT: taken"),
+    _ => ()
+  );
+  ()
+});
+export(main);

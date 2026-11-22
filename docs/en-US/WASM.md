@@ -113,9 +113,9 @@ transform :: (
   match(
     wasm_alloc(size),
     .Some(out) => {
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < input_len, {
-        (b : u8) = unsafe(input_ptr.add(i).*);
+        (mut(b) : u8) = unsafe(input_ptr.add(i).*);
         // Only ASCII bytes change, so UTF-8 input stays valid UTF-8.
         cond(
           (upper && ((b >= u8(97)) && (b <= u8(122)))) => {
@@ -158,8 +158,8 @@ pragma(Pragma.AllowUnsafe);
 count_byte :: (fn(input_ptr : *u8, input_len : usize, needle : u8) -> usize)({
   // A view, not a copy: valid only until the caller frees `input_ptr`.
   view := str.from_raw_parts(input_ptr, input_len);
-  (n : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(n) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < view.len(), {
     cond(
       (view.bytes(i) == needle) => {

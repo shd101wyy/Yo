@@ -194,12 +194,11 @@ ArrayExpression ::=
   | '[' Expression ';' Expression ']'                 ;; Array type [T; N]
   | '[' Expression ']'                                ;; Slice type [T]
 
-;; `[T]` is the unsized slice type `Slice(T)` (plans/VALUES_BY_DEFAULT.md
-;; decision 49), used behind a pointer: `&[T]`, `&mut [T]`, `*[T]`. `[T;]`
-;; names no length and is a parse error. A one-element array value is
+;; `[T]` is the unsized slice type `Slice(T)`, used behind a pointer: `&[T]`,
+;; `&mut [T]`, `*[T]`. `[T;]` names no length and is a parse error. A one-element array value is
 ;; written with a trailing comma: `[expr,]`.
 
-;; Curly Bracket Expressions (plans/reference/BRACE_BLOCKS.md, since v0.2.78)
+;; Curly Bracket Expressions
 ;; `.{ … }` builds a record, `{ names }` on a binding side picks fields, and
 ;; every other `{ … }` is a block. In expression position a bare brace group is
 ;; a block: `{ e }` yields `e`, `{ s; e }` yields `e`, `{ s; }` and `{}` yield
@@ -262,8 +261,7 @@ ArgumentList ::= [Expression (',' Expression)*]
 
 A parameter is `label : Type`. The label is optionally wrapped by ONE
 modifier call (`sink`, `comptime`, `quote`), and the type is optionally
-prefixed by a borrow sigil, `&` or `&mut` (`plans/VALUES_BY_DEFAULT.md`
-decision 42):
+prefixed by a borrow sigil, `&` or `&mut`:
 
 ```abnf
 Parameter ::= ParameterLabel ':' ParameterType
@@ -321,13 +319,14 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
 Placement rules for `&` and `&mut`:
 
 - In a slot they are a **mode**: they prefix a parameter's type and a local
-  borrow's place. Where a type stands on its own (`T :: &i32`, `ArrayList(&T)`,
-  `Option(&T)`, a struct field `f : &T`) they make a **reference type**
-  (decision 43 step 3); `&(&T)` is a reference to a reference, written
-  `& &T` in a slot, and `&r` on a reference binding `r` is one. A reference-holding type
-  can be named but no value of it is built in this release.
+  borrow's place. Where a type stands on its own (`T :: &i32`, `Option(&T)`, a
+  struct field `f : &T`) they make a **reference type**; `&(&T)` is a
+  reference to a reference, written `& &T` in a slot, and `&r` on a reference
+  binding `r` is one. A struct, an enum, a tuple or an array holds references;
+  a collection or a cell over a reference (`ArrayList(&T)`, `Rc(&T)`) is an
+  error.
 - The two-argument form `&(T, p)` / `&mut(T, p)` is an **origin-qualified
-  reference** (decision 43 step 2): as a parameter's type, `x : &(T, p)` is
+  reference**: as a parameter's type, `x : &(T, p)` is
   `x : &T` whose origin is `p`, an origin parameter declared with
   `generic(p : Origin)`, or a union `(p, q)` of them. The second argument is
   read by its kind: a type there is an uncoded error (a reference to a tuple
@@ -337,7 +336,7 @@ Placement rules for `&` and `&mut`:
   parameter there is E0912. In value position `&(a, b)` stays the
   operator-call form of `a & b`.
 - In **return-type position** (`-> &T`, `-> &mut T`, `-> (name : &mut T)`)
-  they declare a **projection** (decision 24): the body yields a place written
+  they declare a **projection**: the body yields a place written
   with the result's sigil (`&self.a`, `&mut self.rows(i)`), or a reference
   binding (`x` for `x : &T`, the result is a reference slot), rooted at one of
   the function's borrow parameters. A projection is reached through the
@@ -346,13 +345,6 @@ Placement rules for `&` and `&mut`:
   (`r := t.index(i)`) and, for `&mut`, the left of `=`
   ([INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)).
 - `mut` is a reserved word: a binding or parameter named `mut` is an error.
-- The deleted mode-word spellings `imm(x) : T`, `mut(x) : T`, `inout(x) : T`,
-  `comptime(imm(x)) : T`, `-> imm(T)`, `imm(y) := place`, `mut(cur) = place`,
-  the capture entries `imm(y)` / `mut(z) : &mut w` and `for(xs, mut(x) => ...)`
-  are error E0009 naming the sigil spelling. `imm` is an ordinary
-  identifier.
-- `own(x)`, the older spelling of `sink(x)`, is error E0009 as well. Older
-  code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations").
 - See [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) for the semantics.
 
 At a call, a borrowed argument carries a marker that matches the parameter:
