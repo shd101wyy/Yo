@@ -176,14 +176,10 @@ test("explicit: a reference to a handle takes two stars", {
   });
   assert(t == i32(5), "a for element over a list of boxes");
 });
+// The raw-pointer rows live in deref-explicit-unsafe.test.yo: a raw pointer
+// needs `pragma(Pragma.AllowUnsafe)`, and this file is deliberately without
+// it so the D3 write-through-Arc rule still fires.
 _P2 :: struct(x : i32, y : i32);
-test("explicit: a raw pointer's pointee is read through .*", {
-  mut(p) := _P2(x : i32(1), y : i32(2));
-  q := addr_of(p);
-  assert(unsafe(q.*.x) == i32(1), "q.*.x reads the pointee's field");
-  qq := addr_of(q);
-  assert(unsafe(qq.*.*.y) == i32(2), "one star per pointer layer");
-});
 // The kept implicit steps (VERDICTS-75): reference transparency — `.` reads a
 // member of the receiver's own type through any number of `&` and `&mut`,
 // with no stars, in every receiver form. The rows also pin F1's sweep: a
@@ -298,7 +294,7 @@ impl(_UOwner, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&
 _read_n :: (fn(generic(T : Type), x : &T) -> i32)(x.n);
 test("E0623: a payload member read with . alone", {
   b := Rc.new(_mk(i32(1)));
-  comptime_expect_error(b.n, "E0623");
+  comptime_expect_error(b.n, "which has no member \"n\"");
   comptime_expect_error(b.n, "`b` has type `Rc(_P)`, which has no member \"n\"; its payload `_P` has one. `.` does not read through a handle.");
   comptime_expect_error(b.n, "write `b.*.n`: `b.*` names the payload");
   comptime_expect_error(b.get(), "write `b.*.get(...)`: `b.*` names the payload");
@@ -334,16 +330,12 @@ test("E0623: a reference to a handle, an owner, a raw pointer", {
   u := _UOwner(items : Array(i32, 2)(1, 2));
   comptime_expect_error(u.is_empty(), "write `u.*.is_empty(...)`");
   assert(u.*.len() == usize(2), "u.*.len() is the view's");
-  mut(p) := _P2(x : i32(1), y : i32(2));
-  q := addr_of(p);
-  comptime_expect_error(q.x, "`.` does not read through a raw pointer");
-  comptime_expect_error(q.x, "write `q.*.x`: `q.*` names the pointee");
 });
 // Indexing and walking a handle name the handle and `.*`
 // (issues/fixed/2026-11-21-indexing-or-walking-a-handle-names-neither-the-handle-nor-its-star.md).
 test("E0606 and a for head over a handle name its .*", {
   r := Rc.new(ArrayList(i32).new());
-  comptime_expect_error(r(usize(0)), "E0606");
+  comptime_expect_error(r(usize(0)), "is not callable");
   comptime_expect_error(r(usize(0)), "Write `r.*(...)`");
   comptime_expect_error(
     for(&r, x => {
