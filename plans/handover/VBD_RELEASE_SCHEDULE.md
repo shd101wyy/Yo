@@ -90,6 +90,9 @@ Needs the v0.2.80 seed.
 - The `std/sync` channel payload back to `_ChannelState(T)`; the prelude's four `Deref` arms in
   `derive(Clone)`/`derive(Hash)`.
 - IO-1b (std Generation B of the `Io` interface).
+- VERDICTS-77: a substituted recursive type's self-reference denotes the substituted type (`substitute` and the
+  finals registries; `type_key` renders the recursion cut by declaration and arguments), two stacked PRs after
+  the evalwork memo — fixes the generic `GKind(T)` impl-member S2 and its struct twin.
 
 ## 5. v0.2.82 — implicit drop deleted; VBD closes
 
