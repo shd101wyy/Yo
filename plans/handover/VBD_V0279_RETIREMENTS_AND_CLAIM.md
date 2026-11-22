@@ -80,7 +80,7 @@ say "(L) complete except the value spelling of `str`", and (L) is asserted in v0
 on the v0.2.79 release candidate; if test 7 has not passed at the cut, the notes say so and (S) moves to v0.2.80 too.
 The release and the claim are decoupled (VERDICTS-58 decision 8).
 Test 7 itself is v0.2.80 (maintainer override, 2026-11-17; schedule §5k), so the release asserts §3.3's "(S) pending"
-variant.
+variant. §3.6 is how test 7 runs and what passing means.
 
 ### 3.3 Draft sentences for the v0.2.79 release notes
 
@@ -122,6 +122,68 @@ still under `issues/` and not `issues/fixed/` or `issues/retired/`, plus the ope
 release. The allowed families are A41, A42 and A44; B1–B3 and B5–B7 (loud compiler failures: a crash or invalid C,
 never a wrong binary); C1–C13; and every wall (N2c–N2f, P4, P5, P6, P7, P10, P11, P15). B4 and B8 were fixed in
 v0.2.78. Anything else open in clusters 1–8 or A40/A43 blocks (S) instead of being listed.
+
+### 3.6 Test 7: how to run it, and what "passed" means
+
+Test 7 is VERDICTS-58 decision 7's four legs, on the release candidate (since §5k, the v0.2.80 candidate). Legs (a)
+and (b) are one command; (c) is a CI run the same command reads; (d) is agents.
+
+```bash
+# on a detached worktree of the candidate, with a stage 1 built from it (`yo build --std-path ./std`), clang on PATH
+systemd-run --user --unit=test7 -p MemoryMax=16G --working-directory="$PWD" bash -c \
+  'source scripts/heavy-lock.sh; heavy_take "test7: <sha>"; bash scripts/test7.sh --yo <stage1>; heavy_drop'
+cat tmp/test7-<sha>/summary.txt                                  # the verdict of (a) and (b), and the [n] slots
+bash scripts/test7.sh --gd-howto                                  # (c): how to dispatch G-D on the candidate
+bash scripts/test7.sh --gd-verdict <run-id> --sha <sha>           # (c): read that run
+```
+
+| Leg | What runs | Passed means |
+| --- | --- | --- |
+| (a) | test.yml's `origins-corpus` steps: `check-origin-sinks.sh`, `origins-corpus.sh today`, `origins-unsound.sh`, `check-origin-sinks.sh --totality` | every one exits 0: G-A `n/n` passed, G-B `n/n` passed, "origin sinks: ok", "origin totality: 0" |
+| (b) | the audit's frozen probe corpus (`scripts/test7/audit-corpus.tar.gz`: the ten areas' probes, the audit's 231 reproducers, the re-probe's 40 pass-2 programs; 2,047 files) — `yo check`, then for an accepted program an ASan compile (`--optimize 1 --sanitize address --allocator system`) and a run with `detect_stack_use_after_return=1` | every program ran, and **zero BLOCKING dirty programs**: an accepted program whose run reports `ERROR: AddressSanitizer` is attributed (`scripts/test7/attribution.tsv`, or a reproducer's basename) to an audit row; it blocks when the row is in clusters 1–8, is A40, A43 or an S1 row §9 does not place (A55–A57), or when it is not attributed yet |
+| (c) | `origins-generator.yml` on the candidate SHA (it checks out `develop`, so dispatch it while the candidate is develop's tip, or take the nightly that ran on it) | the run's head is the candidate, it succeeded, the generator printed "0 new", and every `tests/origins/gen-known.tsv` row is a listable issue |
+| (d) | `plans/handover/TEST7_ADVERSARIAL_BRIEF.md`: ten agents, one day, after the parser drop | zero new S1 in clusters 1–8 that are neither fixed nor walled |
+
+What (b) does not count against the claim, and lists instead: a LeakSanitizer-only report (a leak, not a
+use-after-free), a C compile failure or a checker crash (B class, loud), a run that fails without a sanitizer report
+(a panic), and a dirty program attributed to A41, A42, A44, a B or C row, or `none:<reason>`. A program that turns the
+unsafe gate off (`Pragma.AllowUnsafe`) is outside safe code and is skipped. The corpus is frozen while the language
+moves, so the summary also prints its drift (positives now rejected, negatives rejected with another code): a drifted
+negative no longer reaches the shape it was written for, which narrows what (b) proves without failing it (`drift.tsv`
+lists them). **Before (S) is claimed in v0.2.80, the drifted negatives of clusters 1–8 are respelled** to today's
+language, in the tarball, so (b) reaches their shapes again (coordinator's decision, 2026-11-19). A std module renamed
+since the corpus was written (kebab-case Part C) is followed automatically (`scripts/test7/respell_imports.py`).
+`scripts/test7/audit-corpus.tar.gz` is the canonical copy of the audit's probe corpus; the audit worktree's
+`tmp/probes/` is not needed.
+
+**Rehearsal, 2026-11-19, develop `939fe7160`** (stage 1 of `d8f0d89fa`, the same `src/` and `std/`; about 3 h on the
+shared box, G-B the long pole). (a) passed: sinks ok, G-A 150/150, G-B 392/392, totality 0. (c) passed: nightly run
+44451066581 ran on `939fe7160` with 291 programs and "0 new". (b) failed: of 2,047 programs (9 excluded as unsafe),
+1,614 were rejected, 6 crashed the checker, and 418 were accepted. The accepted ones split into 334 clean, 7 leak-only,
+17 C compile failures, 13 runs that failed without a sanitizer report, and **47 ASan-dirty**, all of them blocking.
+Drift: 94 positives rejected, 342 negatives rejected with another code, 93 negatives accepted (47 are the dirty set, 42 run clean, 4 fail to compile).
+The 47 dirty programs, re-run with `--only` on a stage 1 of the pending cluster branch `v0279/clusters`
+(`76f6aaf03`), went to 36 rejected (A3, A5, A10, A14, A15, A17, A23) and 11 still dirty. Ten of the 11 are six
+issues filed 2026-11-19 (`issues/fixed/2026-11-19-*.md`: clusters 2, 3, 5, 6 and 7, fixed since by #2020 and #2038),
+and one is the ref-era residual (`f(&h.xs, h2)`, audit §8), which the parser drop closes. So on develop plus the
+cluster branch, (b) would report **11 blocking**: the claim needed those six issues fixed or walled first.
+
+**Run, 2026-11-23, develop `f06ff5889`** (stage 1 of the test 7 branch merged with it, `8c2424568`: the same `src/`
+and `std/`, which develop kept unchanged through `369ff6491`; `--jobs 4` on the shared box, about 5 h, G-B the long
+pole). **(a) and (b) pass.** (a): sinks ok, G-A 150/150, G-B 504/504, totality 0. (b): of 2,047 programs (9 excluded
+as unsafe), 1,691 were rejected, 6 crashed the checker, and 341 were accepted: 305 clean, 7 leak-only, 17 C compile
+failures, 12 runs that failed without a sanitizer report (index, capacity and `RefCell` re-entry panics), and **0
+ASan-dirty**. Against the rehearsal, all 47 dirty programs are rejected now; 29 programs that ran clean, and 1 that
+panicked, are rejected too, and no program changed to a worse verdict. Drift: 94 positives rejected (the rehearsal's
+set), 352 negatives rejected with another code, 21 negatives accepted (17 run clean, 4 fail to compile; all 21 were
+accepted in the rehearsal too). (c): no nightly has run on `f06ff5889` yet. The newest, 44980366531 on `1c7aeb015`
+(before #2038), was clean: 291 programs, "0 new", and its one known finding was the `args:named/*/closure/*` row that
+#2038 fixed and deleted. **The respelling of the drifted negatives is not mechanical.** Of the 352, 212 now fail with
+another borrow code (E0909–E0923), 59 hit a wall without a code (the local-borrow and capture walls), 44 fail with a
+type or name error, and 37 hit a spelling diagnostic (E0926, E0009, E0927). `yo fix --migrate deref` does not
+evaluate a program the checker rejects. In a whole-reference read or write, it cannot tell whether the probe means
+re-pointing or writing through, or copying the reference or the value. So each program needs its probe's intent
+read.
 
 ## 4. What is not decided here
 
