@@ -1,0 +1,16 @@
+// expect: E0901
+// A `(w := …)` binding over a `Box` sub-pattern binding in a `&mut` match: `w.* = .None` drops the box `s` points into.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  match(
+    &mut o,
+    (w := .Some(Box(s))) => {
+      w.* = .None;
+      println(`OUT: ${s}`);
+    },
+    .None => ()
+  );
+});
+export(main);

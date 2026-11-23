@@ -1,0 +1,15 @@
+// expect: E0911
+// A future made over a call-result reference (`xs.index(0)`): `xs.clear()` frees the element before the await reads it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+mkf :: (fn(r : &String, io : Io) -> Impl(Future(usize, Io)))(io.async({ r : &r.* }(io : Io) => r.clone().len()));
+main :: (fn(io : Io) -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  fut := mkf(xs.index(usize(0)), io);
+  xs.clear();
+  v := io.await(fut, io);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);
