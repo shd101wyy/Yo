@@ -1,0 +1,26 @@
+// expect: E0911
+// A future made over a reference read through a temporary guard: the guard's drop at the end of the binding's
+// statement replaces the box the future reads at the await.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Cell :: struct(b : Box(String));
+Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &mut(Cell, p)));
+impl(
+  generic(p : Origin),
+  Guard(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.c.b = Box.new(String.from("released"));
+    })
+  )
+);
+impl(Cell, borrow_mut : (fn(self : &mut Self) -> Guard(self))(Guard(self)(c : self)));
+impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &String)(&self.c.b.*));
+mkf :: (fn(r : &String, io : Io) -> Impl(Future(usize, Io)))(io.async({ r : &r.* }(io : Io) => r.clone().len()));
+main :: (fn(io : Io) -> unit)({
+  mut(c) := Cell(b : Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  fut := mkf(c.borrow_mut().get(), io);
+  v := io.await(fut, io);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

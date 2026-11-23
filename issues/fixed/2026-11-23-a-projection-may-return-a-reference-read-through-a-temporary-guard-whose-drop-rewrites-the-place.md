@@ -55,3 +55,22 @@ drop at the end of the body (a write of `c.b`) is not an access against the plac
 
 Treat a temporary's drop inside a projection body as an access against the yielded place, or reject a projection
 result read through a temporary with a `Drop` impl (the wall). Add the reproducer to `tests/origins/unsound/`.
+
+## Fixed
+
+Fixed on `v0280/s1-test7b` (2026-11-23). Traced: a projection's body is judged by the single-root rule
+(`src/evaluator/builtins/ptr-fns.yo`), not by `return_check`. `_projection_call_root_error` walks the inner call
+`c.borrow_mut().get()`'s root arguments; the receiver `c.borrow_mut()` carries an origin, so the walk looked through
+it to the places it holds (`origin_of`: `c`, a `&mut` parameter) and passed. That see-through is right for a named
+holder, which outlives the statement, and wrong for a temporary, which the body drops before the caller reads the
+result. A root argument that is a temporary lent to a reference parameter (`is_temporary_operand`, R-TEMP) is now
+E0912 in the single-root rule, as `origin_of` already roots a binding's or a result's value at it: "A projection
+yields a place reached from one of its `&`/`&mut` parameters, and this one is reached through `c.borrow_mut()`, a
+temporary that is dropped when the body ends, before the caller reads the result."
+
+This is the rule (R-TEMP), not the `Drop`-only wall: a temporary holder without a `Drop` is rejected too, as the
+binding `r := c.borrow_mut().get()` already is.
+
+G-B: `tests/origins/unsound/c6-temp-guard-projection-result.yo` (the reproducer, probe gu10 with a `Box` payload)
+and the positive twin `c6-temp-guard-projection-result-pos.yo` (an owned result read through the temporary guard,
+and a projection over the cell without a guard).

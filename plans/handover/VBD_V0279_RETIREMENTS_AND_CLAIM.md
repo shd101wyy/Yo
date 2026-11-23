@@ -214,15 +214,15 @@ read.
 13 are accepted:
 
 - **5 ASan-dirty, all new S1.** Each is attributed in `scripts/test7/attribution.tsv`, and each blocks the claim:
-  - `issues/2026-11-23-a-binding-pattern-over-a-mut-match-may-overwrite-the-value-its-box-sub-pattern-binding-borrows.md` (`t06`);
-  - `issues/2026-11-23-a-tuple-literal-may-lend-a-place-shared-after-an-earlier-element-lends-it-mut.md` (`t09`, `t10`);
-  - `issues/2026-11-23-a-call-result-reference-argument-to-a-future-making-call-gives-the-future-no-origin.md` (`e04`);
-  - `issues/2026-11-23-an-fnmut-closure-stores-its-by-value-holder-parameter-through-a-mut-capture-unchecked.md` (`e07`).
+  - `issues/fixed/2026-11-23-a-binding-pattern-over-a-mut-match-may-overwrite-the-value-its-box-sub-pattern-binding-borrows.md` (`t06`);
+  - `issues/fixed/2026-11-23-a-tuple-literal-may-lend-a-place-shared-after-an-earlier-element-lends-it-mut.md` (`t09`, `t10`);
+  - `issues/fixed/2026-11-23-a-call-result-reference-argument-to-a-future-making-call-gives-the-future-no-origin.md` (`e04`);
+  - `issues/fixed/2026-11-23-an-fnmut-closure-stores-its-by-value-holder-parameter-through-a-mut-capture-unchecked.md` (`e07`).
 - 2 C compile failures, filed as
   `issues/2026-11-23-a-with-body-returning-its-reference-parameter-is-accepted-and-emits-invalid-c.md`.
 - 2 `RefCell` re-entry panics: the `ref`-object probes, respelled as `Rc(RefCell(..))`.
 - 4 run clean. One of them, `gu10`, hides a fifth S1 issue that only a `Box` payload exposes under ASan:
-  `issues/2026-11-23-a-projection-may-return-a-reference-read-through-a-temporary-guard-whose-drop-rewrites-the-place.md`.
+  `issues/fixed/2026-11-23-a-projection-may-return-a-reference-read-through-a-temporary-guard-whose-drop-rewrites-the-place.md`.
 
 So (b) on the respelled corpus reports **5 blocking dirty programs**. The claim needs those four issues and the guard
 projection fixed or walled first.

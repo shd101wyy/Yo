@@ -1,0 +1,19 @@
+// expect: E0910
+// `(&mut x, &x)`: a write through the first element frees the box the second element reads.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  t := (&mut x, &x);
+  match(
+    t,
+    (a, b) => match(
+      b,
+      Box(s) => {
+        a.* = Box.new(String.from("q"));
+        println(`OUT: ${s.*}`);
+      }
+    )
+  );
+});
+export(main);
