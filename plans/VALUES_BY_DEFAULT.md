@@ -9033,7 +9033,7 @@ heavy run, the command is given in item 2.
           is not seed-gated, and it lands before or with B1, whose sweep
           writes those clones.
    2. **Escaping copies**
-      (`issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`).
+      (`issues/retired/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`).
       - **Recommendation: the doc's own** (option 1, with option 3's split
         for `return`). Build the split as B1's first commit: a `return`
         whose source is rooted at a `&`/`&mut` parameter is listed, not

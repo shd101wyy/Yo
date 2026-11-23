@@ -154,8 +154,8 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
-{ expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
-{ is_global_mut_rule_exempt, is_deref_swept_tree, is_implicitly_unsafe_capable_file, is_std_module_path } :: import("./memory-safety.yo");
+{ expr_info_table_set, is_mut_global, is_thread_local, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
+{ is_global_mut_rule_exempt } :: import("./memory-safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -1480,16 +1480,6 @@ _throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &Eval
 /// - anything else is borrowed storage, and the copy is E0901
 ///   (`_throw_explicit_copy_violation`).
 transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, ctx : &EvalContext, exn : Exception) -> unit)({
-  // `yo fix --migrate deref` recorded the bare reference `rhs` as an E0926
-  // read, and this copies it: `rhs.*` would be E0901 here, so the migration
-  // lists the site instead of writing the `.*`.
-  if(deref_rule_recording() && !ctx.is_in_function_call_checking_phase && ast_expr_is_atom(rhs) && !is_reference_deref_site(ast_expr_token(rhs)), {
-    match(
-      find_variable_in_env(&ei.env(), variable_name.clone()),
-      .Some(rv) => if(variable_is_reference_binding(&rv), note_reference_read_copied(ast_expr_token(rhs), &rv.name)),
-      .None => ()
-    );
-  });
   match(
     find_variable_in_env(&ei.env(), variable_name.clone()),
     .None => (),
@@ -1891,7 +1881,7 @@ _is_handle_own_field_step :: (fn(step : &AstExpr, base_ty : &TypeValue) -> bool)
 /// The message names the doors. No-op for any other place, while a call's
 /// candidates are trial-checked, and in ghost (spec) code, which never
 /// writes.
-reject_write_through_rc :: (fn(place : &AstExpr, kind : str, param_ty : Option(TypeValue), ctx : &EvalContext, exn : Exception) -> unit)({
+reject_write_through_rc :: (fn(place : &AstExpr, kind : &(str, static), param_ty : Option(TypeValue), ctx : &EvalContext, exn : Exception) -> unit)({
   if(ctx.is_in_function_call_checking_phase || ctx.is_ghost_context, {
     return(());
   });
@@ -3073,7 +3063,7 @@ reject_malformed_pattern_mut_markers :: (fn(pat : &AstExpr, exn : Exception) -> 
 );
 /// The binding a write lands on, for diagnostics: `local`, `comptime`,
 /// `parameter` or `pattern` (a `match` or destructuring binding).
-_mut_binding_kind :: (fn(v : &Variable) -> str)(
+_mut_binding_kind :: (fn(v : &Variable) -> &(str, static))(
   cond(
     v.is_compile_time_only() => "comptime",
     v.is_parameter() => "parameter",
@@ -3298,11 +3288,6 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
 // declaring frame's epilogue (`audit_judge_implicit_copies`,
 // exprs/begin.yo): it is a copy only if the variable is read again after the
 // site. Inert otherwise: nothing else in the evaluator reads the tables.
-// (The RC-bearing recorder behind `yo fix --migrate rc-clone`, last shipped in
-// v0.2.76, and the `YO_AUDIT_IMPLICIT_COPY` and `YO_AUDIT_COPYING_ACCESSOR`
-// listings behind `--migrate explicit-copy` and `--migrate cloned-accessors`,
-// last shipped in v0.2.73, were deleted: every copy they found is E0901 now,
-// whose help names the `Rc.clone`, the `.clone()` or the `_cloned` accessor.)
 /// YO_AUDIT_COPY_TRAIT (plans/VALUES_BY_DEFAULT.md decision 36):
 /// Sizes decision 36's sweep: every implicit copy of a plain-data value (no
 /// owned buffer, not move-only) whose type is not `Copy`, with the source
@@ -3439,7 +3424,7 @@ audit_record_copy_trait :: (
   fn(
     site_tok : &Token,
     ty : &TypeValue,
-    copy_path : str,
+    copy_path : &(str, static),
     env : &Environment,
     source : &AstExpr,
     ctx : &EvalContext,
@@ -3738,7 +3723,7 @@ set_expr_as_needs_to_call_dup :: (
     exn : Exception,
     /// The store kind, for the implicit-copy recorder only: `binding`, `assign`,
     /// `field-store`, `element`, `param`, `return` or `dyn`.
-    (copy_path : str) ?= "dup"
+    (copy_path : &(str, static)) ?= "dup"
   ) -> unit
 )({
   // YO_AUDIT_COPY_TRAIT: a plain-data copy, before any early return (a
@@ -6326,44 +6311,6 @@ reject_dyn_place_by_value :: (fn(id : usize, position : &String, tok : &Token, e
     );
   });
 });
-/// `yo fix --migrate unsized`'s `str` family (decision 49 S2): a written
-/// `str` type that the legacy alias reads as `&(str, static)`
-/// (`legacy_value_str`) is recorded at its token, rewritten to that spelling
-/// (`kind` 10), or only listed (`kind` 11) where the spelling would change the
-/// parameter's mode (`sink(s) : str`). Anything but the bare word `str` (an
-/// alias name, a `Self`) is the user's own spelling and is left alone. Only
-/// where the file may spell `static` (`_static_spellable_at`): elsewhere the
-/// rewrite would be E0922 while P12's rule is blocked, and the alias keeps
-/// the written `str` meaning `&(str, static)`
-/// (issues/questions/2026-11-16-the-str-migration-writes-a-static-origin-that-safe-code-cannot-spell-while-p12-is-blocked.md).
-note_legacy_str_spelling :: (fn(te : &AstExpr, listed : bool, std_path : &String) -> unit)({
-  if(!migrate_unsized_on(), {
-    return(());
-  });
-  match(
-    te,
-    Rc(.Atom(_, ls_tok)) => if((ls_tok.kind == TokenKind.Identifier) && (ls_tok.value.* == "str") && _static_spellable_at(&ls_tok.*, std_path), {
-      record_unsized_site(&ls_tok.*, if(listed, u8(11), u8(10)), &String.from("str"));
-    }),
-    _ => ()
-  );
-});
-/// The `str` family's type-binder arm: `ArrayList(str)`, whose argument is
-/// not in reach of the binder's check (`evaluate_comptime_fn_call` sees the
-/// callee and the values). Recorded at the callee's token with the
-/// argument's index (`kind` 12); the migration finds the argument in the line.
-note_legacy_str_type_arg :: (fn(callee : &AstExpr, index : usize, std_path : &String) -> unit)({
-  if(migrate_unsized_on() && _static_spellable_at(&ast_expr_token(callee), std_path), {
-    record_unsized_site(&ast_expr_token(callee), u8(12), &index.to_string());
-  });
-});
-/// The file at `tok` may spell the `static` origin: std or an unsafe-capable
-/// file, the exemption of E0922's wall (`_reject_empty_origin_in_safe_code`,
-/// VERDICTS-57 §1).
-_static_spellable_at :: (fn(tok : &Token, std_path : &String) -> bool)({
-  mp := tok.module_path.*.clone();
-  is_implicitly_unsafe_capable_file(Option(String).Some(mp.clone())) || is_std_module_path(&mp, std_path)
-});
 /// The legacy value `str` at a `comptime(V) : Type` parameter (decision 49,
 /// `unsized_legacy_spellings`): `ArrayList(str)` binds `V := &(str, static)`,
 /// the sized type the value spelling means. A `?Sized` parameter keeps `str`.
@@ -6380,7 +6327,7 @@ legacy_str_type_arg :: (fn(param_ty : &TypeValue, value : &Option(EvalValue)) ->
   });
   value.clone()
 });
-export(note_legacy_str_spelling, note_legacy_str_type_arg, legacy_str_type_arg);
+export(legacy_str_type_arg);
 /// The root token of a place written as a name or a field chain (`b`,
 /// `self.cause`, `a.b.c`), or `.None` for anything else (a call, a
 /// temporary): `.*` appended to its text lends exactly that place.
@@ -6401,10 +6348,8 @@ _named_place_root_token :: (fn(e : &AstExpr) -> Option(Token))(
 /// coercion, 2026-11-07); the lend of the object is `&b.*`. `given` is the
 /// argument's type (a `&Box(Dyn)` reference or the lent place's
 /// `Box(Dyn)`), `arg` the argument as written or with its marker peeled.
-/// Returns false when the mismatch is not this one. Under `yo fix --migrate
-/// unsized` the site is recorded (kind 7, a named place: `.*` is appended;
-/// kind 8, a temporary: listed) and accepted, so the evaluation reaches the
-/// file's other sites; otherwise it is E0601 with the `&b.*` help.
+/// Returns false when the mismatch is not this one; otherwise it is E0601
+/// with the `&b.*` help.
 legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &AstExpr, tok : &Token, position : &String, ctx : &EvalContext, exn : Exception) -> bool)({
   lb_e := if(t_slot_is_borrow(expected), t_slot_pointee(expected), Rc.clone(expected));
   if(!t_slot_is_borrow(expected) || !is_dyn_type(&lb_e), {
@@ -6418,17 +6363,8 @@ legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &Ast
   lb_place := ast_expr_strip_borrow_marker(arg);
   lb_text := ast_expr_to_string(&lb_place);
   lb_root := _named_place_root_token(&lb_place);
-  if(migrate_unsized_on(), {
-    match(
-      lb_root,
-      .Some(rt) => record_unsized_site(&rt, u8(7), &lb_text),
-      .None => record_unsized_site(tok, u8(8), &lb_text)
-    );
-    return(true);
-  });
   lb_sig := if(t_slot_is_mut_ref(expected), "&mut ", "&");
-  // The place as written (`h.b`), for the message; `lb_text` is how the
-  // migration matches the source.
+  // The place as written (`h.b`), for the message.
   lb_shown := match(lb_root.clone(), .Some(_) => local_borrow_place_text(&lb_place), .None => lb_text.clone());
   lb_help := match(
     lb_root,
@@ -6757,8 +6693,7 @@ reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext)
 /// `Call` candidate accepts as a reference, but one accepts as its referent
 /// (`-r`, `!r` or `~r` on `r : &T`; `_try_expand_call_overload`). From here
 /// on it reads as a whole value at its binder position, so the identifier
-/// evaluator judges it as the by-value read it is: E0926 (spelled `r.*`), or
-/// a recorded `.*` under `yo fix --migrate deref`, whose evaluation goes on.
+/// evaluator judges it as the by-value read it is: E0926 (spelled `r.*`).
 note_binder_value_read :: (fn(tok : &Token) -> unit)({
   bv_key := _reference_deref_site_key(tok);
   _new := g_binder_value_reads.with_mut({ bv_key }(s) => s.insert(bv_key));
@@ -6975,10 +6910,6 @@ reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref
   if(ctx.is_in_function_call_checking_phase, {
     return(());
   });
-  if(deref_rule_recording(), {
-    record_deref_site(tok, label);
-    return(());
-  });
   shown := type_to_string_for_message(ref_ty);
   raise_flow_violation(
     &with_code(
@@ -7072,26 +7003,11 @@ note_ctfe_reference_params :: (fn(names : &ArrayList(String), ft : &TypeValue, e
     i = (i + usize(1));
   });
 });
-/// Whether the old reading of `v.*` on a reference binding whose pointee is
-/// `ty` reached THROUGH the pointee (a cell handle's payload, a `Box`'s, a
-/// raw pointer's target, or a declared field `*`): `yo fix --migrate deref`
-/// spells that `v.*.*` (decision 43 step 2 N1e-1). Any other `v.*` is the
-/// reference's own deref under either reading.
+/// Whether a `.*` on a value of type `ty` reads THROUGH it (a cell
+/// handle's payload, a `Box`'s, a raw pointer's target, or a declared field
+/// `*`) rather than being a reference's own deref (decision 43 step 2 N1e-1).
 deref_reads_through_pointee :: (fn(ty : &TypeValue) -> bool)(
   cell_handle_view(ty).is_some() || (unique_box_payload_type(ty).is_some() || (is_pointer_type(ty) || _labels_name_a_star(ty)))
-);
-/// The value the old reading's `.*` on `ty` reads: a cell handle's or a
-/// `Box`'s payload, a pointer's pointee. `.None` for a field named `*`.
-deref_payload_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
-  match(
-    cell_handle_view(ty),
-    .Some(v) => Option(TypeValue).Some(Rc.clone(v.payload)),
-    .None => match(
-      unique_box_payload_type(ty),
-      .Some(p) => Option(TypeValue).Some(p),
-      .None => match(t_refine_inner(ty), Rc(.Pointer(p)) => Option(TypeValue).Some(Rc.clone(p)), _ => Option(TypeValue).None)
-    )
-  )
 );
 _labels_name_a_star :: (fn(t : &TypeValue) -> bool)({
   labels := match(
@@ -7121,48 +7037,24 @@ variable_is_reference_binding :: (fn(v : &Variable) -> bool)(
 /// compiler-synthesized `auto-generated://` expansions, which spell no `.*`,
 /// and the machinery a desugared `for` synthesizes (its hidden borrow and
 /// cursor), which sits at the `for` keyword's position that no name the
-/// program wrote shares. The `YO_AUDIT_DEREF=1` census judges the
-/// synthesized expansions too.
+/// program wrote shares.
 deref_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
-  (audit_deref_on() || !tok.module_path.*.starts_with(String.from("auto-generated://"))) && for_desugar_site_of(tok).is_none()
+  !tok.module_path.*.starts_with(String.from("auto-generated://")) && for_desugar_site_of(tok).is_none()
 );
-/// Whether the recorder reads a written `.*` at `tok` as the new spelling
-/// whatever the referent: a file `note_deref_migrated_file` saw, or one of
-/// the repository's own swept trees (`is_deref_swept_tree`), which hold no
-/// old source. The evidence rule alone is order-dependent: the swept
-/// prelude's `*T` `Clone` (`self -> self.*`, `self : &*T`) is instantiated
-/// by `derive(Allocator, Copy, Clone)` before any evidence site of the
-/// prelude is evaluated, and its old reading (the pointee) fails the
-/// derive, so every directory-form migration could not load the prelude
-/// (issues/fixed/2026-11-14-the-deref-migration-rewrites-the-raw-pointer-clone-impls-result-type-to-the-pointee.md).
-deref_text_is_new_spelling :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
-  deref_file_migrated(tok) || is_deref_swept_tree(&tok.module_path.*, &ctx.std_path)
-);
-/// Whether a judged site records instead of rejecting: `yo fix --migrate
-/// deref` or the census.
-deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
 /// E0926 at `tok`, the reference binding `v` used as a whole value without
 /// `.*` (decision 43 step 2 N1e-1, VERDICTS-13 §11): `kind` 0 is a read in a
 /// by-value position, 1 the write `v = x`, 2 the borrow `&v`/`&mut v`, 3 a
 /// borrowed scrutinee `match(&v, …)` (VERDICTS-13 §14: the marker is
-/// redundant, `match(v, …)` matches through the reference). While the rule
-/// records it notes the edit instead: the `.*` after `tok`, or for 3 the
-/// marker before it dropped. A read (0) of a referent that is not implicitly
-/// copyable is judged here before its consumer: `v.*` is right where the
-/// value is only read (an operand such as `v.* == other`) and E0901 where it
-/// would be copied (a by-value parameter, a `:=` binding, a return), so the
-/// help names both, and the migration lists a site the evaluation then
-/// copies (`note_reference_read_copied`) instead of writing `.*`
-/// (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+/// redundant, `match(v, …)` matches through the reference). A read (0) of a
+/// referent that is not implicitly copyable is judged here before its
+/// consumer: `v.*` is right where the value is only read (an operand such as
+/// `v.* == other`) and E0901 where it would be copied (a by-value parameter,
+/// a `:=` binding, a return), so the help names both.
 reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ctx : &EvalContext, exn : Exception) -> unit)({
   // An overload trial is speculative: the candidate it tries may never be
   // called, and E0926 is not a reason to drop one, so the real call's
-  // evaluation judges (and records) its reads.
+  // evaluation judges its reads.
   if(ctx.is_in_function_call_checking_phase, {
-    return(());
-  });
-  if(deref_rule_recording(), {
-    if(kind == u8(3), record_deref_edit_site(tok, &v.name, u8(2)), record_deref_site(tok, &v.name));
     return(());
   });
   name := v.name.clone();
@@ -7175,17 +7067,17 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     true => `\`${name}\` is a reference (\`${ref_ty}\`): reading the value it refers to is spelled \`${name}.*\``
   );
   help := cond(
-    (kind == u8(1)) => `write \`${name}.* = …\`; \`${name} = &place\` re-points the reference (\`yo fix --migrate deref\` inserts the \`.*\`)`,
-    (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`,
-    (kind == u8(3)) => `write \`match(${name}, …)\`: its bindings borrow through \`${name}\` with its mutability (\`yo fix --migrate deref\` drops the marker)`,
+    (kind == u8(1)) => `write \`${name}.* = …\`; \`${name} = &place\` re-points the reference`,
+    (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter`,
+    (kind == u8(3)) => `write \`match(${name}, …)\`: its bindings borrow through \`${name}\` with its mutability`,
     type_requires_explicit_copy(&variable_value_type(v)) => {
       repairs := cond(
         type_lacks_clone(&variable_value_type(v)) => `pass \`${name}\` itself to a \`&${ty_text}\` parameter or read through it (\`${name}.field\`, \`${name}.method()\`)`,
         true => `pass \`${name}\` itself to a \`&${ty_text}\` parameter, read through it (\`${name}.field\`, \`${name}.method()\`), or copy it explicitly with \`${name}.*.clone()\``
       );
-      `write \`${name}.*\` where the value is only read in place (an operand such as \`${name}.* == other\`). Where it would be copied — a by-value parameter, a \`:=\` binding, a return — \`${ty_text}\` ${_explicit_copy_kind(&variable_value_type(v))}, so ${repairs}. \`yo fix --migrate deref\` inserts the \`.*\` at the reads and lists the copies.`
+      `write \`${name}.*\` where the value is only read in place (an operand such as \`${name}.* == other\`). Where it would be copied — a by-value parameter, a \`:=\` binding, a return — \`${ty_text}\` ${_explicit_copy_kind(&variable_value_type(v))}, so ${repairs}.`
     },
-    true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`
+    true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter`
   );
   raise_flow_violation(&with_code(format_error_message_with_help(tok, &msg, Option(String).Some(help)), E_REFERENCE_READ_WITHOUT_DEREF), ctx, exn);
 });
@@ -7665,8 +7557,8 @@ _lb_live_at_activation :: (fn(info : &LocalBorrowInfo, tok : &Token, live_tok : 
   false
 });
 _lb_place_text :: (fn(p : &LocalBorrowPlace) -> String)(p.text.clone());
-_lb_mode :: (fn(info : &LocalBorrowInfo) -> str)(cond(info.is_mut => "&mut", true => "&"));
-_lb_verb :: (fn(kind : &LocalBorrowAccess) -> str)(
+_lb_mode :: (fn(info : &LocalBorrowInfo) -> &(str, static))(cond(info.is_mut => "&mut", true => "&"));
+_lb_verb :: (fn(kind : &LocalBorrowAccess) -> &(str, static))(
   match(
     kind,
     .Read => "read",
@@ -9680,14 +9572,14 @@ origin_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayL
 /// `depth`, one cut at the recursion bound. `scripts/check-origin-sinks.sh`
 /// counts the distinct lines; the gate is 0.
 origin_totality_audit_on :: (fn() -> bool)(g_audit_origin_totality);
-_audit_origin_totality_report :: (fn(kind : str, what : str, e : &AstExpr) -> unit)({
+_audit_origin_totality_report :: (fn(kind : &(str, static), what : &(str, static), e : &AstExpr) -> unit)({
   at := ast_expr_token(e);
   eprintln(`[origin-totality] ${kind} ${what} ${at.module_path.*}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${ast_expr_to_string(e)}`);
 });
 /// G-E at a sink: `e`, stored at the sink `what`, must have its origin
 /// computed when its type carries one (`origin_of`'s memo). Free unless the
 /// knob is set.
-audit_origin_totality :: (fn(what : str, e : &AstExpr, ctx : &EvalContext) -> unit)({
+audit_origin_totality :: (fn(what : &(str, static), e : &AstExpr, ctx : &EvalContext) -> unit)({
   if(!g_audit_origin_totality, {
     return(());
   });
@@ -9703,7 +9595,7 @@ audit_origin_totality :: (fn(what : str, e : &AstExpr, ctx : &EvalContext) -> un
 /// G-E at a call argument: an argument whose type spells every origin it
 /// carries is its own record (O3 step 1 reads the type); only an elided
 /// position needs `origin_of`.
-audit_origin_totality_elided :: (fn(what : str, e : &AstExpr, ctx : &EvalContext) -> unit)({
+audit_origin_totality_elided :: (fn(what : &(str, static), e : &AstExpr, ctx : &EvalContext) -> unit)({
   if(!g_audit_origin_totality, {
     return(());
   });
@@ -12397,7 +12289,7 @@ _capture_state_store :: (fn(variable : &Variable, roots : &ArrayList(OriginRootP
     gi = (gi + usize(1));
   });
 });
-_raise_capture_state_local :: (fn(variable : &Variable, place_text : &String, what : str, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+_raise_capture_state_local :: (fn(variable : &Variable, place_text : &String, what : &(str, static), at : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
@@ -14309,14 +14201,11 @@ export(
   note_ctfe_reference_params,
   is_ctfe_reference_param,
   deref_reads_through_pointee,
-  deref_payload_type,
   variable_is_reference_binding,
   deref_operand_is_raw_pointer,
   deref_rule_applies,
   note_binder_value_read,
   forget_binder_value_read,
-  deref_rule_recording,
-  deref_text_is_new_spelling,
   reject_reference_without_deref,
   local_borrow_is_binding_stmt,
   local_borrow_may_bind_projection_stmt,

@@ -5,34 +5,21 @@ $ yo fix --help
 才会附带修复方案，因此 'fix' 从不在多种候选之间猜测；'--error-format json'
 也会以结构化字段携带同一修复。求值在每个文件的第一个错误处停止，因此 fix 会
 反复运行直到某一轮没有任何改动（最多 10 轮），并对它改写过的文件执行格式化。
-'--migrate' 改为运行下列迁移之一；已退役的迁移不再是可用模式，各自最后提供它的
-版本列在 docs/zh-CN/ERROR_DIAGNOSTICS.md。
 
 选项：
   --exclude <path>          排除目录/文件（可重复）
   --dry-run                 只打印修复，不写入
-  --migrate deref           运行 deref 迁移而不是修复：整体读写引用时
-                            r -> r.*，&r -> &r.*，经由引用表示 Box/Rc
-                            解引用的 v.* -> v.*.*
-  --migrate unsized         运行决定 49 的迁移：在接受 &Dyn(T) 的位置借出
-                            Box(Dyn(T)) 的 &b -> &b.*；列出具名句柄上的
-                            dyn(h)，留待手工改写。更旧的代码依次经过最后
-                            接受其拼写的版本：裸 Dyn(...) 类型用 v0.2.77，
-                            裸 dyn(v) 用 v0.2.78（yo version install
-                            0.2.78），再运行本迁移
   --module-names            把名字含 _ 或大写字母的每个模块文件与目录重命名
                             为 kebab-case（array_list.yo -> array-list.yo），
                             并改写指向它们的 import、[modules] 条目与
                             build.yo 的 root；不再能解析的 import 改为指向其
-                            kebab-case 写法所指的唯一模块。打印重命名映射；
-                            它不是迁移，永不退役
+                            kebab-case 写法所指的唯一模块。打印重命名映射
   --target <triple>         按该目标求值（同 compile --target），从而修复
-                            或迁移该目标的平台分支（默认：宿主平台）
+                            该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
 
 示例：
   $ yo fix ./src
   $ yo fix main.yo --dry-run
-  $ yo fix ./std ./tests --migrate deref
   $ yo fix . --module-names --dry-run
 rc=0

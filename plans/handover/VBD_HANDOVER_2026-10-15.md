@@ -330,7 +330,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   - `src/`: 3,761 inserted, 644 left as written;
   - `std/`: 205 inserted, 97 left.
 - **History:** stacked on #1384, which merged. #1385 was retargeted to develop before the base branch was deleted, so it stays open.
-- **Its question doc** (copied to develop by the handover PR; identical, so the rebase merges it cleanly): `issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`. It recommends leaving those to the flip's E0901.
+- **Its question doc** (copied to develop by the handover PR; identical, so the rebase merges it cleanly): `issues/retired/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`. It recommends leaving those to the flip's E0901.
 - **Next:**
   1. Restack past #1384's pre-squash commits: `git fetch origin && git switch feat/vbd-v2b-explicit-copy-migration && git rebase --onto origin/develop f5987e0c1`. `f5987e0c1` is #1384's head before its squash-merge (`41441c5b3`), so only #1385's 4 commits (`2599f81a2`…`ffb6dc6af`) replay. Then `git push -f origin feat/vbd-v2b-explicit-copy-migration`. At its place in the queue (after #1368 and the global-lend branch), expect conflicts in `src/evaluator/exprs/assignment.yo` (union the import lists), `src/main.yo` (union the two import lines; put BOTH `mutable-globals` and `explicit-copy` in every usage string and in the `--migrate` name check; keep both `if(migrate == …)` dispatch blocks) and `docs/{en-US,zh-CN}/ERROR_DIAGNOSTICS.md` (keep both migration paragraphs).
   2. Tier 1: build; check src and std; the cli-case `tests/cli-cases/fix-migrate-explicit-copy`; the internal files importing `src/evaluator/utils.yo`.
