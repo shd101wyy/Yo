@@ -1,0 +1,28 @@
+// expect: E0916/runtime borrow panic (rule A: a projection into a handle global's storage lent to a call while the storage is grown, here through a local alias of the handle)
+// respelled 2026-11-23: the deleted ref(struct(...)) global is a module-level Rc(RefCell(Holder)); the lend is made inside a with body
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
+{ ArrayList } :: import("std/collections/array-list");
+Holder :: struct(items : ArrayList(String));
+G_H := Rc.new(RefCell(Holder).new(Holder(items : ArrayList(String).new())));
+_grow :: (fn() -> unit)({
+  h := Rc.clone(G_H);
+  mut(i) := i32(0);
+  while(i < i32(100), {
+    h.with_mut(v => { v.items.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")); });
+    i = (i + i32(1));
+  });
+});
+_peek :: (fn(s : &String) -> usize)({
+  _grow();
+  c := s.clone();
+  c.len()
+});
+main :: (fn() -> unit)({
+  h := Rc.clone(G_H);
+  h.with_mut(v => { v.items.push(String.from("first-element-0123456789abcdefghijklmnopqrstuvwxyz")); });
+  n := G_H.with(v => _peek(&v.items(usize(0))));
+  println(`OUT: ${n.to_string()}`);
+});
+export(main);

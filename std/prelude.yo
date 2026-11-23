@@ -220,7 +220,7 @@ extern(
     (fn(generic(T : Type), ptr : *T, sink(value) : T) -> unit),
   // str (builtin static string view) intrinsics
   __yo_str_from_raw_parts :
-    (fn(ptr : *u8, length : usize) -> str),
+    (fn(ptr : *u8, length : usize) -> &(str, static)),
   __yo_str_len :
     (fn(s : &str) -> usize),
   __yo_str_ptr :
@@ -8488,7 +8488,7 @@ impl(
     )
   ),
   /// Extract the contained value, panicking with `msg` if `None`.
-  expect : (fn(self : Self, msg : str) -> T)(
+  expect : (fn(self : Self, msg : &str) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -9421,7 +9421,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, panicking with `msg` if `Err`.
-  expect : (fn(self : Self, msg : str) -> OkType)(
+  expect : (fn(self : Self, msg : &str) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9429,7 +9429,7 @@ impl(
     )
   ),
   /// Extract the `Err` value, panicking with `msg` if `Ok`.
-  expect_err : (fn(self : Self, msg : str) -> ErrorType)(
+  expect_err : (fn(self : Self, msg : &str) -> ErrorType)(
     match(
       self,
       .Err(error) => error,

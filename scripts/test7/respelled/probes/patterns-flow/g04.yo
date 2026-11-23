@@ -1,0 +1,13 @@
+// expect: E0911
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(L());
+  mut(o) := Option(ArrayList(String)).Some(xs);
+  match(&o, .Some(x) => match(&x.*(usize(0)), e => { (mut(f) : Impl(FnMut() -> unit)) = ({ o : &mut o }() => { o.* = .None; }); f(); println(`OUT: ${e.*}`); }), .None => ());
+  ()
+});
+export(main);

@@ -53,7 +53,7 @@ export(Alignment);
 /// byte (`0b10xxxxxx`) starts one. `str` has no rune iterator — it exposes
 /// `len` (bytes), `ptr` and `bytes(i)` — so this is the scan, and it needs no
 /// allocation and no validation pass.
-_str_rune_count :: (fn(s : str) -> usize)({
+_str_rune_count :: (fn(s : &str) -> usize)({
   mut(n) := usize(0);
   mut(i) := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
@@ -118,7 +118,7 @@ impl(
     self._buf.len() == usize(0)
   ),
   /// Append a `str` (raw byte slice) to the buffer.
-  write_str : (fn(self : &mut Self, s : str) -> unit)({
+  write_str : (fn(self : &mut Self, s : &str) -> unit)({
     byte_len := s.len();
     if(byte_len > usize(0), {
       self._buf.extend_from_ptr(s.ptr(), byte_len);
@@ -213,7 +213,7 @@ impl(
   /// emitted two spaces instead of three and the column did not line up — the
   /// two width bases in one module disagreed
   /// (issues/fixed/write-padded-counted-bytes-where-formatspec-counts-runes.md).
-  write_padded : (fn(self : &mut Self, s : str, width : usize, pad : rune, align : Alignment) -> unit)({
+  write_padded : (fn(self : &mut Self, s : &str, width : usize, pad : rune, align : Alignment) -> unit)({
     n_runes := _str_rune_count(s);
     cond(
       (n_runes >= width) => self.write_str(s),

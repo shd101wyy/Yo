@@ -1,0 +1,20 @@
+// expect: E0911/runtime borrow panic (a `&` lend of a field of a shared object while the callee grows it through another handle)
+// respelled 2026-11-23: the deleted ref(struct(...)) object is Rc(RefCell(H)); the lend of h.xs is made inside a with body
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
+{ ArrayList } :: import("std/collections/array-list");
+H :: struct(xs : ArrayList(String));
+f :: (fn(xs : &ArrayList(String), h : Rc(RefCell(H))) -> usize)({
+  mut(i) := i32(0);
+  while(i < i32(1000), { h.with_mut(v => { v.xs.push(String.from("payload-0123456789abcdefghijklmnop")); }); i = (i + i32(1)); });
+  xs(usize(0)).len()
+});
+main :: (fn() -> unit)({
+  h := Rc.new(RefCell(H).new(H(xs : ArrayList(String).new())));
+  h.with_mut(v => { v.xs.push(String.from("first-0123456789abcdefghijklmnop")); });
+  h2 := Rc.clone(h);
+  n := h.with(v => f(&v.xs, Rc.clone(h2)));
+  println(`OUT n=${n.to_string()}`);
+});
+export(main);

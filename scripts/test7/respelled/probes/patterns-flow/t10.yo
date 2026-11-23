@@ -1,0 +1,10 @@
+// expect: E0911
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(x) := Option(Box(String)).Some(Box.new(L()));
+  match((&mut x, &x), (a, b) => match(b, .Some(Box(s)) => { a.* = .None; println(`OUT: ${s.*}`); }, .None => ()));
+  ()
+});
+export(main);

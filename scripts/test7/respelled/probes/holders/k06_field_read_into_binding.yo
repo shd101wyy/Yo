@@ -1,0 +1,15 @@
+// expect: E0911
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+main :: (fn() -> unit)({
+  mut(x) := mk();
+  h := H(r : &x, n : i32(0));
+  r := { &h.r.* };
+  x = mk();
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+  ()
+});
+export(main);

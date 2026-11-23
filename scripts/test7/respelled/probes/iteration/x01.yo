@@ -1,0 +1,14 @@
+// expect: E0912/E0923 -- ArrayList.with's body returns its &mut T parameter (R := &mut String escapes the call).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  r := xs.with(usize(0), (fn(v : &mut String) -> &mut String)(v));
+  xs.clear();
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

@@ -1,0 +1,19 @@
+// expect: E0911 -- fold returning an element reference
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  xs.push(String.from("second-second-second-second-second"));
+  (mut(f) : Impl(FnMut(acc : &Option(&String), x : &(&String)) -> Option(&String))) = ((acc : &Option(&String), x : &(&String)) => .Some(x.*));
+  last := (&xs).into_iter().fold(Option(&String).None, &mut f);
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(String.from("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+    i = (i + usize(1));
+  });
+  match(last, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+  ()
+});
+export(main);
