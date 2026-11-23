@@ -516,9 +516,8 @@ is_box_type :: (fn(t : &TypeValue) -> bool)(
 /// handle (decision 46): the prelude's `Rc(T)` (`is_box_type`) and `Arc(T)`,
 /// or a cell handle (`cell_handle_view`, V5's `Rc` and `Arc`). The `Arc` is
 /// identified as `Box` is (`unique_box_payload_type`): the stamped name
-/// `Arc(V)` plus the `atomic(ref(struct((*) : V)))` shape. Such a cell carries
-/// no borrow marks, so codegen never emits a borrow primitive on it: the 16
-/// bits of its header's `borrow_count` are the cell's weak count
+/// `Arc(V)` plus the `atomic(ref(struct((*) : V)))` shape. The 16 bits of
+/// such a cell's header word (`borrow_count`) are its weak count
 /// (`Weak`/`ArcWeak`, plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2).
 is_counted_cell_type :: (fn(t : &TypeValue) -> bool)(
   is_box_type(&t_refine_inner(t))
@@ -663,27 +662,14 @@ cell_handle_view :: (fn(t : &TypeValue) -> Option(CellHandleView))(
 );
 /// A handle a place reaches its storage through: a `ref` object, an atomic
 /// object or a cell handle (`cell_handle_view`). The question the borrow
-/// pins, the future-lend and global-lend checks and the borrow asserts ask.
+/// pins and the future-lend and global-lend checks ask.
 is_counted_handle_type :: (fn(t : &TypeValue) -> bool)(
   is_reference_struct_type(t) || is_atomic_reference_struct_type(t) || cell_handle_view(t).is_some()
 );
 /// A handle whose count other threads update: an atomic object, or a cell
-/// handle over the atomic cell (V5's `Arc`). D3 names such a handle, and its
-/// borrow counter is read atomically.
+/// handle over the atomic cell (V5's `Arc`). D3 names such a handle.
 is_atomic_counted_handle_type :: (fn(t : &TypeValue) -> bool)(
   is_atomic_reference_struct_type(t) || match(cell_handle_view(t), .Some(v) => v.is_atomic, .None => false)
-);
-/// A counted cell's storage, which codegen never puts a borrow mark on: an
-/// `Rc`/`Arc` handle (`is_counted_cell_type`) or the cell primitive behind a
-/// cell handle (`is_cell_primitive_type`, V5's `__yo_cell`/`__yo_atomic_cell`).
-/// The 16 bits of a cell header's `borrow_count` are its weak count
-/// (`Weak`/`ArcWeak`, plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2). The cell
-/// itself never reallocates, so an interior reference into its payload needs no
-/// mark on it: a container inside the payload carries its own. Unlike
-/// `is_counted_cell_type`, this says nothing about writes: a cell primitive's
-/// payload is a mutable place (plans/VALUES_BY_DEFAULT.md §3.5).
-carries_no_borrow_marks :: (fn(t : &TypeValue) -> bool)(
-  is_counted_cell_type(t) || is_cell_primitive_type(t)
 );
 is_fn_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.FnTraitT(base_name : _)) => true, _ => false)
@@ -1334,7 +1320,6 @@ export(
   shared_cell_names_at,
   is_shared_cell_type_name,
   is_counted_cell_type,
-  carries_no_borrow_marks,
   is_weak_handle_type,
   shared_cell_canonical_names,
   is_fn_trait_type,

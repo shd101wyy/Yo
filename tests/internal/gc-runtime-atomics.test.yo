@@ -88,6 +88,13 @@ test("__yo_decr_rc_atomic uses atomic_fetch_sub_explicit with acq_rel", {
   c := emit_rc_runtime();
   assert(c.contains(&decr_line), "decr fetch_sub is memory_order_acq_rel");
 });
+test("the RC runtime defines no borrow primitive: a header's 16-bit word is the Weak count", {
+  borrow_marks := "__yo_borrow_";
+  c := emit_rc_runtime();
+  assert(!c.contains(&borrow_marks), "no __yo_borrow_* primitive is emitted");
+  weak_retain := "__yo_rc_weak_retain";
+  assert(c.contains(&weak_retain), "the Weak primitives that own the word are still emitted");
+});
 test("drop dispatch runs within the decrement function", {
   c := emit_rc_runtime();
   // Mirror the TS slice: from the decr definition to its first `}` (which

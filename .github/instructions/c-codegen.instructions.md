@@ -175,7 +175,8 @@ The runtime helpers are `static inline`, emitted into every file (`src/codegen/f
 - `__yo_incr_rc` / `__yo_decr_rc`, and `_atomic` variants for atomically counted cells (`Arc`);
 - `__yo_dyn_retain` / `__yo_dyn_release` / `__yo_dyn_clone`: a `Dyn` payload's count, through its vtable;
 - `__yo_rc_weak_retain` / `__yo_rc_weak_release` / `__yo_rc_weak_upgrade`: `Weak` / `ArcWeak`;
-- `__yo_borrow_acquire` / `__yo_borrow_release` / `__yo_borrow_assert_unborrowed` (+ `_atomic`): interior-borrow marks the runtime text still defines and no compiled Yo code calls.
+
+There is no runtime borrow flag: a cell header's 16-bit word is the `Weak` count alone, and no emitted call acquires, releases or asserts a borrow. Aliasing is rejected statically (E0901, E0910, E0913) or checked by `RefCell`. The prelude's `__yo_borrow_*` externs lower to nothing.
 
 At count zero, `__yo_dispose_dispatch` switches on the type id to the payload's `___dispose`, then frees the cell. A type id of 0 frees without a dispose, so a payload whose constructor stamps no id leaks its fields (`debugging.instructions.md`, "Leaks").
 

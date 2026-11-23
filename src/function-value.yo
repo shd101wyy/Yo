@@ -271,26 +271,6 @@ mark_as_effect_record_member :: (fn(func_id : &String) -> unit)({
   g_effect_record_member_registry.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
 });
 // ---------------------------------------------------------------------------
-// Index-entry side-table (codegen)
-// ---------------------------------------------------------------------------
-/// Functions reached as the specialized `index` method of an index-trait call
-/// (`xs(i)`, the ExprInfo's `index_method_value`). The caller of an interior
-/// `inout` argument takes the container's borrow flag BEFORE the argument
-/// expression — the `index` call itself — runs, so the index method's
-/// `self : &mut Self` entry assert would always see its own caller's borrow and
-/// panic (a user `Index` impl on any object:
-/// issues/fixed/borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md).
-/// Its entry assert is skipped; any reallocation it performs goes through a
-/// callee that asserts on its own entry, or the realloc/free auto-assert.
-(g_index_entry_method_registry : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
-mark_as_index_entry_method :: (fn(func_id : &String) -> unit)({
-  func_id_owned := func_id.clone();
-  g_index_entry_method_registry.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
-});
-is_index_entry_method :: (fn(func_id : &String) -> bool)(
-  g_index_entry_method_registry.with({ func_id : &func_id.* }(m) => m.get(func_id)).is_some()
-);
-// ---------------------------------------------------------------------------
 // isIoAsyncStateMachineClosure side-table (codegen)
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` → `true` for io.async closures whose body is
@@ -541,8 +521,6 @@ export(
   get_closure_capture_info,
   find_closure_fid_by_capture_struct_id,
   mark_as_effect_record_member,
-  mark_as_index_entry_method,
-  is_index_entry_method,
   mark_io_async_sm_closure,
   is_io_async_sm_closure,
   register_io_async_closure_fid,
