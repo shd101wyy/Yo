@@ -27,7 +27,7 @@ Yo 是一门编译型系统编程语言，其设计目标是让 LLM 写出安全
 - [形式化验证](./FORMAL_VERIFICATION.md) —— `requires`/`ensures` 契约与精化类型在编译期由 Z3 证明（`yo verify`），不成立时给出反例。
 - [编译期求值](./CTFE.md) —— 类型是一等值，带 `comptime` 参数的函数在编译器中运行。
 - [代数效应](./ALGEBRAIC_EFFECTS.md)与 [async/await](./ASYNC_AWAIT.md) —— 一次性效应处理器；async 是内置的 `Io` 效应，运行在单线程事件循环上。
-- [并行](./PARALLELISM.md) —— 每核一线程的运行时，与 async 相互独立。
+- [并行](./PARALLELISM.md) —— 线程与自有工作线程的线程池，每个线程一个事件循环，与 async 相互独立。
 - [C 互操作](./FFI.md) —— `c_include(...)` 与 `extern(...)` 绑定 C 头文件和符号。
 - [每件事只有一种写法](./GRAMMAR.md) —— 没有运算符优先级，没有函数重载。
 - [构建系统与包管理](./BUILD_SYSTEM.md) —— `yo init`、`yo build`，依赖写在 `yo.toml` 中，支持 [WebAssembly](./WASM.md) 目标。

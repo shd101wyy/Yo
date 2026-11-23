@@ -29,7 +29,7 @@ mascot is Youyou (柚柚), a panda hugging a halved pomelo.
 - [Formal verification](./docs/en-US/FORMAL_VERIFICATION.md) — `requires`/`ensures` contracts and refinement types proved at compile time by Z3 (`yo verify`), with a counter-example when one fails.
 - [Compile-time evaluation](./docs/en-US/CTFE.md) — first-class types, and functions with `comptime` parameters run in the compiler.
 - [Algebraic effects](./docs/en-US/ALGEBRAIC_EFFECTS.md) and [async/await](./docs/en-US/ASYNC_AWAIT.md) — one-shot effect handlers; async is the builtin `Io` effect on a single-threaded event loop.
-- [Parallelism](./docs/en-US/PARALLELISM.md) — a thread-per-core runtime, separate from async.
+- [Parallelism](./docs/en-US/PARALLELISM.md) — threads and an owned worker pool, each thread with its own event loop, separate from async.
 - [C interop](./docs/en-US/FFI.md) — `c_include(...)` and `extern(...)` bind C headers and symbols.
 - [One way to write each thing](./docs/en-US/GRAMMAR.md) — no operator precedence, no function overloading.
 - [Build system and packages](./docs/en-US/BUILD_SYSTEM.md) — `yo init`, `yo build`, dependencies in `yo.toml`, [WebAssembly](./docs/en-US/WASM.md) targets.
