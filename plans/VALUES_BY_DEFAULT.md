@@ -9428,8 +9428,18 @@ plugs in. Two of its signatures stop Zig-style allocators from fitting.
   (`issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md`,
   fixed in the same PR) and the seed that compiles std does not carry the
   fix. `Box`'s layout PR (stacked on it) asks for the payload's alignment,
-  read through a `size_of` probe instead of `align_of`. The version 1 emitter stays until no
-  supported seed's std is version 1.
+  read through a `size_of` probe instead of `align_of`.
+- **As built, the version 1 retirement (v0.2.80, branch
+  `v0280/alloc-v1-retire`).** The seed v0.2.79 carries version 2, so the
+  switch and its version 1 arms are deleted: `CodeGenContext.alloc_abi_v2`,
+  `std_allocator_abi_is_v2` and `allocator_vtable_abi_version` are gone, and
+  `_emit_type_runtime_preamble` and `rc_alloc_in_call` emit the version 2
+  runtime unconditionally. The shape detector went with the switch: its only
+  consumer was the switch, and std and the compiler ship in one tree, so no
+  other `AllocatorVTable` shape exists to meet. The emitted
+  `__yo_alloc_vtable_t` mirrors std's struct through `void*`, and a change to
+  one is a change to the other. `src/main.yo --emit-c` is byte-identical
+  before and after.
 
 ### V4: the compiler's trees
 
