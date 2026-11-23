@@ -1,9 +1,10 @@
 # `ThreadPool`: the pool owns its workers, unstarted tasks share one queue, and pinning is explicit
 
-**Status: BACKLOG — decided 2026-11-07 (VERDICTS-32 §3, maintainer adopted).
-One PR, TP-1, lands in v0.2.80, after VALUES_BY_DEFAULT and before
-[`NO_LIBC_BY_DEFAULT`](NO_LIBC_BY_DEFAULT.md) P5. It is not seed-gated. The
-corrections to stale documentation landed inside VBD, with this plan.**
+**Status: LANDED — TP-1, v0.2.80 (2026-11-22). Decided 2026-11-07
+(VERDICTS-32 §3, maintainer adopted), before
+[`NO_LIBC_BY_DEFAULT`](../backlog/NO_LIBC_BY_DEFAULT.md) P5. Not seed-gated.
+§0 is the state before TP-1; §7 records where the landed code refines §2 and
+§3.**
 
 The maintainer asked on 2026-11-07: "for parallelism, should we delete the
 thread-per-core design? But I see that's only for ThreadPool so maybe it's
@@ -17,7 +18,7 @@ fine?"
 - **Retire** "thread-per-core" as a *name*, because the runtime never pinned
   a thread to a core.
 
-Companion: [`IO_INTERFACE_AND_STD_RUNTIME.md`](IO_INTERFACE_AND_STD_RUNTIME.md),
+Companion: [`IO_INTERFACE_AND_STD_RUNTIME.md`](../backlog/IO_INTERFACE_AND_STD_RUNTIME.md),
 the `Io` half of the same consult.
 
 ## 0. What is true today (develop, 2026-11-07)
@@ -39,7 +40,7 @@ Line anchors are against `src/codegen/parallelism/runtime.yo` and
   task that awaits something slow (an accept loop, a long `sleep`) blocks
   every task queued behind it on that worker, while other workers may sit
   idle. This is head-of-line blocking, and it is filed as an S2:
-  `issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`.
+  `issues/fixed/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`.
 - **The pool is process-global.** The workers live in C statics:
   `__yo_worker_threads`, `__yo_worker_num_threads` and
   `__yo_worker_next_thread`.
@@ -187,3 +188,41 @@ former statics.
   worker identity that sharded designs need.
 - **Fork-join `join`/`par_for` in this change.** They belong to a later
   `std/thread/par`, over scoped threads and `pool.scope`.
+
+## 7. As landed (TP-1, 2026-11-22)
+
+- **The runtime handle has two more entries than §3's four.**
+  `__yo_worker_pool_worker_count(pool)` answers `worker_count()`, and
+  `__yo_worker_pool_destroy(pool)` frees the handle. `shutdown_join` closes
+  and joins but does not free, because `shutdown` is idempotent and callable
+  through a shared `&ThreadPool` before the drop; only `Drop` calls `destroy`.
+  `__yo_worker_current_index()` (a `_Thread_local` slot read, `SIZE_MAX` off a
+  pool worker) backs `worker_id()`.
+- **The task closure is the submission's last argument.** Codegen lowers
+  `__yo_worker_pool_submit(pool, cb)` and `__yo_worker_pool_submit_to(pool,
+  i, cb)` as it lowers `__yo_thread_spawn(cb)` (a wrapper plus a heap copy of
+  the captures) and passes the arguments before the closure through
+  (`src/codegen/exprs/parallelism.yo`). Any `__yo_worker_*` call marks the
+  program as using the parallelism runtime, so a pool created and dropped
+  without a task still links.
+- **Waking.** All of a pool's queues and flags sit under one mutex; each worker
+  sleeps on its own condition variable. A shared submission wakes one sleeping
+  worker; a pinned one wakes its worker. A worker that finishes a task checks
+  both queues before it sleeps, so no submission is missed when every worker
+  is busy.
+- **Shutdown from one of the pool's own tasks** (a task drops the last
+  `Arc(ThreadPool)`, or calls `shutdown`) cannot join the thread it runs on.
+  It closes the pool and returns; the workers run what was queued and exit.
+  If it was the drop, the workers are detached and the last one to exit frees
+  the handle.
+- **A pool with no worker** (thread creation fails: standalone WASI) runs
+  every `spawn` and every `spawn_on` inline. With workers, `spawn_on(pool, i,
+  cb)` panics unless `i < worker_count()`. A creation failure after some
+  workers started keeps the ones that started: `worker_count()` reports them.
+- **Exit does not wait** for a pool that is never dropped (a module global):
+  `tests/cli-cases/pool-task-blocked-at-exit-does-not-hang` holds its pool in
+  one.
+- **Tests:** `tests/thread-pool-shared-queue.test.yo` (the issue's repro, the
+  exact worker count, `spawn_on`/`worker_id`, a pinned task waiting for its
+  busy worker while the shared queue runs elsewhere, `Drop` drains, the drop
+  of the last `Arc(ThreadPool)` inside a task).

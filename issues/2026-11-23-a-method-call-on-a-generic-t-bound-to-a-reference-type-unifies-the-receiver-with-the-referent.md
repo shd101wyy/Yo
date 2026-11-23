@@ -40,3 +40,5 @@ looking up the impl (`&C` → `C`), so the `impl(&C, View)` candidate's `self : 
 ## Fix
 
 At `T := &C`, try the receiver at its own type before the dereferenced one when the impl is over the reference type.
+
+Status 2026-11-23 (branch `fix/receiver-riders`, VERDICTS-75 rider r2): R-PROBE now ranks a slot equal to the receiver's own reference type first. The E0601 is gone and `t.view()` type-checks. The program still does not compile: the C for this generic path is wrong for both spellings. See `issues/2026-11-23-a-generic-body-at-t-ref-c-calling-an-impl-over-ref-c-method-emits-mismatched-c-pointer-types.md`. This document closes when that one does.

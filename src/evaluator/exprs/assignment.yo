@@ -51,7 +51,8 @@ pragma(Pragma.AllowUnsafe);
   variable_has_undone_move,
   make_variable,
   variable_value_type,
-  variable_slot_type
+  variable_slot_type,
+  variable_move_note
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals, fn_ctx_returns_comptime } :: import("../context.yo");
@@ -109,6 +110,8 @@ pragma(Pragma.AllowUnsafe);
 {
   reject_dyn_place_by_value,
   require_expr_not_consumed,
+  use_of_moved_value_error,
+  moved_value_type,
   throw_expr_is_implicit_variable_error,
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr,
@@ -2520,6 +2523,15 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   is_deref_write := deref_exempt_take(&lhs_resolved);
   if(!is_deref_write && variable_is_reference_binding(&variable) && deref_rule_applies(ast_expr_token(&lhs_resolved), ctx), {
     reject_reference_without_deref(&variable, ast_expr_token(&lhs_resolved), u8(1), ctx, exn);
+  });
+  // `r.* = v` writes through `r`, a use of the reference: after `r` moved
+  // (`a := r`, VERDICTS-76 Q1) it is E0901, never a store that revives it.
+  if(is_deref_write && variable_is_reference_binding(&variable), {
+    match(
+      variable.consumed_at_token(),
+      .Some(dw_moved_at) => raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &moved_value_type(&variable), ast_expr_token(&lhs_resolved), variable_move_note(&variable, &dw_moved_at)), ctx, exn),
+      .None => ()
+    );
   });
   // Closure capture tracking — a WRITE to an outer variable from inside a
   // function body / async block is a capture too (tracked with usage "own").
