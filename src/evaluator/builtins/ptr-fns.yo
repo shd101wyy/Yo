@@ -243,10 +243,10 @@ _projection_root_name_error :: (fn(name : &String, is_mut : bool, env : &Environ
       // A local borrow (`r := &b.v`): its place is the one it freezes, so
       // that place must be rooted at this projection's own borrow
       // parameters (`return(r)`, `&r.*`).
-      (!v.*.is_parameter() && (!v.is_compile_time_only() && local_borrow_info_of_variable(&v).is_some())) => _local_borrow_root_error(name, &v, is_mut, env, ctx),
-      (!v.*.is_parameter() || v.*.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
-        `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
-        if(v.is_module_level(), Option(&(str, static)).None, Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES))
+      (!v.*.is_parameter() && (!v.*.is_compile_time_only() && local_borrow_info_of_variable(&v).is_some())) => _local_borrow_root_error(name, &v, is_mut, env, ctx),
+      (!v.*.is_parameter() || v.*.is_compile_time_only() || !(v.*.is_ref() || v.*.is_imm_borrow())) => _proj_err(
+        `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is ${cond(v.*.is_parameter() => "a by-value parameter", v.*.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
+        if(v.*.is_module_level(), Option(&(str, static)).None, Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES))
       ),
       (is_mut && (!v.*.is_ref() || v.*.is_imm_borrow())) => _proj_err(
         `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`,
@@ -442,9 +442,9 @@ _held_place_root_error :: (fn(hp : &OriginRootPlace, is_mut : bool, holder : &As
   match(
     get_variables_from_env(env, hp.place.root_name.clone()).last_cloned(),
     .Some(v) => cond(
-      (!v.*.is_parameter() || v.*.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
-        `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${ast_expr_to_string(holder)}\` points into \`${hp.place.text}\`, ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
-        if(v.is_module_level(), Option(&(str, static)).None, Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES))
+      (!v.*.is_parameter() || v.*.is_compile_time_only() || !(v.*.is_ref() || v.*.is_imm_borrow())) => _proj_err(
+        `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${ast_expr_to_string(holder)}\` points into \`${hp.place.text}\`, ${cond(v.*.is_parameter() => "a by-value parameter", v.*.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
+        if(v.*.is_module_level(), Option(&(str, static)).None, Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES))
       ),
       (is_mut && (!v.*.is_ref() || v.*.is_imm_borrow())) => _proj_err(
         `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${hp.place.root_name}\` is a shared borrow (\`&T\`).`,
