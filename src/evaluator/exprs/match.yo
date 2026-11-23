@@ -906,15 +906,20 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       own.add_hidden = saved_hidden;
       // A binding inside it is a copy, so it must be `Copy` (Rust's bindings
       // after `@` in a by-move pattern); in a `mut` match two places would
-      // alias.
+      // alias. A sub-binding below a cell (`.Some(Box(s))`) borrows the
+      // cell's payload: sound in a consuming or `&` match, but in a `mut`
+      // match a write through `name` replaces the cell, and the payload the
+      // borrow points into goes with it
+      // (issues/fixed/2026-11-23-a-binding-pattern-over-a-mut-match-may-overwrite-the-value-its-box-sub-pattern-binding-borrows.md).
       sub_names := pattern_bindings(&sub.*);
       (si : usize) = usize(0);
       while(si < sub_names.len(), {
         sn := match(sub_names.get_cloned(si), .Some(n) => n, .None => String.new());
         sty := _bind_ty_of(own, sn.clone());
+        sub_borrows := (in_cell || _names_contain(&own.borrowed, sn.clone()));
         bad := cond(
-          (in_cell || _names_contain(&own.borrowed, sn.clone())) => false,
           own.is_mut => true,
+          sub_borrows => false,
           true => match(&sty, .Some(t) => !type_is_bitwise_copy(Rc.clone(t)), .None => false)
         );
         if(bad, {
@@ -925,6 +930,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
                   format_error_message_with_help(
                     &atok.*,
                     cond(
+                      (own.is_mut && sub_borrows) => `\`(${name} := …)\` binds \`${sn}\` inside it, a borrow of a cell's payload, and in a \`mut\` match a write through \`${name}\` would replace the cell while \`${sn}\` still points into it.`,
                       own.is_mut => `\`(${name} := …)\` binds \`${sn}\` inside it, and in a \`mut\` match both would be \`mut\` places over the same storage.`,
                       true => `\`(${name} := …)\` takes the whole value, so \`${sn}\` inside it would be a copy, and its type \`${match(sty, .Some(t) => type_to_string(&t), .None => String.from("?"))}\` is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 26).`
                     ),

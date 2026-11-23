@@ -1,0 +1,18 @@
+// expect: accept
+// The positive twin: `xs` is cleared after the await, the future's last use.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+mkf :: (fn(r : &String, io : Io) -> Impl(Future(usize, Io)))(io.async({ r : &r.* }(io : Io) => r.clone().len()));
+main :: (fn(io : Io) -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  fut := mkf(xs.index(usize(0)), io);
+  v := io.await(fut, io);
+  g := mkf(first(&xs), io);
+  w := io.await(g, io);
+  xs.clear();
+  println(`OUT: ${v.to_string()} ${w.to_string()}`);
+});
+export(main);

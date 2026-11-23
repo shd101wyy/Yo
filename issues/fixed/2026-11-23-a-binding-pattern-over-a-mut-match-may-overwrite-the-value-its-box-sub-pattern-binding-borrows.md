@@ -49,3 +49,16 @@ the `Box` payload to the write `w.* = …`, which drops that payload.
 Fix the rule or wall the position: in a `mut` match, a `(name := …)` binding next to any sub-binding (a borrow below
 a cell included) is the E0901 overlap, or the write through `name` is an access against the sub-binding's loan.
 Then add the reproducer to `tests/origins/unsound/`.
+
+## Fixed
+
+Fixed on `v0280/s1-test7b` (2026-11-23) by the rule, not a wall. In a `mut` match, the `.At` arm of the
+pattern-ownership walk (`src/evaluator/exprs/match.yo`) now rejects every sub-binding of a `(name := …)` pattern,
+a borrow below a cell included: `name` is a `mut` place over the whole value, and a write through it replaces the
+cell whose payload the sub-binding points into. The exemption for bindings below a cell stays for consuming and
+`&` matches, where nothing writes through `name`. The program is E0901: "`(w := …)` binds `s` inside it, a borrow of
+a cell's payload, and in a `mut` match a write through `w` would replace the cell while `s` still points into it."
+
+G-B: `tests/origins/unsound/t7-at-binding-over-box-subpattern-mut-match.yo` (the reproducer, probe t06) and the
+positive twin `t7-at-binding-over-box-subpattern-mut-match-pos.yo` (the same pattern in a `&` match; a `&mut` match
+that binds only `w` and matches it again after the write).
