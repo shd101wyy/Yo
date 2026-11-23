@@ -1,5 +1,7 @@
 # How should `yo fix --migrate explicit-copy` treat a copy that escapes the function?
 
+**Retired 2026-11-21:** moot since the `BTreeMap` flip deleted `--migrate explicit-copy` (see Status below); `yo fix --migrate` itself was deleted in v0.2.80.
+
 **Kind:** design question: an open decision, not a defect. Filed 2026-10-14
 with the migration (`plans/VALUES_BY_DEFAULT.md`, V2b "Unique buffers",
 Generation A2; `_run_migrate_explicit_copy`, `src/main.yo`).

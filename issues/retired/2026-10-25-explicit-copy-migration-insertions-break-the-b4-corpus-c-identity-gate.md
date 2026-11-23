@@ -1,5 +1,7 @@
 # The explicit-copy migration's insertions break B4's corpus C-identity gate
 
+**Retired 2026-11-21:** moot since the `BTreeMap` flip deleted `--migrate explicit-copy`; `yo fix --migrate` itself was deleted in v0.2.80.
+
 *Filed 2026-10-25 by B4-2 (VBD v0.2.71 campaign).*
 
 

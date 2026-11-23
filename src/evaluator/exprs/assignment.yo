@@ -173,7 +173,6 @@ pragma(Pragma.AllowUnsafe);
   deref_exempt_clear,
   variable_is_reference_binding,
   deref_rule_applies,
-  deref_rule_recording,
   reject_reference_without_deref,
   ref_payload_source,
   is_reference_read
@@ -1571,11 +1570,11 @@ get_atomic_object_root_type :: (
 // evaluate_assignment
 // ---------------------------------------------------------------------------
 /// The name `r` of an assignment target `r.*` when `r` is a reference
-/// binding whose written `.*` is its own deref (`deref_rule_applies`),
-/// outside the recording mode (decision 43 step 2): the target is the
-/// referent, the place a bare `r = v` wrote.
+/// binding whose written `.*` is its own deref (`deref_rule_applies`,
+/// decision 43 step 2): the target is the referent, the place a bare `r = v`
+/// wrote.
 _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AstExpr))({
-  if(deref_rule_recording() || !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
+  if(!ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(AstExpr).None);
   });
   rw_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
