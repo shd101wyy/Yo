@@ -1,0 +1,12 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 8: leaving the inner block does not give `m` back.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  {
+    a := m;
+    a.* = i32(1);
+  };
+  m.* = i32(2);
+});
+export(main);
