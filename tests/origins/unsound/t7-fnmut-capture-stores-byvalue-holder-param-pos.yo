@@ -1,0 +1,17 @@
+// expect: accept
+// The positive twin: the closure stores an owned value read through its holder parameter.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H :: struct(r : &Box(String));
+main :: (fn() -> unit)({
+  mut(o) := Option(String).None;
+  {
+    (mut(f) : Impl(FnMut(h : H) -> unit)) = ({ o : &mut o }(h) => {
+      o.* = .Some(h.r.*.*.clone());
+    });
+    y := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    f(H(r : &y));
+  };
+  match(&o, .Some(s) => println(`OUT: ${s.len().to_string()}`), .None => ());
+});
+export(main);
