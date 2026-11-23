@@ -9477,7 +9477,12 @@ _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(
 /// the mode of the reference that put it into the future's origin (an
 /// `io.async` capture-list entry, or the `&`/`&mut` lend of the call that
 /// made the future). The origin itself carries no mode.
-FutureRoot :: struct(name : String, path : ArrayList(String), is_mut : bool);
+/// A place a borrowing future holds: its root binding's `name` and the field
+/// `path` from it. A root that names no binding — an R-TEMP or R-ARM entry of
+/// an argument's origin (`ORIGIN_TEMPORARY_ROOT`, `ORIGIN_SCOPED_ROOT`,
+/// `ORIGIN_LOST_ROOT`) — keeps the entry's `text` for the binding's
+/// rejection; `text` is empty otherwise.
+FutureRoot :: struct(name : String, path : ArrayList(String), is_mut : bool, text : String);
 derive(FutureRoot, Clone);
 note_future_roots :: (fn(id : usize, roots : &ArrayList(FutureRoot)) -> unit)({
   v := roots.clone();
@@ -9508,20 +9513,33 @@ _future_value_roots_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCon
       (fi : usize) = usize(0);
       while(fi < frs.len(), fi = (fi + usize(1)), {
         fr := frs(fi).clone();
-        match(
-          get_variables_from_env(env, fr.name.clone()).last_cloned(),
-          .Some(rv) => {
-            place := local_borrow_place_of_variable(&rv);
-            (pi : usize) = usize(0);
-            while(pi < fr.path.len(), pi = (pi + usize(1)), {
-              place.steps.push(fr.path(pi).clone());
-              place.text.push_str(".");
-              place.text.push_string(&fr.path(pi));
-            });
-            out.push(OriginRootPlace(place : place, is_mut : fr.is_mut));
-          },
-          .None => ()
-        );
+        // An argument's R-TEMP / R-ARM entry: the future points into
+        // storage that ends with the statement that made it, so a binding
+        // of it is rejected as a binding of the reference itself is
+        // (issues/fixed/2026-11-23-a-call-result-reference-argument-to-a-future-making-call-gives-the-future-no-origin.md).
+        if((fr.name == ORIGIN_TEMPORARY_ROOT) || ((fr.name == ORIGIN_SCOPED_ROOT) || (fr.name == ORIGIN_LOST_ROOT)), {
+          out.push(
+            OriginRootPlace(
+              place : LocalBorrowPlace(root_name : fr.name.clone(), root_decl : ast_expr_token(&stripped), steps : fr.path.clone(), through_cell : false, module_root : false, text : fr.text.clone()),
+              is_mut : fr.is_mut
+            )
+          );
+        }, {
+          match(
+            get_variables_from_env(env, fr.name.clone()).last_cloned(),
+            .Some(rv) => {
+              place := local_borrow_place_of_variable(&rv);
+              (pi : usize) = usize(0);
+              while(pi < fr.path.len(), pi = (pi + usize(1)), {
+                place.steps.push(fr.path(pi).clone());
+                place.text.push_str(".");
+                place.text.push_string(&fr.path(pi));
+              });
+              out.push(OriginRootPlace(place : place, is_mut : fr.is_mut));
+            },
+            .None => ()
+          );
+        });
       });
       return(());
     },
@@ -11030,7 +11048,7 @@ holder_future_roots :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext)
   (i : usize) = usize(0);
   while(i < places.len(), i = (i + usize(1)), {
     r := places(i).clone();
-    out.push(FutureRoot(name : r.place.root_name.clone(), path : r.place.steps.clone(), is_mut : r.is_mut));
+    out.push(FutureRoot(name : r.place.root_name.clone(), path : r.place.steps.clone(), is_mut : r.is_mut, text : r.place.text.clone()));
   });
   out
 });

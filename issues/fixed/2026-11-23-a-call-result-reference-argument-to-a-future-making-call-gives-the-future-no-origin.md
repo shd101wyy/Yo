@@ -59,6 +59,15 @@ argument (`is_computed_reference_operand`) now contributes `origin_of` of the ar
 arguments, exactly as an origin-carrying by-value argument does. `fut := mkf(xs.index(0), io); xs.clear()` is
 E0911 at `xs.clear()`, as the bound form `r := xs.index(0); fut := mkf(r, io)` already was.
 
+The argument's origin can name a temporary (R-TEMP): `mkf(c.borrow_mut().get(), io)` reads through a temporary
+guard whose `Drop` replaces the box the future points into when the statement ends. That variant was accepted and
+ASan-dirty on develop too, and the first cut of this fix dropped the entry again: the future's roots are recorded
+by root NAME (`FutureRoot`) and read back through the environment, where `#temporary` names no binding. A
+`FutureRoot` (and the `_FutureLend` it is made from) now keeps the entry's text, and `_future_value_roots_into`
+returns an R-TEMP / R-ARM root as the entry itself, so `fut := mkf(c.borrow_mut().get(), io)` is rejected as
+`r := c.borrow_mut().get()` is, while `io.await(mkf(c.borrow_mut().get(), io), io)` — awaited in the statement that
+made it — stays accepted.
+
 G-B: `tests/origins/unsound/t7-future-call-result-ref-arg.yo` (the reproducer), `t7-future-call-result-ref-arg-free-fn.yo`
-(the probe's `first(&xs)` form, e04), and the positive twin `t7-future-call-result-ref-arg-pos.yo` (`xs` cleared after
-the awaits).
+(the probe's `first(&xs)` form, e04), `t7-future-call-result-ref-arg-temp-guard.yo`, and the positive twins
+`t7-future-call-result-ref-arg-pos.yo` (`xs` cleared after the awaits) and `t7-future-call-result-ref-arg-temp-guard-pos.yo`.

@@ -4065,7 +4065,7 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, call_id : usize, args : &
     // A place read off a captured future's origin (no capture site) is
     // that future's: it names the callee's parameters, not a place here.
     if(!bs(ob).site.is_empty(), {
-      roots.push(FutureRoot(name : obn.clone(), path : bs(ob).path.clone(), is_mut : bs(ob).is_mut));
+      roots.push(FutureRoot(name : obn.clone(), path : bs(ob).path.clone(), is_mut : bs(ob).is_mut, text : String.new()));
     });
     if(!_names_list_contains(&origin_names, &obn), {
       origin_names.push(obn);
@@ -4463,7 +4463,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, env : &
   roots := ArrayList(FutureRoot).new();
   (li : usize) = usize(0);
   while(li < lends.len(), li = (li + usize(1)), {
-    roots.push(FutureRoot(name : ast_expr_token(&lends(li).place.root).value.*.clone(), path : lends(li).place.path.clone(), is_mut : lends(li).is_mut));
+    roots.push(FutureRoot(name : ast_expr_token(&lends(li).place.root).value.*.clone(), path : lends(li).place.path.clone(), is_mut : lends(li).is_mut, text : lends(li).text.clone()));
   });
   note_future_roots(call_id, &roots);
   note_future_roots(ast_expr_id(expr), &roots);
@@ -4671,7 +4671,10 @@ _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &Ar
 /// capture-list place of an `io.async` written in place, and, through a
 /// combinator's future operand, every place the operand's own call lends.
 /// `via` is the argument that lends it.
-_FutureLend :: struct(place : _LentPlace, is_mut : bool, via : AstExpr);
+/// `text` names a place whose root is no binding (an R-TEMP or R-ARM entry
+/// of an argument's origin, `origin_temporary_root`) for the binding's
+/// rejection; empty otherwise.
+_FutureLend :: struct(place : _LentPlace, is_mut : bool, via : AstExpr, text : String);
 /// Some borrow in `bs` rooted at the parameter `name` is `&mut`.
 _borrows_root_named_mut :: (fn(bs : &ArrayList(CaptureBorrow), name : &String) -> bool)({
   (bi : usize) = usize(0);
@@ -4712,7 +4715,8 @@ _future_lends_into :: (fn(e : &AstExpr, via : &AstExpr, env : &Environment, ctx 
             _FutureLend(
               place : _LentPlace(root : Rc.new(AstExprNode.Atom(alloc_global_expr_id(), synthetic_token(&fr.name, &tok.module_path.*))), path : fr.path.clone()),
               is_mut : fr.is_mut,
-              via : via.clone()
+              via : via.clone(),
+              text : String.new()
             )
           );
         });
@@ -4731,7 +4735,8 @@ _future_lends_into :: (fn(e : &AstExpr, via : &AstExpr, env : &Environment, ctx 
               _FutureLend(
                 place : _LentPlace(root : Rc.new(AstExprNode.Atom(alloc_global_expr_id(), synthetic_token(&hr.name, &tok.module_path.*))), path : hr.path.clone()),
                 is_mut : hr.is_mut,
-                via : via.clone()
+                via : via.clone(),
+                text : String.new()
               )
             );
           });
@@ -4758,7 +4763,7 @@ _future_call_lends_into :: (
       recv := match(leaf_callee, Rc(.FnCall(_, _, Rc(d_args), _, _)) => match(d_args.get_cloned(usize(0)), .Some(r) => r, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
       match(
         _lent_place_of(&recv, ctx),
-        .Some(rp) => out.push(_FutureLend(place : rp, is_mut : _borrows_root_named_mut(leaf_bs, &self_label), via : via.clone())),
+        .Some(rp) => out.push(_FutureLend(place : rp, is_mut : _borrows_root_named_mut(leaf_bs, &self_label), via : via.clone(), text : String.new())),
         .None => ()
       );
     });
@@ -4772,7 +4777,7 @@ _future_call_lends_into :: (
         _lent_argument_place(&lent),
         .Some(place) => match(
           _lent_place_of(&place, ctx),
-          .Some(lp) => out.push(_FutureLend(place : lp, is_mut : (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || _borrows_root_named_mut(leaf_bs, &label)), via : via.clone())),
+          .Some(lp) => out.push(_FutureLend(place : lp, is_mut : (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || _borrows_root_named_mut(leaf_bs, &label)), via : via.clone(), text : String.new())),
           .None => ()
         ),
         .None => {
@@ -4788,7 +4793,7 @@ _future_call_lends_into :: (
           if((out.len() == before) && labels_known && ast_expr_is_atom(&lent) && match(get_variables_from_env(env, ast_expr_token(&lent).value.*.clone()).last_cloned(), .Some(lrv) => variable_is_reference_binding(&lrv), .None => false), {
             match(
               _lent_place_of(&lent, ctx),
-              .Some(rbp) => out.push(_FutureLend(place : rbp, is_mut : _borrows_root_named_mut(leaf_bs, &label), via : via.clone())),
+              .Some(rbp) => out.push(_FutureLend(place : rbp, is_mut : _borrows_root_named_mut(leaf_bs, &label), via : via.clone(), text : String.new())),
               .None => ()
             );
           });
@@ -4807,7 +4812,8 @@ _future_call_lends_into :: (
                 _FutureLend(
                   place : _LentPlace(root : Rc.new(AstExprNode.Atom(alloc_global_expr_id(), synthetic_token(&orp.place.root_name, &tok.module_path.*))), path : orp.place.steps.clone()),
                   is_mut : orp.is_mut,
-                  via : via.clone()
+                  via : via.clone(),
+                  text : orp.place.text.clone()
                 )
               );
             });
@@ -4848,7 +4854,7 @@ _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(As
         _lent_argument_place(&lent),
         .Some(place) => match(
           _lent_place_of(&place, ctx),
-          .Some(lp) => arg_lends.push(_FutureLend(place : lp, is_mut : ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))), via : lent.clone())),
+          .Some(lp) => arg_lends.push(_FutureLend(place : lp, is_mut : ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))), via : lent.clone(), text : String.new())),
           .None => ()
         ),
         .None => if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lent)), .Some(li) => (is_future_value_type(&li.ty()) && type_is_second_class(&li.ty())), .None => false), {
