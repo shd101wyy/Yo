@@ -288,7 +288,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     // Literal atoms (string/char/template-string) live in static storage.
     if(opts.allow_comptime_source, {
       is_lit := match(
-        tok.kind,
+        tok.*.kind,
         .StringLit => true,
         .CharLit => true,
         .TemplateString => true,
@@ -323,27 +323,27 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
         return(false);
       }
     );
-    if(v.is_ref(), {
+    if(v.*.is_ref(), {
       return(true);
     });
     // R1' (binding-site only): a same-frame non-module local, bounded by
     // `max_local_frame_level` when set.
-    if(opts.allow_same_frame_local && !v.is_module_level(), {
+    if(opts.allow_same_frame_local && !v.*.is_module_level(), {
       ok := match(
         opts.max_local_frame_level,
         .None => true,
-        .Some(maxl) => (v.frame_level <= maxl)
+        .Some(maxl) => (v.*.frame_level <= maxl)
       );
       if(ok, {
         return(true);
       });
     });
     // R1'' (slice-flowability): a parameter of the enclosing function.
-    if(opts.allow_parameter_source && v.is_parameter(), {
+    if(opts.allow_parameter_source && v.*.is_parameter(), {
       return(true);
     });
     // R1''' (slice-flowability): a comptime-bound name (static storage).
-    if(opts.allow_comptime_source && v.is_compile_time_only(), {
+    if(opts.allow_comptime_source && v.*.is_compile_time_only(), {
       return(true);
     });
     return(false);
@@ -489,7 +489,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   );
   is_variant_ctor := (
     (ast_expr_is_fn_call(&call_func) && ast_expr_is_fn_call_of(&call_func, BF_DOT, Option(usize).Some(usize(1)))) ||
-      (ast_expr_is_atom(&call_func) && match(ast_expr_token(&call_func).kind, .Dot => true, _ => false))
+      (ast_expr_is_atom(&call_func) && match(ast_expr_token(&call_func).*.kind, .Dot => true, _ => false))
       || is_qualified_variant_ctor || is_type_ctor_call
   );
   if(is_variant_ctor, {
@@ -627,15 +627,15 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
 /// (step-capped instead of an identity-set cycle guard).
 alias_group_root :: (fn(variable : &Variable) -> String)({
   (cur : Variable) = Rc.clone(variable);
-  (root_id : String) = variable.id().to_string();
+  (root_id : String) = variable.*.*.id().to_string();
   (steps : usize) = usize(0);
   (done : bool) = false;
   while(!done && (steps < usize(64)), {
     match(
-      cur.is_owning_the_same_rc_value_as(),
+      cur.*.is_owning_the_same_rc_value_as(),
       .Some(next_box) => {
         cur = next_box;
-        root_id = cur.id().to_string();
+        root_id = cur.*.id().to_string();
       },
       .None => {
         done = true;
@@ -800,7 +800,7 @@ require_ref_own_argument_exclusivity :: (
                                   Box.new(
                                     format_error_message(
                                       ast_expr_token(&own_arg),
-                                      `Cannot pass "${own_var.name}" to the sink parameter "${own_lbl}" in the same call where argument ${ref_idx + usize(1)} borrows from it (bound to the ref parameter "${ref_lbl}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`
+                                      `Cannot pass "${own_var.*.name}" to the sink parameter "${own_lbl}" in the same call where argument ${ref_idx + usize(1)} borrows from it (bound to the ref parameter "${ref_lbl}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`
                                     )
                                   )
                                 )
@@ -884,13 +884,13 @@ _type_may_reach_any_of :: (
   );
   match(
     ty,
-    Rc(.Struct({ field_types : fields })) => _any_may_reach_any_of(&fields.items, via_ref, targets, seen),
+    Rc(.Struct({ field_types : fields })) => _any_may_reach_any_of(&fields.*.items, via_ref, targets, seen),
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), vi = (vi + usize(1)), {
         match(
           all_fields.get(vi),
-          .Some(v_fields) => if(_any_may_reach_any_of(&v_fields.items, via_ref, targets, seen), {
+          .Some(v_fields) => if(_any_may_reach_any_of(&v_fields.*.items, via_ref, targets, seen), {
             return(true);
           }),
           .None => ()
@@ -898,8 +898,8 @@ _type_may_reach_any_of :: (
       });
       false
     },
-    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, via_ref, targets, seen),
-    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, via_ref, targets, seen),
+    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.*.items, via_ref, targets, seen),
+    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.*.items, via_ref, targets, seen),
     Rc(.Array(element : elem, length : _)) => recur(&elem, via_ref, targets, seen),
     Rc(.SliceT(elem)) => recur(&elem, via_ref, targets, seen),
     Rc(.Reference(pointee : rp)) => recur(&rp, true, targets, seen),
@@ -1173,7 +1173,7 @@ _reject_if_container_reachable :: (
   );
   // (a) globally reachable: module-level itself, or aliases a module-level var.
   c_root_id := alias_group_root(&cvar);
-  (root_module : bool) = cvar.is_module_level();
+  (root_module : bool) = cvar.*.is_module_level();
   if(!root_module, {
     // Walk env for a variable whose id == c_root_id and is module-level.
     (fi : usize) = usize(0);
@@ -1186,7 +1186,7 @@ _reject_if_container_reachable :: (
             match(
               frame.variable_at(vi),
               .Some(fv) => {
-                if((fv.id().to_string() == c_root_id) && fv.is_module_level(), {
+                if((fv.*.id().to_string() == c_root_id) && fv.*.is_module_level(), {
                   root_module = true;
                 });
               },
@@ -1352,7 +1352,7 @@ require_valid_ref_argument_places :: (
       defer_label := match(param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
       arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
       arg_tok := ast_expr_token(&arg);
-      if(!arg_tok.module_path.*.starts_with(String.from("auto-generated://")), {
+      if(!arg_tok.*.module_path.*.starts_with(String.from("auto-generated://")), {
         // `xs(i)` (Index trait) yields a raw `*(T)` into the container's
         // heap buffer; reject when the container is reachable.
         arg_is_index_place := match(
@@ -1436,7 +1436,7 @@ require_valid_ref_argument_places :: (
                         .Some(inf) => type_contains_rc_type(&inf.ty()),
                         .None => false
                       );
-                      if(rv.is_module_level() && (root_is_object || ref_type_contains_rc), {
+                      if(rv.*.is_module_level() && (root_is_object || ref_type_contains_rc), {
                         exn.throw(
                           dyn(
                             Box.new(

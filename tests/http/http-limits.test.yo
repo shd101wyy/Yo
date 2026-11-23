@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 _fetch_error :: (fn(url : &String, opts : &FetchOptions, io : Io) -> Option(String))({
   exn := Exception(
     throw : (
-      err -> unwind(Option(String).Some(err.to_string()))
+      err -> unwind(Option(String).Some(err.*.to_string()))
     )
   );
   _r := io.await(fetch_with(url, opts, io), IoExn(io : io, exn : exn));
@@ -51,7 +51,7 @@ test("with_timeout drives a too-short deadline to HttpError.Timeout", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -68,7 +68,7 @@ test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -109,7 +109,7 @@ _fetch_throws_too_many_redirects :: (fn(url : &String, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
-        assert(err.to_string().contains(`Too many redirects`), `expected TooManyRedirects, got: ${err.to_string()}`);
+        assert(err.*.to_string().contains(`Too many redirects`), `expected TooManyRedirects, got: ${err.*.to_string()}`);
         unwind(true)
       }
     )
@@ -124,7 +124,7 @@ test("a redirect chain over the cap throws TooManyRedirects", {
   exn := Exception(
     throw : (
       err -> {
-        assert(err.to_string().contains(`Too many redirects`), `expected TooManyRedirects, got: ${err.to_string()}`);
+        assert(err.*.to_string().contains(`Too many redirects`), `expected TooManyRedirects, got: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -138,9 +138,9 @@ test("a redirect chain over the cap throws TooManyRedirects", {
   stopper := server.clone();
   task := io.spawn(
     server.clone().serve(req => {
-      seen.with_mut(l => l.push(i32(1)));
+      seen.*.with_mut(l => l.push(i32(1)));
       cond(
-        (seen.with(l => l.len()) >= usize(11)) => {
+        (seen.*.with(l => l.len()) >= usize(11)) => {
           stopper.stop();
         },
         true => ()
@@ -152,7 +152,7 @@ test("a redirect chain over the cap throws TooManyRedirects", {
   threw := _fetch_throws_too_many_redirects(`http://127.0.0.1:19985/r/15`, io);
   assert(threw, "a 15-hop redirect must throw TooManyRedirects");
   task.await(io);
-  n_served := served.with(l => l.len());
+  n_served := served.*.with(l => l.len());
   assert(n_served == usize(11), `the client must stop after the eleventh 302, served ${n_served}`);
   io.await(server.close(io), ioe);
 });
@@ -160,7 +160,7 @@ test("a redirect chain under the cap is followed to its 200", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -224,7 +224,7 @@ test("a `../` Location climbs a directory instead of being pasted verbatim", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )

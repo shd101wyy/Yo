@@ -62,7 +62,7 @@ test("a sibling task keeps running while spawn_blocking blocks", {
       (mut(i) : i32) = i32(0);
       while(i < i32(40), {
         io.await(yield(io), io);
-        progress.fetch_add(i32(1), MemoryOrder.AcqRel);
+        progress.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         i = (i + i32(1));
       });
       i32(0)
@@ -75,11 +75,11 @@ test("a sibling task keeps running while spawn_blocking blocks", {
   observed := io.await(
     spawn_blocking({ progress : Arc.clone(progress) }() => {
       (mut(spins) : i32) = i32(0);
-      while((progress.load(MemoryOrder.Acquire) < i32(5)) && (spins < i32(200)), {
+      while((progress.*.load(MemoryOrder.Acquire) < i32(5)) && (spins < i32(200)), {
         sleep_blocking(Duration.from_millis(i64(5)));
         spins = (spins + i32(1));
       });
-      progress.load(MemoryOrder.Acquire)
+      progress.*.load(MemoryOrder.Acquire)
     }, io),
     io
   );
@@ -110,7 +110,7 @@ test("a sibling task keeps running while spawn_blocking blocks", {
   // This holds on EVERY target, inline fallback included: the loop is free
   // again once the blocking call returns, so the sibling still runs to
   // completion — only its INTERLEAVING with the block is platform-dependent.
-  assert(progress.load(MemoryOrder.Acquire) == i32(40), "the sibling ran to completion");
+  assert(progress.*.load(MemoryOrder.Acquire) == i32(40), "the sibling ran to completion");
 });
 test("repeated pairs of spawn_blocking do not corrupt the wake inbox", {
   // REGRESSION (issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md).

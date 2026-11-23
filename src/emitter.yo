@@ -495,8 +495,8 @@ impl(
   emit_line : (fn(self : &mut Self, c : str) -> unit)({
     self.code.push_str(c);
     self.code.push_str("\n");
-    match(&self.declared_ref, .Some(s) => s.with_mut(set => _emitter_record_declared_temp(set, String.from(c))), .None => ());
-    match(&self.scope_ref, .Some(st) => st.with_mut(stack => _emitter_track_scope(stack, String.from(c))), .None => ());
+    match(&self.declared_ref, .Some(s) => s.*.*.with_mut(set => _emitter_record_declared_temp(set, String.from(c))), .None => ());
+    match(&self.scope_ref, .Some(st) => st.*.*.with_mut(stack => _emitter_track_scope(stack, String.from(c))), .None => ());
     if(self.move_zeroes.len() > usize(0), {
       self._flush_move_zeroes(String.from(c));
     });
@@ -542,8 +542,8 @@ impl(
   }),
   /// Append a raw `String` value + newline to the code section.
   emit_string_line : (fn(self : &mut Self, c : &String) -> unit)({
-    match(&self.declared_ref, .Some(s) => s.with_mut({ c : &c.* }(set) => _emitter_record_declared_temp(set, c.clone())), .None => ());
-    match(&self.scope_ref, .Some(st) => st.with_mut({ c : &c.* }(stack) => _emitter_track_scope(stack, c.clone())), .None => ());
+    match(&self.declared_ref, .Some(s) => s.*.*.with_mut({ c : &c.* }(set) => _emitter_record_declared_temp(set, c.clone())), .None => ());
+    match(&self.scope_ref, .Some(st) => st.*.*.with_mut({ c : &c.* }(stack) => _emitter_track_scope(stack, c.clone())), .None => ());
     self.code.push_string(c.clone());
     self.code.push_str("\n");
     if(self.move_zeroes.len() > usize(0), {
@@ -560,7 +560,7 @@ impl(
   mark_declared_in_scope : (fn(self : &mut Self, name : &String) -> unit)({
     // Owned capture (`with_mut`'s callback is a sink parameter).
     scope_name := name.clone();
-    match(&self.scope_ref, .Some(st) => st.with_mut({ scope_name }(stack) => stack.push(scope_name)), .None => ())
+    match(&self.scope_ref, .Some(st) => st.*.*.with_mut({ scope_name }(stack) => stack.push(scope_name)), .None => ())
   }),
   /// A `#line` directive must start a physical line: an `emit`/`emit_string`
   /// fragment with no trailing newline gets its newline first, so a directive

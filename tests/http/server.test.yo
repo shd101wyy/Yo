@@ -103,7 +103,7 @@ test("bytes pipelined after a body-less request are not its body", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -130,7 +130,7 @@ test("serve_once answers a GET from fetch (method, path, header, empty body)", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -151,7 +151,7 @@ test("serve_once reads a POST body and forwards request headers", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -169,7 +169,7 @@ test("a chunked request body is decoded before the handler sees it", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -190,7 +190,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -201,7 +201,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   seen := Rc.clone(called);
   task := io.spawn(
     server.clone().serve_once(req => {
-      seen.with_mut(l => l.push(i32(1)));
+      seen.*.with_mut(l => l.push(i32(1)));
       HttpResponse.with_status(StatusCode.OK())
     }, io),
     IoExn(io : io, exn : exn)
@@ -211,7 +211,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Unknown method: BREW`), `reason in body: ${raw}`);
-  assert(called.with(l => l.len()) == usize(0), "handler must not run for a malformed request");
+  assert(called.*.with(l => l.len()) == usize(0), "handler must not run for a malformed request");
   io.await(s.close(io), ioe);
   task.await(io);
   io.await(server.close(io), ioe);
@@ -220,7 +220,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -233,14 +233,14 @@ test("serve loops until stop(); local_addr reports the bound port", {
   stopper := server.clone();
   task := io.spawn(
     server.clone().serve(req => {
-      seen.with_mut(l => l.push(i32(1)));
+      seen.*.with_mut(l => l.push(i32(1)));
       cond(
         (req.path == `/last`) => {
           stopper.stop();
         },
         true => ()
       );
-      HttpResponse.with_status(StatusCode.OK()).with_body(`n=${seen.with(l => l.len())}`)
+      HttpResponse.with_status(StatusCode.OK()).with_body(`n=${seen.*.with(l => l.len())}`)
     }, io),
     IoExn(io : io, exn : exn)
   );
@@ -249,7 +249,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
   r3 := io.await(fetch(`http://127.0.0.1:19974/last`, io), IoExn(io : io, exn : exn));
   assert((r1.body == "n=1") && ((r2.body == "n=2") && (r3.body == "n=3")), `three sequential requests: ${r1.body} ${r2.body} ${r3.body}`);
   task.await(io);
-  assert(hits.with(l => l.len()) == usize(3), "serve returned after stop()");
+  assert(hits.*.with(l => l.len()) == usize(3), "serve returned after stop()");
   io.await(server.close(io), ioe);
 });
 // The request direction of the binary-body pin: parse_request must slice the
@@ -259,7 +259,7 @@ test("the server round-trips a binary request body byte-for-byte", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -305,7 +305,7 @@ test("Content-Length framing: OWS after the colon is optional, and only a real f
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -363,7 +363,7 @@ test("only a real Transfer-Encoding field line turns on chunked decoding", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -403,7 +403,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -415,7 +415,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   stopper := server.clone();
   task := io.spawn(
     server.clone().serve(req => {
-      seen.with_mut(l => l.push(i32(1)));
+      seen.*.with_mut(l => l.push(i32(1)));
       cond(
         (req.path == `/last`) => {
           stopper.stop();
@@ -432,19 +432,19 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Content-Length`), `reason names the header: ${raw}`);
   io.await(s.close(io), ioe);
-  assert(hits.with(l => l.len()) == usize(0), "handler must not run for a malformed frame");
+  assert(hits.*.with(l => l.len()) == usize(0), "handler must not run for a malformed frame");
   // The server is still there for the next client.
   r := io.await(fetch(`http://127.0.0.1:19976/last`, io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), `next request served: ${r.status}`);
   task.await(io);
-  assert(hits.with(l => l.len()) == usize(1), "exactly the good request reached the handler");
+  assert(hits.*.with(l => l.len()) == usize(1), "exactly the good request reached the handler");
   io.await(server.close(io), ioe);
 });
 test("a request over max_request_bytes gets 413 and serve keeps serving", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )

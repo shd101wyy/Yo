@@ -25,13 +25,13 @@ evaluate_float_literal :: (
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
-  if(!(tok.kind == TokenKind.Float), {
+  if(!(tok.*.kind == TokenKind.Float), {
     exn.throw(
       dyn(
         Box.new(
           format_error_message(
             &tok,
-            `Expected float literal, got ${tok.value.*}`
+            `Expected float literal, got ${tok.*.value.*}`
           )
         )
       )
@@ -39,7 +39,7 @@ evaluate_float_literal :: (
   });
   // Parse to f64, normalize to decimal string
   parsed := match(
-    parse_raw_float(&tok.value.*),
+    parse_raw_float(&tok.*.value.*),
     .Some(f) => f,
     .None => {
       exn.throw(
@@ -47,7 +47,7 @@ evaluate_float_literal :: (
           Box.new(
             format_error_message(
               &tok,
-              `Failed to parse float literal: ${tok.value.*}`
+              `Failed to parse float literal: ${tok.*.value.*}`
             )
           )
         )

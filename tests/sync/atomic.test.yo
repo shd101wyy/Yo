@@ -108,12 +108,12 @@ test("AtomicI32 cross-thread counter", {
   });
   (mut(j) : i32) = i32(0);
   while(j < iterations, {
-    counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     j = (j + i32(1));
   });
   t.join();
   expected := (iterations * i32(2));
-  result := counter.load(MemoryOrder.Relaxed);
+  result := counter.*.load(MemoryOrder.Relaxed);
   assert(result == expected, "counter should reflect both threads");
 });
 
@@ -644,7 +644,7 @@ test("AtomicI64 fetch_add under four-thread contention", {
   t1.join();
   t2.join();
   t3.join();
-  assert(counter.load(MemoryOrder.Acquire) == (iterations * i64(4)), "no increment may be lost");
+  assert(counter.*.load(MemoryOrder.Acquire) == (iterations * i64(4)), "no increment may be lost");
 });
 test("AtomicU64 fetch_sub under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
@@ -664,7 +664,7 @@ test("AtomicU64 fetch_sub under four-thread contention", {
   t1.join();
   t2.join();
   t3.join();
-  assert(counter.load(MemoryOrder.Acquire) == u64(0), "no decrement may be lost");
+  assert(counter.*.load(MemoryOrder.Acquire) == u64(0), "no decrement may be lost");
 });
 test("AtomicUsize fetch_add under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
@@ -684,7 +684,7 @@ test("AtomicUsize fetch_add under four-thread contention", {
   t1.join();
   t2.join();
   t3.join();
-  assert(counter.load(MemoryOrder.Acquire) == (iterations * usize(4)), "no increment may be lost");
+  assert(counter.*.load(MemoryOrder.Acquire) == (iterations * usize(4)), "no increment may be lost");
 });
 
 // ============================================================================
@@ -728,10 +728,10 @@ test("AtomicU32 fetch_or / fetch_and under four-thread contention", {
   t2.join();
   t3.join();
   assert(v0.load(MemoryOrder.Acquire) == u32(0), "thread 0 saw its own bit already set");
-  assert(v1.load(MemoryOrder.Acquire) == u32(0), "thread 1 saw its own bit already set");
-  assert(v2.load(MemoryOrder.Acquire) == u32(0), "thread 2 saw its own bit already set");
-  assert(v3.load(MemoryOrder.Acquire) == u32(0), "thread 3 saw its own bit already set");
-  assert(bits.load(MemoryOrder.Acquire) == u32(0), "every clear must survive");
+  assert(v1.*.load(MemoryOrder.Acquire) == u32(0), "thread 1 saw its own bit already set");
+  assert(v2.*.load(MemoryOrder.Acquire) == u32(0), "thread 2 saw its own bit already set");
+  assert(v3.*.load(MemoryOrder.Acquire) == u32(0), "thread 3 saw its own bit already set");
+  assert(bits.*.load(MemoryOrder.Acquire) == u32(0), "every clear must survive");
 });
 test("AtomicU16 fetch_xor under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
@@ -754,7 +754,7 @@ test("AtomicU16 fetch_xor under four-thread contention", {
   t1.join();
   t2.join();
   t3.join();
-  assert(flags.load(MemoryOrder.Acquire) == u16(0), "paired flips must cancel exactly");
+  assert(flags.*.load(MemoryOrder.Acquire) == u16(0), "paired flips must cancel exactly");
 });
 
 // ============================================================================
@@ -799,11 +799,11 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
   t2.join();
   t3.join();
   assert(v0.load(MemoryOrder.Acquire) == i32(0), "thread 0 observed a lost min/max");
-  assert(v1.load(MemoryOrder.Acquire) == i32(0), "thread 1 observed a lost min/max");
-  assert(v2.load(MemoryOrder.Acquire) == i32(0), "thread 2 observed a lost min/max");
-  assert(v3.load(MemoryOrder.Acquire) == i32(0), "thread 3 observed a lost min/max");
-  assert(lowest.load(MemoryOrder.Acquire) == i32(0), "the global minimum must win");
-  assert(highest.load(MemoryOrder.Acquire) == i32(3999), "the global maximum must win");
+  assert(v1.*.load(MemoryOrder.Acquire) == i32(0), "thread 1 observed a lost min/max");
+  assert(v2.*.load(MemoryOrder.Acquire) == i32(0), "thread 2 observed a lost min/max");
+  assert(v3.*.load(MemoryOrder.Acquire) == i32(0), "thread 3 observed a lost min/max");
+  assert(lowest.*.load(MemoryOrder.Acquire) == i32(0), "the global minimum must win");
+  assert(highest.*.load(MemoryOrder.Acquire) == i32(3999), "the global maximum must win");
 });
 
 // ============================================================================
@@ -827,15 +827,15 @@ test("fence publishes a relaxed store across threads", {
   ready := Arc.new(AtomicBool.new(false));
   observed := AtomicI64.new(i64(-1));
   writer := Thread(unit).spawn({ data : Arc.clone(data), ready : Arc.clone(ready) }(io) => {
-    data.store(i64(424242), MemoryOrder.Relaxed);
+    data.*.store(i64(424242), MemoryOrder.Relaxed);
     fence(MemoryOrder.Release);
-    ready.store(true, MemoryOrder.Relaxed);
+    ready.*.store(true, MemoryOrder.Relaxed);
   });
-  while(!ready.load(MemoryOrder.Relaxed), {
+  while(!ready.*.load(MemoryOrder.Relaxed), {
     ();
   });
   fence(MemoryOrder.Acquire);
-  observed.store(data.load(MemoryOrder.Relaxed), MemoryOrder.Relaxed);
+  observed.store(data.*.load(MemoryOrder.Relaxed), MemoryOrder.Relaxed);
   writer.join();
   assert(observed.load(MemoryOrder.Acquire) == i64(424242), "the acquire fence must see the payload");
 });

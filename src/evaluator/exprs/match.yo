@@ -213,14 +213,14 @@ is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   // as `Kind.Func` (an enum variant) or a module member is not a place:
   // evaluating it directly yields no variable_name for the match to bind, and
   // it carries no RC traffic to save in the first place.
-  root_vars := get_variables_from_env(env, ast_expr_token(&root).value.*);
+  root_vars := get_variables_from_env(env, ast_expr_token(&root).*.value.*);
   if(root_vars.len() == usize(0), {
     return(false);
   });
   return(
     match(
       root_vars.last_cloned(),
-      .Some(rv) => !(rv.is_compile_time_only()),
+      .Some(rv) => !(rv.*.is_compile_time_only()),
       .None => false
     )
   );
@@ -423,8 +423,8 @@ _register_mut_arm_place_loans :: (
     match(
       cell_copy_vars.get_cloned(ci),
       .Some(cv) => {
-        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, body, guard : guard.clone()), .None => ());
-        match(mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, body, true, guard : guard.clone()), .None => ());
+        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.*.name.clone(), &cv.*.token, body, guard : guard.clone()), .None => ());
+        match(mut_place, .Some(lp) => local_borrow_register_match_place(cv.*.name.clone(), &cv.*.token, &lp.*, body, true, guard : guard.clone()), .None => ());
       },
       .None => ()
     );
@@ -434,8 +434,8 @@ _register_mut_arm_place_loans :: (
     match(
       place_vars.get_cloned(pi),
       .Some(pv) => {
-        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, body, guard : guard.clone()), .None => ());
-        match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, body, true, guard : guard.clone()), .None => ());
+        match(lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.*.name.clone(), &pv.*.token, body, guard : guard.clone()), .None => ());
+        match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.*.name.clone(), &pv.*.token, &lp.*, body, true, guard : guard.clone()), .None => ());
       },
       .None => ()
     );
@@ -479,7 +479,7 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
     );
   });
   cond(
-    (ast_expr_is_atom(&cur) && (ast_expr_token(&cur).kind == TokenKind.Identifier)) => get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last_cloned(),
+    (ast_expr_is_atom(&cur) && (ast_expr_token(&cur).*.kind == TokenKind.Identifier)) => get_variables_from_env(env, ast_expr_token(&cur).*.value.*.clone()).last_cloned(),
     true => Option(Variable).None
   )
 });
@@ -489,14 +489,14 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
 _scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
   cond(
     // A `.` access rooted at a runtime variable (`Type.Variant` is a value).
-    ast_expr_is_fn_call_of(scr, BF_DOT, Option(usize).Some(usize(2))) => match(_scrutinee_root_variable(scr, env), .Some(rv) => !rv.is_compile_time_only(), .None => false),
+    ast_expr_is_fn_call_of(scr, BF_DOT, Option(usize).Some(usize(2))) => match(_scrutinee_root_variable(scr, env), .Some(rv) => !rv.*.is_compile_time_only(), .None => false),
     true => match(
       scr,
       // `xs(i)`: a call whose callee is a runtime variable, not a function.
       Rc(.FnCall(_, callee, _, _, _)) => (
         ast_expr_is_atom(&callee.*) && match(
-          get_variables_from_env(env, ast_expr_token(&callee.*).value.*.clone()).last_cloned(),
-          .Some(cv) => !cv.is_compile_time_only(),
+          get_variables_from_env(env, ast_expr_token(&callee.*).*.value.*.clone()).last_cloned(),
+          .Some(cv) => !cv.*.is_compile_time_only(),
           .None => false
         )
       ),
@@ -508,7 +508,7 @@ _scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
 _variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(variable_is_mut_borrow(v));
 /// The scrutinee is a reference binding named bare (`match(r, …)`).
 _scrutinee_is_reference_binding :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
-  ast_expr_is_atom(scr) && match(get_variables_from_env(env, ast_expr_token(scr).value.*.clone()).last_cloned(), .Some(sv) => variable_is_reference_binding(&sv), .None => false)
+  ast_expr_is_atom(scr) && match(get_variables_from_env(env, ast_expr_token(scr).*.value.*.clone()).last_cloned(), .Some(sv) => variable_is_reference_binding(&sv), .None => false)
 );
 /// A binding that holds an `imm` borrow (`variable_is_imm_borrow`).
 _variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(variable_is_imm_borrow(v));
@@ -525,10 +525,10 @@ _throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String
   rd := ast_rewritten_node(scr);
   is_reference_deref := (ast_expr_is_fn_call_of(scr, ".", Option(usize).Some(usize(2))) && ast_expr_is_atom(&rd));
   if(is_reference_deref, {
-    text = `${ast_expr_token(&rd).value.*}.*`;
+    text = `${ast_expr_token(&rd).*.value.*}.*`;
   });
   help := cond(
-    is_reference_deref => `match through the reference: \`match(${ast_expr_token(&rd).value.*}, …)\` binds the payload as a borrow of the referent, and through a \`&mut\` reference its bindings write it`,
+    is_reference_deref => `match through the reference: \`match(${ast_expr_token(&rd).*.value.*}, …)\` binds the payload as a borrow of the referent, and through a \`&mut\` reference its bindings write it`,
     true => `match through a borrow: \`match(&${text}, …)\`, or \`match(&mut ${text}, …)\` to write through the bindings`
   );
   raise_flow_violation(
@@ -551,7 +551,7 @@ _throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String
 /// (#1798's hazard). Bind the reference instead and read or write through
 /// it where the lend allows.
 _throw_mut_match_copy :: (fn(b_atom : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception, (below_cell : bool) ?= false) -> unit)({
-  name := ast_expr_token(b_atom).value.*.clone();
+  name := ast_expr_token(b_atom).*.value.*.clone();
   what := if(below_cell, String.from("a `mut(name)` binding below a `Box` (or another cell) of a `&mut` match is a copy of its part, not a place,"), String.from("a `mut(name)` binding of a `&` match copies its part by value,"));
   msg := `use of moved value: cannot copy \`${name}\` out of the match's borrow: ${what} and its type \`${type_to_string(ty)}\` holds data the scrutinee's owner still holds.`;
   help := if(below_cell, `bind \`${name}\` without \`mut\` and write the part through the scrutinee after its last use, or match a value you own`, `bind the reference instead: the same arm without \`mut\` binds \`${name}\` as a reference into the scrutinee, read and written through \`${name}.*\` where the lend allows, or match a value you own`);
@@ -598,7 +598,7 @@ _leftmost_token :: (fn(e : &AstExpr) -> Token)(
 /// then matched by value, moving that binding, as a run-time argument's is
 /// (issues/fixed/2026-10-30-a-generic-functions-match-binding-cannot-move-out-of-a-compile-time-known-argument.md).
 _scrutinee_moves_through_param_shadow :: (fn(rv : &Variable, ty : &TypeValue, env : &Environment) -> bool)(
-  type_requires_explicit_copy(ty) && (rv.is_parameter() && (!rv.is_owning_the_rc_value() && (!rv.is_ref() && owning_param_binding_beside(env, rv).is_some())))
+  type_requires_explicit_copy(ty) && (rv.*.*.is_parameter() && (!rv.*.*.is_owning_the_rc_value() && (!rv.*.*.is_ref() && owning_param_binding_beside(env, rv).is_some())))
 );
 _decide_match_mode :: (
   fn(
@@ -644,8 +644,8 @@ _decide_match_mode :: (
               with_code(
                 format_error_message_with_help(
                   ast_expr_token(&scr),
-                  `Cannot match \`&mut ${ast_expr_to_string(&scr)}\`: \`${rv.name}\` is a \`&\` borrow, which is read-only.`,
-                  Option(String).Some(`match it with \`&${ast_expr_to_string(&scr)}\`, or take \`${rv.name}\` as \`${rv.name} : &mut T\``)
+                  `Cannot match \`&mut ${ast_expr_to_string(&scr)}\`: \`${rv.*.name}\` is a \`&\` borrow, which is read-only.`,
+                  Option(String).Some(`match it with \`&${ast_expr_to_string(&scr)}\`, or take \`${rv.*.name}\` as \`${rv.*.name} : &mut T\``)
                 ),
                 E_WRITE_THROUGH_BORROW
               )
@@ -682,9 +682,9 @@ _decide_match_mode :: (
     match(
       &root,
       .Some(rv) => cond(
-        rv.is_module_level() => _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn),
+        rv.*.*.is_module_level() => _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn),
         match_scrutinee_is_capture(&rv.*, env, ctx) => _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn),
-        rv.is_compile_time_only() => (),
+        rv.*.*.is_compile_time_only() => (),
         true => {
           note_consuming_match_scrutinee(&dyn_tok);
           note_dyn_copy_pending(&rv.*, &dyn_tok, &ty);
@@ -701,7 +701,7 @@ _decide_match_mode :: (
     match(
       root,
       .Some(rv) => cond(
-        rv.is_module_level() => {
+        rv.*.is_module_level() => {
           _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn);
           return(MATCH_MODE_BORROW);
         },
@@ -709,7 +709,7 @@ _decide_match_mode :: (
           _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn);
           return(MATCH_MODE_BORROW);
         },
-        rv.is_compile_time_only() => (),
+        rv.*.is_compile_time_only() => (),
         _scrutinee_moves_through_param_shadow(&rv, &ty, env) => {
           _moved := move_through_sink_shadow(&rv, &scr, env, ctx, exn);
           note_consuming_match_scrutinee(&stok);
@@ -737,9 +737,9 @@ _decide_match_mode :: (
     .Some(tname) => match(
       find_variable_in_env(&info.env(), tname.clone()),
       .Some(tv) => if(is_temp_variable_name(&env.module_path().*, &tname.*), {
-        if(tv.is_owning_the_rc_value(), {
-          if(tv.consumed_at_token().is_none(), {
-            tv.set_consumed_at_token(Option(Token).Some(stok));
+        if(tv.*.is_owning_the_rc_value(), {
+          if(tv.*.consumed_at_token().is_none(), {
+            tv.*.set_consumed_at_token(Option(Token).Some(stok));
           });
         }, {
           _throw_unmovable_scrutinee(&scr, &ty, String.from("it is borrowed from the value that holds it (an element, or a binding into another value)."), ctx, exn);
@@ -774,9 +774,9 @@ _ArmOwnership :: struct(
 );
 _ownership_hidden_bind :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
   tok := Rc.clone(own.tok);
-  name := generate_new_temp_variable_name(&env.module_path().*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*.clone()));
+  name := generate_new_temp_variable_name(&env.module_path().*, usize(tok.*.row), usize(tok.*.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.*.module_path.*.clone()));
   own.counter = (own.counter + usize(1));
-  atok := Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input)));
+  atok := Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.*.row, column : tok.*.column, character : tok.*.character, byte_offset : tok.*.byte_offset, module_path : Rc.clone(tok.*.module_path), input : Rc.clone(tok.*.input)));
   BindInfo(name : name, ty : Rc.clone(ty), value : Option(EvalValue).None, atom : Rc.new(AstExprNode.Atom(alloc_global_expr_id(), atok)))
 });
 _ownership_unbound :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
@@ -1029,7 +1029,7 @@ _own_all :: (fn(vs : &ArrayList(Variable)) -> unit)({
     match(
       vs.get_cloned(i),
       .Some(v) => {
-        v.set_is_owning_the_rc_value(true);
+        v.*.set_is_owning_the_rc_value(true);
       },
       .None => ()
     );
@@ -1045,7 +1045,7 @@ _drop_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), body : &AstExpr, env : 
     match(
       vs.get_cloned(i),
       .Some(v) => cond(
-        v.consumed_at_token().is_some() => attach_consumed_binding_exit_drops(body, &v, env, ctx, exn),
+        v.*.consumed_at_token().is_some() => attach_consumed_binding_exit_drops(body, &v, env, ctx, exn),
         true => drop_owned_match_binding_at_arm_end(&v, body, env, ctx, exn)
       ),
       .None => ()
@@ -1064,7 +1064,7 @@ _access_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), arm : &AstExpr, ctx :
   while(i < vs.len(), i = (i + usize(1)), {
     match(
       vs.get_cloned(i),
-      .Some(v) => if(v.consumed_at_token().is_none(), {
+      .Some(v) => if(v.*.consumed_at_token().is_none(), {
         // Judged just past the arm's last token: a loan whose last use is
         // that token has ended (`local_borrow_access_at`).
         local_borrow_access_at(&local_borrow_place_of_variable(&v), &LocalBorrowAccess.Move, &end_tok, &end_tok, &ArrayList(AstExpr).new(), ctx, exn);
@@ -1141,7 +1141,7 @@ evaluate_match :: (
   // redundant, and `yo fix --migrate deref` drops it.
   if(ast_expr_is_atom(&scrutinee_expr) && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0)), {
     match(
-      get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(),
+      get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).*.value.*.clone()).last_cloned(),
       .Some(sb_v) => if(variable_is_reference_binding(&sb_v) && deref_rule_applies(ast_expr_token(&scrutinee_expr), ctx), {
         reject_reference_without_deref(&sb_v, ast_expr_token(&scrutinee_expr), u8(3), ctx, exn);
       }),
@@ -1572,8 +1572,8 @@ evaluate_match :: (
             // A writable reference binding is the reassignable `is_ref`
             // one (`r := &mut x`); a `&` one is not (a write through it
             // is E0908).
-            rp_var.set_is_reassignable(rp_is_mut);
-            note_ref_payload_source(rp_var.id(), &scrutinee_expr);
+            rp_var.*.*.set_is_reassignable(rp_is_mut);
+            note_ref_payload_source(rp_var.*.*.id(), &scrutinee_expr);
           },
           .None => ()
         ),
@@ -1587,7 +1587,7 @@ evaluate_match :: (
         match(
           &_added,
           .Some(mb_var) => {
-            mb_var.set_is_reassignable(true);
+            mb_var.*.*.set_is_reassignable(true);
           },
           .None => ()
         );
@@ -1597,11 +1597,11 @@ evaluate_match :: (
       // ...)`'s `.Some(x)` arm), rebinds like a parameter.
       m_tok := ast_expr_token(expr);
       if(for_desugar_site_of(&m_tok).is_some(), {
-        match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
+        match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.*.*.id()), .None => ());
       }, {
-        if(b_tok.module_path != m_tok.module_path, {
-          if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
-            match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
+        if(b_tok.*.module_path != m_tok.*.module_path, {
+          if(canonical_module_path(&b_tok.*.module_path.*) != canonical_module_path(&m_tok.*.module_path.*), {
+            match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.*.*.id()), .None => ());
           });
         });
       });
@@ -1649,7 +1649,7 @@ evaluate_match :: (
                 // The projection root rule follows the binding to the
                 // scrutinee's place (decision 24); a `mut` copy stays a
                 // local.
-                note_borrow_match_source(bm_var.id(), &ast_expr_token(&b.atom), &scrutinee_expr);
+                note_borrow_match_source(bm_var.*.*.id(), &ast_expr_token(&b.atom), &scrutinee_expr);
                 variable_set_is_ref(&bm_var.*, true);
                 // `is_ref` says the binding is a pointer; a `&` match
                 // lends read-only.
@@ -1686,7 +1686,7 @@ evaluate_match :: (
           // A reference binding's own loan entries are what it borrows
           // (`y := &x`'s pins, a projection binding's, `bind`'s).
           a3_roots := match(
-            cond(ast_expr_is_atom(&scrutinee_expr) => get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(), true => Option(Variable).None),
+            cond(ast_expr_is_atom(&scrutinee_expr) => get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).*.value.*.clone()).last_cloned(), true => Option(Variable).None),
             .Some(a3_v) => if(variable_is_reference_binding(&a3_v), variable_holder_roots(&a3_v), origin_of(&scrutinee_expr, &env, ctx)),
             .None => origin_of(&scrutinee_expr, &env, ctx)
           );
@@ -1706,7 +1706,7 @@ evaluate_match :: (
           rf_roots := origin_held_by(&scrutinee_expr, &env, ctx);
           // The binding's VALUE is that reference: a read of it holds these
           // roots, never the binding's own place (R-DEREF).
-          match(&_added, .Some(rf_var) => note_ref_payload_held(rf_var.id(), &rf_roots), .None => ());
+          match(&_added, .Some(rf_var) => note_ref_payload_held(rf_var.*.*.id(), &rf_roots), .None => ());
           (rfi : usize) = usize(0);
           while(rfi < rf_roots.len(), {
             local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut, guard : guard_ast.clone());
@@ -1718,7 +1718,7 @@ evaluate_match :: (
       // G-E: a binding that holds an origin holds the scrutinee's; a
       // parameter scrutinee's declared type is its record, and a reference
       // payload's holding is `origin_held_by`'s computation just above.
-      if(!ct_known && ref_payload.is_none() && type_carries_origin(&b.ty) && !(ast_expr_is_atom(&scrutinee_expr) && match(get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(), .Some(sv) => sv.is_parameter(), .None => false)), {
+      if(!ct_known && ref_payload.is_none() && type_carries_origin(&b.ty) && !(ast_expr_is_atom(&scrutinee_expr) && match(get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).*.value.*.clone()).last_cloned(), .Some(sv) => sv.*.is_parameter(), .None => false)), {
         audit_origin_totality_elided("match-binding", &scrutinee_expr, ctx);
       });
       if(mut_places && !b_ct_known && _names_contain(&own.borrowed, b.name.clone()), {
@@ -1740,7 +1740,7 @@ evaluate_match :: (
               // C13: the part holds what the moved scrutinee held (R-READ
               // reads it back), never its own place.
               if(!b_ct_known && type_carries_origin(&bind_ty), {
-                note_ref_payload_held(av.id(), &origin_held_by(&scrutinee_expr, &env, ctx));
+                note_ref_payload_held(av.*.*.id(), &origin_held_by(&scrutinee_expr, &env, ctx));
               });
             });
             if(mut_places, {
@@ -1762,7 +1762,7 @@ evaluate_match :: (
       // walked lists, so `loop_result = .Some(item)` stores no borrow of
       // `item` (issues/fixed/2026-11-17-a-copied-match-binding-is-its-own-origin-so-filter-over-zip-is-e0923.md).
       if(!consuming && (!mut_places && (!ref_binds && (!b_ct_known && (ref_payload.is_none() && (!p_view && (type_carries_origin(&bind_ty) && !_names_contain(&own.borrowed, b.name.clone()))))))), {
-        match(&_added, .Some(cv) => note_ref_payload_held(cv.id(), &origin_held_by(&scrutinee_expr, &env, ctx)), .None => ());
+        match(&_added, .Some(cv) => note_ref_payload_held(cv.*.*.id(), &origin_held_by(&scrutinee_expr, &env, ctx)), .None => ());
       });
     });
     unbound_vars := _add_hidden_bindings(&own.unbound, &env, ctx);
@@ -1919,7 +1919,7 @@ evaluate_match :: (
         pattern_test_exprs(&arm.pattern, &mut tests);
         if(tests.len() > usize(0), {
           ptok := ast_expr_token(&arm_expr);
-          begin_atom := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : Rc.clone(ptok.module_path), input : Rc.clone(ptok.input)))));
+          begin_atom := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.*.row, column : ptok.*.column, character : ptok.*.character, byte_offset : ptok.*.byte_offset, module_path : Rc.clone(ptok.*.module_path), input : Rc.clone(ptok.*.input)))));
           arm_info := new_expr_info(&env, t_unit());
           expr_info_set_macro_expansion(&arm_info, Option(AstExpr).Some(Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(tests), false, ptok))));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&arm_expr), &arm_info);
@@ -1975,9 +1975,9 @@ evaluate_match :: (
           match(
             unbound_vars.get_cloned(ui0),
             .Some(uv) => {
-              uv.set_is_owning_the_rc_value(true);
-              entry_drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${uv.name})`, exn), &env, ctx, exn));
-              uv.set_consumed_at_token(Option(Token).Some(ast_expr_token(&arm_expr)));
+              uv.*.set_is_owning_the_rc_value(true);
+              entry_drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${uv.*.name})`, exn), &env, ctx, exn));
+              uv.*.set_consumed_at_token(Option(Token).Some(ast_expr_token(&arm_expr)));
             },
             .None => ()
           );
@@ -1997,11 +1997,11 @@ evaluate_match :: (
           match(
             place_vars.get_cloned(pi0),
             .Some(pv) => {
-              pv.set_is_reassignable(true);
+              pv.*.set_is_reassignable(true);
               match(
                 &mut_root,
                 .Some(rv) => {
-                  variable_set_inout_borrow_root_id(&pv, rv.id());
+                  variable_set_inout_borrow_root_id(&pv, rv.*.*.id());
                 },
                 .None => ()
               );

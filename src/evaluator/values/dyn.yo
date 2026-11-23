@@ -96,7 +96,7 @@ apply_type_ctor_via :: (fn(ctor : &String, types : &ArrayList(TypeValue), env : 
     match(
       vars.get_cloned(vi),
       .Some(v) => match(
-        v.value().get(usize(0)),
+        v.*.value().get(usize(0)),
         .Some(val) => if(is_func_val(&val), {
           box_fv = Option(EvalValue).Some(val);
           box_ft = variable_value_type(&v);
@@ -118,7 +118,7 @@ apply_type_ctor_via :: (fn(ctor : &String, types : &ArrayList(TypeValue), env : 
       while(ai < types.len(), {
         ty_i := match(types.get_cloned(ai), .Some(t) => t, .None => t_unit());
         param_ty := match(&box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts.*, ai), .Some(p) => p, .None => t_type()), _ => t_type());
-        param_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.param_labels.get(ai), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
+        param_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.*.*.param_labels.get(ai), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
         vtok := synthetic_token(param_label.clone(), &cenv.module_path().*);
         add_variable_to_env(&cenv, param_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(&ty_i)), true, false, false, false, &vtok);
         bargs.push(ArgEntry(value : Option(EvalValue).Some(create_type_value(&ty_i)), parameter_type : param_ty, arg_type : t_type()));
@@ -162,10 +162,10 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
   match(
     callee,
     Rc(.FnCall(_, _, Rc(dot_args), _, _)) => cond(
-      (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false)) => match(
+      (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.*.value.* == "new"), _ => false)) => match(
         dot_args.get_cloned(usize(0)),
         .Some(Rc(.Atom(r_id, r_tok))) => cond(
-          (is_shared_cell_type_name(&r_tok.value.*) || (r_tok.value.* == "Arc") || (r_tok.value.* == "Box")) => .Some(DynCellConstructor(type_name : r_tok.value.*.clone(), unapplied_receiver : r_id)),
+          (is_shared_cell_type_name(&r_tok.*.value.*) || (r_tok.*.value.* == "Arc") || (r_tok.*.value.* == "Box")) => .Some(DynCellConstructor(type_name : r_tok.*.value.*.clone(), unapplied_receiver : r_id)),
           true => .None
         ),
         _ => .None
@@ -189,7 +189,7 @@ _dyn_cell_args_recognized :: (fn(args : &ArrayList(AstExpr)) -> bool)(
         (args.len() == usize(2)) => match(
           args.get_cloned(usize(1)),
           .Some(a1) => cond(
-            ast_expr_is_fn_call_of(&a1, ":", Option(usize).Some(usize(2))) => match(a1, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(Rc(.Atom(_, lt))) => (lt.value.* == "alloc"), _ => false), _ => false),
+            ast_expr_is_fn_call_of(&a1, ":", Option(usize).Some(usize(2))) => match(a1, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(Rc(.Atom(_, lt))) => (lt.*.value.* == "alloc"), _ => false), _ => false),
             true => true
           ),
           .None => false
@@ -232,9 +232,9 @@ _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &Eval
     .Some(ctor) => {
       callee_id := alloc_global_expr_id();
       callee_info := new_expr_info(env, &variable_value_type(&ctor));
-      callee_info.set_value(ctor.value().get(usize(0)));
+      callee_info.set_value(ctor.*.value().get(usize(0)));
       expr_info_table_set(&ctx.expr_info_table, callee_id, &callee_info);
-      .Some(Rc.new(AstExprNode.Atom(callee_id, synthetic_token(ctor.name.clone(), &env.module_path().*))))
+      .Some(Rc.new(AstExprNode.Atom(callee_id, synthetic_token(ctor.*.name.clone(), &env.module_path().*))))
     },
     .None => .None
   )
@@ -261,7 +261,7 @@ _prelude_cell_constructor :: (fn(cell_name : &String, env : &Environment) -> Opt
   while(vi < vars.len(), vi = (vi + usize(1)), {
     match(
       vars.get_cloned(vi),
-      .Some(v) => if(match(v.value().get(usize(0)), .Some(val) => is_func_val(&val), .None => false), {
+      .Some(v) => if(match(v.*.value().get(usize(0)), .Some(val) => is_func_val(&val), .None => false), {
         return(Option(Variable).Some(v));
       }),
       .None => ()
@@ -404,7 +404,7 @@ _require_dyn_traits_implemented :: (
   // A `Dyn(..., Send)` shares its data object across threads, so the object
   // must be atomically counted: an `Rc.new(...)` payload is not
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
-  if(match(dyn_type, Rc(.DynT(required_trait_types : sd_rtt)) => _traits_name_send(&sd_rtt.items), _ => false) && is_boxed_type(value_type) && !is_atomic_counted_handle_type(value_type), {
+  if(match(dyn_type, Rc(.DynT(required_trait_types : sd_rtt)) => _traits_name_send(&sd_rtt.*.*.items), _ => false) && is_boxed_type(value_type) && !is_atomic_counted_handle_type(value_type), {
     sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`Arc.new\`) or \`Arc.new(v)\`.`;
     raise_flow_violation(format_error_message(token, &sd_msg), ctx, exn);
   });
@@ -520,7 +520,7 @@ _require_dyn_traits_implemented :: (
       // (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md
       // was the move-only case; a `Copy` payload is the same rule).
       match(
-        _by_value_self_slot(&rtt.items),
+        _by_value_self_slot(&rtt.*.*.items),
         .Some(bv) => {
           mo_why := if(type_is_move_only(&check_ty), match(move_only_reason(&check_ty), .Some(r) => ` (${type_to_string(check_ty.clone())} is move-only: ${r})`, .None => String.new()), String.new());
           bv_msg := `A ${type_to_string(dyn_type.clone())} cannot be made: its method ${bv} takes \`self\` by value, and a \`Dyn\` is unsized, so there is no value to hand it — a call would move the payload out of the pointer that owns it${mo_why} (plans/VALUES_BY_DEFAULT.md decision 49). Declare the method with \`self : &Self\`, or call it on the concrete type.`;
@@ -592,11 +592,11 @@ _require_send_dyn_methods_reach_no_global :: (
     exn : Exception
   ) -> unit
 )({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(token.module_path.*.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(token.*.*.module_path.*.clone())), {
     return(());
   });
   // D1 covers a `Sync` trait object as well as a `Send` one (decision 38 E).
-  thread_marker := match(dyn_type, Rc(.DynT(required_trait_types : rtt)) => _thread_marker_named_in(&rtt.items), _ => String.new());
+  thread_marker := match(dyn_type, Rc(.DynT(required_trait_types : rtt)) => _thread_marker_named_in(&rtt.*.*.items), _ => String.new());
   if(thread_marker.is_empty(), {
     return(());
   });
@@ -734,7 +734,7 @@ _monomorphize_default_fv :: (
   cond(
     !is_func_val(fv) => Rc.clone(fv.*),
     (default_fid.* == String.new()) => Rc.clone(fv.*),
-    match(fv, Rc(.FuncVal(__mfv, _)) => (__mfv.func_id == default_fid.*), _ => false) => {
+    match(fv, Rc(.FuncVal(__mfv, _)) => (__mfv.*.*.func_id == default_fid.*), _ => false) => {
       default_ft := get_func_type(default_fid.clone());
       // Every parameter is a runtime argument of its declared type, `Self`
       // read as the receiver. `create_specialized_function_inline` takes the
@@ -748,7 +748,7 @@ _monomorphize_default_fv :: (
       sub_ft := _substitute_self_in_method_ty(&default_ft, value_type);
       sub_pts := match(&sub_ft, Rc(.Func({ param_types : sp })) => Rc.clone(sp), _ => no_types());
       sub_is_ref := match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&sub_ft), _ => no_flags());
-      param_labels := match(fv, Rc(.FuncVal(__plfv, _)) => __plfv.params.clone(), _ => ArrayList(String).new());
+      param_labels := match(fv, Rc(.FuncVal(__plfv, _)) => __plfv.*.*.params.clone(), _ => ArrayList(String).new());
       spec_args := ArrayList(ArgEntry).new();
       ___mdf := caller_env.push_frame(false);
       (spi : usize) = usize(0);
@@ -773,10 +773,10 @@ _monomorphize_default_fv :: (
             synthetic_token(&sp_label, &caller_env.module_path().*)
           ),
           .Some(sp_var) => {
-            sp_var.set_is_parameter(true);
+            sp_var.*.set_is_parameter(true);
             if(sp_is_ref, {
               variable_set_is_ref(&sp_var, true);
-              sp_var.set_is_reassignable(true);
+              sp_var.*.set_is_reassignable(true);
             });
             if(fn_param_is_ptr_borrow(&sub_ft, spi), {
               variable_set_is_ref(&sp_var, true);
@@ -787,7 +787,7 @@ _monomorphize_default_fv :: (
             });
             // A by-value parameter owns its argument (`bind_parameter`).
             if(sp_by_value, {
-              sp_var.set_is_owning_the_rc_value(by_value_param_owns(&sp_ty));
+              sp_var.*.set_is_owning_the_rc_value(by_value_param_owns(&sp_ty));
             });
           },
           .None => ()
@@ -883,12 +883,12 @@ _generic_impl_method_for_dyn :: (
                     TokenData(
                       kind : TokenKind.Operator,
                       value : intern_token_str(&sigil_val),
-                      row : arg_tok.row,
-                      column : arg_tok.column,
-                      character : arg_tok.character,
-                      byte_offset : arg_tok.byte_offset,
-                      module_path : Rc.clone(arg_tok.module_path),
-                      input : Rc.clone(arg_tok.input)
+                      row : arg_tok.*.row,
+                      column : arg_tok.*.column,
+                      character : arg_tok.*.character,
+                      byte_offset : arg_tok.*.byte_offset,
+                      module_path : Rc.clone(arg_tok.*.module_path),
+                      input : Rc.clone(arg_tok.*.input)
                     )
                   );
                   lent_args := ArrayList(AstExpr).new();
@@ -1327,7 +1327,7 @@ _reject_dyn_of_plain_value :: (fn(value_ty : &TypeValue, written : &AstExpr, tok
         with_code(
           match(
             written,
-            Rc(.Atom(_, a_tok)) => format_error_message_with_repair(&a_tok.*, &msg, &Option(String).Some(help.clone()), &`Box.new(${a_tok.value.*})`, &String.from("own the value in a box: `dyn(Box.new(v))`")),
+            Rc(.Atom(_, a_tok)) => format_error_message_with_repair(&a_tok.*, &msg, &Option(String).Some(help.clone()), &`Box.new(${a_tok.*.*.value.*})`, &String.from("own the value in a box: `dyn(Box.new(v))`")),
             _ => format_error_message_with_help(tok, &msg, &Option(String).Some(help.clone()))
           ),
           E_UNSIZING_A_VALUE
@@ -1400,7 +1400,7 @@ _written_cell_new :: (fn(written : &AstExpr) -> bool)(
       ast_expr_is_fn_call_of(w_callee, BF_DOT, Option(usize).Some(usize(2))),
       match(
         w_callee,
-        Rc(.FnCall(_, _, Rc(w_dot), _, _)) => (match(w_dot.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false) && match(w_dot.get_cloned(usize(0)), .Some(Rc(.Atom(_, r_tok))) => ((r_tok.value.* == "Box") || (r_tok.value.* == "Rc") || (r_tok.value.* == "Arc")), _ => false)),
+        Rc(.FnCall(_, _, Rc(w_dot), _, _)) => (match(w_dot.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.*.value.* == "new"), _ => false) && match(w_dot.get_cloned(usize(0)), .Some(Rc(.Atom(_, r_tok))) => ((r_tok.*.value.* == "Box") || (r_tok.*.value.* == "Rc") || (r_tok.*.value.* == "Arc")), _ => false)),
         Rc(.Atom(_, _)) => false
       ),
       false

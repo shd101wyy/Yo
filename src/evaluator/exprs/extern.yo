@@ -107,8 +107,8 @@ reject_reserved_ffi_member :: (fn(arg : &AstExpr, ctx : &EvalContext, exn : Exce
     ),
     ast_expr_token(arg)
   );
-  label := label_tok.value.*.clone();
-  if(is_yo_namespace_name(&label) && !may_bind_yo_namespace_name(&label_tok.module_path.*, &ctx.std_path), {
+  label := label_tok.*.value.*.clone();
+  if(is_yo_namespace_name(&label) && !may_bind_yo_namespace_name(&label_tok.*.module_path.*, &ctx.std_path), {
     exn.throw(dyn(Box.new(format_error_message_with_help(&label_tok, &reserved_yo_name_message(&label), &Option(String).Some(reserved_yo_name_help())))));
   });
 });
@@ -126,7 +126,7 @@ evaluate_extern :: (
         Box.new(
           format_error_message(
             ast_expr_token(expr),
-            `Expected extern, got ${ast_expr_token(expr).value.*}`
+            `Expected extern, got ${ast_expr_token(expr).*.value.*}`
           )
         )
       )
@@ -136,7 +136,7 @@ evaluate_extern :: (
   // names to symbols outside the type system's reach. Only files with
   // `pragma(Pragma.AllowUnsafe);` can declare them. User code calls
   // stdlib wrappers instead.
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).*.module_path.*.clone())), {
     exn.throw(
       dyn(
         Box.new(
@@ -306,14 +306,14 @@ User code should normally call stdlib wrappers (e.g. functions in
           Rc.clone(ret),
           Rc.new(
             FuncMeta(
-              forall_labels : m.forall_labels.clone(),
-              param_labels : m.param_labels.clone(),
-              implicit_labels : m.implicit_labels.clone(),
-              result_is_comptime_only : m.result_is_comptime_only,
-              has_variadic : m.has_variadic,
+              forall_labels : m.*.*.forall_labels.clone(),
+              param_labels : m.*.*.param_labels.clone(),
+              implicit_labels : m.*.*.implicit_labels.clone(),
+              result_is_comptime_only : m.*.*.result_is_comptime_only,
+              has_variadic : m.*.*.has_variadic,
               is_extern : Option(String).Some(language.clone()),
               extern_name : Option(String).Some(result.label.clone()),
-              is_control : m.is_control,
+              is_control : m.*.*.is_control,
               variadic_label : Option(String).None,
               variadic_comptime : false
             )

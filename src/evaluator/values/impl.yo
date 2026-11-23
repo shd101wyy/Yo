@@ -224,7 +224,7 @@ _c_len_12 :: (fn(xs : &ArrayList(ArrayList(String))) -> usize)(xs.len());
 _method_ty_skip_stamp :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.result_is_comptime_only, true, {
+    Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.*.*.result_is_comptime_only, true, {
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < pts.len()) && !found, {
@@ -249,9 +249,9 @@ _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) 
     match(
       v,
       Rc(.FuncVal(__fvm8, cv)) => if(
-        __fvm8.forall_names.len() > usize(0),
+        __fvm8.*.*.forall_names.len() > usize(0),
         Rc.clone(v.*),
-        Rc.new(EvalValueNode.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.params.clone(), param_type_names : __fvm8.param_type_names.clone(), evidence_params : __fvm8.evidence_params.clone(), body : Rc.clone(__fvm8.body), cap_names : __fvm8.cap_names.clone(), cap_tys : __fvm8.cap_tys.clone(), func_id : __fvm8.func_id.clone(), env_key : __fvm8.env_key)), Rc.clone(cv)))
+        Rc.new(EvalValueNode.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.*.*.params.clone(), param_type_names : __fvm8.*.*.param_type_names.clone(), evidence_params : __fvm8.*.*.evidence_params.clone(), body : Rc.clone(__fvm8.*.*.body), cap_names : __fvm8.*.*.cap_names.clone(), cap_tys : __fvm8.*.*.cap_tys.clone(), func_id : __fvm8.*.*.func_id.clone(), env_key : __fvm8.*.*.env_key)), Rc.clone(cv)))
       ),
       _ => Rc.clone(v.*)
     )
@@ -1008,7 +1008,7 @@ _resolve_one_forall_binding :: (
   });
   last_nvar := match(name_vars.get_cloned(n_nvars - usize(1)), .Some(v) => v, .None => return(Option(TypeValue).None));
   match(
-    last_nvar.value().get(usize(0)),
+    last_nvar.*.value().get(usize(0)),
     .Some(ev) => match(
       ev,
       Rc(.TypeVal(b)) => cond(
@@ -1079,9 +1079,9 @@ _resolve_one_forall_binding_from :: (
           match(
             vars.get_cloned(vi),
             .Some(var) =>
-              if(var.name == fa_name.*, {
+              if(var.*.name == fa_name.*, {
                 match(
-                  var.value().get(usize(0)),
+                  var.*.value().get(usize(0)),
                   .Some(ev) =>
                     match(
                       ev,
@@ -1511,7 +1511,7 @@ _is_marker_trait :: (fn(ty : &TypeValue) -> bool)(
     Rc(.TraitT({ body : mt_fts_body, assoc_constraint_types : mt_acts })) => {
       mt_fts := mt_fts_body.field_types();
       (
-        !_any_type_has_some_type(&mt_fts) && !_any_type_has_some_type(&mt_acts.items)
+        !_any_type_has_some_type(&mt_fts) && !_any_type_has_some_type(&mt_acts.*.*.items)
       )
     },
     _ => false
@@ -1667,7 +1667,7 @@ try_match_generic_impl :: (
         // swallowed error (capture-free handler, same pattern as the
         // [swallow] hook) — pairs with the [tm-try] line above it.
         if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-          eprintln(`[tm-synth-swallow] ${err.to_string()}`);
+          eprintln(`[tm-synth-swallow] ${err.*.to_string()}`);
         });
         unwind(Option(ArrayList(TypeValue)).None);
       }
@@ -1885,7 +1885,7 @@ try_match_generic_impl :: (
         match(
           fv_vars.last_cloned(),
           .Some(fv_var) => match(
-            fv_var.value().get(usize(0)),
+            fv_var.*.value().get(usize(0)),
             .Some(Rc(.IntLit(fv_raw))) => {
               fa_val2 = Rc.new(EvalValueNode.IntLit(fv_raw.clone()));
             },
@@ -2176,7 +2176,7 @@ find_matching_generic_impl :: (
 /// carry the path as typed and a demand-loaded one's the `file://` key, and a
 /// replay of one impl under the other spelling is not a second impl.
 _impl_site_string :: (fn(tok : &Token) -> String)(
-  `${display_module_path(&tok.module_path.*)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
+  `${display_module_path(&tok.*.*.module_path.*)}:${(usize(tok.*.*.row) + usize(1)).to_string()}:${(usize(tok.*.*.column) + usize(1)).to_string()}`
 );
 /// `Deref` and `DerefMut` (plans/VALUES_BY_DEFAULT.md §3.3, VERDICTS-63
 /// decision 10): outside the prelude an impl is accepted when its `Target`
@@ -2190,10 +2190,10 @@ _impl_site_string :: (fn(tok : &Token) -> String)(
 /// (`cell_handle_view`, the shape V5 gives `Rc` and `Arc`) in a
 /// `pragma(Pragma.AllowUnsafe)` file (V5 decision D2) are not checked.
 _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), receiver_ty : &TypeValue, trait_ctor : &AstExpr, tok : &Token, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
-  if(is_prelude_or_generated_file(Option(String).Some(tok.module_path.*.clone()), ctx.std_path.clone()), {
+  if(is_prelude_or_generated_file(Option(String).Some(tok.*.*.module_path.*.clone()), ctx.std_path.clone()), {
     return(());
   });
-  if(cell_handle_view(receiver_ty).is_some() && is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
+  if(cell_handle_view(receiver_ty).is_some() && is_implicitly_unsafe_capable_file(Option(String).Some(tok.*.*.module_path.*.clone())), {
     return(());
   });
   _is_prelude_trait :: (fn(tt : &TypeValue, name : str, env : &Environment) -> bool)(
@@ -2406,9 +2406,9 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
       t,
       Rc(.Struct({ id : di_sid, type_arguments : di_tas, is_source_namespace : di_sns })) => cond(
         di_sns.* => `|ns:${di_sid.clone()}`,
-        true => `|s:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_sid.clone())}${_decl_identity_key_of_list(&di_tas.items, depth + usize(1))}`
+        true => `|s:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_sid.clone())}${_decl_identity_key_of_list(&di_tas.*.*.items, depth + usize(1))}`
       ),
-      Rc(.EnumT(id : di_eid, type_arguments : di_etas)) => `|e:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_eid.clone())}${_decl_identity_key_of_list(&di_etas.items, depth + usize(1))}`,
+      Rc(.EnumT(id : di_eid, type_arguments : di_etas)) => `|e:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_eid.clone())}${_decl_identity_key_of_list(&di_etas.*.*.items, depth + usize(1))}`,
       Rc(.Union(name : di_uname)) => `|u:${di_uname.clone()}`,
       // A trait contributes its own base key plus its method signatures'
       // types, where a trait instance's arguments live (`From(Meters)` is
@@ -2417,7 +2417,7 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
         di_trfts := di_trfts_body.field_types();
         `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts, depth + usize(1))}`
       },
-      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.items, depth + usize(1))};${_decl_identity_key_of(&di_fres.*, depth + usize(1))})`,
+      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.*.*.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.*.*.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.*.*.items, depth + usize(1))};${_decl_identity_key_of(&di_fres.*, depth + usize(1))})`,
       Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee.*, depth + usize(1))})`,
       // A reference keys by its mode and its pointee, origin erased
       // (decision 43, N1f-2; plans/reference/TRAIT_COHERENCE.md): `impl(&C,
@@ -2429,7 +2429,7 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
         true => `&(${_decl_identity_key_of(&di_rpointee.*, depth + usize(1))})`
       ),
       Rc(.Array(di_elem, _, _)) => `[${_decl_identity_key_of(&di_elem.*, depth + usize(1))}]`,
-      Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts.items, depth + usize(1))})`,
+      Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts.*.*.items, depth + usize(1))})`,
       Rc(.SomeT({ name : di_sn })) => `$${di_sn.clone()}`,
       _ => type_to_string(t)
     )
@@ -2746,14 +2746,14 @@ _inject_forall_captures :: (
     .Some(mv) => match(
       mv,
       Rc(.FuncVal(__fvm9, cvs)) => {
-        fns := __fvm9.forall_names.clone();
-        ps := __fvm9.params.clone();
-        ptns := __fvm9.param_type_names.clone();
-        evs := __fvm9.evidence_params.clone();
-        body := Rc.clone(__fvm9.body);
+        fns := __fvm9.*.*.forall_names.clone();
+        ps := __fvm9.*.*.params.clone();
+        ptns := __fvm9.*.*.param_type_names.clone();
+        evs := __fvm9.*.*.evidence_params.clone();
+        body := Rc.clone(__fvm9.*.*.body);
         csrc := fv_capture_source(__fvm9.as_ref());
-        fid := __fvm9.func_id.clone();
-        ifc_orig_env_key := __fvm9.env_key;
+        fid := __fvm9.*.*.func_id.clone();
+        ifc_orig_env_key := __fvm9.*.*.env_key;
         memo_key := fid.clone();
         {
           (mk_i : usize) = usize(0);
@@ -3866,7 +3866,7 @@ _try_lookup_trait_type :: (
       match(
         vars.last_cloned(),
         .Some(last_v) => match(
-          last_v.value().get(usize(0)),
+          last_v.*.value().get(usize(0)),
           .Some(ev) => match(
             ev,
             Rc(.TypeVal(tb)) => match(
@@ -4019,11 +4019,11 @@ _substitute_assoc_in_method_ty :: (
 /// tests/env.test.yo PathBuf Eq, tests/string/rune.test.yo). Rebuild the
 /// meta with the VALUE's param names (arity permitting) before registering.
 _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> TypeValue)({
-  fv_params := match(fv, Rc(.FuncVal(__rvd, _)) => __rvd.params.clone(), _ => return(Rc.clone(ty)));
+  fv_params := match(fv, Rc(.FuncVal(__rvd, _)) => __rvd.*.*.params.clone(), _ => return(Rc.clone(ty)));
   match(
     ty,
     Rc(.Func({ forall_types : rw_fts, param_types : rw_pts, implicit_types : rw_its, where_types : rw_wts, result : rw_res, meta : rw_m, variadic_types : rw_vts })) => {
-      if(rw_m.param_labels.len() != fv_params.len(), {
+      if(rw_m.*.*.param_labels.len() != fv_params.len(), {
         return(Rc.clone(ty));
       });
       Rc.new(
@@ -4035,18 +4035,18 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
           Rc.clone(rw_res),
           Rc.new(
             FuncMeta(
-              forall_labels : Rc.clone(rw_m.forall_labels),
+              forall_labels : Rc.clone(rw_m.*.*.forall_labels),
               param_labels : shared_list(fv_params),
-              implicit_labels : Rc.clone(rw_m.implicit_labels),
-              result_is_comptime_only : rw_m.result_is_comptime_only,
-              param_is_sink : rw_m.param_is_sink.clone(),
-              has_variadic : rw_m.has_variadic,
-              is_extern : rw_m.is_extern.clone(),
-              extern_name : rw_m.extern_name.clone(),
-              is_control : rw_m.is_control,
-              variadic_label : rw_m.variadic_label.clone(),
-              variadic_comptime : rw_m.variadic_comptime,
-              origin_labels : rw_m.origin_labels.clone()
+              implicit_labels : Rc.clone(rw_m.*.*.implicit_labels),
+              result_is_comptime_only : rw_m.*.*.result_is_comptime_only,
+              param_is_sink : rw_m.*.*.param_is_sink.clone(),
+              has_variadic : rw_m.*.*.has_variadic,
+              is_extern : rw_m.*.*.is_extern.clone(),
+              extern_name : rw_m.*.*.extern_name.clone(),
+              is_control : rw_m.*.*.is_control,
+              variadic_label : rw_m.*.*.variadic_label.clone(),
+              variadic_comptime : rw_m.*.*.variadic_comptime,
+              origin_labels : rw_m.*.*.origin_labels.clone()
             )
           ),
           Rc.clone(rw_vts)
@@ -4257,7 +4257,7 @@ _materialize_default_body :: (
     throw : (
       _err -> {
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
-          eprintln(`[mat-default-swallow] ${_err.to_string()}`);
+          eprintln(`[mat-default-swallow] ${_err.*.to_string()}`);
         });
         g_mat_default_err.with_mut(xs => xs.clear());
         match(downcast(&_err.*, YoError), .Some(ye) => g_mat_default_err.with_mut({ ye : ye.clone() }(xs) => xs.push(ye)), .None => ());
@@ -4400,7 +4400,7 @@ _result_origin_roots :: (fn(ft : &TypeValue) -> Option(_ResultOriginRoots))({
 fn_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> Option(String))({
   a_roots := match(_result_origin_roots(actual), .Some(r) => r, .None => return(Option(String).None));
   e_roots := match(_result_origin_roots(expected), .Some(r) => r, .None => return(Option(String).None));
-  labels := match(actual, Rc(.Func({ meta : ir_m })) => Rc.clone(ir_m.param_labels), _ => return(Option(String).None));
+  labels := match(actual, Rc(.Func({ meta : ir_m })) => Rc.clone(ir_m.*.*.param_labels), _ => return(Option(String).None));
   extra := String.new();
   (ai : usize) = usize(0);
   while(ai < a_roots.params.len(), ai = (ai + usize(1)), {
@@ -4490,7 +4490,7 @@ _receiver_writes_where_trait_reads :: (fn(actual : &TypeValue, expected : &TypeV
     Rc(.Func({ meta : ameta })) => match(
       expected,
       Rc(.Func({ meta : emeta })) => (
-        match(ameta.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) &&
+        match(ameta.*.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.*.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) &&
           (fn_param_is_mut_ref(actual, usize(0)) && !fn_param_is_mut_ref(expected, usize(0)) && !fn_param_is_by_value(expected, usize(0)))
       ),
       _ => false
@@ -4504,7 +4504,7 @@ _with_receiver_mode_of :: (fn(actual : &TypeValue, expected : &TypeValue) -> Typ
     Rc(.Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts })) => match(
       expected,
       Rc(.Func({ param_types : epts, meta : emeta })) => cond(
-        (match(ameta.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false)) => {
+        (match(ameta.*.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.*.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false)) => {
           // The receiver's slot takes the expected receiver's mode; every
           // other parameter keeps its own.
           slots := ArrayList(TypeValue).new();
@@ -4544,7 +4544,7 @@ _c3_eval_colon_pair :: (
   name_expr := match(colon_args.get_cloned(usize(0)), .Some(e) => e, .None => make_err_expr());
   val_expr := match(colon_args.get_cloned(usize(1)), .Some(e) => e, .None => make_err_expr());
   name_tok := ast_expr_token(&name_expr);
-  method_name := name_tok.value.*.clone();
+  method_name := name_tok.*.value.*.clone();
   qualified := `${st.receiver_name}.${method_name}`;
   // Duplicate-INHERENT-method rejection
   // (plans/reference/FUNCTION_OVERLOADING_POLICY.md,
@@ -4912,7 +4912,7 @@ _c2_register_member :: (
 )({
   (updated : bool) = false;
   if(phase_a_registered, {
-    real_fid := match(value, Rc(.FuncVal(__c2r_fvd, _)) => __c2r_fvd.func_id.clone(), _ => String.new());
+    real_fid := match(value, Rc(.FuncVal(__c2r_fvd, _)) => __c2r_fvd.*.*.func_id.clone(), _ => String.new());
     updated = update_type_trait_method_entry(true, &st.recv_id, &real_fid, ty, value, src_tid);
   });
   if(!updated, {
@@ -4951,7 +4951,7 @@ _c2_eval_direct_field :: (
   mname_expr := match(mf_colon_args.get_cloned(usize(0)), .Some(e) => e, .None => make_err_expr());
   mval_expr := match(mf_colon_args.get_cloned(usize(1)), .Some(e) => e, .None => make_err_expr());
   mname_tok := ast_expr_token(&mname_expr);
-  mname := mname_tok.value.*.clone();
+  mname := mname_tok.*.value.*.clone();
   saved3 := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   eval_mval := evaluate_expression_raw(&mval_expr, &st.env, ctx, exn);
   ctx.expected_type = saved3;
@@ -5008,7 +5008,7 @@ _c2_eval_inner_field :: (
   );
   g_name_expr := match(g_colon_args.get_cloned(usize(0)), .Some(e) => e, .None => make_err_expr());
   g_val_expr := match(g_colon_args.get_cloned(usize(1)), .Some(e) => e, .None => make_err_expr());
-  g_mname := ast_expr_token(&g_name_expr).value.*.clone();
+  g_mname := ast_expr_token(&g_name_expr).*.value.*.clone();
   // Expected field type from the trait's field-by-label, with `Self`
   // substituted to the receiver PATTERN (the same
   // `_substitute_self_in_method_ty` substitution Case 3 does at
@@ -5224,9 +5224,9 @@ force_in_flight_field :: (
     .Done => false,
     .Failed => false,
     .Forcing => cond(
-      (!pf.phase_a_registered && pf.def.phase_a_value().is_some()) => {
-        pa_v := match(pf.def.phase_a_value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
-        pa_t := match(&pf.def.phase_a_type(), .Some(t) => Rc.clone(t), .None => t_unit());
+      (!pf.phase_a_registered && pf.def.*.phase_a_value().is_some()) => {
+        pa_v := match(pf.def.*.phase_a_value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
+        pa_t := match(&pf.def.*.phase_a_type(), .Some(t) => Rc.clone(t), .None => t_unit());
         pa_src := cond(
           pf.is_inner => hdr.current_trait_type_id.clone(),
           true => String.from("")
@@ -5341,7 +5341,7 @@ _collect_impl_where_constraints :: (
       );
       lhs := match(c_args.get_cloned(usize(0)), .Some(x) => x, .None => make_err_expr());
       rhs := match(c_args.get_cloned(usize(1)), .Some(x) => x, .None => make_err_expr());
-      lhs_name := ast_expr_token(&lhs).value.*.clone();
+      lhs_name := ast_expr_token(&lhs).*.value.*.clone();
       (fa_idx : Option(usize)) = Option(usize).None;
       (fni : usize) = usize(0);
       while((fni < forall_names.len()) && fa_idx.is_none(), {
@@ -5419,7 +5419,7 @@ _stamp_impl_where_bound :: (fn(st : &TypeValue, tr : &TypeValue) -> unit)(
     st,
     Rc(.SomeT(_, _, _, _, stamp_bounds, _, _)) => {
       stamp_trait := Rc.clone(tr);
-      stamp_bounds.with_mut({ stamp_trait : Rc.clone(stamp_trait) }(b) => {
+      stamp_bounds.*.*.with_mut({ stamp_trait : Rc.clone(stamp_trait) }(b) => {
         b.required.push(stamp_trait);
         b.required_levels.push(usize(0));
       });
@@ -5443,7 +5443,7 @@ evaluate_module_value :: (
         Box.new(
           format_error_message(
             ast_expr_token(expr),
-            `Expected "impl", got: ${ast_expr_token(expr).value.*}`
+            `Expected "impl", got: ${ast_expr_token(expr).*.value.*}`
           )
         )
       )
@@ -5537,10 +5537,10 @@ evaluate_module_value :: (
         // resolve_some_binder_kind in types/creators.yo). Only value-binder
         // kinds matter, so `: Type` is skipped.
         rhs2 := match(colon_args2.get_cloned(usize(1)), .Some(e) => e, .None => make_err_expr());
-        (binder_name : Option(String)) = Option(String).Some(ast_expr_token(&lhs2).value.*.clone());
+        (binder_name : Option(String)) = Option(String).Some(ast_expr_token(&lhs2).*.value.*.clone());
         fp_maybe_sized = is_maybe_sized_kind_spelling(&rhs2);
         if(ast_expr_is_atom(&rhs2), {
-          rhs2_name := ast_expr_token(&rhs2).value.*.clone();
+          rhs2_name := ast_expr_token(&rhs2).*.value.*.clone();
           // An impl-level origin binder (decision 43 step 3, N2b): bound
           // ABSTRACTLY as an origin parameter (`t_origin_kind`), the same
           // value a function's `generic(p : Origin)` binder holds in its
@@ -5551,7 +5551,7 @@ evaluate_module_value :: (
           // not a type parameter, and an unbound placeholder in the entry's
           // forall list would fail every receiver match.
           if(rhs2_name == "Origin", {
-            op_name := ast_expr_token(&lhs2).value.*.clone();
+            op_name := ast_expr_token(&lhs2).*.value.*.clone();
             op_names := ArrayList(String).new();
             op_names.push(op_name.clone());
             add_variable_to_env(
@@ -5569,14 +5569,14 @@ evaluate_module_value :: (
             fp_is_origin = true;
           }, {
             if(rhs2_name != "Type", {
-              register_some_binder_kind(ast_expr_token(&lhs2).value.*.clone(), frame_lvl, &rhs2_name);
+              register_some_binder_kind(ast_expr_token(&lhs2).*.value.*.clone(), frame_lvl, &rhs2_name);
             });
           });
         });
         binder_name
       }, if(
         ast_expr_is_atom(&fp_expr),
-        Option(String).Some(ast_expr_token(&fp_expr).value.*.clone()),
+        Option(String).Some(ast_expr_token(&fp_expr).*.value.*.clone()),
         Option(String).None
       ));
       if(fp_is_origin, {
@@ -5688,7 +5688,7 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call(&c2_pp_expr) && ast_expr_is_fn_call_of(&c2_pp_expr, BK_COLON, .Some(usize(2))), {
         c2_lbl := match(
           Rc.clone(c2_pp_expr),
-          Rc(.FnCall(_, _, Rc(c2_ca), _, _)) => match(c2_ca.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).value.*.clone(), .None => String.new()),
+          Rc(.FnCall(_, _, Rc(c2_ca), _, _)) => match(c2_ca.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).*.value.*.clone(), .None => String.new()),
           Rc(.Atom(_, _)) => String.new()
         );
         c2_fields.push(make_impl_pending_field(&c2_lbl, &c2_pp_expr, c2_pp, false));
@@ -5706,7 +5706,7 @@ evaluate_module_value :: (
           if(ast_expr_is_fn_call(&c2_te) && ast_expr_is_fn_call_of(&c2_te, BK_COLON, .Some(usize(2))), {
             c2_ilbl := match(
               Rc.clone(c2_te),
-              Rc(.FnCall(_, _, Rc(c2_ica), _, _)) => match(c2_ica.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).value.*.clone(), .None => String.new()),
+              Rc(.FnCall(_, _, Rc(c2_ica), _, _)) => match(c2_ica.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).*.value.*.clone(), .None => String.new()),
               Rc(.Atom(_, _)) => String.new()
             );
             c2_fields.push(make_impl_pending_field(&c2_ilbl, &c2_te, c2_pp, true));
@@ -5898,7 +5898,7 @@ evaluate_module_value :: (
           if(ast_expr_is_fn_call(&inner_e2) && ast_expr_is_fn_call_of(&inner_e2, BK_COLON, .Some(usize(2))), {
             g_mname := match(
               Rc.clone(inner_e2),
-              Rc(.FnCall(_, _, Rc(gca), _, _)) => match(gca.get_cloned(usize(0)), .Some(e) => ast_expr_token(&e).value.*.clone(), .None => String.new()),
+              Rc(.FnCall(_, _, Rc(gca), _, _)) => match(gca.get_cloned(usize(0)), .Some(e) => ast_expr_token(&e).*.value.*.clone(), .None => String.new()),
               Rc(.Atom(_, _)) => String.new()
             );
             // Through the member's pending entry (a sibling of THIS trait
@@ -6118,7 +6118,7 @@ evaluate_module_value :: (
   ctx.expected_type = saved_expected.clone();
   // Get receiver type name for qualifying method names.
   rcv_tok := ast_expr_token(&receiver_type_expr);
-  receiver_name := rcv_tok.value.*.clone();
+  receiver_name := rcv_tok.*.value.*.clone();
   // Advance local_env from receiver evaluation and capture the
   // receiver TypeValue itself so we can register methods against
   // its id in the trait-method registry below.
@@ -6220,7 +6220,7 @@ evaluate_module_value :: (
       .Some(c3_fe) => if(ast_expr_is_fn_call(&c3_fe) && ast_expr_is_fn_call_of(&c3_fe, BK_COLON, .Some(usize(2))), {
         c3_lbl := match(
           Rc.clone(c3_fe),
-          Rc(.FnCall(_, _, Rc(c3_ca), _, _)) => match(c3_ca.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).value.*.clone(), .None => String.new()),
+          Rc(.FnCall(_, _, Rc(c3_ca), _, _)) => match(c3_ca.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).*.value.*.clone(), .None => String.new()),
           Rc(.Atom(_, _)) => String.new()
         );
         c3_fields.push(make_impl_pending_field(&c3_lbl, &c3_fe, c3_pi, false));
@@ -6249,7 +6249,7 @@ evaluate_module_value :: (
           if(ast_expr_is_fn_call(&c3_te) && ast_expr_is_fn_call_of(&c3_te, BK_COLON, .Some(usize(2))), {
             c3_ilbl := match(
               Rc.clone(c3_te),
-              Rc(.FnCall(_, _, Rc(c3_ica), _, _)) => match(c3_ica.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).value.*.clone(), .None => String.new()),
+              Rc(.FnCall(_, _, Rc(c3_ica), _, _)) => match(c3_ica.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).*.value.*.clone(), .None => String.new()),
               Rc(.Atom(_, _)) => String.new()
             );
             c3_fields.push(make_impl_pending_field(&c3_ilbl, &c3_te, c3_pi, true));
@@ -6392,7 +6392,7 @@ evaluate_module_value :: (
               )
             );
           });
-          if(((pos_trait_name == "Send") || (pos_trait_name == "Sync")) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.*.clone())), {
+          if(((pos_trait_name == "Send") || (pos_trait_name == "Sync")) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).*.module_path.*.clone())), {
             suffix := if(pos_trait_name == "Send", String.from("send across threads"), String.from("share across threads"));
             exn.throw(
               dyn(
@@ -6586,7 +6586,7 @@ evaluate_module_value :: (
                   field_idx,
                   match(
                     Rc.clone(meth_expr),
-                    Rc(.FnCall(_, _, Rc(c3_mca), _, _)) => match(c3_mca.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).value.*.clone(), .None => String.new()),
+                    Rc(.FnCall(_, _, Rc(c3_mca), _, _)) => match(c3_mca.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l).*.value.*.clone(), .None => String.new()),
                     Rc(.Atom(_, _)) => String.new()
                   )
                 )
@@ -6723,7 +6723,7 @@ evaluate_module_value :: (
                         Rc.clone(d_val),
                         Rc(.FuncVal(d_fvd, d_cvs)) => {
                           d_tok := ast_expr_token(expr);
-                          d_fresh_id := stable_func_id(String.from("fn_"), &d_tok.module_path.*, usize(d_tok.row), usize(d_tok.column));
+                          d_fresh_id := stable_func_id(String.from("fn_"), &d_tok.*.module_path.*, usize(d_tok.*.row), usize(d_tok.*.column));
                           d_body_clone := clone_expr_fresh_ids(&d_fvd.*.body);
                           d_fresh := Rc.new(
                             EvalValueNode.FuncVal(
@@ -6758,7 +6758,7 @@ evaluate_module_value :: (
                             &d_fvd.*.cap_names,
                             &d_fvd.*.cap_tys,
                             &d_cvs,
-                            Rc.clone(ast_expr_token(&d_fvd.*.body).module_path)
+                            Rc.clone(ast_expr_token(&d_fvd.*.body).*.module_path)
                           );
                           ___df := d_env.push_frame(false);
                           d_pts := match(&d_sub_ty, Rc(.Func({ param_types : d_ppts })) => Rc.clone(d_ppts), _ => no_types());
@@ -6796,10 +6796,10 @@ evaluate_module_value :: (
                             match(
                               ___dpv,
                               .Some(d_pvar) => {
-                                d_pvar.set_is_parameter(true);
+                                d_pvar.*.set_is_parameter(true);
                                 if(match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false), {
                                   variable_set_is_ref(&d_pvar, true);
-                                  d_pvar.set_is_reassignable(true);
+                                  d_pvar.*.set_is_reassignable(true);
                                 });
                                 // A projection's `&T` parameter is passed by
                                 // pointer (`fn_param_is_ptr_borrow`).
@@ -6818,7 +6818,7 @@ evaluate_module_value :: (
                                 // E0901 "it is borrowed"
                                 // (issues/fixed/2026-11-05-a-trait-default-cannot-move-its-by-value-self.md).
                                 if(d_by_value, {
-                                  d_pvar.set_is_owning_the_rc_value(by_value_param_owns(&d_pt));
+                                  d_pvar.*.set_is_owning_the_rc_value(by_value_param_owns(&d_pt));
                                 });
                               },
                               .None => ()
@@ -6842,7 +6842,7 @@ evaluate_module_value :: (
                           // its call's values.
                           d_concrete := (
                             (get_all_some_types(&receiver_ty).len() == usize(0)) && (get_all_some_types(&d_sub_ty).len() == usize(0))
-                            && !match(&d_sub_ty, Rc(.Func({ meta : d_cm })) => d_cm.result_is_comptime_only, _ => false)
+                            && !match(&d_sub_ty, Rc(.Func({ meta : d_cm })) => d_cm.*.*.result_is_comptime_only, _ => false)
                           );
                           if((d_out.len() == usize(0)) && d_concrete && !propagate_def_time_errors(), {
                             match(
@@ -7192,7 +7192,7 @@ generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
     Rc(.Struct({ constructor_func_id : c, type_arguments : ta, is_reference_semantics : r })) => (c.clone(), Rc.clone(ta), r.*),
     _ => return(false)
   );
-  if(is_ref || cfid.is_empty() || !_any_type_has_some_type(&args.items), {
+  if(is_ref || cfid.is_empty() || !_any_type_has_some_type(&args.*.items), {
     return(false);
   });
   if(force_pending_move_only_impls(type_head_name_for_impl_forcing(ty)), {
@@ -7460,7 +7460,7 @@ _hand_written_clone_on_copy_msg :: (fn(receiver_ty : &TypeValue, other_site : &O
 /// (whose derive templates and primitive impls are exempt) and outside
 /// generated code?
 _is_hand_written_impl :: (fn(trait_tok : &Token, ctx : &EvalContext) -> bool)(
-  !is_prelude_or_generated_file(Option(String).Some(trait_tok.module_path.*.clone()), ctx.std_path.clone())
+  !is_prelude_or_generated_file(Option(String).Some(trait_tok.*.*.module_path.*.clone()), ctx.std_path.clone())
 );
 /// The two directions of "a hand-written `Clone` on a `Copy` type is an
 /// error" (decision 36) at a CONCRETE impl of `trait_ty` for `receiver_ty`
@@ -7483,7 +7483,7 @@ _check_copy_clone_exclusion :: (
       clone_key := get_trait_key(&cc.clone_tt);
       key := get_trait_key(trait_ty);
       if((key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
-        if(!is_std_module_path(&trait_tok.module_path.*, &ctx.std_path), {
+        if(!is_std_module_path(&trait_tok.*.*.module_path.*, &ctx.std_path), {
           site_owned := site.clone();
           g_user_clone_sites.with_mut({ site_owned }(m) => m.insert(site_owned.clone(), true));
         });
@@ -7532,7 +7532,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
     .Some(cc) => {
       clone_key := get_base_trait_key(&cc.clone_tt);
       if((entry.trait_key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
-        if(!is_std_module_path(&trait_tok.module_path.*, &ctx.std_path), {
+        if(!is_std_module_path(&trait_tok.*.*.module_path.*, &ctx.std_path), {
           g_user_clone_sites.with_mut({ entry : entry.clone() }(m) => m.insert(entry.site.clone(), true));
         });
         g_hand_written_clone_sites.with_mut({ entry : entry.clone() }(m) => m.insert(entry.site.clone(), true));
@@ -7851,7 +7851,7 @@ synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(Ty
     throw : (
       err -> {
         if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-          eprintln(`[sai-synth-swallow] ${err.to_string()}`);
+          eprintln(`[sai-synth-swallow] ${err.*.to_string()}`);
         });
         unwind(Option(ArrayList(Option(TypeValue))).None);
       }

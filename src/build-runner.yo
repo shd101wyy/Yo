@@ -1790,7 +1790,7 @@ compile_artifact :: (
 )(
   io.async((e : IoExn) => {
     effective_target := match(
-      &ctx.target_triple,
+      &ctx.*.target_triple,
       .Some(t) => t.clone(),
       .None => artifact.target.clone()
     );
@@ -1801,7 +1801,7 @@ compile_artifact :: (
       .Executable => false
     );
     kind_dir := if(is_lib, "lib", "bin");
-    output_dir := _artifact_output_dir(&artifact, ctx.project_dir.clone(), effective_target.clone(), kind_dir);
+    output_dir := _artifact_output_dir(&artifact, ctx.*.project_dir.clone(), effective_target.clone(), kind_dir);
     // Create the output directory before compiling into it.
     // Without this the compiler is handed `-o <missing dir>/<name>` and dies with
     // a bare ENOENT — "file or directory not found" — with nothing to say which
@@ -1812,12 +1812,12 @@ compile_artifact :: (
       artifact.name.clone(),
       artifact.target.clone(),
       &artifact.c_flags,
-      &ctx.target_triple
+      &ctx.*.target_triple
     );
     output_path := Path.new(&output_dir).join(Path.new(&output_name));
     // A dependency's artifact (§4.5.2) has its own package root: its `root` is
     // relative to the DEPENDENCY's directory, not to this project's.
-    package_dir := if(artifact.package_dir.len() > usize(0), artifact.package_dir.clone(), ctx.project_dir.clone());
+    package_dir := if(artifact.package_dir.len() > usize(0), artifact.package_dir.clone(), ctx.*.project_dir.clone());
     source_path := Path.new(package_dir.clone()).join(Path.new(&artifact.root));
     // The Building line is UNCONDITIONAL (not behind
     // --verbose): the PROJECT name (the manifest's, else the first registered
@@ -1830,8 +1830,8 @@ compile_artifact :: (
     // its version line describes the dependency's checkout.
     project_name := cond(
       (artifact.package_name.len() > usize(0)) => artifact.package_name.clone(),
-      (ctx.project_name.len() > usize(0)) => ctx.project_name.clone(),
-      (ctx.registry.modules.len() > usize(0)) => ctx.registry.modules(usize(0)).name.clone(),
+      (ctx.*.project_name.len() > usize(0)) => ctx.*.project_name.clone(),
+      (ctx.*.registry.modules.len() > usize(0)) => ctx.*.registry.modules(usize(0)).name.clone(),
       true => artifact.name.clone()
     );
     git_v := e.io.await(_git_version(package_dir.clone(), e.io, e.exn), e);
@@ -1840,7 +1840,7 @@ compile_artifact :: (
       .Some(v) => ` ${v}`,
       .None => String.new()
     );
-    rel_output := Path.new(output_path.to_string()).relative_to(Path.new(ctx.project_dir.clone()));
+    rel_output := Path.new(output_path.to_string()).relative_to(Path.new(ctx.*.project_dir.clone()));
     // The child appends these itself; the Building line and the cache's
     // existence probe have to agree with it.
     eff_ti_lib := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
@@ -1928,13 +1928,13 @@ compile_artifact :: (
       // The probed default can still BE "clang" (the probe tries it first);
       // forwarding it is redundant — the child's own discovery is clang-first
       // too — so skip and keep the default child argv unchanged.
-      if(ctx.c_compiler != "clang", {
+      if(ctx.*.c_compiler != "clang", {
         cmd = cmd.arg(String.from("--cc"));
-        cmd = cmd.arg(&ctx.c_compiler);
+        cmd = cmd.arg(&ctx.*.c_compiler);
       });
     });
     match(
-      &ctx.sysroot,
+      &ctx.*.sysroot,
       .Some(s) => {
         cmd = cmd.arg(String.from("--sysroot"));
         cmd = cmd.arg(&s.*);
@@ -1951,11 +1951,11 @@ compile_artifact :: (
     // Static libraries this artifact links (`Step.link`), built earlier in the
     // DAG, reach the child's link line the same way C sources do.
     linked_libs := _collect_linked_static_libs(
-      &ctx.registry,
+      &ctx.*.registry,
       &artifact,
-      ctx.project_dir.clone(),
+      ctx.*.project_dir.clone(),
       effective_target.clone(),
-      &ctx.target_triple
+      &ctx.*.target_triple
     );
     i = usize(0);
     n = linked_libs.len();
@@ -1969,9 +1969,9 @@ compile_artifact :: (
     shared_dirs := ArrayList(String).new();
     shared_names := ArrayList(String).new();
     _collect_linked_shared_libs(
-      &ctx.registry,
+      &ctx.*.registry,
       &artifact,
-      ctx.project_dir.clone(),
+      ctx.*.project_dir.clone(),
       effective_target.clone(),
       &mut shared_dirs,
       &mut shared_names
@@ -2038,7 +2038,7 @@ compile_artifact :: (
     // whatever cwd the build runs from.
     if(artifact.emit_c_to.len() > usize(0), {
       cmd = cmd.arg(String.from("--emit-c-to"));
-      cmd = cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(artifact.emit_c_to.clone())).to_string());
+      cmd = cmd.arg(Path.new(ctx.*.project_dir.clone()).join(Path.new(artifact.emit_c_to.clone())).to_string());
     });
     // Chunked C emission (plans/reference/CHUNKED_C_EMISSION.md): 0 = off, which is the
     // default, so an unset field adds nothing to the child argv and the
@@ -2164,11 +2164,11 @@ compile_artifact :: (
     // here, before the child runs, and give the same values to both the
     // decision pass and the record pass
     // (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md).
-    manifest_entries := e.io.await(_manifest_stamp_entries(ctx.project_dir.clone(), e.io), e);
+    manifest_entries := e.io.await(_manifest_stamp_entries(ctx.*.project_dir.clone(), e.io), e);
     stamp_raw := e.io.await(
       artifact_input_stamp(
         &stamp_inputs,
-        ctx.project_dir.clone(),
+        ctx.*.project_dir.clone(),
         depfile_path.clone(),
         cache_enabled,
         false,
@@ -2195,7 +2195,7 @@ compile_artifact :: (
     });
     (compile_ok : bool) = false;
     (fail_code : i32) = i32(-1);
-    if(ctx.in_process_compile_fn.is_some(), {
+    if(ctx.*.in_process_compile_fn.is_some(), {
       // §7 step 2: run the artifact compile IN PROCESS against the warm
       // evaluator universe. The argv is the child's exact command line, so
       // both paths run the same flags. The fn value is read and called
@@ -2238,7 +2238,7 @@ compile_artifact :: (
       // call found", issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
       filtered.push(String.from("--compile-watch-mode"));
       compile_ok = match(
-        ctx.in_process_compile_fn,
+        ctx.*.in_process_compile_fn,
         .Some(f) => f(&filtered, e.io, e.exn),
         .None => false
       );
@@ -2267,7 +2267,7 @@ compile_artifact :: (
     post_stamp := e.io.await(
       artifact_input_stamp(
         &stamp_inputs,
-        ctx.project_dir.clone(),
+        ctx.*.project_dir.clone(),
         depfile_path.clone(),
         cache_enabled,
         true,
@@ -2314,17 +2314,17 @@ run_executable :: (
   owned_args := args.clone();
   io.async((e : IoExn) => {
     effective_target := match(
-      &ctx.target_triple,
+      &ctx.*.target_triple,
       .Some(t) => t.clone(),
       .None => artifact.target.clone()
     );
-    output_dir := _get_target_output_dir(ctx.project_dir.clone(), effective_target.clone(), "bin");
+    output_dir := _get_target_output_dir(ctx.*.project_dir.clone(), effective_target.clone(), "bin");
     exe_name := get_artifact_output_file_name(
       artifact.kind,
       artifact.name.clone(),
       artifact.target.clone(),
       &artifact.c_flags,
-      &ctx.target_triple
+      &ctx.*.target_triple
     );
     exe_path := Path.new(&output_dir).join(Path.new(&exe_name));
     // Missing-binary pre-flight: a step chain that
@@ -2343,7 +2343,7 @@ run_executable :: (
       abs_exe = Path.new(&base).join(Path.new(abs_exe.clone())).to_string();
     });
     prev_dir := match(cwd(), .Ok(pc) => pc.to_string(), .Err(_) => String.from("."));
-    _cd_in := chdir(Path.new(ctx.project_dir.clone()));
+    _cd_in := chdir(Path.new(ctx.*.project_dir.clone()));
     // wasm artifacts run through node on the emitted .js shim
     eff_ti_run := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
     cmd := if(is_target_wasm(&eff_ti_run), {
@@ -2388,7 +2388,7 @@ run_verify_step :: (
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
-    target := Path.new(&ctx.project_dir).join(Path.new(&cfg.root));
+    target := Path.new(&ctx.*.project_dir).join(Path.new(&cfg.root));
     mut(cmd) := Command.new(_self_exe());
     cmd = cmd.arg(String.from("verify"));
     // `--std-path` is a global flag the child strips before dispatch (the
@@ -2427,13 +2427,13 @@ run_test_suite :: (
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
-    test_path := Path.new(&ctx.project_dir).join(Path.new(&suite.root));
+    test_path := Path.new(&ctx.*.project_dir).join(Path.new(&suite.root));
     mut(cmd) := Command.new(_self_exe());
     cmd = cmd.arg(String.from("test"));
     // Forward the build's C compiler (explicit or probed via
     // `_resolve_c_compiler`) to the child test run.
     cmd = cmd.arg(String.from("--c-compiler"));
-    cmd = cmd.arg(ctx.c_compiler.clone());
+    cmd = cmd.arg(ctx.*.c_compiler.clone());
     // Forward the parent's `--std-path` override to the child test run (same
     // rationale as the compile_artifact forwarding above).
     match(
@@ -2453,7 +2453,7 @@ run_test_suite :: (
         suite.exclude.get_cloned(exi),
         .Some(ex) => {
           cmd = cmd.arg(String.from("--exclude"));
-          cmd = cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(ex.clone())).to_string());
+          cmd = cmd.arg(Path.new(ctx.*.project_dir.clone()).join(Path.new(ex.clone())).to_string());
         },
         .None => ()
       );
@@ -2469,7 +2469,7 @@ run_test_suite :: (
       cmd = cmd.arg(String.from("--parallel"));
       cmd = cmd.arg(suite.parallel.to_string());
     });
-    if(ctx.verbose, {
+    if(ctx.*.verbose, {
       cmd = cmd.arg(String.from("--verbose"));
     });
     // Streamed, not captured — the test runner's own report is the point of
@@ -2486,7 +2486,7 @@ _run_doc_step :: (fn(opts : &DocCommandOptions, io : Io) -> bool)({
   doc_exn := Exception(
     throw : (
       doc_err -> {
-        eprintln(`doc step failed: ${doc_err.to_string()}`);
+        eprintln(`doc step failed: ${doc_err.*.to_string()}`);
         unwind(false);
       }
     )
@@ -2527,7 +2527,7 @@ execute_node :: (
       node.kind,
       .Artifact => {
         match(
-          ctx.registry.find_artifact(node.name.clone()),
+          ctx.*.registry.find_artifact(node.name.clone()),
           .None => (),
           .Some(artifact) => {
             kind_label := match(
@@ -2551,7 +2551,7 @@ execute_node :: (
       },
       .Test => {
         match(
-          ctx.registry.find_test(node.name.clone()),
+          ctx.*.registry.find_test(node.name.clone()),
           .None => (),
           // Not `suite`, the wrapper's parameter: a seed without the fix of
           // issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md
@@ -2575,12 +2575,12 @@ execute_node :: (
       },
       .Run => {
         match(
-          ctx.registry.find_run_step(node.name.clone()),
+          ctx.*.registry.find_run_step(node.name.clone()),
           .None => (),
           .Some(run_step) => {
             description = `run ${run_step.artifact_name}`;
             match(
-              ctx.registry.find_artifact(run_step.artifact_name.clone()),
+              ctx.*.registry.find_artifact(run_step.artifact_name.clone()),
               .None => (),
               .Some(artifact) => {
                 // The build file's own args first, then the command line's
@@ -2592,8 +2592,8 @@ execute_node :: (
                   ra_i = (ra_i + usize(1));
                 });
                 ra_i = usize(0);
-                while(ra_i < ctx.run_args.len(), {
-                  run_argv.push(ctx.run_args(ra_i).clone());
+                while(ra_i < ctx.*.run_args.len(), {
+                  run_argv.push(ctx.*.run_args(ra_i).clone());
                   ra_i = (ra_i + usize(1));
                 });
                 result := e.io.await(run_executable(artifact.clone(), &run_argv, Rc.clone(ctx), e.io, e.exn), e);
@@ -2613,7 +2613,7 @@ execute_node :: (
       .Step => (),
       .Verify => {
         match(
-          ctx.registry.find_verify(node.name.clone()),
+          ctx.*.registry.find_verify(node.name.clone()),
           .None => (),
           .Some(vcfg) => {
             description = `verify ${vcfg.name}`;
@@ -2631,7 +2631,7 @@ execute_node :: (
       },
       .Doc => {
         match(
-          ctx.registry.find_documentation(node.name.clone()),
+          ctx.*.registry.find_documentation(node.name.clone()),
           .None => (),
           .Some(doc_cfg) => {
             description = `doc ${doc_cfg.name}`;
@@ -2639,15 +2639,15 @@ execute_node :: (
             // printed success and ran nothing — `yo init` scaffolds a doc
             // step, so every scaffolded project's `yo build doc` was hollow.
             println(`Generating documentation: ${doc_cfg.name}`);
-            doc_root := Path.new(ctx.project_dir.clone()).join(Path.new(doc_cfg.root.clone())).to_string();
-            doc_out := Path.new(ctx.project_dir.clone()).join(Path.new(doc_cfg.output_dir.clone())).to_string();
+            doc_root := Path.new(ctx.*.project_dir.clone()).join(Path.new(doc_cfg.root.clone())).to_string();
+            doc_out := Path.new(ctx.*.project_dir.clone()).join(Path.new(doc_cfg.output_dir.clone())).to_string();
             doc_fmt := if(doc_cfg.format.len() == usize(0), String.from("html"), doc_cfg.format.clone());
             doc_ok := _run_doc_step(
               DocCommandOptions(
                 input : doc_root,
                 output_dir : doc_out,
                 include_private : doc_cfg.include_private,
-                verbose : ctx.verbose,
+                verbose : ctx.*.verbose,
                 title : doc_cfg.title.clone(),
                 format : doc_fmt,
                 version : doc_cfg.version.clone(),
@@ -2862,7 +2862,7 @@ execute_dag :: (
       // overlap, and then the nodes' output interleaves, the way `make -j`
       // does.
       rn := ready.len();
-      width := if(ctx.jobs < usize(1), usize(1), ctx.jobs);
+      width := if(ctx.*.jobs < usize(1), usize(1), ctx.*.jobs);
       k := usize(0);
       while(k < rn, {
         batch := ArrayList(DAGNode).new();
@@ -3104,7 +3104,7 @@ execute_step :: (
       return(());
     });
     results := e.io.await(execute_dag(&dag, Rc.clone(ctx), e.io, e.exn), e);
-    if(ctx.summary, print_build_summary(&results, &dag, &owned_step_name));
+    if(ctx.*.summary, print_build_summary(&results, &dag, &owned_step_name));
     // A failed step must fail the build. execute_node folds per-step errors
     // into StepResult.success so the DAG finishes and the summary can show
     // WHICH step broke — but exiting 0 after a failed compile would let CI
@@ -3130,7 +3130,7 @@ execute_step :: (
       // resident-evaluator rounds still fail (see
       // issues/warm-compile-selfcheck.md), so without this the watch driver
       // could never survive long enough to observe a fix landing.
-      if(!ctx.watch_round, {
+      if(!ctx.*.watch_round, {
         unsafe(exit(int(1)));
       });
     });

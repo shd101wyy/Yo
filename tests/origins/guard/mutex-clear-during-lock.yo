@@ -20,11 +20,11 @@ main :: (fn() -> unit)({
   init.push(Arc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
   m := Arc.new(Mutex(ArrayList(Arc(W))).new(init));
   m2 := Arc.clone(m);
-  m.with_lock(
+  m.*.with_lock(
     &mut (
-      v => v(usize(0)).peek(
+      v => v(usize(0)).*.peek(
         &mut ({ &m2 }() => {
-          r := m2.try_with_lock(&mut (v2 => v2.clear()));
+          r := m2.*.*.try_with_lock(&mut (v2 => v2.clear()));
           println(`OUT: excluded ${r.is_none()}`);
         })
       )

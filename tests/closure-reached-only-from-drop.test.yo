@@ -6,14 +6,14 @@
 { RefCell } :: import("std/sync/refcell");
 Counter :: struct(n : RefCell(i32));
 new_counter :: (fn() -> Rc(Counter))(Rc.new(Counter(n : RefCell(i32).new(i32(0)))));
-read_counter :: (fn(c : &Rc(Counter)) -> i32)(c.n.with(n => n.*));
+read_counter :: (fn(c : &Rc(Counter)) -> i32)(c.*.*.n.with(n => n.*));
 // `replace_with` in the `drop` body.
 ByReplaceWith :: struct(c : Rc(Counter));
 impl(
   ByReplaceWith,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      _old := self.c.n.replace_with(n => (n.* + i32(1)));
+      _old := self.c.*.n.replace_with(n => (n.* + i32(1)));
     })
   )
 );
@@ -23,7 +23,7 @@ impl(
   ByWithMut,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      self.c.n.with_mut(n => {
+      self.c.*.n.with_mut(n => {
         n.* = (n.* + i32(10));
       });
     })
@@ -31,7 +31,7 @@ impl(
 );
 // A helper only a `drop` calls, whose body holds the closure.
 _add_hundred :: (fn(c : &Rc(Counter)) -> unit)({
-  c.n.with_mut(n => {
+  c.*.*.n.with_mut(n => {
     n.* = (n.* + i32(100));
   });
 });

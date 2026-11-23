@@ -55,11 +55,11 @@ test("Context overrides source, and the cause is reachable inline", {
   (c : AnyError) = dyn(Box.new(Context.new(`connecting`, inner)));
   // Inline only: the result cannot be stored at Option(AnyError) — see the
   // module doc and the issue it points at.
-  assert(match(c.source(), .Some(s) => (s.to_string() == `denied for root`), .None => false), "source yields the cause");
+  assert(match(c.*.source(), .Some(s) => (s.*.to_string() == `denied for root`), .None => false), "source yields the cause");
 });
 test("an error that does NOT override source reports none", {
   (e : AnyError) = dyn(Box.new(NotFound(path : `x`)));
-  assert(match(e.source(), .Some(_) => false, .None => true), "the trait default is .None");
+  assert(match(e.*.source(), .Some(_) => false, .None => true), "the trait default is .None");
 });
 test("AnyError.is sees Context itself, not its cause", {
   (inner : AnyError) = dyn(Box.new(NotFound(path : `x`)));

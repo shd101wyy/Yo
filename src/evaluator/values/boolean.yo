@@ -19,19 +19,19 @@ evaluate_boolean_literal :: (
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
-  if(!(tok.kind == TokenKind.Bool), {
+  if(!(tok.*.kind == TokenKind.Bool), {
     exn.throw(
       dyn(
         Box.new(
           format_error_message(
             &tok,
-            `Expected bool literal, got ${tok.value.*}`
+            `Expected bool literal, got ${tok.*.value.*}`
           )
         )
       )
     );
   });
-  b := (tok.value.* == "true");
+  b := (tok.*.value.* == "true");
   val := Rc.new(EvalValueNode.BoolVal(b));
   info := new_expr_info(env, t_bool());
   info.set_value(.Some(val));

@@ -16,13 +16,13 @@ impl(
 );
 main :: (fn() -> unit)({
   shared := Rc.new(RefCell(ArrayList(Rc(W))).new(ArrayList(Rc(W)).new()));
-  shared.with_mut(v => v.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap")))));
+  shared.*.with_mut(v => v.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap")))));
   other := Rc.clone(shared);
-  shared.with(
-    v => v(usize(0)).peek(
+  shared.*.with(
+    v => v(usize(0)).*.peek(
       &(
         () => {
-          other.with_mut(v2 => v2.clear());
+          other.*.with_mut(v2 => v2.clear());
         }
       )
     )

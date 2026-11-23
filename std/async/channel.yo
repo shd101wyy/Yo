@@ -197,7 +197,7 @@ impl(
     io.async({ ch : self.clone(), value }(io : Io) => {
       (mut(waiting) : bool) = true;
       while(waiting, {
-        if(ch._st.with({ h : &ch._st }(s) => (s._closed || (s._recv_dropped || (s._buf.len() < s._capacity)))), {
+        if(ch._st.*.with({ h : &ch._st }(s) => (s._closed || (s._recv_dropped || (s._buf.len() < s._capacity)))), {
           waiting = false;
         });
         if(waiting, {
@@ -205,12 +205,12 @@ impl(
           // wake. Re-check after waking rather than trusting it: the waker
           // says "space may have appeared", and a `try_send` from a third
           // task can have taken that slot in between.
-          p := ch._st.with_mut(s => s._park_sender());
+          p := ch._st.*.with_mut(s => s._park_sender());
           io.await(p.wait(io), io);
         });
       });
       cond(
-        ch._st.with({ h : &ch._st }(s) => (s._closed || s._recv_dropped)) => return(Result(unit, T).Err(value)),
+        ch._st.*.with({ h : &ch._st }(s) => (s._closed || s._recv_dropped)) => return(Result(unit, T).Err(value)),
         true => {
           // No suspension between the capacity check and this push, so no
           // other task can interleave (single-threaded cooperative loop).
@@ -227,17 +227,17 @@ impl(
     io.async({ ch : self.clone() }(io : Io) => {
       (mut(waiting) : bool) = true;
       while(waiting, {
-        if(ch._st.with({ h : &ch._st }(s) => ((s._buf.len() > usize(0)) || s._closed)), {
+        if(ch._st.*.with({ h : &ch._st }(s) => ((s._buf.len() > usize(0)) || s._closed)), {
           waiting = false;
         });
         if(waiting, {
-          p := ch._st.with_mut(s => s._park_receiver());
+          p := ch._st.*.with_mut(s => s._park_receiver());
           io.await(p.wait(io), io);
         });
       });
       cond(
         (ch.len() > usize(0)) => {
-          v := ch._st.with_mut(s => s._buf.remove(usize(0)));
+          v := ch._st.*.with_mut(s => s._buf.remove(usize(0)));
           ch._wake_one_sender();
           return(Option(T).Some(v));
         },
@@ -249,7 +249,7 @@ impl(
   /// if the channel is full, closed, or has no `Receiver` any more.
   try_send : (fn(self : &Self, value : T) -> Result(unit, T))(
     cond(
-      self._st.with({ h : &self._st }(s) => (s._closed || (s._recv_dropped || (s._buf.len() >= s._capacity)))) => Result(unit, T).Err(value),
+      self._st.*.with({ h : &self._st }(s) => (s._closed || (s._recv_dropped || (s._buf.len() >= s._capacity)))) => Result(unit, T).Err(value),
       true => {
         self._push(value);
         self._wake_one_receiver();
@@ -272,7 +272,7 @@ impl(
   try_recv : (fn(self : &Self) -> Result(T, TryRecvError))(
     cond(
       (self.len() > usize(0)) => {
-        v := self._st.with_mut(s => s._buf.remove(usize(0)));
+        v := self._st.*.with_mut(s => s._buf.remove(usize(0)));
         self._wake_one_sender();
         Result(T, TryRecvError).Ok(v)
       },
@@ -283,7 +283,7 @@ impl(
   /// Close the channel: pending and future `send`s fail with `.Err`;
   /// `recv` keeps draining buffered values, then resolves `.None`.
   close : (fn(self : &Self) -> unit)({
-    self._st.with_mut(s => {
+    self._st.*.with_mut(s => {
       s._closed = true;
     });
     // Wake EVERY waiter on both sides, not one: after a close each of them has
@@ -297,7 +297,7 @@ impl(
   /// `send` fails, and a task suspended on a full buffer finds out on its
   /// next tick. Internal — `Receiver`'s `dispose` is the only caller.
   _mark_receiver_dropped : (fn(self : &Self) -> unit)({
-    self._st.with_mut(s => {
+    self._st.*.with_mut(s => {
       s._recv_dropped = true;
     });
     // Every suspended sender now fails; none of them will be woken by a
@@ -311,9 +311,9 @@ impl(
     // the next waiter must get it instead (a lost wake here is a hang).
     (mut(woken) : bool) = false;
     while(!woken && (
-      self._st.with({ h : &self._st }(s) => s._recv_waiters.len()) > usize(0)
+      self._st.*.with({ h : &self._st }(s) => s._recv_waiters.len()) > usize(0)
     ), {
-      w := self._st.with_mut(s => s._recv_waiters.remove(usize(0)));
+      w := self._st.*.with_mut(s => s._recv_waiters.remove(usize(0)));
       w.wake();
       woken = w.is_woken();
     });
@@ -324,50 +324,50 @@ impl(
     // the next waiter must get it instead (a lost wake here is a hang).
     (mut(woken) : bool) = false;
     while(!woken && (
-      self._st.with({ h : &self._st }(s) => s._send_waiters.len()) > usize(0)
+      self._st.*.with({ h : &self._st }(s) => s._send_waiters.len()) > usize(0)
     ), {
-      w := self._st.with_mut(s => s._send_waiters.remove(usize(0)));
+      w := self._st.*.with_mut(s => s._send_waiters.remove(usize(0)));
       w.wake();
       woken = w.is_woken();
     });
   }),
   /// Wake every suspended sender and drop the queue.
   _wake_all_senders : (fn(self : &Self) -> unit)({
-    while(self._st.with({ h : &self._st }(s) => s._send_waiters.len()) > usize(0), {
-      w := self._st.with_mut(s => s._send_waiters.remove(usize(0)));
+    while(self._st.*.with({ h : &self._st }(s) => s._send_waiters.len()) > usize(0), {
+      w := self._st.*.with_mut(s => s._send_waiters.remove(usize(0)));
       w.wake();
     });
   }),
   /// Wake every suspended task on both sides.
   _wake_all : (fn(self : &Self) -> unit)({
     self._wake_all_senders();
-    while(self._st.with({ h : &self._st }(s) => s._recv_waiters.len()) > usize(0), {
-      w := self._st.with_mut(s => s._recv_waiters.remove(usize(0)));
+    while(self._st.*.with({ h : &self._st }(s) => s._recv_waiters.len()) > usize(0), {
+      w := self._st.*.with_mut(s => s._recv_waiters.remove(usize(0)));
       w.wake();
     });
   }),
   /// True once `close()` has been called.
   is_closed : (fn(self : &Self) -> bool)(
-    self._st.with({ h : &self._st }(s) => s._closed)
+    self._st.*.with({ h : &self._st }(s) => s._closed)
   ),
   /// Number of values currently buffered.
   len : (fn(self : &Self) -> usize)(
-    self._st.with({ h : &self._st }(s) => s._buf.len())
+    self._st.*.with({ h : &self._st }(s) => s._buf.len())
   ),
   /// Buffer `value` (moved in). Internal: the callers check the capacity.
   _push : (fn(self : &Self, value : T) -> unit)(
-    self._st.with_mut({ value }(s) => s._buf.push(value))
+    self._st.*.with_mut({ value }(s) => s._buf.push(value))
   ),
   /// Count one more `Sender`. Internal: `Sender._attach` and `Sender.clone`.
   _add_sender : (fn(self : &Self) -> unit)(
-    self._st.with_mut(s => {
+    self._st.*.with_mut(s => {
       s._senders = (s._senders + usize(1));
     })
   ),
   /// Count one `Sender` fewer, and answer how many are left. Internal:
   /// `Sender.drop`.
   _remove_sender : (fn(self : &Self) -> usize)(
-    self._st.with_mut(s => {
+    self._st.*.with_mut(s => {
       s._senders = (s._senders - usize(1));
       s._senders
     })

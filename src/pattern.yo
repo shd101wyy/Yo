@@ -404,7 +404,7 @@ _rc_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
     Rc(.Struct({ field_labels : fls, field_types : fts })) => cond(
-      _box_shaped(&fls.items, &fts.items) => match(
+      _box_shaped(&fls.*.*.items, &fts.*.*.items) => match(
         fts.get(usize(0)),
         .Some(ft) => Option(TypeValue).Some(ft),
         .None => Option(TypeValue).None
@@ -1705,7 +1705,7 @@ _useful_head :: (
         _useful(
           &spec,
           _extend_cloned(_variant_full_subs(&fidx.*, &subs.*, arity.*), &q_rest, usize(0)),
-          _concat_types(&ftys.items, &tys_rest),
+          _concat_types(&ftys.*.items, &tys_rest),
           gadt_exact
         ),
         .Some(w) => {
@@ -1840,7 +1840,7 @@ _useful_head :: (
         ftys := _tuple_elem_tys(&ty0);
         spec := _specialize_aggregate(&rows, ftys.len());
         match(
-          _useful(&spec, _extend_cloned(_wildcards(ftys.len()), &q_rest, usize(0)), _concat_types(&ftys.items, &tys_rest), gadt_exact),
+          _useful(&spec, _extend_cloned(_wildcards(ftys.len()), &q_rest, usize(0)), _concat_types(&ftys.*.items, &tys_rest), gadt_exact),
           .Some(w) => {
             return(Option(ArrayList(String)).Some(_render_tuple_witness(&w, ftys.len())));
           },
@@ -1853,7 +1853,7 @@ _useful_head :: (
         ftys := _struct_field_tys(&ty0);
         spec := _specialize_aggregate(&rows, ftys.len());
         match(
-          _useful(&spec, _extend_cloned(_wildcards(ftys.len()), &q_rest, usize(0)), _concat_types(&ftys.items, &tys_rest), gadt_exact),
+          _useful(&spec, _extend_cloned(_wildcards(ftys.len()), &q_rest, usize(0)), _concat_types(&ftys.*.items, &tys_rest), gadt_exact),
           .Some(w) => {
             return(Option(ArrayList(String)).Some(_render_struct_witness(&ty0, &w, ftys.len())));
           },

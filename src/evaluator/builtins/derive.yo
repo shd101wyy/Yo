@@ -125,7 +125,7 @@ _derive_eval_guarded :: (
     throw : (
       _err -> {
         pop_in_derive_impl();
-        _flag_derive_impl_err(_err.to_string(), primary_diagnostic_code(&_err));
+        _flag_derive_impl_err(_err.*.to_string(), primary_diagnostic_code(&_err));
         unwind(());
       }
     )
@@ -216,7 +216,7 @@ _derive_bind_opt :: (
   match(
     tmp_vars.last_cloned(),
     .Some(v) => match(
-      v.value().get(usize(0)),
+      v.*.value().get(usize(0)),
       .Some(ov) => add_comptime_var(env, var_name.clone(), &variable_value_type(&v), &ov),
       .None => ()
     ),
@@ -650,13 +650,13 @@ _evaluate_derive_executing :: (
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(
         Rc.clone(fp),
-        Rc(.Atom(_, ftok)) => ftok.value.*.clone(),
+        Rc(.Atom(_, ftok)) => ftok.*.value.*.clone(),
         Rc(.FnCall(_, func_b, Rc(fa2), _, _)) => match(
           func_b,
           Rc(.Atom(_, op_tok)) => cond(
-            (op_tok.value.* == ":") => match(
+            (op_tok.*.value.* == ":") => match(
               fa2.get_cloned(usize(0)),
-              .Some(na) => match(na, Rc(.Atom(_, ntok)) => ntok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")),
+              .Some(na) => match(na, Rc(.Atom(_, ntok)) => ntok.*.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")),
               .None => String.from("")
             ),
             true => String.from("")
@@ -676,9 +676,9 @@ _evaluate_derive_executing :: (
           Rc(.FnCall(_, func_b, fa3, _, _)) => match(
             func_b,
             Rc(.Atom(_, op_tok3)) => cond(
-              (op_tok3.value.* == ":") => match(
-                fa3.get_cloned(usize(1)),
-                .Some(ka) => (ast_expr_is_atom(&ka) && (ast_expr_token(&ka).value.* == "Origin")),
+              (op_tok3.*.value.* == ":") => match(
+                fa3.*.get_cloned(usize(1)),
+                .Some(ka) => (ast_expr_is_atom(&ka) && (ast_expr_token(&ka).*.value.* == "Origin")),
                 .None => false
               ),
               true => false
@@ -707,7 +707,7 @@ _evaluate_derive_executing :: (
           fp_kind := if(
             match(
               fp,
-              Rc(.FnCall(_, _, fa4, _, _)) => match(fa4.get_cloned(usize(1)), .Some(ka4) => is_maybe_sized_kind_spelling(&ka4), .None => false),
+              Rc(.FnCall(_, _, fa4, _, _)) => match(fa4.*.get_cloned(usize(1)), .Some(ka4) => is_maybe_sized_kind_spelling(&ka4), .None => false),
               Rc(.Atom(_, _)) => false
             ),
             t_maybe_sized_kind(),

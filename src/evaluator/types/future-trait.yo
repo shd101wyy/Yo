@@ -157,9 +157,9 @@ _is_origin_operand :: (fn(e : &AstExpr, env : &Environment) -> bool)(
   cond(
     ast_expr_is_fn_call_of(e, "origin", .None) => true,
     ast_expr_is_fn_call_of(e, BK_TUPLE, .None) => true,
-    (ast_expr_is_atom(e) && (ast_expr_token(e).value.* == "static")) => true,
+    (ast_expr_is_atom(e) && (ast_expr_token(e).*.value.* == "static")) => true,
     ast_expr_is_atom(e) => match(
-      get_variables_from_env(env, &ast_expr_token(e).value.*).last_cloned(),
+      get_variables_from_env(env, &ast_expr_token(e).*.value.*).last_cloned(),
       .Some(v) => !is_type_hierarchy_type(&variable_value_type(&v)),
       .None => false
     ),

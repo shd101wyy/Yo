@@ -224,7 +224,7 @@ _rw_sum_until :: (fn(stop : i32) -> i32)({
     if(t.n == stop, {
       return(sum);
     });
-    sum = (sum + t.n);
+    sum = (sum + t.*.*.n);
   });
   sum
 });
@@ -236,12 +236,12 @@ test("read walk leaks nothing: elements are not dup'd, and every exit drops each
     before := ref_count(first);
     (mut(sum) : i32) = i32(0);
     for(&xs, t => {
-      sum = (sum + t.n);
+      sum = (sum + t.*.*.n);
       assert(ref_count(first) == before, "the element is borrowed, not dup'd");
     });
     assert(sum == i32(6), "every element read");
     for(&xs, t => {
-      if(t.n == i32(2), {
+      if(t.*.*.n == i32(2), {
         break;
       });
     });
@@ -251,7 +251,7 @@ test("read walk leaks nothing: elements are not dup'd, and every exit drops each
   g_rw_dropped = i32(0);
   (mut(total) : i32) = i32(0);
   for(&_rw_tracked_list(i32(3)), t => {
-    total = (total + t.n);
+    total = (total + t.*.*.n);
   });
   assert(total == i32(6), "a walk over a temporary");
   assert(g_rw_dropped == i32(3), "the hidden owning local is dropped after the loop");

@@ -289,7 +289,7 @@ impl(
   }),
   /// The record pumps' handles (see `_TlsIo`).
   _io : (fn(self : &Self) -> _TlsIo)(
-    _TlsIo(_fd : self._cell._tcp.fd(), _ssl : self._cell._ssl, _rbio : self._cell._rbio, _wbio : self._cell._wbio)
+    _TlsIo(_fd : self._cell.*._tcp.fd(), _ssl : self._cell.*._ssl, _rbio : self._cell.*._rbio, _wbio : self._cell.*._wbio)
   ),
   /// Write a `str`; returns the byte count written. The future borrows the
   /// stream, as every I/O future on it does: the session it drives is freed
@@ -313,7 +313,7 @@ impl(
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
       cond(
-        self._cell._closed => (),
+        self._cell.*._closed => (),
         true => {
           st := addr_of(self._cell.*);
           t := self._io();
@@ -322,10 +322,10 @@ impl(
           e.io.await(_flush_wbio(t, e.io), e);
           // __yo_tls_free releases both BIOs (owned by the SSL object) and
           // the context.
-          unsafe(__yo_tls_free(t._ssl, self._cell._ctx));
+          unsafe(__yo_tls_free(t._ssl, self._cell.*._ctx));
           // The socket's state sits inside this stream's box: close it
           // through its address (this future borrows the TLS stream).
-          e.io.await(_close_stream_in_place(&self._cell._tcp, e.io), e);
+          e.io.await(_close_stream_in_place(&self._cell.*._tcp, e.io), e);
         }
       );
       return(());
@@ -343,13 +343,13 @@ impl(
   /// language's TLS drop does.
   close_sync : (fn(self : &Self) -> unit)({
     cond(
-      !self._cell._closed => {
+      !self._cell.*._closed => {
         st := addr_of(self._cell.*);
         unsafe(consume(st.*._closed = true));
         // __yo_tls_free releases both BIOs (owned by the SSL object) and
         // the context.
-        unsafe(__yo_tls_free(self._cell._ssl, self._cell._ctx));
-        self._cell._tcp.close_sync();
+        unsafe(__yo_tls_free(self._cell.*._ssl, self._cell.*._ctx));
+        self._cell.*._tcp.close_sync();
       },
       true => ()
     );

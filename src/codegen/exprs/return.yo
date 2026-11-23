@@ -36,7 +36,7 @@ _drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
       match(
         func,
         Rc(.FnCall(_, _, Rc(fargs), _, _)) => if(ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))), {
-          a1_is_drop := match(fargs.get_cloned(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
+          a1_is_drop := match(fargs.get_cloned(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).*.value.* == BF_DROP, false), .None => false);
           if(a1_is_drop, match(fargs.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
         Rc(.Atom(_, _)) => Option(AstExpr).None
@@ -60,7 +60,7 @@ _drop_targets_escaped_result :: (fn(drop_expr : &AstExpr, escaped_result : &Opti
         .Some(aei) => (
           get_variable_name_for_codegen_at(
             ast_expr_id(&atom),
-            ast_expr_token(&atom).value.*,
+            ast_expr_token(&atom).*.value.*,
             Option(Environment).Some(aei.env())
           ) == name.*
         ),
@@ -78,7 +78,7 @@ _get_deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, context : &Funct
     .Some(atom) => match(
       context.base.get_expr_info(&atom),
       .Some(aei) => {
-        vars := scope_variables(ast_expr_id(&atom), &aei.env(), ast_expr_token(&atom).value.*);
+        vars := scope_variables(ast_expr_id(&atom), &aei.env(), ast_expr_token(&atom).*.value.*);
         if(vars.len() == usize(0), Option(Variable).None, vars.last_cloned())
       },
       .None => Option(Variable).None
@@ -104,7 +104,7 @@ _cleanup_drop_variables :: (fn(expr : &AstExpr, env : &Environment, var_name : &
     truth := get_variables_from_env(env, var_name);
     a := if(truth.len() == usize(0), Option(Variable).None, _resolve_drop_target_in_scope(drop_expr, &truth, ast_expr_token(expr), context));
     b := if(rec.len() == usize(0), Option(Variable).None, _resolve_drop_target_in_scope(drop_expr, &rec, ast_expr_token(expr), context));
-    same := match(a, .Some(x) => match(b, .Some(y) => (x.id() == y.id()), .None => false), .None => b.is_none());
+    same := match(a, .Some(x) => match(b, .Some(y) => (x.*.id() == y.*.id()), .None => false), .None => b.is_none());
     if(!same, {
       scope_release_note_mismatch(String.from("cleanup-drop"));
     });
@@ -114,16 +114,16 @@ _cleanup_drop_variables :: (fn(expr : &AstExpr, env : &Environment, var_name : &
 });
 /// Two tokens come from the same source location stream.
 _tokens_are_comparable :: (fn(left : &Token, right : &Token) -> bool)(
-  (left.module_path == right.module_path) && (left.input == right.input)
+  (left.*.*.module_path == right.*.*.module_path) && (left.*.*.input == right.*.*.input)
 );
 /// `left` is at or before `right` (same stream).
 _token_is_at_or_before :: (fn(left : &Token, right : &Token) -> bool)(
-  if(!_tokens_are_comparable(left, right), false, left.character <= right.character)
+  if(!_tokens_are_comparable(left, right), false, left.*.*.character <= right.*.*.character)
 );
 /// The latest comparable token in `node`'s tree (max character).
 _max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
   tok := ast_expr_token(node);
-  best2 := if(_tokens_are_comparable(&tok, reference) && (tok.character > best.character), tok, Rc.clone(best.*));
+  best2 := if(_tokens_are_comparable(&tok, reference) && (tok.*.character > best.*.*.character), tok, Rc.clone(best.*));
   match(
     node,
     Rc(.FnCall(_, func, Rc(args), _, _)) => {
@@ -169,7 +169,7 @@ _variable_was_consumed_before_cleanup_point :: (fn(consumed_at_token : &Token, c
 /// every argument
 /// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
 _variable_moved_before_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstExpr) -> bool)({
-  if(match(v.consumed_at_token(), .Some(ct) => (_variable_was_consumed_before_cleanup_point(&ct, cleanup_expr) && !arg_move_region_holds(v.id(), cleanup_expr)), .None => false), {
+  if(match(v.*.*.consumed_at_token(), .Some(ct) => (_variable_was_consumed_before_cleanup_point(&ct, cleanup_expr) && !arg_move_region_holds(v.*.*.id(), cleanup_expr)), .None => false), {
     return(true);
   });
   variable_moved_at_cleanup_point(v, _get_last_comparable_token_in_expr(cleanup_expr, ast_expr_token(cleanup_expr)))
@@ -178,7 +178,7 @@ _variable_moved_before_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstEx
 /// cleanup point `cleanup_expr`, so the two can be ordered at all. A variable
 /// with no consumption token is trivially ordered (nothing to compare).
 _consumption_is_ordered_against_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstExpr) -> bool)(
-  match(v.consumed_at_token(), .Some(ct) => _tokens_are_comparable(&ct, ast_expr_token(cleanup_expr)), .None => true)
+  match(v.*.*.consumed_at_token(), .Some(ct) => _tokens_are_comparable(&ct, ast_expr_token(cleanup_expr)), .None => true)
 );
 /// Resolve which in-scope variable a pending drop targets at a cleanup point.
 /// Prefer the id match; on absence decide by declaration position (a target
@@ -194,7 +194,7 @@ _resolve_drop_target_in_scope :: (fn(drop_expr : &AstExpr, variables : &ArrayLis
       while(i < n, {
         match(
           variables.get_cloned(i),
-          .Some(v) => if(v.id() == tv.id(), {
+          .Some(v) => if(v.*.id() == tv.*.id(), {
             by_id = Option(Variable).Some(v);
           }),
           .None => ()
@@ -205,8 +205,8 @@ _resolve_drop_target_in_scope :: (fn(drop_expr : &AstExpr, variables : &ArrayLis
         by_id,
         .Some(v) => Option(Variable).Some(Rc.clone(v)),
         .None => {
-          decl_token := match(tv.initialized_at_token(), .Some(t) => t, .None => Rc.clone(tv.token));
-          if(_tokens_are_comparable(&decl_token, cleanup_token) && (decl_token.character > cleanup_token.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.last_cloned()))
+          decl_token := match(tv.*.initialized_at_token(), .Some(t) => t, .None => Rc.clone(tv.*.token));
+          if(_tokens_are_comparable(&decl_token, cleanup_token) && (decl_token.*.character > cleanup_token.*.*.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.last_cloned()))
         }
       )
     }
@@ -245,7 +245,7 @@ _drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, co
   if(context.state_machine_variables.is_none(), {
     return(false);
   });
-  (mut(var_id) : String) = match(v.is_owning_the_same_rc_value_as(), .Some(owner_box) => owner_box.id().to_string(), .None => v.id().to_string());
+  (mut(var_id) : String) = match(v.*.*.is_owning_the_same_rc_value_as(), .Some(owner_box) => owner_box.*.id().to_string(), .None => v.*.*.id().to_string());
   match(
     &context.variable_id_remapping,
     .Some(rm) => match(
@@ -291,7 +291,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
   // Skipping an undeclared temp's drop cannot double-free or leak (no C variable exists).
   // See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
   guard_cn := sanitize_for_c_identifier(var_name.clone(), false);
-  if(guard_cn.contains(String.from("_temp_")) && !context.base.declared_c_var_names.with({ &guard_cn }(dn_s) => dn_s.contains(guard_cn.clone())), {
+  if(guard_cn.contains(String.from("_temp_")) && !context.base.declared_c_var_names.*.with({ &guard_cn }(dn_s) => dn_s.contains(guard_cn.clone())), {
     return(false);
   });
   // A call-scoped share's drop is pending only while its call's arguments
@@ -301,7 +301,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
   // the dup's C declaration is in an open block
   // (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
   if(is_call_scoped_share_drop(ast_expr_id(drop_expr)), {
-    return(context.base.declared_scopes.with({ &guard_cn }(ds_s) => scope_stack_contains(ds_s, guard_cn.clone())));
+    return(context.base.declared_scopes.*.with({ &guard_cn }(ds_s) => scope_stack_contains(ds_s, guard_cn.clone())));
   });
   if(!use_env, {
     // Escape path (skip_env_check=true): the recorded env is END-of-scope,
@@ -333,7 +333,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
         // seed-trust UAF, issues/fixed/seed-built-stage1-miscompiles-current-source.md).
         // Same initialized-after skip as the full env branch
         // ("declared after this cleanup point").
-        init_after := match(tv.initialized_at_token(), .Some(it) => _variable_initialized_after_cleanup_point(&it, expr), .None => false);
+        init_after := match(tv.*.initialized_at_token(), .Some(it) => _variable_initialized_after_cleanup_point(&it, expr), .None => false);
         if(init_after, {
           return(false);
         });
@@ -343,7 +343,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
     // An `FnOnce` closure's owned capture lives in the closure context from
     // the body's entry (decision 37): it has no C declaration on the stack,
     // and the consumption check above already ruled out a moved one.
-    return(is_fnonce_capture_drop(ast_expr_id(drop_expr)) || context.base.declared_scopes.with({ &guard_cn }(ds_s) => scope_stack_contains(ds_s, guard_cn.clone())));
+    return(is_fnonce_capture_drop(ast_expr_id(drop_expr)) || context.base.declared_scopes.*.with({ &guard_cn }(ds_s) => scope_stack_contains(ds_s, guard_cn.clone())));
   });
   env := match(context.base.get_expr_info(expr), .Some(ei) => ei.env(), .None => return(true));
   variables := _cleanup_drop_variables(expr, &env, &var_name, drop_expr, context);
@@ -381,11 +381,11 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
   c_name := sanitize_for_c_identifier(&var_name, false);
   // An `FnOnce` closure's owned capture lives in the closure context, never
   // a C local, so the stack cannot vouch for it (decision 37).
-  if(!is_fnonce_capture_drop(ast_expr_id(drop_expr)) && !_drop_target_is_state_machine_field(&latest_var, var_name.clone(), context) && !context.base.declared_scopes.with({ &c_name }(ds_s) => scope_stack_contains(ds_s, c_name)), {
+  if(!is_fnonce_capture_drop(ast_expr_id(drop_expr)) && !_drop_target_is_state_machine_field(&latest_var, var_name.clone(), context) && !context.base.declared_scopes.*.with({ &c_name }(ds_s) => scope_stack_contains(ds_s, c_name)), {
     return(false);
   });
   match(
-    latest_var.initialized_at_token(),
+    latest_var.*.initialized_at_token(),
     .Some(it) => !_variable_initialized_after_cleanup_point(&it, expr),
     .None => false
   )
@@ -628,7 +628,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &mut F
                         match(
                           _resolve_drop_target_in_scope(&de, &variables, ast_expr_token(expr), context),
                           .Some(lv) => match(
-                            lv.initialized_at_token(),
+                            lv.*.initialized_at_token(),
                             .Some(_) => {
                               // C-emission-order guard, the same contract as
                               // `_keep_pending_drop` above: the recorded env is
@@ -682,14 +682,14 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &mut F
                                 (
                                   !is_any_temp_variable_name(&var_name) && !_drop_target_is_state_machine_field(&lv, var_name.clone(), context) && match(
                                     _get_deferred_drop_target_variable(&de, context),
-                                    .Some(tv) => match(tv.initialized_at_token(), .Some(tv_init) => _variable_initialized_after_cleanup_point(&tv_init, expr), .None => false),
+                                    .Some(tv) => match(tv.*.initialized_at_token(), .Some(tv_init) => _variable_initialized_after_cleanup_point(&tv_init, expr), .None => false),
                                     .None => false
                                   )
                                 ) => false,
                                 // An `FnOnce` closure's owned capture lives in
                                 // the closure context, never a C local.
                                 true => (
-                                  is_fnonce_capture_drop(ast_expr_id(&de)) || _drop_target_is_state_machine_field(&lv, var_name.clone(), context) || context.base.declared_scopes.with({ &lv_c_name }(ds_s) => scope_stack_contains(ds_s, lv_c_name))
+                                  is_fnonce_capture_drop(ast_expr_id(&de)) || _drop_target_is_state_machine_field(&lv, var_name.clone(), context) || context.base.declared_scopes.*.with({ &lv_c_name }(ds_s) => scope_stack_contains(ds_s, lv_c_name))
                                 )
                               )
                             },
@@ -889,7 +889,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
             if(ia_vars.len() > usize(0), {
               match(
                 ia_vars.last_cloned(),
-                .Some(iav) => if(iav.is_ref(), {
+                .Some(iav) => if(iav.*.is_ref(), {
                   is_inout_arg_atom = true;
                 }),
                 .None => ()
@@ -928,12 +928,12 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
             .Some(aei_nr) => match(
               aei_nr.source_variable(),
               .Some(asv_nr) => {
-                sv_name := get_variable_name_for_codegen(asv_nr.name.clone(), Option(Environment).None);
+                sv_name := get_variable_name_for_codegen(asv_nr.*.name.clone(), Option(Environment).None);
                 // A read of a fat reference as itself (`s` with `s : &str`
                 // returned by a `-> str` body, decision 49 S2) is the pair the
                 // binding holds: no deref.
                 reads_fat_reference := (t_slot_is_borrow(&aei_nr.ty()) && !type_is_sized(&t_slot_pointee(&aei_nr.ty())));
-                if(asv_nr.is_ref() && (arg_code == sv_name) && !reads_fat_reference, {
+                if(asv_nr.*.is_ref() && (arg_code == sv_name) && !reads_fat_reference, {
                   arg_code = String.from("(*");
                   arg_code.push_string(&sv_name);
                   arg_code.push_str(")");
@@ -1067,11 +1067,11 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
         match(
           context.base.get_expr_info(&arg),
           .Some(ra_ei) => {
-            ra_vars := scope_variables(ast_expr_id(&arg), &ra_ei.env(), ast_expr_token(&arg).value.*);
+            ra_vars := scope_variables(ast_expr_id(&arg), &ra_ei.env(), ast_expr_token(&arg).*.value.*);
             if(ra_vars.len() > usize(0), {
               match(
                 ra_vars.last_cloned(),
-                .Some(rav) => if(rav.is_ref(), {
+                .Some(rav) => if(rav.*.is_ref(), {
                   arg_is_ref_atom = true;
                 }),
                 .None => ()
@@ -1083,7 +1083,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
             // authoritative is_ref answer.
             match(
               ra_ei.source_variable(),
-              .Some(ra_sv) => if(ra_sv.is_ref(), {
+              .Some(ra_sv) => if(ra_sv.*.is_ref(), {
                 arg_is_ref_atom = true;
               }),
               .None => ()
@@ -1266,7 +1266,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
               Option(HashSet(String)).None,
               match(
                 vars.last_cloned(),
-                .Some(v) => if(v.is_owning_the_rc_value(), {
+                .Some(v) => if(v.*.is_owning_the_rc_value(), {
                   s := HashSet(String).new();
                   s.insert(name);
                   Option(HashSet(String)).Some(s)

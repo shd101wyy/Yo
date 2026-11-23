@@ -146,23 +146,23 @@ impl(
   ///
   /// At `T = unit` this reads as the old value-less `join()`.
   join : (fn(self : &Self) -> T)({
-    assert(!self._cell._joined, "Thread.join: this thread was already joined");
+    assert(!self._cell.*._joined, "Thread.join: this thread was already joined");
     st := addr_of(self._cell.*);
     unsafe(consume(st.*._joined = true));
-    __yo_thread_join(self._cell._handle);
+    __yo_thread_join(self._cell.*._handle);
     // The body ran to completion, so its value is in the channel. A miss means
     // the body UNWOUND past the send, which is not a case `join` can answer
     // for: there is no value, and inventing one would hand the caller a
     // fabricated result.
     match(
-      self._cell._result.try_recv(),
+      self._cell.*._result.try_recv(),
       .Ok(v) => v,
       .Err(_) => __yo_panic("Thread.join: the thread body produced no value (it unwound)")
     )
   }),
   /// True once `join` has returned.
   is_joined : (fn(self : &Self) -> bool)(
-    self._cell._joined
+    self._cell.*._joined
   )
 );
 /// A pool of worker threads that tasks are handed to.
@@ -258,7 +258,7 @@ impl(
   /// Must not be called from inside a task of this pool: the task would be
   /// waiting for itself.
   join_all : (fn(self : &Self) -> unit)({
-    self._cell.*._tasks.wait();
+    self._cell.*._tasks.*.wait();
   }),
   /// Refuse new work, then block until every outstanding task has finished.
   ///
@@ -346,10 +346,10 @@ spawn :: (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send))
     true => ()
   );
   tasks := Arc.clone(pool._cell.*._tasks);
-  tasks.add(i32(1));
+  tasks.*.add(i32(1));
   (relay : Impl(FnOnce(io : Io) -> unit, Send)) = ({ cb, tasks }(io : Io) => {
     cb(io);
-    tasks.done();
+    tasks.*.done();
     ()
   });
   __yo_worker_spawn(relay);

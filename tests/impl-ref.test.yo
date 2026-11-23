@@ -217,7 +217,7 @@ _wh_mk :: (fn(n : i32) -> Rc(_WhC))(Rc.new(_WhC(n : n)));
 test("(vii-c) a blanket over &T whose where fails at T := Rc(C) leaves r.m() to the payload", {
   comptime_assert(!Type.impls(Rc(_WhC), _WhShow), "Rc(_WhC) does not meet the bound");
   r := _wh_mk(i32(7));
-  assert(r.wh() == i32(7), "r.wh(): the payload's method through auto-deref");
+  assert(r.*.wh() == i32(7), "r.wh(): the payload's method through auto-deref");
   c := _WhC(n : i32(3));
   assert(c.wh() == i32(3), "c.wh(): impl(_WhC, _WhShow)");
   rc := &c;

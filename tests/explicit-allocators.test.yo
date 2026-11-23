@@ -74,7 +74,7 @@ test("An rc placed by its alloc argument comes from that allocator", {
   {
     p := Rc.new(_Point(x : i32(3), y : i32(4)), alloc : .Some(heap));
     assert(counts.live == usize(1), `one block: ${counts.live}`);
-    assert((p.x + p.y) == i32(7), "fields");
+    assert((p.*.x + p.*.y) == i32(7), "fields");
     assert(ref_count(p) == usize(1), "ref_count() never reports the allocator tag");
     // A second OWNER (a local alias of `p` is a borrow and adds no count).
     mut(holder) := ArrayList(Rc(_Point)).new();
@@ -105,7 +105,7 @@ test("box, arc and a dyn over a placed rc are placed by their alloc argument", {
     assert(a.* == i32(11), "arc value");
     assert(counts.live == usize(2), "arc (atomic RC)");
     (d : Box(Dyn(_Speak))) = dyn(Box.new(_Dog(volume : i32(6)), alloc : .Some(heap)));
-    assert(d.speak() == i32(6), "dyn dispatch");
+    assert(d.*.speak() == i32(6), "dyn dispatch");
     assert(counts.live == usize(3), `the dyn's data object is the placed cell: ${counts.live}`);
   };
   assert(counts.live == usize(0), "every kind routed its release back");
@@ -123,7 +123,7 @@ test("A dyn over a placed Rc reuses the Rc's cell: no second cell", {
     (d : Rc(Dyn(_Speak))) = dyn(Rc.clone(r));
     assert(ref_count(r) == usize(2), `the dyn holds a count on the Rc's cell: ${ref_count(r)}`);
     assert(counts.live == usize(1), `one placed cell: ${counts.live}`);
-    assert(d.speak() == i32(6), "dispatched to the Rc's payload");
+    assert(d.*.speak() == i32(6), "dispatched to the Rc's payload");
     assert(downcast(&d.*, _Dog).is_some(), "the data object's payload is the _Dog");
     assert(downcast(&d.*, Rc(_Dog)).is_none(), "not an Rc(_Dog) boxed again");
   };
@@ -142,7 +142,7 @@ test("A Dyn(Trait, Clone) over a placed Rc clones into its allocator, twice", {
     (e : Box(Dyn(_Speak, Clone))) = d.clone();
     (f : Box(Dyn(_Speak, Clone))) = e.clone();
     assert(counts.live == usize(3), `the source and both clones are placed: ${counts.live}`);
-    assert((d.speak() + e.speak() + f.speak()) == i32(12), "each clone dispatches to its own payload");
+    assert((d.*.speak() + e.*.speak() + f.*.speak()) == i32(12), "each clone dispatches to its own payload");
   };
   assert(counts.live == usize(0), `every clone went back: ${counts.live}`);
 });
@@ -154,7 +154,7 @@ test("A Dyn(Trait, Clone) over a placed Rc clones into its allocator, twice", {
 // (issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md).
 _reent_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   (inner : Box(Dyn(_Speak))) = dyn(Box.new(_Dog(volume : i32(1))));
-  assert(inner.speak() == i32(1), "the callback's own allocation");
+  assert(inner.*.speak() == i32(1), "the callback's own allocation");
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.allocs = (c.*.allocs + usize(1)));
   unsafe(c.*.live = (c.*.live + usize(1)));
@@ -170,7 +170,7 @@ test("An allocator whose callbacks allocate places Rc, Arc and a Dyn clone witho
     (d : Box(Dyn(_Speak, Clone))) = dyn(Box.new(_Dog(volume : i32(3)), alloc : .Some(reent)));
     (e : Box(Dyn(_Speak, Clone))) = d.clone();
     assert(counts.live == usize(4), `four placed cells: ${counts.live}`);
-    assert((r.* + a.* + e.speak()) == i32(6), "payloads");
+    assert((r.* + a.* + e.*.speak()) == i32(6), "payloads");
   };
   assert(counts.live == usize(0), `all four went back: ${counts.live}`);
 });
@@ -205,7 +205,7 @@ test("A placed Box is the owner prefix and the payload, its handle's bit 0 set; 
     assert(counts.live == usize(2), `the source and its clone: ${counts.live}`);
     big := Box.new(_B64(a : i64(1), b : i64(2), c : i64(3), d : i64(4), e : i64(5), f : i64(6), g : i64(7), h : i64(8)), alloc : .Some(heap));
     assert(counts.bytes == usize(128), `a placed 64-byte payload asks for 80 bytes: ${counts.bytes}`);
-    assert(big.h == i64(8), "the payload after the prefix");
+    assert(big.*.h == i64(8), "the payload after the prefix");
   };
   assert(counts.live == usize(0), `every placed cell went back: ${counts.live}`);
 });
@@ -558,11 +558,11 @@ test("Every release tells the allocator the size and alignment the block was all
     });
     mut(sb) := StringBuilder.with_capacity(usize(4), alloc : placed);
     sb.write_str("grows past its first buffer");
-    assert((p.x + p.y) == i32(7), "rc of a struct");
+    assert((p.*.x + p.*.y) == i32(7), "rc of a struct");
     assert(b.* == i64(9), "rc");
     assert(at.* == i64(5), "arc");
     assert(bx.* == i32(2), "box");
-    assert(d.speak() == i32(6), "dyn");
+    assert(d.*.speak() == i32(6), "dyn");
     assert(list.get(usize(299)) == Option(i64).Some(i64(299)), "list");
     assert(map.get(i32(99)) == Option(i32).Some(i32(198)), "map");
     assert(q.len() == usize(40), "deque");
@@ -691,8 +691,8 @@ test("A header-free pool allocator frees by the size it is given", {
         j = (j + i32(1));
       });
       assert(list.len() == usize(60), "list");
-      assert(pts(usize(19)).x == i32(19), "points");
-      assert((bx.* + i64(d.speak())) == i64(9), "box and dyn");
+      assert(pts(usize(19)).*.x == i32(19), "points");
+      assert((bx.* + i64(d.*.speak())) == i64(9), "box and dyn");
     };
     round = (round + usize(1));
   });
@@ -736,13 +736,13 @@ test("A placed Box(Dyn)'s owning downcast keeps the block: Ok drops it once into
   heap := _counting(addr_of(counts));
   {
     (d : Box(Dyn(_Speak))) = dyn(Box.new(_PdDog(volume : i32(5)), alloc : .Some(heap)));
-    assert(d.speak() == i32(5), "dispatch through a placed box");
+    assert(d.*.speak() == i32(5), "dispatch through a placed box");
     assert(counts.live == usize(1), "one placed block");
     got := match(
       downcast(d, _PdDog),
       .Ok(b) => {
         assert(Box.allocator(b).is_some(), "the retyped box still names its allocator");
-        b.volume
+        b.*.volume
       },
       .Err(_) => i32(-1)
     );
@@ -758,7 +758,7 @@ test("A placed Box(Dyn)'s failed owning downcast hands the box back, dropped onc
   heap := _counting(addr_of(counts));
   {
     (d : Box(Dyn(_Speak))) = dyn(Box.new(_PdDog(volume : i32(6)), alloc : .Some(heap)));
-    back := match(downcast(d, _Dog), .Ok(_) => i32(-1), .Err(e) => e.speak());
+    back := match(downcast(d, _Dog), .Ok(_) => i32(-1), .Err(e) => e.*.speak());
     assert(back == i32(6), "Err hands the same box back");
   };
   assert(counts.live == usize(0), `freed into its allocator: ${counts.live}`);
@@ -768,14 +768,14 @@ impl(unit, _Speak(speak : (fn(self : &Self) -> i32)(i32(42))));
 test("A unit payload in a Box(Dyn): dispatch, size_of_val 0, global and placed", {
   {
     (z : Box(Dyn(_Speak))) = dyn(Box.new(()));
-    assert(z.speak() == i32(42), "dispatch to a zero-sized payload");
+    assert(z.*.speak() == i32(42), "dispatch to a zero-sized payload");
     assert(size_of_val(&z.*) == usize(0), "no payload bytes");
   };
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
     (p : Box(Dyn(_Speak))) = dyn(Box.new((), alloc : .Some(heap)));
-    assert(p.speak() == i32(42), "dispatch to a placed zero-sized payload");
+    assert(p.*.speak() == i32(42), "dispatch to a placed zero-sized payload");
   };
   assert(counts.live == usize(0), `the placed cell went back: ${counts.live}`);
 });

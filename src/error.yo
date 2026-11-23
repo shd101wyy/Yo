@@ -75,10 +75,10 @@ derive(TokenAndWarning, Clone);
 /// token's MIDDLE; it now underlines the whole token from its start).
 _span_of_token :: (fn(token : &Token) -> Span)(
   Span(
-    path : token.module_path.*.clone(),
-    row : usize(token.row),
-    col : usize(token.column),
-    len : token.value.*.clone().chars().count()
+    path : token.*.*.module_path.*.clone(),
+    row : usize(token.*.*.row),
+    col : usize(token.*.*.column),
+    len : token.*.*.value.*.clone().chars().count()
   )
 );
 /// The source line at the token's row ("" when the row is out of range).
@@ -87,9 +87,9 @@ _span_of_token :: (fn(token : &Token) -> Span)(
 /// a split of the 10k-line prelude per message was 12% of a derive-heavy check
 /// (issues/derive-clone-costs-17-ms-per-type.md).
 _source_line_of_token :: (fn(token : &Token) -> String)({
-  input := Rc.clone(token.input);
+  input := Rc.clone(token.*.*.input);
   n := input.*.len();
-  (target : usize) = usize(token.row);
+  (target : usize) = usize(token.*.*.row);
   (row : usize) = usize(0);
   (i : usize) = usize(0);
   (start : usize) = usize(0);
@@ -532,7 +532,7 @@ render_any_error :: (fn(err : &AnyError) -> String)(
   match(
     downcast(err, YoError),
     .Some(ye) => render_diagnostics_for_mode(&ye.diagnostics),
-    .None => err.to_string()
+    .None => err.*.*.to_string()
   )
 );
 /// The typed diagnostics channel (P3): the last thrown YoError's structured
@@ -595,7 +595,7 @@ error_message_text :: (fn(err : &AnyError) -> String)(
       });
       String.from("\n").join(&parts)
     },
-    .None => err.to_string()
+    .None => err.*.*.to_string()
   )
 );
 export(error_message_text);
@@ -924,9 +924,9 @@ note_diagnostic_of_token :: (fn(token : &Token, message : &String) -> Diagnostic
 /// Get the source line at the token's position with a caret indicator
 /// (the legacy pre-P1 block, still used by the warnings path).
 get_line_at_token :: (fn(token : &Token) -> String)({
-  lines := token.input.*.split(String.from("\n"));
+  lines := token.*.*.input.*.split(String.from("\n"));
   row_line := match(
-    lines.get_cloned(usize(token.row)),
+    lines.get_cloned(usize(token.*.*.row)),
     .Some(line) => line,
     .None => String.new()
   );
@@ -934,11 +934,11 @@ get_line_at_token :: (fn(token : &Token) -> String)({
   // so the half-width offset added to it has to be a rune count too — say so,
   // rather than inheriting whatever basis `len()` happens to have
   // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S7).
-  caret_col := (usize(token.column) + (token.value.*.clone().chars().count() / usize(2)));
+  caret_col := (usize(token.*.*.column) + (token.*.*.value.*.clone().chars().count() / usize(2)));
   spaces := String.from(" ").repeat(caret_col);
-  row_plus1 := (usize(token.row) + usize(1));
-  col_plus1 := (usize(token.column) + usize(1));
-  `${token.module_path.*}:${row_plus1}:${col_plus1}:\n${row_line}\n${spaces}^`
+  row_plus1 := (usize(token.*.*.row) + usize(1));
+  col_plus1 := (usize(token.*.*.column) + usize(1));
+  `${token.*.*.module_path.*}:${row_plus1}:${col_plus1}:\n${row_line}\n${spaces}^`
 });
 /// Get the source line at a given position with a caret indicator
 /// (the legacy pre-P1 block).

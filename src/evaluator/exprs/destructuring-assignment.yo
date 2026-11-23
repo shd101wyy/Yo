@@ -122,7 +122,7 @@ _reject_private_destructure :: (
     Rc(.Union(pv_uid, _, _)) => pv_uid.clone(),
     _ => String.new()
   );
-  if(private_member_blocked(label.clone(), type_decl_module(&pv_type_id), &tok.module_path.*), {
+  if(private_member_blocked(label.clone(), type_decl_module(&pv_type_id), &tok.*.*.module_path.*), {
     exn.throw(
       dyn(
         Box.new(
@@ -150,7 +150,7 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
   // renamed to): every call spelled with the name dispatches to the builtin,
   // so the binding could never run (twin of binding.yo's gate; the choke
   // point both destructuring branches already pass through).
-  if(is_reserved_builtin_binding_name(var_name.clone()) && !at.module_path.*.ends_with(String.from("std/prelude.yo")), {
+  if(is_reserved_builtin_binding_name(var_name.clone()) && !at.*.*.module_path.*.ends_with(String.from("std/prelude.yo")), {
     raise_flow_violation(
       format_error_message(
         at,
@@ -177,7 +177,7 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
       );
       sh_entries.push(
         TokenAndError(
-          token : Rc.clone(shadow_var.token),
+          token : Rc.clone(shadow_var.*.token),
           error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
         )
       );
@@ -280,7 +280,7 @@ handle_member_destructuring :: (
   });
   // Union destructuring requires exactly one field, and is a member READ:
   // the same safe-mode gate as `u.x` (property-access.yo).
-  if(is_union_type(rhs_type) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(lhs).module_path.*.clone()), ctx.unsafe_context), {
+  if(is_union_type(rhs_type) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(lhs).*.module_path.*.clone()), ctx.unsafe_context), {
     exn.throw(dyn(Box.new(format_error_message(ast_expr_token(lhs), union_member_read_error_message(ast_expr_to_string(lhs), type_to_string(rhs_type))))));
   });
   if(is_union_type(rhs_type), {
@@ -349,14 +349,14 @@ handle_member_destructuring :: (
           match(
             Rc.clone(lhs_field),
             Rc(.FnCall(_, _, Rc(args), _, _)) => (
-              match(args.get_cloned(usize(0)), .Some(a) => (ast_expr_token(&a).value.* == "..."), .None => false) &&
-                match(args.get_cloned(usize(1)), .Some(b) => (ast_expr_token(&b).value.* == "..."), .None => false)
+              match(args.get_cloned(usize(0)), .Some(a) => (ast_expr_token(&a).*.value.* == "..."), .None => false) &&
+                match(args.get_cloned(usize(1)), .Some(b) => (ast_expr_token(&b).*.value.* == "..."), .None => false)
             ),
             _ => false
           )
       ) => true,
       // bare `...` atom
-      (ast_expr_is_atom(&lhs_field) && (ast_expr_token(&lhs_field).value.* == "...")) => true,
+      (ast_expr_is_atom(&lhs_field) && (ast_expr_token(&lhs_field).*.value.* == "...")) => true,
       true => false
     );
     if(is_spread, {
@@ -460,7 +460,7 @@ handle_member_destructuring :: (
               Box.new(
                 format_error_message(
                   ast_expr_token(&left_side),
-                  `Expected identifier for label in destructuring pattern, got ${ast_expr_token(&left_side).value.*}`
+                  `Expected identifier for label in destructuring pattern, got ${ast_expr_token(&left_side).*.value.*}`
                 )
               )
             )
@@ -490,7 +490,7 @@ handle_member_destructuring :: (
         _reject_private_destructure(rhs_type, rhs_field_label.clone(), ast_expr_token(&lhs_field), exn);
         if(ast_expr_is_atom(&right_side) && is_valid_variable_name(&right_side), {
           rename_expr_opt = Option(AstExpr).Some(Rc.clone(right_side));
-          variable_name_opt = Option(String).Some(ast_expr_token(&right_side).value.*.clone());
+          variable_name_opt = Option(String).Some(ast_expr_token(&right_side).*.value.*.clone());
           variable_token_opt = Option(AstExpr).Some(right_side);
         }, {
           exn.throw(
@@ -498,7 +498,7 @@ handle_member_destructuring :: (
               Box.new(
                 format_error_message(
                   ast_expr_token(&right_side),
-                  `Nested destructuring is not supported: ${ast_expr_token(&right_side).value.*}`
+                  `Nested destructuring is not supported: ${ast_expr_token(&right_side).*.value.*}`
                 )
               )
             )
@@ -538,7 +538,7 @@ handle_member_destructuring :: (
             Box.new(
               format_error_message(
                 ast_expr_token(&lhs_field),
-                `Nested destructuring is not supported: ${ast_expr_token(&lhs_field).value.*}`
+                `Nested destructuring is not supported: ${ast_expr_token(&lhs_field).*.value.*}`
               )
             )
           )
@@ -577,7 +577,7 @@ handle_member_destructuring :: (
         {
           seen_labels.push(rhs_field_label.clone());
         };
-        pos_var_name := ast_expr_token(&lhs_field).value.*.clone();
+        pos_var_name := ast_expr_token(&lhs_field).*.value.*.clone();
         {
           runtime_destructurings.push(
             RuntimeDestructuring(
@@ -606,7 +606,7 @@ handle_member_destructuring :: (
             Box.new(
               format_error_message(
                 ast_expr_token(&lhs_field),
-                `Unsupported destructuring pattern for: ${ast_expr_token(&lhs_field).value.*}`
+                `Unsupported destructuring pattern for: ${ast_expr_token(&lhs_field).*.value.*}`
               )
             )
           )
@@ -665,7 +665,7 @@ handle_member_destructuring :: (
             match(
               added_var_opt,
               .Some(added_var) => {
-                added_var.set_is_created_from_destructuring_atom_variable(is_destructuring_atom_variable);
+                added_var.*.set_is_created_from_destructuring_atom_variable(is_destructuring_atom_variable);
                 match(
                   ref_elem,
                   .Some(re_is_mut) => {
@@ -673,13 +673,13 @@ handle_member_destructuring :: (
                     variable_set_is_imm_borrow(&added_var, !re_is_mut);
                     // A writable reference binding is the reassignable
                     // `is_ref` one (`r := &mut x`), as a `match` payload's.
-                    added_var.set_is_reassignable(re_is_mut);
+                    added_var.*.set_is_reassignable(re_is_mut);
                   },
                   .None => ()
                 );
                 // A `mut(name)` binding may be reassigned (decision 47).
                 if(is_mut_binding(&ast_expr_token(&var_tok_expr), &var_name), {
-                  added_var.set_is_reassignable(true);
+                  added_var.*.set_is_reassignable(true);
                 });
               },
               .None => ()
@@ -742,7 +742,7 @@ evaluate_destructuring_assignment :: (
         Box.new(
           format_error_message(
             ast_expr_token(rhs),
-            `(1) Expected type for right-hand side, got ${ast_expr_token(rhs).value.*}`
+            `(1) Expected type for right-hand side, got ${ast_expr_token(rhs).*.value.*}`
           )
         )
       )
@@ -777,8 +777,8 @@ evaluate_destructuring_assignment :: (
       handle_member_destructuring(
         &lhs_func,
         &lhs_args,
-        &field_labels.items,
-        &field_types.items,
+        &field_labels.*.items,
+        &field_types.*.items,
         &rhs_value,
         &rhs_type,
         lhs,
@@ -802,8 +802,8 @@ evaluate_destructuring_assignment :: (
       handle_member_destructuring(
         &lhs_func,
         &lhs_args,
-        &field_labels.items,
-        &field_types.items,
+        &field_labels.*.items,
+        &field_types.*.items,
         &rhs_value,
         &rhs_type,
         lhs,
@@ -840,7 +840,7 @@ evaluate_destructuring_assignment :: (
     // Find the variant index.
     vnames := match(&rhs_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => Rc.clone(vn), _ => no_labels());
     vfields := match(&rhs_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
-    vi_opt := _find_field_index(&vnames.items, svn.clone());
+    vi_opt := _find_field_index(&vnames.*.items, svn.clone());
     match(
       vi_opt,
       .None => {
@@ -886,7 +886,7 @@ evaluate_destructuring_assignment :: (
         &lhs_func,
         &lhs_args,
         &field_labels,
-        &field_types.items,
+        &field_types.*.items,
         &rhs_value,
         &rhs_type,
         lhs,
@@ -918,7 +918,7 @@ evaluate_destructuring_assignment :: (
       Box.new(
         format_error_message(
           ast_expr_token(lhs),
-          `Destructuring assignment not supported for the left-hand pattern: ${ast_expr_token(lhs).value.*}`
+          `Destructuring assignment not supported for the left-hand pattern: ${ast_expr_token(lhs).*.value.*}`
         )
       )
     )

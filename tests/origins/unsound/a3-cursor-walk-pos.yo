@@ -10,7 +10,7 @@ append :: (fn(list : &mut BList, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next;
+        cur = &mut n.*.next;
       },
       .None => ()
     );
@@ -23,8 +23,8 @@ over_slot :: (fn(slot : &mut Option(Box(BNode)), v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        n.value = (n.value + i32(10));
-        cur = &mut n.next;
+        n.*.value = (n.*.value + i32(10));
+        cur = &mut n.*.next;
       },
       .None => ()
     );
@@ -38,8 +38,8 @@ sum :: (fn(list : &BList) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.value);
-        cur = &n.next;
+        total = (total + n.*.value);
+        cur = &n.*.next;
       },
       .None => ()
     );
