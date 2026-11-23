@@ -1,0 +1,13 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 11: every reference leaf of a `cond` initializer is moved.
+pick :: (fn(m1 : &mut i32, m2 : &mut i32, c : bool) -> unit)({
+  a := cond(c => m1, true => m2);
+  a.* = i32(1);
+  m1.* = i32(2);
+});
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  mut(y) := i32(1);
+  pick(&mut x, &mut y, true);
+});
+export(main);

@@ -1,0 +1,10 @@
+// expect: E0911
+// VERDICTS-76 Q1 row 5: the annotated destination holds `m`'s borrow of `x` until its last use.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  (a : &mut i32) = m;
+  x = i32(9);
+  a.* = i32(2);
+});
+export(main);
