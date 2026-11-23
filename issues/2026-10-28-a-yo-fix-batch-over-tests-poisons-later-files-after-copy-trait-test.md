@@ -63,7 +63,7 @@ yo fix tests/copy_trait.test.yo tmp/zz_probe.yo --migrate deref --dry-run --std-
 # fix: tmp/zz_probe.yo does not evaluate; ...
 yo fix tests/copy_trait.test.yo tmp/zz_probe.yo --dry-run --std-path ./std
 # fix: tmp/zz_probe.yo has errors, but no machine-applicable repair was available
-yo fix tmp/zz_probe.yo --migrate deref --dry-run --std-path ./std                  # clean
+yo fix tmp/zz_probe.yo --dry-run --std-path ./std                                  # clean
 yo check tests/copy_trait.test.yo tmp/zz_probe.yo --std-path ./std                 # clean
 ```
 

@@ -1,0 +1,20 @@
+// expect: E0911
+// The same through a generic T <: View at T := &C.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+C :: struct(v : Rc(X));
+View :: trait(view : (fn(self : Self) -> Option(&Rc(X))));
+impl(&C, View(view : (fn(self : Self) -> Option(&Rc(X)))(.Some(&self.v))));
+see :: (fn(generic(T : Type), t : T, where(T <: View)) -> Option(&Rc(X)))(View.view(t));
+main :: (fn() -> unit)({
+  mut(o) := Option(&Rc(X)).None;
+  {
+    c := C(v : Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+    rc := &c;
+    o = see(rc);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

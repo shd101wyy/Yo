@@ -1,0 +1,13 @@
+// expect: E0912 (the `&mut T` lent to Mutex.with_lock's body escapes the lock through R)
+{ String } :: import("std/string");
+{ Mutex } :: import("std/sync/mutex");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  m := Mutex(String).new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  r := m.with_lock((fn(v : &mut String) -> &mut String)(v));
+  m.with_lock((w : &mut String) => {
+    w.* = String.from("x");
+  });
+  println(`OUT: ${r.*}`);
+});
+export(main);

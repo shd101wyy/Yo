@@ -391,7 +391,7 @@ _find_all_index_methods :: (
   fn(
     concrete_type : &TypeValue,
     env : &Environment,
-    (method_name : str) ?= "index"
+    (method_name : &(str, static)) ?= "index"
   ) -> ArrayList(_IndexMethodEntry)
 )({
   result := ArrayList(_IndexMethodEntry).new();
@@ -1916,8 +1916,8 @@ _record_index_unchecked_twin :: (
     /// The twin's trait and method: `IndexUnchecked.index_unchecked` for a
     /// read, `IndexUncheckedMut.index_unchecked_mut` for a write through
     /// `IndexMut` (the V2b split).
-    (trait_name : str) ?= "IndexUnchecked",
-    (method_name : str) ?= "index_unchecked"
+    (trait_name : &(str, static)) ?= "IndexUnchecked",
+    (method_name : &(str, static)) ?= "index_unchecked"
   ) -> unit
 )({
   tok := ast_expr_token(expr);

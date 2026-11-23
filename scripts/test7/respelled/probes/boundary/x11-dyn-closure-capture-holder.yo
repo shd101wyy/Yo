@@ -1,0 +1,15 @@
+// expect: E0909/E0912 (a closure capturing by value a holder of `&s` escapes `s`'s frame inside a `Box(Dyn(Fn))`)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H :: struct(r : &String);
+derive(H, Copy, Clone);
+_mk :: (fn() -> Box(Dyn(Fn() -> usize)))({
+  s := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  h := H(r : &s);
+  dyn(Box.new({ h }() => h.r.len()))
+});
+main :: (fn() -> unit)({
+  d := _mk();
+  println(`OUT: ${d().to_string()}`);
+});
+export(main);

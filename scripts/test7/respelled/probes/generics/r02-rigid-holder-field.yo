@@ -1,0 +1,20 @@
+// expect: E0923
+// Rigid: write a q-reference into the field of a &mut H(p).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+put :: (fn(generic(p : Origin, q : Origin), h : &mut H(p), v : &(String, q)) -> unit)({
+  h.* = H(p)(r : v);
+});
+main :: (fn() -> unit)({
+  a := String.from("aaaa");
+  mut(h) := H(a)(r : &a);
+  put(&mut h, &a);
+  {
+    b := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    put(&mut h, &b);
+  };
+  println(`OUT: ${h.r.len().to_string()}`);
+  ()
+});
+export(main);

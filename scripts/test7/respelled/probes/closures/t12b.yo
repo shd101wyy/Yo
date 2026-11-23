@@ -1,0 +1,15 @@
+// expect: E0909
+// (tip) `{ p }` over a `&T` parameter boxed into a Box(Dyn(Fn)) (must be Escapable) and returned; the argument dies with an inner block
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+mkd :: (fn(p : &Rc(S)) -> Box(Dyn(Fn() -> usize)))(dyn(Box.new({ p }() => p.*.*.a.len())));
+main :: (fn() -> unit)({
+  (mut(d) : Box(Dyn(Fn() -> usize))) = dyn(Box.new({}() => usize(0)));
+  {
+    h := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    d = mkd(&h);
+  };
+  println(`OUT: ${d().to_string()}`);
+});
+export(main);

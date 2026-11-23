@@ -334,7 +334,7 @@ _unlock_after_submission :: (fn(pool : &ThreadPool, took : bool) -> unit)({
 /// Count a task in under the submission lock, after the `_closed` check, and
 /// return the relay's handle on the counter. The caller holds the lock (`took`)
 /// and releases it after the submission.
-_count_task_in :: (fn(pool : &ThreadPool, took : bool, what : str) -> Arc(WaitGroup))({
+_count_task_in :: (fn(pool : &ThreadPool, took : bool, what : &str) -> Arc(WaitGroup))({
   cond(
     pool._closed.load(MemoryOrder.Acquire) => {
       _unlock_after_submission(pool, took);

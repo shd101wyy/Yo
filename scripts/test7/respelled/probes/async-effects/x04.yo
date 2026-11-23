@@ -1,0 +1,14 @@
+// expect: E0911 (implicit capture of a bound borrowing future; root consumed before the outer is awaited)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+sink :: (fn(v : String) -> unit)({ println(`sink ${v.len().to_string()}`); });
+main :: (fn(io : Io) -> unit)({
+  x := String.from(LONG);
+  f := io.async({ &x }(io : Io) => { io.await(yield(io), io); println(`OUT: ${x.*}`); });
+  outer := io.async({ f }(io : Io) => { io.await(yield(io), io); io.await(f, io); });
+  sink(x);
+  io.await(outer, io);
+});
+export(main);

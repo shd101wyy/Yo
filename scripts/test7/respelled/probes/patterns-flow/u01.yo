@@ -1,0 +1,15 @@
+// expect: E0911
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+HS :: struct(r : &String);
+main :: (fn() -> unit)({
+  mut(b) := Box.new(L());
+  
+  match(&b, Box(s) => {
+    (f : Impl(Fn() -> usize)) = ({ s }() => s.len()); b = Box.new(L()); println(`OUT: ${f().to_string()}`);
+  });
+  ()
+});
+export(main);

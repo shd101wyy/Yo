@@ -1,0 +1,13 @@
+// expect: E0909
+// a `self : &Self` method stores a closure capturing self into a Dyn result
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+impl(S, reader : (fn(self : &Self) -> Box(Dyn(Fn() -> usize)))(dyn(Box.new({ self }() => self.a.len()))));
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  g := h.*.reader();
+  h = Rc.new(S(a : String.from("z")));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

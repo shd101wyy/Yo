@@ -1,0 +1,17 @@
+// expect: E0909
+// (tip) `{ y }` where y is a for read-walk element reference; the closure pushed out via Dyn into an outer list
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+main :: (fn() -> unit)({
+  mut(out) := ArrayList(Box(Dyn(Fn() -> usize))).new();
+  {
+    mut(xs) := ArrayList(String).new();
+    xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    for(&xs, e => {
+      out.push(dyn(Box.new({ e }() => e.clone().len())));
+    });
+  };
+  println(`OUT: ${out(usize(0))().to_string()}`);
+});
+export(main);

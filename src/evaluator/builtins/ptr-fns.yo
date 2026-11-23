@@ -80,8 +80,8 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
 /// A projection result's root error: the message and its code (E0912 for a
 /// place whose storage ends with the call, E0923 for a parameter outside the
 /// spelled result origin; `.None` for a mode mismatch, which has no code).
-_ProjRootError :: struct(msg : String, code : Option(str));
-_proj_err :: (fn(msg : String, code : Option(str)) -> Option(_ProjRootError))(Option(_ProjRootError).Some(_ProjRootError(msg : msg, code : code)));
+_ProjRootError :: struct(msg : String, code : Option(&(str, static)));
+_proj_err :: (fn(msg : String, code : Option(&(str, static))) -> Option(_ProjRootError))(Option(_ProjRootError).Some(_ProjRootError(msg : msg, code : code)));
 /// The enclosing function's type, when the evaluation is inside a function
 /// body (a projection's result is checked against it).
 _enclosing_fn_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
@@ -111,7 +111,7 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
       return(
         _proj_err(
           `This projection's result is declared \`&(T, ${origin_text})\`, and this place is reached from \`${name}\`, which that origin does not name: a result points only into the places its origin lists (decision 43, O3's return rule).`,
-          Option(str).Some(E_ORIGIN_MISMATCH)
+          Option(&(str, static)).Some(E_ORIGIN_MISMATCH)
         )
       );
     });
@@ -138,7 +138,7 @@ _field_origin_error :: (fn(field_ty : &TypeValue, ctx : &EvalContext) -> Option(
         Option(Option(_ProjRootError)).Some(
           _proj_err(
             `This projection's result is declared \`&(T, ${origin_text})\`, and this place is what a reference field refers to, in the places of origin \`${fo_n}\`, which that origin does not name: a result points only into the places its origin lists (decision 43, O3's return rule).`,
-            Option(str).Some(E_ORIGIN_MISMATCH)
+            Option(&(str, static)).Some(E_ORIGIN_MISMATCH)
           )
         )
       );
@@ -232,7 +232,7 @@ _projection_root_name_error :: (fn(name : &String, is_mut : bool, env : &Environ
       // parameters, never a capture, which outlives the call.
       _place_root_is_closure_capture(name, &v, env, ctx) => _proj_err(
         `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${name}\` is a binding of the enclosing function, which the closure captures.`,
-        Option(str).Some(E_ORIGIN_MISMATCH)
+        Option(&(str, static)).Some(E_ORIGIN_MISMATCH)
       ),
       // A `match` binding of a reference payload (decision 43 step 3):
       // the place is wherever the scrutinee's reference points.
@@ -246,15 +246,15 @@ _projection_root_name_error :: (fn(name : &String, is_mut : bool, env : &Environ
       (!v.is_parameter() && (!v.is_compile_time_only() && local_borrow_info_of_variable(&v).is_some())) => _local_borrow_root_error(name, &v, is_mut, env, ctx),
       (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
         `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
-        if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+        if(v.is_module_level(), Option(&(str, static)).None, Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES))
       ),
       (is_mut && (!v.is_ref() || v.is_imm_borrow())) => _proj_err(
         `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`,
-        Option(str).None
+        Option(&(str, static)).None
       ),
       true => _spelled_origin_error(name, ctx)
     ),
-    .None => _proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${name}\` is not one.`, Option(str).None)
+    .None => _proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${name}\` is not one.`, Option(&(str, static)).None)
   )
 );
 /// Decision 24's root rule (the first cut of `REFERENCES_AND_ORIGINS.md` O3's return rule; R3 before 2026-10-20): the
@@ -318,7 +318,7 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
       ),
       match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => expr_info_index_trait_ptr_type(&pi).is_some(), .None => false) => _projection_root_error(&pr_callee, is_mut, env, ctx),
       projection_call_mode_of(place, ctx).is_some() => _projection_call_root_error(place, is_mut, env, ctx),
-      true => _proj_err(String.from("A projection yields a place, and this is a temporary: its storage ends with the call (decision 24, the single-root rule)."), Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+      true => _proj_err(String.from("A projection yields a place, and this is a temporary: its storage ends with the call (decision 24, the single-root rule)."), Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES))
     )
   )
 });
@@ -329,7 +329,7 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
 _local_borrow_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
   info := match(local_borrow_info_of_variable(v), .Some(i) => i, .None => return(Option(_ProjRootError).None));
   if(is_mut && !info.is_mut, {
-    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(&(str, static)).None));
   });
   (li : usize) = usize(0);
   while(li < info.places.len(), li = (li + usize(1)), {
@@ -338,14 +338,14 @@ _local_borrow_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, en
       return(
         _proj_err(
           `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` borrows \`${lp.text}\`, which is not reached from one: its storage ends with the call (decision 24, the single-root rule).`,
-          Option(str).Some(E_LOCAL_BORROW_ESCAPES)
+          Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES)
         )
       );
     });
     match(_projection_root_name_error(&lp.root_name, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
   });
   if(info.places.len() == usize(0), {
-    return(_proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is a local: its storage ends with the call (decision 24, the single-root rule).`, Option(str).Some(E_LOCAL_BORROW_ESCAPES)));
+    return(_proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is a local: its storage ends with the call (decision 24, the single-root rule).`, Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES)));
   });
   Option(_ProjRootError).None
 });
@@ -358,7 +358,7 @@ _local_borrow_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, en
 /// not a call keeps the local rule's error.
 _ref_payload_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
   if(is_mut && v.is_imm_borrow(), {
-    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(&(str, static)).None));
   });
   scr := match(ref_payload_source(v.id()), .Some(e) => e, .None => make_err_expr());
   roots := projection_call_root_args(&scr, ctx);
@@ -374,7 +374,7 @@ _ref_payload_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env
   cond(
     (checked == usize(0)) => _proj_err(
       `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` binds a reference out of \`${ast_expr_to_string(&scr)}\`, which borrows none of them: its storage ends with the call (decision 24, the single-root rule).`,
-      Option(str).Some(E_LOCAL_BORROW_ESCAPES)
+      Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES)
     ),
     true => Option(_ProjRootError).None
   )
@@ -386,7 +386,7 @@ _ref_payload_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env
 /// a shared borrow, so a `&mut` result cannot yield it.
 _borrow_match_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
   if(is_mut, {
-    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(&(str, static)).None));
   });
   scr := match(borrow_match_source(v.id()), .Some(e) => e, .None => make_err_expr());
   _projection_root_error(&ast_expr_strip_borrow_marker(&scr), false, env, ctx)
@@ -401,7 +401,7 @@ _borrow_match_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, en
 _projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
   inner_mut := match(projection_call_mode_of(call, ctx), .Some(m) => m, .None => false);
   if(is_mut && !inner_mut, {
-    return(_proj_err(`A \`&mut\` projection yields a place it may write, and \`${ast_expr_to_string(call)}\` is the result of a read projection (\`-> &T\`).`, Option(str).None));
+    return(_proj_err(`A \`&mut\` projection yields a place it may write, and \`${ast_expr_to_string(call)}\` is the result of a read projection (\`-> &T\`).`, Option(&(str, static)).None));
   });
   roots := projection_call_root_args(call, ctx);
   (mut(checked) : usize) = usize(0);
@@ -431,7 +431,7 @@ _projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Enviro
     i = (i + usize(1));
   });
   cond(
-    (checked == usize(0)) => _proj_err(String.from("A projection yields a place, and this call borrows no argument: its storage ends with the call (decision 24, the single-root rule)."), Option(str).Some(E_LOCAL_BORROW_ESCAPES)),
+    (checked == usize(0)) => _proj_err(String.from("A projection yields a place, and this call borrows no argument: its storage ends with the call (decision 24, the single-root rule)."), Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES)),
     true => Option(_ProjRootError).None
   )
 });
@@ -444,11 +444,11 @@ _held_place_root_error :: (fn(hp : &OriginRootPlace, is_mut : bool, holder : &As
     .Some(v) => cond(
       (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
         `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${ast_expr_to_string(holder)}\` points into \`${hp.place.text}\`, ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
-        if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+        if(v.is_module_level(), Option(&(str, static)).None, Option(&(str, static)).Some(E_LOCAL_BORROW_ESCAPES))
       ),
       (is_mut && (!v.is_ref() || v.is_imm_borrow())) => _proj_err(
         `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${hp.place.root_name}\` is a shared borrow (\`&T\`).`,
-        Option(str).None
+        Option(&(str, static)).None
       ),
       true => _spelled_origin_error(&hp.place.root_name, ctx)
     ),
