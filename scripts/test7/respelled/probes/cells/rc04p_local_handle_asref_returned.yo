@@ -1,0 +1,19 @@
+// expect: E0912
+{ String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
+{ OnceCell } :: import("std/sync/once");
+mem :: import("std/mem");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+X :: struct(s : String, n : i32);
+long :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"), n : i32(1))));
+longs :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+get :: (fn(a : &String) -> &X)({
+  h := long();
+  &h.as_ref()
+});
+main :: (fn() -> unit)({
+  k := longs();
+  println(`OUT: ${get(&k).s.len().to_string()}`);
+});
+export(main);

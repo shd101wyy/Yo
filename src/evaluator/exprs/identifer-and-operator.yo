@@ -16,8 +16,6 @@
   expr_info_set_origin_type,
   is_extern_c_global,
   scope_release_note_query,
-  migrate_deref_on,
-  record_deref_clean_site,
   self_lend_operand_mode,
   is_self_lend_forced,
   mark_reference_self_place
@@ -39,7 +37,7 @@
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
-{ use_of_moved_value_error, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type, note_reference_read, deref_rule_recording } :: import("../utils.yo");
+{ use_of_moved_value_error, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type, note_reference_read } :: import("../utils.yo");
 (g_audit_reference_read : bool) = debug_knob(`YO_AUDIT_REFERENCE_READ`).is_some();
 (g_audit_reference_mode : bool) = debug_knob(`YO_AUDIT_VARIABLE_TY`).is_some();
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -537,12 +535,10 @@ evaluate_identifier_and_operator :: (
   // reference itself, so the lend is a `&&T` / `&mut &T`. Codegen emits the
   // binding's storage there (`is_reference_self_place`). Compiler-synthesized
   // code, which keeps the old reading (`deref_rule_applies`), lends the referent.
-  // `yo fix --migrate deref` reads code written before the deref rule, where
-  // `&r` lent the referent: it records the `.*` (E0926's edit) instead.
   self_lend_mode := self_lend_operand_mode(ast_expr_id(expr));
   // A slot that takes a reference to a reference forces the reading in
   // every tree (`is_self_lend_forced`).
-  is_self_place := (variable_is_reference_binding(&variable) && self_lend_mode.is_some() && (deref_rule_applies(&token, ctx) || is_self_lend_forced(ast_expr_id(expr))) && !deref_rule_recording() && !is_reference_deref_site(&token));
+  is_self_place := (variable_is_reference_binding(&variable) && self_lend_mode.is_some() && (deref_rule_applies(&token, ctx) || is_self_lend_forced(ast_expr_id(expr))) && !is_reference_deref_site(&token));
   if(is_self_place, {
     // `&mut r` writes `r` itself (a re-point through the `&mut &T`), so `r`
     // must own its pointer: a local reference binding (`mut(r) := &x`). A
@@ -580,12 +576,6 @@ evaluate_identifier_and_operator :: (
   if(variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx), {
     if(!reads_reference && !is_self_place && !deref_is_exempt && !is_reference_deref_site(&token), {
       reject_reference_without_deref(&variable, &token, u8(0), ctx, exn);
-    }, {
-      // Judged and read as written: an evaluation for another target that
-      // records an edit here disagrees (`yo fix --migrate deref`).
-      if(migrate_deref_on() && !ctx.is_in_function_call_checking_phase, {
-        record_deref_clean_site(&token, &variable.name);
-      });
     });
   });
   // A read of the whole variable: E0911 while a `mut` borrow of a place

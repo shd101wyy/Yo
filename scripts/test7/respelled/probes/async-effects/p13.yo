@@ -1,0 +1,14 @@
+// expect: E0911 (implicit capture of a field w.a through the body, w consumed before await)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield, select } :: import("std/async");
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+sinkw :: (fn(v : W) -> unit)(());
+W :: struct(a : String, b : String);
+main :: (fn(io : Io) -> unit)({
+  w := W(a : String.from(LONG), b : String.from("b"));
+  f := io.async({ &w }(io : Io) => { println(`OUT: ${w.a}`); });
+  sinkw(w);
+  io.await(f, io);
+});
+export(main);

@@ -1,0 +1,15 @@
+// expect: E0911 -- a reference into xs(0) held across callee(&mut xs), where the callee calls a FnMut param that clears its argument
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+callee :: (fn(b : &mut ArrayList(String)) -> unit)({ (mut(f) : Impl(FnMut(x : &mut ArrayList(String)) -> unit)) = ((x : &mut ArrayList(String)) => x.clear()); f(b); });
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  xs.push(String.from("second-second-second-second-second"));
+  r := xs.index(usize(0));
+  callee(&mut xs);
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

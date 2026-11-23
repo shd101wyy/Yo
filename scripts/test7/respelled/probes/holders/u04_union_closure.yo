@@ -1,0 +1,18 @@
+// expect: E0923
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : Option(&(Rc(X), p)), n : i32));
+main :: (fn() -> unit)({
+  a := mk();
+  b := mk();
+  mut(o) := Option(&(Rc(X), (a, b))).Some(&a);
+  {
+    y := mk();
+    (mut(f) : Impl(FnMut(v : &Rc(X)) -> unit)) = ({ o : &mut o }(v) => { o.* = .Some(v); });
+    f(&y);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => ());
+});
+export(main);

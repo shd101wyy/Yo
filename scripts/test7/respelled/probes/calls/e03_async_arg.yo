@@ -1,0 +1,16 @@
+// expect: E0911
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+f :: (fn(xs : &mut ArrayList(String), r : &String, io : Io) -> Impl(Future(usize, Io)))(io.async({ xs : &mut xs.*, r : &r.* }(io : Io) => { xs.clear(); r.clone().len() }));
+main :: (fn(io : Io) -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  e := first(&xs);
+  v := io.await(f(&mut xs, e, io), io);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

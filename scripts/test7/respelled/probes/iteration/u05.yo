@@ -1,0 +1,15 @@
+// expect: E0911 -- a projection whose body is a nested projection call (self.items.index(i)) -- result held, base grown.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+Bag :: struct(items : ArrayList(String));
+impl(Bag, at : (fn(self : &Self, i : usize) -> &String)(&self.items.index(i)));
+main :: (fn() -> unit)({
+  mut(b) := Bag(items : ArrayList(String).new());
+  b.items.push(String.from("hello-world-hello-world-hello-world"));
+  r := b.at(usize(0));
+  b.items.clear();
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

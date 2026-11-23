@@ -1,0 +1,17 @@
+// expect: E0911/E0923
+// A holder declared with type_of(&a)'s type, then assigned a block local's reference.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+main :: (fn() -> unit)({
+  a := Rc.new(X(s : String.from("a")));
+  ra := &a;
+  mut(o) := Option(&(Rc(X), a)).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o = .Some(&b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

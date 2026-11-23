@@ -1,0 +1,13 @@
+// expect: E0911 -- m.keys() consumes m (value form), m used after
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(m) := HashMap(String, i32).new();
+  m.insert(String.from("k"), i32(1));
+  for(m.keys(), k => { println(&k); });
+  println(`OUT: ${m.len().to_string()}`);
+  ()
+});
+export(main);

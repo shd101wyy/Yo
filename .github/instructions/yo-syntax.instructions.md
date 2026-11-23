@@ -370,8 +370,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - A value moved in SOME arms of a `cond`/`match` is dropped at the end of the others (E0907 only for loop
   exits, or when a `match` pattern in the branch binds the same name). An assignment drops an explicit-copy
   old value right after the store (`old := (x = y)` keeps it).
-- Compiler-generated source (backtick templates) must spell `self : &Self` where it borrows: migrations do
-  not see inside strings.
+- Compiler-generated source (backtick templates) must spell `self : &Self` where it borrows.
 
 **Choosing a parameter shape:**
 
@@ -447,7 +446,6 @@ main :: (fn() -> unit)({
   by-value capture entry `{ r }` of a reference binding copies the reference (`{ r : r.* }` copies the
   referent).
 - An assignment's operator RHS stays grouped: `r.* = (a + b)`.
-- `yo fix <path> --migrate deref` rewrites older code.
 
 ### Local borrows (decision 18)
 
@@ -928,8 +926,7 @@ io.async(e => { w := i32(5); w }) // CORRECT — name the bundle parameter
   `dyn(Box.new(v))` → `Box(Dyn(T))`, `dyn(Rc.new(v))` → `Rc(Dyn(T))`, `dyn(&v)` / `dyn(&mut v)` →
   `&Dyn(T)` / `&mut Dyn(T)` (no allocation); `&b.*` lends an owned one.
 - `downcast(&b.*, V)` gives `Option(&V)`; `upcast(p, Dyn(A))` keeps the pointer kind.
-- An unsized type by value is E0619; `unsize(a)` of a value and `dyn(v)` of a plain value are E0620
-  (`yo fix <path> --migrate unsized` rewrites older spellings).
+- An unsized type by value is E0619; `unsize(a)` of a value and `dyn(v)` of a plain value are E0620.
 - `generic(T : ?Sized)` opts a generic in; a trait's associated type opts in the same way
   (`Target : ?Sized`; `Self.Target` then lives only behind a pointer).
 - `AnyError` is `Box(Dyn(Error, Clone))` (`std/error.yo`); `d.clone()` copies a `Dyn(Trait, Clone)`. `throw`
