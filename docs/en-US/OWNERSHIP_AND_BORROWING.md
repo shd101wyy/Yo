@@ -366,8 +366,26 @@ export(main);
 
 `&T` is `Copy`: `a := r; b := r;` gives two references to the same place.
 `&mut T` is not `Copy`, so there is never more than one usable `&mut` to a
-place. Passing a `&mut T` binding to a `&mut T` parameter reborrows it for
-the call and leaves the binding usable afterwards.
+place. Binding a `&mut T` to a new name moves it: after `a := m` (or
+`(a : &mut T) = m`), `a` holds `m`'s borrow until `a`'s last use, and a later
+use of `m` is E0901. A tuple element, a generic `T` argument and a return
+move it too. To keep `m`, reborrow it: `a := &mut m.*` borrows the place for
+`a`'s life, and `m` is usable again after `a`'s last use. Passing a `&mut T`
+binding to a `&mut T` parameter reborrows it for the call and leaves the
+binding usable afterwards.
+
+```yo
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  a := &mut m.*; // a reborrow: m is usable after a's last use
+  a.* = i32(2);
+  m.* = i32(3);
+  b := m; // a move: m is not usable after this
+  b.* = i32(4);
+});
+export(main);
+```
 
 ### A borrow lives until its last use
 

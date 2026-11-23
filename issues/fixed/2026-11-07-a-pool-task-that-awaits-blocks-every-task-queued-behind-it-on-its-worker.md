@@ -6,10 +6,11 @@ latency are wrong for any pool mixing slow async tasks with short ones, and a
 task that never completes (an accept loop) starves the tasks assigned to its
 worker permanently.
 
-**Status:** OPEN. Filed 2026-11-07 from VERDICTS-32 §3.2. Fixed by TP-1
-([`plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
-v0.2.80). The test, `tests/thread_pool_shared_queue.test.yo`, lands with that
-fix.
+**Status:** FIXED 2026-11-22 by TP-1
+([`plans/reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../../plans/reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
+v0.2.80). Was: OPEN, filed 2026-11-07 from VERDICTS-32 §3.2. Test:
+`tests/thread-pool-shared-queue.test.yo`, "a task queued behind an awaiting
+task starts on the idle worker".
 
 ## Reproduction
 
@@ -51,3 +52,25 @@ All unstarted tasks go into one intake queue shared by the workers, and an
 idle worker takes the next one. Taking an unstarted `FnOnce + Send` task is
 sound. A started task never migrates (`Io` and `JoinHandle` are `!Send`).
 Explicit pinning remains available as `spawn_on(pool, i, cb)`.
+
+## Fix (2026-11-22, TP-1)
+
+`src/codegen/parallelism/runtime.yo` replaces the process-global statics
+with a pool handle, `__yo_worker_pool_t`, made by
+`__yo_worker_pool_create(n)` with exactly `n` joinable workers.
+
+- **One shared queue.** `__yo_worker_pool_submit` appends to the pool's
+  shared queue and wakes one sleeping worker; a worker that finishes a task
+  takes the next one from it. Task C goes to the worker that finished task B.
+- **Pinning is explicit.** `__yo_worker_pool_submit_to(pool, i, ...)` appends
+  to worker `i`'s own queue, which only worker `i` takes, before the shared
+  one (`std/thread`'s `spawn_on`).
+- **A started task never moves.** A worker still runs a task to completion,
+  `__yo_async_wait_all` included, before it takes the next one.
+
+`std/thread.yo`'s `ThreadPool` owns the handle: `Drop` is `shutdown`, which
+closes the pool and joins its workers (`__yo_worker_pool_shutdown_join`), then
+releases it (`__yo_worker_pool_destroy`).
+
+Verified with the test above, which measures how long after the start task C
+began: under 1000 ms with the fix (the issue's ~2000 ms without it).

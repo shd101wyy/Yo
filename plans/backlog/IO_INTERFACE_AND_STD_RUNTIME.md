@@ -22,7 +22,7 @@ The question has two halves, and they get different answers:
    behind an ABI that this plan writes down. One backend is ported to Yo as a
    measured experiment after NO_LIBC P9; nothing else is.
 
-Companion: [`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
+Companion: [`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
 the parallelism half of the same consult.
 
 ## 0. What is true today (develop, 2026-11-07)
@@ -306,7 +306,7 @@ Until then, there is no Yo runtime.
 The parallelism runtime gets the same answer. `parallelism/runtime.yo` stays
 C, and NO_LIBC P5/P6 swap pthreads for `clone`/`futex` under it. The pool
 redesign
-([`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md))
+([`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md))
 is made in that C once, before P5, so P5 ports the final shape.
 
 ## 6. Schedule and PRs

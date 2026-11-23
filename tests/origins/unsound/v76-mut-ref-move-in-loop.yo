@@ -1,0 +1,15 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 7: `a := m` inside a loop moves `m` on the first iteration; the second would move it again.
+fill :: (fn(m : &mut i32, n : i32) -> unit)({
+  mut(i) := i32(0);
+  while(i < n, {
+    a := m;
+    a.* = i;
+    i = (i + i32(1));
+  });
+});
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  fill(&mut x, i32(3));
+});
+export(main);

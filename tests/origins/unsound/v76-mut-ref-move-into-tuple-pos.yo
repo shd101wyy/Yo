@@ -1,0 +1,11 @@
+// expect: accept
+// VERDICTS-76 Q1 row 18, positive control: the tuple holds `m`'s borrow and writes through it.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  t := (m, i32(7));
+  t.0.* = t.1;
+  println(`OUT: ${x.to_string()}`);
+});
+export(main);

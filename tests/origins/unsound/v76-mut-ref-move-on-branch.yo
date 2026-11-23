@@ -1,0 +1,14 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 8: a move on one branch consumes `m` for the code after the branch.
+set :: (fn(m : &mut i32, c : bool) -> unit)({
+  if(c, {
+    a := m;
+    a.* = i32(1);
+  });
+  m.* = i32(2);
+});
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  set(&mut x, true);
+});
+export(main);
