@@ -1326,11 +1326,14 @@ comptime_expect_error(
   }),
   "reading the value it refers to is spelled `h.r.*`"
 );
+bs_rf_bump :: (fn(v : &mut i32) -> unit)({
+  v.* = (v.* + i32(1));
+});
 comptime_expect_error(
   bs_rf_lend_referent :: (fn() -> unit)({
     x := i32(1);
     mut(h) := BsRF(r : &x, n : i32(0));
-    q := &mut h.r.*;
+    bs_rf_bump(&mut h.r.*);
   }),
   "Cannot write through `h.r`: it is a `&` reference field"
 );
