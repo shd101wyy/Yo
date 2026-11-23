@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
   in_def_time_trial
 } :: import("../context.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ note_ctfe_reference_params, note_legacy_str_type_arg } :: import("../utils.yo");
+{ note_ctfe_reference_params } :: import("../utils.yo");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
@@ -757,7 +757,6 @@ evaluate_comptime_fn_call :: (
                   // `unsized_legacy_spellings`): `ArrayList(str)` is
                   // `ArrayList(&(str, static))`.
                   is_legacy_value_str(&us_t) => {
-                    note_legacy_str_type_arg(&us_callee.*, us_i, &ctx.std_path);
                     us_a.value = Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(legacy_value_str(&us_t))));
                   },
                   !type_is_sized(&us_t) => {

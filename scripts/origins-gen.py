@@ -62,8 +62,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 LONG1 = "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"
 LONG2 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-BORROW_CODES_YO = {"E0901", "E0909", "E0910", "E0911", "E0912", "E0919", "E0923", "E0924", "E0922"}
-# diagnostics without a code that are the language's documented walls, not generator bugs
+BORROW_CODES_YO = {"E0901", "E0909", "E0910", "E0911", "E0912", "E0919", "E0923", "E0924"}
+# diagnostics that are the language's documented walls (E0909 for a container or a cell, none for the rest), not generator bugs
 WALL_TEXTS = ("carries an origin inside a container or a cell", "Cannot re-point")
 # precision (Yo rejects, rustc accepts) patterns that are recorded rows, tagged "known: <row>" in the summary so an
 # over-freeze nobody has explained stands out in precision.tsv
@@ -1001,7 +1001,7 @@ def classify(yo, rs, asn):
             return "CRASH"
         return "ok"
     if yo[0] == "ERR":
-        if yo[1] == "-" and any(w in yo[2] for w in WALL_TEXTS):
+        if any(w in yo[2] for w in WALL_TEXTS):
             return "wall"
         if yo[1] in BORROW_CODES_YO:
             return "precision" if rs[0] == "OK" else "ok"

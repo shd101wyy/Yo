@@ -1,0 +1,15 @@
+// expect: E0909
+// t16 through a Dyn: the state's origin must make the payload non-Escapable
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Box(Dyn(Fn() -> usize)))({
+  k := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  y := &k;
+  dyn(Box.new({ last : Option(&Rc(X)).Some(y) }() => match(&last, .Some(r) => r.*.*.s.len(), .None => usize(0))))
+});
+main :: (fn() -> unit)({
+  g := mk();
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

@@ -1,0 +1,18 @@
+// expect: E0923
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+pick :: (fn(a : &String, b : &String) -> &String)(cond((a.len() > b.len()) => &a.*, true => &b.*));
+mk :: (fn(a : &String, b : &String) -> &(String, a))(&pick(a, b));
+main :: (fn() -> unit)({
+  t := String.from("t");
+  e := {
+    u := long();
+    mk(&t, &u)
+  };
+  println(`OUT: ${e.clone()}`);
+});
+export(main);

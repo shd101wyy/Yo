@@ -316,7 +316,7 @@ These are deliberately parked, with their trigger recorded in the owning doc:
 - **Porting the async runtime to Yo.** One epoll backend, as an experiment,
   after NO_LIBC P9 (same plan, §5).
 - **The candidate catalogues**
-  (`FSTAR_`/`LEAN_`/`GOOSE_`/`K_FRAMEWORK_`/`RUST_`/`ZIG_`/`JAI_ADOPTION_CANDIDATES`).
+  (`FSTAR_`/`LEAN_`/`GOOSE_`/`K_FRAMEWORK_`/`RUST_`/`ZIG_`/`JAI_`/`LOGIC_PROGRAMMING_ADOPTION_CANDIDATES`).
   These are pull-only, as in rule 4.
 - **Polonius-only borrow cases.** A recorded divergence
   (`BORROW_CHECKER_COMPLETENESS.md` P16).

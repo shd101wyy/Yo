@@ -1,0 +1,22 @@
+// expect: E0923
+// Rigid: nested generic put(dst : &mut Option(T), v : Option(T)) unifies T with both p and q.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+put :: (fn(generic(T : Type), dst : &mut Option(T), v : Option(T)) -> unit)({
+  dst.* = v;
+});
+pk :: (fn(generic(p : Origin, q : Origin), a : &(String, p), b : &(String, q), dst : &mut Option(&(String, p))) -> unit)({
+  put(dst, Option(&(String, q)).Some(b));
+});
+main :: (fn() -> unit)({
+  a := String.from("aaaa");
+  mut(slot) := Option(&(String, a)).None;
+  pk(&a, &a, &mut slot);
+  {
+    b := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    pk(&a, &b, &mut slot);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

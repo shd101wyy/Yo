@@ -1,11 +1,13 @@
 # `--migrate unsized` writes `&(str, static)`, which safe code cannot spell while P12 is blocked
 
+**Retired 2026-11-21:** `yo fix --migrate` was deleted in v0.2.80 (maintainer decision: no external users, so no migration tooling); no mode writes the `str` spelling any more, so the question is moot.
+
 **Kind:** design question
 
-**Status:** RESOLVED 2026-11-21 (VERDICTS-74, adopted by the coordinator): P12 lands `static` as a CHECKED origin and
-deletes E0922, so the question is moot — any file may spell `&(str, static)`, and the spelling is checked (only
-values that borrow no place flow into it). Filed 2026-11-16 by the d49-str lane; the branch implemented option 3 so
-that it was mergeable as it stood.
+**Status:** RETIRED 2026-11-21 (see above). Also answered by VERDICTS-74 (adopted by the coordinator): P12 lands
+`static` as a CHECKED origin and deletes E0922, so any file may spell `&(str, static)` and the spelling is checked
+(only values that borrow no place flow into it). Filed 2026-11-16 by the d49-str lane; the branch implemented
+option 3 so that it was mergeable as it stood.
 
 ## What
 

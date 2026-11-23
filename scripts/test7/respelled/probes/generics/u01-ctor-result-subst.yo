@@ -1,0 +1,18 @@
+// expect: E0911
+// A result typed by a user type constructor over a declared origin, H(p): the caller must substitute p := b.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+mk :: (fn(generic(p : Origin), v : &(Rc(X), p)) -> H(p))(H(p)(r : v));
+main :: (fn() -> unit)({
+  a := Rc.new(X(s : String.from("a")));
+  mut(o) := Option(H(a)).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o = .Some(mk(&b));
+  };
+  match(o, .Some(h) => println(`OUT: ${h.r.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

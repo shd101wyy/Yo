@@ -102,5 +102,5 @@ Test: `tests/cli-cases/fix-migrate-explicit-copy-no-clone`. It holds the
 four-setter program above and a `StringBuilder`/`HeaderMap` pair. With the
 parameter-key fix (B4-0a) underneath, `set_a` and `set_d` are cloned (field
 stores keep the automatic `.clone()`,
-`issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`),
+`issues/retired/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`),
 and `set_b`, `set_c` and both builder stores are listed.
