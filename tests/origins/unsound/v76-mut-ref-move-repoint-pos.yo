@@ -1,0 +1,14 @@
+// expect: accept
+// VERDICTS-76 Q1 row 9: a moved `mut` reference binding is usable again once re-pointed.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  mut(y) := i32(1);
+  mut(m) := &mut x;
+  a := m;
+  a.* = i32(2);
+  m = &mut y;
+  m.* = i32(3);
+  println(`OUT: ${x.to_string()} ${y.to_string()}`);
+});
+export(main);

@@ -1,0 +1,13 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 4: a `&mut` parameter moves like a local reference; a later use of it is a use of a moved value.
+set :: (fn(m : &mut i32) -> unit)({
+  a := m;
+  a.* = i32(1);
+  m.* = i32(2);
+  a.* = i32(3);
+});
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  set(&mut x);
+});
+export(main);

@@ -1,0 +1,11 @@
+// expect: accept
+// VERDICTS-76 Q1 row 1: `a := m` moves the `&mut` reference `m` into `a`, which takes over `m`'s borrow of `x`.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  a := m;
+  a.* = i32(2);
+  println(`OUT: ${x.to_string()}`);
+});
+export(main);

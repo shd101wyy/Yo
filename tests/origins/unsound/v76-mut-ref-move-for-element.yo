@@ -1,0 +1,14 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 15: a `&mut` iteration binding moves like any `&mut` reference.
+{ ArrayList } :: import("std/collections/array-list");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  for(&mut xs, x => {
+    a := x;
+    a.* = i32(1);
+    x.* = i32(2);
+    a.* = i32(3);
+  });
+});
+export(main);

@@ -1,0 +1,10 @@
+// expect: E0911
+// VERDICTS-76 Q1 row 3: `a` holds `m`'s borrow of `x` until `a`'s last use, so a write of `x` before it conflicts.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  a := m;
+  x = i32(9);
+  a.* = i32(2);
+});
+export(main);
