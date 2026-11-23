@@ -10,7 +10,8 @@
 //!   2. `__yo_decr_rc_atomic` uses atomic_fetch_sub_explicit + acq_rel.
 //!   3. Drop dispatch runs INSIDE the decrement function (the type-tag
 //!      dispatch, the path the TS test's `arc(i32(42))` program hits).
-//!   4. `__yo_worker_pool_init` is guarded (idempotent).
+//!   4. The worker pool takes a worker's pinned queue first and never joins
+//!      the worker a shutdown runs on.
 //!   5. The allocator interface the runtime speaks follows the shape of std's
 //!      `AllocatorVTable` (version 1 unchanged, version 2 aligned and sized).
 { String } :: import("std/string");
@@ -106,17 +107,21 @@ test("drop dispatch runs within the decrement function", {
   assert(body.contains("memory_order_acq_rel"), "decr body fetch_sub is acq_rel");
   assert(body.contains("__yo_dispose_dispatch"), "dispose dispatch runs inside __yo_decr_rc_atomic");
 });
-test("__yo_worker_pool_init is guarded (idempotent)", {
+test("the worker pool: a worker takes its pinned queue first, and a pool shut down from its own worker is not joined there", {
   c := emit_parallelism_runtime();
-  assert(c.contains("__yo_worker_pool_initialized"), "pool init flag is emitted");
-  assert(c.contains("static void __yo_worker_pool_init"), "pool init function is emitted");
-  // Mirror the TS slice: from the init definition to its first `}` (which
-  // closes the guard's early-return block) + 500.
-  start := must_find(&c, "static void __yo_worker_pool_init(", usize(0));
-  close := must_find(&c, "}", start);
-  body := c.substring(start, close + usize(500));
-  assert(body.contains("if (__yo_worker_pool_initialized)"), "init body checks the flag");
-  assert(body.contains("return"), "init body returns early when already initialized");
+  // TP-1: the pool is a handle, not process-global statics with an atexit hook.
+  assert(!c.contains("__yo_worker_pool_initialized"), "no process-global pool flag");
+  assert(!c.contains("atexit("), "no exit hook signals the workers");
+  entry := fn_body(&c, "static void* __yo_worker_thread_entry(void* arg) {");
+  pinned := must_find(&entry, "__yo_worker_task_t* task = self->pinned_head;", usize(0));
+  shared := must_find(&entry, "task = pool->shared_head;", usize(0));
+  assert(pinned < shared, "a worker checks its own (spawn_on) queue before the shared one");
+  join := fn_body(&c, "static void __yo_worker_pool_shutdown_join(__yo_worker_pool_t pool) {");
+  own := must_find(&join, "if (on_own_worker) {", usize(0));
+  joins := must_find(&join, "__yo_raw_thread_join(", usize(0));
+  assert(own < joins, "a shutdown on one of the pool's own workers returns before joining");
+  destroy := fn_body(&c, "static void __yo_worker_pool_destroy(__yo_worker_pool_t pool) {");
+  assert(destroy.contains("int free_now = (pool->live == 0);"), "the handle is freed only when no worker still runs");
 });
 /// The C text of one emitted runtime function: from its definition line to
 /// the first line that is exactly `}`.

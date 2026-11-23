@@ -1,0 +1,156 @@
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+// TP-1 (plans/reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md): a
+// ThreadPool owns exactly its workers, unstarted tasks share one queue,
+// `spawn_on` pins a task to one worker, and dropping the pool drains and joins
+// it.
+{ assert } :: import("std/assert");
+{ Thread, ThreadPool, spawn, spawn_on, worker_id } :: import("std/thread");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ Channel } :: import("std/sync/channel");
+{ sleep, sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
+// issues/fixed/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md:
+// with two workers, one task awaiting a 2 s sleep and one returning at once,
+// the third task must start on the idle worker, not behind the sleeper (the
+// former round-robin put it on the sleeper's worker, ~2000 ms late).
+test("a task queued behind an awaiting task starts on the idle worker", {
+  pool := ThreadPool.new(usize(2));
+  started := Channel(i64).new(usize(1));
+  start := Instant.now();
+  spawn(&pool, (io : Io) => {
+    io.await(sleep(Duration.from_millis(i64(2000)), io), io);
+  });
+  spawn(&pool, (io : Io) => {
+    ();
+  });
+  spawn(&pool, { start, started : started.clone() }(io : Io) => {
+    _ := started.send(start.elapsed().as_millis());
+    ()
+  });
+  third_ms := started.recv().unwrap();
+  assert(third_ms < i64(1000), `the third task started after ${third_ms.to_string()} ms, behind the sleeping task`);
+  pool.join_all();
+});
+test("ThreadPool.new(n) owns exactly n workers", {
+  a := ThreadPool.new(usize(3));
+  b := ThreadPool.new(usize(5));
+  assert(a.worker_count() == usize(3), "the first pool has 3 workers");
+  assert(b.worker_count() == usize(5), "a second pool has its own 5 workers");
+});
+test("spawn_on runs the task on the worker it names", {
+  pool := ThreadPool.new(usize(3));
+  assert(worker_id().is_none(), "the test thread is not a pool worker");
+  mismatches := Arc.new(AtomicI32.new(i32(0)));
+  ran := Arc.new(AtomicI32.new(i32(0)));
+  (mut(round) : i32) = i32(0);
+  while(round < i32(4), {
+    (mut(i) : usize) = usize(0);
+    while(i < pool.worker_count(), {
+      spawn_on(&pool, i, { i, mismatches : Arc.clone(mismatches), ran : Arc.clone(ran) }(io : Io) => {
+        match(
+          worker_id(),
+          .Some(w) => cond(
+            (w == i) => (),
+            true => {
+              _ := mismatches.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+            }
+          ),
+          .None => {
+            _ := mismatches.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+          }
+        );
+        _ := ran.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+        ()
+      });
+      i = (i + usize(1));
+    });
+    round = (round + i32(1));
+  });
+  pool.join_all();
+  assert(ran.*.load(MemoryOrder.Acquire) == i32(12), "every pinned task ran");
+  assert(mismatches.*.load(MemoryOrder.Acquire) == i32(0), "every pinned task saw worker_id() == .Some(its worker)");
+});
+test("a pinned task waits for its worker while the other workers stay free", {
+  pool := ThreadPool.new(usize(2));
+  done := Channel(i64).new(usize(2));
+  start := Instant.now();
+  // Worker 0 is busy for 500 ms; a task pinned to it waits, a shared task
+  // submitted after it does not.
+  spawn_on(&pool, usize(0), (io : Io) => {
+    sleep_blocking(Duration.from_millis(i64(500)));
+  });
+  spawn_on(&pool, usize(0), { start, done : done.clone() }(io : Io) => {
+    _ := done.send(start.elapsed().as_millis());
+    ()
+  });
+  shared_started := Channel(i64).new(usize(1));
+  spawn(&pool, { start, shared_started : shared_started.clone() }(io : Io) => {
+    _ := shared_started.send(start.elapsed().as_millis());
+    ()
+  });
+  shared_ms := shared_started.recv().unwrap();
+  pinned_ms := done.recv().unwrap();
+  assert(shared_ms < i64(400), `the shared task started after ${shared_ms.to_string()} ms`);
+  assert(pinned_ms >= i64(450), `the pinned task ran after ${pinned_ms.to_string()} ms, before its worker was free`);
+});
+test("dropping a pool runs every submitted task and joins its workers", {
+  counter := Arc.new(AtomicI32.new(i32(0)));
+  {
+    pool := ThreadPool.new(usize(2));
+    (mut(i) : i32) = i32(0);
+    while(i < i32(16), {
+      spawn(&pool, { counter : Arc.clone(counter) }(io : Io) => {
+        sleep_blocking(Duration.from_millis(i64(5)));
+        _ := counter.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+        ()
+      });
+      i = (i + i32(1));
+    });
+  };
+  assert(counter.*.load(MemoryOrder.Acquire) == i32(16), "the drop drained all 16 tasks");
+});
+test("a task may drop the last Arc(ThreadPool): the pool closes without waiting for that task", {
+  done := Channel(i32).new(usize(1));
+  {
+    pool := Arc.new(ThreadPool.new(usize(2)));
+    spawn(&pool.*, { pool : Arc.clone(pool), done : done.clone() }(io : Io) => {
+      // The test thread's handle is gone by now; this task's is the last.
+      sleep_blocking(Duration.from_millis(i64(50)));
+      spawn(&pool.*, { done }(io : Io) => {
+        _ := done.send(i32(1));
+        ()
+      });
+      ()
+    });
+  };
+  assert(done.recv().unwrap() == i32(1), "the task submitted before the in-task drop still ran");
+});
+// A ThreadPool is move-only: it owns its workers and its drop shuts them down,
+// so a copy would shut the pool down twice. It is shared as `&pool` or
+// `Arc(ThreadPool)` (VERDICTS-70 Q2).
+test("a ThreadPool binding moves the pool: the source cannot be used again", {
+  pool := ThreadPool.new(usize(1));
+  comptime_expect_error({
+    q := pool;
+    pool.join_all();
+    q.join_all();
+  }, "use of moved value");
+});
+test("a by-value capture moves the pool into the closure", {
+  pool := ThreadPool.new(usize(1));
+  comptime_expect_error({
+    t := Thread(unit).spawn(io => {
+      spawn(&pool, io => ());
+    });
+    t.join();
+    pool.join_all();
+  }, "use of moved value");
+  comptime_expect_error({
+    u := Thread(unit).spawn({ pool }(io) => {
+      spawn(&pool, io => ());
+    });
+    u.join();
+    pool.join_all();
+  }, "use of moved value");
+});
