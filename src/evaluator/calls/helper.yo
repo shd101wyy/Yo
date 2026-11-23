@@ -1491,7 +1491,9 @@ _mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
 ///   materializes an owned copy of a borrowed one (dup + consume); an `inout`
 ///   argument gets a copy and stays usable. Skipped in the checking phase: a
 ///   trial call runs against the REAL caller env, and a trial consumption
-///   leaked into the real pass.
+///   leaked into the real pass. A place LENT to a by-value reference
+///   parameter (`param_takes_lend`, T9) transfers nothing: the callee gets
+///   the place's address, and the place stays where it is.
 /// - 4c: an RC-typed field PROJECTION passed to a BORROWING parameter gets a
 ///   caller-owned +1 for the call (Aliasing Stage 0). A place in the payload
 ///   of an `Rc`/`Arc` (`xs(i).*`, an auto-dereferenced receiver
@@ -1518,7 +1520,12 @@ consume_argument_for_parameter :: (
     (param_is_sink : bool) ?= false,
     /// The slot accepts a second-class argument (`_param_accepts_second_class`:
     /// `io.async`'s body, `io.await`'s future, a combinator's future operand).
-    (second_class_slot : bool) ?= false
+    (second_class_slot : bool) ?= false,
+    /// The argument is a place lent to a by-value parameter whose type is a
+    /// reference (decision 43 step 3, T9: `slot.replace(&x)` at
+    /// `value : T`, `T := &X`): the evaluated argument is the PLACE, and the
+    /// value the parameter takes is a reference to it, not the place's value.
+    (param_takes_lend : bool) ?= false
   ) -> Option(Tuple(AstExpr, AstExpr))
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
@@ -1535,7 +1542,7 @@ consume_argument_for_parameter :: (
   // usable: after the flip (decision 30) every plain parameter is by value,
   // and `f(x); x` on a `u64` is two copies, not a move.
   arg_is_bitwise_copy := type_is_bitwise_copy(Rc.clone(arg_info.ty()));
-  if(param_is_owning && !param_is_ct && !ctx.is_in_function_call_checking_phase && !arg_is_bitwise_copy, {
+  if(param_is_owning && !param_is_ct && !param_takes_lend && !ctx.is_in_function_call_checking_phase && !arg_is_bitwise_copy, {
     match(
       &arg_info.variable_name(),
       .None => (),
@@ -2116,7 +2123,7 @@ check_if_function_parameter_matches_argument :: (
     },
     .None => ()
   );
-  s0_share := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot);
+  s0_share := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot, t9_lend_ty.is_some());
   arg_info.set_ty(arg_ty_as_written);
   s0_drop_captured := match(s0_share.clone(), .Some(sh) => Option(AstExpr).Some(Rc.clone(sh.0)), .None => Option(AstExpr).None);
   s0_marked_arg_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(Rc.clone(sh.1)), .None => Option(AstExpr).None);
