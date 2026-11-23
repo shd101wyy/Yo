@@ -1154,7 +1154,7 @@ _evaluate_capture_list :: (
         // reassignable; a by-value parameter, a `match`/`for` binding and an
         // `imm` capture are not. (A cell is never crossed, checked above.)
         // Decision 47 step 2: and its root binding is declared `mut(name)`.
-        place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, env, ctx, exn);
+        place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, true, env, ctx, exn);
         if(!root_var.is_reassignable(), {
           _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value.*} : &mut T\`.`);
         });

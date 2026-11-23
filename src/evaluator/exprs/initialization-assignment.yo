@@ -498,7 +498,7 @@ _evaluate_inout_local_binding :: (
   // Decision 47 step 2: `y := &mut place` lends the place exclusively, so the
   // binding at its root needs `mut(name)`.
   if(is_mut && !place_has_deref, {
-    place_require_mut(&evaluated_rhs, ast_expr_token(rhs), &String.from("lend `&mut` (a local `&mut` borrow)"), true, env, ctx, exn);
+    place_require_mut(&evaluated_rhs, ast_expr_token(rhs), &String.from("lend `&mut` (a local `&mut` borrow)"), true, true, env, ctx, exn);
   });
   // `Type.member` is a namespace access, not storage.
   root_is_type := match(
@@ -1333,7 +1333,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   unrelated := (!is_self && !via_pattern);
   if(unrelated && is_mut, {
     rp_what := `re-point \`${name}\` with \`&mut\` to`;
-    place_require_mut(&evaluated_rhs, ast_expr_token(&rhs), &rp_what, true, &env, ctx, exn);
+    place_require_mut(&evaluated_rhs, ast_expr_token(&rhs), &rp_what, true, true, &env, ctx, exn);
     // `place_require_mut` leaves a module-level root to the global write
     // rules; a re-point is not one of them (decision 47: `mut(G)`).
     if(root_var.is_module_level(), {
