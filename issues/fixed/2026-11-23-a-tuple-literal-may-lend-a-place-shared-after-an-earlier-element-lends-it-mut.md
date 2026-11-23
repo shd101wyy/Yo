@@ -58,7 +58,8 @@ whether a later element names an overlapping place at all (`_find_lent_place_tou
 receiver, besides the moves, overwrites and `&mut` lends `_find_lent_place_access` already reported). A place lent
 `&mut` is reachable only through that lend for the tuple's life, so `(&mut x, &x)` and `(&mut p, &p.b)` are E0910
 ("This tuple literal's element reads or lends `x`, which an earlier element of the same literal lends `&mut`").
-`(&x, &x)` and `(&mut p.a, &p.b)` (disjoint fields) stay accepted.
+`(&x, &x)` and `(&mut p.a, &p.b)` (disjoint fields) stay accepted: the walk stops at a plain field place disjoint
+from the lent one, whose receiver chain names only the places containing it.
 
 G-B: `tests/origins/unsound/t7-tuple-mut-lend-then-shared-lend.yo` (the reproducer, probes t09/t10),
 `t7-tuple-mut-lend-then-field-lend.yo`, and the positive twin `t7-tuple-mut-lend-then-shared-lend-pos.yo`.

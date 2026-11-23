@@ -5184,6 +5184,12 @@ _find_lent_place_touch :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalConte
   if(_lent_place_touched(e, lent, ctx), {
     return(Option(AstExpr).Some(Rc.clone(e.*)));
   });
+  // A plain field place disjoint from `lent` (`p.b` beside `&mut p.a`):
+  // its receiver chain names only the containing places, which the field
+  // does not reach.
+  if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && _is_plain_place_expr(e), {
+    return(Option(AstExpr).None);
+  });
   match(
     e,
     Rc(.FnCall(_, c, Rc(c_args), _, _)) => {
