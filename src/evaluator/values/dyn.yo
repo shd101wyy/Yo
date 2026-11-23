@@ -21,9 +21,6 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env,
   mark_node_preevaluated,
   unmark_node_preevaluated,
-  migrate_unsized_on,
-  record_unsized_site,
-  unsized_handle_dyn_node,
   unsize_reference_mode,
   expr_info_set_origin_type
 } :: import("../../expr-info.yo");
@@ -566,7 +563,7 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
   Option(String).None
 });
 /// True when the trait list names the trait `name`.
-_traits_name :: (fn(tys : &ArrayList(TypeValue), name : str) -> bool)({
+_traits_name :: (fn(tys : &ArrayList(TypeValue), name : &(str, static)) -> bool)({
   (ti : usize) = usize(0);
   while(ti < tys.len(), {
     if(match(tys.get_cloned(ti), .Some(t) => match(t, Rc(.TraitT(name : tn)) => (tn == name), _ => false), .None => false), {
@@ -1423,21 +1420,6 @@ _written_cell_payload_type :: (fn(written : &AstExpr, ctx : &EvalContext) -> Opt
     )
   )
 );
-/// `yo fix --migrate unsized` (decision 49 S1f; VERDICTS-40 §5, VERDICTS-43
-/// §4, VERDICTS-55): what the evaluation of one `dyn(arg)` tells the
-/// migration, recorded at the `dyn` callee's token with `arg` as written:
-/// kind 5, a named `Rc`/`Arc` handle, listed. The plain `dyn(v)` (kind 2) and
-/// `dyn(p)` over a raw pointer (kind 1) are E0620 since v0.2.79, whose help
-/// names v0.2.78's migration (decision 49 S3b).
-_record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : &TypeValue, fresh : bool) -> unit)({
-  if(!migrate_unsized_on() || unsized_handle_dyn_node(ast_expr_id(expr)), {
-    return(());
-  });
-  if(!fresh && cell_handle_view(value_ty).is_some(), {
-    tok := match(expr, Rc(.FnCall(_, callee, _, _, _)) => ast_expr_token(callee), Rc(.Atom(_, t)) => t.clone());
-    record_unsized_site(&tok, u8(5), &ast_expr_to_string(written));
-  });
-});
 /// The `Dyn` an expected owning `Box(Dyn(...))`, `Rc(Dyn(...))` or
 /// `Arc(Dyn(...))` erases into (decision 49 S2).
 _expected_handle_dyn :: (fn(expected : &Option(ExpectedTypeCtx)) -> Option(ExpectedTypeCtx))(
@@ -1692,9 +1674,6 @@ _evaluate_dyn_erasure :: (
     // the trait bound against it would report "unit does not implement …" on top
     // of whatever really failed inside the inner.
     ne_have_inner_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(_) => true, .None => false);
-    if(ne_have_inner_ty, {
-      _record_unsized_dyn_site(expr, &written_arg, &ne_value_type, value_is_fresh_cell);
-    });
     _reject_dyn_of_dyn(ne_value_type.clone(), &expr_tok, exn);
     _reject_dyn_of_named_handle(&ne_value_type, value_is_fresh_cell, &expr_tok, exn);
     if(ne_have_inner_ty, {
@@ -1787,7 +1766,6 @@ _evaluate_dyn_erasure :: (
     }
   );
   (value_type : TypeValue) = Rc.clone(inner_info.ty());
-  _record_unsized_dyn_site(expr, &written_arg, &value_type, value_is_fresh_cell);
   _reject_dyn_of_dyn(value_type.clone(), &expr_tok, exn);
   _reject_dyn_of_named_handle(&value_type, value_is_fresh_cell, &expr_tok, exn);
   _reject_dyn_of_plain_value(&value_type, &written_arg, &expr_tok, exn);

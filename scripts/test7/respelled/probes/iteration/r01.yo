@@ -1,0 +1,15 @@
+// expect: E0912/E0923 -- a reference into a RefCell's payload returned out of `with`'s body (per-call origin escapes the guard).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(l) := ArrayList(String).new();
+  l.push(String.from("hello-world-hello-world-hello-world"));
+  c := Rc.new(RefCell(ArrayList(String)).new(l));
+  r := c.with((fn(v : &ArrayList(String)) -> &String)(&v(usize(0))));
+  c.with_mut((v : &mut ArrayList(String)) => v.clear());
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

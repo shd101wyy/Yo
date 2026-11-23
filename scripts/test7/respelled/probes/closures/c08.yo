@@ -1,0 +1,13 @@
+// expect: E0909 or E0912
+// implicit capture of a `&T` parameter by a returned closure, caller writes the argument
+{ println } :: import("std/fmt");
+mk :: (fn(p : &Box(i32)) -> Impl(Fn() -> i32))(
+  { p }() => p.*.*
+);
+main :: (fn() -> unit)({
+  mut(b) := Box(i32).new(i32(41));
+  g := mk(&b);
+  b = Box(i32).new(i32(7));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

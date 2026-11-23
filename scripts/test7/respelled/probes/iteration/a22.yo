@@ -1,0 +1,18 @@
+// expect: E0911 -- item of next() on a temporary cursor inside Option.map/unwrap chain (match on the temp directly)
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  xs.push(String.from("second-second-second-second-second"));
+  (n : &String) = match((&xs).into_iter().next(), .Some(s) => s, .None => xs.index(usize(1)));
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(String.from("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+    i = (i + usize(1));
+  });
+  println(`OUT: ${n.*}`);
+  ()
+});
+export(main);
