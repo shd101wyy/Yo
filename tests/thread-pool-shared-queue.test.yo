@@ -4,7 +4,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 // `spawn_on` pins a task to one worker, and dropping the pool drains and joins
 // it.
 { assert } :: import("std/assert");
-{ ThreadPool, spawn, spawn_on, worker_id } :: import("std/thread");
+{ Thread, ThreadPool, spawn, spawn_on, worker_id } :: import("std/thread");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { Channel } :: import("std/sync/channel");
 { sleep, sleep_blocking } :: import("std/time/sleep");
@@ -125,4 +125,32 @@ test("a task may drop the last Arc(ThreadPool): the pool closes without waiting 
     });
   };
   assert(done.recv().unwrap() == i32(1), "the task submitted before the in-task drop still ran");
+});
+// A ThreadPool is move-only: it owns its workers and its drop shuts them down,
+// so a copy would shut the pool down twice. It is shared as `&pool` or
+// `Arc(ThreadPool)` (VERDICTS-70 Q2).
+test("a ThreadPool binding moves the pool: the source cannot be used again", {
+  pool := ThreadPool.new(usize(1));
+  comptime_expect_error({
+    q := pool;
+    pool.join_all();
+    q.join_all();
+  }, "use of moved value");
+});
+test("a by-value capture moves the pool into the closure", {
+  pool := ThreadPool.new(usize(1));
+  comptime_expect_error({
+    t := Thread(unit).spawn(io => {
+      spawn(&pool, io => ());
+    });
+    t.join();
+    pool.join_all();
+  }, "use of moved value");
+  comptime_expect_error({
+    u := Thread(unit).spawn({ pool }(io) => {
+      spawn(&pool, io => ());
+    });
+    u.join();
+    pool.join_all();
+  }, "use of moved value");
 });
