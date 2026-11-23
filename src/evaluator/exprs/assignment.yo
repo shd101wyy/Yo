@@ -519,7 +519,7 @@ _captured_root_of_place :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalCo
 /// it was a temporary, so the store went nowhere. Yo has no destructuring
 /// assignment (`{ x, y } := p` is a binding)
 /// (issues/fixed/2026-11-11-a-tuple-or-array-literal-on-the-left-of-an-assignment-is-accepted-and-assigns-nothing.md).
-_throw_not_a_place :: (fn(lhs : &AstExpr, what : str, exn : Exception) -> unit)(
+_throw_not_a_place :: (fn(lhs : &AstExpr, what : &(str, static), exn : Exception) -> unit)(
   exn.throw(
     dyn(
       Box.new(
@@ -535,12 +535,12 @@ _throw_not_a_place :: (fn(lhs : &AstExpr, what : str, exn : Exception) -> unit)(
 /// A tuple, array or anonymous-struct literal on the left of `=`, by its
 /// builtin (a named struct literal's callee is a type, judged after the
 /// target is evaluated).
-_literal_target_kind :: (fn(lhs : &AstExpr) -> Option(str))(
+_literal_target_kind :: (fn(lhs : &AstExpr) -> Option(&(str, static)))(
   cond(
-    ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None) => Option(str).Some("a tuple literal"),
-    ast_expr_is_fn_call_of(lhs, BK_ARRAY_VAL, Option(usize).None) => Option(str).Some("an array literal"),
-    ast_expr_is_fn_call_of(lhs, BK_ANON_STRUCT, Option(usize).None) => Option(str).Some("a struct literal"),
-    true => Option(str).None
+    ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None) => Option(&(str, static)).Some("a tuple literal"),
+    ast_expr_is_fn_call_of(lhs, BK_ARRAY_VAL, Option(usize).None) => Option(&(str, static)).Some("an array literal"),
+    ast_expr_is_fn_call_of(lhs, BK_ANON_STRUCT, Option(usize).None) => Option(&(str, static)).Some("a struct literal"),
+    true => Option(&(str, static)).None
   )
 );
 /// A write into the place `lhs` (a field or element chain): its root binding
@@ -622,7 +622,7 @@ _is_value_aggregate_type :: (fn(t : &TypeValue) -> bool)(
 );
 (_g_audit_inout_borrow : bool) = debug_knob(`YO_AUDIT_INOUT_BORROW`).is_some();
 /// `sname` is the type `head` or one of its instances (`ArrayList(i32)`).
-_type_name_is :: (fn(sname : &String, head : str) -> bool)(
+_type_name_is :: (fn(sname : &String, head : &(str, static)) -> bool)(
   (sname.* == head) || sname.starts_with(`${head}(`)
 );
 /// VALUES_BY_DEFAULT V2 (`plans/VALUES_BY_DEFAULT.md` §6): a std collection
