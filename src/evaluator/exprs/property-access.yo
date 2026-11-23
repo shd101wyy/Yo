@@ -464,12 +464,9 @@ member_behind_deref_error :: (
     true => `write \`${place_s}.${name}${call_s}\`: \`${place_s}\` names the ${place_name} (\`yo fix\` applies this)`
   );
   // The edit: `name` → `*.name` (one `*.` per star) at the name token, in
-  // written (not compiler-synthesized) source. The applier re-verifies that
-  // the span still reads the name before editing, so the error itself does
-  // not read the source: a `substring` here is a CTFE of a std function at
-  // the raise site, and while any body on its force path still forwards (the
-  // F1 sweep not yet applied), that CTFE re-enters this error and recurses
-  // without bound.
+  // written (not compiler-synthesized) source. The span is the token's own
+  // (identifiers are ASCII, so the name's length is its byte length): no
+  // source is read here.
   repairable := (
     !for_head && !name_tok.*.*.module_path.*.starts_with(String.from("auto-generated://"))
   );

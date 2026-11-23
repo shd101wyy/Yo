@@ -715,8 +715,7 @@ _not_callable_error :: (fn(func_expr : &AstExpr, callee_ty : &TypeValue, env : &
     deref_target_type(resolve_struct_shell(callee_ty), env),
     .Some(payload) => {
       help_s := `\`${shown}\` has type \`${type_to_string(callee_ty)}\`, and \`${shown}(...)\` does not read through it: \`${shown}.*\` is its \`${type_to_string(&payload)}\`. Write \`${shown}.*(...)\``;
-      // The applier re-verifies the span (see member_behind_deref_error):
-      // no source read here.
+      // The span is the name token's own: no source is read here.
       cond(
         (ast_expr_is_atom(func_expr) && (tok.*.kind == TokenKind.Identifier) && !tok.*.module_path.*.starts_with(String.from("auto-generated://"))) => format_error_message_with_repair_at(
           &tok,
