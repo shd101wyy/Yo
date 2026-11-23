@@ -3764,10 +3764,11 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
     }),
     .None => ()
   );
-  // Parallelism extern (__yo_thread_spawn / __yo_worker_spawn).
+  // Parallelism extern: __yo_thread_spawn, or any __yo_worker_* pool entry
+  // (a pool that is created and dropped without a task still links them).
   match(
     _called_extern_name(expr, context),
-    .Some(name) => if((name == "__yo_thread_spawn") || (name == "__yo_worker_spawn"), {
+    .Some(name) => if((name == "__yo_thread_spawn") || name.starts_with(String.from("__yo_worker_")), {
       context.uses_parallelism = true;
       // Mirror into the module global so main.yo can see it when it assembles
       // the emcc link line.

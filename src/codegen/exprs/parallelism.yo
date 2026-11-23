@@ -1,7 +1,8 @@
 //! Codegen for Thread/Worker spawn calls.
 //!
-//! `Thread(unit).spawn(cb)` / `std/thread`'s `spawn(pool, cb)` lower (via the `__yo_thread_spawn` /
-//! `__yo_worker_spawn` extern "yo" symbols) to: heap-copy the closure's capture
+//! `Thread(unit).spawn(cb)` / `std/thread`'s `spawn(pool, cb)` and `spawn_on(pool, i, cb)`
+//! lower (via the `__yo_thread_spawn` / `__yo_worker_pool_submit` /
+//! `__yo_worker_pool_submit_to` extern "yo" symbols) to: heap-copy the closure's capture
 //! struct (so the thread owns it after the spawner returns) and call the raw
 //! spawn primitive with a generated WRAPPER that runs the closure, drops the
 //! capture struct, and frees it. The spawn primitives take the closure OWN
@@ -469,16 +470,27 @@ _generate_spawn_wrapper :: (fn(closure_fn_c_name : &String, capture_struct_c_nam
   context.base.emitter.emit_declaration_string_line(String.from("}"));
   wrapper_name
 });
-/// Shared body of generate_thread_spawn_call / generate_worker_spawn_call. Emits
-/// the heap-copy + wrapper, then the spawn primitive call. `is_worker`
-/// selects the primitive + (unit) return convention.
-_generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext, is_worker : bool) -> Option(String))({
+/// Shared body of generate_thread_spawn_call / generate_worker_pool_submit_call.
+/// Emits the heap-copy + wrapper, then the call `<primitive>(<leading args>,
+/// <wrapper>, <heap copy>)`. The closure is the call's LAST runtime argument;
+/// the ones before it (the pool handle, a worker index) are passed through
+/// unchanged. `is_worker` selects the (unit) return convention of the pool
+/// submissions over `__yo_thread_spawn`'s `__yo_thread_t`.
+_generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext, primitive : String, is_worker : bool) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
-  cb := match(
-    &ei.runtime_arg_exprs_in_order(),
-    .Some(ra) => if(ra.len() == usize(1), match(ra.get_cloned(usize(0)), .Some(c) => c, .None => return(Option(String).None)), return(Option(String).None)),
-    .None => return(Option(String).None)
-  );
+  call_args := match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => return(Option(String).None));
+  arg_count := call_args.len();
+  if(arg_count == usize(0), return(Option(String).None));
+  // The leading arguments, in source order, before the closure is copied.
+  mut(leading_args) := String.new();
+  (mut(ai) : usize) = usize(0);
+  while(ai < (arg_count - usize(1)), {
+    leading := match(call_args.get_cloned(ai), .Some(a) => a, .None => return(Option(String).None));
+    leading_args.push_string(_call_generate_expr(&leading, indent.clone(), context));
+    leading_args.push_str(", ");
+    ai = (ai + usize(1));
+  });
+  cb := match(call_args.get_cloned(arg_count - usize(1)), .Some(c) => c, .None => return(Option(String).None));
   cei := match(context.base.get_expr_info(&cb), .Some(e) => e, .None => return(Option(String).None));
   // `cb` is either a closure literal (cei.capture_type set) OR — inside a
   // SPECIALIZED Thread.spawn body — the lowered capture-struct PARAM (cei.ty IS
@@ -542,7 +554,7 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
   copy_line.push_str(";");
   context.base.emitter.emit_string_line(&copy_line);
   // NO dup of the heap copy: the spawn primitives take the closure OWN
-  // (`own(cb)` on the `__yo_thread_spawn` / `__yo_worker_spawn` externs), so
+  // (`sink(cb)` on the `__yo_thread_spawn` / `__yo_worker_pool_submit*` externs), so
   // the call-site capture struct's references TRANSFER to the heap copy —
   // the shallow copy above inherits them, its constructing temp is consumed
   // (no scope-end release of its own), and the spawn wrapper is the single
@@ -552,9 +564,11 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
   // missing release to be disposed at all
   // (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
   if(is_worker, {
-    // __yo_worker_spawn returns void (unit).
+    // The pool submissions return void (unit).
     ws := indent.clone();
-    ws.push_str("__yo_worker_spawn(");
+    ws.push_string(primitive.clone());
+    ws.push_str("(");
+    ws.push_string(&leading_args);
     ws.push_string(&wrapper);
     ws.push_str(", ");
     ws.push_string(&heap_var);
@@ -571,7 +585,10 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
     ts := indent.clone();
     ts.push_str("__yo_thread_t ");
     ts.push_string(tv.clone());
-    ts.push_str(" = __yo_thread_spawn(");
+    ts.push_str(" = ");
+    ts.push_string(primitive.clone());
+    ts.push_str("(");
+    ts.push_string(&leading_args);
     ts.push_string(&wrapper);
     ts.push_str(", ");
     ts.push_string(&heap_var);
@@ -582,11 +599,16 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
 });
 /// `__yo_thread_spawn(cb)` — spawn a dedicated OS thread.
 generate_thread_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))(
-  _generate_spawn_call(expr, indent, context, false)
+  _generate_spawn_call(expr, indent, context, String.from("__yo_thread_spawn"), false)
 );
 
-/// `__yo_worker_spawn(cb)` — spawn a task on the worker pool.
-generate_worker_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))(
-  _generate_spawn_call(expr, indent, context, true)
+/// `__yo_worker_pool_submit(pool, cb)` / `__yo_worker_pool_submit_to(pool, i,
+/// cb)` — hand a task to a worker pool; `primitive` is the extern's name.
+generate_worker_pool_submit_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext, primitive : String) -> Option(String))(
+  _generate_spawn_call(expr, indent, context, primitive, true)
 );
-export(generate_thread_spawn_call, generate_worker_spawn_call);
+/// The pool submissions whose last argument is a task closure.
+is_worker_pool_submit_name :: (fn(name : &String) -> bool)(
+  (name.* == "__yo_worker_pool_submit") || (name.* == "__yo_worker_pool_submit_to")
+);
+export(generate_thread_spawn_call, generate_worker_pool_submit_call, is_worker_pool_submit_name);
