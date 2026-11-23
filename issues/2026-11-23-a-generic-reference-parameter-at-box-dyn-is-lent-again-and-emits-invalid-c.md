@@ -59,7 +59,7 @@ Two consumers disagree on whether the parameter `x` holds a pointer.
 
 At `T := Box(A)` nothing diverges because `&Box(A)` is a thin by-value parameter on both sides; at `T := A` likewise.
 
-Relation to `issues/2026-11-21-a-reference-binder-whose-type-is-the-methods-own-slot-is-lent-once-too-often.md`: the same surface (a receiver that already has the method's slot type is lent once more), but a different layer. That document is an evaluator rejection (E0601) at `T := &U`; this one is accepted by the evaluator and the extra lend is a codegen ABI mismatch between the prototype and the parameter's binding. Fixing one does not fix the other.
+Relation to `issues/fixed/2026-11-21-a-reference-binder-whose-type-is-the-methods-own-slot-is-lent-once-too-often.md`: the same surface (a receiver that already has the method's slot type is lent once more), but a different layer. That document was an evaluator rejection (E0601) at `T := &U`, fixed by the receiver riders (#2048); this one is accepted by the evaluator and the extra lend is a codegen ABI mismatch between the prototype and the parameter's binding. It reproduces unchanged after #2048. `issues/2026-11-23-a-generic-body-at-t-ref-c-calling-an-impl-over-ref-c-method-emits-mismatched-c-pointer-types.md` is a neighbour (a by-value `t : T` at `T := &C` lowered `C const *` against a `C *` receiver), not the same fault.
 
 Not traced to the line: whether the def-time binder (`src/evaluator/calls/function-type.yo`, `fn_param_is_ptr_borrow(fn_type_for_foralls, pi)`) or the call-time binder produced the binding codegen read. Both compute the flag from a signature whose slot is `&T`.
 
