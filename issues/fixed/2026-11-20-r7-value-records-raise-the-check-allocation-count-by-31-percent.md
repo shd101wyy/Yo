@@ -3,7 +3,7 @@
 **Severity:** S3 — no wrong output; `check src/main.yo` makes 31% more heap allocation calls after R7, which costs check and build time for every user of the compiler.
 
 - Filed: 2026-11-20 (fix-forward lane for develop battery 44642495937, whose "Evaluator memory ratchet" job failed on R7 #2006).
-- Status: open. A post-VBD optimization target. The ratchet baseline was raised in the same fix(develop) PR (`scripts/bootstrap/memory-ratchet.tsv`, `check_src_main_alloc_calls`), under the maintainer's rule that there are no perf gates during VBD.
+- Status: fixed 2026-11-23 (fix/evalwork-invariant-memo). The count is below its pre-R7 value; see "Resolution". The other sites listed under "Source" remain copies but no longer show in the count.
 
 ## Measurements
 
@@ -31,3 +31,9 @@ Per-site attribution has not been measured.
 ## Reclaiming it
 
 The deep copies are of records that are only read after the copy. Projection accessors that lend `&` into the cell, or a `with`-scoped read in place of `get_cloned`, avoid most of them. In-place `with_mut` updates replace take-out and rebuild. Measure with `eval_work_ratchet.sh` and lower the baseline in the PR that wins it back (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`).
+
+## Resolution (2026-11-23)
+
+A sampling allocation profile of `check src/main.yo` (an `LD_PRELOAD` shim recording a backtrace every 16381st allocation call, the stage-2 C emitted with `--line-directives` so frames map to `.yo` lines) put 43% of every allocation on one line: `_find_methods_from_generic_impls_scan` (`src/evaluator/values/impl.yo`) read the registering module of each generic-impl entry as `g_impl_registry_entry_owners.with(xs => xs.get_cloned(ki))`, a copy of the bucket's whole owner list, strings included, once per entry. A bucket of n entries cost n² string copies per lookup: 4.63e9 calls before #2020, 5.31e9 at `fecf7193a`. This is the R7 pattern above (a `get_cloned` where a shared handle used to be lent).
+
+The scan now reads one owner in place (`xs(ki).get_cloned(ei)`), and only for an entry whose field names include the method (the only entries that reach the visibility check), before the receiver match as before. `check src/main.yo` makes 7,191,229,721 allocation calls (CI's method, `c2955c6e5`), against 10,588,125,544 after R7 and 7,737,272,500 before it. The ratchet baseline was lowered to the new count in the same PR.
