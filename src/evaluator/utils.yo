@@ -3231,7 +3231,6 @@ reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Toke
           Rc(.Atom(_, _)) => Option(Token).None
         );
         rw_lends_field := (lent_by_marker && rw_top && match(&rw_label, .Some(rw_lt) => !is_reference_deref_site(rw_lt), .None => false));
-        rw_label_text := match(&rw_label, .Some(rw_lt) => rw_lt.value.*.clone(), .None => String.new());
         raise_flow_violation(
           with_code(
             if(
@@ -3239,7 +3238,7 @@ reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Toke
               format_error_message_with_help(
                 tok,
                 `\`&mut ${rw_text}\` lends the reference field itself (\`${type_to_string_for_message(&rw_ty)}\`), not the place it refers to, and a reference field is not re-pointed in place.`,
-                Option(String).Some(`to re-point the field, write the whole holder with a new \`${rw_label_text}\`; to write the place it refers to, declare the field \`&mut\` and lend \`&mut ${rw_text}.*\``)
+                Option(String).Some(`to re-point \`${rw_text}\`, write the whole holder with the new reference in that field; to write the place it refers to, declare the field \`&mut\` and lend \`&mut ${rw_text}.*\``)
               ),
               format_error_message_with_help(
                 tok,
@@ -7051,12 +7050,15 @@ _reference_field_store_whole_holder :: (fn(st : &ReferenceFieldStore, label : &S
       parts := String.new();
       (i : usize) = usize(0);
       while(i < ls.items.len(), i = (i + usize(1)), {
-        name := if(ls.items(i).len() == usize(0), i.to_string(), ls.items(i).clone());
+        // A tuple's positional element is labelled by its index (or not at
+        // all) and is spelled bare; a labelled one is `name : value`.
+        position := i.to_string();
+        name := if(ls.items(i).len() == usize(0), position.clone(), ls.items(i).clone());
         value := if(name == label.*, st.rhs_text.clone(), `${holder}.${name}`);
         if(i > usize(0), {
           parts.push_str(", ");
         });
-        if(is_tuple && (ls.items(i).len() == usize(0)), parts.push_string(&value), parts.push_string(&`${name} : ${value}`));
+        if(is_tuple && (name == position), parts.push_string(&value), parts.push_string(&`${name} : ${value}`));
       });
       if(is_tuple, `${target} = (${parts})`, `${target} = ${type_to_string_for_message(&holder_ty)}(${parts})`)
     },
