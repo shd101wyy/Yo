@@ -951,7 +951,7 @@ export(make_err_expr, ast_expr_token, ast_expr_text, ast_expr_id, ast_expr_is_at
 // Atom / FnCall predicate helpers
 // ---------------------------------------------------------------------------
 /// True if `e` is an Atom whose token value equals `value`.
-ast_expr_is_atom_of :: (fn(e : &AstExpr, value : str) -> bool)(
+ast_expr_is_atom_of :: (fn(e : &AstExpr, value : &(str, static)) -> bool)(
   match(
     e,
     Rc(.Atom(_, tok)) => (tok.*.*.value.* == value),
@@ -959,7 +959,7 @@ ast_expr_is_atom_of :: (fn(e : &AstExpr, value : str) -> bool)(
   )
 );
 /// True if `e` is an Atom whose token value is found in `values`.
-ast_expr_is_atom_of_any :: (fn(e : &AstExpr, values : &ArrayList(str)) -> bool)(
+ast_expr_is_atom_of_any :: (fn(e : &AstExpr, values : &ArrayList(&(str, static))) -> bool)(
   match(
     e,
     Rc(.Atom(_, tok)) => {
@@ -979,7 +979,7 @@ ast_expr_is_atom_of_any :: (fn(e : &AstExpr, values : &ArrayList(str)) -> bool)(
 );
 /// True if `e` is a FnCall whose func is an Atom equal to `func_name`,
 /// and whose argument count equals `arg_count` (if `.Some`).
-ast_expr_is_fn_call_of :: (fn(e : &AstExpr, func_name : str, arg_count : Option(usize)) -> bool)(
+ast_expr_is_fn_call_of :: (fn(e : &AstExpr, func_name : &(str, static), arg_count : Option(usize)) -> bool)(
   match(
     e,
     Rc(.Atom(_, _)) => false,
@@ -1189,7 +1189,7 @@ ast_place_text :: (fn(e : &AstExpr) -> String)(
 );
 /// True if `e` is a FnCall whose func is an Atom found in `func_names`,
 /// and whose argument count equals `arg_count` (if `.Some`).
-ast_expr_is_fn_call_of_any :: (fn(e : &AstExpr, func_names : &ArrayList(str), arg_count : Option(usize)) -> bool)(
+ast_expr_is_fn_call_of_any :: (fn(e : &AstExpr, func_names : &ArrayList(&(str, static)), arg_count : Option(usize)) -> bool)(
   match(
     e,
     Rc(.Atom(_, _)) => false,
@@ -1353,7 +1353,7 @@ export(BF_COMPTIME_ARRAY_INDEX);
 expect_expr_to_be_fn_call_of :: (
   fn(
     expr : &AstExpr,
-    func_name : str,
+    func_name : &(str, static),
     arg_count : Option(usize),
     exn : Exception
   ) -> unit
@@ -1410,7 +1410,7 @@ expect_expr_to_be_fn_call_of :: (
 expect_expr_to_be_fn_call_of_any :: (
   fn(
     expr : &AstExpr,
-    func_names : &ArrayList(str),
+    func_names : &ArrayList(&(str, static)),
     arg_count : Option(usize),
     exn : Exception
   ) -> unit
@@ -1465,7 +1465,7 @@ expect_expr_to_be_fn_call_of_any :: (
 });
 /// Synthesize a token for a desugared node, inheriting position and
 /// provenance from `ref_tok` so errors keep pointing at the source site.
-_synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : &Token) -> Token)(
+_synth_desugar_tok :: (fn(kind : TokenKind, value : &(str, static), ref_tok : &Token) -> Token)(
   // A fixed keyword: intern it, or each desugared `if` keeps its own `cond`,
   // `=>`, `true` and `tuple` buffers (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.23).
   _synth_desugar_tok_s(kind, intern_token_str(String.from(value)), ref_tok)
@@ -1506,7 +1506,7 @@ _synth_desugar_tok_data :: (fn(kind : TokenKind, value : Rc(String), ref_tok : &
 /// `.None` when it carries a DIFFERENT label — the caller then bails out of
 /// the rewrite and the prelude `if` macro path reports the proper
 /// label-mismatch error.
-_unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
+_unwrap_if_label :: (fn(arg : &AstExpr, label : &(str, static)) -> Option(AstExpr))({
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(Option(AstExpr).Some(Rc.clone(arg.*)));
   });
@@ -1623,7 +1623,7 @@ _borrow_mode_call1 :: (fn(is_mut : bool, arg : &AstExpr, at : &Token) -> AstExpr
 });
 /// The two operands of an infix call `a op b`, when `e` is one.
 _BsPair :: struct(lhs : AstExpr, rhs : AstExpr);
-_bs_infix_pair :: (fn(e : &AstExpr, op : str) -> Option(_BsPair))(
+_bs_infix_pair :: (fn(e : &AstExpr, op : &(str, static)) -> Option(_BsPair))(
   match(
     e,
     Rc(.FnCall(_, pf, Rc(pargs), p_infix, _)) => cond(
@@ -1844,7 +1844,7 @@ _bs_is_origin_sigil :: (fn(e : &AstExpr) -> bool)(
 _bs_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
   match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(i), .Some(x) => x, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr())
 );
-_bs_is_infix_of :: (fn(e : &AstExpr, op : str) -> bool)(
+_bs_is_infix_of :: (fn(e : &AstExpr, op : &(str, static)) -> bool)(
   match(e, Rc(.FnCall(_, f, Rc(a), infix, _)) => (infix.* && (a.len() == usize(2)) && ast_expr_is_atom_of(&f.*, op)), Rc(.Atom(_, _)) => false)
 );
 /// `L : &T`, through a `?=` default or an `= value` (allocation-free).
@@ -2438,7 +2438,7 @@ export(for_desugar_site_of, is_for_desugar_target);
 is_for_desugar_target :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2)))
 );
-_fd_atom :: (fn(kind : TokenKind, value : str, at : &Token) -> AstExpr)(
+_fd_atom :: (fn(kind : TokenKind, value : &(str, static), at : &Token) -> AstExpr)(
   Rc.new(AstExprNode.Atom(alloc_global_expr_id(), _synth_desugar_tok(kind, value, at)))
 );
 /// One use of a hidden local: a fresh atom sharing the name's cell.
@@ -2446,30 +2446,30 @@ _fd_name :: (fn(name : &Rc(String), at : &Token) -> AstExpr)(
   Rc.new(AstExprNode.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, Rc.clone(name), at)))
 );
 /// `head(args...)`.
-_fd_call :: (fn(head : str, args : ArrayList(AstExpr), at : &Token) -> AstExpr)({
+_fd_call :: (fn(head : &(str, static), args : ArrayList(AstExpr), at : &Token) -> AstExpr)({
   htok := _synth_desugar_tok(TokenKind.Identifier, head, at);
   Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(htok))), Rc.new(args), false, htok))
 });
-_fd_call1 :: (fn(head : str, a : &AstExpr, at : &Token) -> AstExpr)({
+_fd_call1 :: (fn(head : &(str, static), a : &AstExpr, at : &Token) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(Rc.clone(a.*));
   _fd_call(head, args, at)
 });
-_fd_call2 :: (fn(head : str, a : &AstExpr, b : &AstExpr, at : &Token) -> AstExpr)({
+_fd_call2 :: (fn(head : &(str, static), a : &AstExpr, b : &AstExpr, at : &Token) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(Rc.clone(a.*));
   args.push(Rc.clone(b.*));
   _fd_call(head, args, at)
 });
 /// The prefix operator call `op(a)`: `&a`, `&mut a`.
-_fd_prefix :: (fn(op : str, a : &AstExpr, at : &Token) -> AstExpr)({
+_fd_prefix :: (fn(op : &(str, static), a : &AstExpr, at : &Token) -> AstExpr)({
   otok := _synth_desugar_tok(TokenKind.Operator, op, at);
   args := ArrayList(AstExpr).new();
   args.push(Rc.clone(a.*));
   Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(otok))), Rc.new(args), false, otok))
 });
 /// `a op b`.
-_fd_infix :: (fn(op : str, a : &AstExpr, b : &AstExpr, at : &Token) -> AstExpr)({
+_fd_infix :: (fn(op : &(str, static), a : &AstExpr, b : &AstExpr, at : &Token) -> AstExpr)({
   otok := _synth_desugar_tok(TokenKind.Operator, op, at);
   args := ArrayList(AstExpr).new();
   args.push(Rc.clone(a.*));
@@ -2477,7 +2477,7 @@ _fd_infix :: (fn(op : str, a : &AstExpr, b : &AstExpr, at : &Token) -> AstExpr)(
   Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(otok))), Rc.new(args), true, otok))
 });
 /// `recv.field`.
-_fd_dot :: (fn(recv : &AstExpr, field : str, at : &Token) -> AstExpr)({
+_fd_dot :: (fn(recv : &AstExpr, field : &(str, static), at : &Token) -> AstExpr)({
   dtok := _synth_desugar_tok(TokenKind.Dot, ".", at);
   args := ArrayList(AstExpr).new();
   args.push(Rc.clone(recv.*));
@@ -2485,11 +2485,11 @@ _fd_dot :: (fn(recv : &AstExpr, field : str, at : &Token) -> AstExpr)({
   Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(dtok))), Rc.new(args), true, dtok))
 });
 /// `recv.method(args...)`.
-_fd_method :: (fn(recv : &AstExpr, method : str, args : ArrayList(AstExpr), at : &Token) -> AstExpr)(
+_fd_method :: (fn(recv : &AstExpr, method : &(str, static), args : ArrayList(AstExpr), at : &Token) -> AstExpr)(
   Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), _fd_dot(recv, method, at), Rc.new(args), false, _synth_desugar_tok(TokenKind.Dot, ".", at)))
 );
 /// `recv.method(&cur)`: a cursor method.
-_fd_variant :: (fn(variant : str, payload : Option(AstExpr), at : &Token) -> AstExpr)({
+_fd_variant :: (fn(variant : &(str, static), payload : Option(AstExpr), at : &Token) -> AstExpr)({
   dtok := _synth_desugar_tok(TokenKind.Dot, ".", at);
   vargs := ArrayList(AstExpr).new();
   vargs.push(_fd_atom(TokenKind.Identifier, variant, at));
@@ -2526,14 +2526,14 @@ _fd_bind :: (fn(name : &Rc(String), value : &AstExpr, at : &Token) -> AstExpr)(
   _fd_infix(BK_INIT_ASSIGN, &_fd_name(name, at), value, at)
 );
 /// A hidden local's name: the macro's `gensym` prefix and the loop's ordinal.
-_fd_hidden :: (fn(prefix : str, ordinal : usize) -> Rc(String))({
+_fd_hidden :: (fn(prefix : &(str, static), ordinal : usize) -> Rc(String))({
   n := String.from(prefix);
   n.push_string(ordinal.to_string());
   Rc.new(n)
 });
 /// `comptime_assert(false, "message")`: what the macro's own assertion
 /// reports for a handle it does not accept.
-_fd_reject :: (fn(message : str, at : &Token) -> AstExpr)({
+_fd_reject :: (fn(message : &(str, static), at : &Token) -> AstExpr)({
   lit := String.from("\"");
   lit.push_str(message);
   lit.push_str("\"");

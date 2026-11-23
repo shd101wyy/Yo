@@ -1,0 +1,16 @@
+// expect: E0911 (implicit capture of a &mut parameter; caller reads the argument before awaiting)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+sink :: (fn(v : String) -> unit)({ println(`sink ${v.len().to_string()}`); });
+mk :: (fn(s : &mut String, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ s : &mut s.* }(io : Io) => { io.await(yield(io), io); s.* = String.from("b"); })
+);
+main :: (fn(io : Io) -> unit)({
+  mut(x) := String.from(LONG);
+  f := mk(&mut x, io);
+  sink(x);
+  io.await(f, io);
+});
+export(main);

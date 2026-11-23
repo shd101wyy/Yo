@@ -56,11 +56,6 @@ import("std/fmt");
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr,
   lend_place_reference_type,
-  variable_is_reference_binding,
-  deref_rule_applies,
-  is_reference_deref_site,
-  reject_reference_without_deref,
-  deref_rule_recording,
   loans_active,
   local_borrow_place_of,
   access_place,
@@ -202,18 +197,6 @@ evaluate_tuple_element_value :: (
   ctx.expected_type = saved_expected;
   match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(evaluated_rhs_ge), .None => ());
   evaluated_rhs := match(evaluated_rhs_gout.get_cloned(usize(0)), .Some(evaluated_rhs_g) => evaluated_rhs_g, .None => make_err_expr());
-  // `yo fix --migrate deref` reads code written before the deref rule, where
-  // `&r` of a reference binding lent the referent: it records the `.*`
-  // (E0926's edit), as at a constructor's reference field.
-  if(is_lend && ast_expr_is_atom(&evaluated_rhs) && deref_rule_recording(), {
-    match(
-      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)), .Some(lr_info) => lr_info.source_variable(), .None => Option(Variable).None),
-      .Some(lr_var) => if(variable_is_reference_binding(&lr_var) && deref_rule_applies(ast_expr_token(&evaluated_rhs), ctx) && !is_reference_deref_site(ast_expr_token(&evaluated_rhs)), {
-        reject_reference_without_deref(&lr_var, ast_expr_token(&evaluated_rhs), u8(2), ctx, exn);
-      }),
-      .None => ()
-    );
-  });
   // Mark the field value copy-semantics: a named RC value moved into the
   // tuple literal gets a deferred `___dup` (without it the literal aliased
   // the element's refcount and scope-end drops over-released, rc layer 4).

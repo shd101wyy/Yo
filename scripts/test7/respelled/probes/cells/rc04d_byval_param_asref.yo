@@ -1,0 +1,12 @@
+// expect: E0912 (at get's definition)
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+X :: struct(s : String);
+long :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+
+get :: (fn(h : Rc(X)) -> &X)(&h.as_ref());
+main :: (fn() -> unit)({
+  println(`OUT: ${get(long()).s.len().to_string()}`);
+});
+export(main);

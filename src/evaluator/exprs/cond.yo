@@ -33,10 +33,7 @@ pragma(Pragma.AllowUnsafe);
   branch_group_stack_len,
   truncate_branch_group_stack,
   expr_info_set_case_executed,
-  expr_info_adopt_env,
-  migrate_deref_on,
-  migrate_unsized_on,
-  note_deref_dead_arm_file
+  expr_info_adopt_env
 } :: import("../../expr-info.yo");
 { Environment, snapshot_env, env_adopt } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -294,22 +291,6 @@ evaluate_cond :: (
       done_eval = true;
     });
     ec_i = (ec_i + usize(1));
-  });
-  // `yo fix --migrate deref` sees only the arms this target evaluates: an arm
-  // after a compile-time-true condition, or under a compile-time-false one,
-  // is another target's (`arch == Arch.Aarch64`). Note the file, so the
-  // migration evaluates it again for every other target
-  // (issues/fixed/2026-11-04-migrate-deref-and-e0926-skip-a-platform-gated-dead-arm.md).
-  // `--migrate unsized` lists the file instead (VERDICTS-55).
-  if(migrate_deref_on() || migrate_unsized_on(), {
-    (dead_arm : bool) = (evaluated_conds.len() < parsed_stmts.len());
-    (dai : usize) = usize(0);
-    while((dai < evaluated_conds.len()) && !dead_arm, dai = (dai + usize(1)), {
-      dead_arm = match(evaluated_conds(dai).cond_value.clone(), .Some(v) => match(v, Rc(.BoolVal(b)) => !b, _ => false), .None => false);
-    });
-    if(dead_arm, {
-      note_deref_dead_arm_file(ast_expr_token(expr));
-    });
   });
   // -------------------------------------------------------------------------
   // Third pass: find the first compile-time true index (if any)

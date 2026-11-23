@@ -1,0 +1,16 @@
+// expect: E0911 or wall
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+main :: (fn() -> unit)({
+  mut(b) := Box.new(i32(0));
+  bb := {
+    y := mk();
+    Box(&Rc(X)).new(&y)
+  };
+  println(`OUT: ${bb.*.*.*.s.len().to_string()}`);
+  ()
+});
+export(main);

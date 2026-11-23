@@ -1,0 +1,13 @@
+// expect: E0912 (the `&T` lent to RefCell.with's body escapes through the generic result R := &T)
+{ String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  cell := RefCell(String).new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  r := cell.with((fn(v : &String) -> &String)(v));
+  cell.with_mut((w : &mut String) => {
+    w.* = String.from("x");
+  });
+  println(`OUT: ${r.*}`);
+});
+export(main);

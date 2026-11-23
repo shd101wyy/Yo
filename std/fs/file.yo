@@ -174,7 +174,7 @@ impl(
     })
   }),
   /// Open a file from a `str` path with the given mode and custom permissions.
-  open_with_str : (fn(path : str, mode : &OpenMode, perm : FilePermission, io : Io) -> Impl(Future(File, IoExn)))(
+  open_with_str : (fn(path : &str, mode : &OpenMode, perm : FilePermission, io : Io) -> Impl(Future(File, IoExn)))(
     File.open_with(Path.new(String.from(path)), mode, perm, io)
   ),
   /// Open a file from a C string path with the given mode and custom permissions.
@@ -186,7 +186,7 @@ impl(
     File.open_with(path, mode, FilePermission.default(), io)
   ),
   /// Open a file from a `str` path with the given mode and default permissions.
-  open_str : (fn(path : str, mode : &OpenMode, io : Io) -> Impl(Future(File, IoExn)))(
+  open_str : (fn(path : &str, mode : &OpenMode, io : Io) -> Impl(Future(File, IoExn)))(
     File.open(Path.new(String.from(path)), mode, io)
   ),
   /// Open a file at `path` with an `OpenOptions` flag set and custom
@@ -444,7 +444,7 @@ read_to_string :: (fn(path : &Path, io : Io) -> Impl(Future(String, IoExn)))({
   })
 });
 /// Read an entire file into a `String` (`str` path variant).
-read_to_string_str :: (fn(path : str, io : Io) -> Impl(Future(String, IoExn)))(
+read_to_string_str :: (fn(path : &str, io : Io) -> Impl(Future(String, IoExn)))(
   read_to_string(Path.new(String.from(path)), io)
 );
 /// Read an entire file into a `String` (C string path variant).
@@ -462,7 +462,7 @@ read :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
   })
 });
 /// Read an entire file into bytes (`str` path variant).
-read_str :: (fn(path : str, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+read_str :: (fn(path : &str, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   read(Path.new(String.from(path)), io)
 );
 /// Read an entire file into bytes (C string path variant).
@@ -480,11 +480,11 @@ write_string :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, 
   })
 });
 /// Write a `str` to a file, creating or truncating it (`str` path variant).
-write_string_str :: (fn(path : str, data : str, io : Io) -> Impl(Future(unit, IoExn)))(
+write_string_str :: (fn(path : &str, data : &str, io : Io) -> Impl(Future(unit, IoExn)))(
   write_string(Path.new(String.from(path)), String.from(data), io)
 );
 /// Write a `str` to a file, creating or truncating it (C string path variant).
-write_string_cstr :: (fn(path : *u8, data : str, io : Io) -> Impl(Future(unit, IoExn)))(
+write_string_cstr :: (fn(path : *u8, data : &str, io : Io) -> Impl(Future(unit, IoExn)))(
   write_string(Path.from_cstr(path), String.from(data), io)
 );
 /// Write bytes to a file, creating or truncating it.
@@ -508,7 +508,7 @@ append_file :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, I
   })
 });
 /// Append a `str` to a file (`str` path variant).
-append_file_str :: (fn(path : str, data : str, io : Io) -> Impl(Future(unit, IoExn)))(
+append_file_str :: (fn(path : &str, data : &str, io : Io) -> Impl(Future(unit, IoExn)))(
   append_file(Path.new(String.from(path)), String.from(data), io)
 );
 extern(
@@ -539,7 +539,7 @@ _exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
   })
 });
 /// Check if a path exists (`str` path variant).
-exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
+exists_str :: (fn(path : &str, io : Io) -> Impl(Future(bool, Io)))(
   _exists(Path.new(String.from(path)), io)
 );
 /// Check if a path exists (C string path variant).
@@ -568,7 +568,7 @@ try_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, IoExn)))({
   })
 });
 /// `try_exists` (`str` path variant).
-try_exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, IoExn)))(
+try_exists_str :: (fn(path : &str, io : Io) -> Impl(Future(bool, IoExn)))(
   try_exists(Path.new(String.from(path)), io)
 );
 /// Set a path's POSIX permission bits.
@@ -585,7 +585,7 @@ set_permissions :: (fn(path : &Path, perm : FilePermission, io : Io) -> Impl(Fut
   })
 });
 /// `set_permissions` (`str` path variant).
-set_permissions_str :: (fn(path : str, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))(
+set_permissions_str :: (fn(path : &str, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))(
   set_permissions(Path.new(String.from(path)), perm, io)
 );
 /// Copy a file's CONTENTS and permission bits from `from` to `to`
@@ -603,7 +603,7 @@ copy :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(u64, IoExn)))({
   })
 });
 /// `copy` (`str` path variant).
-copy_str :: (fn(from : str, to : str, io : Io) -> Impl(Future(u64, IoExn)))(
+copy_str :: (fn(from : &str, to : &str, io : Io) -> Impl(Future(u64, IoExn)))(
   copy(Path.new(String.from(from)), Path.new(String.from(to)), io)
 );
 
@@ -629,7 +629,7 @@ is_file :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
   })
 });
 /// Check if a path is a regular file (`str` path variant).
-is_file_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
+is_file_str :: (fn(path : &str, io : Io) -> Impl(Future(bool, Io)))(
   is_file(Path.new(String.from(path)), io)
 );
 /// Check if a path is a regular file (C string path variant).
@@ -658,7 +658,7 @@ is_dir :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
   })
 });
 /// Check if a path is a directory (`str` path variant).
-is_dir_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
+is_dir_str :: (fn(path : &str, io : Io) -> Impl(Future(bool, Io)))(
   is_dir(Path.new(String.from(path)), io)
 );
 /// Check if a path is a directory (C string path variant).
@@ -695,7 +695,7 @@ canonicalize :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))({
   })
 });
 /// Resolve a path to its canonical absolute form (`str` path variant).
-canonicalize_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(
+canonicalize_str :: (fn(path : &str, io : Io) -> Impl(Future(Path, IoExn)))(
   canonicalize(Path.new(String.from(path)), io)
 );
 /// Resolve a path to its canonical absolute form (C string path variant).

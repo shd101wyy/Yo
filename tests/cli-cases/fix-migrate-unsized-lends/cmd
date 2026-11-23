@@ -1,8 +1,0 @@
-# `yo fix <path> --migrate unsized` on v0.2.78 writes each lend `&b` of a
-# `Box(Dyn(T))` where a `&Dyn(T)`/`&mut Dyn(T)` is taken as `&b.*` (VERDICTS-40
-# §5 family (d), which v0.2.77's mode never wrote; after the flip `&b` lends
-# the box and is E0601): at a parameter, a `&mut` parameter and an enum
-# payload, a field chain included. A `Box(Dyn(T))` temporary there is listed.
-# `main.yo` then type-checks; `temp.yo` keeps its listed site.
-fix . --migrate unsized
-check main.yo

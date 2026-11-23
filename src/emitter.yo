@@ -485,14 +485,14 @@ impl(
     })
   ),
   /// Append text to the code section (no trailing newline).
-  emit : (fn(self : &mut Self, c : str) -> unit)({
+  emit : (fn(self : &mut Self, c : &(str, static)) -> unit)({
     self.code.push_str(c);
     if(self.move_zeroes.len() > usize(0), {
       self.partial_line.push_str(c);
     });
   }),
   /// Append text + newline to the code section.
-  emit_line : (fn(self : &mut Self, c : str) -> unit)({
+  emit_line : (fn(self : &mut Self, c : &(str, static)) -> unit)({
     self.code.push_str(c);
     self.code.push_str("\n");
     match(&self.declared_ref, .Some(s) => s.*.*.with_mut(set => _emitter_record_declared_temp(set, String.from(c))), .None => ());
@@ -502,7 +502,7 @@ impl(
     });
   }),
   /// Append text + newline to the headers section.
-  emit_header_line : (fn(self : &mut Self, c : str) -> unit)({
+  emit_header_line : (fn(self : &mut Self, c : &(str, static)) -> unit)({
     self.headers.push_str(c);
     self.headers.push_str("\n");
   }),
@@ -516,12 +516,12 @@ impl(
     self.headers.push_str("\n");
   }),
   /// Append text + newline to the declarations section.
-  emit_declaration_line : (fn(self : &mut Self, c : str) -> unit)({
+  emit_declaration_line : (fn(self : &mut Self, c : &(str, static)) -> unit)({
     self.declarations.push_str(c);
     self.declarations.push_str("\n");
   }),
   /// Append text (no newline) to the declarations section.
-  emit_declaration : (fn(self : &mut Self, c : str) -> unit)(
+  emit_declaration : (fn(self : &mut Self, c : &(str, static)) -> unit)(
     self.declarations.push_str(c)
   ),
   /// Append a raw `String` value (no newline) to the declarations section.

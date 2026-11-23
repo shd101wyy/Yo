@@ -1,0 +1,13 @@
+// expect: E0911 -- Array(String, 2) read walk (value form per cheatsheet) / borrowed? element stored, array reassigned.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(a) := Array(String, 2)(String.from("hello-world-hello-world-hello-world"), String.from("b"));
+  mut(slot) := Option(&String).None;
+  match(&a(usize(0)), x => { slot = .Some(x); });
+  a = Array(String, 2)(String.from("c"), String.from("d"));
+  match(slot, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+  ()
+});
+export(main);

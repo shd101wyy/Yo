@@ -149,8 +149,7 @@ test("a Dyn(Trait, Send) crosses Thread.spawn", {
   assert(_spawn_send_dyn() == i32(4), "the spawned thread called the trait object");
 });
 // `dyn(Box.new(v))` into a `Dyn(..., Send)` boxes with `Arc`, as the auto-box
-// does: it read as `dyn(Rc.new(v))` and was rejected, so `yo fix --migrate
-// unsized`'s rewrite of `dyn(v)` stopped this file evaluating
+// does: it read as `dyn(Rc.new(v))` and was rejected
 // (issues/fixed/2026-11-12-dyn-box-new-into-a-send-dyn-is-rejected.md).
 _spawn_send_dyn_box :: (fn() -> i32)({
   (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(5))));

@@ -1,0 +1,13 @@
+// expect: E0901 or no UAF (h.s = h.s through a shared, mutable Rc(RefCell(H)) object)
+// respelled 2026-11-23: the deleted ref(struct(...)) object is Rc(RefCell(H)); its write is a with_mut body
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
+H :: struct(s : String);
+main :: (fn() -> unit)({
+  h := Rc.new(RefCell(H).new(H(s : String.from("payload-0123456789abcdefghijklmnop"))));
+  h.with_mut(v => { v.s = v.s; });
+  n := h.with(v => v.s.len());
+  println(`OUT ${n.to_string()}`);
+});
+export(main);

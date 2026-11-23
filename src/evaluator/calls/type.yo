@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory-safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording, local_borrows_active, loans_active, local_borrow_place_of, access_place, LocalBorrowAccess, local_borrow_place_text, local_borrow_require_writable, local_borrow_root_is_shared_reference, legacy_box_dyn_lend } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, lend_place_reference_type, local_borrows_active, loans_active, local_borrow_place_of, access_place, LocalBorrowAccess, local_borrow_place_text, local_borrow_require_writable, local_borrow_root_is_shared_reference, legacy_box_dyn_lend } :: import("../utils.yo");
 { shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
@@ -347,17 +347,6 @@ try_to_call_type_with_arguments :: (
     evaluated_arg := evaluate_expression_raw(&actual_arg_expr, &env, ctx, exn);
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
-    // `yo fix --migrate deref` reads code written before the deref rule,
-    // where `&r` lent the referent: it records the `.*` (E0926's edit).
-    if(t9_field_is_reference && (t9_is_mut_marker || t9_is_amp_marker) && ast_expr_is_atom(&evaluated_arg) && deref_rule_recording(), {
-      match(
-        match(&arg_info_opt, .Some(t9_ai) => t9_ai.source_variable(), .None => Option(Variable).None),
-        .Some(t9_rv) => if(variable_is_reference_binding(&t9_rv) && deref_rule_applies(ast_expr_token(&evaluated_arg), ctx) && !is_reference_deref_site(ast_expr_token(&evaluated_arg)), {
-          reject_reference_without_deref(&t9_rv, ast_expr_token(&evaluated_arg), u8(2), ctx, exn);
-        }),
-        .None => ()
-      );
-    });
     if(arg_info_opt.is_none(), {
       exn.throw(
         dyn(
@@ -478,8 +467,7 @@ try_to_call_type_with_arguments :: (
       .None => ()
     );
     // `&b` of a `Box(Dyn(T))` into a `&Dyn(T)` field lends the box, not the
-    // object (family (d)): E0601 with the `&b.*` help, or, under `--migrate
-    // unsized`, a recorded site the evaluation goes past.
+    // object (family (d)): E0601 with the `&b.*` help.
     if(!are_types_compatible(&arg_type, &member_element.ty) && legacy_box_dyn_lend(&member_element.ty, &arg_type, &actual_arg_expr, &ast_expr_token(&actual_arg_expr), &`Field "${member_element.label}"`, ctx, exn), {
       arg_type = Rc.clone(member_element.ty);
     });

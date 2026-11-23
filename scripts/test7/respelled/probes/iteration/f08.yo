@@ -1,0 +1,20 @@
+// expect: E0911 -- element returned from a closure called in the loop, stored
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  xs.push(String.from("second-second-second-second-second"));
+  mut(slot) := Option(&String).None;
+  for(&xs, x => { id := (fn(y : &String) -> &String)(y); slot = .Some(id(x)); });
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(String.from("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+    i = (i + usize(1));
+  });
+  match(slot, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+  ()
+});
+export(main);

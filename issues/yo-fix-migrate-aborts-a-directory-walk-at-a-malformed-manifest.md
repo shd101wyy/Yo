@@ -49,3 +49,20 @@ to every `--migrate` mode sharing the loop, and regression-tested with a
 cli-case whose fixture nests a malformed `yo.toml` beside a file with a bare
 marker site: before the fix the run aborts with rc=1 and no rewrite; after,
 the sibling file is migrated and the walk reports the one failure.
+
+## Update 2026-11-21: `--migrate` is deleted; the repair walk shows the same abort
+
+`yo fix --migrate` was deleted in v0.2.80, so `_run_migrate_markers` is gone.
+The plain repair walk stops at the same manifest (measured with the v0.2.79
+seed on the reproduction above, without `--migrate`):
+
+```bash
+yo fix /tmp/repro --dry-run --std-path ./std
+# yo: error: /tmp/repro/fixture/yo.toml: [package] name is required   (rc=1, no summary)
+```
+
+`yo check /tmp/repro` now exits 1 at the manifest too, so the remaining
+question is whether a directory walk should report a malformed nested
+manifest per project and continue. The fix direction above applies to
+`run_fix`'s repair loop.
+

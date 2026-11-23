@@ -1,0 +1,15 @@
+// expect: E0901/E0910
+// implicit capture of a `&mut` parameter, then the parameter used while the closure lives
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+work :: (fn(p : &mut String) -> usize)({
+  (mut(c) : Impl(FnMut() -> unit)) = ({ p : &mut p.* }() => p.push_str("x"));
+  p.push_str("y");
+  c();
+  p.len()
+});
+main :: (fn() -> unit)({
+  mut(s) := String.from("a");
+  println(`OUT: ${work(&mut s).to_string()}`);
+});
+export(main);

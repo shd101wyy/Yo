@@ -1,0 +1,15 @@
+// expect: E0909
+// the holder's root name `x` is rebound by an enclosing match arm binding before the closure is made
+{ println } :: import("std/fmt");
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+mk :: (fn(k : i32) -> Box(Dyn(Fn() -> i32)))({
+  x := Box(i32).new(k);
+  h := V(x)(r : &x.*, n : i32(0));
+  o := Option(i32).Some(i32(1));
+  match(o, .Some(x) => dyn(Box.new({ h }() => (h.r.* + i32(0)))), .None => dyn(Box.new({ h }() => (h.r.* + i32(1)))))
+});
+main :: (fn() -> unit)({
+  g := mk(i32(41));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

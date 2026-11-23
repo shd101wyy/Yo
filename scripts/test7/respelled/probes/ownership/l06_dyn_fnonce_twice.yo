@@ -1,0 +1,18 @@
+// expect: E0901
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+(mut(g_drops) : i32) = i32(0);
+D :: struct(s : String);
+impl(D, Drop(drop : (fn(self : &mut Self) -> unit)({ g_drops = (g_drops + i32(1)); })));
+mk :: (fn() -> D)(D(s : String.from("payload-0123456789abcdefghijklmnop")));
+take :: (fn(d : D) -> usize)(d.s.len());
+take_b :: (fn(d : D) -> bool)(d.s.len() > usize(0));
+peek :: (fn(d : &D) -> usize)(d.s.len());
+nd :: (fn() -> i32)(g_drops);
+
+main :: (fn() -> unit)({
+  a := mk();
+  (f : Box(Dyn(FnOnce() -> usize))) = dyn(Box.new({ a }() => take(a)));
+  println(`OUT ${f().to_string()} ${f().to_string()}`);
+});
+export(main);

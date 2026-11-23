@@ -90,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
 { E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_valid_variable_name, note_legacy_str_spelling } :: import("../utils.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
 { type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target, is_escapable_trait } :: import("../trait-checking.yo");
 { Exception } :: import("std/error");
@@ -2537,7 +2537,6 @@ evaluate_function_parameter :: (
   // the slot that spelling gives.
   (legacy_str_param : bool) = (!is_compile_time_only && !is_parameter_comptime_by_default && !is_quote && !is_param_ref && !has_imm_wrapper && match(&param_type, .Some(lsp_t) => is_legacy_value_str(lsp_t), .None => false));
   if(legacy_str_param, {
-    match(&type_expr, .Some(lsp_te) => note_legacy_str_spelling(lsp_te, is_sink_param, &ctx.std_path), .None => ());
     has_imm_wrapper = true;
     is_sink_param = false;
     is_owning_rc_value = false;
@@ -5326,9 +5325,6 @@ evaluate_function_type :: (
   // runtime `-> str` (or `-> Self` in an `impl(str, ...)`) is the by-value
   // `&(str, static)` result, the slot `-> &(str, static)` gives.
   legacy_str_result := (!is_return_comptime_only && !is_return_type_ref && is_legacy_value_str(&return_type));
-  if(legacy_str_result, {
-    note_legacy_str_spelling(&return_type_expr, false, &ctx.std_path);
-  });
   if(!legacy_str_result && !is_return_comptime_only && !is_return_type_ref && !t_slot_is_borrow(&return_type) && !type_is_sized(&return_type), {
     exn.throw(dyn(Box.new(unsized_by_value_error(&return_type, &String.from("a by-value result"), &Option(String).None, &ast_expr_token(&return_type_expr)))));
   });

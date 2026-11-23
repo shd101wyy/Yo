@@ -1,0 +1,14 @@
+// expect: E0911
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+E :: enum(A(s : ArrayList(String)), B(s : ArrayList(String)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(L());
+  mut(e) := E.A(s : xs);
+  match(&mut e, (.A(s) | .B(s)) => { w := s.index(usize(0)); e = E.B(s : ArrayList(String).new()); println(`OUT: ${w.*}`); });
+  ()
+});
+export(main);

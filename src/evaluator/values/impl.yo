@@ -148,7 +148,6 @@ pragma(Pragma.AllowUnsafe);
   sync_in_flight_ctx_at,
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ note_legacy_str_spelling } :: import("../utils.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous-module.yo");
 { format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help, with_code_carried } :: import("../../error.yo");
 { E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
@@ -2196,7 +2195,7 @@ _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), recei
   if(cell_handle_view(receiver_ty).is_some() && is_implicitly_unsafe_capable_file(Option(String).Some(tok.*.*.module_path.*.clone())), {
     return(());
   });
-  _is_prelude_trait :: (fn(tt : &TypeValue, name : str, env : &Environment) -> bool)(
+  _is_prelude_trait :: (fn(tt : &TypeValue, name : &(str, static), env : &Environment) -> bool)(
     match(get_trait_type_from_env(env, String.from(name)), .Some(p_tt) => (get_trait_key(&tt.*) == get_trait_key(&p_tt)), .None => false)
   );
   trait_name := match(
@@ -4733,7 +4732,6 @@ _c3_eval_colon_pair :: (
       method_val := match(
         ls_aliased,
         .Some(ls_ty) => {
-          note_legacy_str_spelling(&val_expr, false, &ctx.std_path);
           fi.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(ls_ty.clone()))));
           Rc.new(EvalValueNode.TypeVal(Rc.clone(ls_ty)))
         },
@@ -7045,7 +7043,7 @@ move_only_declaring_trait_name :: (fn(trait_ty : &TypeValue, env : &Environment)
     true => String.new()
   )
 });
-_named_trait_key_is :: (fn(env : &Environment, name : str, key : &String) -> bool)(
+_named_trait_key_is :: (fn(env : &Environment, name : &(str, static), key : &String) -> bool)(
   match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(&t) == key.*), .None => false)
 );
 /// The `MoveOnlyNominalFn` answer: the trait through which the value nominal

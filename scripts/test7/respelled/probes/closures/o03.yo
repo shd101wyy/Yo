@@ -1,0 +1,13 @@
+// expect: E0901
+// Dyn(FnOnce) called twice
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+take :: (fn(sink(s) : String) -> usize)(s.len());
+main :: (fn() -> unit)({
+  t := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  (send : Box(Dyn(FnOnce() -> usize))) = dyn(Box.new({ t }() => take(t)));
+  a := send();
+  b := send();
+  println(`OUT: ${(a + b).to_string()}`);
+});
+export(main);

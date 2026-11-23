@@ -1,0 +1,13 @@
+// expect: E0909
+// implicit capture of a reference binding to a local, returned
+{ println } :: import("std/fmt");
+mk :: (fn(k : i32) -> Impl(Fn() -> i32))({
+  x := Box(i32).new(k);
+  y := &x;
+  { y }() => y.*.*
+});
+main :: (fn() -> unit)({
+  g := mk(i32(41));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

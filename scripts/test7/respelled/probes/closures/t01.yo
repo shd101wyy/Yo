@@ -1,0 +1,14 @@
+// expect: E0909
+// a holder captured by value, the closure boxed with dyn and assigned to an outer Dyn slot from an inner block over an inner local
+{ println } :: import("std/fmt");
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+main :: (fn() -> unit)({
+  (mut(d) : Box(Dyn(Fn() -> i32))) = dyn(Box.new({}() => i32(0)));
+  {
+    x := Box(i32).new(i32(41));
+    h := V(x)(r : &x.*, n : i32(0));
+    d = dyn(Box.new({ h }() => h.r.*));
+  };
+  println(`OUT: ${d().to_string()}`);
+});
+export(main);
