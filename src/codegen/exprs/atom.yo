@@ -38,6 +38,7 @@
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop, is_reference_self_place } :: import("../../expr-info.yo");
 { TypeValue, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
+{ type_key } :: import("../../types/type-key.yo");
 { t_unit } :: import("../../types/creators.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait-checking.yo");
 { emit_async_future_completion } :: import("./async-completion.yo");
@@ -558,7 +559,17 @@ _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)
           .Some(v) => {
             vrc_slot := variable_slot_type(&v);
             vrc_thin := (!t_slot_is_borrow(&vrc_slot) || type_is_sized(&t_slot_pointee(&vrc_slot)));
-            if(_reads_own_fat_reference(&v, &read_ty), false, (vrc_thin && (v.*.is_ref() || (read_unsized && t_slot_is_borrow(&vrc_slot)))))
+            // A read that models the REFERENCE at the slot's pointee (`r` at
+            // a `&&String` slot read as the `&String` place it refers to, a
+            // written `r.*` N1e-1): the binding's C storage is the pointer
+            // one level up, so the read dereferences (r4,
+            // issues/fixed/2026-11-21-a-qualified-call-through-a-blanket-bound-at-t-ref-u-passes-check-and-emits-invalid-c.md).
+            vrc_pointee_ref := match(
+              &read_ty,
+              .Some(vrc_rt) => (t_slot_is_borrow(&vrc_slot) && t_slot_is_borrow(vrc_rt) && (type_key(vrc_rt) == type_key(&t_slot_pointee(&vrc_slot)))),
+              .None => false
+            );
+            if(_reads_own_fat_reference(&v, &read_ty), false, (vrc_thin && (v.*.is_ref() || vrc_pointee_ref || (read_unsized && t_slot_is_borrow(&vrc_slot)))))
           },
           .None => false
         )
