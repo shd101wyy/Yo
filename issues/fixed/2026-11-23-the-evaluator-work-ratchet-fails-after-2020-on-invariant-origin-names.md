@@ -32,7 +32,7 @@ A sampling allocation profile (a backtrace every 16381st allocation call, frames
 - `YO_DEBUG_INV_NAMES_MEMO_CHECK=1` re-walks every memo hit and every pre-filter answer and panics on a mismatch.
 - The generic-impl scan reads one owner in place, only for a name-matching entry.
 
-`check src/main.yo` now makes 7,191,229,721 allocation calls. The ratchet baseline was lowered to that count in the same PR.
+`check src/main.yo` now makes 7,143,188,970 allocation calls (at `bdb4a48c7`, merged with develop `4cdc10d31`). The ratchet baseline was lowered to that count in the same PR.
 
 ## Test
 
