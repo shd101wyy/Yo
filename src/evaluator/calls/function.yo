@@ -1406,7 +1406,7 @@ _receiver_own_reference_type :: (
       // probe base is one read-through further.
       is_reference_deref_site(&ast_expr_token(receiver)) => Option(TypeValue).None,
       ast_expr_is_atom(receiver) => match(
-        get_variables_from_env(env, &ast_expr_token(receiver).value.*).last_cloned(),
+        get_variables_from_env(env, &ast_expr_token(receiver).*.value.*).last_cloned(),
         .Some(ov) => cond(
           variable_is_reference_binding(&ov) => Option(TypeValue).Some(variable_slot_type(&ov)),
           true => Option(TypeValue).None
