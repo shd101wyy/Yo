@@ -1,0 +1,18 @@
+// expect: E0923
+// An `FnMut` closure stores its by-value holder parameter through a `&mut` capture: `o` outlives `y`, which the
+// stored `H` points into.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H :: struct(r : &Box(String));
+main :: (fn() -> unit)({
+  mut(o) := Option(H).None;
+  {
+    (mut(f) : Impl(FnMut(h : H) -> unit)) = ({ o : &mut o }(h) => {
+      o.* = .Some(h);
+    });
+    y := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    f(H(r : &y));
+  };
+  match(&o, .Some(h) => println(`OUT: ${h.r.*.len().to_string()}`), .None => ());
+});
+export(main);

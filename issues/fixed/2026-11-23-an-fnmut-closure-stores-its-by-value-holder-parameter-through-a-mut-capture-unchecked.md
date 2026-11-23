@@ -67,3 +67,23 @@ covers a `&T` parameter stored through a method of the capture, not a by-value h
 
 Apply the store check to an assignment through a `&mut` capture with the closure's parameters as unrelated origins.
 Add the reproducer to `tests/origins/unsound/`.
+
+## Fixed
+
+Fixed on `v0280/s1-test7b` (2026-11-23). Traced: `bind_join` (`src/evaluator/utils.yo`) judges `o.* = .Some(h)`
+with `o` the capture binding. `origin_of(.Some(h))` is empty (a by-value parameter's own place is no root of its
+value), so `_capture_store` and `_capture_state_store`, which judge roots, never ran; the by-value parameter's
+origins (`byvalue_param_origin_names`, `h`'s rigid elided field origin) were compared only against a holder whose
+type spells origins, and the outer `o : Option(H)` spells none. The named-function form is E0923 because there the
+holder is a `&mut` parameter whose pointee's elided origin is rigid.
+
+`_capture_store_param_origins` now runs for a holder that outlives the closure call — the outer place of a `&mut`
+capture, or an `FnMut` literal's by-value state (the same hole: `{ o : Option(H).None }(h) => { o = .Some(h) }`
+keeps `h`'s per-call origin across calls) — and rejects each by-value-parameter origin the holder's type does not
+name with E0923 ("… holds the origin inside `h`, an origin of this literal's per-call parameter `h`, `o` outlives
+the call, and a per-call origin cannot be named outside the literal"). A slot type that shares an origin parameter
+of the enclosing function with the holder's type still passes.
+
+G-B: `tests/origins/unsound/t7-fnmut-capture-stores-byvalue-holder-param.yo` (the reproducer, probe e07),
+`t7-fnmut-state-stores-byvalue-holder-param.yo` (the by-value state form, ASan heap-use-after-free on develop), and
+the positive twin `t7-fnmut-capture-stores-byvalue-holder-param-pos.yo` (an owned value stored).

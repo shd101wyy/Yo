@@ -1,0 +1,22 @@
+// expect: accept
+// The positive twins: the same pattern in a `&` match (both bindings read), and a `&mut` match that binds only `w`
+// and matches it again after the write.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  match(
+    &o,
+    (w := .Some(Box(s))) => println(`OUT: ${s} ${w.*.is_some().to_string()}`),
+    .None => ()
+  );
+  match(
+    &mut o,
+    (w := .Some(_)) => {
+      w.* = .Some(Box.new(String.from("q")));
+      match(&w.*, .Some(Box(s)) => println(`OUT: ${s}`), .None => ());
+    },
+    .None => ()
+  );
+});
+export(main);
