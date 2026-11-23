@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type-key.yo");
 { record_await_fusion_candidate } :: import("../../expr-traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, place_write_join, invariant_origin_names, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, place_write_join, invariant_origin_names, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, is_reference_field_read, reference_field_read_type, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -820,6 +820,18 @@ _lend_reference_receiver_at_double_slot :: (
       });
       recv_id := ast_expr_id(&mi.receiver_expr);
       recv_ty := match(expr_info_table_get(&ctx.expr_info_table, recv_id), .Some(ri) => ri.ty(), .None => return(()));
+      // r2/r3 (VERDICTS-75 row (b)): the slot is the receiver's OWN
+      // reference type (`rr : &&C` at a blanket whose slot is `&&C`): the
+      // reference is the slot's value — no borrow is minted, the receiver
+      // reads as the place the slot's pointee names and the call lends that
+      // place, whose address is the reference itself.
+      match(
+        _receiver_own_reference_type(ast_expr_id(callee), &mi.receiver_expr, &recv_ty, env),
+        .Some(dbl_own) => if(type_key(&slot) == type_key(&dbl_own), {
+          return(());
+        }),
+        .None => ()
+      );
       // An argument that already is a `&&C` (a qualified call, `rr.m()` at
       // step 0) needs nothing.
       if(t_slot_is_borrow(&recv_ty) && t_slot_is_borrow(&t_slot_pointee(&recv_ty)), {
@@ -1390,14 +1402,59 @@ _receiver_reference_mode :: (fn(callee_id : usize, receiver : &AstExpr, receiver
     )
   )
 );
+/// The receiver's OWN reference type: the reference the receiver IS, before
+/// any read-through. A reference binding's receiver read already went
+/// through one reference (the read rule, decision 43 step 2 N1e-2b), so the
+/// reference is the binding's own slot type; the explicit `(&x)` /
+/// `(&mut x)` (stripped to `x`, whose read names the lent place) is the
+/// reference over that place; a reference field read carries it
+/// (`reference_field_read_type`). Every other receiver — an owned place, a
+/// reference VALUE (a call result typed `&T`, a temporary, a written
+/// `rr.*`) — has none beyond its own evaluated type. R-PROBE ranks a slot
+/// equal to this type first at every depth (VERDICTS-75 rider r2: an
+/// exact-type slot match outranks every autoref candidate), and a receiver
+/// whose type is the winning slot's own type passes as the slot's value —
+/// "a receiver that is itself a reference value needs no borrow"
+/// (VERDICTS-75 row (b)).
+_receiver_own_reference_type :: (
+  fn(callee_id : usize, receiver : &AstExpr, receiver_type : &TypeValue, env : &Environment) -> Option(TypeValue)
+)(
+  match(
+    g_explicit_ref_receivers.with(m => m.get(&callee_id)),
+    .Some(own_mut) => Option(TypeValue).Some(t_reference(receiver_type, own_mut)),
+    .None => cond(
+      // A written `rr.*` / `p.f.*` (N1e-1: rewritten to its operand) IS the
+      // reference VALUE it denotes, not the binding's own reference: its
+      // probe base is one read-through further.
+      is_reference_deref_site(&ast_expr_token(receiver)) => Option(TypeValue).None,
+      ast_expr_is_atom(receiver) => match(
+        get_variables_from_env(env, &ast_expr_token(receiver).*.value.*).last_cloned(),
+        .Some(ov) => cond(
+          variable_is_reference_binding(&ov) => Option(TypeValue).Some(variable_slot_type(&ov)),
+          true => Option(TypeValue).None
+        ),
+        .None => Option(TypeValue).None
+      ),
+      is_reference_field_read(ast_expr_id(receiver)) => reference_field_read_type(ast_expr_id(receiver)),
+      true => Option(TypeValue).None
+    )
+  )
+);
 /// The probe step of a method for a receiver of reference mode `ref_mode`
-/// (`.None` owned): the position of the method's receiver slot (its first
-/// parameter's slot, `Self` substituted) in the candidate order. Owned `C`:
-/// `C` 0, `&C` 1, `&mut C` 2, `&&C` 3 (the autoref of the implied borrow),
-/// `&mut &C` 4. `&C`: `&C` 0, `&&C` 1, `&mut &C` 2, `C` 3, `&mut C` 5.
-/// `&mut C`: `&mut C` 0, `&&mut C` 1, `&mut &mut C` 2, `C` 3, `&C` 4. A slot
-/// none of these is last.
-_r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
+/// (`.None` owned) whose PLACE is `base`: the position of the method's
+/// receiver slot (its first parameter's slot, `Self` substituted) in the
+/// candidate order. Owned `C`: `C` 0, `&C` 1, `&mut C` 2, `&&C` 3 (the
+/// autoref of the implied borrow), `&mut &C` 4. `&C`: `&C` 0, `&&C` 1,
+/// `&mut &C` 2, `C` 3, `&mut C` 5. `&mut C`: `&mut C` 0, `&&mut C` 1,
+/// `&mut &mut C` 2, `C` 3, `&C` 4. A slot none of these is last.
+/// A receiver whose place is ITSELF a reference (`rr : &&C` probes base
+/// `&C`) ranks the same steps one level deeper, RELATIVE to its own
+/// reference `&base` (VERDICTS-75 rider r2): the slot `&base` — `rr`'s own
+/// type, an exact match — is step 0 and outranks every autoref candidate,
+/// `&&base` is the self-lend 1, `&mut &base` 2, the base one read-through
+/// away at 3, and the opposite-mode lend over the base at 4 (a mut place)
+/// or 5 (a shared one).
+_r_probe_rank :: (fn(e : &MethodEntry, base : &TypeValue, ref_mode : Option(bool)) -> usize)({
   // A by-value `self : Self` at `Self = &C` (`ValueSlot(&C)`, R3) takes its
   // probe step from the reference it carries, as the slot `&C` always did.
   slot := match(
@@ -1405,6 +1462,28 @@ _r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
     .Some(s) => match(&s, Rc(.ValueSlot(vs_inner)) => Rc.clone(vs_inner), _ => Rc.clone(s)),
     .None => return(usize(9))
   );
+  // A reference receiver over a reference base: rank relative to the
+  // receiver's own type `t_reference(base, mode)` — the absolute shapes
+  // below would read `&base` (shape 1) as step 0 and the receiver's own
+  // type (shape 3) as the autoref step 1, one level too shallow.
+  if(match(ref_mode, .Some(_) => t_slot_is_borrow(base), .None => false), {
+    own := t_reference(base, match(ref_mode, .Some(om) => om, .None => false));
+    own_shared := t_reference(&own, false);
+    own_mut := t_reference(&own, true);
+    base_shared := t_reference(base, false);
+    base_mut := t_reference(base, true);
+    return(
+      cond(
+        (type_key(&slot) == type_key(&own)) => usize(0),
+        (type_key(&slot) == type_key(&own_shared)) => usize(1),
+        (type_key(&slot) == type_key(&own_mut)) => usize(2),
+        (type_key(&slot) == type_key(base)) => usize(3),
+        (type_key(&slot) == type_key(&base_shared)) => cond(match(ref_mode, .Some(rm) => rm, .None => false) => usize(4), true => usize(8)),
+        (type_key(&slot) == type_key(&base_mut)) => cond(match(ref_mode, .Some(rm2) => rm2, .None => false) => usize(8), true => usize(5)),
+        true => usize(8)
+      )
+    );
+  });
   // 0: by value; 1: `&`; 2: `&mut`; 3: `& &`; 4: `&mut &`; 5: `& &mut`;
   // 6: `&mut &mut`; 7: deeper.
   shape := match(
@@ -1452,10 +1531,10 @@ _r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
 });
 /// Whether some method of `hits` has the probe step 0 of a `&C` receiver:
 /// its receiver slot is `&C` itself (VERDICTS-69 Q1).
-_has_slot_step_zero :: (fn(hits : &ArrayList(MethodEntry)) -> bool)({
+_has_slot_step_zero :: (fn(hits : &ArrayList(MethodEntry), base : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < hits.len(), {
-    if(_r_probe_rank(&hits(i), Option(bool).Some(false)) == usize(0), {
+    if(_r_probe_rank(&hits(i), base, Option(bool).Some(false)) == usize(0), {
       return(true);
     });
     i = (i + usize(1));
@@ -1544,7 +1623,7 @@ _r_probe_candidates :: (
   pool_ranks := ArrayList(usize).new();
   (pi : usize) = usize(0);
   while(pi < pool.len(), {
-    match(pool.get_cloned(pi), .Some(h) => pool_ranks.push(_r_probe_rank(&h, ref_mode)), .None => pool_ranks.push(usize(9)));
+    match(pool.get_cloned(pi), .Some(h) => pool_ranks.push(_r_probe_rank(&h, base, ref_mode)), .None => pool_ranks.push(usize(9)));
     pi = (pi + usize(1));
   });
   (rank : usize) = usize(0);
@@ -1686,7 +1765,7 @@ _find_receiver_method_of :: (
     str_reference_pointee(&receiver_type),
     .Some(sr_p) => if(!match(receiver_value.clone(), .Some(sr_v) => is_type_val(&sr_v), .None => false), {
       sr_ref_hits := get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false);
-      if((sr_ref_hits.len() == usize(0)) || (!_has_slot_step_zero(&sr_ref_hits) && (get_receiver_methods_by_name_from_env(env, method_name.clone(), &sr_p, false).len() > usize(0))), {
+      if((sr_ref_hits.len() == usize(0)) || (!_has_slot_step_zero(&sr_ref_hits, &sr_p) && (get_receiver_methods_by_name_from_env(env, method_name.clone(), &sr_p, false).len() > usize(0))), {
         receiver_type = sr_p;
       });
     }),
@@ -1751,7 +1830,18 @@ _find_receiver_method_of :: (
   (probe_ranks : ArrayList(usize)) = ArrayList(usize).new();
   (probe_receivers : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
   if(!is_static, {
-    probe_base := t_slot_pointee(&receiver_type);
+    // The receiver's own reference (`_receiver_own_reference_type`) names
+    // the place R-PROBE ranks over: a reference binding's or a reference
+    // field's read already went through it, so the place is its pointee; a
+    // reference VALUE receiver (a call result typed `&T`, a temporary)
+    // still carries the reference, one read-through above its place; an
+    // owned receiver's place is its own type.
+    probe_own := _receiver_own_reference_type(callee_id, &receiver_expr_r, &receiver_type, env);
+    probe_base := match(
+      &probe_own,
+      .Some(pown) => t_slot_pointee(pown),
+      .None => cond(t_slot_is_borrow(&receiver_type) => t_slot_pointee(&receiver_type), true => Rc.clone(receiver_type))
+    );
     probe_head := type_head_name_for_impl_forcing(&probe_base);
     // A pending reference impl of the head is forced BEFORE the gate reads
     // the (head, method) index, so the methods it registers are noted in time.
@@ -1789,9 +1879,10 @@ _find_receiver_method_of :: (
     });
     // A receiver that is a reference VALUE (`rr.*` with `rr : &&C`, a call
     // returning `&C`) is not a place of `C`: a method registered on `C`
-    // reaches it only through the deref step below (`rr.*.*.m()`). Only a
-    // method whose impl receiver is itself a reference answers the value
-    // directly.
+    // reaches it only through the deref step below (`rr.*.*.m()`), EXCEPT a
+    // method whose slot is the receiver's own reference type (probe step 0,
+    // rider r1): the reference is the slot's value and fills it directly,
+    // whatever impl family registered it.
     // A reference impl's candidate is kept only when no candidate of `C` it
     // drops has an earlier probe step: `C`'s `self : &Self` method has the
     // slot `&C` the value fills, so it wins over a blanket over `&T` (slot
@@ -1828,7 +1919,16 @@ _find_receiver_method_of :: (
         while(pf_i < probed.hits.len(), {
           is_ref_impl := match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true);
           pf_rank := match(probed.ranks.get(pf_i), .Some(r) => r, .None => usize(9));
-          keep := cond(is_ref_impl => (pf_rank <= dropped_min_rank), true => (tie_at_min && (pf_rank == dropped_min_rank)));
+          // r1 (VERDICTS-75): a candidate whose slot is the receiver's own
+          // reference type (probe step 0) is filled by the reference itself —
+          // "a receiver that is itself a reference value needs no borrow" —
+          // whatever impl family registered it; only the deeper steps of the
+          // base stay the deref retry's.
+          keep := cond(
+            is_ref_impl => (pf_rank <= dropped_min_rank),
+            (pf_rank == usize(0)) => true,
+            true => (tie_at_min && (pf_rank == dropped_min_rank))
+          );
           if(keep, {
             match(probed.hits.get_cloned(pf_i), .Some(h) => hits.push(h), .None => ());
             match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());
@@ -8576,7 +8676,23 @@ _evaluate_funcval_runtime_call :: (
                   // A `&str` value at a `&str` slot is the `str` it refers
                   // to (decision 49 S2, `check_argument_for_parameter`).
                   _ac_str_place := (is_str_reference_type(&_ac_aty) && is_legacy_value_str(&_ac_pty));
-                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime && !_ac_str_place
+                  // r1 (VERDICTS-75 row (b)): the argument IS the reference
+                  // the slot takes — a receiver or value typed `&String` at a
+                  // `&String` slot — so it is the slot's value, not a place
+                  // the slot lends ("a receiver that is itself a reference
+                  // value needs no borrow"). A LEND is not that value: `&r`
+                  // of a reference binding (a self place) or any recorded
+                  // lend of a place typed `&String` is a `&&String` (P3).
+                  _ac_slot_value := match(
+                    _ac_pts.get(_ac_i),
+                    .Some(_ac_sl) => (
+                      t_slot_is_borrow(&_ac_aty) && are_types_compatible(&_ac_aty, &_ac_sl)
+                      && expr_info_converted_runtime_type(&_ac_ai).is_none()
+                      && !is_reference_self_place(ast_expr_id(&match(runtime_arg_exprs.get_cloned(_ac_i), .Some(_ac_sv) => _ac_sv, .None => expr.clone())))
+                    ),
+                    .None => false
+                  );
+                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime && !_ac_str_place && !_ac_slot_value
                   && !are_types_compatible(&_ac_aty, &_ac_pty), {
                     // C19: a concrete/concrete argument-type mismatch (e.g. C
                     // `int` where `i32` is declared) is ALWAYS a hard error.

@@ -16,6 +16,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 { _apply_ref_amp } :: import("./other-fn-call.yo");
 { fn_abi_param_is_ptr } :: import("../../types/utils.yo");
+{ fn_param_slots, no_types } :: import("../../types/definitions.yo");
 { ArrayList } :: import("std/collections/array-list");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
@@ -121,7 +122,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       // through a `match` binding's pointer is addressed
       // (issues/fixed/2026-11-05-recur-of-a-mut-borrowed-field-of-a-match-binding-passes-the-value-not-its-address.md).
       abi_is_ptr := match(&context.current_function_type, .Some(ft) => fn_abi_param_is_ptr(&ft.*), .None => ArrayList(bool).new());
-      amped := _apply_ref_amp(&arg_codes, &abi_is_ptr, &arg_exprs.*, indent.clone(), context);
+      amped := _apply_ref_amp(&arg_codes, &abi_is_ptr, &match(&context.current_function_type, .Some(rft) => fn_param_slots(&rft.*), .None => no_types()), &arg_exprs.*, indent.clone(), context);
       args_list := String.from("");
       (ai : usize) = usize(0);
       while(ai < amped.len(), {
