@@ -65,7 +65,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_error, get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, with_code, YoError } :: import("../../error.yo");
 { suggest_name, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE, E_TRAIT_NOT_IMPLEMENTED, E_MEMBER_BEHIND_DEREF, Span } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, variable_is_mut_borrow, deref_rule_applies, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory-safety.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
@@ -405,12 +405,28 @@ strip_for_borrow_marker :: (fn(e : &AstExpr) -> Option(Tuple(AstExpr, String)))(
   )
 });
 member_behind_deref_error :: (
-  fn(obj : &AstExpr, obj_ty : &TypeValue, name_tok : &Token, stars : usize, landed : &TypeValue, is_call : bool, for_head : bool) -> YoError
+  fn(obj : &AstExpr, obj_ty : &TypeValue, name_tok : &Token, stars : usize, landed : &TypeValue, is_call : bool, for_head : bool, env : &Environment) -> YoError
 )({
   // Every name below is bound once: a `mut` name destructured from a call's
   // tuple is released twice at scope exit
   // (issues/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md).
   (stripped, synth) := strip_synthesized_stars(obj);
+  // A reference binding (`b : &Box(P)`, a `for`/`match` element, a `&T`
+  // parameter at `T := Rc(P)`) is read through by `.`, so its type here is
+  // the referent's; its own star is spelled too (VERDICTS-73 §3.4:
+  // `b.*.*.n`), and the message shows the reference type.
+  ref_binding := cond(
+    ast_expr_is_atom(&stripped) => match(
+      get_variables_from_env(env, ast_expr_token(&stripped).*.value.*.clone()).last_cloned(),
+      .Some(rb_v) => cond(
+        variable_is_reference_binding(&rb_v) => Option(String).Some(cond(variable_is_mut_borrow(&rb_v) => String.from("&mut "), true => String.from("&"))),
+        true => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    true => Option(String).None
+  );
+  ref_layers := cond((ref_binding.is_some() && (!for_head && !t_slot_is_borrow(obj_ty))) => usize(1), true => usize(0));
   // A `for` head's receiver is the loop source's borrow marker (`&coll` /
   // `&mut coll`, the desugar's `(&coll).into_iter()`): the message spells the
   // place inside the marker, and the marker's own reference layer is not one
@@ -421,11 +437,11 @@ member_behind_deref_error :: (
   total := cond(
     (for_marker.is_some() && ((stars + synth) > usize(0))) => ((stars + synth) - usize(1)),
     for_marker.is_some() => usize(0),
-    true => (stars + synth)
+    true => ((stars + synth) + ref_layers)
   );
   shown_ty := cond((for_head && t_slot_is_borrow(obj_ty)) => t_slot_pointee(obj_ty), true => Rc.clone(obj_ty));
   written_s := ast_expr_to_string(&written);
-  written_ty_s := type_to_string(&shown_ty);
+  written_ty_s := match(&ref_binding, .Some(rb_mark) => cond((!for_head && !t_slot_is_borrow(&shown_ty)) => `${rb_mark}${type_to_string(&shown_ty)}`, true => type_to_string(&shown_ty)), .None => type_to_string(&shown_ty));
   name := name_tok.*.*.value.*.clone();
   (star_s : String) = String.new();
   (insert_s : String) = String.new();
@@ -2532,7 +2548,7 @@ Raw pointer operations may dereference invalid memory.`
               match(
                 _deref_chain_has_field(&base_ty, label_str.clone(), &env),
                 .Ok((pa_stars, pa_landed)) => if(!pa_is_callee || (get_receiver_methods_by_name_from_env(&env, label_str.clone(), &base_ty, false).len() == usize(0)), {
-                  exn.throw(dyn(Box.new(member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pa_stars, &pa_landed, pa_is_callee, false))));
+                  exn.throw(dyn(Box.new(member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pa_stars, &pa_landed, pa_is_callee, false, &env))));
                   return(Rc.clone(expr.*));
                 }),
                 .Err(innermost) => if(!pa_is_callee, {
@@ -2618,7 +2634,7 @@ Raw pointer operations may dereference invalid memory.`
                 pp_cur = match(Rc.clone(pp_cur), Rc(.Pointer(pt)) => Rc.clone(pt), _ => t_unit());
                 pp_stars = (pp_stars + usize(1));
               });
-              exn.throw(dyn(Box.new(member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pp_stars, &base_ty, is_dot_callee(ast_expr_id(expr)), false))));
+              exn.throw(dyn(Box.new(member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pp_stars, &base_ty, is_dot_callee(ast_expr_id(expr)), false, &env))));
               return(Rc.clone(expr.*));
             });
             ft_lbl := _reference_field_read_type(&match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);

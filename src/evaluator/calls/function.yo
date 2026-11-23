@@ -1999,7 +1999,7 @@ _find_receiver_method_of :: (
                 (written, mb_stars) := strip_synthesized_stars(&deref_hit.receiver_expr);
                 written_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&written)), .Some(wi) => Rc.clone(wi.ty()), .None => Rc.clone(receiver_type));
                 landed_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&deref_hit.receiver_expr)), .Some(li) => Rc.clone(li.ty()), .None => Rc.clone(receiver_type));
-                mb_err := member_behind_deref_error(&written, &written_ty, &method_tok, mb_stars, &landed_ty, true, for_desugar_site_of(&ast_expr_token(callee)).is_some());
+                mb_err := member_behind_deref_error(&written, &written_ty, &method_tok, mb_stars, &landed_ty, true, for_desugar_site_of(&ast_expr_token(callee)).is_some(), env);
                 mb_key := ast_expr_id(&method_name_expr);
                 g_member_behind_deref.with_mut({ mb_key, mb_err }(m) => m.insert(mb_key, mb_err.clone()));
                 return(Option(ReceiverMethodResult).None);
