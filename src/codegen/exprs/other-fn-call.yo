@@ -8,7 +8,7 @@
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type-trait-methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure, get_closure_capture_info } :: import("../../function-value.yo");
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype, fn_value_c_name } :: import("../functions/declarations.yo");
-{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, SharedList, fn_param_by_value_at, t_slot_pointee, t_slot_is_mut_ref, slot_pointee_at, fn_result_pointee, fn_result_is_ref, t_slot_is_borrow, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, SharedList, fn_param_by_value_at, t_slot_pointee, t_slot_is_mut_ref, slot_pointee_at, fn_result_pointee, fn_result_is_ref, t_slot_is_borrow, t_refine_inner, fn_param_slots } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { is_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type, is_cell_primitive_type, is_never_type, is_primitive_type, is_tuple_type, unique_box_payload_type, is_comptime_string_type } :: import("../../types/guards.yo");
 { type_is_control_bound, type_is_sized, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr, dyn_type_lists_clone, dyn_dispatch_receiver_type } :: import("../../types/utils.yo");
@@ -1140,10 +1140,31 @@ _closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context 
   });
   default_cty
 });
+/// The runtime argument `i` is the reference its borrow slot takes
+/// (VERDICTS-75 rider r1): its type IS the slot (`&T` at `&T`, `T` sized)
+/// and it is a reference VALUE (`reference_operand_is_value`: a call's
+/// result, a by-value `&T` binding), not a place the slot lends. The
+/// evaluator admits it as the slot's value: a receiver that is itself a
+/// reference value needs no borrow.
+_reference_value_at_own_slot :: (fn(slots : &SharedList(TypeValue), i : usize, runtime_args : &ArrayList(AstExpr), context : &FunctionGenerationContext) -> bool)(
+  match(
+    slots.get(i),
+    .Some(rv_slot) => (
+      t_slot_is_borrow(&rv_slot) && type_is_sized(&t_slot_pointee(&rv_slot)) && match(
+        runtime_args.get_cloned(i),
+        .Some(rv_arg) => (
+          reference_operand_is_value(&rv_arg, context) && !is_reference_self_place(ast_expr_id(&rv_arg)) && match(context.base.get_expr_info(&rv_arg), .Some(rv_ei) => (type_key(&rv_ei.ty()) == type_key(&rv_slot)), .None => false)
+        ),
+        .None => false
+      )
+    ),
+    .None => false
+  )
+);
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
-/// spill to a temp).
-_apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool), runtime_args : &ArrayList(AstExpr), indent : &String, context : &mut FunctionGenerationContext) -> ArrayList(String))({
+/// spill to a temp). `slots` are the callee's parameter slots.
+_apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool), slots : &SharedList(TypeValue), runtime_args : &ArrayList(AstExpr), indent : &String, context : &mut FunctionGenerationContext) -> ArrayList(String))({
   mut(out) := ArrayList(String).new();
   na := args.len();
   (mut(i) : usize) = usize(0);
@@ -1184,7 +1205,16 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
     });
     // The lent place of an unsized pointee reads through its pair (`b.*`
     // over a box, a reference binding `r`: `(*pair)`); the lend is the pair.
-    c := match(args.get_cloned(i), .Some(x) => if(unsized_lend, unsized_lend_pair_code(&x), x), .None => String.from(""));
+    c0 := match(args.get_cloned(i), .Some(x) => if(unsized_lend, unsized_lend_pair_code(&x), x), .None => String.from(""));
+    // A reference VALUE at its own slot (`_reference_value_at_own_slot`):
+    // its C is the pointer, and the place it refers to, `(*p)`, is what
+    // every lowering below takes from a lent place — a pointer slot folds
+    // `&(*p)` to `p`, a by-value `&T` slot reads the referent
+    // (issues/fixed/2026-11-10-a-method-call-on-a-call-result-typed-as-a-reference-is-e0610.md).
+    c := if(_reference_value_at_own_slot(slots, i, runtime_args, context), {
+      rv_code := match(_sm_lent_temp_slot(&c0, context), .Some(rv_sm) => rv_sm, .None => c0.clone());
+      `(*${rv_code})`
+    }, c0);
     // Decision 49 S2: an argument that is an unsized place (`"lit"` or `s`
     // lent to a `&str` slot, `b.*` of an owner, a projection call's
     // `[T]` place) or a reference to an unsized pointee (a `&str`
@@ -2094,7 +2124,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         );
         dmi = (dmi + usize(1));
       });
-      dm_amped := _apply_ref_amp(&dm_args, &dm_pir, &dm_rargs, indent.clone(), context);
+      // No slot list: only a receiver is admitted as its slot's reference
+      // value (`try_to_call_function_with_arguments`), and the dyn
+      // receiver (the value's `.data`) is not among `dm_args`.
+      dm_amped := _apply_ref_amp(&dm_args, &dm_pir, &no_types(), &dm_rargs, indent.clone(), context);
       (mut(dma) : usize) = usize(0);
       while(dma < dm_amped.len(), {
         dm_call.push_str(", ");
@@ -2262,7 +2295,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               // `self : &mut Self`: a derived clone of a primitive STRUCT FIELD
               // (`self.row.clone()`) emitted `(*((*self).row))` and failed to
               // compile. Same ref-`&` handling as the main arg loop.
-              inline_args_amped := _apply_ref_amp(&inline_args, &ia_pir, &dm_runtime, indent.clone(), context);
+              inline_args_amped := _apply_ref_amp(&inline_args, &ia_pir, &fn_param_slots(&ia_ft), &dm_runtime, indent.clone(), context);
               return(Option(String).Some(_inline_alias_call_code(&op, &inline_args_amped, expr, context, indent)));
             },
             .None => ()
@@ -2310,7 +2343,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               );
               cmi = (cmi + usize(1));
             });
-            cm_arg_list = _apply_ref_amp(&cm_arg_list, &cm_abi_ptr, &dm_runtime, indent.clone(), context);
+            cm_arg_list = _apply_ref_amp(&cm_arg_list, &cm_abi_ptr, &cm_ptypes, &dm_runtime, indent.clone(), context);
             mut(cm_call) := cn.clone();
             cm_call.push_str("(");
             cm_call.push_string(_join_args(&cm_arg_list));
@@ -2473,7 +2506,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               );
               rmi = (rmi + usize(1));
             });
-            rm_args = _apply_ref_amp(&rm_args, &rm_abi_ptr, &rm_runtime, indent.clone(), context);
+            rm_args = _apply_ref_amp(&rm_args, &rm_abi_ptr, &rm_ptypes, &rm_runtime, indent.clone(), context);
             mut(rm_call) := rmcn.clone();
             rm_call.push_str("(");
             rm_call.push_string(_join_args(&rm_args));
@@ -3026,7 +3059,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     );
     ai = (ai + usize(1));
   });
-  args2 := _apply_ref_amp(&args, &abi_is_ptr, &runtime_args, indent.clone(), context);
+  args2 := _apply_ref_amp(&args, &abi_is_ptr, &param_types, &runtime_args, indent.clone(), context);
   args_list := _join_args(&args2);
   // extern "yo". (Run as a statement, not a binding: the match yields unit and
   // exists only for its side-effects + early `return`s. Binding a unit-valued
