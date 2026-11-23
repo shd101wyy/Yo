@@ -2091,6 +2091,8 @@ check_if_function_parameter_matches_argument :: (
   // a `&str` binding's place binds it: `s.contains("x")` is `Pattern` on
   // `str`, and a `P : Type` binder is E0619's `?Sized` question.
   str_place_at_binder := (t9_lend_ty.is_none() && !is_ct_only && !param_is_owning && !param_is_ref && !slot_of_reference && is_some_type(&resolved_pt) && (is_comptime_string_type(&arg_info.ty()) || is_str_reference_type(&arg_info.ty())));
+  // The argument is a lend of the place, so it transfers nothing (4b).
+  arg_is_t9_lend := t9_lend_ty.is_some();
   (arg_type : TypeValue) = match(
     t9_lend_ty,
     .Some(t9_w) => Rc.clone(t9_w),
@@ -2123,7 +2125,7 @@ check_if_function_parameter_matches_argument :: (
     },
     .None => ()
   );
-  s0_share := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot, t9_lend_ty.is_some());
+  s0_share := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot, arg_is_t9_lend);
   arg_info.set_ty(arg_ty_as_written);
   s0_drop_captured := match(s0_share.clone(), .Some(sh) => Option(AstExpr).Some(Rc.clone(sh.0)), .None => Option(AstExpr).None);
   s0_marked_arg_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(Rc.clone(sh.1)), .None => Option(AstExpr).None);
