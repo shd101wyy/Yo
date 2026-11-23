@@ -414,8 +414,13 @@ member_behind_deref_error :: (
   // A reference binding (`b : &Box(P)`, a `for`/`match` element, a `&T`
   // parameter at `T := Rc(P)`) is read through by `.`, so its type here is
   // the referent's; its own star is spelled too (VERDICTS-73 §3.4:
-  // `b.*.*.n`), and the message shows the reference type.
+  // `b.*.*.n`), and the message shows the reference type. A written `b.*`
+  // reaches here as `b` (the reference step is rewritten away and its
+  // receiver noted, `note_reference_deref_site`): that star is already in
+  // the source, so the message spells `b.*` and the repair does not add it.
+  ref_star_written := (!for_head && (ast_expr_is_atom(&stripped) && is_reference_deref_site(ast_expr_token(&stripped))));
   ref_binding := cond(
+    ref_star_written => Option(String).None,
     ast_expr_is_atom(&stripped) => match(
       get_variables_from_env(env, ast_expr_token(&stripped).*.value.*.clone()).last_cloned(),
       .Some(rb_v) => cond(
@@ -440,7 +445,7 @@ member_behind_deref_error :: (
     true => ((stars + synth) + ref_layers)
   );
   shown_ty := cond((for_head && t_slot_is_borrow(obj_ty)) => t_slot_pointee(obj_ty), true => Rc.clone(obj_ty));
-  written_s := ast_expr_to_string(&written);
+  written_s := cond(ref_star_written => `${ast_expr_to_string(&written)}.*`, true => ast_expr_to_string(&written));
   written_ty_s := match(&ref_binding, .Some(rb_mark) => cond((!for_head && !t_slot_is_borrow(&shown_ty)) => `${rb_mark}${type_to_string(&shown_ty)}`, true => type_to_string(&shown_ty)), .None => type_to_string(&shown_ty));
   name := name_tok.*.*.value.*.clone();
   (star_s : String) = String.new();
