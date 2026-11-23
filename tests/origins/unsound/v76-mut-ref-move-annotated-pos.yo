@@ -1,0 +1,11 @@
+// expect: accept
+// VERDICTS-76 Q1 row 5: the annotated `(a : &mut i32) = m` moves `m` exactly as `a := m` does.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  (a : &mut i32) = m;
+  a.* = i32(2);
+  println(`OUT: ${x.to_string()}`);
+});
+export(main);

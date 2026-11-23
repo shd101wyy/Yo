@@ -1,0 +1,12 @@
+// expect: E0911
+// VERDICTS-76 Q1 row 22: a reference whose elided origin names both `x` and `y` moves with both places.
+pick :: (fn(a : &mut i32, b : &mut i32) -> &mut i32)(a);
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  mut(y) := i32(1);
+  m := pick(&mut x, &mut y);
+  a := m;
+  y = i32(4);
+  a.* = i32(2);
+});
+export(main);

@@ -710,7 +710,7 @@ require_expr_not_consumed :: (
           if(same_site, {
             return(());
           });
-          exn.throw(dyn(Box.new(use_of_moved_value_error(&var_name, &variable_value_type(&v), ast_expr_token(rhs), variable_move_note(&v, &consumed_tok)))));
+          exn.throw(dyn(Box.new(use_of_moved_value_error(&var_name, &moved_value_type(&v), ast_expr_token(rhs), variable_move_note(&v, &consumed_tok)))));
         }
       );
     }
@@ -771,31 +771,41 @@ _copy_derive_target :: (fn(ty : &TypeValue) -> String)({
 /// move-only and the ways to use it without a copy; for an explicit-copy type,
 /// the `.clone()` that copies it. `.None` for an implicitly copyable type.
 move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
-  match(
-    // A `Box(Dyn(...))` is the owned `Dyn` (decision 49 S2): its note says
-    // how a `Dyn` copies (`Clone` in its trait list), not the box's `Drop`.
-    if(_is_box_of_dyn(ty), Option(String).None, move_only_reason(ty)),
-    .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it: create it with \`Arc.new(...)\` and give each sharer its own \`Arc.clone(...)\` (\`Rc.new\`/\`Rc.clone\` within one thread; an \`Rc(RefCell(...))\` to write it). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
-    ),
-    .None => cond(
-      (type_holds_dyn_by_value(ty) || _is_box_of_dyn(ty)) => Option(String).Some(_dyn_copy_note(name, ty)),
-      (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
-        `\`${name}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, name.clone())}`
+  cond(
+    // A `&mut` reference moves where it is read by value; the reborrow
+    // `&mut m.*` lends it instead and leaves it usable (VERDICTS-76 Q1).
+    t_slot_is_mut_ref(ty) => Option(String).Some(_mut_reference_move_help(name)),
+    true => match(
+      // A `Box(Dyn(...))` is the owned `Dyn` (decision 49 S2): its note says
+      // how a `Dyn` copies (`Clone` in its trait list), not the box's `Drop`.
+      if(_is_box_of_dyn(ty), Option(String).None, move_only_reason(ty)),
+      .Some(why) => Option(String).Some(
+        `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it: create it with \`Arc.new(...)\` and give each sharer its own \`Arc.clone(...)\` (\`Rc.new\`/\`Rc.clone\` within one thread; an \`Rc(RefCell(...))\` to write it). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
       ),
-      (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
-        `\`${name}\` has type \`${type_to_string(ty)}\`, which is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move it (\`sink(${name})\`).`
-      ),
-      (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
-        `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
-      ),
-      type_holds_counted_handle(ty) => Option(String).Some(_counted_handle_help(name, ty)),
-      type_requires_explicit_copy(ty) => Option(String).Some(
-        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it to a \`&mut T\` parameter. A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
-      ),
-      true => Option(String).None
+      .None => cond(
+        (type_holds_dyn_by_value(ty) || _is_box_of_dyn(ty)) => Option(String).Some(_dyn_copy_note(name, ty)),
+        (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
+          `\`${name}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, name.clone())}`
+        ),
+        (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
+          `\`${name}\` has type \`${type_to_string(ty)}\`, which is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move it (\`sink(${name})\`).`
+        ),
+        (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
+          `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
+        ),
+        type_holds_counted_handle(ty) => Option(String).Some(_counted_handle_help(name, ty)),
+        type_requires_explicit_copy(ty) => Option(String).Some(
+          `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it to a \`&mut T\` parameter. A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
+        ),
+        true => Option(String).None
+      )
     )
   )
+);
+/// The E0901 note for a moved `&mut` reference `name`: the reborrow that
+/// keeps it usable.
+_mut_reference_move_help :: (fn(name : &String) -> String)(
+  `a \`&mut\` reference moves where it is bound, assigned or passed by value, and the destination holds its borrow from then on. To keep using \`${name}\`, reborrow it instead: \`&mut ${name}.*\` lends the place it refers to until the reborrow's last use, and \`${name}\` is usable again after it.`
 );
 /// `ty` is a `Box(Dyn(...))`.
 _is_box_of_dyn :: (fn(ty : &TypeValue) -> bool)(match(unique_box_payload_type(ty), .Some(bp) => is_dyn_type(&bp), .None => false));
@@ -891,6 +901,11 @@ note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
 });
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
   (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
+);
+/// The type an E0901 for the moved binding `v` names: a reference binding's
+/// own reference type (a moved `&mut`), any other binding's value type.
+moved_value_type :: (fn(v : &Variable) -> TypeValue)(
+  if(variable_is_reference_binding(v), variable_slot_type(v), variable_value_type(v))
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
 /// with the move-only note when `ty` is move-only.
@@ -1136,7 +1151,7 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
     .Some(ct) => {
       same_site := ((ct.row == tok.row) && ((ct.column == tok.column) && (ct.module_path == tok.module_path)));
       if(!same_site, {
-        raise_flow_violation(use_of_moved_value_error(v.name.clone(), &variable_value_type(v), tok, variable_move_note(v, &ct)), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(v.name.clone(), &moved_value_type(v), tok, variable_move_note(v, &ct)), ctx, exn);
       });
     },
     .None => {
@@ -1499,6 +1514,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
         });
       },
       v.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
+      moves_reference_itself(rhs, &ei.ty(), &v) => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
       (v.is_ref() && !v.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
@@ -1511,6 +1527,14 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
     )
   );
 });
+/// A by-value position that reads the `&mut` reference binding `v` itself
+/// (`a := m`, `(a : &mut T) = m`, a tuple element, a generic `T` slot), not
+/// through `.*`: the REFERENCE moves (VERDICTS-76 Q1), the same reference with
+/// the same origin, and `v` is consumed. The value it refers to never moves
+/// through it: `t := m.*` keeps the E0901 for a move-only referent.
+moves_reference_itself :: (fn(rhs : &AstExpr, ty : &TypeValue, v : &Variable) -> bool)(
+  t_slot_is_mut_ref(ty) && variable_is_reference_binding(v) && ast_expr_is_atom(rhs) && !is_reference_deref_site(ast_expr_token(rhs))
+);
 /// E0901 for `r.*` copied out of a reference binding `r` whose referent is
 /// not implicitly copyable: the reference is the parameter's point, so the
 /// repair is to read through `r` where the value is used or to copy explicitly
@@ -2682,7 +2706,7 @@ set_expr_as_consumed :: (
               },
               // Step 4: throw `use of moved value`.
               true => {
-                exn.throw(dyn(Box.new(use_of_moved_value_error(&name.*, &variable_value_type(&v), ast_expr_token(expr), variable_move_note(&v, &consumed_tok)))));
+                exn.throw(dyn(Box.new(use_of_moved_value_error(&name.*, &moved_value_type(&v), ast_expr_token(expr), variable_move_note(&v, &consumed_tok)))));
               }
             )
           );
@@ -3607,6 +3631,7 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
       }),
       v.is_compile_time_only() => (),
       v.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
+      moves_reference_itself(rhs, &ei.ty(), &v) => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
       (v.is_ref() && !v.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
@@ -6395,7 +6420,7 @@ export(reject_dyn_place_by_value, legacy_box_dyn_lend);
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
-export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
+export(move_only_help, move_only_type_help, use_of_moved_value_error, moved_value_type, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle);
 export(audit_copy_trait_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy);
