@@ -2,8 +2,12 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** OPEN (raised 2026-11-23 by the fix of
-`issues/fixed/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md`)
+**Status:** DECIDED, not yet implemented. Raised 2026-11-23 by the fix of
+`issues/fixed/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md`.
+The coordinator's VERDICTS-76 Q2 (2026-11-22) already settles it: a destructuring of an owned
+source CONSUMES it, which is the "move" option below. It is scheduled for v0.2.81
+(`plans/handover/VBD_RELEASE_SCHEDULE.md` §4). Until then, v0.2.80 ships the E0901 of that fix
+as the interim rule. The doc stays here until the v0.2.81 PR implements the verdict and moves it.
 
 ## The question
 
