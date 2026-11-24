@@ -76,16 +76,7 @@ test("generic tail await of a unit trait default compiles and runs", {
   assert(g_tally_count == u8(12), "both puts landed");
 });
 test("concrete unit tail await control still works", {
-  t_exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  t_e := IoExn(io : io, exn : t_exn);
-  io.await(outer_unit(io), t_e);
+  io.await(outer_unit(io), io);
   assert(true, "completed");
 });
 // The bare-(e) form (issues/fixed/io-async-bare-e-closure-body-never-evaluates.md):
