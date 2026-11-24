@@ -152,7 +152,8 @@ pragma(Pragma.AllowUnsafe);
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
-{ type_to_string, type_to_string_for_message } :: import("../types/string.yo");
+{ type_to_string, type_to_string_for_message, type_key_epoch } :: import("../types/string.yo");
+{ type_identity_slot, type_identity_slot_holds, TYPE_IDENTITY_CACHE_CAP } :: import("../types/type-key.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized, type_spells_checked_static } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
 { is_global_mut_rule_exempt } :: import("./memory-safety.yo");
@@ -14175,15 +14176,19 @@ _invariant_type_argument_pairs :: (
     match(rs.get(i), .Some(rt) => match(vs.get(i), .Some(vt) => _invariant_origin_pairs(&rt, &vt, inv, out_r, out_v, seen, (depth + u32(1))), .None => ()), .None => ());
   });
 });
-/// The parameter names of the type constructor whose call produced the
-/// instance `ty` (a struct's `constructor_func_id`, an enum's registered
-/// constructor), in order; empty for any other type.
-_ctor_param_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
+/// Constructor parameter `i`'s name for the type constructor whose call
+/// produced the instance `ty` (a struct's `constructor_func_id`, an enum's
+/// registered constructor); `.None` for any other type, an unregistered
+/// constructor, or an index it has no parameter at. Read per INDEX, not as
+/// a copied list: `_ctor_arg_is_invariant` asks for one position at a time,
+/// and cloning the constructor's whole `params` list per question was most
+/// of this family's allocation cost.
+_ctor_param_name_at :: (fn(ty : &TypeValue, i : usize) -> Option(String))({
   cfid := match(ty, Rc(.Struct({ constructor_func_id : cp_c })) => cp_c.clone(), Rc(.EnumT({ id : cp_e })) => lookup_enum_cfid(&cp_e.*), _ => String.new());
   if(cfid.len() == usize(0), {
-    return(ArrayList(String).new());
+    return(Option(String).None);
   });
-  match(lookup_type_ctor_value(&cfid), .Some(Rc(.FuncVal(cp_fv, _))) => cp_fv.*.params.clone(), _ => ArrayList(String).new())
+  match(lookup_type_ctor_value(&cfid), .Some(Rc(.FuncVal(cp_fv, _))) => cp_fv.*.params.get_cloned(i), _ => Option(String).None)
 });
 /// Type argument `i` of the constructor instance `inst` is invariant: the
 /// constructor's parameter there occurs below a `&mut` pointee in its
@@ -14197,8 +14202,7 @@ _ctor_arg_is_invariant :: (fn(inst : &TypeValue, i : usize, seen : &mut ArrayLis
   if(depth > u32(16), {
     return(false);
   });
-  names := _ctor_param_names(inst);
-  n := match(names.get_cloned(i), .Some(x) => x, .None => return(false));
+  n := match(_ctor_param_name_at(inst, i), .Some(x) => x, .None => return(false));
   cid := match(inst, Rc(.Struct({ id : ci_s })) => ci_s.clone(), Rc(.EnumT({ id : ci_e })) => ci_e.clone(), _ => String.new());
   key := `${cid}:${i.to_string()}`;
   if(seen.contains(&key), {
@@ -14261,7 +14265,128 @@ _name_occurs_invariant_args :: (fn(inst : &TypeValue, tas : &SharedList(TypeValu
 /// The origin names `ty` spells at its invariant positions (below a `&mut`
 /// pointee, or at a constructor argument its fields place below one; O3
 /// step 3), for the call rule that fixes them (`lend_through` step 1).
+///
+/// `lend_through` runs after every non-std call and asks for the callee's
+/// slot types, so the same `TypeValue` handle is asked for at every call
+/// site of a function: the answer is memoized by the type's IDENTITY — the
+/// `type_key` memos' discipline (`types/type-key.yo`; also
+/// `g_lacks_copy_fast` in trait-checking.yo) — handles sorted by address, a
+/// parallel answer list, both lists cleared whenever the type-key epoch
+/// moves (a registration may change what `_ctor_param_name_at` reads) or
+/// the list reaches `TYPE_IDENTITY_CACHE_CAP`. EVERY handle is recorded,
+/// not only `type_identity_cacheable` ones: this walk reads no field that
+/// grows in place — a `SomeT`'s trait lists are why that gate exists, and
+/// no arm of the walk reads them (the `SomeT` arms read only the name) —
+/// so an answer cannot go stale the way a render's can.
+/// `YO_DEBUG_INV_NAMES_MEMO_CHECK=1` re-walks every hit and panics on a
+/// mismatch. A miss runs the walk unchanged and records its own answer, so
+/// a served answer is the walk's by construction.
+(g_invariant_names_handles : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
+(g_invariant_names_answers : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
+(mut(g_invariant_names_epoch) : u64) = u64(0);
+(mut(g_inv_names_memo_check) : u8) = u8(0);
+/// `YO_DEBUG_INV_NAMES_MEMO_CHECK=1`: every identity-memo hit and every
+/// pre-filter answer is re-walked and compared, and a mismatch aborts (the
+/// `type_key_memo_check` pattern).
+_inv_names_memo_check_enabled :: (fn() -> bool)({
+  if(g_inv_names_memo_check == u8(0), {
+    on := match(debug_knob(String.from("YO_DEBUG_INV_NAMES_MEMO_CHECK")), .Some(v) => (v == "1"), .None => false);
+    g_inv_names_memo_check = if(on, u8(2), u8(1));
+  });
+  g_inv_names_memo_check == u8(2)
+});
+/// `ty` may reach a `&mut` reference: through reference pointees, value
+/// slots, struct fields and type arguments, enum payloads and type
+/// arguments, and tuple components. Every position the invariant walk
+/// pairs, and every field `_ctor_arg_is_invariant` searches, is reached this
+/// way, and each one starts out covariant: it turns invariant only below a
+/// `&mut` it crosses, or at a constructor argument whose parameter its
+/// constructor's fields place below one. So a type that reaches no `&mut`
+/// has no invariant position and the walk names nothing. The answer is
+/// `true` when unsure — past depth 32, or after `budget` nodes — so a
+/// `false` is always exact. Reads only the type's own nodes, and allocates
+/// nothing.
+_may_reach_mut_reference :: (fn(ty : &TypeValue, budget : &mut u32, depth : u32) -> bool)({
+  if((depth > u32(32)) || (budget.* == u32(0)), {
+    return(true);
+  });
+  budget.* = (budget.* - u32(1));
+  match(
+    ty,
+    Rc(.Reference(mr_p, mr_m, _)) => (mr_m.* || recur(&mr_p.*, budget, (depth + u32(1)))),
+    Rc(.ValueSlot(mr_v)) => recur(&mr_v.*, budget, (depth + u32(1))),
+    Rc(.Struct({ field_types : mr_fts, type_arguments : mr_tas })) => (_may_reach_mut_reference_list(&mr_fts.*, budget, depth) || _may_reach_mut_reference_list(&mr_tas.*, budget, depth)),
+    Rc(.EnumT({ variant_fields : mr_vfs, type_arguments : mr_etas })) => {
+      (vi : usize) = usize(0);
+      while(vi < mr_vfs.len(), vi = (vi + usize(1)), {
+        if(match(mr_vfs.get(vi), .Some(vf) => _may_reach_mut_reference_list(&vf, budget, depth), .None => false), {
+          return(true);
+        });
+      });
+      _may_reach_mut_reference_list(&mr_etas.*, budget, depth)
+    },
+    Rc(.Tuple({ field_types : mr_tfs })) => _may_reach_mut_reference_list(&mr_tfs.*, budget, depth),
+    _ => false
+  )
+});
+_may_reach_mut_reference_list :: (fn(tys : &SharedList(TypeValue), budget : &mut u32, depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < tys.len(), i = (i + usize(1)), {
+    if(match(tys.get(i), .Some(t) => _may_reach_mut_reference(&t, budget, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The node budget of `_may_reach_mut_reference` per question.
+INVARIANT_PREFILTER_BUDGET :: u32(512);
 invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
+  (budget : u32) = INVARIANT_PREFILTER_BUDGET;
+  if(!_may_reach_mut_reference(ty, &mut budget, u32(0)), {
+    if(_inv_names_memo_check_enabled(), {
+      again := _invariant_origin_names_walk(ty);
+      if(again.len() > usize(0), {
+        panic(`YO_DEBUG_INV_NAMES_MEMO_CHECK: invariant_origin_names(${type_to_string(ty)}): the pre-filter answers [], the walk [${_origin_list_text(&shared_list(again.clone()))}]`);
+      });
+    });
+    return(ArrayList(String).new());
+  });
+  if(g_invariant_names_epoch != type_key_epoch(), {
+    g_invariant_names_handles.with_mut(xs => xs.clear());
+    g_invariant_names_answers.with_mut(xs => xs.clear());
+    g_invariant_names_epoch = type_key_epoch();
+  });
+  (slot : usize) = g_invariant_names_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
+  if(g_invariant_names_handles.with({ ty : &ty.*, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
+    served := match(g_invariant_names_answers.with({ slot }(xs) => xs.get_cloned(slot)), .Some(a) => a, .None => ArrayList(String).new());
+    if(_inv_names_memo_check_enabled(), {
+      again := _invariant_origin_names_walk(ty);
+      if(!_origin_name_sets_equal(&shared_list(again.clone()), &shared_list(served.clone())), {
+        panic(`YO_DEBUG_INV_NAMES_MEMO_CHECK: invariant_origin_names(${type_to_string(ty)}): the identity memo answers [${_origin_list_text(&shared_list(served.clone()))}], the walk [${_origin_list_text(&shared_list(again.clone()))}]`);
+      });
+    });
+    return(served);
+  });
+  names := _invariant_origin_names_walk(ty);
+  // Record the answer only when the epoch it was computed in still holds:
+  // the walk reads the constructor registry (`_ctor_param_name_at`), and a
+  // registration since the lookup would change what it reads.
+  if(g_invariant_names_epoch == type_key_epoch(), {
+    if(g_invariant_names_handles.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
+      g_invariant_names_handles.with_mut(xs => xs.clear());
+      g_invariant_names_answers.with_mut(xs => xs.clear());
+    });
+    (at : usize) = g_invariant_names_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
+    if(!g_invariant_names_handles.with({ ty : &ty.*, at }(xs) => type_identity_slot_holds(xs, at, ty)), {
+      g_invariant_names_handles.with_mut({ at, ty : Rc.clone(ty) }(xs) => xs.insert(at, Rc.clone(ty)));
+      g_invariant_names_answers.with_mut({ at, names : names.clone() }(xs) => xs.insert(at, names));
+    });
+  });
+  names
+});
+/// The walk `invariant_origin_names` memoizes: the type paired with itself
+/// at every invariant position, its declared-side origins collected by name.
+_invariant_origin_names_walk :: (fn(ty : &TypeValue) -> ArrayList(String))({
   out_r := ArrayList(TypeValue).new();
   out_v := ArrayList(TypeValue).new();
   seen := ArrayList(String).new();
