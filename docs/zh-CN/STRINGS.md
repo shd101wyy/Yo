@@ -329,7 +329,7 @@ export(main);
 `to_bytes()` 返回一个独立的 `ArrayList(u8)`；`into_bytes()` 消耗字符串并把缓冲区
 移出（没有其他副本共享时不复制）；`from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`
 接管传入的列表。就地读取字节用 `len()`、`byte_at(i)`、`get_byte(i)` 和 `bytes()`；
-运行期的 `String` 没有 `s(i)`（见 [STRINGS.md](./STRINGS.md)）。
+运行期的 `String` 没有 `s(i)`（见[元素访问](#元素访问si-与-byte_ati)）。
 
 ### 使用 `${}` 语法的模板字符串插值：
 

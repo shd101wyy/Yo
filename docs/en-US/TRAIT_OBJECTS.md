@@ -361,8 +361,6 @@ returns it, wraps it in a `Context`) by moving it, and lends it to a function th
 
 ## Dynamic Dispatch
 
-See [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md) for comprehensive documentation on dynamic dispatch with `Dyn` and `dyn`.
-
 ### `Dyn` and `dyn`
 
 `Dyn(Trait, ...)` is a trait object: any concrete type implementing the listed traits, erased, with its methods called through a vtable. It is unsized, so it is used behind a pointer, and the pointer decides who owns it: `Box(Dyn(Trait))` owns it, `Rc(Dyn(Trait))` shares it, and `&Dyn(Trait)` borrows it. `dyn(...)` is the only way in: `dyn(Box.new(v))`, `dyn(Rc.new(v))`, `dyn(Arc.new(v))`, `dyn(&v)` and `dyn(&mut v)` erase the pointee of that pointer.
@@ -376,7 +374,7 @@ The position of the `dyn(...)` call must say which `Dyn(...)` to build — a par
 - `downcast` and `upcast` keep the pointer kind
 - Several traits in one `Dyn`: `Dyn(Speak, Run)`
 
-A `Dyn` lives behind a pointer: a bare `Dyn(Trait)` value type is E0619, and `dyn(v)` of a plain value is E0620 (`dyn(Box.new(v))` boxes it). See [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md).
+A `Dyn` lives behind a pointer: a bare `Dyn(Trait)` value type is E0619, and `dyn(v)` of a plain value is E0620 (`dyn(Box.new(v))` boxes it).
 
 ### Examples
 
@@ -429,7 +427,7 @@ for(&shapes, s => println(s.area()));
 The trait must be object-safe (a `&Self` or `&mut Self` receiver, no other
 `Self` in the signature, no `generic(...)` parameters), each element owns its
 payload through its `Box`, and an upcast to a smaller trait set is explicit:
-`upcast(d, Dyn(Sub))`. Details: [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md).
+`upcast(d, Dyn(Sub))`.
 
 ### Opaque: `Impl(Trait)` and closures
 

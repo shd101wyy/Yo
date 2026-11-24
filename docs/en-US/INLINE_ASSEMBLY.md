@@ -23,8 +23,6 @@ x : i32;
 asm("mov {0}, #42", out(reg, x));
 ```
 
-For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMBLY.md](INLINE_ASSEMBLY.md).
-
 ## 1. Motivation
 
 Yo currently has no way to emit inline assembly. Low-level operations (syscalls, SIMD, hardware intrinsics, performance-critical inner loops, CPU feature detection) must be implemented as C extern functions. This forces developers to maintain separate C source files and manually wire them through the FFI.

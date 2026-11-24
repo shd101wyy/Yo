@@ -362,7 +362,7 @@ moves instead of lending: `to_bytes()` returns an independent `ArrayList(u8)`,
 other copy shares it), and `from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`
 take the list over. Bytes are read in place with `len()`, `byte_at(i)`,
 `get_byte(i)` and `bytes()`; a runtime `String` has no `s(i)` (see
-[STRINGS.md](./STRINGS.md)).
+[Element access](#element-access-si-and-byte_ati)).
 
 ### Template string interpolation with `${}` syntax:
 

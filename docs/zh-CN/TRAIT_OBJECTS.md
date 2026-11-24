@@ -278,8 +278,6 @@ d.speak(); // error[E0901]: use of moved value: `d`
 
 ## 动态分发
 
-详细的动态分发文档请参阅 [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)，了解 `Dyn` 和 `dyn` 的完整说明。
-
 ### `Dyn` 和 `dyn`
 
 `Dyn(Trait, ...)` 是 trait 对象：任何实现了所列 trait 的具体类型，被擦除后通过虚表调用它的方法。它是非定长的，所以放在指针后面使用，由指针决定谁拥有它：`Box(Dyn(Trait))` 拥有它，`Rc(Dyn(Trait))` 共享它，`&Dyn(Trait)` 借用它。`dyn(...)` 是唯一的入口：`dyn(Box.new(v))`、`dyn(Rc.new(v))`、`dyn(Arc.new(v))`、`dyn(&v)` 和 `dyn(&mut v)` 擦除的是该指针的指向类型。
@@ -293,7 +291,7 @@ d.speak(); // error[E0901]: use of moved value: `d`
 - `downcast` 和 `upcast` 保持指针的种类
 - 一个 `Dyn` 中可以有多个 trait：`Dyn(Speak, Run)`
 
-`Dyn` 只能位于指针之后：裸的 `Dyn(Trait)` 值类型是 E0619，对普通值写的 `dyn(v)` 是 E0620（`dyn(Box.new(v))` 会为它装箱）。见 [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)。
+`Dyn` 只能位于指针之后：裸的 `Dyn(Trait)` 值类型是 E0619，对普通值写的 `dyn(v)` 是 E0620（`dyn(Box.new(v))` 会为它装箱）。
 
 ### 示例
 
@@ -344,7 +342,7 @@ for(&shapes, s => println(s.area()));
 trait 必须是对象安全的（接收者是 `&Self` 或 `&mut Self`、签名中没有其他
 `Self`、没有 `generic(...)` 参数），每个元素通过它的 `Box` 拥有自己的载荷，
 向更小的 trait 集合上转型必须显式写出：
-`upcast(d, Dyn(Sub))`。详见 [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)。
+`upcast(d, Dyn(Sub))`。
 
 ### 不透明形式：`Impl(Trait)` 与闭包
 
