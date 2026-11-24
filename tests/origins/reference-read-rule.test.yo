@@ -621,7 +621,7 @@ comptime_expect_error(
 );
 // A `.*` on an OWNING handle (`Box`, `Rc`, `Arc`) is a field step, not a way
 // out of the frame (REFERENCES_AND_ORIGINS.md O3's return rule, made precise
-// 2026-11-11; audit A30): `&b.*` and `&h.*.s` / `&h.s` are rooted at the
+// 2026-11-11; audit A30): `&b.*` and `&h.*.s` are rooted at the
 // handle, so a local or by-value handle is E0912 like `&x.s` of a by-value
 // struct (issues/fixed/2026-11-11-a-projection-may-return-a-reference-into-a-local-or-by-value-box-rc-or-arc-handle.md).
 // Only a `.*` through a reference or a raw pointer leaves the frame.
@@ -654,17 +654,6 @@ comptime_expect_error(
     &h.*.s
   }),
   "`h` is a local: its storage ends with the call"
-);
-comptime_expect_error(
-  rr_owning_local_rc_auto :: (fn(a : &String) -> &String)({
-    h := Rc.new(RrHandled(s : String.from("h")));
-    &h.s
-  }),
-  "`h` is a local: its storage ends with the call"
-);
-comptime_expect_error(
-  rr_owning_byvalue_rc :: (fn(h : Rc(RrHandled)) -> &String)(&h.s),
-  "`h` is a by-value parameter: its storage ends with the call"
 );
 comptime_expect_error(
   rr_owning_byvalue_rc_star :: (fn(h : Rc(RrHandled)) -> &String)(&h.*.s),
