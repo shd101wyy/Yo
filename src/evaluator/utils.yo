@@ -11707,7 +11707,11 @@ _body_param_labels :: (fn(ft : &TypeValue, ctx : &EvalContext) -> SharedList(Str
   )
 });
 _func_param_labels :: (fn(ft : &TypeValue) -> SharedList(String))(match(ft, Rc(.Func({ meta : pl_m })) => Rc.clone(pl_m.param_labels), _ => shared_list(ArrayList(String).new())));
-param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))({
+/// The slot the body's own function type declares for `v`, a parameter of
+/// the function body being evaluated, as written: the env's slot of a
+/// parameter has its origins elided, the function type keeps them. `.None`
+/// outside a function body or for a non-parameter.
+_param_declared_slot :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))({
   if(!is_body_parameter(v, env), {
     return(Option(TypeValue).None);
   });
@@ -11721,23 +11725,24 @@ param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &Eval
   (i : usize) = usize(0);
   while(i < labels.len(), {
     if(match(labels.get(i), .Some(l) => (l == v.name), .None => false), {
-      return(
-        match(
-          slots.get(i),
-          .Some(sl) => {
-            rigid := rigid_param_slot(&sl, &v.name);
-            names := ArrayList(String).new();
-            origin_param_names_of(&rigid, &mut names, u32(0));
-            if(names.len() > usize(0), Option(TypeValue).Some(rigid), Option(TypeValue).None)
-          },
-          .None => Option(TypeValue).None
-        )
-      );
+      return(slots.get(i));
     });
     i = (i + usize(1));
   });
   Option(TypeValue).None
 });
+param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))(
+  match(
+    _param_declared_slot(v, env, ctx),
+    .Some(sl) => {
+      rigid := rigid_param_slot(&sl, &v.name);
+      names := ArrayList(String).new();
+      origin_param_names_of(&rigid, &mut names, u32(0));
+      if(names.len() > usize(0), Option(TypeValue).Some(rigid), Option(TypeValue).None)
+    },
+    .None => Option(TypeValue).None
+  )
+);
 /// `bind_join`'s subset check (O3's place writes; O-3's rigid binder,
 /// VERDICTS-37): every origin the value's roots carry — a reference
 /// parameter's declared origins (rigid when elided), a local's own place
@@ -12242,7 +12247,7 @@ _static_module_level :: (fn(v : &Variable) -> bool)(
 /// the by-value `&(U, static)` over an unsized `U`, decision 49 S2). Reading
 /// it yields a static value.
 _static_slot_param :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)({
-  slot := match(param_declared_origin_slot(v, env, ctx), .Some(ds) => ds, .None => variable_slot_type(v));
+  slot := match(_param_declared_slot(v, env, ctx), .Some(ds) => ds, .None => variable_slot_type(v));
   match(
     &slot,
     Rc(.Reference(_, _, ss_o)) => is_static_origin(&ss_o.*),
@@ -12278,6 +12283,18 @@ _static_offending_root :: (fn(roots : &ArrayList(OriginRootPlace), skip : &Strin
   });
   Option(OriginRootPlace).None
 });
+/// VERDICTS-74 rule 3: `e` READS a place (a variable, a field, a `.*`)
+/// whose type spells the empty origin and carries no other origin. What that
+/// place holds was checked when it was written (rule 2), so the value read is
+/// static, whatever place it is read through (`t.r` for `t : &S`, `r :
+/// Option(&(X, static))`).
+_static_place_read :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  (ast_expr_is_atom(e) || ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))) && match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+    .Some(spr_info) => (type_spells_checked_static(&spr_info.ty()) && !type_carries_origin(&spr_info.ty())),
+    .None => false
+  )
+);
 /// VERDICTS-74 rule 2's value-side roots: `origin_of` of `e`, plus — for a
 /// CONSTRUCTOR call (a variant payload or a struct-literal field, whose
 /// comptime constructor has no runtime scope `origin_of` could map) — the
@@ -12300,6 +12317,11 @@ _svr_unlabeled :: (fn(arg : &AstExpr) -> AstExpr)(
 );
 _static_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
   if(depth > u32(12), {
+    return(());
+  });
+  // Rule 3: a read of a place whose type spells only `static` holds no
+  // place, whatever place it is read through.
+  if(_static_place_read(e, ctx), {
     return(());
   });
   svr_roots := origin_of(e, env, ctx);
@@ -12530,10 +12552,13 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   // pass, not a static value.
   if((holder_names.len() == usize(0)) && type_spells_checked_static(&holder_ty), {
     (mut(sj_roots) : ArrayList(OriginRootPlace)) = ArrayList(OriginRootPlace).new();
-    (sj_i : usize) = usize(0);
-    while(sj_i < roots.len(), {
-      _origin_push(roots(sj_i).clone(), &mut sj_roots);
-      sj_i = (sj_i + usize(1));
+    // A read of a static-typed place holds no place (rule 3).
+    if(!_static_place_read(value, ctx), {
+      (sj_i : usize) = usize(0);
+      while(sj_i < roots.len(), {
+        _origin_push(roots(sj_i).clone(), &mut sj_roots);
+        sj_i = (sj_i + usize(1));
+      });
     });
     _static_value_roots(value, env, ctx, &mut sj_roots, u32(0));
     _static_join_subset_check(variable, &holder_ty, &sj_roots, &pv_names, value, env, ctx, exn);
@@ -13942,7 +13967,12 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
       // into, the scrutinee's roots: `return(.Some(items.index(i)))` inside
       // the arm is judged as the tail form of the same value is
       // (issues/fixed/2026-11-08-an-early-return-does-not-follow-a-match-binding-to-its-scrutinee.md).
-      (mut(roots_join) : ArrayList(OriginRootPlace)) = _origin_through_match_bindings(&origin_of(&stripped, env, ctx), env, ctx, u32(0));
+      // A read of a place whose type spells only `static` holds no place
+      // (VERDICTS-74 rule 3).
+      (mut(roots_join) : ArrayList(OriginRootPlace)) = cond(
+        (rc_static && _static_place_read(&stripped, ctx)) => ArrayList(OriginRootPlace).new(),
+        true => _origin_through_match_bindings(&origin_of(&stripped, env, ctx), env, ctx, u32(0))
+      );
       // VERDICTS-74 rule 2: a constructed value's payload roots (a variant
       // payload, a struct-literal field) join when the result spells the
       // empty origin.

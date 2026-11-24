@@ -161,3 +161,19 @@ test("a static value passed to a &str parameter", {
   (lit : &(str, static)) = "static";
   assert(takes(lit) == usize(6), "a static value widens into every origin position");
 });
+_UpG := _UpX(n : i32(7));
+_UpStaticSlot :: struct(r : Option(&(_UpX, static)));
+_UpStaticId :: (fn(v : &(_UpX, static)) -> &(_UpX, static))(v);
+_UpStaticWrap :: (fn(v : &(_UpX, static)) -> Option(&(_UpX, static)))(.Some(v));
+_UpStaticFieldOf :: (fn(t : &_UpStaticSlot) -> Option(&(_UpX, static)))(t.r);
+_UpStaticCopyField :: (fn(s : &mut _UpStaticSlot, t : &_UpStaticSlot) -> unit)({
+  s.r = t.r;
+});
+test("a read of a static parameter or of a static-typed field is a static value", {
+  a := _UpStaticId(&_UpG);
+  mut(h) := _UpStaticSlot(r : .None);
+  h.r = _UpStaticWrap(a);
+  mut(k) := _UpStaticSlot(r : .None);
+  _UpStaticCopyField(&mut k, &h);
+  assert(match(_UpStaticFieldOf(&k), .Some(r) => (r.*.n == i32(7)), .None => false), "the static reference reads through every hop");
+});
