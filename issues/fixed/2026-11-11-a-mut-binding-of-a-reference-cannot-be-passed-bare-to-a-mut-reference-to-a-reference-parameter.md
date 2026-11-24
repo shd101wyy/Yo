@@ -5,6 +5,11 @@ E0601 ("Expected: `&Rc(X)`, Given: `&mut &Rc(X)`"), although a `&mut` binding pa
 reborrow everywhere else. The workaround `set(&mut rp.*, &other)` type-checks. Not expressible on v0.2.76 (the
 parameter type itself is new this cycle).
 
+**Update 2026-11-24 (test 7 rehearsal, develop `964a9c2d6`):** since #2048 the reproducer is accepted, and the
+emitted C passes `*rp` where the parameter takes `rp`, so the program is ASan-dirty. That is filed as an S1,
+`issues/fixed/2026-11-24-a-mut-reference-binding-passed-bare-to-a-mut-reference-to-a-reference-parameter-passes-its-referent.md`;
+this rejection closes with its fix.
+
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 C11), as probe 1 of VERDICTS-58. Measured on develop
 `64f33c710`. The soundness side of the same parameter type is
