@@ -99,8 +99,8 @@ Needs the v0.2.80 seed.
   - Q3 PR 1: the `ToString` → `Display`/`Debug` rename (`ToString` removed; `append_to` and `Format` kept for the seed);
   - Q3 PR 2: `${x:spec}`, `${x:?}`, spec-aware `fmt`;
   - Q2: `Display`/`Debug` for `Box`/`Rc`/`Arc`; `Arc` gains `Eq`/`Hash`, all three gain `Ord`.
-- A free generic function's unbound binder slot with `&x`: infer-first (Rust) as a candidate, with the open S2 "a lend to a
-  by-value reference parameter in a static method call is E0601" (2026-11-23).
+- A free generic function's unbound binder slot with `&x`: infer-first (Rust) as a candidate, with the open S2
+  `issues/2026-11-23-a-lend-to-a-by-value-reference-parameter-in-a-static-method-call-is-e0601.md`.
 - VERDICTS-72 rule (b): no user binder in the `__yo_` namespace.
 - The `std/sync` channel payload back to `_ChannelState(T)`; the prelude's four `Deref` arms in
   `derive(Clone)`/`derive(Hash)`.
