@@ -10004,6 +10004,9 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       _ => false
     );
     if(!callee_result_may_carry && !root_is_ref_binding, {
+      if(debug_knob(`YO_DEBUG_ORIGIN_RNONE`).is_some(), {
+        eprintln(`[rnone] ${ast_expr_to_string(&stripped)} : ${type_to_string(&fi.ty())} dropped`);
+      });
       return(());
     });
   });
@@ -10251,6 +10254,9 @@ _origin_of_reference_arg_into :: (fn(e : &AstExpr, is_mut : bool, env : &Environ
       }),
       .None => ()
     );
+  });
+  if(debug_knob(`YO_DEBUG_ORIGIN_RNONE`).is_some(), {
+    eprintln(`[refarg] ${ast_expr_to_string(e)} -> _origin_of_into`);
   });
   _origin_of_into(e, env, ctx, out, depth);
 });
