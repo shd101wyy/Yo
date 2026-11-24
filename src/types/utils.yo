@@ -5287,7 +5287,9 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 /// — a borrow (`-> &T` / `-> &mut T`) or a type that carries an origin
 /// (`-> Option(&T)`, a holder: decision 43 step 3) — or when a parameter
 /// may store it: a parameter's value type carries an origin, the slot's
-/// own included (VERDICTS-23 R2). Parameter `i` of `fn_ty` is such a
+/// own included (VERDICTS-23 R2) — or when the slot spells the empty origin
+/// (`v : &(T, static)`, VERDICTS-74): its value is a static reference the
+/// body may return or store anywhere. Parameter `i` of `fn_ty` is such a
 /// pointer-passed shared borrow (`&mut T` parameters are pointers anyway,
 /// and a by-value parameter is never one).
 ///
@@ -5321,13 +5323,15 @@ _dyn_pointee :: (fn(s : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// The borrow slot `s` is a reference over the empty origin (`&(T, static)`).
+_slot_spells_static :: (fn(s : &TypeValue) -> bool)(match(s, Rc(.Reference(_, _, sss_o)) => is_static_origin(&sss_o.*), _ => false));
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
     Rc(.Func({ param_types : pb_pts, result : pb_r })) => match(
       pb_pts.get(i),
       .Some(pb_s) => (
-        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (!_dyn_pointee(&pb_s) && (_dyn_box_pointee(&pb_s) || _pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r.*) || _params_may_store_a_reference(&pb_pts.*)))
+        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (!_dyn_pointee(&pb_s) && (_dyn_box_pointee(&pb_s) || _pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r.*) || (_params_may_store_a_reference(&pb_pts.*) || _slot_spells_static(&pb_s))))
       ),
       .None => false
     ),
@@ -5336,7 +5340,7 @@ fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
     Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => match(
       pb_cpts.get(i),
       .Some(pb_cs) => (
-        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (!_dyn_pointee(&pb_cs) && (_dyn_box_pointee(&pb_cs) || _pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr.*) || _params_may_store_a_reference(&pb_cpts.*)))
+        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (!_dyn_pointee(&pb_cs) && (_dyn_box_pointee(&pb_cs) || _pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr.*) || (_params_may_store_a_reference(&pb_cpts.*) || _slot_spells_static(&pb_cs))))
       ),
       .None => false
     ),
