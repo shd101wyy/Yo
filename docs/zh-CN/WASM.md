@@ -3,12 +3,37 @@
 本指南讲的是如何把一个 Yo 库交付给 JavaScript：导出的 API 长什么样、哪块内存归谁所有、
 npm 包如何组织，以及 JavaScript 与 TypeScript 包装层如何与模块交互。
 
-- 安装 Emscripten 并编译第一个程序：[INSTALL_WASM.md](./INSTALL_WASM.md)。
+- 安装 Emscripten 并编译第一个程序：[配置](#配置)。
 - 构建文件参考（`build.executable`、`target`、`add_c_flags`、`.html`/`.js` 输出规则、
   `Platform.Emscripten` / `Platform.Wasi`）：[BUILD_SYSTEM.md](./BUILD_SYSTEM.md) 的
   *交叉编译* 与 *WASM Emscripten 环境* 两节。
 
 下面的示例已用 yo 0.2.49、Emscripten 4.0.12、Node.js 24 和 wasmtime 38 验证。
+
+## 配置
+
+Yo 会转译为 C，因此以 WebAssembly 为目标需要安装 [Emscripten](https://emscripten.org/)
+并让 Yo 使用它：
+
+```bash
+# 安装 Emscripten（https://emscripten.org/docs/getting_started/downloads.html）
+$ git clone https://github.com/emscripten-core/emsdk.git
+$ cd emsdk
+$ ./emsdk install latest
+$ ./emsdk activate latest
+$ source ./emsdk_env.sh
+
+# 将 Yo 程序编译为 WASM
+$ yo compile main.yo --cc emcc --optimize 2 -o app
+
+# 生成：app.html + app.js + app.wasm
+# 使用 Node.js 运行：
+$ node app.js
+
+# 或在浏览器中打开 app.html
+```
+
+使用 `--cc emcc` 时，Yo 自动针对 `wasm32-unknown-emscripten` 目标并使用 `libc` 分配器。你也可以使用 `--target wasm32-unknown-emscripten`（会自动选择 `emcc`）。Emscripten 生成一个 `.html` 文件（浏览器外壳）、一个 `.js` 文件（运行时胶水代码）和一个 `.wasm` 文件（编译后的二进制文件）。
 
 ## 选择目标
 
