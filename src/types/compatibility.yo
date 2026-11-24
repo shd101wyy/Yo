@@ -358,7 +358,7 @@ future_view_drops_only_io :: (fn(actual : &TypeValue) -> bool)({
 /// diagnostic (E0605): what the body reads from the bundle, why the view
 /// cannot supply it, and the type that names it.
 future_view_explanation :: (fn(actual : &TypeValue, expected : &TypeValue) -> String)({
-  out_s := match(_future_trait_of(expected), .Some(Rc(.FutureTraitT(output : eo))) => type_to_string(&eo.*), _ => String.from("T"));
+  out_s := match(_future_trait_of(expected), .Some(Rc(.FutureTraitT(output : eo))) => type_to_string(&eo), _ => String.from("T"));
   bundles := _future_view_bundles(actual);
   bundle_s := match(bundles.get_cloned(usize(0)), .Some(b) => type_to_string(&b), .None => String.from("E"));
   reads := cond(

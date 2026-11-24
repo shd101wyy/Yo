@@ -53,10 +53,10 @@ put_all_generic :: (
 // be silently swallowed and the future compiled to a runs-nothing stub
 // (caught by the async poison gate; see
 // issues/fixed/io-async-bare-e-closure-body-never-evaluates.md).
-inner_unit :: (fn(io : Io) -> Impl(Future(unit)))(
+inner_unit :: (fn(io : Io) -> Impl(Future(unit, Io)))(
   io.async((io2 : Io) => ())
 );
-outer_unit :: (fn(io : Io) -> Impl(Future(unit)))(
+outer_unit :: (fn(io : Io) -> Impl(Future(unit, Io)))(
   io.async((io2 : Io) => io2.await(inner_unit(io), io2))
 );
 test("generic tail await of a unit trait default compiles and runs", {
@@ -96,10 +96,10 @@ test("concrete unit tail await control still works", {
 // was rejected by the poison gate (post-#390). The awaited VALUE proves the
 // body executed end to end.
 test("bare-e closure with e.io.await body runs", {
-  inner7 :: (fn(io : Io) -> Impl(Future(i32)))(
+  inner7 :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     io.async((io2 : Io) => i32(7))
   );
-  outer7 :: (fn(io : Io) -> Impl(Future(i32)))(
+  outer7 :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     io.async(e => e.io.await(inner7(io), e.io))
   );
   v := io.await(outer7(io), io);

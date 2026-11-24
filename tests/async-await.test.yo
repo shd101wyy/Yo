@@ -2070,7 +2070,7 @@ test("Test an awaited future is consumed: a second await is E0901", {
   assert(result.* == i32(12), "the await moves the Rc result out");
 });
 _A2Box :: struct(n : i32);
-_a2_read :: (fn(b : &_A2Box, io : Io) -> Impl(Future(i32)))(
+_a2_read :: (fn(b : &_A2Box, io : Io) -> Impl(Future(i32, Io)))(
   io.async({ b : &b.* }(io : Io) => {
     return(b.n);
   })
@@ -2080,7 +2080,7 @@ _a2_read :: (fn(b : &_A2Box, io : Io) -> Impl(Future(i32)))(
 // spelling `_a2_read` uses (the bare pun `{ &b }` is E0926).
 test("Test an io.async capture of a `&` parameter's field is rejected with the borrow-the-referent hint", {
   comptime_expect_error(
-    _a2_field :: (fn(b : &_A2Box, io : Io) -> Impl(Future(i32)))(
+    _a2_field :: (fn(b : &_A2Box, io : Io) -> Impl(Future(i32, Io)))(
       io.async({ n : &b.n }(io : Io) => {
         return(n.*);
       })
@@ -6648,7 +6648,7 @@ test("return(io.await(...)) of an RC value inside io.async", {
   assert(s == `seven`, "the awaited string is returned intact");
 });
 test("return(io.await(...)) in a cond branch inside io.async", {
-  pick := (fn(flag : bool, io : Io) -> Impl(Future(i32)))(
+  pick := (fn(flag : bool, io : Io) -> Impl(Future(i32, Io)))(
     io.async((io : Io) => {
       cond(
         flag => {
@@ -7534,9 +7534,9 @@ test("an io.async future in a generic struct field and in an Option", {
 // target) is spelled like any other Yo name
 // (issues/fixed/emitted-c-identifiers-collide-with-header-macros.md).
 // ---------------------------------------------------------------------------
-_hm_leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
-_hm_sync_capture :: (fn(io : Io, EOF : i32) -> Impl(Future(i32)))(io.async((e : Io) => (EOF * i32(2))));
-_hm_sm_capture :: (fn(io : Io, EOF : i32) -> Impl(Future(i32)))(
+_hm_leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(io.async((e : Io) => (n + i32(1))));
+_hm_sync_capture :: (fn(io : Io, EOF : i32) -> Impl(Future(i32, Io)))(io.async((e : Io) => (EOF * i32(2))));
+_hm_sm_capture :: (fn(io : Io, EOF : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     BUFSIZ := e.await(_hm_leaf(e, EOF), e);
     FILENAME_MAX := e.await(_hm_leaf(e, BUFSIZ), e);
