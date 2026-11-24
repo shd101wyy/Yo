@@ -63,7 +63,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.*.next;
+        cur = &mut n.*.*.next;
       },
       .None => ()
     );
@@ -78,7 +78,7 @@ sum_list :: (fn(list : &List) -> i32)({
       cur,
       .Some(n) => {
         total = (total + n.*.*.value);
-        cur = &n.*.next;
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -723,7 +723,7 @@ test("an impl may narrow its trait's result origin, and a trait call maps from t
   r := b.pick_any(&o);
   assert(bs_ret_read(r) == i32(21), "an impl narrower than its trait (`self` within the elided union)");
   (d : Box(Dyn(BsPick))) = dyn(Box.new(BsOne(v : i32(22))));
-  s := d.pick(&o);
+  s := d.*.pick(&o);
   o = i32(3);
   assert((bs_ret_read(s) == i32(22)) && (o == i32(3)), "a Dyn call's result origin is the trait's `self`: `o` stays writable");
 });
@@ -735,7 +735,7 @@ impl(BsOne, BsPk(pk : (fn(self : &Self, other : &i32) -> &i32)(&self.v)));
 test("a Dyn over a trait with an elided-origin projection method", {
   (d : Box(Dyn(BsPk))) = dyn(Box.new(BsOne(v : i32(23))));
   o := i32(2);
-  r := d.pk(&o);
+  r := d.*.pk(&o);
   assert(bs_ret_read(r) == i32(23), "the Dyn projection call reads the payload's field");
 });
 // A projection called through a value (decision 43 step 2, N1c): a
