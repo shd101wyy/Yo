@@ -7,7 +7,7 @@ parameter type itself is new this cycle).
 
 **Update 2026-11-24 (test 7 rehearsal, develop `964a9c2d6`):** since #2048 the reproducer is accepted, and the
 emitted C passes `*rp` where the parameter takes `rp`, so the program is ASan-dirty. That is filed as an S1,
-`issues/2026-11-24-a-mut-reference-binding-passed-bare-to-a-mut-reference-to-a-reference-parameter-passes-its-referent.md`;
+`issues/fixed/2026-11-24-a-mut-reference-binding-passed-bare-to-a-mut-reference-to-a-reference-parameter-passes-its-referent.md`;
 this rejection closes with its fix.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
@@ -69,3 +69,8 @@ reborrow one level up.
 
 A case in `tests/ref_of_ref.test.yo` with the fix; the reproducer is its
 positive program.
+
+## Fix
+
+Rider r1 (#2048) made the conservative argument check accept a reference value at its own slot, and with it the bare binding. That acceptance first lowered to the referent instead of the reference: an S1, `issues/fixed/2026-11-24-a-mut-reference-binding-passed-bare-to-a-mut-reference-to-a-reference-parameter-passes-its-referent.md`. The 2026-11-24 fix makes codegen pass `rp` itself. `set(rp, &other)` is now accepted, re-points `r`, and reports the same E0911 as `set(&mut rp.*, &other)` when `other` dies first. Test: `tests/ref-of-ref.test.yo`, "the corpus shape".
+

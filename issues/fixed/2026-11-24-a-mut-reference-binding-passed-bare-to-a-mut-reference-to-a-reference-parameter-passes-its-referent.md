@@ -74,7 +74,7 @@ READ of size 8 at 0x7bffb33ff070 thread T1
 
 - The evaluator now judges an already-evaluated argument whose type IS its borrow slot against the slot itself,
   not against the slot's pointee. Before, `rp : &mut &i32` was compared with the pointee `&i32` and rejected
-  (E0601, `issues/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md`);
+  (E0601, `issues/fixed/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md`);
   now it is admitted as the slot's value, with no lend recorded.
 - Codegen: `_apply_ref_amp` (`src/codegen/exprs/other-fn-call.yo`) lowers an argument for which
   `_reference_value_at_own_slot` holds as the place `(*p)` it names, expecting "a pointer slot folds `&(*p)` to `p`,
@@ -98,3 +98,23 @@ for a bare `&mut` binding at a `&mut` slot whatever the pointee, and codegen fol
 The reproducer (with a write-through twin, `dst.* = v` at `dst : &mut &(i32, p)`) as a positive case in
 `tests/ref-of-ref.test.yo` that checks the printed value, which fails today (wrong value or ASan) and passes with the
 fix. The open S2 above (the E0601 rejection) closes with the same fix.
+
+## Fix (2026-11-24, `fix/r1-reference-slot-relend`)
+
+Accepting the program is correct. A bare `&mut` binding at a `&mut` slot is a reborrow (O3), and the evaluator's flow analysis treats it exactly like the spelled `&mut rp.*`. Both forms report the same E0911 when the new referent dies first:
+
+```yo ignore
+{
+  other := mk();
+  set(rp, &other);   // E0911: `other`'s scope ends with its block
+};
+```
+
+The fault is in codegen, so codegen must pass `rp` itself. `rp := &mut r` is a by-`ref` binding: its C storage is the pointer, and `_var_read_code` already reads it as the place it refers to, `(*rp)`. `_reference_value_at_own_slot` keyed only on the read's recorded type (`&mut &i32`, the slot), took that C for the pointer, and wrapped it once more. `_apply_ref_amp`'s `&(*·)` fold then removed only the added level, which left `(*rp)`.
+
+A new predicate, `atom_read_is_referent_place` (`src/codegen/exprs/atom.yo`, mirroring the read paths that wrap), makes `_reference_value_at_own_slot` skip an argument whose C read is already its referent (a by-`ref` binding, a `mut` match place binding). That argument takes the ordinary place lowering: at the pointer-ABI `&mut &T` slot, `&(*rp)` folds to `rp`.
+
+Tests: `tests/ref-of-ref.test.yo` gains three rows, all run under the test runner:
+- the reproducer and its write-through twin
+- the corpus shape over `Rc(X)`
+- the siblings: a `&&T` reborrow, a bare `&mut &mut T` binding, and a `&mut &T` receiver
