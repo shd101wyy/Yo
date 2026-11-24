@@ -62,7 +62,7 @@ exits 2.
 ## The manuals
 
 The pack points to the in-depth manuals (GRAMMAR, DESIGN, MEMORY_SAFETY,
-ASYNC_AWAIT, …). Release bundles ship them as `docs/en-US/` beside `std/` and
+ASYNC_AWAIT, …); `INDEX` maps them by topic. Release bundles ship them as `docs/en-US/` beside `std/` and
 `pack/`, so `yo context` prints the copy that matches the installed toolchain,
 not whatever the repository's `develop` branch says today:
 
@@ -79,7 +79,7 @@ like the pack's. An unknown name exits 1 with the closest names. `--docs` and
 The manuals are found like the pack: `$YO_CONTEXT_DOCS` (an explicit directory,
 authoritative when set), then `docs/en-US/` beside the running executable, then
 beside the working directory. A `docs/en-US/` only counts when it holds
-`GRAMMAR.md` and `DESIGN.md`, so a project's own `docs/en-US/` is never mistaken
+`GRAMMAR.md` and `INDEX.md`, so a project's own `docs/en-US/` is never mistaken
 for the manuals. The zh-CN translations live in the repository under
 `docs/zh-CN/`.
 
