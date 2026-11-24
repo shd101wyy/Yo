@@ -24,6 +24,8 @@ export(main);
 ```yo
 { exit } :: import("std/process");
 
+ok :: (fn() -> bool)(true);
+
 main :: (fn() -> unit)({
   if(!ok(), {
     exit(usize(1));
@@ -317,11 +319,13 @@ async 状态机）看到的是真正的 `cond` 节点。prelude 中仍保留等�
 
 ```yo ignore
 // prelude.yo 中的定义（规范/回退 —— 正常情况下在解析阶段脱糖）
-if :: (fn(
-        quote(condition): Expr,
-        quote(then): Expr,
-        (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))(
+if :: (
+  fn(
+    quote(condition) : Expr,
+    quote(then) : Expr,
+    (quote(else) : Expr) ?= quote(())
+  ) -> unquote(Expr)
+)(
   quote(
     cond(
       unquote(condition) => unquote(then),
@@ -329,18 +333,26 @@ if :: (fn(
     )
   )
 );
+```
 
-// 使用
+用法：
+
+```yo
+{ println } :: import("std/fmt");
+
 main :: (fn() -> unit)({
   // 如果没有返回类型，则为 unit
   number := 3;
 
-  if number < 5, then: {
-    println("condition was true");
-  },
-  else: {
-    println("condition was false");
-  };
+  if(
+    number < 5,
+    then : {
+      println("condition was true");
+    },
+    else : {
+      println("condition was false");
+    }
+  );
 
   if(number < 5, println("condition was true"), println("condition was false"));
 });
@@ -348,8 +360,8 @@ main :: (fn() -> unit)({
 
 ### while
 
-`while(condition, do: body)` 或
-`while(condition, steps, do: body)`
+`while(condition, body)` 或
+`while(condition, step, body)`
 
 ```yo
 factorial :: (fn(n : i32) -> i32)({

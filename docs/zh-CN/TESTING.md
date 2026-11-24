@@ -10,6 +10,9 @@ Yo 内置了通过 `test` 关键字使用的测试框架。
 ## 基本测试语法
 
 ```yo
+{ assert } :: import("std/assert");
+{ sleep } :: import("std/sys/timer");
+
 test("Test description", {
   // 测试代码
   x := (1 + 1);
@@ -64,7 +67,7 @@ test("Runtime assertions", {
   assert(x > 0, "x should be positive");
 
   // 复杂断言
-  arr := [1, 2, 3];
+  arr := [i32(1), i32(2), i32(3)];
   assert(arr.len() == 3, "Array should have 3 elements");
 });
 ```
@@ -82,7 +85,7 @@ test("Compile-time assertions", {
 
   // 类型级断言
   T :: i32;
-  comptime_assert(Type.to_string(T) == "i32");
+  comptime_assert(Type.to_comptime_string(T) == "i32");
 });
 ```
 
@@ -105,11 +108,13 @@ test("Expected compile errors", {
 
   // 测试某些模式是无效的
   comptime_expect_error({
-    closure1 := (x => (x + 1));
-    closure2 := (x => (x + 1));
-    // 每个闭包都有唯一类型
-    (c : type_of(closure1)) = closure2; // 错误！
-  }, "no two closures have the same type");
+    a := i32(1);
+    b := i32(1);
+    // 每个闭包都有自己的类型
+    mut(closure) : Impl(Fn(y : i32) -> i32);
+    closure = (y => (y + a));
+    closure = (y => (y + b)); // 错误：第二个闭包是不同的类型
+  }, "Cannot reassign variable");
 });
 ```
 
@@ -119,6 +124,8 @@ test("Expected compile errors", {
 
 ```yo
 // arithmetic.test.yo
+{ assert } :: import("std/assert");
+
 test("Addition", {
   assert((1 + 1) == 2);
   assert((5 + 3) == 8);

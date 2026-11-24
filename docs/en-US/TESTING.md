@@ -10,6 +10,9 @@ Yo has a built-in testing framework accessible via the `test` keyword.
 ## Basic Test Syntax
 
 ```yo
+{ assert } :: import("std/assert");
+{ sleep } :: import("std/sys/timer");
+
 test("Test description", {
   // Test code here
   x := (1 + 1);
@@ -64,7 +67,7 @@ test("Runtime assertions", {
   assert(x > 0, "x should be positive");
 
   // Complex assertions
-  arr := [1, 2, 3];
+  arr := [i32(1), i32(2), i32(3)];
   assert(arr.len() == 3, "Array should have 3 elements");
 });
 ```
@@ -105,11 +108,13 @@ test("Expected compile errors", {
 
   // Test that certain patterns are invalid
   comptime_expect_error({
-    closure1 := (x => (x + 1));
-    closure2 := (x => (x + 1));
-    // Each closure has unique type
-    (c : type_of(closure1)) = closure2; // Error!
-  }, "no two closures have the same type");
+    a := i32(1);
+    b := i32(1);
+    // Each closure has its own type
+    mut(closure) : Impl(Fn(y : i32) -> i32);
+    closure = (y => (y + a));
+    closure = (y => (y + b)); // Error: a second closure is a different type
+  }, "Cannot reassign variable");
 });
 ```
 
@@ -119,6 +124,8 @@ Organize related tests in the same file:
 
 ```yo
 // arithmetic.test.yo
+{ assert } :: import("std/assert");
+
 test("Addition", {
   assert((1 + 1) == 2);
   assert((5 + 3) == 8);

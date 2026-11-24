@@ -371,9 +371,9 @@ init :: (fn() -> Result(unit, int))({
 compute :: (fn(input : i32) -> i32)(unsafe(mylib_compute(input)));
 ```
 
-然后在安全的调用方文件中：
+然后在安全的调用方文件中；它导入上面的 `my_ffi.yo`，因此需要该文件与它放在一起（读取配套文件的代码块不会被单独检查）：
 
-```yo
+```yo ignore
 // main.yo  （无 pragma）
 { init, compute } :: import("./my_ffi");
 

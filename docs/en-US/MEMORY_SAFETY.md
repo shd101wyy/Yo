@@ -379,9 +379,9 @@ init :: (fn() -> Result(unit, int))({
 compute :: (fn(input : i32) -> i32)(unsafe(mylib_compute(input)));
 ```
 
-Then in the consuming safe file:
+Then in the consuming safe file, which imports the `my_ffi.yo` above and so needs it beside it (a block that reads a companion file is not checked on its own):
 
-```yo
+```yo ignore
 // main.yo  (no pragma)
 { init, compute } :: import("./my_ffi");
 
