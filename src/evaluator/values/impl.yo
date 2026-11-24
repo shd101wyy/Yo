@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
-{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
+{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, nominal_has_hidden_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type-key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function-value.yo");
@@ -7123,11 +7123,13 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
 /// that use no root"; O-4): the value nominal `ty` declares `Drop` in an impl
 /// whose `drop` may read the places `ty`'s origins name. Any impl outside std
 /// may (Rust's dropck without `#[may_dangle]`); a std impl only on a type
-/// with an origin parameter of its own (a borrowing guard): std's buffer
-/// containers and cells free their storage and run their elements' drops
-/// without reading through them (`#[may_dangle]`), so `ArrayList(&T)`'s
-/// drop uses no root, while `ArrayList(H(p))` reaches `H`'s own drop through
-/// its element (`type_reaches_user_drop`'s walk).
+/// with an origin parameter of its own (a borrowing guard), spelled
+/// (`G(T, p)`) or elided by a `&` field (`FixedBufferAllocator :: struct(buf :
+/// &mut [u8], …)`, `nominal_has_hidden_origin`): std's buffer containers and
+/// cells free their storage and run their elements' drops without reading
+/// through them (`#[may_dangle]`), so `ArrayList(&T)`'s drop uses no root,
+/// while `ArrayList(H(p))` reaches `H`'s own drop through its element
+/// (`type_reaches_user_drop`'s walk).
 nominal_drop_uses_roots :: (fn(ty : &TypeValue, std_path : &String) -> bool)({
   if(!is_value_nominal_type(ty) || (nominal_declares_move_only(ty) != String.from("Drop")), {
     return(false);
@@ -7154,7 +7156,7 @@ nominal_drop_uses_roots :: (fn(ty : &TypeValue, std_path : &String) -> bool)({
   match(
     owner,
     .Some(o) => cond(
-      (o.is_empty() || is_std_module_path(&o, std_path)) => _type_has_own_origin_argument(ty),
+      (o.is_empty() || is_std_module_path(&o, std_path)) => (_type_has_own_origin_argument(ty) || nominal_has_hidden_origin(ty)),
       true => true
     ),
     .None => false

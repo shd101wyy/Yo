@@ -1,0 +1,255 @@
+//! The slot table behind `std/heap`'s stateful allocators. Internal: the
+//! allocator modules beside it (`fixed-buffer.yo`) use it; nothing else
+//! should.
+//!
+//! An `Allocator` value is two words and may be copied anywhere, so its
+//! `ctx` cannot be the address of the allocator's state: the state would be
+//! freed, or moved, while a copy still names it. Instead the state lives in
+//! a slot of this process-wide table, and `ctx` is a ticket: the slot's index
+//! in the low half of the word and the generation the allocator was created
+//! at in the high half. A slot is never released, so any ticket, however
+//! stale, reaches a live slot.
+//!
+//! - The slot counts the blocks handed out and not yet freed, and their raw
+//!   sizes. The count is exact: every free arrives through the block's owner
+//!   prefix, which carries this ticket.
+//! - Closing the slot (the allocator's drop) while the count is not zero
+//!   panics. Closing it at zero adds one to the generation: every `Allocator`
+//!   value and every block prefix made for the old generation is stale, and a
+//!   vtable call through a stale ticket panics before it touches anything but
+//!   the slot.
+//! - Every vtable call, a reset and the close hold the slot's spinlock, so a
+//!   block may be freed on any thread.
+//! - A slot whose generations run out (2^32 on a 64-bit target, 2^16 on a
+//!   32-bit one) is retired: kept, never reused.
+//!
+//! The table is chunks that double in size and never move or die; the
+//! directory of chunk pointers is allocated once. It holds at most
+//! 2^32 - 1 slots on a 64-bit target and 65535 on a 32-bit one.
+pragma(Pragma.AllowUnsafe);
+{ GlobalAllocator } :: import("../allocator");
+{ panic } :: import("../assert");
+{ memcpy } :: import("../libc/string");
+{ atomic_bool, atomic_exchange_explicit, atomic_store_explicit, memory_order_acquire, memory_order_release } :: import("../libc/stdatomic");
+/// One allocator's slot. `state` is the allocator kind's record (a global-heap
+/// block owned by the kind, `.None` while the slot is vacant); `next` links the
+/// vacant slots by index (0 ends the list).
+Slot :: struct(
+  lock : atomic_bool,
+  generation : usize,
+  live : usize,
+  live_bytes : usize,
+  state : ?*void,
+  next : usize
+);
+// Half the bits of `usize`: the index's width, and the generation's.
+_HALF :: ((size_of(usize) * usize(8)) / usize(2));
+_INDEX_MASK :: ((usize(1) << _HALF) - usize(1));
+_GEN_LIMIT :: (usize(1) << _HALF);
+// Chunk `c` holds `_CHUNK0 << c` slots, from index `_CHUNK0 * (2^c - 1) + 1`.
+_CHUNK0 :: usize(16);
+// The chunk directory (`_HALF` chunk pointers), the highest index created,
+// and the head of the vacant list. Written only under `_TABLE_LOCK`. A
+// directory entry is written once, before any index it covers is handed out.
+mut(_dir) := Option(*void).None;
+mut(_count) := usize(0);
+mut(_vacant) := usize(0);
+_TABLE_LOCK := atomic_bool(false);
+_spin_lock :: (fn(flag : *atomic_bool) -> unit)({
+  while(unsafe(atomic_exchange_explicit(flag, true, memory_order_acquire)), {
+    ();
+  });
+});
+_spin_unlock :: (fn(flag : *atomic_bool) -> unit)(unsafe(atomic_store_explicit(flag, false, memory_order_release)));
+// The chunk holding `index`: floor(log2((index - 1) / _CHUNK0 + 1)).
+_chunk_of :: (fn(index : usize) -> usize)({
+  q := (((index - usize(1)) / _CHUNK0) + usize(1));
+  mut(c) := usize(0);
+  mut(r) := q;
+  while(r > usize(1), {
+    r = (r >> usize(1));
+    c = (c + usize(1));
+  });
+  c
+});
+// The slot at `index`, whose chunk exists because the index was handed out.
+_slot_at :: (fn(index : usize) -> *Slot)({
+  c := _chunk_of(index);
+  first := (_CHUNK0 * ((usize(1) << c) - usize(1)));
+  dir := _dir;
+  // SAFETY: `_dir` and its entry `c` were written before `index` was handed
+  // out, and are never written again.
+  chunk := unsafe((*?*void)(dir.unwrap()).add(c).*).unwrap();
+  (*Slot)(unsafe((*u8)(chunk).add(((index - usize(1)) - first) * size_of(Slot))))
+});
+/// A ticket as the `ctx` word of an `Allocator`, and back. The word is never
+/// dereferenced; the copy is how its bits cross types.
+ctx_of :: (fn(ticket : usize) -> ?*void)({
+  w := ticket;
+  mut(p) := Option(*void).None;
+  unsafe(memcpy((*void)(addr_of(p)), (*void)(addr_of(w)), size_of(usize)));
+  p
+});
+ticket_of :: (fn(ctx : ?*void) -> usize)({
+  c := ctx;
+  mut(w) := usize(0);
+  unsafe(memcpy((*void)(addr_of(w)), (*void)(addr_of(c)), size_of(usize)));
+  w
+});
+/// The address of `p` as a number, for alignment arithmetic.
+address_of :: (fn(p : *void) -> usize)(ticket_of(.Some(p)));
+// A new slot at the next index, at generation 0. Caller holds `_TABLE_LOCK`.
+_new_index :: (fn() -> usize)({
+  index := (_count + usize(1));
+  cond(
+    (index > _INDEX_MASK) => {
+      _spin_unlock(addr_of(_TABLE_LOCK));
+      panic(&`std/heap: too many allocators alive at once (limit ${_INDEX_MASK})`)
+    },
+    true => ()
+  );
+  existing := _dir;
+  cond(
+    existing.is_none() => {
+      _dir = match(
+        GlobalAllocator.calloc(_HALF, size_of(?*void)),
+        .Some(d) => .Some(d),
+        .None => panic(&"std/heap: out of memory for the allocator table")
+      );
+    },
+    true => ()
+  );
+  c := _chunk_of(index);
+  dir := _dir;
+  // SAFETY: `_dir` holds `_HALF` entries, more than any index needs.
+  entry := unsafe((*?*void)(dir.unwrap()).add(c));
+  cond(
+    unsafe(entry.*).is_none() => {
+      chunk := match(
+        GlobalAllocator.calloc(_CHUNK0 << c, size_of(Slot)),
+        .Some(m) => m,
+        .None => panic(&"std/heap: out of memory for the allocator table")
+      );
+      unsafe(entry.* = .Some(chunk));
+    },
+    true => ()
+  );
+  _count = index;
+  index
+});
+/// Take a vacant slot (or a new one) for an allocator whose record is
+/// `state`, and return its ticket.
+open :: (fn(state : *void) -> usize)({
+  _spin_lock(addr_of(_TABLE_LOCK));
+  index := cond(
+    (_vacant != usize(0)) => {
+      i := _vacant;
+      // SAFETY: a vacant index was handed out before, so its slot exists.
+      _vacant = unsafe(_slot_at(i).*.next);
+      i
+    },
+    true => _new_index()
+  );
+  _spin_unlock(addr_of(_TABLE_LOCK));
+  s := _slot_at(index);
+  // A stale ticket may still lock the slot to check its generation, so the
+  // reset takes the lock too.
+  _spin_lock(unsafe(addr_of(s.*.lock)));
+  // SAFETY: the slot is vacant and locked; nobody else can own it.
+  unsafe(s.*.live = usize(0));
+  unsafe(s.*.live_bytes = usize(0));
+  unsafe(s.*.state = .Some(state));
+  unsafe(s.*.next = usize(0));
+  generation := unsafe(s.*.generation);
+  _spin_unlock(unsafe(addr_of(s.*.lock)));
+  ((generation << _HALF) | index)
+});
+/// Lock the slot `ticket` names and return it, or panic with `stale` when the
+/// ticket's generation is not the slot's current one.
+enter :: (fn(ticket : usize, stale : str) -> *Slot)({
+  s := _slot_at(ticket & _INDEX_MASK);
+  _spin_lock(unsafe(addr_of(s.*.lock)));
+  cond(
+    (unsafe(s.*.generation) != (ticket >> _HALF)) => {
+      _spin_unlock(unsafe(addr_of(s.*.lock)));
+      panic(&stale)
+    },
+    true => s
+  )
+});
+/// Unlock a slot `enter` returned.
+leave :: (fn(s : *Slot) -> unit)(_spin_unlock(unsafe(addr_of(s.*.lock))));
+/// The kind's record of a slot `enter` returned.
+state_of :: (fn(s : *Slot) -> *void)(unsafe(s.*.state).unwrap());
+/// Count a block of `bytes` raw bytes handed out. Caller holds the slot.
+count_alloc :: (fn(s : *Slot, bytes : usize) -> unit)({
+  unsafe(s.*.live = (s.*.live + usize(1)));
+  unsafe(s.*.live_bytes = (s.*.live_bytes + bytes));
+});
+/// Count a block of `bytes` raw bytes freed. Caller holds the slot.
+count_free :: (fn(s : *Slot, bytes : usize) -> unit)({
+  unsafe(s.*.live = (s.*.live - usize(1)));
+  unsafe(s.*.live_bytes = (s.*.live_bytes - bytes));
+});
+/// Count a block resized in place from `old_bytes` to `new_bytes`. Caller
+/// holds the slot.
+count_resize :: (fn(s : *Slot, old_bytes : usize, new_bytes : usize) -> unit)({
+  unsafe(s.*.live_bytes = ((s.*.live_bytes - old_bytes) + new_bytes));
+});
+/// Blocks handed out and not freed. Caller holds the slot.
+live_of :: (fn(s : *Slot) -> usize)(unsafe(s.*.live));
+/// Panic unless the slot has no live block: `what` names the event
+/// (`FixedBufferAllocator.reset`), `before` ends the advice (`the reset`).
+/// The slot is unlocked before the panic. Caller holds the slot.
+require_empty :: (fn(s : *Slot, what : str, before : str) -> unit)({
+  live := unsafe(s.*.live);
+  bytes := unsafe(s.*.live_bytes);
+  cond(
+    (live != usize(0)) => {
+      _spin_unlock(unsafe(addr_of(s.*.lock)));
+      panic(&`${what} while blocks placed in it are live (live blocks: ${live}, bytes: ${bytes}). Release every block before ${before}.`)
+    },
+    true => ()
+  );
+});
+/// Close the slot `ticket` names: panic if a block placed in it is live
+/// (`what` names the event, `FixedBufferAllocator dropped`), otherwise make
+/// every ticket of this generation stale and return the kind's record, which
+/// the caller releases.
+close :: (fn(ticket : usize, what : str) -> *void)({
+  s := enter(ticket, "std/heap: an allocator was closed twice");
+  require_empty(s, what, "the allocator is dropped");
+  state := state_of(s);
+  next_generation := ((ticket >> _HALF) + usize(1));
+  unsafe(s.*.generation = next_generation);
+  unsafe(s.*.state = .None);
+  leave(s);
+  // A slot whose generations ran out stays in the table, so stale tickets
+  // still reach it, and is never reused.
+  cond(
+    (next_generation < _GEN_LIMIT) => {
+      _spin_lock(addr_of(_TABLE_LOCK));
+      unsafe(s.*.next = _vacant);
+      _vacant = (ticket & _INDEX_MASK);
+      _spin_unlock(addr_of(_TABLE_LOCK));
+    },
+    true => ()
+  );
+  state
+});
+export(
+  Slot,
+  ctx_of,
+  ticket_of,
+  address_of,
+  open,
+  enter,
+  leave,
+  state_of,
+  count_alloc,
+  count_free,
+  count_resize,
+  live_of,
+  require_empty,
+  close
+);

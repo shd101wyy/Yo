@@ -1,0 +1,131 @@
+// FixedBufferAllocator from a safe file (no pragma): the rows of VERDICTS-79's
+// test table that safe code can state. `fixed-buffer-raw.test.yo` holds the
+// rows that read raw blocks or tickets.
+{ assert } :: import("../assert");
+{ ArrayList } :: import("../collections/array-list");
+{ Thread } :: import("../thread");
+{ FixedBufferAllocator } :: import("./fixed-buffer");
+test("counts a Box and an ArrayList buffer placed in it", {
+  mut(buf) := Array(u8, 1024).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  assert(fba.capacity() == usize(1024), "capacity is the buffer's length");
+  assert((fba.live_blocks() == usize(0)) && (fba.used_bytes() == usize(0)), "a new allocator is empty");
+  {
+    b := Box.new(i64(7), alloc : .Some(fba.allocator()));
+    assert(fba.live_blocks() == usize(1), "the Box is one block");
+    after_box := fba.used_bytes();
+    assert(after_box > usize(0), "the Box's bytes are in use");
+    mut(xs) := ArrayList(i32).with_capacity(usize(4), alloc : .Some(fba.allocator()));
+    xs.push(i32(1));
+    xs.push(i32(2));
+    assert(fba.live_blocks() == usize(2), "the list's buffer is the second block");
+    assert(fba.used_bytes() > after_box, "the buffer's bytes follow the Box's");
+    assert((b.* == i64(7)) && (xs.len() == usize(2)), "both blocks hold their values");
+  };
+  assert(fba.live_blocks() == usize(0), "dropping both releases both");
+});
+test("reset at zero rewinds, and an Allocator made before it still allocates", {
+  mut(buf) := Array(u8, 512).fill(u8(0));
+  mut(fba) := FixedBufferAllocator.new(&mut buf.*);
+  a := fba.allocator();
+  {
+    b := Box.new(i32(1), alloc : .Some(a));
+    c := Box.new(i32(2), alloc : .Some(a));
+    assert((b.* + c.*) == i32(3), "two blocks");
+  };
+  assert(fba.live_blocks() == usize(0), "both blocks released");
+  assert(fba.used_bytes() > usize(0), "an older block's bytes are not given back before the reset");
+  fba.reset();
+  assert(fba.used_bytes() == usize(0), "the reset rewinds the buffer");
+  {
+    d := Box.new(i32(3), alloc : .Some(a));
+    assert((d.* == i32(3)) && (fba.live_blocks() == usize(1)), "the old Allocator value allocates after the reset");
+  };
+});
+test("the handle moved and moved back keeps its state and its count", {
+  mut(buf) := Array(u8, 512).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  a := fba.allocator();
+  b := Box.new(i32(1), alloc : .Some(a));
+  moved := fba;
+  c := Box.new(i32(2), alloc : .Some(a));
+  assert(moved.live_blocks() == usize(2), "a block made before the move and one after it, counted together");
+  back := moved;
+  assert(back.allocator().same(a), "the Allocator made before the moves names the same allocator");
+  consume(c);
+  consume(b);
+  assert(back.live_blocks() == usize(0), "both blocks were released into the moved handle's state");
+});
+test("blocks placed in it are dropped on other threads, and threads allocate through copies", {
+  mut(buf) := Array(u8, 8192).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  a := fba.allocator();
+  {
+    shared := Arc.new(i64(40), alloc : .Some(a));
+    mut(xs) := ArrayList(i64).new(alloc : .Some(a));
+    xs.push(i64(2));
+    assert(fba.live_blocks() == usize(2), "an Arc cell and a list buffer");
+    t := Thread(i64).spawn({ shared, xs }(io : Io) => (shared.* + xs.get(usize(0)).unwrap_or(i64(0))));
+    assert(t.join() == i64(42), "the thread read both");
+  };
+  assert(fba.live_blocks() == usize(0), "the thread dropped both into this allocator");
+  mut(workers) := ArrayList(Thread(usize)).new();
+  mut(i) := usize(0);
+  while(i < usize(4), {
+    workers.push(Thread(usize).spawn({ a }(io : Io) => {
+      mut(n) := usize(0);
+      while(n < usize(200), {
+        b := Box.new(n, alloc : .Some(a));
+        n = (b.* + usize(1));
+      });
+      n
+    }));
+    i = (i + usize(1));
+  });
+  mut(total) := usize(0);
+  while(workers.len() > usize(0), {
+    match(
+      workers.pop(),
+      .Some(w) => {
+        total = (total + w.join());
+      },
+      .None => ()
+    );
+  });
+  assert(total == usize(800), "every worker allocated and freed 200 blocks");
+  assert(fba.live_blocks() == usize(0), "every block came back");
+});
+_nest :: (fn(depth : usize, parent : Allocator) -> usize)({
+  mut(buf) := Array(u8, 64).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  b := Box.new(depth, alloc : .Some(fba.allocator()));
+  assert(!fba.allocator().same(parent), "each allocator is its own");
+  below := cond((depth == usize(0)) => usize(0), true => _nest(depth - usize(1), fba.allocator()));
+  assert(fba.live_blocks() == usize(1), "the allocators below did not touch this one's count");
+  (b.* + below)
+});
+test("a hundred allocators alive at once keep their own state", {
+  assert(_nest(usize(99), Allocator.global()) == usize(4950), "every level's block held its own value");
+});
+_Stop :: struct(stop : (ctl() -> unit));
+_place_then_stop :: (fn(s : _Stop) -> unit)({
+  mut(buf) := Array(u8, 256).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  b := Box.new(i32(5), alloc : .Some(fba.allocator()));
+  assert((b.* == i32(5)) && (fba.live_blocks() == usize(1)), "one block before the unwind");
+  s.stop();
+});
+_unwound :: (fn() -> i32)({
+  s := _Stop(
+    stop : (
+      () -> {
+        unwind(i32(1));
+      }
+    )
+  );
+  _place_then_stop(s);
+  i32(0)
+});
+test("an unwind through the owner's frame drops the block, then the allocator", {
+  assert(_unwound() == i32(1), "the frame unwound; its allocator's drop check passed");
+});

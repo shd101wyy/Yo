@@ -1,0 +1,208 @@
+//! `FixedBufferAllocator`: a bump allocator over a buffer the caller lends.
+//!
+//! ```yo
+//! { FixedBufferAllocator } :: import("std/heap/fixed-buffer");
+//! { ArrayList } :: import("std/collections/array-list");
+//! main :: (fn() -> unit)({
+//!   mut(buf) := Array(u8, 4096).fill(u8(0));
+//!   fba := FixedBufferAllocator.new(&mut buf.*);
+//!   mut(xs) := ArrayList(i32).new(alloc : .Some(fba.allocator()));
+//!   xs.push(i32(1));
+//! });
+//! export(main);
+//! ```
+//!
+//! - **The buffer is borrowed for the allocator's whole life.** While the
+//!   handle lives (through its drop), the buffer cannot be read, written or
+//!   moved, and the handle cannot outlive the buffer: it cannot be returned
+//!   past it, stored in an outer binding, an `Rc` or a global, or sent to a
+//!   thread. These are compile errors (E0911, E0912, E0909).
+//! - **Blocks die before the allocator.** The allocator counts the blocks it
+//!   handed out. Dropping it, or calling `reset`, while one is live panics.
+//! - **A stale `Allocator` value panics.** An `Allocator` from `allocator()`
+//!   names this allocator by a ticket, not by its address. After the drop,
+//!   allocating, reallocating or freeing through it panics, even when a later
+//!   allocator took the same slot. Moving the handle does not invalidate it.
+//! - **Bump allocation.** A block is carved at the next suitably aligned
+//!   offset; freeing the most recent block gives its bytes back, freeing any
+//!   other gives nothing back until `reset`. `realloc` grows or shrinks the
+//!   most recent block in place and moves any other block that grows.
+//!   Exhaustion is `.None` from the allocator (a placed `Box.new` then
+//!   panics with out of memory).
+//! - **Thread-safe.** Every operation takes the allocator's lock, so a block
+//!   placed here may be freed on another thread, and several threads may
+//!   allocate through copies of one `Allocator`.
+pragma(Pragma.AllowUnsafe);
+{ GlobalAllocator } :: import("../allocator");
+{ panic } :: import("../assert");
+{ memcpy } :: import("../libc/string");
+registry :: import("./registry");
+// The allocator's record, reached through its registry slot: the buffer's
+// start and length, the bump offset, and the offset of the most recent block
+// while its bytes can still be given back (`_NONE` when none can).
+_Record :: struct(base : *u8, len : usize, top : usize, last : usize);
+_NONE :: usize.MAX;
+_STALE_ALLOC :: "allocation through a FixedBufferAllocator that was dropped: this Allocator value outlived the allocator it came from";
+_STALE_REALLOC :: "realloc routed to a FixedBufferAllocator that was dropped";
+_STALE_FREE :: "free routed to a FixedBufferAllocator that was dropped";
+_record :: (fn(s : *registry.Slot) -> *_Record)((*_Record)(registry.state_of(s)));
+// Carve `size` bytes aligned to `align` (a power of two). Caller holds the
+// slot.
+_bump :: (fn(s : *registry.Slot, size : usize, align : usize) -> ?*void)({
+  r := _record(s);
+  base := registry.address_of((*void)(unsafe(r.*.base)));
+  len := unsafe(r.*.len);
+  top := unsafe(r.*.top);
+  start := (base + top);
+  pad := ((align - (start & (align - usize(1)))) & (align - usize(1)));
+  cond(
+    ((pad > (len - top)) || (size > ((len - top) - pad))) => .None,
+    true => {
+      at := (top + pad);
+      unsafe(r.*.top = (at + size));
+      unsafe(r.*.last = at);
+      registry.count_alloc(s, size);
+      .Some((*void)(unsafe(r.*.base.add(at))))
+    }
+  )
+});
+// The offset of a block of this allocator in its buffer.
+_offset_of :: (fn(r : *_Record, p : *void) -> usize)(
+  registry.address_of(p) - registry.address_of((*void)(unsafe(r.*.base)))
+);
+// Release a block. Caller holds the slot.
+_release :: (fn(s : *registry.Slot, p : *void, size : usize) -> unit)({
+  r := _record(s);
+  off := _offset_of(r, p);
+  cond(
+    ((off == unsafe(r.*.last)) && ((off + size) == unsafe(r.*.top))) => {
+      unsafe(r.*.top = off);
+      unsafe(r.*.last = _NONE);
+    },
+    true => ()
+  );
+  registry.count_free(s, size);
+});
+_fba_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
+  s := registry.enter(registry.ticket_of(ctx), _STALE_ALLOC);
+  p := _bump(s, size, align);
+  registry.leave(s);
+  p
+});
+_fba_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)(
+  match(
+    ptr,
+    .Some(p) => {
+      s := registry.enter(registry.ticket_of(ctx), _STALE_FREE);
+      _release(s, p, size);
+      registry.leave(s);
+    },
+    .None => ()
+  )
+);
+_fba_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(
+  match(
+    ptr,
+    .None => _fba_alloc(ctx, new_size, align),
+    .Some(p) => {
+      s := registry.enter(registry.ticket_of(ctx), _STALE_REALLOC);
+      r := _record(s);
+      off := _offset_of(r, p);
+      is_top := ((off == unsafe(r.*.last)) && ((off + old_size) == unsafe(r.*.top)));
+      result := cond(
+        // The most recent block grows or shrinks in place.
+        (is_top && (new_size <= (unsafe(r.*.len) - off))) => {
+          unsafe(r.*.top = (off + new_size));
+          registry.count_resize(s, old_size, new_size);
+          Option(*void).Some(p)
+        },
+        // Any other block that shrinks keeps its place; its tail is not given back.
+        (!is_top && (new_size <= old_size)) => {
+          registry.count_resize(s, old_size, new_size);
+          Option(*void).Some(p)
+        },
+        true => match(
+          _bump(s, new_size, align),
+          .Some(q) => {
+            n := cond((old_size < new_size) => old_size, true => new_size);
+            // SAFETY: `p` holds `old_size` bytes and `q` `new_size`, distinct
+            // ranges of the buffer.
+            unsafe(memcpy(q, p, n));
+            _release(s, p, old_size);
+            Option(*void).Some(q)
+          },
+          .None => Option(*void).None
+        )
+      );
+      registry.leave(s);
+      result
+    }
+  )
+);
+_VTABLE := AllocatorVTable(alloc : _fba_alloc, realloc : _fba_realloc, free : _fba_free);
+/// A bump allocator over a buffer lent for the allocator's whole life. See the
+/// module notes.
+FixedBufferAllocator :: struct(buf : &mut [u8], ticket : usize);
+impl(
+  FixedBufferAllocator,
+  /// An allocator over `buf`. The buffer stays lent until the allocator is
+  /// dropped. Panics when too many allocators are alive at once (65535 on a
+  /// 32-bit target).
+  new : (fn(buf : &mut [u8]) -> Self)({
+    r := match(
+      GlobalAllocator.malloc(size_of(_Record)),
+      .Some(m) => (*_Record)(m),
+      .None => panic(&"FixedBufferAllocator.new: out of memory")
+    );
+    // SAFETY: `r` is a fresh block of `size_of(_Record)` bytes.
+    unsafe(r.* = _Record(base : __yo_slice_ptr(buf), len : __yo_slice_len(buf), top : usize(0), last : _NONE));
+    t := registry.open((*void)(r));
+    FixedBufferAllocator(buf : buf, ticket : t)
+  }),
+  /// This allocator as an `Allocator` value, for `alloc : .Some(a)`. Every copy
+  /// names this allocator until it is dropped, wherever the handle moves.
+  allocator : (fn(self : &Self) -> Allocator)(
+    Allocator(ctx : registry.ctx_of(self.ticket), vtable : addr_of(_VTABLE))
+  ),
+  /// The buffer's length in bytes.
+  capacity : (fn(self : &Self) -> usize)({
+    s := registry.enter(self.ticket, _STALE_ALLOC);
+    n := unsafe(_record(s).*.len);
+    registry.leave(s);
+    n
+  }),
+  /// Bytes of the buffer in use: the bump offset, alignment padding and owner
+  /// prefixes included.
+  used_bytes : (fn(self : &Self) -> usize)({
+    s := registry.enter(self.ticket, _STALE_ALLOC);
+    n := unsafe(_record(s).*.top);
+    registry.leave(s);
+    n
+  }),
+  /// Blocks placed here and not yet freed.
+  live_blocks : (fn(self : &Self) -> usize)({
+    s := registry.enter(self.ticket, _STALE_ALLOC);
+    n := registry.live_of(s);
+    registry.leave(s);
+    n
+  }),
+  /// Rewind to an empty buffer. Panics if a block placed here is live.
+  /// `Allocator` values made before the reset stay valid.
+  reset : (fn(self : &mut Self) -> unit)({
+    s := registry.enter(self.ticket, _STALE_ALLOC);
+    registry.require_empty(s, "FixedBufferAllocator.reset", "the reset");
+    r := _record(s);
+    unsafe(r.*.top = usize(0));
+    unsafe(r.*.last = _NONE);
+    registry.leave(s);
+  }),
+  /// Panics if a block placed here is live. Afterwards every `Allocator`
+  /// value made from this allocator is stale.
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      r := registry.close(self.ticket, "FixedBufferAllocator dropped");
+      GlobalAllocator.free(.Some(r));
+    })
+  )
+);
+export(FixedBufferAllocator);

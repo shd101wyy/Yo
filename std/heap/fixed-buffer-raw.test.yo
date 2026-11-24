@@ -1,0 +1,79 @@
+// FixedBufferAllocator rows that read raw blocks and tickets, which needs the
+// pragma. The safe rows are in `fixed-buffer.test.yo`.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("../assert");
+{ FixedBufferAllocator } :: import("./fixed-buffer");
+registry :: import("./registry");
+// A buffer that starts one byte past its holder, so it is not 64-aligned.
+_Odd :: struct(pad : u8, data : Array(u8, 1024));
+test("freeing the most recent block gives its bytes back, freeing another does not", {
+  mut(buf) := Array(u8, 1024).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  a := fba.allocator();
+  p := a.alloc(usize(32), usize(16)).unwrap();
+  after_p := fba.used_bytes();
+  q := a.alloc(usize(32), usize(16)).unwrap();
+  assert(fba.used_bytes() > after_p, "the second block follows the first");
+  Allocator.free(.Some(q), usize(32), usize(16));
+  assert(fba.used_bytes() == after_p, "the most recent block's bytes come back");
+  r := a.alloc(usize(32), usize(16)).unwrap();
+  after_r := fba.used_bytes();
+  Allocator.free(.Some(p), usize(32), usize(16));
+  assert(fba.used_bytes() == after_r, "an older block's bytes stay in use");
+  assert(fba.live_blocks() == usize(1), "one block left");
+  Allocator.free(.Some(r), usize(32), usize(16));
+  assert(fba.live_blocks() == usize(0), "none left");
+});
+test("realloc grows the most recent block in place and moves any other", {
+  mut(buf) := Array(u8, 1024).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  a := fba.allocator();
+  p := a.alloc(usize(16), usize(16)).unwrap();
+  unsafe((*u8)(p).* = u8(11));
+  grown := Allocator.realloc(p, usize(16), usize(64), usize(16)).unwrap();
+  assert(grown == p, "the most recent block grows in place");
+  q := a.alloc(usize(16), usize(16)).unwrap();
+  moved := Allocator.realloc(grown, usize(64), usize(128), usize(16)).unwrap();
+  assert(moved != grown, "a block that is not the most recent moves to grow");
+  assert(unsafe((*u8)(moved).*) == u8(11), "the move copies the bytes");
+  assert(fba.live_blocks() == usize(2), "a move replaces one block with one");
+  Allocator.free(.Some(q), usize(16), usize(16));
+  Allocator.free(.Some(moved), usize(128), usize(16));
+  assert(fba.live_blocks() == usize(0), "both released");
+});
+test("exhaustion is .None, and alignment 64 holds over a misaligned buffer start", {
+  mut(small) := Array(u8, 128).fill(u8(0));
+  tiny := FixedBufferAllocator.new(&mut small.*);
+  t := tiny.allocator();
+  assert(t.alloc(usize(200), usize(16)).is_none(), "a request larger than the buffer is .None");
+  first := t.alloc(usize(64), usize(16)).unwrap();
+  assert(t.alloc(usize(64), usize(16)).is_none(), "a request past the remaining bytes is .None");
+  assert(tiny.live_blocks() == usize(1), "a failed request counts nothing");
+  Allocator.free(.Some(first), usize(64), usize(16));
+  mut(odd) := _Odd(pad : u8(0), data : Array(u8, 1024).fill(u8(0)));
+  fba := FixedBufferAllocator.new(&mut odd.data.*);
+  a := fba.allocator();
+  // A raw vtable block of alignment 1 starts at the buffer's first byte.
+  first_byte := a.vtable.*.alloc(a.ctx, usize(1), usize(1)).unwrap();
+  a.vtable.*.free(a.ctx, .Some(first_byte), usize(1), usize(1));
+  assert((registry.address_of(first_byte) % usize(64)) != usize(0), "the buffer does start misaligned");
+  p := a.alloc(usize(8), usize(64)).unwrap();
+  assert((registry.address_of(p) % usize(64)) == usize(0), "the block is 64-aligned");
+  Allocator.free(.Some(p), usize(8), usize(64));
+});
+test("a dropped allocator's Allocator is not the next one's, though the slot is reused", {
+  mut(old) := Allocator.global();
+  mut(old_ticket) := usize(0);
+  {
+    mut(buf) := Array(u8, 64).fill(u8(0));
+    fba := FixedBufferAllocator.new(&mut buf.*);
+    old = fba.allocator();
+    old_ticket = fba.ticket;
+  };
+  mut(buf) := Array(u8, 64).fill(u8(0));
+  next := FixedBufferAllocator.new(&mut buf.*);
+  index_mask := ((usize(1) << ((size_of(usize) * usize(8)) / usize(2))) - usize(1));
+  assert((next.ticket & index_mask) == (old_ticket & index_mask), "the vacant slot is reused");
+  assert(next.ticket != old_ticket, "at the next generation");
+  assert(!next.allocator().same(old), "the old Allocator value is not the new allocator's");
+});
