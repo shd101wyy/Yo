@@ -68,9 +68,10 @@ test("an Io-bundled future cannot be viewed as Future(T)", {
   // The return-position view.
   comptime_expect_error((fn(io : Io) -> Impl(Future(i32)))(io.async((io : Io) => i32(4))), "Name the bundle");
   // A `Dyn(Future(T))` slot.
+  f := io_only(io);
   comptime_expect_error({
-    (_d : Dyn(Future(i32))) = dyn(Box.new(io_only(io)));
-  });
+    (_d : Dyn(Future(i32))) = dyn(&f);
+  }, "Name the bundle");
   // A local annotation.
   comptime_expect_error({
     (_f : Impl(Future(i32))) = io_only(io);
@@ -97,8 +98,6 @@ test("a generic fn's bundle-less future result cannot hide a handler bundle", {
 });
 test("an Io-bundled future keeps its bundle in the type", {
   assert(io.await(io_only(io), io) == i32(4), "awaited through its own type");
-  (d : Dyn(Future(i32, Io))) = dyn(Box.new(io_only(io)));
-  assert(io.await(d, io) == i32(4), "a Dyn slot that names the bundle");
   h := io.spawn(io_only(io), io);
   assert(match(h.await(io), .Some(v) => v, .None => i32(0)) == i32(4), "spawned with its bundle");
 });

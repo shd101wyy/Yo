@@ -41,3 +41,6 @@ Without the annotation on `v` the await is E0613 (`T` of `io.await` is not infer
 ## Fix direction
 
 Either reject `Dyn(Future(...))` at check time (a future is already a pointer to a type-erased state machine; `Impl(Future(T, E))` is the erased form), or give `Future` a vtable and lower an await through the `Dyn` pair. The first matches the language's one spelling per operation; the decision is the coordinator's. The lane's PR rejects a bundled future at a bundle-less `Dyn(Future(T))` slot (E0605), which is the VERDICTS-68 rule, and does not touch this.
+
+The VERDICTS-68 PR's `tests/async/effect-bundle.test.yo` checks only the negative (a bundled future
+into `Dyn(Future(i32))` is E0605); a positive `Dyn(Future(i32, Io))` round trip waits for this fix.
