@@ -1382,7 +1382,11 @@ _checked_static_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
   });
   match(
     ty,
-    Rc(.Reference(tcs_p, _, tcs_o)) => ((is_static_origin(&tcs_o.*) && type_is_sized(&tcs_p.*)) || _checked_static_inner(&tcs_p.*, seen, (depth + u32(1)))),
+    // A reference over any other origin borrows a place, whatever its
+    // pointee spells (`&mut S` for an `S` with a static field): only the
+    // places reached through the pointee are static, and a write there is
+    // checked as a write of that place.
+    Rc(.Reference(tcs_p, _, tcs_o)) => (is_static_origin(&tcs_o.*) && type_is_sized(&tcs_p.*)),
     Rc(.ValueSlot(tcs_vs)) => _checked_static_inner(&tcs_vs.*, seen, (depth + u32(1))),
     Rc(.Pointer(tcs_inner)) => _checked_static_inner(&tcs_inner.*, seen, (depth + u32(1))),
     Rc(.SliceT(tcs_elem)) => _checked_static_inner(&tcs_elem.*, seen, (depth + u32(1))),

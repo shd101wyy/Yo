@@ -174,6 +174,9 @@ test("a read of a static parameter or of a static-typed field is a static value"
   mut(h) := _UpStaticSlot(r : .None);
   h.r = _UpStaticWrap(a);
   mut(k) := _UpStaticSlot(r : .None);
+  // A `&mut` / `&` of a holder with a static field borrows the holder; it
+  // is no static value, and no static slot asks it to be.
   _UpStaticCopyField(&mut k, &h);
-  assert(match(_UpStaticFieldOf(&k), .Some(r) => (r.*.n == i32(7)), .None => false), "the static reference reads through every hop");
+  rk := &k;
+  assert(match(_UpStaticFieldOf(rk), .Some(r) => (r.*.n == i32(7)), .None => false), "the static reference reads through every hop");
 });
