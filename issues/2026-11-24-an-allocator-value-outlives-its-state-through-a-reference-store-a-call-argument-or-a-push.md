@@ -1,6 +1,6 @@
 # An `Allocator` value outlives its state through a reference store, a call argument or a push: the raw-pointer flowability gate checks only assignments, field stores and returns
 
-**Severity:** S1: a safe file (no pragma) allocates through an `Allocator` whose state has left scope, a stack-use-after-scope under ASan, when the allocator comes from an `AllowUnsafe` module of the address-as-`ctx` shape `plans/backlog/ALLOCATOR_PLACEMENT.md` §11.1 describes; std itself mints no such `Allocator`, so a program of safe files and std alone does not reach it.
+**Severity:** S1: a safe file (no pragma) allocates through an `Allocator` whose state has left scope, a stack-use-after-scope under ASan, when the allocator comes from an `AllowUnsafe` module of the address-as-`ctx` shape `plans/reference/ALLOCATOR_PLACEMENT.md` §11.1 describes; std itself mints no such `Allocator`, so a program of safe files and std alone does not reach it.
 
 Found 2026-11-24 by the VERDICTS-79 consultation (Fable, its probes `t2/e3` and `t2/e6` on the `261411ced` binary); reproduced for this document on develop `34359627e` (tree binary built with `--std-path ./std`, run inside `nix develop`, `--cc clang`).
 
