@@ -1,12 +1,11 @@
 //! Reference-counting runtime prelude:
-//!   * borrow runtime primitives      (Law-of-Exclusivity backstop)
 //!   * collect_unwind_value_ctypes    (sizes the unwind-value buffer)
 //!   * the unwind-value buffer        (thread-local unwind-value storage)
 //!   * the RC functions               (type-tag dispose dispatch, weak counts)
 //!
 //! This is the prelude that `generate_all_functions` emits before the function loop —
 //! without it the emitted translation unit does not link (`__yo_incr_rc` /
-//! `__yo_decr_rc` / borrow primitives are referenced by every RC-managed value).
+//! `__yo_decr_rc` are referenced by every RC-managed value).
 //! There is no cycle collector (decision 48 W6b,
 //! plans/archive/WEAK_AND_UNCOLLECTED_RC.md §6): a reference cycle leaks unless a
 //! `Weak` breaks it, as in Rust.
@@ -296,70 +295,6 @@ static void __yo_task_abort_report_unobserved(void) {
   );
 });
 // ---------------------------------------------------------------------------
-// generateBorrowRuntimePrimitives
-// ---------------------------------------------------------------------------
-/// Emit the Law-of-Exclusivity borrow primitives. Emitted unconditionally.
-generate_borrow_runtime_primitives :: (fn(context : &mut FunctionGenerationContext) -> unit)({
-  context.base.emitter.emit_string_line(
-    `
-// Law of Exclusivity (Swift-style runtime backstop). An interior 'ref'
-// into a container's storage (e.g. xs(i)) increments the container's
-// borrow_count for the borrow's lifetime; a container operation that
-// could reallocate/free that storage asserts borrow_count == 0. This
-// turns the one statically-unprovable interior-ref residual (a container
-// reached through a global and grown while borrowed) into a deterministic
-// panic instead of a use-after-free. Cost: a same-cache-line load + a
-// predicted-not-taken branch (measured ~0% even on a tight push loop).
-static inline void __yo_borrow_acquire(void* ptr) {
-  if (ptr == NULL) return;
-  if (((__yo_rc_prefix_t*)ptr)->borrow_count == 0xFFFF) {
-    fflush(stdout); fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
-    __yo_abort();
-  }
-  ((__yo_rc_prefix_t*)ptr)->borrow_count++;
-}
-static inline void __yo_borrow_release(void* ptr) {
-  if (ptr == NULL) return;
-  ((__yo_rc_prefix_t*)ptr)->borrow_count--;
-}
-static inline void __yo_borrow_assert_unborrowed(void* ptr) {
-  if (ptr == NULL) return;
-  if (((__yo_rc_prefix_t*)ptr)->borrow_count != 0) {
-    fflush(stdout); fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
-    __yo_abort();
-  }
-}
-// The same three for an ATOMIC object (atomic(ref(...)), Arc, Mutex, ...):
-// it is shared across threads by design, so two threads taking an interior
-// reference into it at once must not race on the counter — a lost update
-// left it stuck non-zero (every later operation panicked) or wrapped it to
-// 0xFFFF (issues/fixed/borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md).
-// Same uint16_t word, accessed atomically, exactly as ref_count is.
-static inline void __yo_borrow_acquire_atomic(void* ptr) {
-  if (ptr == NULL) return;
-  _Atomic uint16_t* bc = (_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count;
-  uint16_t cur = atomic_load_explicit(bc, memory_order_relaxed);
-  do {
-    if (cur == 0xFFFF) {
-      fflush(stdout); fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
-      __yo_abort();
-    }
-  } while (!atomic_compare_exchange_weak_explicit(bc, &cur, (uint16_t)(cur + 1), memory_order_acquire, memory_order_relaxed));
-}
-static inline void __yo_borrow_release_atomic(void* ptr) {
-  if (ptr == NULL) return;
-  atomic_fetch_sub_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, 1, memory_order_release);
-}
-static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
-  if (ptr == NULL) return;
-  if (atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire) != 0) {
-    fflush(stdout); fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
-    __yo_abort();
-  }
-}`
-  );
-});
-// ---------------------------------------------------------------------------
 // _weak_count_primitives
 // ---------------------------------------------------------------------------
 /// The weak-count primitives `Weak(T)` and `ArcWeak(T)` call (std/prelude.yo's extern "Yo"
@@ -368,11 +303,8 @@ static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
 /// under `--emit-chunks` they ride the RC primitives' shared-header range.
 _weak_count_primitives :: (fn() -> String)(
   `// Weak(T) and ArcWeak(T) (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2-§3.4).
-// A counted cell's weak count lives in the 16 bits of \`borrow_count\`. A
-// cell never carries borrow marks there: codegen emits no borrow primitive on
-// an Rc or Arc cell (\`is_counted_cell_type\`, plans/VALUES_BY_DEFAULT.md
-// decision 46), and every other object's marks are back to 0 by its last
-// release. Bits 0-14 count the Weak handles and saturate at
+// A counted cell's weak count is the 16-bit \`borrow_count\` word of its
+// header; nothing else uses that word. Bits 0-14 count the Weak handles and saturate at
 // __YO_WEAK_COUNT: a saturated cell is never freed (a leak, never a dangle).
 // Bit 15, __YO_WEAK_DEAD, says the payload is dropped and the strong side has
 // handed the allocation to the Weak handles: the last one frees it. Exactly
@@ -671,25 +603,14 @@ static inline void* __yo_dyn_clone(void* data, const void* vtable) {
 // ---------------------------------------------------------------------------
 // generate_atomic_gc_runtime_functions
 // ---------------------------------------------------------------------------
-/// Emit the borrow primitives + the RC runtime.
+/// Emit the RC runtime.
 generate_atomic_gc_runtime_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
-  // Chunked emission: the borrow primitives are the per-container-access hot
-  // path, have no prototypes anywhere, and are called from every chunk —
-  // route them into the shared header (per-TU `static inline` copies).
-  bp_start := if(context.base.chunk_mode, context.base.emitter.code.len(), usize(0));
-  generate_borrow_runtime_primitives(context);
-  if(context.base.chunk_mode, {
-    context.base.chunk_header_ranges.push(
-      ChunkRange(c_name : String.from("__borrow_primitives"), start_b : bp_start, end_b : context.base.emitter.code.len(), module : String.new())
-    );
-  });
   generate_lightweight_rc_functions(context);
 });
 export(
   collect_unwind_value_ctypes,
   emit_unwind_value_buffer,
   emit_task_abort_registry,
-  generate_borrow_runtime_primitives,
   generate_lightweight_rc_functions,
   generate_atomic_gc_runtime_functions
 );
