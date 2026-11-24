@@ -1,0 +1,42 @@
+// VERDICTS-79 row 14: a task owns a buffer and the FixedBufferAllocator over
+// it, sends a block placed in it out through a channel, and is aborted while
+// suspended. Aborting the task drops its locals, so the allocator's drop runs
+// with the sent block live and panics; the block never points into a released
+// task frame.
+{ FixedBufferAllocator } :: import("std/heap/fixed-buffer");
+{ Channel } :: import("std/async/channel");
+{ yield } :: import("std/async");
+{ println } :: import("std/fmt");
+owner :: (fn(ch : Channel(Box(i32)), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ ch }(io : Io) => {
+    mut(buf) := Array(u8, 256).fill(u8(0));
+    fba := FixedBufferAllocator.new(&mut buf.*);
+    b := Box.new(i32(7), alloc : .Some(fba.allocator()));
+    _s := io.await(ch.send(b, io), io);
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    println(`unreachable: the task finished with ${fba.live_blocks()} live`);
+  })
+);
+other :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  ch := Channel(Box(i32)).new(usize(1));
+  h := io.spawn(owner(ch.clone(), io), io);
+  got := io.await(ch.recv(io), io);
+  println("received the block; aborting its owner");
+  h.abort();
+  _r := h.await(io);
+  h2 := io.spawn(other(io), io);
+  io.await(yield(io), io);
+  _r2 := h2.await(io);
+  match(
+    got,
+    .Some(b) => println(`unreachable: ${b.*}`),
+    .None => println("no block")
+  );
+});
+export(main);

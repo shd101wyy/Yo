@@ -1,0 +1,31 @@
+// VERDICTS-79 row 13: an `unwind` through the frame that owns a
+// FixedBufferAllocator runs the allocator's drop. Here a block placed in it
+// was pushed into the caller's list, so the drop panics.
+{ FixedBufferAllocator } :: import("std/heap/fixed-buffer");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+Stop :: struct(stop : (ctl() -> unit));
+place_out_then_stop :: (fn(out : &mut ArrayList(Box(i32)), s : Stop) -> unit)({
+  mut(buf) := Array(u8, 256).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  out.push(Box.new(i32(5), alloc : .Some(fba.allocator())));
+  println("placed one block in the caller's list; unwinding");
+  s.stop();
+});
+run :: (fn(out : &mut ArrayList(Box(i32))) -> i32)({
+  s := Stop(
+    stop : (
+      () -> {
+        unwind(i32(1));
+      }
+    )
+  );
+  place_out_then_stop(out, s);
+  i32(0)
+});
+main :: (fn() -> unit)({
+  mut(out) := ArrayList(Box(i32)).new();
+  r := run(&mut out);
+  println(`unreachable: ${r} ${out.len()}`);
+});
+export(main);

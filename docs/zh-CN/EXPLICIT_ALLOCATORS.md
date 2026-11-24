@@ -160,7 +160,60 @@ export(main);
 它不是通用的提速手段：全局分配器（mimalloc）的快速路径已经很快，在期待提速之前先
 测量。
 
-std 不提供 arena 或固定缓冲区分配器：请按[编写自己的分配器](#编写自己的分配器)写出你需要的分配器。
+std 提供 `FixedBufferAllocator`（[std 的分配器](#std-的分配器stdheap)）；其他分配器请按[编写自己的分配器](#编写自己的分配器)写出你需要的分配器。
+
+## std 的分配器：`std/heap`
+
+`std/heap` 收录基于 `Allocator` 接口实现的分配器，每个分配器一个模块。
+
+### `FixedBufferAllocator`（`std/heap/fixed-buffer`）
+
+在你借给它的缓冲区上分配的 bump 分配器，缓冲区在它的整个生命周期内都被借出：
+
+```yo
+{ FixedBufferAllocator } :: import("std/heap/fixed-buffer");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+
+main :: (fn() -> unit)({
+  mut(buf) := Array(u8, 4096).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*); // `buf` 一直借给 `fba`，直到 `fba` 被 drop
+  {
+    mut(xs) := ArrayList(i32).new(alloc : .Some(fba.allocator()));
+    xs.push(i32(1));
+    b := Box.new(i32(2), alloc : .Some(fba.allocator()));
+    println(`${fba.live_blocks()} blocks, ${fba.used_bytes()} of ${fba.capacity()} bytes, ${xs.len() + usize(b.*)}`);
+  };
+  println(`${fba.live_blocks()} blocks after the scope`); // 0
+});
+export(main);
+```
+
+| 成员 | 作用 |
+| --- | --- |
+| `FixedBufferAllocator.new(buf : &mut [u8]) -> Self` | 在 `buf` 上的分配器。`&mut buf.*` 借出一个 `Array(u8, N)`。 |
+| `allocator(self : &Self) -> Allocator` | 作为 `alloc : .Some(a)` 传入的值。它的副本可以去任何地方，包括其他线程。 |
+| `capacity`、`used_bytes`、`live_blocks`（`self : &Self`） | 缓冲区长度；已使用的字节（包括所有者前缀和对齐填充）；已放置且尚未释放的块数。 |
+| `reset(self : &mut Self)` | 回到空缓冲区。之前构造的 `Allocator` 值仍然有效。 |
+
+- **缓冲区在分配器的整个生命周期内被借出。** 在句柄被 drop 之前，缓冲区不能被读、写或移动（E0911），
+  句柄也不能比缓冲区活得更久：返回它（E0912）、存入外层绑定（E0911）、存入 `Rc`、模块级绑定或线程的捕获（E0909）
+  都是编译错误。句柄本身可以移动。
+- **块先于分配器释放。** 分配器统计自己的块。在仍有块存活时 drop 它会 panic，`reset` 也一样：
+
+  ```text
+  FixedBufferAllocator dropped while blocks placed in it are live (live blocks: 1, bytes: 32). Release every block before the allocator is dropped.
+  ```
+
+  从拥有分配器的函数中返回一个容器，或者 `unwind` 离开该函数时把块留在调用者的列表里，都会以这种方式结束。
+- **比分配器活得更久的 `Allocator` 值会 panic。** 这个值通过票据而不是地址指向分配器。drop 之后，通过它分配会
+  panic（`allocation through a FixedBufferAllocator that was dropped: this Allocator value outlived the
+  allocator it came from`），即使之后的分配器复用了同一个槽位；路由到它的 `realloc` 或 `free` 同样会 panic。
+- **bump 分配。** 每个块占用接下来满足对齐的字节。释放最近的块会归还它的字节；释放其他块在 `reset`
+  之前不会归还任何字节。最近的块原地增长；其他块增长时会移动。缓冲区满时分配器返回 `.None`：被放置的
+  `Box.new` 随即以内存不足 panic，容器的 `try_` 操作报告 `AllocError.OutOfMemory`。
+- **线程安全。** 每个操作都会获取分配器的锁，所以块可以在其他线程上释放，多个线程也可以通过同一个
+  `Allocator` 的副本分配。
 
 ## 线程与异步任务
 
@@ -315,7 +368,7 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
 
 ## 限制
 
-- **std 中没有 arena。** 见[何时使用显式分配器](#何时使用显式分配器)。
+- **std 中没有 arena 分配器。** `std/heap` 只有 `FixedBufferAllocator`（[std 的分配器](#std-的分配器stdheap)）。
 - **超对齐的类型。** `Allocator.alloc`、容器和 `Box.new` 会按载荷的对齐申请，所以分配器
   可以满足任意 2 的幂的对齐，对齐超过 16 的类型的全局 `Box` 由对齐分配族提供。全局的
   `Rc`/`Arc` 单元只按 16 对齐，所以这种类型的 `Rc` 或 `Arc` 必须被放置。目前没有 Yo

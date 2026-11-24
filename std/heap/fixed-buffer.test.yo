@@ -72,14 +72,16 @@ test("blocks placed in it are dropped on other threads, and threads allocate thr
   mut(workers) := ArrayList(Thread(usize)).new();
   mut(i) := usize(0);
   while(i < usize(4), {
-    workers.push(Thread(usize).spawn({ a }(io : Io) => {
-      mut(n) := usize(0);
-      while(n < usize(200), {
-        b := Box.new(n, alloc : .Some(a));
-        n = (b.* + usize(1));
-      });
-      n
-    }));
+    workers.push(
+      Thread(usize).spawn({ a }(io : Io) => {
+        mut(n) := usize(0);
+        while(n < usize(200), {
+          b := Box.new(n, alloc : .Some(a));
+          n = (b.* + usize(1));
+        });
+        n
+      })
+    );
     i = (i + usize(1));
   });
   mut(total) := usize(0);
@@ -102,7 +104,7 @@ _nest :: (fn(depth : usize, parent : Allocator) -> usize)({
   assert(!fba.allocator().same(parent), "each allocator is its own");
   below := cond((depth == usize(0)) => usize(0), true => _nest(depth - usize(1), fba.allocator()));
   assert(fba.live_blocks() == usize(1), "the allocators below did not touch this one's count");
-  (b.* + below)
+  b.* + below
 });
 test("a hundred allocators alive at once keep their own state", {
   assert(_nest(usize(99), Allocator.global()) == usize(4950), "every level's block held its own value");
@@ -129,3 +131,64 @@ _unwound :: (fn() -> i32)({
 test("an unwind through the owner's frame drops the block, then the allocator", {
   assert(_unwound() == i32(1), "the frame unwound; its allocator's drop check passed");
 });
+// The buffer is lent for the allocator's whole life: written or moved after
+// the handle's last use, it is still lent, because the handle's drop at the
+// end of the scope uses the loan.
+comptime_expect_error(
+  _write_after_last_use :: (fn() -> unit)({
+    mut(buf) := Array(u8, 64).fill(u8(0));
+    fba := FixedBufferAllocator.new(&mut buf.*);
+    _a := fba.allocator();
+    buf(usize(0)) = u8(9);
+  }),
+  "with `&mut` and is still live"
+);
+comptime_expect_error(
+  _move_after_last_use :: (fn() -> unit)({
+    mut(buf) := Array(u8, 64).fill(u8(0));
+    fba := FixedBufferAllocator.new(&mut buf.*);
+    _a := fba.allocator();
+    moved := buf;
+    _ := moved;
+  }),
+  "with `&mut` and is still live"
+);
+// The handle may not outlive the buffer.
+comptime_expect_error(
+  _returned_past_the_buffer :: (fn() -> FixedBufferAllocator)({
+    mut(buf) := Array(u8, 64).fill(u8(0));
+    FixedBufferAllocator.new(&mut buf.*)
+  }),
+  "Cannot return a value holding"
+);
+comptime_expect_error(
+  _stored_in_an_outer_slot :: (fn() -> unit)({
+    mut(outer) := Option(FixedBufferAllocator).None;
+    {
+      mut(buf) := Array(u8, 64).fill(u8(0));
+      outer = .Some(FixedBufferAllocator.new(&mut buf.*));
+    };
+  }),
+  "while `outer` is live to its drop"
+);
+comptime_expect_error(
+  _put_in_an_rc :: (fn() -> unit)({
+    mut(buf) := Array(u8, 64).fill(u8(0));
+    r := Rc.new(FixedBufferAllocator.new(&mut buf.*));
+    _ := r.*.capacity();
+  }),
+  "and `FixedBufferAllocator` carries an origin"
+);
+comptime_expect_error(
+  mut(_GLOBAL_HANDLE) := Option(FixedBufferAllocator).None,
+  "A module-level binding requires an `Escapable` type"
+);
+comptime_expect_error(
+  _captured_by_a_thread :: (fn() -> unit)({
+    mut(buf) := Array(u8, 64).fill(u8(0));
+    fba := FixedBufferAllocator.new(&mut buf.*);
+    t := Thread(usize).spawn({ fba }(io : Io) => fba.capacity());
+    _ := t.join();
+  }),
+  "a borrow cannot cross threads"
+);

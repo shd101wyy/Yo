@@ -384,6 +384,10 @@ export(main);
   `Arc(Mutex(T))`: give each thread its own `Arc.clone(&a)`, captured by
   value. `RefCell` is single-threaded.
 - `Dyn(Trait)` lives behind `Box`, `Rc` or `&`: `dyn(Box.new(v))`.
+- Placement is an argument: `Box.new(v, alloc : .Some(a))`, `ArrayList(T).new(alloc : .Some(a))`;
+  none means the global allocator. `FixedBufferAllocator.new(&mut buf.*)` (`std/heap/fixed-buffer`)
+  places blocks in a lent buffer through `fba.allocator()`; dropping or resetting it while a block is
+  live panics, and so does allocating through its `Allocator` after it is dropped.
 
 ```yo
 { assert } :: import("std/assert");

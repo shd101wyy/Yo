@@ -1,0 +1,13 @@
+// VERDICTS-79 row 11: `reset` rewinds the buffer, so it panics while a block
+// placed in the allocator is live.
+{ FixedBufferAllocator } :: import("std/heap/fixed-buffer");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(buf) := Array(u8, 256).fill(u8(0));
+  mut(fba) := FixedBufferAllocator.new(&mut buf.*);
+  b := Box.new(i32(7), alloc : .Some(fba.allocator()));
+  println(`placed ${b.*}`);
+  fba.reset();
+  println("unreachable");
+});
+export(main);

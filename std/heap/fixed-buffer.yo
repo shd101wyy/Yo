@@ -56,7 +56,7 @@ _bump :: (fn(s : *registry.Slot, size : usize, align : usize) -> ?*void)({
   start := (base + top);
   pad := ((align - (start & (align - usize(1)))) & (align - usize(1)));
   cond(
-    ((pad > (len - top)) || (size > ((len - top) - pad))) => .None,
+    ((pad > (len - top)) || (size > (len - top - pad))) => .None,
     true => {
       at := (top + pad);
       unsafe(r.*.top = (at + size));

@@ -1,0 +1,19 @@
+// VERDICTS-79 row 10: a container placed in a FixedBufferAllocator is returned
+// out of the function that owns the allocator. The allocator's drop runs with
+// the container's buffer live and panics, instead of leaving the buffer to
+// point into a dead frame.
+{ FixedBufferAllocator } :: import("std/heap/fixed-buffer");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+build_list :: (fn() -> ArrayList(i32))({
+  mut(buf) := Array(u8, 256).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  mut(xs) := ArrayList(i32).new(alloc : .Some(fba.allocator()));
+  xs.push(i32(1));
+  xs
+});
+main :: (fn() -> unit)({
+  xs := build_list();
+  println(`unreachable: ${xs.len()}`);
+});
+export(main);

@@ -154,7 +154,7 @@ ys := ArrayList(i32).new(); // 没有参数：全局分配器
 - **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`，所以只要它自己的回调是线程安全的，一个分配器就可以服务多个线程。
 - **分配器必须比它的块和它的 `Allocator` 值活得更久。** 用户编写的分配器的上下文和 vtable 一直有效，直到它分配出去的每个块都被释放。`ctx` 指向自身状态的 `AllowUnsafe` 分配器模块还承诺：这个状态比由它构造的每个 `Allocator` 值活得更久。安全代码可以把这样的值保留到状态之后（经引用存储、传给会存储它的调用、推入容器），之后通过它分配就会读取已释放的内存。编译器目前还不检查这两项承诺（[未解决的 issue](https://github.com/shd101wyy/Yo/blob/develop/issues/2026-11-24-an-allocator-value-outlives-its-state-through-a-reference-store-a-call-argument-or-a-push.md)）。
 
-std 不提供 arena 或固定缓冲区分配器；可以基于 `Allocator` 接口自行编写（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
+std 的 `FixedBufferAllocator`（`std/heap/fixed-buffer`）把块放在你借给它的缓冲区里；在仍有块存活时被 drop 或 reset，或者某个 `Allocator` 值比它活得更久时，它会 panic。其他分配器可以基于 `Allocator` 接口自行编写（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
 
 直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`alloc` 参数和 `clone_in(a)` 不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
 

@@ -235,32 +235,74 @@ design.
 
 ### 3.1 `PageAllocator`
 
-`mmap`/`munmap` (POSIX), `VirtualAlloc`/`VirtualFree` (Windows),
-`memory.grow` (wasm; no free, as Zig's `wasm_allocator`). Every block is
-page-aligned and page-sized up; `realloc` is `mremap` where it exists and
-copy elsewhere. It is the backing allocator the others default to. It
-needs version 2 for the alignment it promises; before version 2 it can
-exist with the 16-byte contract, which is what blocks §3.10's pools.
-Thread-safe by construction (the kernel's). One module-level value,
-`PAGE_ALLOCATOR`, like Zig's `page_allocator`.
+`mmap`/`munmap` (POSIX), `VirtualAlloc`/`VirtualFree` (Windows), through a
+new `std/sys/pages.yo` (`page_size()`, `map(len) -> ?*u8`, `unmap(ptr, len)`,
+runtime functions over the platform headers: `mmap(MAP_PRIVATE | MAP_ANON)`,
+`VirtualAlloc(MEM_RESERVE | MEM_COMMIT)` / `VirtualFree(MEM_RELEASE)`), not
+`std/sys/mmap.yo`, which returns errno-encoded pointers, maps a file section on
+Windows and mirrors flag values in Yo (VERDICTS-79 Q3). The payload is
+`max(16, align)` bytes past the mapping, so a block is page-aligned only when
+asked for `align = page_size()` (at the cost of one page); an alignment above
+the page size needs over-map-and-trim on POSIX and Zig's reserve, release,
+re-reserve loop on Windows. `realloc` is `mremap` where it exists and copy
+elsewhere. Every other allocator takes its backing allocator as an explicit
+argument; none defaults to this one. Thread-safe by construction (the
+kernel's). A stateless unit type, `PageAllocator.allocator()`, the one
+spelling every allocator has (not a `PAGE_ALLOCATOR` constant). Importing
+`std/heap/page` on wasm is a compile error that says why: both wasm targets
+have a libc whose heap owns `sbrk`, and a second grower under it is unsound.
 
-### 3.2 `FixedBufferAllocator` and `StackFallbackAllocator(N)`
+### 3.2 `FixedBufferAllocator` and `StackFallbackAllocator`
 
-A bump allocator over a caller-provided region: `FixedBufferAllocator.new(buf : &mut Array(u8, N))`
-or over a raw slice under `AllowUnsafe`. `free` reclaims only the most
-recent block (Zig's rule, and the deleted `std/arena`'s); `reset()` is the
-checked reset of §2. `thread_safe_allocator()` is Zig's atomic-bump
-variant. The deleted `std/arena` was this allocator over a region it
-`malloc`ed itself, plus a generation-stamped state table that made a stale
-handle panic instead of touching freed memory. A1 writes the allocator
-new; whether it needs such a table (or an origin, §4) is decided there.
+**Decided by VERDICTS-79 Q1/Q3 (adopted 2026-11-24).** Every stateful
+allocator of §3 keeps its state in a slot of `std/heap/registry.yo`'s
+process-wide table (chunks that double in size and never move or die; a slot
+is never released), and `Allocator.ctx` is a ticket: the slot's index in the
+low half of the word and the generation in the high half. The slot counts the
+blocks handed out and not freed (exact: every free arrives through the owner
+prefix, which stores the ticket). Dropping or resetting the allocator with a
+non-zero count panics; dropping it at zero adds one to the generation, so
+every `Allocator` value and prefix made for it is stale and a vtable call
+through one panics after touching only the slot. Every vtable call, `reset`
+and the drop hold the slot's spinlock. A slot whose generations run out is
+retired. This is the mechanism the deleted `std/arena` had; an address in
+`ctx` is unsound for std because an `Allocator` value can outlive the state
+or watch it move (VERDICTS-79 hazards 2 and 3,
+`issues/2026-11-24-an-allocator-value-outlives-its-state-through-a-reference-store-a-call-argument-or-a-push.md`).
 
-`StackFallbackAllocator(N)`: an inline `Array(u8, N)` served first, a
-fallback allocator after; Zig's `stackFallback(N, fallback)`. In Yo the
-buffer lives in the owner's value (a struct field), so the allocator state
-is move-only and the `Allocator` value it hands out is valid until the
-state's last use — the place rule the deleted `Arena` handles had (a stale
-`Allocator` reached a released state and panicked).
+`FixedBufferAllocator` (`std/heap/fixed-buffer.yo`) is a bump allocator over
+a BORROWED buffer: `struct(buf : &mut [u8], ticket : usize)` with a `Drop`
+impl that closes the slot. `new(buf : &mut [u8]) -> Self`,
+`allocator(self : &Self) -> Allocator`, `reset(self : &mut Self)`,
+`capacity`, `used_bytes`, `live_blocks`. Freeing the most recent block gives
+its bytes back (Zig's rule); `realloc` grows or shrinks the most recent block
+in place and moves any other that grows. The borrow is what makes it sound:
+the buffer cannot be read, written or moved while the handle lives (E0911,
+through the drop), and the handle cannot be returned past the buffer (E0912),
+stored in an outer slot (E0911), an `Rc`, a global or a thread's captures
+(E0909). The chain: blocks die before the handle (dynamic, the count), the
+handle dies before the buffer (static, the origin). The handle is move-only
+and freely movable. No `abandon()`, no `deinit()`, no
+`thread_safe_allocator()`: the drop is the end, and the lock is not optional.
+
+*As built (2026-11-24, branch `heap/a1-registry-fixed-buffer`):* the static
+half needed one compiler fix. std's dropck exemption
+(`nominal_drop_uses_roots`, `src/evaluator/values/impl.yo`) treated a std
+`Drop` type as a borrowing guard only when it spells an origin parameter, so
+`FixedBufferAllocator`, whose origin is elided by its `&mut [u8]` field, got
+no drop-liveness: the buffer could be written after the handle's last use
+with blocks live, and the handle could be stored in an outer slot. The
+exemption now also counts an elided origin
+(`issues/fixed/2026-11-24-std-dropck-skips-a-std-drop-type-whose-origin-is-elided.md`).
+Row 14 (an aborted task owning the buffer and the handle) is defined: the
+abort drops the task's locals, so the drop check panics while a block the task
+sent out is live (`tests/cli-cases/heap-fixed-buffer-aborted-task-runs-the-drop-check`).
+
+`StackFallbackAllocator`: a buffer served first, a fallback allocator after;
+Zig's `stackFallback(N, fallback)`. It takes a borrowed buffer too,
+`new(buf : &mut [u8], fallback : Allocator) -> Self`, and is not generic in
+`N`: an inline `Array(u8, N)` in a movable value would relocate the bytes
+under live blocks, and nothing could observe it.
 
 ### 3.3 `ArenaAllocator`
 
@@ -325,11 +367,11 @@ A wrapper that writes one line per `alloc`/`realloc`/`free` to a `Writer`
 
 ### 3.8 `ThreadSafeAllocator`
 
-A mutex around any allocator whose `free` is not thread-safe. The landed
-rule, "a block can be freed on another thread, so an allocator shared
-across threads must make its `free` thread-safe", is what makes this
-wrapper necessary for a `FixedBufferAllocator` shared by value across a
-`Thread.spawn`; the arena allocators lock themselves and do not need it.
+**Leaves A1 (VERDICTS-79 Q1).** It was a mutex around an allocator whose
+`free` is not thread-safe, needed for a `FixedBufferAllocator` shared across
+threads. Every std allocator of §3 now holds its registry slot's spinlock in
+every vtable call, so none needs it. A user allocator that is not thread-safe
+can still be wrapped; whether std ships the wrapper for that is left open.
 
 ### 3.9 `TlsfAllocator`, then `SmpAllocator` (measured)
 
@@ -443,7 +485,7 @@ The first exists from phase A3; the second from A4.
 | --- | --- | --- | --- |
 | C0 | the root `global_allocator :: <value>` declaration and the `GlobalAlloc` trait; `std/heap/{system,mimalloc,tlsf,debug}.yo` as its first implementors; `--allocator` (compile and build), `--heap-size`, `--debug-heap` and `build.AllocatorKind` deleted (§7) | a seed that carries Generation A (Generation B declares `global_allocator` in `src/main.yo`) | §7.2 |
 | A0 | the allocator interface, version 2 (alignment; sized `free`) — already queued in `VALUES_BY_DEFAULT.md` §6 after V2b; this plan adds nothing to it | V2b | that item's tests |
-| A1 | `std/heap/`: `PageAllocator`, `FixedBufferAllocator` (+ the thread-safe variant, `StackFallbackAllocator`), `CAllocator`, `FailingAllocator`, `LoggingAllocator`, `ThreadSafeAllocator`; `FixedBufferAllocator` is new (`std/arena` was deleted 2026-10-24, nothing moves) | A0 for page alignment (the rest can land on version 1 with the 16-byte contract) | each allocator's unit tests; every existing counting-allocator test; a cli-case under `--allocator fixed` using `CAllocator` |
+| A1 | `std/heap/`, one module per allocator, no re-exporting `index.yo` (VERDICTS-79 Q3), in four PRs: (1) `registry.yo` + `fixed-buffer.yo` (`FixedBufferAllocator`), rows 1–14, docs, the pack; (2) `stack-fallback.yo`, `failing.yo`, `logging.yo` (a slot each, the child reached through its raw vtable); (3) `system.yo` (`CAllocator`) with the `--allocator fixed` cli-case; (4) `std/sys/pages.yo` + `page.yo` (`PageAllocator`), the only PR that touches codegen's runtime. No thread-safe variant and no `ThreadSafeAllocator` (§3.8) | A0 for page alignment | each allocator's unit tests; every existing counting-allocator test; a cli-case under `--allocator fixed` using `CAllocator` |
 | A2 | `DebugAllocator`, `--allocator debug`, `yo test --allocator debug` (Z11) | Z4 for sites, optional | the leak gates in the tree switch to it; a double-free and a size-mismatch abort test |
 | A3 | `ArenaAllocator` over a backing allocator with the three reset modes; `TlsfAllocator` over a region | A1 | reset-while-live panics; `Arc` dropped on another thread into an arena chunk; TLSF's stress harness over a page block |
 | A4 | the real arena (§4): `std/heap/bump.yo`, `alloc` with `TrivialDrop`, `alloc_list`, `alloc_dropping` | REFERENCES_AND_ORIGINS N2 | a dangling arena handle is E0911 at `reset`, at drop and at return; a cycle among arena values frees with the chunks; a tokenizer benchmark against A3's `ArenaAllocator` and the global heap, numbers recorded here |

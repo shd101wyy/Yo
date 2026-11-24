@@ -1,0 +1,25 @@
+// VERDICTS-79 row 12: an `Allocator` leaves the frame that owns its
+// FixedBufferAllocator through a `&mut` parameter (the route
+// issues/2026-11-24-an-allocator-value-outlives-its-state-through-a-reference-store-a-call-argument-or-a-push.md
+// describes). A new allocator then takes the same slot. Allocating through the
+// stale value panics: it reaches neither the dead frame nor the new allocator.
+{ FixedBufferAllocator } :: import("std/heap/fixed-buffer");
+{ println } :: import("std/fmt");
+set :: (fn(dst : &mut Allocator, a : Allocator) -> unit)({
+  dst.* = a;
+});
+fill :: (fn(dst : &mut Allocator) -> unit)({
+  mut(buf) := Array(u8, 256).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*);
+  set(dst, fba.allocator());
+});
+main :: (fn() -> unit)({
+  mut(stale) := Allocator.global();
+  fill(&mut stale);
+  mut(buf) := Array(u8, 256).fill(u8(0));
+  fresh := FixedBufferAllocator.new(&mut buf.*);
+  println(`the new allocator is not the stale one: ${!fresh.allocator().same(stale)}`);
+  b := Box.new(i32(7), alloc : .Some(stale));
+  println(`unreachable: ${b.*} ${fresh.live_blocks()}`);
+});
+export(main);

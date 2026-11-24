@@ -179,8 +179,77 @@ release still happens. What it does buy:
 It is not a general speedup: the global allocator (mimalloc) is already fast
 on its fast path, so measure before expecting a win.
 
-std ships no arena or fixed-buffer allocator: write the allocator you need as
-in [Writing your own allocator](#writing-your-own-allocator).
+std provides `FixedBufferAllocator`
+([The std allocators](#the-std-allocators-stdheap)); for anything else, write
+the allocator you need as in
+[Writing your own allocator](#writing-your-own-allocator).
+
+## The std allocators: `std/heap`
+
+`std/heap` holds allocators built on the `Allocator` interface, one module per
+allocator.
+
+### `FixedBufferAllocator` (`std/heap/fixed-buffer`)
+
+A bump allocator over a buffer that you lend to it for its whole life:
+
+```yo
+{ FixedBufferAllocator } :: import("std/heap/fixed-buffer");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+
+main :: (fn() -> unit)({
+  mut(buf) := Array(u8, 4096).fill(u8(0));
+  fba := FixedBufferAllocator.new(&mut buf.*); // `buf` is lent until `fba` is dropped
+  {
+    mut(xs) := ArrayList(i32).new(alloc : .Some(fba.allocator()));
+    xs.push(i32(1));
+    b := Box.new(i32(2), alloc : .Some(fba.allocator()));
+    println(`${fba.live_blocks()} blocks, ${fba.used_bytes()} of ${fba.capacity()} bytes, ${xs.len() + usize(b.*)}`);
+  };
+  println(`${fba.live_blocks()} blocks after the scope`); // 0
+});
+export(main);
+```
+
+| Member | What it does |
+| --- | --- |
+| `FixedBufferAllocator.new(buf : &mut [u8]) -> Self` | An allocator over `buf`. `&mut buf.*` lends an `Array(u8, N)`. |
+| `allocator(self : &Self) -> Allocator` | The value to pass as `alloc : .Some(a)`. Copies may go anywhere, other threads included. |
+| `capacity`, `used_bytes`, `live_blocks` (`self : &Self`) | The buffer's length; the bytes in use (owner prefixes and alignment padding included); the blocks placed and not yet released. |
+| `reset(self : &mut Self)` | Rewinds to an empty buffer. `Allocator` values made before it stay valid. |
+
+- **The buffer is lent for the allocator's whole life.** Until the handle is
+  dropped, the buffer cannot be read, written or moved (E0911), and the handle
+  cannot outlive the buffer: returning it (E0912), storing it in an outer
+  binding (E0911), in an `Rc`, in a module-level binding or in a thread's
+  captures (E0909) are compile errors. The handle itself may be moved.
+- **Blocks are released before the allocator.** The allocator counts its
+  blocks. Dropping it while one is live panics, as does `reset`:
+
+  ```text
+  FixedBufferAllocator dropped while blocks placed in it are live (live blocks: 1, bytes: 32). Release every block before the allocator is dropped.
+  ```
+
+  A container returned out of the function that owns the allocator, or a
+  block left in a caller's list when an `unwind` leaves that function, ends
+  this way.
+- **An `Allocator` value that outlives its allocator panics.** The value names
+  the allocator by a ticket, not by its address. After the drop, an
+  allocation through it panics (`allocation through a FixedBufferAllocator
+  that was dropped: this Allocator value outlived the allocator it came
+  from`), even when a later allocator reuses the same slot; a `realloc` or a
+  `free` routed to it panics the same way.
+- **Bump allocation.** Each block takes the next suitably aligned bytes.
+  Releasing the most recent block gives its bytes back; releasing any other
+  gives nothing back until `reset`. Growing the most recent block happens in
+  place; another block that grows moves. When the buffer is full, the
+  allocator returns `.None`: a placed `Box.new` then panics with out of
+  memory, and a container's `try_` operation reports
+  `AllocError.OutOfMemory`.
+- **Thread-safe.** Every operation takes the allocator's lock, so a block may
+  be released on another thread, and several threads may allocate through
+  copies of one `Allocator`.
 
 ## Threads and async tasks
 
@@ -353,8 +422,8 @@ bytes (the owner and the cell's extent), and a placed container buffer's is
 
 ## Limits
 
-- **No arena in std.** See
-  [When to use an explicit allocator](#when-to-use-an-explicit-allocator).
+- **No arena allocator in std.** `std/heap` has `FixedBufferAllocator` only
+  ([The std allocators](#the-std-allocators-stdheap)).
 - **Over-aligned types.** `Allocator.alloc`, the containers and `Box.new` ask for
   the payload's alignment, so an allocator can serve any power of two, and a
   global `Box` of a type aligned above 16 comes from the aligned family. A

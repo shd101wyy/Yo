@@ -154,7 +154,7 @@ ys := ArrayList(i32).new(); // no argument: the global allocator
 - **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`, so one allocator may serve several threads as long as its own callbacks are thread-safe.
 - **The allocator must outlive its blocks and its `Allocator` values.** A user-written allocator's context and vtable stay valid until every block it handed out is released. An `AllowUnsafe` allocator module whose `ctx` points at its own state also promises that the state outlives every `Allocator` value built from it: safe code can keep such a value past the state (stored through a reference, passed to a call that stores it, pushed into a container), and an allocation through it then reads freed memory. The compiler does not check either promise yet ([open issue](https://github.com/shd101wyy/Yo/blob/develop/issues/2026-11-24-an-allocator-value-outlives-its-state-through-a-reference-store-a-call-argument-or-a-push.md)).
 
-std ships no arena or fixed-buffer allocator; one is written against the `Allocator` interface ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
+std's `FixedBufferAllocator` (`std/heap/fixed-buffer`) places blocks in a buffer you lend it; it panics when it is dropped or reset while a block is live, and when an `Allocator` value outlives it. Other allocators are written against the `Allocator` interface ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
 
 Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `alloc` argument and `clone_in(a)` do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
 
