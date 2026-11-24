@@ -37,6 +37,8 @@ export(main);
 | **并行** | `Thread(T).spawn`     | 多个任务在不同线程上同时执行 |
 
 ```yo
+{ Thread } :: import("std/thread");
+
 // 并发：同一线程，交替执行
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
@@ -48,10 +50,12 @@ main :: (fn(io : Io) -> unit)({
 });
 
 // 并行：不同线程，真正的同时执行
-task := Task(i32, bool).spawn(parent -> .{
-  // 运行在不同线程上！
-  // 完全隔离——无共享内存
+thread := Thread(unit).spawn(io => {
+  // 运行在不同的线程上，拥有自己独立的事件循环。
+  // 隔离：只有 Send 值能越过线程边界。
+  ();
 });
+thread.join();
 ```
 
 ## 执行模型：基于代数效应的惰性启动

@@ -442,6 +442,8 @@ UserId :: newtype(value : i32);
 
 ```yo
 // counter.yo
+{ String } :: import("std/string");
+
 Counter :: struct(_count : i32, label : String);
 impl(
   Counter,
@@ -453,8 +455,12 @@ impl(
   count : (fn(self : Self) -> i32)(self._count)
 );
 export(Counter);
+```
 
-// app/main.yo —— 另一个目录
+另一个目录中的模块导入它：
+
+```yo
+// app/main.yo
 { Counter } :: import("../counter.yo");
 c := Counter.new(String.from("clicks")).add(i32(2));
 c.count(); // OK —— 公开方法

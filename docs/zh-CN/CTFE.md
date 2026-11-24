@@ -467,7 +467,7 @@ test("Compile-time assertions", {
 
   // 编译时类型检查
   T :: i32;
-  comptime_assert(Type.to_string(T) == "i32");
+  comptime_assert(Type.to_comptime_string(T) == "i32");
 });
 ```
 

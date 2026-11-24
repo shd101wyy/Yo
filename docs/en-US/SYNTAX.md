@@ -25,6 +25,8 @@ from `main` would have nowhere to go. Set a process exit status with `exit(code)
 ```yo
 { exit } :: import("std/process");
 
+ok :: (fn() -> bool)(true);
+
 main :: (fn() -> unit)({
   if(!ok(), {
     exit(usize(1));
@@ -342,7 +344,7 @@ prelude still carries the equivalent macro definition as the
 specification and as a fallback for dynamically constructed ASTs (see
 `std/prelude.yo` and `plans/reference/MACRO_POLICY.md`):
 
-```yo
+```yo ignore
 // Definition in prelude.yo (spec/fallback — normally desugared at parse time)
 if :: (
   fn(
@@ -358,8 +360,13 @@ if :: (
     )
   )
 );
+```
 
-// Usage
+Usage:
+
+```yo
+{ println } :: import("std/fmt");
+
 main :: (fn() -> unit)({
   // If no return type, it is unit
   number := 3;

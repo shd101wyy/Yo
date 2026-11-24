@@ -70,3 +70,14 @@ For each block: add the import, update the stale spelling, or copy the en block 
 ## Test
 
 The docs examples check, `python3 scripts/check-docs.py --checks examples` (CI job `docs-checks`, report-only until docs plan step 12), lists all 29 blocks today. When fixed it should report `0 failed` for these pages.
+
+## Fix
+
+Fixed on branch `docs/fix-manual-examples`; every edit is in `docs/en-US` and `docs/zh-CN`, in step. `python3 scripts/check-docs.py --checks examples` with a tree binary built from `01673f592` reports `197 program blocks (125 unique) checked, 0 failed`.
+
+- **Missing imports.** ASYNC_AWAIT (`std/thread`), BUILD_SYSTEM (`std/build`), DATA_TYPES (`std/string`), MODULES (`std/fmt`, `std/string`) and TESTING (`std/assert`, `std/sys/timer`) import what they use.
+- **DATA_TYPES "Private members"** is two files in one block. It is now two blocks: `counter.yo` is checked, the `app/main.yo` importer is a fragment.
+- **MODULES "Module importing and exporting"** exported an `Option` that collides with the prelude's. The type is `Maybe`, and the import fragment names `module1.yo` and `module2.yo`. MODULES "Definition Order" defines the `Greeter` trait its `impl` needs, and takes `&Dog` / `&Self` receivers.
+- **Stale code.** TESTING "Runtime Assertions" builds its array from `i32` values (`arr := [1, 2, 3]` is a comptime array, which `:=` rejects); "Testing Expected Errors" asserts the closure case through `Impl(Fn(...))` and the `Cannot reassign variable` message; SYNTAX Hello World defines the `ok()` it calls; SYNTAX if/else is split into the prelude definition (`yo ignore`: it redefines `if` and needs `Pragma.AllowMacroDef`) and a checked usage block.
+- **zh drift.** ASYNC_AWAIT "并发 vs 并行" carries en's `Thread(unit).spawn` example; CTFE and TESTING "编译时断言" use `Type.to_comptime_string(T)`; zh SYNTAX if/else and `while` match en.
+- **Sibling files.** MEMORY_SAFETY FFI and WASM Testing are `yo ignore`, each with a sentence saying the block needs its companion file. The alternative, teaching `check-docs.py` to supply a sibling, needs a naming convention for which earlier block is which file and is the larger change.

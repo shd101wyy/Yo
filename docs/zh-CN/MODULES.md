@@ -8,6 +8,8 @@
 
 ```yo
 // module1.yo
+{ println } :: import("std/fmt");
+
 test :: (fn() -> unit)({
   println("Hello, world!");
 });
@@ -15,21 +17,21 @@ export(test);
 
 // module2.yo
 // 导出类型
-Option :: (fn(comptime(T) : Type) -> comptime(Type))(
+Maybe :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Some(value : T),
     None
   )
 );
-export(Option);
+export(Maybe);
 ```
 
 ```yo
-{ ... } :: import("./test.yo"); // 从 test.yo 导入所有内容
-test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 Test 命名空间
-{ test } :: import("./test.yo"); // 从 test.yo 导入 test 函数
-{ test : test2 } :: import("./test.yo"); // 从 test.yo 导入 test 函数并重命名为 test2
-{ Option } :: import("./test.yo"); // 从 test.yo 导入 Option 类型
+{ ... } :: import("./module1.yo"); // 从 module1.yo 导入所有内容
+test_module :: import("./module1.yo"); // 从 module1.yo 导入所有内容并放入 test_module 命名空间
+{ test } :: import("./module1.yo"); // 从 module1.yo 导入 test 函数
+{ test : test2 } :: import("./module1.yo"); // 从 module1.yo 导入 test 函数并重命名为 test2
+{ Maybe } :: import("./module2.yo"); // 从 module2.yo 导入 Maybe 类型
 ```
 
 ### 同一个名字导入两次
@@ -57,6 +59,8 @@ impl，所以调用它们的模块要导入 `std/fmt`（任意一个绑定即可
 匿名模块使用 `impl` 关键字后跟一个 `begin` 块来定义：
 
 ```yo
+{ println } :: import("std/fmt");
+
 my_module :: impl({
   my_function :: (fn() -> unit)({
     println("Hello from my_module!");
@@ -111,6 +115,8 @@ inc :: (fn() -> unit)({
 `impl` 位于文件末尾的方法或 trait 默认实现。
 
 ```yo
+{ String } :: import("std/string");
+
 // 调用者在被调用者之前
 call_later :: (fn(n : i32) -> i32)(later_helper(n) * i32(2));
 later_helper :: (fn(n : i32) -> i32)(n + i32(1));
@@ -130,9 +136,13 @@ Point :: struct(x : i32, y : i32);
 SCALE :: i32(7);
 
 // impl 位于使用它的自由函数之后——包括 trait 默认方法
-say_hi :: (fn(d : Dog) -> String)(d.greet());
+say_hi :: (fn(d : &Dog) -> String)(d.greet());
 Dog :: struct(n : String);
-impl(Dog, Greeter(name : (fn(self : Self) -> String)(self.n.clone())));
+Greeter :: trait(
+  name : (fn(self : &Self) -> String),
+  (greet : (fn(self : &Self) -> String)) ?= (self -> (`hi ` + self.name()))
+);
+impl(Dog, Greeter(name : (fn(self : &Self) -> String)(self.n.clone())));
 
 // derive 位于调用其派生方法的函数之后
 copy_bag :: (fn(b : &Bag) -> Bag)(b.clone());

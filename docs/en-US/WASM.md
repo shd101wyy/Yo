@@ -391,9 +391,9 @@ inside the data.
 Debug natively first. The same API compiles for the host, where
 AddressSanitizer reports a bad pointer at its source; a wasm build has no
 sanitizer (`--sanitize` is ignored when the C compiler is `emcc`). A native
-smoke test calls the API the way JavaScript will:
+smoke test calls the API the way JavaScript will. It imports `wasm_api.yo`, so it needs that file beside it (a block that reads a companion file is not checked on its own):
 
-```yo
+```yo ignore
 // src/smoke.yo
 //! Native smoke test for the WASM API: run it under AddressSanitizer first.
 pragma(Pragma.AllowUnsafe);

@@ -9,6 +9,8 @@ names are in [SYNTAX.md](./SYNTAX.md#naming-convention).
 
 ```yo
 // module1.yo
+{ println } :: import("std/fmt");
+
 test :: (fn() -> unit)({
   println("Hello, world!");
 });
@@ -16,21 +18,21 @@ export(test);
 
 // module2.yo
 // Export the type
-Option :: (fn(comptime(T) : Type) -> comptime(Type))(
+Maybe :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Some(value : T),
     None
   )
 );
-export(Option);
+export(Maybe);
 ```
 
 ```yo
-{ ... } :: import("./test.yo"); // Import everything from test.yo
-test_module :: import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
-{ test } :: import("./test.yo"); // Import test function from test.yo
-{ test : test2 } :: import("./test.yo"); // Import test function from test.yo and rename it to test2
-{ Option } :: import("./test.yo"); // Import Option type from test.yo
+{ ... } :: import("./module1.yo"); // Import everything from module1.yo
+test_module :: import("./module1.yo"); // Import everything from module1.yo and put it in the test_module namespace
+{ test } :: import("./module1.yo"); // Import test function from module1.yo
+{ test : test2 } :: import("./module1.yo"); // Import test function from module1.yo and rename it to test2
+{ Maybe } :: import("./module2.yo"); // Import Maybe type from module2.yo
 ```
 
 ### Importing a name twice
@@ -63,6 +65,8 @@ the tool for adding the missing import lines.
 The anonymous module is defined using `impl` keyword followed by a `begin` block:
 
 ```yo
+{ println } :: import("std/fmt");
+
 my_module :: impl({
   my_function :: (fn() -> unit)({
     println("Hello from my_module!");
@@ -119,6 +123,8 @@ functions, a free function that calls a method or trait default whose `impl`
 sits at the end of the file.
 
 ```yo
+{ String } :: import("std/string");
+
 // caller above callee
 call_later :: (fn(n : i32) -> i32)(later_helper(n) * i32(2));
 later_helper :: (fn(n : i32) -> i32)(n + i32(1));
@@ -138,9 +144,13 @@ Point :: struct(x : i32, y : i32);
 SCALE :: i32(7);
 
 // an impl below the free function that uses it — the trait default included
-say_hi :: (fn(d : Dog) -> String)(d.greet());
+say_hi :: (fn(d : &Dog) -> String)(d.greet());
 Dog :: struct(n : String);
-impl(Dog, Greeter(name : (fn(self : Self) -> String)(self.n.clone())));
+Greeter :: trait(
+  name : (fn(self : &Self) -> String),
+  (greet : (fn(self : &Self) -> String)) ?= (self -> (`hi ` + self.name()))
+);
+impl(Dog, Greeter(name : (fn(self : &Self) -> String)(self.n.clone())));
 
 // a derive below the function that calls the method it derives
 copy_bag :: (fn(b : &Bag) -> Bag)(b.clone());

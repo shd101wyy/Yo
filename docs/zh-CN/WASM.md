@@ -371,9 +371,9 @@ function readStringWithStoredLength(mod, ptr, lenPtr) {
 
 先在原生平台上调试。同一套 API 可以为宿主机编译，AddressSanitizer 会在出错的源头报告坏指针；
 wasm 构建没有 sanitizer（C 编译器为 `emcc` 时 `--sanitize` 会被忽略）。原生冒烟测试以
-JavaScript 将要使用的方式调用 API：
+JavaScript 将要使用的方式调用 API。它导入 `wasm_api.yo`，因此需要该文件与它放在一起（读取配套文件的代码块不会被单独检查）：
 
-```yo
+```yo ignore
 // src/smoke.yo
 //! WASM API 的原生冒烟测试：先在 AddressSanitizer 下运行。
 pragma(Pragma.AllowUnsafe);
