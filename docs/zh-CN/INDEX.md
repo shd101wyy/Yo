@@ -9,7 +9,8 @@ Yo 手册的总览：每一页讲什么、按什么顺序阅读，以及没有�
 1. [INSTALL](./INSTALL.md)：编译器及其 C 工具链。
 2. `yo context`：上下文包，一份用已安装编译器编写 Yo 的精简指南
    （[CONTEXT](./CONTEXT.md)）。
-3. [DESIGN](./DESIGN.md)：逐章介绍语言。
+3. [SYNTAX](./SYNTAX.md)、[DATA_TYPES](./DATA_TYPES.md)、[FUNCTIONS](./FUNCTIONS.md)、
+   [CLOSURES](./CLOSURES.md) 与 [PATTERN_MATCHING](./PATTERN_MATCHING.md)：语言核心。
 4. [OWNERSHIP_AND_BORROWING](./OWNERSHIP_AND_BORROWING.md)：移动、克隆与引用，
    第一个程序最常出错的规则。
 5. 其余按主题阅读，见下文。
@@ -27,7 +28,16 @@ Yo 手册的总览：每一页讲什么、按什么顺序阅读，以及没有�
 
 ## 语言
 
-- [DESIGN](./DESIGN.md)：语法、类型、函数、闭包、trait、模式匹配、错误处理、模块与测试。
+- [SYNTAX](./SYNTAX.md)：调用与运算符（无优先级）、绑定与 `mut`、字面量、控制流、算术失败、
+  命名与 `yo fmt`。
+- [DATA_TYPES](./DATA_TYPES.md)：原始类型、结构体、元组、数组与区间、枚举与 ADT、联合体、
+  newtype、私有成员与集合。
+- [FUNCTIONS](./FUNCTIONS.md)：声明、参数模式与引用、命名参数与默认参数、泛型、偏应用、类型方法。
+- [CLOSURES](./CLOSURES.md)：捕获、捕获列表、`FnOnce`/`FnMut`、`Impl(Fn(...))` 与
+  `Dyn(Fn(...))`。
+- [PATTERN_MATCHING](./PATTERN_MATCHING.md)：`match`、模式的形式、守卫与穷尽性。
+- [DESIGN](./DESIGN.md)：其余章节：共享单元、指针、高级类型、trait、字符串、`Box`/`Rc`、
+  `Impl`/`Dyn`、错误处理、模块、测试与编译期求值。
 - [DEFINITION_ORDER](./DEFINITION_ORDER.md)：模块内的 `::` 定义、`impl` 注册与 `derive`
   语句与顺序无关。
 - [STRINGS](./STRINGS.md)：以字节偏移索引的 UTF-8 字符串。

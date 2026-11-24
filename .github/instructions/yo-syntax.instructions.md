@@ -1092,7 +1092,7 @@ forced on the first lookup that would miss.
 ## Integers
 
 - `+`, `-`, `*` overflow, `-MIN`, `/`/`%` by zero or `MIN / -1`, and a shift count outside `[0, width)`
-  abort at run time with `file:line:col` (`docs/en-US/DESIGN.md`, "Arithmetic and Failure Semantics").
+  abort at run time with `file:line:col` (`docs/en-US/SYNTAX.md`, "Arithmetic and Failure Semantics").
   Arithmetic that wraps by design calls `wrapping_add` / `wrapping_sub` / `wrapping_mul`.
 - On compile-time constants the same expressions are E1102; a left shift wraps the bits it shifts out as
   at run time. A test asserting wrap-around therefore needs `wrapping_*` on run-time values.
