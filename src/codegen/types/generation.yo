@@ -988,7 +988,8 @@ typedef __yo_ref_header_t __yo_rc_prefix_t;`
   // its extent `{size, align}` in the 16 bytes before the owner: a 32-byte
   // prefix, or `max(32, align)` (lookahead D14). The owner stays in the 16
   // bytes before the object, so `__yo_scope_of_object` reads one place.
-  context.emitter.emit_declaration_string_line(`
+  context.emitter.emit_declaration_string_line(
+    `
 #define __YO_RC_TAG 0x80000000u
 #define __YO_RC_COUNT 0x7fffffffu
 #define __YO_ALLOC_PREFIX_SIZE 16
@@ -1026,7 +1027,8 @@ static inline void __yo_rc_free(void* ptr) {
   } else {
     __yo_free(ptr);
   }
-}`);
+}`
+  );
   // `__yo_rc_alloc_in`: a cell placed by an explicit allocator.
   alloc_in_fn := `// A cell of alignment \`align\` placed by an explicit allocator: from \`s\`
 // (with the extent and the owner in front, \`max(32, align)\` bytes), or from
