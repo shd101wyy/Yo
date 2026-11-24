@@ -184,7 +184,9 @@ pragma(Pragma.AllowUnsafe);
   deref_rule_applies,
   reject_reference_without_deref,
   ref_payload_source,
-  is_reference_read
+  is_reference_read,
+  reference_field_store_mark,
+  reference_field_store_clear
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1745,7 +1747,11 @@ evaluate_assignment :: (
     ctx.is_lhs_of_assignment = true;
     // The target's place is judged as a write below, not as a read.
     local_borrow_mark_receiver(&lhs);
+    // `h.r = &y` on a reference field `r`: E0926 at the target names the
+    // store (`reference_field_store_mark`).
+    rfs_label := reference_field_store_mark(&lhs, &rhs, &env);
     evaluated_lhs := evaluate_expression_raw(&lhs, &env, ctx, exn);
+    match(&rfs_label, .Some(rfs_tok) => reference_field_store_clear(rfs_tok), .None => ());
     local_borrow_clear_receiver();
     // D3 past the root: an inner hop may pass through an atomic object
     // (`s.a.* = v`, `t.0.*.n = v`), which the root check above cannot see.
@@ -1870,7 +1876,7 @@ evaluate_assignment :: (
     // needs `mut(name)` (after E0918, which answers a runtime write of a
     // compile-time binding).
     pw_how := if(ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))), String.from("write a field of"), String.from("write an element of"));
-    place_require_mut(&evaluated_lhs, &ast_expr_token(&lhs), &pw_how, false, &env, ctx, exn);
+    place_require_mut(&evaluated_lhs, &ast_expr_token(&lhs), &pw_how, false, false, &env, ctx, exn);
     // A write of the place: E0908 through an `imm` local borrow, E0911 while a
     // borrow of an overlapping place is live (plans/VALUES_BY_DEFAULT.md
     // decision 18).

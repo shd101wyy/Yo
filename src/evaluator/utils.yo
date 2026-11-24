@@ -297,6 +297,9 @@ derive(BorrowMatchSourceDecl, Clone);
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
+/// The stores `h.r = e` being judged whose right side is a reference, by
+/// their target label's source position (`reference_field_store_mark`).
+(g_reference_field_stores : RefCell(HashMap(String, ReferenceFieldStore))) = RefCell(HashMap(String, ReferenceFieldStore)).new(HashMap(String, ReferenceFieldStore).new());
 /// The nodes the read rule (decision 43 step 2 N1e-2b) types as a reference
 /// VALUE — a reference binding's read, a projection's result, a reference
 /// field's read at a position expecting a reference. Their C is still the
@@ -3236,29 +3239,54 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
 /// E0908: a write of `place` that goes through a `&` reference field
 /// (`v.at.* = x`, `v.at.f = x` or `&mut v.at` with `at : &(T, p)`, decision
 /// 43 step 2 N1e-2). The field lends the place it refers to read-only, as a
-/// `&T` parameter does; a `&mut` field lends it writable.
-reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+/// `&T` parameter does; a `&mut` field lends it writable. `lent_by_marker`:
+/// the place is lent by a written `&mut` (`&mut v.at`, not a `&mut self`
+/// receiver or a reference passed whole); when the place is the field
+/// itself, the message says that the lend is of the reference field.
+reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Token, lent_by_marker : bool, ctx : &EvalContext, exn : Exception) -> unit)({
   if(g_reference_field_reads.with(_c_len_2) == usize(0), {
     return(());
   });
   (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
+  (rw_top : bool) = true;
   while(!ast_expr_is_atom(&cur), {
-    if(match(reference_field_read_mode(ast_expr_id(&cur)), .Some(rw_mut) => !rw_mut, .None => false), {
-      rw_text := _place_text(&cur);
-      raise_flow_violation(
-        with_code(
-          format_error_message_with_help(
-            tok,
-            `Cannot write through \`${rw_text}\`: it is a \`&\` reference field, a read-only borrow of the place it refers to.`,
-            Option(String).Some(`declare the field \`&mut\` to write through it, or copy the value into a local first (\`q := ${rw_text}.*;\`) and write the copy`)
+    match(
+      reference_field_read_type(ast_expr_id(&cur)),
+      .Some(rw_ty) => if(!t_slot_is_mut_ref(&rw_ty), {
+        rw_text := _place_text(&cur);
+        // `&mut v.at` lends the field; `&mut v.at.*` (rewritten to the field
+        // read with its label at the `*`, a deref site) lends its referent.
+        rw_label := match(
+          Rc.clone(cur),
+          Rc(.FnCall(_, _, Rc(rw_largs), _, _)) => match(rw_largs.get_cloned(usize(1)), .Some(rw_l) => Option(Token).Some(ast_expr_token(&rw_l)), .None => Option(Token).None),
+          Rc(.Atom(_, _)) => Option(Token).None
+        );
+        rw_lends_field := (lent_by_marker && rw_top && match(&rw_label, .Some(rw_lt) => !is_reference_deref_site(rw_lt), .None => false));
+        raise_flow_violation(
+          with_code(
+            if(
+              rw_lends_field,
+              format_error_message_with_help(
+                tok,
+                `\`&mut ${rw_text}\` lends the reference field itself (\`${type_to_string_for_message(&rw_ty)}\`), not the place it refers to, and a reference field is not re-pointed in place.`,
+                Option(String).Some(`to re-point \`${rw_text}\`, write the whole holder with the new reference in that field; to write the place it refers to, declare the field \`&mut\` and lend \`&mut ${rw_text}.*\``)
+              ),
+              format_error_message_with_help(
+                tok,
+                `Cannot write through \`${rw_text}\`: it is a \`&\` reference field, a read-only borrow of the place it refers to.`,
+                Option(String).Some(`declare the field \`&mut\` to write through it, or copy the value into a local first (\`q := ${rw_text}.*;\`) and write the copy`)
+              )
+            ),
+            E_WRITE_THROUGH_BORROW
           ),
-          E_WRITE_THROUGH_BORROW
-        ),
-        ctx,
-        exn
-      );
-      return(());
-    });
+          ctx,
+          exn
+        );
+        return(());
+      }),
+      .None => ()
+    );
+    rw_top = false;
     (rw_next : AstExpr) = match(
       Rc.clone(cur),
       Rc(.FnCall(_, rw_callee, Rc(rw_args), rw_infix, _)) => cond(
@@ -3279,8 +3307,10 @@ reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Toke
 /// call or `&mut` lend of the handle writes what it points to, not the
 /// binding). A module-level root is judged by the globals step at its own
 /// sites, and a compile-time root holds no runtime storage to lend.
-place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  reject_write_through_shared_reference_field(place, tok, ctx, exn);
+/// `lent_by_marker`: the place is lent by a written `&mut`
+/// (`reject_write_through_shared_reference_field`).
+place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, lent_by_marker : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  reject_write_through_shared_reference_field(place, tok, lent_by_marker, ctx, exn);
   root := place_root_binding(place, env, ctx);
   // Memory safety, not decision 47's marker, so every tree: a write of an
   // implicit capture where the closure may not write it (A46), and a write
@@ -6937,12 +6967,34 @@ reference_field_read_mode :: (fn(id : usize) -> Option(bool))(
 is_reference_field_read :: (fn(id : usize) -> bool)(reference_field_read_mode(id).is_some());
 /// E0926 at a field read `text` whose field is the reference `ref_ty`, used
 /// as a whole value without `.*` (N1e-2; the binding form is
-/// `reject_reference_without_deref`). `tok` is the field label's token.
+/// `reject_reference_without_deref`). `tok` is the field label's token. At
+/// the target of a store whose right side is a reference (`h.r = &y`,
+/// `reference_field_store_mark`) the message says what the store is and
+/// spells it as the whole-holder store.
 reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   if(ctx.is_in_function_call_checking_phase, {
     return(());
   });
   shown := type_to_string_for_message(ref_ty);
+  match(
+    _reference_field_store_at(tok),
+    .Some(st) => {
+      raise_flow_violation(
+        &with_code(
+          format_error_message_with_help(
+            tok,
+            `\`${text} = ${st.rhs_text}\` stores a reference into the field \`${label}\` (\`${shown}\`): a reference field is set by writing the whole holder`,
+            Option(String).Some(`write the whole holder: \`${_reference_field_store_whole_holder(&st, label, ctx)}\``)
+          ),
+          E_REFERENCE_READ_WITHOUT_DEREF
+        ),
+        ctx,
+        exn
+      );
+      return(());
+    },
+    .None => ()
+  );
   raise_flow_violation(
     &with_code(
       format_error_message_with_help(
@@ -6955,6 +7007,95 @@ reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref
     ctx,
     exn
   );
+});
+/// A store `h.r = e` whose right side is spelled as a reference (a borrow
+/// `&x` / `&mut x`, or a reference binding), recorded while its target is
+/// evaluated: E0926 at the target names the store
+/// (`reject_reference_field_without_deref`). `holder` is `h` as written,
+/// `holder_is_reference` when `h` names a reference binding (its whole
+/// holder is `h.*`), `rhs_text` is `e` as written.
+ReferenceFieldStore :: struct(holder : AstExpr, holder_is_reference : bool, rhs_text : String);
+derive(ReferenceFieldStore, Clone);
+_c_len_rfs :: (fn(m : &HashMap(String, ReferenceFieldStore)) -> usize)(m.len());
+_names_reference_binding :: (fn(e : &AstExpr, env : &Environment) -> bool)(
+  ast_expr_is_atom(e) && match(get_variables_from_env(env, ast_expr_token(e).value.*.clone()).last_cloned(), .Some(v) => variable_is_reference_binding(&v), .None => false)
+);
+/// Before the target `lhs` of `lhs = rhs` is evaluated: records the store
+/// when `lhs` is a field `h.r` and `rhs` is spelled as a reference. Returns
+/// the field label's token, for `reference_field_store_clear`.
+reference_field_store_mark :: (fn(lhs : &AstExpr, rhs : &AstExpr, env : &Environment) -> Option(Token))({
+  if(!ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(Token).None);
+  });
+  rfs_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(Option(Token).None));
+  holder := match(rfs_args.get_cloned(usize(0)), .Some(a) => a, .None => return(Option(Token).None));
+  label := match(rfs_args.get_cloned(usize(1)), .Some(a) => a, .None => return(Option(Token).None));
+  if(!ast_expr_is_atom(&label) || (ast_expr_token(&label).value.* == "*"), {
+    return(Option(Token).None);
+  });
+  rhs_text := cond(
+    ast_expr_is_fn_call_of(rhs, BF_ADDRESS_OF, Option(usize).Some(usize(1))) => `&${_place_text(rhs)}`,
+    ast_expr_is_fn_call_of(rhs, BK_BORROW_MUT, Option(usize).Some(usize(1))) => `&mut ${_place_text(rhs)}`,
+    _names_reference_binding(rhs, env) => _place_text(rhs),
+    true => return(Option(Token).None)
+  );
+  label_tok := ast_expr_token(&label);
+  key := _reference_deref_site_key(&label_tok);
+  store := ReferenceFieldStore(holder : holder.clone(), holder_is_reference : _names_reference_binding(&holder, env), rhs_text : rhs_text);
+  _old := g_reference_field_stores.with_mut({ key, store }(m) => m.insert(key, store));
+  Option(Token).Some(label_tok)
+});
+/// After the target was evaluated (`reference_field_store_mark`).
+reference_field_store_clear :: (fn(label_tok : &Token) -> unit)({
+  key := _reference_deref_site_key(label_tok);
+  _old := g_reference_field_stores.with_mut({ key }(m) => m.remove(&key));
+  ()
+});
+/// The store whose target field's label is at `tok`.
+_reference_field_store_at :: (fn(tok : &Token) -> Option(ReferenceFieldStore))(
+  if(g_reference_field_stores.with(_c_len_rfs) == usize(0), Option(ReferenceFieldStore).None, g_reference_field_stores.with({ tok : &tok.* }(m) => m.get_cloned(&_reference_deref_site_key(tok))))
+);
+/// The whole-holder store `st` spells for its field `label`:
+/// `h = H(r : &y, n : h.n)`, `t = (&y, t.1)`, `w.* = H(r : &y, n : w.n)`.
+_reference_field_store_whole_holder :: (fn(st : &ReferenceFieldStore, label : &String, ctx : &EvalContext) -> String)({
+  holder := _place_text(&st.holder);
+  target := if(st.holder_is_reference, `${holder}.*`, holder.clone());
+  fallback := `${target} = …(${label} : ${st.rhs_text}, …the other fields of ${holder})`;
+  mut(holder_ty) := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_rewritten_node(&st.holder))),
+    .Some(hi) => t_refine_inner(&hi.ty()),
+    .None => return(fallback)
+  );
+  if(t_slot_is_borrow(&holder_ty), {
+    holder_ty = t_refine_inner(&t_slot_pointee(&holder_ty));
+  });
+  is_tuple := is_tuple_type(&holder_ty);
+  labels := match(
+    &holder_ty,
+    Rc(.Tuple(tl, _)) => Option(SharedList(String)).Some(Rc.clone(tl)),
+    Rc(.Struct({ field_labels : sl, is_source_namespace : sns })) => if(sns.*, Option(SharedList(String)).None, Option(SharedList(String)).Some(Rc.clone(sl))),
+    _ => Option(SharedList(String)).None
+  );
+  match(
+    labels,
+    .Some(ls) => {
+      parts := String.new();
+      (i : usize) = usize(0);
+      while(i < ls.items.len(), i = (i + usize(1)), {
+        // A tuple's positional element is labelled by its index (or not at
+        // all) and is spelled bare; a labelled one is `name : value`.
+        position := i.to_string();
+        name := if(ls.items(i).len() == usize(0), position.clone(), ls.items(i).clone());
+        value := if(name == label.*, st.rhs_text.clone(), `${holder}.${name}`);
+        if(i > usize(0), {
+          parts.push_str(", ");
+        });
+        if(is_tuple && (name == position), parts.push_string(&value), parts.push_string(&`${name} : ${value}`));
+      });
+      if(is_tuple, `${target} = (${parts})`, `${target} = ${type_to_string_for_message(&holder_ty)}(${parts})`)
+    },
+    .None => fallback
+  )
 });
 /// After `e` was evaluated.
 deref_exempt_clear :: (fn() -> unit)({
@@ -14632,6 +14773,8 @@ export(
   reference_field_read_mode,
   reference_field_read_type,
   reject_reference_field_without_deref,
+  reference_field_store_mark,
+  reference_field_store_clear,
   reject_write_through_shared_reference_field,
   note_reference_deref_site,
   is_reference_deref_site,
