@@ -98,6 +98,7 @@ export(main);
 - 用 `.yo-version` [固定版本](./VERSION_MANAGEMENT.md)
 - 编辑器：[LSP 配置](./LSP.md)；Vim/Neovim 语法文件见 [vscode-extension/syntaxes](../../vscode-extension/syntaxes/README.md)
 - 示例：[raylib-yo](https://github.com/shd101wyy/raylib-yo)、[tetris-yo](https://github.com/shd101wyy/tetris-yo)（[在线试玩](https://shd101wyy.github.io/tetris-yo/)）、[http-server-demo-yo](https://github.com/shd101wyy/http-server-demo-yo)、[markdown-it-yo](https://github.com/shd101wyy/markdown-it-yo)、[markdown-yo](https://github.com/shd101wyy/markdown-yo)（[在线试用](https://shd101wyy.github.io/markdown-yo/)）
+- [设计哲学与灵感来源](../about/zh-CN/PHILOSOPHY.md)
 - [我与编程语言的故事](../about/zh-CN/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md)
 
 ## 贡献

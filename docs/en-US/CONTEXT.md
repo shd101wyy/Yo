@@ -61,7 +61,7 @@ exits 2.
 
 ## The manuals
 
-The pack points to the in-depth manuals (GRAMMAR, DESIGN, MEMORY_SAFETY,
+The pack points to the in-depth manuals (GRAMMAR, SYNTAX, MEMORY_SAFETY,
 ASYNC_AWAIT, …); `INDEX` maps them by topic. Release bundles ship them as `docs/en-US/` beside `std/` and
 `pack/`, so `yo context` prints the copy that matches the installed toolchain,
 not whatever the repository's `develop` branch says today:

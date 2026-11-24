@@ -76,14 +76,14 @@ Yo 程序用来构造数据的类型：原始类型、结构体、元组、数�
 #### 静态/动态分派类型：
 
 - `Impl(Trait)`（实现了 Trait 的静态分派类型）
-- `Dyn(Trait)`（动态分派：非定长的 trait 对象，放在 `Box(Dyn(Trait))`、`Rc(Dyn(Trait))` 或 `&Dyn(Trait)` 这样的指针后面使用；见 [DYN_DESIGN.md](./DYN_DESIGN.md)）
+- `Dyn(Trait)`（动态分派：非定长的 trait 对象，放在 `Box(Dyn(Trait))`、`Rc(Dyn(Trait))` 或 `&Dyn(Trait)` 这样的指针后面使用；见 [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)）
 
 #### 非定长类型
 
 没有自身大小的类型只能放在指针后面：`&T`、`&mut T`、`*T`，或者 `Box(T)` 这样的拥有型句柄。共有三种：
 
 - `[T]`（`Slice(T)`），一段 `T`，其长度由指针携带。`unsize(&a)` 把 `&Array(T, N)` 变成 `&[T]`（`&mut a` 和 `*Array(T, N)` 同理），而 `&xs(a..b)` 是对容器一部分的视图，不做复制，该容器的 `Index(Range(usize))` impl 的 `Output : [T]`。`size_of_val(s)` 和 `align_of_val(s)` 通过指针测量。
-- `Dyn(Trait, ...)`，trait 对象，其指针携带虚表（[DYN_DESIGN.md](./DYN_DESIGN.md)）。
+- `Dyn(Trait, ...)`，trait 对象，其指针携带虚表（[TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)）。
 - 最后一个字段是非定长的结构体。
 
 指向非定长类型的指针是两个字：地址，以及长度或虚表。按值使用非定长类型（局部变量、按值参数或结果、非结构体最后一个字段的字段、元素、`size_of(T)`）是 E0619，对非定长位置赋值也是。`unsize` 和 `dyn` 改变的是指针的类型，从不是值的类型，所以对值写 `unsize(a)` 是 E0620。`generic(T : Type)` 绑定器带有隐含约束 `where(T <: Sized)`；函数体只在指针后面使用 `T` 的泛型写作 `generic(T : ?Sized)`，同样接受非定长类型，其函数体在定义处检查：

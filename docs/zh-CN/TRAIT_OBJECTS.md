@@ -1,4 +1,8 @@
-# Dyn/dyn 动态分派实现
+# Trait 对象：`Dyn` 与 `dyn`
+
+通过 trait 对象进行动态分派：`Dyn(Trait)`、`dyn(...)` 擦除、对象安全、`downcast` 与
+`upcast`、trait 对象的所有权、存在类型，以及何时选择 `Impl` 而不是 `Dyn`。trait 本身见
+[TRAITS.md](./TRAITS.md)。
 
 ## 概述
 
@@ -271,3 +275,146 @@ d.speak(); // error[E0901]: use of moved value: `d`
 4. **`dyn(...)` 是唯一显式写出的非定长化**：`dyn(Box.new(v))`、`dyn(Rc.new(v))`、`dyn(Arc.new(v))`、`dyn(&v)`、`dyn(&mut v)`。
 5. **`downcast` 和 `upcast` 保持指针的种类**：通过引用时，`downcast` 把载荷借用为 `Option(&V)`；`upcast` 替换虚表那个字。
 6. **`Rc(Dyn(T))`/`Arc(Dyn(T))` 需要两次分配**，并拒绝拥有型 `downcast`。
+
+## 动态分发
+
+### `Dyn` 和 `dyn`
+
+`Dyn(Trait, ...)` 是 trait 对象：任何实现了所列 trait 的具体类型，被擦除后通过虚表调用它的方法。它是非定长的，所以放在指针后面使用，由指针决定谁拥有它：`Box(Dyn(Trait))` 拥有它，`Rc(Dyn(Trait))` 共享它，`&Dyn(Trait)` 借用它。`dyn(...)` 是唯一的入口：`dyn(Box.new(v))`、`dyn(Rc.new(v))`、`dyn(Arc.new(v))`、`dyn(&v)` 和 `dyn(&mut v)` 擦除的是该指针的指向类型。
+
+`dyn(...)` 所在的位置必须能指明要构造哪一个 `Dyn(...)` —— 参数、带标注的绑定 `(x : Box(Dyn(Trait))) = dyn(Box.new(v))`、声明的返回类型、结构体字段或集合元素槽位。在没有这类期望类型的位置直接写裸 `dyn(...)`（例如 `downcast(dyn(...), T)` 的第一个参数）是编译错误：`cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`。
+
+**主要特性：**
+
+- 所有权属于指针：`Box` 独占，`Rc`/`Arc` 共享且只读，`&`/`&mut` 借用
+- `dyn(&v)` 不分配任何内存
+- `downcast` 和 `upcast` 保持指针的种类
+- 一个 `Dyn` 中可以有多个 trait：`Dyn(Speak, Run)`
+
+`Dyn` 只能位于指针之后：裸的 `Dyn(Trait)` 值类型是 E0619，对普通值写的 `dyn(v)` 是 E0620（`dyn(Box.new(v))` 会为它装箱）。
+
+### 示例
+
+```yo
+{ println } :: import("std/fmt");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Run :: trait(run : (fn(self : &Self) -> i32));
+Dog :: struct(legs : i32);
+impl(Dog, Speak(speak : ((self : &Self) -> i32(1))));
+impl(Dog, Run(run : ((self : &Self) -> self.legs)));
+
+act :: (fn(s : &Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
+
+main :: (fn() -> unit)({
+  dog := Dog(legs : i32(4));
+  a := act(dyn(&dog)); // 借用的 trait 对象：不分配
+  (owned : Box(Dyn(Speak, Run))) = dyn(Box.new(Dog(legs : i32(3)))); // 拥有的 trait 对象
+  b := act(&owned.*);
+  total := (a + b);
+  println(&total);
+});
+export(main);
+```
+
+## 存在类型
+
+"存在类型"指一个具体类型被藏在接口之后的值：`∃T. (T, 对 T 的操作)`。Yo 以一个
+单态化 C 后端负担得起的两种形式提供它，并且有意不提供第三种。按需求选择：
+
+| 你想要…… | 用 | 藏的是什么，怎么藏 |
+| --- | --- | --- |
+| 把**不同**具体类型的值放进同一个变量、字段或集合，并对它们调用 trait 方法 | `Box(Dyn(Trait))` + `dyn(Box.new(v))`，或 `&Dyn(Trait)` + `dyn(&v)` | 类型被**擦除**：一个胖指针 `{data, vtable}`；使用者只能用到 vtable。只能通过 `downcast(&d.*, T)` 找回具体类型。 |
+| 返回**一个**具体类型但不点名它（闭包、迭代器、future） | 返回位置的 `Impl(Trait)`、`Impl(Fn(...))`、`Impl(Future(T, E))` | 类型是**不透明的，但没有被擦除**：每条返回路径必须产出同一个具体类型，编译器对调用方做单态化，不装箱。 |
+| 隐藏类型所依赖的**长度**或其他值（ATS / DML 里的 `[n:nat] list(a, n)`） | 一个普通的运行时值加上契约：`ensures(r.len() == ...)`、`requires(i < xs.len())`、`refine(T, p)` | 见证是验证器推理的**幽灵值**（[FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)）；运行时什么都不存在。 |
+
+### 打包形式：`Dyn(Trait)`
+
+```yo
+Shape :: trait(area : (fn(self : &Self) -> f64));
+
+// 异构列表：每个元素的具体类型已经消失，只剩 `Shape`。
+mut(shapes) := ArrayList(Box(Dyn(Shape))).new();
+shapes.push(dyn(Box.new(Circle(r : f64(1.0)))));
+shapes.push(dyn(Box.new(Square(side : f64(2.0)))));
+for(&shapes, s => println(s.area()));
+```
+
+trait 必须是对象安全的（接收者是 `&Self` 或 `&mut Self`、签名中没有其他
+`Self`、没有 `generic(...)` 参数），每个元素通过它的 `Box` 拥有自己的载荷，
+向更小的 trait 集合上转型必须显式写出：
+`upcast(d, Dyn(Sub))`。
+
+### 不透明形式：`Impl(Trait)` 与闭包
+
+```yo
+// 调用方写不出闭包的类型；编译器却精确地知道它。
+make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
+```
+
+每个闭包都是自己的类型，所以一个 `Impl(Fn(...))` 槽只能装一个闭包，装它们的
+容器是 `ArrayList(type_of(k))`——同一个容器里装两个不同的闭包需要
+`Dyn(Fn(...))`（见[闭包类型限制](./CLOSURES.md#闭包类型限制)）。`Impl(Future(T, E))` 是
+`async` 结果的同一形态。
+
+#### 裸函数类型中不能出现 `Impl(Fn(...))`
+
+`fn(...) -> R` 类型是一个 C 函数指针，所以这种类型的槽——运行时参数、
+struct/enum/tuple/union 字段、函数结果——必须只有一种表示。`Impl(Fn(...))`
+没有：每个返回 `Impl(Fn() -> i32)` 的函数都按值返回它自己的闭包结构体，
+而接受 `Impl(Fn(...))` 参数的函数会按闭包分别特化。这样的槽在 `check` 时
+被拒绝，正如 Rust 拒绝 `fn(i32) -> impl Fn() -> i32`：
+
+```yo
+// 错误：The function type fn(x : i32) -> Impl(Fn() -> i32) cannot be the
+//        type of parameter "mk" ...
+use_mk :: (fn(mk : (fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+
+// 可以：泛型 `Impl(Fn(...))` 参数按实参特化，内层 `Impl` 就是该实参
+// （具名函数或闭包）自己的结果类型。
+use_mk :: (fn(mk : &Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+// 可以，对应 Rust 写法 `F: Fn(i32) -> G, G: Fn() -> i32`：
+use_mk :: (fn(generic(G : Type), mk : &Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)(mk(v)());
+```
+
+要在一个槽里存放闭包结果各不相同的函数，请返回 `Box(Dyn(Fn(...)))`（一种装箱
+表示）。不被拒绝的情形：`Impl(Future(...))`（每个 future 都是指向状态机的
+同一种指针，所以 `fn(x : i32, io : Io) -> Impl(Future(i32, Io))` 是合法的参数
+类型）；`comptime(f)` 参数（按值特化）；局部标注
+`(h : (fn(x : i32) -> Impl(Fn() -> i32))) = mk`，它取 `mk` 自己的函数类型，
+就像 `Impl(Fn(...))` 标注取其闭包的类型一样（之后用闭包结果不同的函数执行
+`h = other` 会报 E0601）。
+
+### 不支持：存在型枚举构造器
+
+```yo
+// 不支持：`T` 由构造器而不是枚举绑定。
+Showable :: enum(
+  Wrap(generic(T : Type), value : T, show : (fn(v : T) -> String))
+);
+```
+
+这是 ML 风格的 `pack`。在一个把一切单态化的编译器里，它的降级恰好就是一个
+`Dyn`：没有 vtable 的隐藏 `T` 无法被操作，有了 vtable 它就是 trait 对象。它仍
+是非目标（见 [ADVANCED_TYPES.md](./ADVANCED_TYPES.md#限制)）；请改写为 `Box(Dyn(Show))`。
+
+因此 Yo 在类型层面没有 `exists`。标识符 `exists` 是验证器对值的幽灵量词，如
+`ensures(exists(k : i32, xs(k) == target))`。
+
+## Impl 与 Dyn 的对比
+
+- **Impl**：静态分发，编译时多态，无运行时开销
+- **Dyn**：动态分发，运行时多态，放在指针后面使用（`Box(Dyn(...))`、`&Dyn(...)`）
+
+```yo
+// Impl — 静态分发（单态化）
+use_impl :: (fn(generic(T : Type), value : T, where(T <: SomeTrait)) -> unit)({
+  value.method(); // 静态分发
+});
+
+// Dyn — 动态分发（虚函数表）
+use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
+  value.method(); // 动态分发
+});
+```
+
+更多示例请参阅 `tests/impl.test.yo`。

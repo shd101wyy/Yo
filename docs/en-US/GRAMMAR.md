@@ -343,7 +343,7 @@ Placement rules for `&` and `&mut`:
   subscript (`x(i)`) or called directly (`t.index(i)`), whose result is the
   place: an operand, a receiver, a borrow argument, a local borrow
   (`r := t.index(i)`) and, for `&mut`, the left of `=`
-  ([INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)).
+  ([TRAITS.md](./TRAITS.md#projections)).
 - `mut` is a reserved word: a binding or parameter named `mut` is an error.
 - See [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) for the semantics.
 

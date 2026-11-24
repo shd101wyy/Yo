@@ -314,7 +314,7 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
   `&mut self.rows(i)`），或引用绑定（`x : &T` 的 `x`；结果是引用位置），其根是函数的某个借用参数。投影通过下标（`x(i)`）
   到达，也可以直接调用（`t.index(i)`），其结果就是那个位置：可作操作数、接收者、
   借用实参、局部借用（`r := t.index(i)`），`&mut` 投影的结果还可作 `=` 的左边
-  （[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。
+  （[TRAITS.md](./TRAITS.md#投影)）。
 - `mut` 是保留字：名为 `mut` 的绑定或参数是错误。
 - 语义见 [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md)。
 

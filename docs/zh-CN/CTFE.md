@@ -309,3 +309,217 @@ comptime_assert(is_prime(2) == true, "2 是素数");
 comptime_assert(is_prime(17) == true, "17 是素数");
 comptime_assert(is_prime(18) == false, "18 不是素数");
 ```
+
+## 元编程
+
+`quote` 类似于 Lisp 中的 `quasiquote`。
+`unquote` 只能在 `quote` 中使用。
+`unquote_splicing` 只能在 `quote` 中使用，用于将值展开到 AST 中。
+
+```yo
+x :: quote(2); // comptime(x) : Expr
+list :: quote((1, unquote(x), 3)); // 元组 (1, 2, 3)
+list2 :: quote((1, x, 3)); // 元组 (1, x, 3)
+quote((0, unquote_splicing(list.get_args()), 4)); // 元组 (0, 1, 2, 3, 4)
+```
+
+### 宏函数
+
+宏函数使用 `quote` 和 `unquote` 进行代码生成。宏就是带有两个签名标记之一
+（或两者）的普通 comptime 函数：`quote(name) : Expr` 参数（调用方的原始
+AST 不经求值直接绑定）和 `-> unquote(Expr)` 返回类型（返回的 AST 拼接回
+调用点）。实际示例请参阅 `std/prelude.yo`，例如 `if` 宏。
+
+- `quote(...)` : 引用一个表达式
+- `unquote(...)` : 在引用的表达式中取消引用
+- `gensym(...)` : 生成唯一符号
+
+`unquote` 只能在 `quote` 内部使用。
+
+**定义宏需要在文件顶部声明 `pragma(Pragma.AllowMacroDef);`** —— 与指针
+操作的 `Pragma.AllowUnsafe` 一样，定义宏是按文件粒度的显式选择（宏不
+卫生、且会向调用方拼接代码，因此定义能力受门控；参见
+`plans/reference/MACRO_POLICY.md`）。*调用*宏（`if`、`for`、集合字面量）不需要该
+pragma；在 comptime 函数中操作引用的 `Expr` 值（`derive_rule` 使用的机
+制）同样不需要。
+
+```yo
+pragma(Pragma.AllowMacroDef);
+
+// 自定义宏示例 —— 惰性求值 body 的 `unless`
+unless :: (fn(quote(condition) : Expr, quote(do) : Expr) -> unquote(Expr))(
+  quote(
+    cond(unquote(condition) => (), true => unquote(do))
+  )
+);
+```
+
+prelude 的 `if` 宏是标准示例（当前编译器在解析阶段将 `if(...)` 调用脱糖
+为 `cond(...)`，该定义作为规范/回退保留）：
+
+```yo
+if :: (
+  fn(
+    quote(condition) : Expr,
+    quote(then) : Expr,
+    (quote(else) : Expr) ?= quote(())
+  ) -> unquote(Expr)
+)(
+  quote(
+    cond(
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+    )
+  )
+);
+
+// 用法
+if(true, {
+  println("true");
+});
+```
+
+> std 没有 `try` 宏：它会隐藏调用方栈帧内的 `return`，与代数效应冲突。
+> 请改用对 `Result` 的 `match`。
+
+## 编译时求值
+
+Yo 拥有强大的编译时求值能力。你可以在编译时执行计算、类型操作和代码生成。
+
+### 编译时变量
+
+使用 `::` 声明的变量是编译时常量：
+
+```yo
+// 编译时整数
+x :: 42; // comptime_int
+y :: (x + 10); // comptime_int = 52
+// 编译时类型
+MyInt :: i32; // comptime(Type)
+value := MyInt(100); // 运行时 i32
+// 编译时计算
+factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))(
+  cond(
+    (n <= 1) => 1,
+    true => (n * recur(n - 1))
+  )
+);
+result :: factorial(5); // 编译时计算：120
+```
+
+### 编译时算术
+
+所有基本运算都可以在编译时执行：
+
+```yo
+// 整数运算
+a :: 100;
+b :: 25;
+sum :: (a + b); // 125
+diff :: (a - b); // 75
+prod :: (a * b); // 2500
+quot :: (a / b); // 4
+rem :: (a % b); // 0
+// 比较运算
+eq :: (a == b); // false
+lt :: (b < a); // true
+gte :: (a >= b); // true
+// 浮点运算
+pi :: f32(3.14159);
+radius :: f32(5.0);
+area :: (pi * (radius * radius)); // ~78.54
+// 布尔运算
+flag1 :: true;
+flag2 :: false;
+and_result :: (flag1 && flag2); // false
+or_result :: (flag1 || flag2); // true
+not_result :: not(flag1); // false
+```
+
+### 编译时数组
+
+具有编译时已知长度的数组：
+
+```yo
+// 推断长度
+arr :: [1, 2, 3, 4, 5]; // Array(i32, 5)
+len := arr.len(); // 5（运行时读取；长度也在类型里）
+// Array.fill 接受编译期值，返回运行时数组
+zeros := Array(i32, 10).fill(0); // [0,0,0,0,0,0,0,0,0,0]
+// 泛型数组函数
+create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T ; n])(
+  Array(T, n).fill(value)
+);
+
+int_array := create_array(i32, 5, 42); // [42,42,42,42,42]
+```
+
+### 编译时断言
+
+使用 `comptime_assert` 验证编译时条件：
+
+```yo
+test("Compile-time assertions", {
+  // 这些在编译时检查
+  comptime_assert((2 + 2) == 4);
+  comptime_assert(f32(100.5) > f32(50.0));
+  comptime_assert(Array(i32, 5).fill(0).len() == 5);
+
+  // 编译时类型检查
+  T :: i32;
+  comptime_assert(Type.to_string(T) == "i32");
+});
+```
+
+### 编译时预期错误
+
+测试代码是否会产生编译时错误：
+
+```yo
+test("Expected compile errors", {
+  // 验证此代码会产生错误
+  comptime_expect_error(
+    x :: (1 / 0),
+    // 除以零
+    "Division by zero"
+  );
+
+  comptime_expect_error({
+    arr : Array(i32, _); // 无法在绑定中推断长度
+    arr = [1, 2, 3];
+  });
+});
+```
+
+### 编译时与运行时
+
+理解事物何时发生：
+
+```yo
+// 编译时：使用 :: 或 comptime(...) 声明
+COMPT_VALUE :: 42; // 编译时计算
+ComptimeType :: i32; // 编译时选择类型
+// 运行时：使用 := 声明
+runtime_value := 42; // 运行时计算
+runtime_type := i32(100); // 运行时创建值
+// 混合：编译时类型，运行时值
+(x : i32) = 42; // 类型在编译时已知
+// 值在运行时计算
+// 编译时函数参数
+array_fn :: (fn(comptime(n) : usize) -> Array(i32, n))(
+  Array(i32, n).fill(0)
+); // n 必须在编译时已知
+// 运行时函数参数
+increment :: (fn(x : i32) -> i32)(
+  x + 1
+); // x 是运行时值
+```
+
+### 编译时求值的优势
+
+1. **零运行时开销**：计算在编译时一次性完成
+2. **类型安全**：在执行前捕获错误
+3. **泛型编程**：无运行时开销的类型级抽象
+4. **元编程**：基于编译时信息生成代码
+
+更多示例请参阅 `tests/comptime.test.yo`。

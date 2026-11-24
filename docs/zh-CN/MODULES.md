@@ -1,4 +1,109 @@
-# 定义顺序
+# 模块
+
+模块：`import` 与 `export`、匿名模块、模块级可变绑定，以及模块内定义与顺序无关。
+包与 `yo.toml` 依赖见 [BUILD_SYSTEM.md](./BUILD_SYSTEM.md)；模块文件的命名见
+[SYNTAX.md](./SYNTAX.md#命名规范)。
+
+## 模块的导入和导出
+
+```yo
+// module1.yo
+test :: (fn() -> unit)({
+  println("Hello, world!");
+});
+export(test);
+
+// module2.yo
+// 导出类型
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Some(value : T),
+    None
+  )
+);
+export(Option);
+```
+
+```yo
+{ ... } :: import("./test.yo"); // 从 test.yo 导入所有内容
+test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 Test 命名空间
+{ test } :: import("./test.yo"); // 从 test.yo 导入 test 函数
+{ test : test2 } :: import("./test.yo"); // 从 test.yo 导入 test 函数并重命名为 test2
+{ Option } :: import("./test.yo"); // 从 test.yo 导入 Option 类型
+```
+
+### 同一个名字导入两次
+
+每个导入的名字都是一个绑定，所以"禁止变量遮蔽"的规则同样适用于导入：同一个名字绑定两次是错误（`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`），无论是两行都写了这个名字，还是 `{ ... }` 通配导入已经引入了它。同一路径写多行导入没有问题，只要每行绑定的名字不同；同一个名字也可以换个新名字再导入一次：
+
+```yo
+{ ArrayList } :: import("std/collections/array-list");
+{ ArrayListIter } :: import("std/collections/array-list"); // 可以：名字不同
+{ ArrayList : List } :: import("std/collections/array-list"); // 可以：绑定为新名字
+xs := List(i32).new();
+```
+
+### trait impl 通过你的导入可见
+
+方法调用只在你的文件通过导入（传递地）能**到达**的模块的 `impl(...)` 块里解析，再加上 prelude。
+一个 impl 如果所在模块不在你的导入路径上任何模块导入过，它就不是候选——即便同一次 `yo check`
+或同一个程序里的其他文件碰巧加载了它。例如整数与 `str` 的 `to_string` 是 `std/fmt` 的 `ToString`
+impl，所以调用它们的模块要导入 `std/fmt`（任意一个绑定即可：`{ ToString } :: import("std/fmt")`）。
+这保证了一个文件单独检查和与其他文件一起检查时得到相同的结论。`YO_VISIBILITY_REPORT=1` 会把
+所有只能通过调用方导入之外的 impl 才能解析的调用列出来而不是拒绝——用它来补上缺失的导入行。
+
+### 匿名模块
+
+匿名模块使用 `impl` 关键字后跟一个 `begin` 块来定义：
+
+```yo
+my_module :: impl({
+  my_function :: (fn() -> unit)({
+    println("Hello from my_module!");
+  });
+  export(my_function);
+});
+```
+
+### 模块级可变变量
+
+Yo 支持在模块顶层（文件作用域）定义可变的运行时变量。这些变量会编译为 C 的 `static` 文件作用域变量，在 `main` 函数执行前初始化。
+
+支持两种语法：
+
+```yo
+// := 初始化
+counter := i32(0);
+
+// 绑定模式初始化
+(flag : bool) = false;
+```
+
+同一模块中定义的函数可以读写这些变量：
+
+```yo
+inc :: (fn() -> unit)({
+  counter = (counter + i32(1));
+});
+```
+
+**限制：**
+
+- 模块作用域不允许仅有类型注解而无初始化的声明：
+  ```yo
+  a : i32; // ❌ 错误：应使用 `a := i32(0);` 或 `(a : i32) = i32(0);`
+  ```
+- `impl` 块内不允许可变运行时变量（`:=` 或 `(x : T) = val`）。请使用 `::` 定义编译时常量：
+  ```yo ignore
+  m :: impl {
+    b := i32(13);  // ❌ 错误：impl 块内不允许
+    b :: 13;       // ✅ 正确：编译时常量
+    export(b);
+  };
+  ```
+- 模块级可变变量**不能被导出**。只有编译时已知的值才能从模块中导出。
+
+## 定义顺序
 
 在同一个模块内，**`name :: <定义>` 绑定、`impl(...)` 注册与 `derive(T, ...)` 语句都与源码顺序无关**。一个定义
 可以引用同一模块中的任何其他定义，不论它出现在文件的哪个位置——调用者写在被调用者
@@ -39,7 +144,7 @@ export(exported_later);
 exported_later :: (fn() -> i32)(i32(99));
 ```
 
-## 哪些语句仍然有序
+### 哪些语句仍然有序
 
 其**副作用**构成模块可观察求值过程的语句保持严格的源码顺序——它们不是定义：
 
@@ -66,7 +171,7 @@ runtime bindings are evaluated in order (only `::` definitions and `impl`
 registrations are order-independent); move that statement above this use
 ```
 
-## 实现原理
+### 实现原理
 
 模块遍历器仍然从上到下求值语句。开始之前，它先预扫描整个模块，把每个 `::` 定义、
 每个 `impl(<receiver>, ...)` 和每个 `derive(T, ...)` 记录为**待定**条目（derive 是
@@ -83,7 +188,7 @@ registrations are order-independent); move that statement above this use
 由于强制求值只发生在原本会报错的查找上，今天顺序正确的程序会以完全相同的顺序求值，
 并生成完全相同的 C 代码。
 
-### 函数定义分两阶段
+#### 函数定义分两阶段
 
 强制求值 `f :: (fn(...) -> R)(body)` 分两步绑定 `f`：先求值签名头部，在求值函数体
 之前就**发布**一个带稳定 id 的函数值。函数体内部对 `f` 的引用（自递归），或者函数体
@@ -91,7 +196,7 @@ registrations are order-independent); move that statement above this use
 `(fn(...) -> R)(body)` 形式拥有可单独求值的头部；匿名 `->`/`=>` 字面量从函数体推断
 类型，因此递归函数要用 `fn` 形式书写。
 
-### 循环
+#### 循环
 
 *值*依赖于自身的定义是错误，并给出完整链条：
 
@@ -101,7 +206,7 @@ on itself. Function definitions may reference each other (their signatures bind
 before their bodies evaluate); a constant or type definition may not name itself.
 ```
 
-### 被强制求值的定义内部出错
+#### 被强制求值的定义内部出错
 
 一个在被强制求值时失败的定义报告的是**它自己的**错误、指向它自己的位置，并附上一条
 说明它为何提前运行的 note：
@@ -111,7 +216,7 @@ note: `second` (line 4) was evaluated here because it is referenced before its
 definition in the source
 ```
 
-## `impl` 块内部
+### `impl` 块内部
 
 同一个 `impl(...)` 块内的兄弟方法可以通过 `self.method(...)` 或 `Self.method(...)`
 以任意顺序互相调用：

@@ -1,5 +1,28 @@
 # Inline Assembly (`asm`) Design
 
+## Overview
+
+Yo provides `asm()` and `global_asm()` builtins for embedding inline assembly, inspired by Rust's `asm!` macro. Features include:
+
+- **Operand types**: `in`, `out`, `inout`, `lateout`, `inlateout`, `const_val`, `sym`
+- **Register constraints**: `reg`, `imm`, `mem`, explicit register names (e.g., `"rax"`)
+- **Named operands**: `out("result", reg, i32)` with template references `{result}`
+- **Variable-target outputs**: `out(reg, x)` writes directly to a variable, including uninitialized ones
+- **Clobbers and options**: `clobber("memory")`, `asm_options(volatile, noreturn)`
+- **Multi-architecture**: x86_64 and aarch64 support
+
+```yo
+// Simple example: move immediate to register
+result := asm(
+  "mov {0}, #42",
+  out(reg, i32)
+);
+
+// Uninitialized variable output
+x : i32;
+asm("mov {0}, #42", out(reg, x));
+```
+
 ## 1. Motivation
 
 Yo currently has no way to emit inline assembly. Low-level operations (syscalls, SIMD, hardware intrinsics, performance-critical inner loops, CPU feature detection) must be implemented as C extern functions. This forces developers to maintain separate C source files and manually wire them through the FFI.

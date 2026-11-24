@@ -41,7 +41,7 @@ Spelling (what parses) lives in `yo-syntax.instructions.md`; this file holds sem
   - Writing through a borrowed copy (a by-value parameter, a `for`/`match` binding) is E0908: take `x : &mut String`, return the new string, or clone into a local. `for(&mut xs, s => s.push_str("!"))` and `xs(i).push_str("!")` write elements in place.
   - Bytes are copied or moved, never lent: `to_bytes()` (copy), `into_bytes()` (moves out), `from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`; read in place with `len()`, `byte_at(i)`, `get_byte(i) -> Option(u8)`, `bytes()`. `String`'s `Index(usize)` is read-only (`s(i)` reads a byte; `s(i) = b` is an error naming `IndexMut`, since a byte write could break UTF-8).
   - A template string appends a `String` part by borrow (`ToString.append_to`); only a first part renders through `to_string()`.
-  - Shared text is `Rc(String)`. User docs: `docs/en-US/DESIGN.md` §Writing through a copy of a `String`, `docs/en-US/STRINGS.md`.
+  - Shared text is `Rc(String)`. User docs: `docs/en-US/STRINGS.md` §Writing through a copy of a `String`, `docs/en-US/STRINGS.md`.
 - **String indexing is byte-based everywhere** (`plans/archive/STD_API_AUDIT_D4_PLAN.md`): `len()` is the O(1) byte count; `at`, `substring`, `s(a..b)`, `index_of`, `last_index_of`, the positional arguments of `contains`/`starts_with`/`ends_with` and the `Pattern` trait all use byte offsets, at runtime and for `comptime_str`. `substring` clamps out-of-range but panics on an offset inside a rune; `try_substring` does not panic; `floor_char_boundary`/`ceil_char_boundary` snap offsets. Rune work is `chars()` / `char_indices()`; the rune count is `s.chars().count()` (the O(n) cost stays visible).
 - **`replace` replaces every occurrence** (Rust's `str::replace`); `replacen(pattern, new, count)` is the bounded form. `replace_first` / `replace_all` are deprecated aliases still exported. **`Regex.replace(haystack, rep)` (the method on a `Regex`) replaces the first match**, as in the Rust regex crate; `String.replace(re, rep)` (the `Pattern` dispatch) replaces all.
 - Print with `println` / `print` from `std/fmt` (a template string or any `ToString` value), not `printf`.
@@ -416,7 +416,7 @@ chained := x.and_then(
 
 ## Generalized Algebraic Data Types (GADTs)
 
-An enum variant may declare the instantiation it produces with `-> recur(...)` (syntax: yo-syntax "GADT variants"; design: `plans/reference/GADTS.md`, `docs/en-US/GADTS.md`).
+An enum variant may declare the instantiation it produces with `-> recur(...)` (syntax: yo-syntax "GADT variants"; design: `plans/reference/GADTS.md`, `docs/en-US/ADVANCED_TYPES.md`).
 
 - Without the annotation a variant produces the unconstrained type parameters (regular enum behavior); annotated and unannotated variants mix.
 - Match refines the type parameter per arm: in `match(v, .IntVal(i) => i, .BoolVal(b) => b)` each arm sees `T` as the variant's declared type.

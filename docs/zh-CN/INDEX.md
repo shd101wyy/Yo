@@ -36,22 +36,26 @@ Yo 手册的总览：每一页讲什么、按什么顺序阅读，以及没有�
 - [CLOSURES](./CLOSURES.md)：捕获、捕获列表、`FnOnce`/`FnMut`、`Impl(Fn(...))` 与
   `Dyn(Fn(...))`。
 - [PATTERN_MATCHING](./PATTERN_MATCHING.md)：`match`、模式的形式、守卫与穷尽性。
-- [DESIGN](./DESIGN.md)：其余章节：共享单元、指针、高级类型、trait、字符串、`Box`/`Rc`、
-  `Impl`/`Dyn`、错误处理、模块、测试与编译期求值。
-- [DEFINITION_ORDER](./DEFINITION_ORDER.md)：模块内的 `::` 定义、`impl` 注册与 `derive`
-  语句与顺序无关。
-- [STRINGS](./STRINGS.md)：以字节偏移索引的 UTF-8 字符串。
-- [CTFE](./CTFE.md)：编译期函数求值与 `comptime` 值。
+- [TRAITS](./TRAITS.md)：trait 与 `impl`、静态方法、关联类型、一致性、`Impl(Trait)`、
+  `Index`/`IndexMut` 与 `Deref`。
+- [TRAIT_OBJECTS](./TRAIT_OBJECTS.md)：`Dyn` trait 对象、`dyn(...)`、对象安全、
+  `downcast`/`upcast` 与存在类型。
+- [ADVANCED_TYPES](./ADVANCED_TYPES.md)：高阶类型、GADTs 与类型状态。
+- [ERROR_HANDLING](./ERROR_HANDLING.md)：`Result`、`Error`/`AnyError`、`Exception` 与
+  `ResumableException`。
+- [MODULES](./MODULES.md)：`import`/`export`、模块级绑定与顺序无关的定义。
+- [TESTING](./TESTING.md)：`test(...)`、断言、预期的编译错误与测试文件。
+- [STRINGS](./STRINGS.md)：以字节偏移索引的 UTF-8 字符串、`str`、`String` 与模板字符串。
+- [CTFE](./CTFE.md)：编译期函数求值、`comptime` 值与元编程。
 - [DERIVE_TRAITS](./DERIVE_TRAITS.md)：`derive(...)` 与自举实现的 `derive_rule` 机制。
 - [TYPE_REFLECTION](./TYPE_REFLECTION.md)：`TypeInfo` 与 `Type.get_info()`。
-- [GADTS](./GADTS.md)：细化类型参数的枚举构造器。
-- [INDEX_TRAIT](./INDEX_TRAIT.md)：`Index`/`IndexMut`、`value(index)` 调用语法与切片。
-- [DYN_DESIGN](./DYN_DESIGN.md)：`Dyn` trait 对象、虚表与向下转型。
 
 ## 内存与并发
 
 - [OWNERSHIP_AND_BORROWING](./OWNERSHIP_AND_BORROWING.md)：每个值一个所有者、移动、
   `.clone()`、`&T`/`&mut T` 引用及其来源。
+- [SHARED_OWNERSHIP](./SHARED_OWNERSHIP.md)：`Rc`、`Box`、`RefCell`、`Weak`、`Copy`、
+  只能移动的值与 `Drop`。
 - [MEMORY_SAFETY](./MEMORY_SAFETY.md)：safe/unsafe 契约、`pragma(Pragma.AllowUnsafe)`
   与 `yo unsafe-report`。
 - [ARC](./ARC.md)：`Arc(T)`，原子计数的共享所有权。
@@ -76,10 +80,42 @@ Yo 手册的总览：每一页讲什么、按什么顺序阅读，以及没有�
 
 ## 互操作与编译目标
 
-- [FFI](./FFI.md)：用 `c_include(...)` 与 `extern(...)` 绑定 C。
+- [FFI](./FFI.md)：用 `c_include(...)` 与 `extern(...)` 绑定 C、裸指针与 `unsafe(...)`。
 - [INLINE_ASSEMBLY](./INLINE_ASSEMBLY.md)：`asm(...)` 内建函数。
 - [WASM](./WASM.md)：编译到 WebAssembly，并把 Yo 库交付给 JavaScript。
 
 ## 参考
 
 - [GRAMMAR](./GRAMMAR.md)：形式语法、花括号规则与运算符集合。
+
+## 命令
+
+```bash
+yo --help
+yo --version
+
+# 项目脚手架
+yo init                     # 在当前目录创建新项目
+yo init my-project          # 在 ./my-project 创建新项目
+yo init my-project --name x # 将项目名设为 "x"
+
+# 构建系统（详见 BUILD_SYSTEM.md）
+yo build              # 构建所有产物（默认 "install" 步骤）
+yo build run          # 构建并运行可执行文件
+yo build test         # 运行测试
+yo build --list-steps # 列出可用的构建步骤
+yo build --cc zig     # 使用 zig 作为 C 编译器
+yo build --target wasm32-unknown-emscripten  # 交叉编译为 WASM（Emscripten）
+
+# 直接编译（单文件，无需 build.yo）
+yo compile hello.yo -o hello
+yo compile hello.yo --cc clang -o hello
+yo compile hello.yo --target wasm32-unknown-emscripten -o hello.html
+
+# 格式化（固定风格，2 空格缩进）
+yo fmt                     # 格式化当前目录下所有 .yo 文件
+yo fmt src tests           # 格式化 src 和 tests 下的 .yo 文件
+yo fmt --check             # 只检查格式，不写入变更
+```
+
+完整的构建系统文档请参阅 [BUILD_SYSTEM.md](./BUILD_SYSTEM.md)。
