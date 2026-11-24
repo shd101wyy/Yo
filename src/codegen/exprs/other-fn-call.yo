@@ -27,6 +27,7 @@
 { TokenKind } :: import("../../token.yo");
 { generate_yo_inline_function_call } :: import("./inline-fns.yo");
 { _call_generate_expr, call_projection_mode, unsized_lend_pair_code } :: import("./dispatch.yo");
+{ atom_read_is_referent_place } :: import("./atom.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { generate_thread_spawn_call, generate_worker_pool_submit_call, is_worker_pool_submit_name } :: import("./parallelism.yo");
 { get_c_include_for_extern } :: import("../../evaluator/exprs/c-include.yo");
@@ -1142,10 +1143,14 @@ _closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context 
 });
 /// The runtime argument `i` is the reference its borrow slot takes
 /// (VERDICTS-75 rider r1): its type IS the slot (`&T` at `&T`, `T` sized)
-/// and it is a reference VALUE (`reference_operand_is_value`: a call's
-/// result, a by-value `&T` binding), not a place the slot lends. The
-/// evaluator admits it as the slot's value: a receiver that is itself a
-/// reference value needs no borrow.
+/// and it is a reference VALUE whose C is the pointer
+/// (`reference_operand_is_value`: a call's result, a by-value `&T`
+/// binding), not a place the slot lends. The evaluator admits it as the
+/// slot's value: a receiver that is itself a reference value needs no
+/// borrow. A by-`ref` binding (`atom_read_is_referent_place`, `g(rp)`
+/// with `rp : &mut &i32` at `&mut &i32`) is not one: its C read is already
+/// the place, which the slot re-lends as `rp` itself
+/// (issues/fixed/2026-11-24-a-mut-reference-binding-passed-bare-to-a-mut-reference-to-a-reference-parameter-passes-its-referent.md).
 _reference_value_at_own_slot :: (fn(slots : &SharedList(TypeValue), i : usize, runtime_args : &ArrayList(AstExpr), context : &FunctionGenerationContext) -> bool)(
   match(
     slots.get(i),
@@ -1153,7 +1158,7 @@ _reference_value_at_own_slot :: (fn(slots : &SharedList(TypeValue), i : usize, r
       t_slot_is_borrow(&rv_slot) && type_is_sized(&t_slot_pointee(&rv_slot)) && match(
         runtime_args.get_cloned(i),
         .Some(rv_arg) => (
-          reference_operand_is_value(&rv_arg, context) && !is_reference_self_place(ast_expr_id(&rv_arg)) && match(context.base.get_expr_info(&rv_arg), .Some(rv_ei) => (type_key(&rv_ei.ty()) == type_key(&rv_slot)), .None => false)
+          reference_operand_is_value(&rv_arg, context) && !is_reference_self_place(ast_expr_id(&rv_arg)) && !atom_read_is_referent_place(&rv_arg, context) && match(context.base.get_expr_info(&rv_arg), .Some(rv_ei) => (type_key(&rv_ei.ty()) == type_key(&rv_slot)), .None => false)
         ),
         .None => false
       )
@@ -1894,6 +1899,15 @@ _future_init_cast :: (fn(ty : &TypeValue, context : &mut FunctionGenerationConte
   fic_ct := get_type_string(ty, &mut context.base);
   if(fic_ct.ends_with("*"), `(${fic_ct})`, String.new())
 });
+/// The fat pointer `F` a Dyn dispatch reads off its receiver `recv`, whose C
+/// is `code`. A receiver typed as the Dyn is a place, `(*F)` over its fat
+/// pointer (decision 49 S2), so the place folds to `F`. A receiver typed as a
+/// reference to the Dyn (a `&Dyn` local, `dd.*` over `dd : &(&Dyn(T))`) is the
+/// fat pointer already: its `(*p)` reads `F` through the pointer `p`, and
+/// folding it would dispatch through `p`.
+_dyn_receiver_fat_code :: (fn(recv : &AstExpr, code : &String, context : &FunctionGenerationContext) -> String)(
+  if(match(context.base.get_expr_info(recv), .Some(rei) => is_dyn_type(&rei.ty()), .None => true), unsized_place_fat_code(code), code.clone())
+);
 /// The call/method/trait-dispatch emitter.
 /// (corpus path). Returns `.None` to fall through (unhandled shape).
 ///
@@ -2062,7 +2076,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     );
     if(dm_is_dyn_clone, {
       dc_recv := match(dmethod_args.get_cloned(usize(0)), .Some(rv) => rv, .None => make_err_expr());
-      dc_recv_code := unsized_place_fat_code(&_call_generate_expr(&dc_recv, indent.clone(), context));
+      dc_recv_code := _dyn_receiver_fat_code(&dc_recv, &_call_generate_expr(&dc_recv, indent.clone(), context), context);
       dc_c := get_type_string(&ei.ty(), &mut context.base);
       dc_call := `((${dc_c}){ .data = __yo_dyn_clone((void*)(${dc_recv_code}).data, (const void*)(${dc_recv_code}).vtable), .vtable = (${dc_recv_code}).vtable })`;
       match(
@@ -2085,9 +2099,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       recv_expr := match(dmethod_args.get_cloned(usize(0)), .Some(rv) => rv, .None => make_err_expr());
       // The receiver is generated before the arguments (`dm_runtime[0]` is
       // its slot), so it is sequenced against them.
-      // A `Dyn` place is `(*F)` over its fat pointer (decision 49 S2): dispatch
-      // reads `F`.
-      recv_code := sequence_operand(&recv_expr, unsized_place_fat_code(&_call_generate_expr(&recv_expr, indent.clone(), context)), &dm_runtime, usize(0), false, indent, context);
+      // Dispatch reads the receiver's fat pointer `F` (`_dyn_receiver_fat_code`).
+      recv_code := sequence_operand(&recv_expr, _dyn_receiver_fat_code(&recv_expr, &_call_generate_expr(&recv_expr, indent.clone(), context), context), &dm_runtime, usize(0), false, indent, context);
       method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get_cloned(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*, false);
       mut(dm_call) := String.from("(");
       dm_call.push_string(recv_code.clone());
@@ -2101,9 +2114,13 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       // place, or forwards an `inout` parameter's pointer, exactly as the
       // registered-call path amps `args2`; the slot is `T*` there
       // (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
+      // The slot is the Dyn's (`dm_recv_dyn_ty`), never the receiver's own
+      // type: a `&Dyn`/`&mut Dyn` local or `dd.*` over a `&&Dyn` is typed as
+      // the reference
+      // (issues/fixed/2026-11-24-a-method-called-through-a-dyn-reference-local-ignores-its-vtable-slots-reference-flags.md).
       dm_slot_pir := match(
-        context.base.get_expr_info(&recv_expr),
-        .Some(rvi) => dyn_vtable_slot_param_is_ref(&rvi.ty(), ast_expr_token(match(dmethod_args.get_cloned(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*),
+        &dm_recv_dyn_ty,
+        .Some(sdt) => dyn_vtable_slot_param_is_ref(sdt, ast_expr_token(match(dmethod_args.get_cloned(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*),
         .None => ArrayList(bool).new()
       );
       mut(dm_args) := ArrayList(String).new();
@@ -2138,11 +2155,34 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       // A projection slot (decision 24) returns its place's address, and
       // the call IS the place, as on the direct-call path: `(*slot(...))`.
       if(match(
-        context.base.get_expr_info(&recv_expr),
-        .Some(rvi) => dyn_vtable_slot_result_is_ref(&rvi.ty(), ast_expr_token(match(dmethod_args.get_cloned(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*),
+        &dm_recv_dyn_ty,
+        .Some(rdt) => dyn_vtable_slot_result_is_ref(rdt, ast_expr_token(match(dmethod_args.get_cloned(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*),
         .None => false
       ), {
-        return(Option(String).Some(`(*${dm_call})`));
+        if(!_projection_result_unsized(&ei.ty()), {
+          return(Option(String).Some(`(*${dm_call})`));
+        });
+        // An unsized result (`-> &[T]`, `-> &Dyn(U)`) is the fat pair itself
+        // (decision 49), as on the direct-call path. Its temp holds the pair
+        // once: a Dyn dispatch on the result reads it twice (`F.vtable`,
+        // `F.data`).
+        match(
+          &ei.variable_name(),
+          .Some(ptv) => {
+            mut(pdl) := indent.clone();
+            pdl.push_string(_projection_result_unsized_c_type(&ei.ty(), context));
+            pdl.push_str(" ");
+            pdl.push_string(ptv.clone());
+            pdl.push_str(" = ");
+            pdl.push_string(&dm_call);
+            pdl.push_str(";");
+            context.base.emitter.emit_string_line(&pdl);
+            _store_temp_var_to_state_machine_if_needed(ptv.clone(), indent.clone(), context);
+            generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+            return(Option(String).Some(ptv.clone()));
+          },
+          .None => return(Option(String).Some(dm_call))
+        );
       });
       if(is_unit_type(&ei.ty()), {
         mut(dml) := indent.clone();

@@ -379,9 +379,9 @@ init :: (fn() -> Result(unit, int))({
 compute :: (fn(input : i32) -> i32)(unsafe(mylib_compute(input)));
 ```
 
-Then in the consuming safe file:
+Then in the consuming safe file, which imports the `my_ffi.yo` above and so needs it beside it (a block that reads a companion file is not checked on its own):
 
-```yo
+```yo ignore
 // main.yo  (no pragma)
 { init, compute } :: import("./my_ffi");
 
@@ -437,4 +437,4 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 - [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) — ownership, moves, copies, `&`/`&mut` references and their origins.
 - `plans/archive/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
 - `plans/archive/ITERATOR_REDESIGN.md` — how iteration works under the safe model.
-- `docs/en-US/DESIGN.md` — the broader language design; the pointer / unsafe sections cross-reference this page.
+- `docs/en-US/FFI.md` — raw pointers and C interop; its pointer / unsafe sections cross-reference this page.

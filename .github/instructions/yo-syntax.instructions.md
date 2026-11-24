@@ -490,7 +490,7 @@ main :: (fn() -> unit)({
   borrow (`r := t.index(i)`, freezing the borrowed arguments until its last use, E0911; `(v : T) = t.index(i)`
   copies), and for `&mut` the left of `=` (`t.index_mut(i) = v`). A `&` projection's place is read-only
   (E0908). A projection call whose borrowed argument is a temporary cannot be bound. A projection may yield
-  another's result (`&g.index(i).a`) rooted at its own parameters (`docs/en-US/INDEX_TRAIT.md`).
+  another's result (`&g.index(i).a`) rooted at its own parameters (`docs/en-US/TRAITS.md`).
 
 ### Origins (decision 43)
 
@@ -920,7 +920,7 @@ io.async(e => { w := i32(5); w }) // CORRECT — name the bundle parameter
 
 ### `Dyn` is unsized: `Box(Dyn(T))`, `Rc(Dyn(T))`, `&Dyn(T)` (decision 49)
 
-`docs/en-US/DYN_DESIGN.md`.
+`docs/en-US/TRAIT_OBJECTS.md`.
 
 - `Dyn(T)`, `[T]` and a struct with an unsized last field live behind a pointer, and the owner is spelled:
   `dyn(Box.new(v))` → `Box(Dyn(T))`, `dyn(Rc.new(v))` → `Rc(Dyn(T))`, `dyn(&v)` / `dyn(&mut v)` →
@@ -1045,7 +1045,7 @@ node_module :: import("./node.yo"); // whole module
 ### Definition order
 
 `::` definitions, `impl(...)` registrations and `derive(T, ...)` at module level are **order-independent**
-(`docs/en-US/DEFINITION_ORDER.md`): a body may use a later function, type, constant, method or trait
+(`docs/en-US/MODULES.md`): a body may use a later function, type, constant, method or trait
 default; self- and mutual recursion work; `export(...)` may name a later definition. A pending definition is
 forced on the first lookup that would miss.
 
@@ -1092,7 +1092,7 @@ forced on the first lookup that would miss.
 ## Integers
 
 - `+`, `-`, `*` overflow, `-MIN`, `/`/`%` by zero or `MIN / -1`, and a shift count outside `[0, width)`
-  abort at run time with `file:line:col` (`docs/en-US/DESIGN.md`, "Arithmetic and Failure Semantics").
+  abort at run time with `file:line:col` (`docs/en-US/SYNTAX.md`, "Arithmetic and Failure Semantics").
   Arithmetic that wraps by design calls `wrapping_add` / `wrapping_sub` / `wrapping_mul`.
 - On compile-time constants the same expressions are E1102; a left shift wraps the bits it shifts out as
   at run time. A test asserting wrap-around therefore needs `wrapping_*` on run-time values.

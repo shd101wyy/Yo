@@ -9,7 +9,9 @@ any page named here; `yo context --docs` lists them.
 1. [INSTALL](./INSTALL.md): the compiler and its C toolchain.
 2. `yo context`: the language pack, a compact guide to writing Yo with the
    installed compiler ([CONTEXT](./CONTEXT.md)).
-3. [DESIGN](./DESIGN.md): the language, chapter by chapter.
+3. [SYNTAX](./SYNTAX.md), [DATA_TYPES](./DATA_TYPES.md),
+   [FUNCTIONS](./FUNCTIONS.md), [CLOSURES](./CLOSURES.md) and
+   [PATTERN_MATCHING](./PATTERN_MATCHING.md): the core language.
 4. [OWNERSHIP_AND_BORROWING](./OWNERSHIP_AND_BORROWING.md): moves, clones and
    references, the rules most first programs trip on.
 5. The rest by topic, below.
@@ -27,24 +29,42 @@ any page named here; `yo context --docs` lists them.
 
 ## The language
 
-- [DESIGN](./DESIGN.md): syntax, types, functions, closures, traits, pattern
-  matching, error handling, modules and testing.
-- [DEFINITION_ORDER](./DEFINITION_ORDER.md): `::` definitions, `impl`
-  registrations and `derive` statements are order-independent within a module.
-- [STRINGS](./STRINGS.md): UTF-8 strings with byte-offset indexing.
-- [CTFE](./CTFE.md): compile-time function evaluation and `comptime` values.
+- [SYNTAX](./SYNTAX.md): calls and operators (no precedence), bindings and
+  `mut`, literals, control flow, arithmetic failure, naming and `yo fmt`.
+- [DATA_TYPES](./DATA_TYPES.md): primitive types, structs, tuples, arrays and
+  ranges, enums and ADTs, unions, newtypes, private members and collections.
+- [FUNCTIONS](./FUNCTIONS.md): declarations, parameter modes and references,
+  named and default arguments, generics, partial application, type methods.
+- [CLOSURES](./CLOSURES.md): captures, capture lists, `FnOnce`/`FnMut`,
+  `Impl(Fn(...))` and `Dyn(Fn(...))`.
+- [PATTERN_MATCHING](./PATTERN_MATCHING.md): `match`, pattern forms, guards and
+  exhaustiveness.
+- [TRAITS](./TRAITS.md): traits and `impl`, static methods, associated types,
+  coherence, `Impl(Trait)`, `Index`/`IndexMut` and `Deref`.
+- [TRAIT_OBJECTS](./TRAIT_OBJECTS.md): `Dyn` trait objects, `dyn(...)`, object
+  safety, `downcast`/`upcast` and existential types.
+- [ADVANCED_TYPES](./ADVANCED_TYPES.md): higher-kinded types, GADTs and
+  typestate.
+- [ERROR_HANDLING](./ERROR_HANDLING.md): `Result`, `Error`/`AnyError`,
+  `Exception` and `ResumableException`.
+- [MODULES](./MODULES.md): `import`/`export`, module-level bindings and
+  order-independent definitions.
+- [TESTING](./TESTING.md): `test(...)`, assertions, expected compile errors and
+  test files.
+- [STRINGS](./STRINGS.md): UTF-8 strings with byte-offset indexing, `str`,
+  `String` and template strings.
+- [CTFE](./CTFE.md): compile-time function evaluation, `comptime` values and
+  meta-programming.
 - [DERIVE_TRAITS](./DERIVE_TRAITS.md): `derive(...)` and the self-hosted
   `derive_rule` mechanism.
 - [TYPE_REFLECTION](./TYPE_REFLECTION.md): `TypeInfo` and `Type.get_info()`.
-- [GADTS](./GADTS.md): enum constructors that refine their type parameters.
-- [INDEX_TRAIT](./INDEX_TRAIT.md): `Index`/`IndexMut`, the `value(index)` call
-  syntax and slicing.
-- [DYN_DESIGN](./DYN_DESIGN.md): `Dyn` trait objects, vtables and downcasting.
 
 ## Memory and concurrency
 
 - [OWNERSHIP_AND_BORROWING](./OWNERSHIP_AND_BORROWING.md): one owner per value,
   moves, `.clone()`, `&T`/`&mut T` references and their origins.
+- [SHARED_OWNERSHIP](./SHARED_OWNERSHIP.md): `Rc`, `Box`, `RefCell`, `Weak`,
+  `Copy`, move-only values and `Drop`.
 - [MEMORY_SAFETY](./MEMORY_SAFETY.md): the safe/unsafe contract,
   `pragma(Pragma.AllowUnsafe)` and `yo unsafe-report`.
 - [ARC](./ARC.md): `Arc(T)`, atomically counted shared ownership.
@@ -76,7 +96,8 @@ any page named here; `yo context --docs` lists them.
 
 ## Interop and targets
 
-- [FFI](./FFI.md): `c_include(...)` and `extern(...)` bindings to C.
+- [FFI](./FFI.md): `c_include(...)` and `extern(...)` bindings to C, raw
+  pointers and `unsafe(...)`.
 - [INLINE_ASSEMBLY](./INLINE_ASSEMBLY.md): the `asm(...)` builtin.
 - [WASM](./WASM.md): compiling to WebAssembly and shipping a Yo library to
   JavaScript.
@@ -85,3 +106,35 @@ any page named here; `yo context --docs` lists them.
 
 - [GRAMMAR](./GRAMMAR.md): the formal grammar, the brace rule and the operator
   set.
+
+## Commands
+
+```bash
+yo --help
+yo --version
+
+# Project scaffolding
+yo init                     # Create a new project in the current directory
+yo init my-project          # Create a new project in ./my-project
+yo init my-project --name x # Set project name to "x"
+
+# Build system (see BUILD_SYSTEM.md for details)
+yo build              # Build all artifacts (default "install" step)
+yo build run          # Build and run the executable
+yo build test         # Run tests
+yo build --list-steps # List available build steps
+yo build --cc zig     # Use zig as the C compiler
+yo build --target wasm32-unknown-emscripten  # Cross-compile for WASM (Emscripten)
+
+# Direct compilation (single file, no build.yo needed)
+yo compile hello.yo -o hello
+yo compile hello.yo --cc clang -o hello
+yo compile hello.yo --target wasm32-unknown-emscripten -o hello.html
+
+# Formatting (fixed style, 2-space indentation)
+yo fmt                     # Format all .yo files in the current directory
+yo fmt src tests           # Format .yo files under src and tests
+yo fmt --check             # Check formatting without writing changes
+```
+
+For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md).

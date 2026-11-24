@@ -66,7 +66,7 @@ $ YO_DEBUG_N2B=1 yo check repro.yo
 | `set :: (fn(dst : &mut &Rc(X), v : &Rc(X)) …)` (origins elided) | E0923 in the callee | E0923 |
 | `rp := &mut r; rp.* = ri` (local borrow, no call) | E0911 | E0911 |
 | `rp := &mut r; set(&mut rp.*, &inner)` (VERDICTS-58 probe 1: the binding lent through a local `&mut` borrow of it and reborrowed at the call) | accepted, heap-use-after-free | E0911: the write-back reaches `r`, the place `rp` borrows |
-| `rp := &mut r; set(rp, &inner)` (the bare binding) | E0601, a wrong rejection: `issues/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md` | as the row above |
+| `rp := &mut r; set(rp, &inner)` (the bare binding) | E0601, a wrong rejection: `issues/fixed/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md` | as the row above |
 | `swap-inferred-locals`, `swap-declared-union` (corpus, both referents outlive the reads) | accepted | accept |
 
 ## The depth-≥2 family (develop `4f8f975b3`, after #1916)
@@ -149,5 +149,5 @@ Two PRs.
   above it.
 
 Not in this fix: the bare `set(rp, &inner)` is E0601
-(`issues/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md`),
+(`issues/fixed/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md`),
 a separate wrong rejection. The two walls in the depth-≥2 table stay walls.

@@ -1,4 +1,9 @@
-# Dyn/dyn Dynamic Dispatch Implementation
+# Trait Objects: `Dyn` and `dyn`
+
+Dynamic dispatch through trait objects: `Dyn(Trait)`, the `dyn(...)`
+erasure, object safety, `downcast` and `upcast`, ownership of a trait object,
+existential types, and when to choose `Impl` over `Dyn`. Traits themselves are in
+[TRAITS.md](./TRAITS.md).
 
 ## Overview
 
@@ -353,3 +358,152 @@ returns it, wraps it in a `Context`) by moving it, and lends it to a function th
 5. **`downcast` and `upcast` keep the pointer kind**: through a reference, `downcast` borrows the
    payload as `Option(&V)`; `upcast` replaces the vtable word.
 6. **`Rc(Dyn(T))`/`Arc(Dyn(T))` take two allocations** and reject the owning `downcast`.
+
+## Dynamic Dispatch
+
+### `Dyn` and `dyn`
+
+`Dyn(Trait, ...)` is a trait object: any concrete type implementing the listed traits, erased, with its methods called through a vtable. It is unsized, so it is used behind a pointer, and the pointer decides who owns it: `Box(Dyn(Trait))` owns it, `Rc(Dyn(Trait))` shares it, and `&Dyn(Trait)` borrows it. `dyn(...)` is the only way in: `dyn(Box.new(v))`, `dyn(Rc.new(v))`, `dyn(Arc.new(v))`, `dyn(&v)` and `dyn(&mut v)` erase the pointee of that pointer.
+
+The position of the `dyn(...)` call must say which `Dyn(...)` to build — a parameter, an annotated binding `(x : Box(Dyn(Trait))) = dyn(Box.new(v))`, a declared return type, a struct field, or a collection element slot. A bare `dyn(...)` in a position with no such expected type (for example directly inside `downcast(dyn(...), T)`) is a compile error: `cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`.
+
+**Key features:**
+
+- Ownership is the pointer's: `Box` unique, `Rc`/`Arc` shared and read-only, `&`/`&mut` borrowed
+- `dyn(&v)` allocates nothing
+- `downcast` and `upcast` keep the pointer kind
+- Several traits in one `Dyn`: `Dyn(Speak, Run)`
+
+A `Dyn` lives behind a pointer: a bare `Dyn(Trait)` value type is E0619, and `dyn(v)` of a plain value is E0620 (`dyn(Box.new(v))` boxes it).
+
+### Examples
+
+```yo
+{ println } :: import("std/fmt");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Run :: trait(run : (fn(self : &Self) -> i32));
+Dog :: struct(legs : i32);
+impl(Dog, Speak(speak : ((self : &Self) -> i32(1))));
+impl(Dog, Run(run : ((self : &Self) -> self.legs)));
+
+act :: (fn(s : &Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
+
+main :: (fn() -> unit)({
+  dog := Dog(legs : i32(4));
+  a := act(dyn(&dog)); // a borrowed trait object: no allocation
+  (owned : Box(Dyn(Speak, Run))) = dyn(Box.new(Dog(legs : i32(3)))); // an owned one
+  b := act(&owned.*);
+  total := (a + b);
+  println(&total);
+});
+export(main);
+```
+
+## Existential Types
+
+"Existential type" names a value whose concrete type is hidden behind an
+interface: `∃T. (T, operations on T)`. Yo has this in the two forms a
+monomorphizing C backend can pay for, and deliberately not in the third.
+Which one to reach for:
+
+| You want to... | Use | What is hidden, and how |
+| --- | --- | --- |
+| store values of **different** concrete types in one variable, field or collection, and call trait methods on them | `Box(Dyn(Trait))` + `dyn(Box.new(v))`, or `&Dyn(Trait)` + `dyn(&v)` | the type is **erased**: a fat pointer `{data, vtable}`; the vtable is the only thing the consumer can use. Recover a concrete type only with `downcast(&d.*, T)`. |
+| return **one** concrete type without naming it (a closure, an iterator, a future) | `Impl(Trait)` in result position, `Impl(Fn(...))`, `Impl(Future(T, E))` | the type is **opaque, not erased**: every return path must produce the same concrete type, the compiler monomorphizes the callers, nothing is boxed. |
+| hide a **length** or other value the type depends on (`[n:nat] list(a, n)` in ATS / DML) | an ordinary runtime value plus a contract: `ensures(r.len() == ...)`, `requires(i < xs.len())`, `refine(T, p)` | the witness is a **ghost** the verifier reasons about ([FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)); nothing exists at runtime. |
+
+### Packed: `Dyn(Trait)`
+
+```yo
+Shape :: trait(area : (fn(self : &Self) -> f64));
+
+// A heterogeneous list: each element's concrete type is gone, only `Shape` remains.
+mut(shapes) := ArrayList(Box(Dyn(Shape))).new();
+shapes.push(dyn(Box.new(Circle(r : f64(1.0)))));
+shapes.push(dyn(Box.new(Square(side : f64(2.0)))));
+for(&shapes, s => println(s.area()));
+```
+
+The trait must be object-safe (a `&Self` or `&mut Self` receiver, no other
+`Self` in the signature, no `generic(...)` parameters), each element owns its
+payload through its `Box`, and an upcast to a smaller trait set is explicit:
+`upcast(d, Dyn(Sub))`.
+
+### Opaque: `Impl(Trait)` and closures
+
+```yo
+// The caller cannot spell the closure's type; the compiler knows it exactly.
+make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
+```
+
+Each closure is its own type, so one `Impl(Fn(...))` slot holds one closure
+and a container of them is `ArrayList(type_of(k))` — two different closures in
+one container need `Dyn(Fn(...))` (see [Closure Type Restrictions](./CLOSURES.md#closure-type-restrictions)).
+`Impl(Future(T, E))` is the same shape for `async` results.
+
+#### A bare function type never mentions `Impl(Fn(...))`
+
+A `fn(...) -> R` type is one C function pointer, so a slot of that type —
+a runtime parameter, a struct/enum/tuple/union field, a function result —
+must have one representation. `Impl(Fn(...))` does not: every function
+returning `Impl(Fn() -> i32)` returns its own closure struct by value, and a
+function taking an `Impl(Fn(...))` parameter is specialized per closure. Such
+a slot is rejected at `check`, as Rust rejects `fn(i32) -> impl Fn() -> i32`:
+
+```yo
+// error: The function type fn(x : i32) -> Impl(Fn() -> i32) cannot be the
+//        type of parameter "mk" ...
+use_mk :: (fn(mk : (fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+
+// OK: a generic `Impl(Fn(...))` parameter is specialized per argument, so the
+// inner `Impl` is that argument's own result type (a named function or a closure).
+use_mk :: (fn(mk : &Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+// OK, the Rust spelling `F: Fn(i32) -> G, G: Fn() -> i32`:
+use_mk :: (fn(generic(G : Type), mk : &Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)(mk(v)());
+```
+
+To store functions with different closure results in one slot, return
+`Box(Dyn(Fn(...)))` (one boxed representation). Not rejected: `Impl(Future(...))`
+(every future is one pointer to a state machine, so
+`fn(x : i32, io : Io) -> Impl(Future(i32, Io))` is a valid parameter type); a
+`comptime(f)` parameter (specialized per value); a local annotation
+`(h : (fn(x : i32) -> Impl(Fn() -> i32))) = mk`, which takes `mk`'s own
+function type the way an `Impl(Fn(...))` annotation takes its closure's (a
+later `h = other` with a different closure result is E0601).
+
+### Not supported: existential enum constructors
+
+```yo
+// NOT supported: `T` is bound by the constructor, not by the enum.
+Showable :: enum(
+  Wrap(generic(T : Type), value : T, show : (fn(v : T) -> String))
+);
+```
+
+This is the ML-style `pack`. Its lowering in a compiler that monomorphizes
+everything is exactly a `Dyn`: a hidden `T` with no vtable cannot be operated
+on, and with one it is a trait object. It stays a non-goal (see
+[ADVANCED_TYPES.md](./ADVANCED_TYPES.md#limitations)); write `Box(Dyn(Show))` instead.
+
+Yo therefore has no `exists` at the type level. The identifier `exists` is the
+verifier's ghost quantifier over values, as in
+`ensures(exists(k : i32, xs(k) == target))`.
+
+## Impl vs Dyn
+
+- **Impl**: Static dispatch, compile-time polymorphism, no runtime overhead
+- **Dyn**: Dynamic dispatch, runtime polymorphism, used behind a pointer (`Box(Dyn(...))`, `&Dyn(...)`)
+
+```yo
+// Impl - static dispatch (monomorphization)
+use_impl :: (fn(generic(T : Type), value : T, where(T <: SomeTrait)) -> unit)({
+  value.method(); // Statically dispatched
+});
+
+// Dyn - dynamic dispatch (vtable)
+use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
+  value.method(); // Dynamically dispatched
+});
+```
+
+For more examples, see `tests/impl.test.yo`.

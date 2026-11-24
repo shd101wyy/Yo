@@ -636,7 +636,7 @@ test("Dyn: a trait from a generic impl builds its vtable", {
   assert(_os_show(dyn(Box.new(Option(i32).Some(i32(5))))) == String.from("Some(5)"), "Option(T)'s blanket ToString");
 });
 // No upcasting: a Dyn with more traits is not a Dyn with fewer
-// (docs/en-US/DYN_DESIGN.md, Phase 2.7 decision).
+// (docs/en-US/TRAIT_OBJECTS.md, Phase 2.7 decision).
 _OsOt :: trait(other_n : (fn(self : &Self) -> i32));
 impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
 _os_takes_sp :: (fn(s : Box(Dyn(_OsSp))) -> i32)(s.speak());
@@ -1469,4 +1469,114 @@ test("a plain dyn(v) is E0620 naming dyn(Box.new(v))", {
   (ok : Box(Dyn(_S3bSpeak))) = dyn(Box.new(_S3bCat(n : i32(4))));
   assert(ok.*.s3b_speak() == i32(4), "the spelled box erases");
   assert(_s3b_lent(dyn(&c3)) == i32(3), "a lent place erases without a box");
+});
+// A method called through a reference to a Dyn reads its vtable slot's
+// reference flags off the Dyn, not off the reference that holds it: a `&mut`
+// argument passes its place's address, a `-> &T` result is the place it
+// projects, a `-> &[T]` result is its fat pair
+// (issues/fixed/2026-11-24-a-method-called-through-a-dyn-reference-local-ignores-its-vtable-slots-reference-flags.md).
+_DrRead :: trait(
+  dr_bump : (fn(self : &Self, x : &mut i32) -> unit),
+  dr_max : (fn(self : &Self, x : &i32) -> &i32),
+  dr_get : (fn(self : &Self) -> &i32),
+  dr_name : (fn(self : &Self) -> &String),
+  dr_items : (fn(self : &Self) -> &[i32]),
+  dr_val : (fn(self : &Self) -> i32)
+);
+_DrWrite :: trait(
+  dr_slot : (fn(self : &mut Self) -> &mut i32),
+  dr_take : (fn(self : &mut Self, x : &mut i32) -> i32)
+);
+_DrCat :: struct(n : i32, s : String, l : ArrayList(i32));
+impl(
+  _DrCat,
+  _DrRead(
+    dr_bump : (fn(self : &Self, x : &mut i32) -> unit)({
+      x.* = (x.* + self.n);
+    }),
+    dr_max : (fn(self : &Self, x : &i32) -> &i32)(
+      cond(
+        (x.* > self.n) => x,
+        true => &self.n
+      )
+    ),
+    dr_get : (fn(self : &Self) -> &i32)(&self.n),
+    dr_name : (fn(self : &Self) -> &String)(&self.s),
+    dr_items : (fn(self : &Self) -> &[i32])(&self.l.*),
+    dr_val : (fn(self : &Self) -> i32)(self.n)
+  )
+);
+impl(
+  _DrCat,
+  _DrWrite(
+    dr_slot : (fn(self : &mut Self) -> &mut i32)(&mut self.n),
+    dr_take : (fn(self : &mut Self, x : &mut i32) -> i32)({
+      self.n = (self.n + x.*);
+      x.* = i32(0);
+      self.n
+    })
+  )
+);
+_dr_cat :: (fn(n : i32) -> _DrCat)({
+  mut(l) := ArrayList(i32).new();
+  l.push(i32(1));
+  l.push(i32(2));
+  _DrCat(n : n, s : String.from("abcd"), l : l)
+});
+test("a method through a &Dyn local reads its slot's reference flags", {
+  c := _dr_cat(i32(3));
+  (d : &Dyn(_DrRead)) = dyn(&c);
+  (mut(k) : i32) = i32(10);
+  d.dr_bump(&mut k);
+  assert(k == i32(13), "a `&mut` argument is written through");
+  assert(d.dr_max(&k).* == i32(13), "a projection's `&` argument is its place's address");
+  g := d.dr_get();
+  assert(g.* == i32(3), "a bound `-> &i32` result reads the place");
+  assert(d.dr_get().* == i32(3), "a `-> &i32` result read in place");
+  assert(d.dr_name().len() == usize(4), "a `-> &String` result");
+  assert(d.dr_items().len() == usize(2), "a `-> &[i32]` result is the fat pair");
+  assert(d.dr_val() == i32(3), "a by-value result");
+});
+test("a method through a &mut Dyn local reads its slot's reference flags", {
+  (mut(c) : _DrCat) = _dr_cat(i32(3));
+  {
+    (e : &mut Dyn(_DrRead, _DrWrite)) = dyn(&mut c);
+    (mut(k) : i32) = i32(10);
+    assert(e.dr_take(&mut k) == i32(13), "a `&mut` argument is read through");
+    assert(k == i32(0), "and written through");
+    e.dr_slot().* = i32(42);
+    assert(e.dr_get().* == i32(42), "a `-> &mut i32` result is the place it projects");
+    k = i32(1);
+    e.dr_bump(&mut k);
+    assert(k == i32(43), "a `&mut` argument through a `&self` slot");
+    assert(e.dr_name().len() == usize(4), "a `-> &String` result");
+  };
+  assert(c.n == i32(42), "the writes landed in c");
+});
+test("a method through a Box(Dyn) reached through a reference reads its slot's reference flags", {
+  (b : Box(Dyn(_DrRead))) = dyn(Box.new(_dr_cat(i32(4))));
+  (rb : &Box(Dyn(_DrRead))) = &b;
+  (mut(k) : i32) = i32(10);
+  rb.*.*.dr_bump(&mut k);
+  assert(k == i32(14), "a `&mut` argument is written through");
+  assert(rb.*.*.dr_get().* == i32(4), "a `-> &i32` result");
+  assert(rb.*.*.dr_name().len() == usize(4), "a `-> &String` result");
+  assert(rb.*.*.dr_val() == i32(4), "a by-value result");
+});
+_dr_via_refref :: (fn(dd : &(&Dyn(_DrRead)), k : &mut i32) -> i32)({
+  dd.*.dr_bump(k);
+  (dd.*.dr_get().* + dd.*.dr_val())
+});
+test("a method through a &&Dyn reads its slot's reference flags", {
+  c := _dr_cat(i32(5));
+  (d : &Dyn(_DrRead)) = dyn(&c);
+  (dd : &(&Dyn(_DrRead))) = &d;
+  (mut(k) : i32) = i32(10);
+  dd.*.dr_bump(&mut k);
+  assert(k == i32(15), "a `&mut` argument is written through");
+  assert(dd.*.dr_get().* == i32(5), "a `-> &i32` result");
+  assert(dd.*.dr_name().len() == usize(4), "a `-> &String` result");
+  assert(dd.*.dr_val() == i32(5), "a by-value result");
+  assert(_dr_via_refref(&dd.*, &mut k) == i32(10), "through a `&&Dyn` parameter");
+  assert(k == i32(20), "the parameter's `&mut` argument is written through");
 });

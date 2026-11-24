@@ -531,7 +531,8 @@ test("push then len", {
 - `yo context --list`, then `yo context <module>`: the real API surface.
 - `yo explain E0xxx` for any diagnostic; `yo fix` applies its repair.
 - The manuals ship with the toolchain: `yo context --docs` lists them,
-  `yo context --doc STRINGS` prints one (`docs/en-US/` in the repository).
+  `yo context --doc STRINGS` prints one (`docs/en-US/` in the repository), and
+  `yo context --doc INDEX` maps them by topic.
 - Contracts (`requires`, `ensures`, `invariant`) are proved by `yo verify`:
   `yo context --doc FORMAL_VERIFICATION`.
 - `yo lsp` (and the VS Code extension) gives hover, completion and go-to.
