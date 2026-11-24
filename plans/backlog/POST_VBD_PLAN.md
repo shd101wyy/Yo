@@ -78,7 +78,7 @@ per the ratchet, #1742.
 | Lane | Theme | Owning docs |
 | --- | --- | --- |
 | **A** | Soundness and language completion | `TYPE_SYSTEM_SOUNDNESS.md`, `BORROW_CHECKER_COMPLETENESS.md` (the G-D generator, totality), `COMPTIME_METAPROGRAMMING_AUDIT.md`, `REFERENCES_AND_ORIGINS.md` (move to `reference/`) |
-| **B** | Runtime and platform | `IO_INTERFACE_AND_STD_RUNTIME.md`, `THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`, `ALLOCATOR_PLACEMENT.md` step C, `ZIG_STYLE_ALLOCATORS.md`, `NO_LIBC_BY_DEFAULT.md` |
+| **B** | Runtime and platform | `IO_INTERFACE_AND_STD_RUNTIME.md`, `THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`, `ZIG_STYLE_ALLOCATORS.md` (C0 first), `NO_LIBC_BY_DEFAULT.md` |
 | **C** | Performance | P-PERF (§3.3): `EVALUATOR_MEMORY_REDUCTION.md`, `CODEGEN_MEMORY_REDUCTION.md`, `PARALLEL_COMPILATION.md`, `CODEGEN_PERFORMANCE.md` |
 | **D** | Docs and the agent loop | `AGENT_KNOWLEDGE_CONSOLIDATION.md` (K2–K7), `OWNERSHIP_AND_BORROWING_DOC_DRAFT.md` (promoted to `docs/en-US/OWNERSHIP_AND_BORROWING.md` in v0.2.80), `RUST_REFERENCE_PATTERNS.md` (the porting guide), `BEND_LAWS_AND_AGENT_LOOP_LESSONS.md` (B4 evals, B5, `yo gate`) |
 | **E** | Verification | `SAFE_MODE.md`, `SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, `SELF_VERIFICATION.md`, `FORMAL_VERIFICATION.md` (open tail), `THEOREM_PROVING_DIRECTION.md` (ranking), `ADA_SPARK_LESSONS.md`, `DEFAULT_ON_VERIFICATION.md` (the lane's first track), `PROVEN_CORE.md` (its own track) |
@@ -162,7 +162,7 @@ battery takes the next lane-F item.
 - **Lane B:**
   - IO-1b, the std Generation B (`Io` becomes `{ctx, vtable}`).
   - IO-1c.
-  - ALLOCATOR_PLACEMENT step C: Generation A reads `global_allocator`, then
+  - ZIG_STYLE_ALLOCATORS C0 (the root `global_allocator`): Generation A reads `global_allocator`, then
     Generation B adds the std catalogue's first modules.
   - NO_LIBC's std-only **P3** (owned float print/parse, which closes two S2s)
     and **P7** (an async DNS resolver, which closes two S2s). Both run in

@@ -10,7 +10,8 @@ A mechanism that convincingly explains a symptom is wrong about half the time: f
 
 1. **Probe before you fix.** Print at the predicate you believe decides, on BOTH a failing and a working case, and compare. A trace without a control is not evidence.
 2. **When a probe is ambiguous, widen the probe; do not go back to reading.** When several sites could be the one, tag them all in one build (distinct `eprintln` markers) instead of bisecting by inference.
-3. **Do not count one signal twice** (two views of the same layer are one confirmation), and **a green exit code can mean "nothing ran"**: `yo compile` exits 0 on a body emitted as an abort stub, and `yo check` never runs codegen.
+3. **A comment saying "Yo has no X" goes stale as the language grows.** Probe it with a 15-line `tmp/` file (`yo compile … --emit-c --skip-c-compiler`) before building a workaround on it.
+4. **Do not count one signal twice** (two views of the same layer are one confirmation), and **a green exit code can mean "nothing ran"**: `yo compile` exits 0 on a body emitted as an abort stub, and `yo check` never runs codegen.
 
 ## Evaluator debugging
 

@@ -508,6 +508,12 @@ manifest/cli cases; internal test for the manifest→store walk.
 
 ### C6 — Consolidation sweep
 
+> **Superseded in part (2026-11-24):** C6's split "pack for rules, skills for
+> workflow" no longer holds. The shipped skills and `yo skills install` were
+> deleted (v0.2.79), and each fact now has one home: the pack, a manual, or
+> `.github/instructions/` (decisions D1 and D2 of
+> [`backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md`](../backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md)).
+
 > **Status: LANDED (PR `feat/yo-context-c6`, stacked).** `yo init`'s
 > AGENTS.md recipe leads the toolchain block with `yo context` (+ `check`);
 > the five bundled SKILL.md files carry a `yo context` pointer (API

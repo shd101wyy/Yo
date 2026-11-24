@@ -321,4 +321,4 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
   类型的对齐超过 16；`extern` C 类型可能超过。
 
 设计决定汇总在 `plans/reference/EXPLICIT_ALLOCATORS.md`，放置规则（“默认全局，
-放置靠参数”）见 `plans/backlog/ALLOCATOR_PLACEMENT.md`。
+放置靠参数”）见 `plans/reference/ALLOCATOR_PLACEMENT.md`。
