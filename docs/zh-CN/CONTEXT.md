@@ -53,7 +53,7 @@ yo 0.2.40 — pack-version: 1
 
 ## 手册
 
-上下文包会指向更深入的手册（GRAMMAR、DESIGN、MEMORY_SAFETY、ASYNC_AWAIT 等）。
+上下文包会指向更深入的手册（GRAMMAR、DESIGN、MEMORY_SAFETY、ASYNC_AWAIT 等）；`INDEX` 按主题列出它们。
 发行包把它们作为 `docs/en-US/` 与 `std/`、`pack/` 并列附带，所以 `yo context`
 输出的是与已安装工具链版本一致的副本，而不是仓库 `develop` 分支当前的内容：
 
@@ -69,7 +69,7 @@ yo context --doc memory_safety.md --format json   # {"name", "title", "citation"
 
 手册的查找方式与上下文包相同：`$YO_CONTEXT_DOCS`（显式目录，设置时具有权威性），
 然后是可执行文件旁的 `docs/en-US/`，再然后是工作目录旁的。只有同时包含
-`GRAMMAR.md` 和 `DESIGN.md` 的 `docs/en-US/` 才算数，因此项目自己的
+`GRAMMAR.md` 和 `INDEX.md` 的 `docs/en-US/` 才算数，因此项目自己的
 `docs/en-US/` 不会被误认为手册。zh-CN 译文位于仓库的 `docs/zh-CN/` 下。
 
 ## 查询

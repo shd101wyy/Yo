@@ -51,8 +51,7 @@ irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 脚本安装预编译的编译器（位于 `~/.local`，Windows 上为 `%LOCALAPPDATA%\Yo`），缺少
 clang 和 git 时一并安装。`curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --help`
 列出全部选项：指定版本 `--version`、安装前缀 `--prefix`，以及在没有预编译包的平台（NixOS、Alpine）上使用的
-`--from-source`。手动配置：[Linux](./INSTALL_LINUX.md)、[macOS](./INSTALL_MACOS.md)、
-[Windows](./INSTALL_WINDOWS.md)、[WebAssembly](./INSTALL_WASM.md)。
+`--from-source`。手动配置 C 工具链、升级与 WebAssembly：[INSTALL.md](./INSTALL.md)。
 
 ### 让智能体安装
 
@@ -94,12 +93,12 @@ export(main);
 
 ## 文档
 
-- [语言设计](./DESIGN.md)
+- [手册](./INDEX.md)：按主题列出每一页，以及哪个工具回答什么
 - [标准库参考](https://shd101wyy.github.io/Yo/std)
 - 用 `.yo-version` [固定版本](./VERSION_MANAGEMENT.md)
 - 编辑器：[LSP 配置](./LSP.md)；Vim/Neovim 语法文件见 [vscode-extension/syntaxes](../../vscode-extension/syntaxes/README.md)
 - 示例：[raylib-yo](https://github.com/shd101wyy/raylib-yo)、[tetris-yo](https://github.com/shd101wyy/tetris-yo)（[在线试玩](https://shd101wyy.github.io/tetris-yo/)）、[http-server-demo-yo](https://github.com/shd101wyy/http-server-demo-yo)、[markdown-it-yo](https://github.com/shd101wyy/markdown-it-yo)、[markdown-yo](https://github.com/shd101wyy/markdown-yo)（[在线试用](https://shd101wyy.github.io/markdown-yo/)）
-- [我与编程语言的故事](./MY_STORY_WITH_PROGRAMMING_LANGUAGES.md)
+- [我与编程语言的故事](../about/zh-CN/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md)
 
 ## 贡献
 
