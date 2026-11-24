@@ -374,7 +374,8 @@ NO_LIBC's std-only P3 and P7 are unaffected and may run at any time.
   `io : Io` whose fields are raw pointers.
 - **A program whose types include the interface-shaped `Io` links the
   reactor** (`io_native_needs_reactor`).
-- **Decided for v0.2.80 (VERDICTS-68):** a bundled future is never viewed as
+- **Decided for v0.2.80 (VERDICTS-68), implemented 2026-11-24
+  (`v0280/io-v68`):** a bundled future is never viewed as
   a bundle-less `Impl(Future(T))`. Option A, unconditional and not
   shape-keyed: the `Io` exemption in `src/types/compatibility.yo`
   (`future_view_drops_a_bundle`, the `flat_e_types.len() == 0` arm) is

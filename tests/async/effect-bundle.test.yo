@@ -84,6 +84,16 @@ test("an Io-bundled future cannot be viewed as Future(T)", {
 _lock_view :: (fn(generic(R : Type), m : &Mutex(i32), body : &mut Impl(FnMut(v : &mut i32) -> R), io : Io) -> Impl(Future(R)))(
   m.with_lock(body, io)
 );
+/// A generic function's bundle-less result over a handler-bundled body: the
+/// view is judged at each instantiation
+/// (issues/fixed/2026-11-24-a-generic-fns-bundle-less-future-result-hides-its-bundle.md).
+_generic_view :: (fn(generic(R : Type), _x : R, io : Io) -> Impl(Future(i32)))(
+  io.async((ctx : TellCtx) => ctx.tell(i32(3)))
+);
+test("a generic fn's bundle-less future result cannot hide a handler bundle", {
+  comptime_expect_error(_generic_view(i32(1), io), "Name the bundle");
+  assert(true, "rejected at the instantiation");
+});
 test("an Io-bundled future keeps its bundle in the type", {
   assert(io.await(io_only(io), io) == i32(4), "awaited through its own type");
   (d : Dyn(Future(i32, Io))) = dyn(Box.new(io_only(io)));

@@ -164,17 +164,9 @@ _run_timers :: (fn(io : Io) -> unit)({
     io.spawn(task, io);
     fi = (fi + i64(1));
   });
-  exn := Exception(
-    throw : (
-      err -> {
-        unwind(());
-      }
-    )
-  );
-  e := IoExn(io : io, exn : exn);
   (ri : i64) = i64(0);
   while(ri < ktimers, {
-    io.await(done.recv(io), e);
+    io.await(done.recv(io), io);
     ri = (ri + i64(1));
   });
   secs2 := t0.elapsed().as_secs_f64();
@@ -305,7 +297,7 @@ _run_multi :: (fn(io : Io) -> unit)({
   e2 := IoExn(io : io, exn : exn2);
   (ri : i64) = i64(0);
   while(ri < npair, {
-    io.await(done.recv(io), e2);
+    io.await(done.recv(io), io);
     ri = (ri + i64(1));
   });
   total_rt := (per * npair);

@@ -352,7 +352,7 @@ _future_view_bundles :: (fn(actual : &TypeValue) -> ArrayList(TypeValue))({
 /// `Io`: the one case `yo fix` repairs by naming it (`, Io`).
 future_view_drops_only_io :: (fn(actual : &TypeValue) -> bool)({
   bundles := _future_view_bundles(actual);
-  (bundles.len() == usize(1)) && match(bundles.get(usize(0)), .Some(b) => is_prelude_io_struct(&b), .None => false)
+  (bundles.len() == usize(1)) && match(bundles.get_cloned(usize(0)), .Some(b) => is_prelude_io_struct(&b), .None => false)
 });
 /// What a rejected future view (`future_view_drops_a_bundle`) adds to its
 /// diagnostic (E0605): what the body reads from the bundle, why the view
@@ -360,7 +360,7 @@ future_view_drops_only_io :: (fn(actual : &TypeValue) -> bool)({
 future_view_explanation :: (fn(actual : &TypeValue, expected : &TypeValue) -> String)({
   out_s := match(_future_trait_of(expected), .Some(Rc(.FutureTraitT(output : eo))) => type_to_string(&eo.*), _ => String.from("T"));
   bundles := _future_view_bundles(actual);
-  bundle_s := match(bundles.get(usize(0)), .Some(b) => type_to_string(&b), .None => String.from("E"));
+  bundle_s := match(bundles.get_cloned(usize(0)), .Some(b) => type_to_string(&b), .None => String.from("E"));
   reads := cond(
     future_view_drops_only_io(actual) => String.from("its `io`"),
     true => `its effects (\`${bundle_s}\`)`
