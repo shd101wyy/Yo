@@ -91,7 +91,7 @@ test("move-only: Drop makes a value type move-only, and value aggregates inherit
   // A counted handle shares its payload: its copy is another handle, never a move.
   r := Rc.new(_MoRefPayload(fd : _MoFd(n : i32(4))));
   r2 := Rc.clone(&r);
-  assert((r.fd.n + r2.fd.n) == i32(8), "both handles stay usable");
+  assert((r.*.fd.n + r2.*.fd.n) == i32(8), "both handles stay usable");
 });
 test("move-only: the impl-site gate", {
   comptime_expect_error(impl(i32, Drop(drop : (fn(self : &mut Self) -> unit)(()))), "cannot implement \"Drop\"");
