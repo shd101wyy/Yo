@@ -43,29 +43,30 @@ release is cut on the first develop battery that is green on the exact tip.
 **Forecast: around 2026-11-28 to 12-02** (best case ~11-26). The walls stay: P12 READY 12-04 12:00, Deref F1+F2
 READY 12-08 12:00, cut no later than 12-11 (latest 12-19).
 
-**Landed** (#2018–#2041): the borrow-checker cluster fixes (#2018); the six test-7 soundness bugs (#2020, #2038);
+**Landed** (#2018–#2051): the borrow-checker cluster fixes (#2018); the six test-7 soundness bugs (#2020, #2038);
 capture-list loans (#2028); the dup/drop pair optimizer deleted (#2023, VERDICTS-70 row 1); side-effecting
 builtins kept (#2024); `std/sync` as move-only values shared through `Arc` (#2025, row 4); IO-1a (#2026); the
 guard-off knob (#2027, row 5); the `__yo_` namespace, E0407 (#2029); partial application over generic binders
 (#2032); the `Hash(&T)`/`ToString(&T)` blankets (#2036); E0909/E0602/E0927 coded (#2037); the combinators
-future-origin fix (#2039); `ArrayList` `Deref`/`DerefMut` (#2040); docs: the ownership guide, current-language docs,
-the pack rewrite, the README.
+future-origin fix (#2039); `ArrayList` `Deref`/`DerefMut` (#2040); the schedule simplified (#2042); the generic
+`GKind(T)` S2 filed (#2043); test 7 as one procedure, `scripts/test7.sh`, with legs (a)–(c) first green and the
+corpus respelled (#2044, #2045); S3b-`str` PR A (#2046); `yo fix --migrate` deleted (#2047); the receiver riders
+r1–r4 (#2048); TP-1, `ThreadPool` owns its workers (#2049); VERDICTS-76 Q1, `a := m` moves a `&mut` (#2050); five
+test-7 S1s (#2051); docs: the ownership guide, current-language docs, the pack rewrite, the README.
 
 **To land before the cut:**
 
 | Item | What | Gates claim |
 | --- | --- | --- |
 | Evaluator-work ratchet | Reclaim #2020's +27% allocation regression without changing a verdict (release blocker) | — |
-| S3b-`str` PR A | The std/src `str` sweep | (L) |
-| drop-fix-migrate | `yo fix --migrate` deleted (`--module-names` stays) | (L) |
 | P12 | `static` is a checked origin; E0922 deleted (VERDICTS-74) | (L) |
 | S3b-`str` PR B | The value-`str` alias deleted; stacked on P12 | (L) |
 | S3b-`str` PR E | `String : Deref(Target : str)` and the non-static `&str` producers; behind P12 | — |
 | Deref F1 → F2 | The explicit `.*` sweep, then member forwarding deleted (E0623, VERDICTS-73) | — |
-| E0926 for reference values | After F1/F2 (VERDICTS-75 §8; tests only) | — |
+| E0926 for reference values | After F1/F2 (VERDICTS-75 §8; tests only); also covers a bare `&T` field read (VERDICTS-76 row 14) | — |
 | Test 7 | Legs (a)–(c) green on the release tip | (S) |
-| VERDICTS-76 Q1 | `a := m` with `m : &mut T` moves `m` (Fable review amendments) | — |
-| Riders | receiver-auto-borrow riders r1–r4; the S2/S3 fixes (box-self enum, scrutinee temp place, slot-replace); TP-1; borrow-mark runtime (row 3); allocator v1 ABI retirement | — |
+| S1 rider | A `mut` name destructured from a call result is released twice | (S) |
+| Riders | The S2/S3 fixes (box-self enum, scrutinee temp place, slot-replace); borrow-mark runtime (row 3); allocator v1 ABI retirement | — |
 | Census | VERDICTS-70 row 2, the instrumented census (no PR) | — |
 
 A rider that is late moves to v0.2.81 rather than holding the cut. Claim (L) is written in the release notes once
@@ -78,14 +79,28 @@ Needs the v0.2.80 seed.
 - **VERDICTS-70 rows 7–14**:
   - row 7: a generic value's copy is judged at the instantiation;
   - row 8: the `Dyn` kind moves into the predicates;
-  - row 9: one predicate (drop glue means not implicitly copyable);
+  - row 9: one predicate (drop glue means not implicitly copyable); its PR first routes the two capture dup sites
+    (`utils/closure.yo`, `values/anonymous-function.yo`) through `set_expr_as_needs_to_call_dup`, so the assertion has
+    one site, and rewrites the raw-cell copies in `tests/yo-cell.test.yo` and `tests/cell-handles.test.yo`;
   - row 10: implicit dup insertion deleted;
   - row 11: the guard, Stage 1 and the call-scoped share marks deleted;
-  - row 12: `Rc.clone`/`Arc.clone` through the retain extern; `___dup` and all dup glue deleted;
+  - row 12: `Rc.clone`/`Arc.clone` through the retain extern; `___dup` and all dup glue deleted, with the two explicit
+    uses (`calls/function.yo`, `tests/fixtures/cell-handles.yo`);
   - row 13: the prelude's borrow-mark externs deleted;
   - row 14: `drop_in_place` Generation A.
 - `Rc`/`Arc.strong_count` replaces `ref_count` (row 6; parked behind the guard deletion).
 - VERDICTS-76 Q2: an owned destructuring `{ a, b } := x` consumes `x` (with the Fable review's amendments).
+- VERDICTS-76 rows 10, 12 and 20 and the row-6 help: a `&mut` re-point `a = m`, a `&mut` field reborrow into a
+  local, a `{ m }` capture-list `&mut` move, and the `&m.*` help. Here because v0.2.80 claims (S) and adds no accept
+  surface.
+- VERDICTS-78 (`~/Workspace/Yo-wt/v0273/fable/VERDICTS-78.md`):
+  - PR 0: the S2 generic `&T` binder at `T := Box(Dyn(S))`, which emits invalid C;
+  - Q1: the reference-field store `h.r = &y` admitted;
+  - Q3 PR 1: the `ToString` → `Display`/`Debug` rename (`ToString` removed; `append_to` and `Format` kept for the seed);
+  - Q3 PR 2: `${x:spec}`, `${x:?}`, spec-aware `fmt`;
+  - Q2: `Display`/`Debug` for `Box`/`Rc`/`Arc`; `Arc` gains `Eq`/`Hash`, all three gain `Ord`.
+- A free generic function's unbound binder slot with `&x`: infer-first (Rust) as a candidate, with the open S2 "a lend to a
+  by-value reference parameter in a static method call is E0601" (2026-11-23).
 - VERDICTS-72 rule (b): no user binder in the `__yo_` namespace.
 - The `std/sync` channel payload back to `_ChannelState(T)`; the prelude's four `Deref` arms in
   `derive(Clone)`/`derive(Hash)`.
@@ -100,6 +115,7 @@ Needs the v0.2.81 seed.
 
 - **VERDICTS-70 row 15**, `drop_in_place` Generation B: the prelude's `drop_in_place` on the intrinsic, `Drop`
   impls for `Rc`/`Arc`, and `___drop`, `__yo_rc_own` and the builtin decrement arm deleted.
+- VERDICTS-78 Q3 PR 3: `append_to` and `Format` deleted.
 - The last seed-gated renames.
 - IO-1c.
 
