@@ -428,6 +428,68 @@ comptime_expect_error(
   }),
   "is still live"
 );
+// A method's by-value parameter whose type is a reference once its binder is
+// bound (`Option(&X).replace(self : &mut Self, value : T)` at `T := &X`) takes
+// a LEND, as a constructor's reference field does (T9): `slot.replace(&x)`
+// lends `x`, which stays usable and frozen while `slot` holds it. A move-only
+// `x` was moved into the slot instead, and the call reported E0910
+// (issues/fixed/2026-11-20-a-lend-passed-to-a-methods-by-value-binder-parameter-is-reported-as-e0910-not-e0914.md).
+BsLent :: struct(n : i32);
+BsHolder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : Option(T)));
+impl(
+  generic(T : Type),
+  BsHolder(T),
+  put : (fn(self : &mut Self, v : T) -> unit)({
+    self.v = .Some(v);
+  })
+);
+test("a lend to a method's by-value reference parameter keeps a move-only place", {
+  x := BsLent(n : i32(1));
+  x2 := BsLent(n : i32(2));
+  mut(slot) := Option(&BsLent).Some(&x);
+  old := slot.replace(&x2);
+  assert(match(old, .Some(r) => (r.*.n == i32(1)), .None => false), "the old lend comes back");
+  assert(match(slot, .Some(r) => (r.*.n == i32(2)), .None => false), "the slot holds the new lend");
+  assert(x2.n == i32(2), "`x2` was lent, not moved");
+  mut(h) := BsHolder(&BsLent)(v : .None);
+  h.put(&x2);
+  assert(match(h.v, .Some(r) => (r.*.n == i32(2)), .None => false), "a user generic method takes the lend");
+  mut(y) := BsLent(n : i32(5));
+  mut(z) := BsLent(n : i32(6));
+  mut(ms) := Option(&mut BsLent).Some(&mut y);
+  _old := ms.replace(&mut z);
+  match(
+    ms,
+    .Some(r) => {
+      r.*.n = i32(7);
+    },
+    .None => ()
+  );
+  assert(z.n == i32(7), "the `&mut` lend writes `z`");
+});
+comptime_expect_error(
+  bs_method_lend_freezes_move :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    x2 := BsLent(n : i32(2));
+    mut(slot) := Option(&BsLent).Some(&x);
+    _o := slot.replace(&x2);
+    _m := x2;
+    _ := slot.is_some();
+  }),
+  "Cannot move `x2` here: `slot` borrows `x2`"
+);
+comptime_expect_error(
+  bs_method_lend_outlives_place :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    mut(slot) := Option(&BsLent).Some(&x);
+    {
+      x2 := BsLent(n : i32(2));
+      _o := slot.replace(&x2);
+    };
+    _ := slot.is_some();
+  }),
+  "Cannot store a reference to `x2` in `slot` here"
+);
 comptime_expect_error(
   bs_field_undeclared_origin :: (fn() -> unit)({
     S :: struct(next : &(i32, q));
