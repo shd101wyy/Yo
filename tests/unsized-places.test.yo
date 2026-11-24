@@ -163,16 +163,16 @@ test("a static value passed to a &str parameter", {
 });
 _UpG := _UpX(n : i32(7));
 _UpStaticSlot :: struct(r : Option(&(_UpX, static)));
-_UpStaticId :: (fn(v : &(_UpX, static)) -> &(_UpX, static))(v);
 _UpStaticWrap :: (fn(v : &(_UpX, static)) -> Option(&(_UpX, static)))(.Some(v));
 _UpStaticFieldOf :: (fn(t : &_UpStaticSlot) -> Option(&(_UpX, static)))(t.r);
 _UpStaticCopyField :: (fn(s : &mut _UpStaticSlot, t : &_UpStaticSlot) -> unit)({
   s.r = t.r;
 });
 test("a read of a static parameter or of a static-typed field is a static value", {
-  a := _UpStaticId(&_UpG);
+  // A bare static parameter returned as `-> &(T, static)` checks but emits
+  // invalid C (issues/2026-11-25-a-static-reference-parameter-returned-bare-emits-its-referent.md).
   mut(h) := _UpStaticSlot(r : .None);
-  h.r = _UpStaticWrap(a);
+  h.r = _UpStaticWrap(&_UpG);
   mut(k) := _UpStaticSlot(r : .None);
   // A `&mut` / `&` of a holder with a static field borrows the holder; it
   // is no static value, and no static slot asks it to be.
