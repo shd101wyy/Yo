@@ -12249,6 +12249,31 @@ _static_offending_root_of :: (fn(e : &AstExpr, skip : &String, env : &Environmen
   _static_value_roots(e, env, ctx, &mut svr_out, u32(0));
   _static_offending_root(&svr_out, skip, env, ctx)
 });
+/// What a value that meets a slot spelled over the empty origin holds that
+/// is not static (VERDICTS-74 rule 2), or `.None` for a static value: an
+/// origin of a by-value parameter, a NAMED origin its type spells (it holds
+/// that place), or else a deep root (`_static_value_roots`) that is no
+/// static place (rule 3: a literal, a read of a `static`-typed place, `&G`
+/// of an immutable module-level binding).
+_static_value_offense :: (fn(value : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(String))({
+  pv := byvalue_param_origin_names(value, env, ctx);
+  if(pv.len() > usize(0), {
+    return(Option(String).Some(pv(0).clone()));
+  });
+  named := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(value)),
+    .Some(svo_info) => {
+      svo_names := ArrayList(String).new();
+      origin_param_names_of(&svo_info.ty(), &mut svo_names, u32(0));
+      svo_names.get_cloned(usize(0))
+    },
+    .None => Option(String).None
+  );
+  if(named.is_some(), {
+    return(named);
+  });
+  match(_static_offending_root_of(value, &String.new(), env, ctx), .Some(svo_off) => Option(String).Some(svo_off.place.text.clone()), .None => Option(String).None)
+});
 /// The E0923 of the static subset check (VERDICTS-74 rule 2): a holder, a
 /// result or a parameter declared over the empty origin `static` accepts
 /// only values that borrow no place. `what` names the offending place (or,
@@ -14570,7 +14595,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, is_computed_reference_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, _static_module_level, _static_slot_param, _static_offending_root, _static_origin_reject, _static_join_subset_check, _static_offending_root_of, _static_value_roots, byvalue_param_origin_names);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, is_computed_reference_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, _static_module_level, _static_slot_param, _static_offending_root, _static_origin_reject, _static_join_subset_check, _static_offending_root_of, _static_value_offense, _static_value_roots, byvalue_param_origin_names);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

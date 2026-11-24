@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type-key.yo");
 { record_await_fusion_candidate } :: import("../../expr-traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, place_write_join, invariant_origin_names, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, is_reference_field_read, reference_field_read_type, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg, is_computed_reference_operand, _static_slot_param, _static_offending_root, _static_origin_reject, _static_value_roots, byvalue_param_origin_names } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, place_write_join, invariant_origin_names, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, is_reference_field_read, reference_field_read_type, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg, is_computed_reference_operand, _static_origin_reject, _static_value_offense } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -10900,43 +10900,8 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
       slots.get(sb_i),
       .Some(sb_slot) => if(type_spells_checked_static(&sb_slot), {
         sb_arg := match(op_args.get_cloned(sb_i), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
-        sb_pv := byvalue_param_origin_names(&sb_arg, env, ctx);
-        (sb_bad : Option(String)) = Option(String).None;
-        if(sb_pv.len() > usize(0), {
-          sb_bad = Option(String).Some(sb_pv(0).clone());
-        }, {
-          // A value whose type spells a NAMED origin holds that place; a
-          // read of a place whose own type spells only `static` is a static
-          // value (rule 3); everything else is judged by what it holds.
-          sb_named := match(
-            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sb_arg)),
-            .Some(sb_i2) => {
-              sb_names := ArrayList(String).new();
-              origin_param_names_of(&sb_i2.ty(), &mut sb_names, u32(0));
-              match(sb_names.get_cloned(usize(0)), .Some(sb_n) => Option(String).Some(sb_n), .None => Option(String).None)
-            },
-            .None => Option(String).None
-          );
-          match(
-            sb_named,
-            .Some(sb_n) => {
-              sb_bad = Option(String).Some(sb_n);
-            },
-            .None => {
-              (mut(sb_roots) : ArrayList(OriginRootPlace)) = ArrayList(OriginRootPlace).new();
-              _static_value_roots(&sb_arg, env, ctx, &mut sb_roots, u32(0));
-              match(
-                _static_offending_root(&sb_roots, &String.new(), env, ctx),
-                .Some(sb_off) => {
-                  sb_bad = Option(String).Some(sb_off.place.text.clone());
-                },
-                .None => ()
-              );
-            }
-          );
-        });
         match(
-          sb_bad,
+          _static_value_offense(&sb_arg, env, ctx),
           .Some(sb_what) => _static_origin_reject(&String.from("this parameter"), &sb_slot, &sb_what, &ast_expr_token(&sb_arg), ctx, exn),
           .None => ()
         );

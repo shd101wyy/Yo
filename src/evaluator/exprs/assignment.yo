@@ -178,6 +178,8 @@ pragma(Pragma.AllowUnsafe);
   byvalue_param_origin_names,
   _static_join_subset_check,
   _static_value_roots,
+  _static_value_offense,
+  _static_origin_reject,
   OriginRootPlace,
   deref_rule_applies,
   reject_reference_without_deref,
@@ -1991,6 +1993,18 @@ evaluate_assignment :: (
       .Some(sbv) => reject_write_through_shared_borrow_param(&sbv, `write \`${_place_source_text(&lhs)}\``, ast_expr_token(&lhs), ctx, exn),
       .None => ()
     );
+    // VERDICTS-74 rule 2 at a field or element write: a place whose type
+    // spells the empty origin at a checked position takes only static
+    // values. Ahead of the join below, which a value typed from the place
+    // (`.Some(&x)` read as `Option(&(X, static))`) skips: its type carries
+    // no origin.
+    if(ctx.is_evaluating_function_body_or_async_block.is_some() && type_spells_checked_static(&expected_ty), {
+      match(
+        _static_value_offense(&prop_rhs, &env, ctx),
+        .Some(sw_what) => _static_origin_reject(&_place_source_text(&lhs), &expected_ty, &sw_what, &ast_expr_token(&prop_rhs), ctx, exn),
+        .None => ()
+      );
+    });
     // The place-write join (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
     // §5): the root holder's flow set grows by the value's origin, or the
     // written place's spelled origins check the subset (`place_write_join`).
