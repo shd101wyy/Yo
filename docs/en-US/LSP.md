@@ -24,10 +24,8 @@ JavaScript, no build step). All intelligence lives in the server.
 ### VS Code
 
 Install the [Yo extension](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang)
-and have a `yo` binary on your `PATH` (see the install guides for
-[macOS](./INSTALL_MACOS.md), [Linux](./INSTALL_LINUX.md) and
-[Windows](./INSTALL_WINDOWS.md)). The extension starts `yo lsp` when a `.yo`
-file is opened.
+and have a `yo` binary on your `PATH` (see [INSTALL.md](./INSTALL.md)). The
+extension starts `yo lsp` when a `.yo` file is opened.
 
 Settings:
 

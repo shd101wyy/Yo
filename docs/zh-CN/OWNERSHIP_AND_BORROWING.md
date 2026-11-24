@@ -507,7 +507,7 @@ export(main);
   `fn(generic(p : Origin), a : &(T, p), b : &T) -> &(T, p)`。
 
 索引是同一机制：`xs(i)` 读取时调用 `Index.index(self : &Self, i) -> &Output`，写入时调用
-`IndexMut.index_mut`（[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。`r := xs.index(i)` 绑定元素引用；
+`IndexMut.index_mut`（[TRAITS.md](./TRAITS.md#投影)）。`r := xs.index(i)` 绑定元素引用；
 在 `r` 的最后一次使用之前，`xs` 被冻结。
 
 ### 持有引用的类型
@@ -852,7 +852,7 @@ export(main);
 ### `Dyn(Trait)`
 
 `Dyn(Trait)` 是一个大小不定、类型被擦除的值。它位于一个说明谁拥有它的指针之后：`Box(Dyn(Trait))`
-拥有它，`Rc(Dyn(Trait))` 共享它，`&Dyn(Trait)` 借用它。见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
+拥有它，`Rc(Dyn(Trait))` 共享它，`&Dyn(Trait)` 借用它。见 [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)。
 
 ## 异步与线程
 
@@ -961,7 +961,7 @@ export(main);
 - [MEMORY_SAFETY.md](./MEMORY_SAFETY.md)：默认安全的契约、unsafe 的 opt-in 与审计工具。
 - [THREAD_SAFETY.md](./THREAD_SAFETY.md)：`Send`、`Sync` 与 `std/sync` 类型。
 - [ASYNC_AWAIT.md](./ASYNC_AWAIT.md)：Future、借用式 Future 与任务。
-- [INDEX_TRAIT.md](./INDEX_TRAIT.md)：投影与 `xs(i)`。
-- [WEAK.md](./WEAK.md)、[ARC.md](./ARC.md)、[DYN_DESIGN.md](./DYN_DESIGN.md)。
+- [TRAITS.md](./TRAITS.md#index-特征)：投影与 `xs(i)`。
+- [WEAK.md](./WEAK.md)、[ARC.md](./ARC.md)、[TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)。
 - [ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)：所有诊断代码。
 - 设计记录：`plans/VALUES_BY_DEFAULT.md`（模型及其决策）与 `plans/backlog/REFERENCES_AND_ORIGINS.md`（来源）。

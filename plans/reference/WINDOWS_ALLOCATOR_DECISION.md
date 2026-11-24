@@ -40,7 +40,7 @@ Linux keeps mimalloc. macOS already used `system`.
 > `tests/collections/hash_map.test.yo` with `--allocator mimalloc`. mimalloc therefore stays CI-guarded on both
 > Windows targets for users who opt in. Allocator placement's step C (after v0.2.75) deletes `--allocator` on
 > compile and build, and that step then becomes a test root declaring `global_allocator :: heap.Mimalloc;`
-> (`plans/backlog/ALLOCATOR_PLACEMENT.md`, step C).
+> (`plans/backlog/ZIG_STYLE_ALLOCATORS.md`, phase C0).
 
 Recorded because the decision is **not** "mimalloc was broken so we removed it".
 On x64 mimalloc worked. It was removed for consistency, and this file exists so

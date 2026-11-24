@@ -1,0 +1,13 @@
+// SAFE file (no pragma). The `Allocator` is pushed into a list that outlives `c`.
+{ Counting } :: import("./counting.yo");
+{ ArrayList } :: import("std/collections/array-list");
+main :: (fn() -> unit)({
+  mut(keep) := ArrayList(Allocator).new();
+  {
+    mut(c) := Counting.new();
+    keep.push(c.allocator());
+  };
+  b := Box.new(i32(7), alloc : keep.get(usize(0)));
+  _ := b;
+});
+export(main);
