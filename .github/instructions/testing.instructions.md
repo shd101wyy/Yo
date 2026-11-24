@@ -309,6 +309,8 @@ Out-of-language measurement (extract the case to a standalone `.yo` with `main` 
 
 - `yo check <file-or-dir>` runs the evaluator only: much faster than `compile` for "does this still
   type-check?" and a bulk sanity pass (`yo check ./src`, `yo check ./std`) before any test.
+- **`check` stdout redirected to a file is block-buffered.** A log that stops at `parsing std/prelude.yo` is not a hang: a
+  seed `check ./src` takes about 35-40 min under load.
 - **`check` misses codegen-enforced rules** (the hollow-`io.async`-body rule E0905): gate those with
   `yo compile src/main.yo --skip-c-compiler`.
 - **Errors in `test(...)` bodies are swallowed unless `--test-bodies` is passed**
