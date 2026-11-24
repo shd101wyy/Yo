@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array-list");
 { TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, fn_trait_base_serves } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
-{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
+{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 { RefCell } :: import("std/sync/refcell");
@@ -300,11 +300,12 @@ _resolved_or_self :: (fn(t : &TypeValue) -> TypeValue)(
     other => other
   )
 );
-/// True when `actual` is a future whose bundle carries something other than
-/// `Io` and `expected` is a future that names no bundle: an await or spawn
-/// through `expected` injects nothing, so the body would run against a zeroed
-/// bundle. An unresolved (generic) bundle is not judged here: it is checked
-/// again at the concrete call.
+/// True when `actual` is a future that reads an effect bundle and `expected`
+/// is a future that names none: an await or spawn through `expected` injects
+/// nothing, so the body would run against a zeroed bundle. Every bundle
+/// counts, the prelude's `Io` included: the body takes its `io` from the
+/// bundle (VERDICTS-68). An unresolved (generic) bundle is not judged here: it
+/// is checked again at the concrete call.
 future_view_drops_a_bundle :: (fn(actual : &TypeValue, expected : &TypeValue) -> bool)({
   ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
   af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
@@ -317,7 +318,7 @@ future_view_drops_a_bundle :: (fn(actual : &TypeValue, expected : &TypeValue) ->
   (i : usize) = usize(0);
   while(i < a_types.len(), i = (i + usize(1)), {
     at := _resolved_or_self(match(a_types.get(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit)));
-    if(!is_some_type(&at) && !is_prelude_io_struct(&at), {
+    if(!is_some_type(&at), {
       drops = true;
     });
   });
@@ -1646,20 +1647,15 @@ _compat_impl :: (
             return(true);
           });
           // The other direction, a bundled future viewed as `Future(T)`, is
-          // compatible only when the bundle is the prelude's `Io`: an await or
-          // spawn through the view injects nothing, so the body runs against a
-          // zeroed bundle, which only `Io` (builtins, never called through)
-          // survives. A handler bundle viewed this way called a null handler
-          // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
+          // never compatible, whatever the bundle (the prelude's `Io`
+          // included): an await or spawn through the view injects nothing, so
+          // the body runs against a zeroed bundle. A handler bundle viewed
+          // this way called a null handler
+          // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md),
+          // and the body's `io` is read from the bundle too (VERDICTS-68,
+          // issues/questions/2026-11-19-a-future-viewed-as-bundle-less-runs-with-a-zeroed-io.md).
           if(flat_e_types.len() == usize(0), {
-            (ai0 : usize) = usize(0);
-            while(ai0 < flat_a_types.len(), ai0 = (ai0 + usize(1)), {
-              at0 := match(flat_a_types.get(ai0), .Some(v) => resolve_cell_chain(&v), .None => Rc.new(TypeValueNode.Unit));
-              if(!is_prelude_io_struct(&at0), {
-                return(false);
-              });
-            });
-            return(true);
+            return(false);
           });
           if(flat_a_types.len() != flat_e_types.len(), {
             return(false);
