@@ -43,7 +43,7 @@ release is cut on the first develop battery that is green on the exact tip.
 **Forecast: around 2026-11-28 to 12-02** (best case ~11-26). The walls stay: P12 READY 12-04 12:00, Deref F1+F2
 READY 12-08 12:00, cut no later than 12-11 (latest 12-19).
 
-**Landed** (#2018–#2051): the borrow-checker cluster fixes (#2018); the six test-7 soundness bugs (#2020, #2038);
+**Landed** (#2018–#2053): the borrow-checker cluster fixes (#2018); the six test-7 soundness bugs (#2020, #2038);
 capture-list loans (#2028); the dup/drop pair optimizer deleted (#2023, VERDICTS-70 row 1); side-effecting
 builtins kept (#2024); `std/sync` as move-only values shared through `Arc` (#2025, row 4); IO-1a (#2026); the
 guard-off knob (#2027, row 5); the `__yo_` namespace, E0407 (#2029); partial application over generic binders
@@ -52,7 +52,7 @@ future-origin fix (#2039); `ArrayList` `Deref`/`DerefMut` (#2040); the schedule 
 `GKind(T)` S2 filed (#2043); test 7 as one procedure, `scripts/test7.sh`, with legs (a)–(c) first green and the
 corpus respelled (#2044, #2045); S3b-`str` PR A (#2046); `yo fix --migrate` deleted (#2047); the receiver riders
 r1–r4 (#2048); TP-1, `ThreadPool` owns its workers (#2049); VERDICTS-76 Q1, `a := m` moves a `&mut` (#2050); five
-test-7 S1s (#2051); docs: the ownership guide, current-language docs, the pack rewrite, the README.
+test-7 S1s (#2051); an unwind releases a `_temp_`-named local (#2052); `slot.replace(&x)` accepted as a lend (#2053); docs: the ownership guide, current-language docs, the pack rewrite, the README.
 
 **To land before the cut:**
 
@@ -66,7 +66,7 @@ test-7 S1s (#2051); docs: the ownership guide, current-language docs, the pack r
 | E0926 for reference values | After F1/F2 (VERDICTS-75 §8; tests only); also covers a bare `&T` field read (VERDICTS-76 row 14) | — |
 | Test 7 | Legs (a)–(c) green on the release tip | (S) |
 | S1 rider | A `mut` name destructured from a call result is released twice | (S) |
-| Riders | The S2/S3 fixes (box-self enum, scrutinee temp place, slot-replace); borrow-mark runtime (row 3); allocator v1 ABI retirement | — |
+| Riders | The box-self enum S2 fix; borrow-mark runtime (row 3); allocator v1 ABI retirement | — |
 | Census | VERDICTS-70 row 2, the instrumented census (no PR) | — |
 
 A rider that is late moves to v0.2.81 rather than holding the cut. Claim (L) is written in the release notes once
