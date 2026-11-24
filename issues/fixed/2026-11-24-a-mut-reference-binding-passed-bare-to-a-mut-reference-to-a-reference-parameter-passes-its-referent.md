@@ -17,7 +17,7 @@ accepts it; between them only #2048 (VERDICTS-75 receiver riders, `e1ece945d`) t
 
 ```yo
 { println } :: import("std/fmt");
-g :: (fn(dst : &mut &i32) -> i32)(dst.*.*);
+g :: (fn(dst : &mut&i32) -> i32)(dst.*.*);
 main :: (fn() -> unit)({
   a := i32(7);
   mut(r) := &a;
@@ -112,7 +112,7 @@ Accepting the program is correct. A bare `&mut` binding at a `&mut` slot is a re
 
 The fault is in codegen, so codegen must pass `rp` itself. `rp := &mut r` is a by-`ref` binding: its C storage is the pointer, and `_var_read_code` already reads it as the place it refers to, `(*rp)`. `_reference_value_at_own_slot` keyed only on the read's recorded type (`&mut &i32`, the slot), took that C for the pointer, and wrapped it once more. `_apply_ref_amp`'s `&(*·)` fold then removed only the added level, which left `(*rp)`.
 
-A new predicate, `_arg_reads_ref_binding`, makes `_reference_value_at_own_slot` skip a by-`ref` binding (`is_ref`, not a `&` match binding). That argument takes the ordinary place lowering: at the pointer-ABI `&mut &T` slot, `&(*rp)` folds to `rp`.
+A new predicate, `atom_read_is_referent_place` (`src/codegen/exprs/atom.yo`, mirroring the read paths that wrap), makes `_reference_value_at_own_slot` skip an argument whose C read is already its referent (a by-`ref` binding, a `mut` match place binding). That argument takes the ordinary place lowering: at the pointer-ABI `&mut &T` slot, `&(*rp)` folds to `rp`.
 
 Tests: `tests/ref-of-ref.test.yo` gains three rows, all run under the test runner:
 - the reproducer and its write-through twin
