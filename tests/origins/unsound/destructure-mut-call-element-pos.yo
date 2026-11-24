@@ -1,0 +1,22 @@
+// expect: accept
+// Positive control: the borrowed element is copied explicitly into an owned `mut` local, whose
+// reassignment releases only what it owns; the temporary releases its own element.
+{ println } :: import("std/fmt");
+Node :: struct(n : i32);
+pair :: (fn(e : &Rc(Node)) -> Tuple(Rc(Node), usize))((Rc.clone(e.*), usize(0)));
+use :: (fn(e : &Rc(Node), swap : bool) -> i32)({
+  (element, _synth) := pair(e);
+  mut(written) := element.clone();
+  if(swap, {
+    written = Rc.new(Node(n : i32(9)));
+  });
+  written.*.n
+});
+main :: (fn() -> unit)({
+  x := Rc.new(Node(n : i32(7)));
+  keep := Rc.clone(x);
+  a := use(&x, false);
+  b := use(&x, true);
+  println(`OUT: ${ref_count(keep)} ${a} ${b}`);
+});
+export(main);

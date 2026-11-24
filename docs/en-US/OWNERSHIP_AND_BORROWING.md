@@ -168,6 +168,13 @@ Writing through a reference is not writing the binding, so `a := &mut p.x;
 a.* = i32(10)` needs `mut(p)`, not `mut(a)`. Parameters take no `mut`: a
 body that writes one rebinds it, `mut(y) := x`.
 
+A destructuring borrows its elements from the value it destructures, which
+still drops them. A `mut(b)` binding there is a copy of its element, so an
+element that holds an `Rc`, a `Box` or an owned buffer (a `String`, a
+collection) cannot be bound `mut` (E0901): bind it without `mut` and copy it
+explicitly (`mut(c) := b.clone()`), or `match` a value you own, which moves
+its parts into the arm's bindings.
+
 ## Drops
 
 A value is dropped when its owner stops holding it. A drop frees a buffer,
