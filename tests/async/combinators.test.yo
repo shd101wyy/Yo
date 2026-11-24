@@ -241,7 +241,7 @@ test("Test timeout aborts on deadline", {
   ran := Rc.new(RefCell(bool).new(false));
   fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(100)), io);
-    ran.with_mut(cur => {
+    ran.*.with_mut(cur => {
       cur.* = true;
     });
     return(i32(1));
