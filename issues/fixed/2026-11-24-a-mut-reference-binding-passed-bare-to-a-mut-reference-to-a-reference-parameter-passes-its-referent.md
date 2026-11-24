@@ -74,7 +74,7 @@ READ of size 8 at 0x7bffb33ff070 thread T1
 
 - The evaluator now judges an already-evaluated argument whose type IS its borrow slot against the slot itself,
   not against the slot's pointee. Before, `rp : &mut &i32` was compared with the pointee `&i32` and rejected
-  (E0601, `issues/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md`);
+  (E0601, `issues/fixed/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md`);
   now it is admitted as the slot's value, with no lend recorded.
 - Codegen: `_apply_ref_amp` (`src/codegen/exprs/other-fn-call.yo`) lowers an argument for which
   `_reference_value_at_own_slot` holds as the place `(*p)` it names, expecting "a pointer slot folds `&(*p)` to `p`,
