@@ -352,16 +352,16 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   (npc : *i32) = np.clone();
   assert(npc == np, "a raw pointer clones the address, not the pointee");
 });
-test("Copy: a pointee field named like a pointer method clashes at p.m(...)", {
+test("Copy: a pointee field named like a pointer method is reached through p.*", {
   h := _CtCloneField(clone : _ct_five);
   hp := addr_of(h);
-  comptime_expect_error(hp.*.clone(), "is both a field of _CtCloneField and a method of the raw pointer");
+  (hpc : *_CtCloneField) = hp.clone();
+  assert(hpc == hp, "p.clone() is the pointer's own clone");
   assert(hp.*.clone() == i32(5), "p.*.clone() calls the pointee's field");
   hq := hp;
   assert(hq == hp, "q := p copies the pointer");
   a := _CtAddField(add : _ct_seven);
   ap := addr_of(a);
-  comptime_expect_error(ap.add(usize(1)), "is both a field of _CtAddField and a method of the raw pointer");
   assert(ap.*.add() == i32(7), "p.*.add() calls the pointee's field, not the pointer's offset");
 });
 test("Copy: derive(T, Clone) is accepted beside Copy, in either order", {

@@ -2631,7 +2631,12 @@ Raw pointer operations may dereference invalid memory.`
             });
             // A field of a raw pointer's pointee (VERDICTS-73): `.` does not
             // read through a raw pointer, so `q.x` is E0623 naming `q.*.x`
-            // (one star per pointer layer).
+            // (one star per pointer layer). In callee position the pointer's
+            // own method of that name is the member (`p.clone()` is the
+            // pointer's clone, one namespace): the call resolves it.
+            if(is_pointer_type(&original_obj_ty) && is_dot_callee(ast_expr_id(expr)) && (get_receiver_methods_by_name_from_env(&env, label_str.clone(), &original_obj_ty, false).len() > usize(0)), {
+              return(Rc.clone(expr.*));
+            });
             if(is_pointer_type(&original_obj_ty), {
               (pp_stars : usize) = usize(0);
               (pp_cur : TypeValue) = Rc.clone(original_obj_ty);
