@@ -34,8 +34,10 @@ These are two separate concerns:
   free a block into the wrong allocator.
 
 What Yo does not check is the allocator's own lifetime: its context and
-vtable must outlive every block it handed out (see
-[Writing your own allocator](#writing-your-own-allocator)).
+vtable must outlive every block it handed out, and a state that `ctx` points
+at must outlive every `Allocator` value built from it (see
+[Writing your own allocator](#writing-your-own-allocator) and
+[MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators)).
 
 **Global by default, placement by argument.** A creation with no allocator
 argument always goes to the global allocator. No caller can set an allocation scope:

@@ -136,10 +136,12 @@ gaps matter for `Allocator` only.
 
 ## Recommendation
 
-Option 3; it is the adopted direction. For v0.2.80, which ships no `std/heap`: state the boundary in
-`docs/en-US/MEMORY_SAFETY.md` and `docs/en-US/EXPLICIT_ALLOCATORS.md` (and zh-CN). Today they say only "a
-user-written allocator's context and vtable must stay valid until every block it handed out is released";
-the reproducer allocates after the context died, with no block handed out before, which that sentence does
-not cover. The release's soundness claim is then "safe code plus std", which holds without A1. The closing
+Option 3; it is the adopted direction. For v0.2.80, which ships no `std/heap`, the docs state the obligation
+(`docs/en-US/MEMORY_SAFETY.md`'s explicit-allocator list and `docs/en-US/EXPLICIT_ALLOCATORS.md`'s "The model",
+both languages, filed with this doc): an `AllowUnsafe` allocator module whose `ctx` points at its own state
+promises that the state outlives every `Allocator` value built from it, and the compiler does not check it yet.
+Before, they said only that the context and vtable must stay valid until every block is released, which the
+reproducer (no block handed out before the context died) does not violate. The release's soundness claim is then
+"safe code plus std", which holds without A1. The closing
 test is `call-argument.yo`'s shape against A1's `FixedBufferAllocator` (VERDICTS-79 test row 12): the
 stale-ticket panic with no ASan report.
