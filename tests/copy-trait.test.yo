@@ -355,7 +355,7 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
 test("Copy: a pointee field named like a pointer method clashes at p.m(...)", {
   h := _CtCloneField(clone : _ct_five);
   hp := addr_of(h);
-  comptime_expect_error(hp.*.clone(), "is both a field of _CtCloneField and a method of the raw pointer");
+  comptime_expect_error(hp.clone(), "is both a field of _CtCloneField and a method of the raw pointer");
   assert(hp.*.clone() == i32(5), "p.*.clone() calls the pointee's field");
   hq := hp;
   assert(hq == hp, "q := p copies the pointer");
