@@ -9,7 +9,9 @@ any page named here; `yo context --docs` lists them.
 1. [INSTALL](./INSTALL.md): the compiler and its C toolchain.
 2. `yo context`: the language pack, a compact guide to writing Yo with the
    installed compiler ([CONTEXT](./CONTEXT.md)).
-3. [DESIGN](./DESIGN.md): the language, chapter by chapter.
+3. [SYNTAX](./SYNTAX.md), [DATA_TYPES](./DATA_TYPES.md),
+   [FUNCTIONS](./FUNCTIONS.md), [CLOSURES](./CLOSURES.md) and
+   [PATTERN_MATCHING](./PATTERN_MATCHING.md): the core language.
 4. [OWNERSHIP_AND_BORROWING](./OWNERSHIP_AND_BORROWING.md): moves, clones and
    references, the rules most first programs trip on.
 5. The rest by topic, below.
@@ -27,8 +29,19 @@ any page named here; `yo context --docs` lists them.
 
 ## The language
 
-- [DESIGN](./DESIGN.md): syntax, types, functions, closures, traits, pattern
-  matching, error handling, modules and testing.
+- [SYNTAX](./SYNTAX.md): calls and operators (no precedence), bindings and
+  `mut`, literals, control flow, arithmetic failure, naming and `yo fmt`.
+- [DATA_TYPES](./DATA_TYPES.md): primitive types, structs, tuples, arrays and
+  ranges, enums and ADTs, unions, newtypes, private members and collections.
+- [FUNCTIONS](./FUNCTIONS.md): declarations, parameter modes and references,
+  named and default arguments, generics, partial application, type methods.
+- [CLOSURES](./CLOSURES.md): captures, capture lists, `FnOnce`/`FnMut`,
+  `Impl(Fn(...))` and `Dyn(Fn(...))`.
+- [PATTERN_MATCHING](./PATTERN_MATCHING.md): `match`, pattern forms, guards and
+  exhaustiveness.
+- [DESIGN](./DESIGN.md): the remaining chapters: shared cells, pointers,
+  advanced types, traits, strings, `Box`/`Rc`, `Impl`/`Dyn`, error handling,
+  modules, testing and compile-time evaluation.
 - [DEFINITION_ORDER](./DEFINITION_ORDER.md): `::` definitions, `impl`
   registrations and `derive` statements are order-independent within a module.
 - [STRINGS](./STRINGS.md): UTF-8 strings with byte-offset indexing.

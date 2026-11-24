@@ -103,7 +103,7 @@ The repairs the compiler computes today:
 
 `yo fix <path>... --module-names` applies the naming rule for module files and directories (a `.yo` file, a
 directory and a `[modules]` key are kebab-case, see the Naming Convention in
-`DESIGN.md`). Every `.yo` file or directory under the paths whose name holds
+`SYNTAX.md`). Every `.yo` file or directory under the paths whose name holds
 `_` or an upper-case letter is renamed to its kebab-case spelling (`_` written
 `-`, upper case lowered, a leading or trailing `-` dropped:
 `array_list.yo` → `array-list.yo`, `_fsm.yo` → `fsm.yo`), and everything that
