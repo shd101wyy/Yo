@@ -1,4 +1,115 @@
-# Definition Order
+# Modules
+
+Modules: `import` and `export`, anonymous modules, module-level mutable
+bindings, and the order-independence of a module's definitions. Packages and
+`yo.toml` dependencies are in [BUILD_SYSTEM.md](./BUILD_SYSTEM.md); module file
+names are in [SYNTAX.md](./SYNTAX.md#naming-convention).
+
+## Module importing and exporting
+
+```yo
+// module1.yo
+test :: (fn() -> unit)({
+  println("Hello, world!");
+});
+export(test);
+
+// module2.yo
+// Export the type
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Some(value : T),
+    None
+  )
+);
+export(Option);
+```
+
+```yo
+{ ... } :: import("./test.yo"); // Import everything from test.yo
+test_module :: import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
+{ test } :: import("./test.yo"); // Import test function from test.yo
+{ test : test2 } :: import("./test.yo"); // Import test function from test.yo and rename it to test2
+{ Option } :: import("./test.yo"); // Import Option type from test.yo
+```
+
+### Importing a name twice
+
+Every imported name is a binding, so the no-shadowing rule applies to imports: binding the same name twice is an error (`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`), whether both lines name it or a `{ ... }` glob already brought it in. Several import lines from one path are fine as long as each binds different names, and a name may be imported again under a new one:
+
+```yo
+{ ArrayList } :: import("std/collections/array-list");
+{ ArrayListIter } :: import("std/collections/array-list"); // fine: a different name
+{ ArrayList : List } :: import("std/collections/array-list"); // fine: bound under a new name
+xs := List(i32).new();
+```
+
+### Trait impls are visible through your imports
+
+A method call resolves against the `impl(...)` blocks of the modules your
+file can REACH through its imports (transitively) plus the prelude. An impl
+that lives in a module nobody on your import path imports is not a
+candidate, even if some other file in the same `yo check` or the same
+program happens to have loaded it. Integer and `str` `to_string`, for
+example, are `std/fmt`'s `ToString` impls, so a module that calls them
+imports `std/fmt` (any binding will do: `{ ToString } :: import("std/fmt")`).
+This is what makes a file's verdict the same whether it is checked alone or
+beside its siblings. `YO_VISIBILITY_REPORT=1` lists, instead of rejecting,
+every call that resolves only through an impl outside the caller's imports —
+the tool for adding the missing import lines.
+
+### Anonymous module
+
+The anonymous module is defined using `impl` keyword followed by a `begin` block:
+
+```yo
+my_module :: impl({
+  my_function :: (fn() -> unit)({
+    println("Hello from my_module!");
+  });
+  export(my_function);
+});
+```
+
+### Module-level mutable variables
+
+Yo supports mutable runtime variables at the top level of a module (file scope). These become C `static` file-scope variables, initialized before `main` runs.
+
+Two syntaxes are supported:
+
+```yo
+// := initialization
+counter := i32(0);
+
+// Binding pattern initialization
+(flag : bool) = false;
+```
+
+Functions defined in the same module can read and write these variables:
+
+```yo
+inc :: (fn() -> unit)({
+  counter = (counter + i32(1));
+});
+```
+
+**Restrictions:**
+
+- Standalone type annotations without initialization are not allowed at module scope:
+  ```yo
+  a : i32; // ❌ Error: use `a := i32(0);` or `(a : i32) = i32(0);` instead
+  ```
+- Mutable runtime variables (`:=` or `(x : T) = val`) are **not allowed inside `impl` blocks**. Use `::` for compile-time definitions:
+  ```yo ignore
+  m :: impl {
+    b := i32(13);  // ❌ Error: not allowed inside impl
+    b :: 13;       // ✅ OK: compile-time constant
+    export(b);
+  };
+  ```
+- Module-level mutable variables **cannot be exported**. Only compile-time known values can be exported from modules.
+
+## Definition Order
 
 Within one module, **`name :: <definition>` bindings, `impl(...)` registrations
 and `derive(T, ...)` statements are order-independent**. A definition may reference any other definition of the
@@ -41,7 +152,7 @@ export(exported_later);
 exported_later :: (fn() -> i32)(i32(99));
 ```
 
-## What stays ordered
+### What stays ordered
 
 Statements whose **effects** are the module's observable evaluation keep strict
 source order — they are not definitions:
@@ -71,7 +182,7 @@ runtime bindings are evaluated in order (only `::` definitions and `impl`
 registrations are order-independent); move that statement above this use
 ```
 
-## How it works
+### How it works
 
 The module walker still evaluates statements top to bottom. Before it starts,
 it pre-scans the module and records every `::` definition, every
@@ -95,7 +206,7 @@ Because forcing only happens on a lookup that would otherwise have been an
 error, programs that are order-correct today evaluate in exactly the same
 order and emit exactly the same C.
 
-### Function definitions are two-phase
+#### Function definitions are two-phase
 
 Forcing `f :: (fn(...) -> R)(body)` binds `f` in two steps: the signature
 head is evaluated and a function value with a stable id is **published** before
@@ -105,7 +216,7 @@ recursion), binds that published value. Only the `(fn(...) -> R)(body)` form
 has a separately evaluated head; an anonymous `->`/`=>` literal infers from its
 body, so a recursive function is written with `fn`.
 
-### Cycles
+#### Cycles
 
 A definition whose *value* depends on itself is an error with the chain:
 
@@ -115,7 +226,7 @@ on itself. Function definitions may reference each other (their signatures bind
 before their bodies evaluate); a constant or type definition may not name itself.
 ```
 
-### Errors inside a forced definition
+#### Errors inside a forced definition
 
 A definition that fails while being forced reports **its own** error, at its
 own location, followed by a note saying why it ran early:
@@ -125,7 +236,7 @@ note: `second` (line 4) was evaluated here because it is referenced before its
 definition in the source
 ```
 
-## Inside an `impl` block
+### Inside an `impl` block
 
 Sibling methods of one `impl(...)` block may call each other in any order
 through `self.method(...)` or `Self.method(...)`:

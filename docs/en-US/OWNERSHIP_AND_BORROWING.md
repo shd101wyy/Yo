@@ -596,7 +596,7 @@ export(main);
 
 Indexing is the same mechanism: `xs(i)` calls `Index.index(self : &Self, i)
 -> &Output` for a read and `IndexMut.index_mut` for a write
-([INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)). `r := xs.index(i)` binds the
+([TRAITS.md](./TRAITS.md#projections)). `r := xs.index(i)` binds the
 element reference; `xs` is frozen until `r`'s last use.
 
 ### Types that hold references
@@ -980,7 +980,7 @@ the same queue. See [THREAD_SAFETY.md](./THREAD_SAFETY.md).
 
 `Dyn(Trait)` is an unsized, type-erased value. It lives behind a pointer that
 says who owns it: `Box(Dyn(Trait))` owns it, `Rc(Dyn(Trait))` shares it, and
-`&Dyn(Trait)` borrows it. See [DYN_DESIGN.md](./DYN_DESIGN.md).
+`&Dyn(Trait)` borrows it. See [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md).
 
 ## Async and threads
 
@@ -1103,8 +1103,8 @@ Run tests under `--sanitize address` when a change leans on the borrow rules.
 - [THREAD_SAFETY.md](./THREAD_SAFETY.md): `Send`, `Sync` and the `std/sync`
   types.
 - [ASYNC_AWAIT.md](./ASYNC_AWAIT.md): futures, borrowing futures and tasks.
-- [INDEX_TRAIT.md](./INDEX_TRAIT.md): projections and `xs(i)`.
-- [WEAK.md](./WEAK.md), [ARC.md](./ARC.md), [DYN_DESIGN.md](./DYN_DESIGN.md).
+- [TRAITS.md](./TRAITS.md#index-trait): projections and `xs(i)`.
+- [WEAK.md](./WEAK.md), [ARC.md](./ARC.md), [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md).
 - [ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md): every diagnostic code.
 - The design records: `plans/VALUES_BY_DEFAULT.md` (the model and its
   decisions) and `plans/backlog/REFERENCES_AND_ORIGINS.md` (origins).

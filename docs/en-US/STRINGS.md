@@ -255,3 +255,171 @@ Two comptime-specific points:
   mean "how big is the buffer", say `s.len()`.
 - `Content-Length`-style protocol fields count bytes; `len()` is now the
   right answer by default.
+
+## String literal as `str` or C string pointer
+
+```yo
+s := "Hello"; // s : str — a string literal is the builtin static string view `str`.
+(s2 : *u8) = "Hi"; // You can explicitly declare a C string pointer (unsafe-capable files only).
+s3 := (*u8)("Hi"); // Or use a pointer cast to get a C string pointer.
+```
+
+## String (Growable UTF-8 String)
+
+Heap-allocated, growable UTF-8 string — the same shape as Rust's `String`. It is
+NOT immutable: `push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`,
+`clear`, `truncate`, `insert_str`, `insert`, `remove` and `pop` take
+`self : &mut Self` and mutate in place. Operators like `+` still produce a new string.
+
+For incremental assembly use `StringBuilder`, a value that owns its byte
+buffer: `b2 := b` moves it, `b.clone()` is the
+independent copy, and `into_string()` hands the buffer over as the `String`
+without a fresh allocation. A builder several owners share is
+`Rc(RefCell(StringBuilder))`.
+
+```yo
+s := String.new();
+s2 := String.from("Hello World!");
+s3 := (s + s2); // Create a new string.
+```
+
+### Writing through a copy of a `String`
+
+`clone()` is the independent copy. It copies the bytes (O(n)), so nothing
+done to the clone is visible through the original, and the reverse, whether or
+not the original was empty. Every mutator takes `self : &mut Self` and writes in
+place, and an empty `String` allocates nothing until its first write.
+
+A `String` owns its bytes uniquely (`newtype(_bytes : ArrayList(u8))`, with
+`ArrayList` a value). A plain copy is therefore a move: `t := s`, a struct
+built from `s`, or `s` passed by value gives the string away, and a later use
+of `s` is E0901, whose help names `s.clone()`. A value read out of a
+collection is borrowed in place or cloned (`xs.get_cloned(i)`). Nothing shares
+a buffer, so no write can reach a string through another name
+(`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
+fixed by this).
+
+A write lands where it is written:
+
+- **A `&T` parameter** `fn(out : &String)` borrows the caller's value.
+  Writing it (`out.push_str("!")`, or passing it to a `&mut T` parameter) is
+  E0908. To change the caller's string, take `out : &mut String`; to produce a
+  new one, take `out` by value (a plain `out : String` owns its argument and
+  may write it) and return it.
+- **A `for` or `match` binding** borrows too: `for(xs, s => s.push_str("!"))`
+  is E0908. `for(&mut xs, s => s.push_str("!"))` writes each element in
+  place, and so does `xs(i).push_str("!")`.
+- **A struct field** is written through its place: `p.name.push_str("!")` on a
+  `p : &mut T` parameter or a local.
+
+```yo
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+
+// A `&mut T` parameter passes the caller's variable itself.
+append_mut :: (fn(out : &mut String) -> unit)({
+  out.push_str("!");
+});
+
+// A `&T` parameter is borrowed: write a local clone and return it.
+with_bang :: (fn(s : &String) -> String)({
+  mut(t) := s.clone();
+  t.push_str("!");
+  t
+});
+
+main :: (fn() -> unit)({
+  a := String.from("hi");
+  mut(b) := a.clone(); // b has its own copy of the bytes
+  b.push_str("?"); // a is untouched
+  println(`"${a}" "${b}"`); // "hi" "hi?"
+
+  e := String.new();
+  mut(f) := e.clone();
+  f.push_str("x"); // empty or not, a clone is independent
+  println(`"${e}" "${f}"`); // "" "x"
+
+  mut(c) := String.new();
+  append_mut(&mut c);
+  d := with_bang(&a);
+  println(`"${c}" "${a}" "${d}"`); // "!" "hi" "hi!"
+
+  mut(names) := ArrayList(String).new();
+  names.push(String.new());
+  names.push(String.from("n"));
+  for(&mut names, s => {
+    s.push_str("!"); // writes the element in place
+  });
+  println(`"${names(usize(0))}" "${names(usize(1))}"`); // "!" "n!"
+});
+export(main);
+```
+
+Because nothing outside a `String` may write its buffer, the byte API copies or
+moves instead of lending: `to_bytes()` returns an independent `ArrayList(u8)`,
+`into_bytes()` consumes the string and moves the buffer out (no copy when no
+other copy shares it), and `from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`
+take the list over. Bytes are read in place with `len()`, `byte_at(i)`,
+`get_byte(i)` and `bytes()`; a runtime `String` has no `s(i)` (see
+[STRINGS.md](./STRINGS.md)).
+
+### Template string interpolation with `${}` syntax:
+
+The template string works similarly to JavaScript's template literals, allowing you to embed expressions inside a string using `${}` syntax. The value inside `${}` must implement the `ToString` trait to be converted to a `String`.
+
+```yo
+name := "Alice";
+age := 16;
+greeting := `Hello, ${name}!, age: ${age}`;
+// greeting: String
+// value "Hello, Alice!, age: 16"
+```
+
+A template of two or more parts builds one `String` and appends its parts to it in order: a literal part with `push_str`, an interpolated one with `ToString.append_to(self, out : &mut String)`. The default `append_to` appends `self.to_string()`; `String` and `str` append their bytes by borrow, so a `String` part is never copied first. A type can override `append_to` to write its text straight into the result. A one-part template (`${s}`) is just `s.to_string()`.
+
+#### Format specifications — `${value:spec}`
+
+An interpolation may carry a format spec after a colon, using Rust's and Python's
+grammar (minus dynamic width/precision):
+
+```text
+spec  := [[fill]align][+][#][0][width][.precision][kind]
+align := "<" | ">" | "^"
+kind  := "x" | "X" | "b" | "o"
+```
+
+```yo
+name := `ada`;
+n := i32(255);
+pi := f64(3.14159);
+
+`[${name:>8}]`; // "[     ada]"   right-align to width 8
+`[${name:<6}]`; // "[ada   ]"     left-align
+`[${name:^7}]`; // "[  ada  ]"    center
+`[${name:*>6}]`; // "[***ada]"    custom fill character
+`${n:x}`; // "ff"           lowercase hex
+`${n:#06x}`; // "0x00ff"       alternate form, zero-padded
+`${pi:.2}`; // "3.14"         two decimals
+`${pi:>8.3}`; // "   3.142"     width applies after precision
+```
+
+Width is counted in CHARACTERS, and zero padding on a number goes between the
+sign or radix prefix and the digits (`${i32(-(42)):08}` is `-0000042`, not
+`000-0042`).
+
+Numbers accept every part: sign, radix and zero-fill as well as width, fill, alignment and
+truncation. Text, `bool`, `Option`, `Result`, `ArrayList` and the other std types that implement
+`ToString` accept width, fill, alignment and truncation, through `Format`'s default member. A
+type of your own opts in with one line, since there is no blanket impl (see Coherence above):
+
+```yo
+impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(Point, Format());
+`[${Point(x : i32(1), y : i32(2)):>8}]` // "[  (1, 2)]"
+```
+
+The spec is separated from the expression by a colon with **no space before it**.
+A spaced colon is left alone, so an ordinary colon pair inside an interpolation
+keeps its meaning, and a colon inside a call's arguments or inside a string
+literal — `${parts.join(":")}` — is never mistaken for a separator.

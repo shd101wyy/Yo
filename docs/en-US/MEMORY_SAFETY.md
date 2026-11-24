@@ -437,4 +437,4 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 - [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) — ownership, moves, copies, `&`/`&mut` references and their origins.
 - `plans/archive/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
 - `plans/archive/ITERATOR_REDESIGN.md` — how iteration works under the safe model.
-- `docs/en-US/DESIGN.md` — the broader language design; the pointer / unsafe sections cross-reference this page.
+- `docs/en-US/FFI.md` — raw pointers and C interop; its pointer / unsafe sections cross-reference this page.

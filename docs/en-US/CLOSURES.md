@@ -6,13 +6,12 @@ Named functions are in [FUNCTIONS.md](./FUNCTIONS.md).
 
 ## Overview
 
-
 Yo supports closures (anonymous functions that capture their environment).
 
 A closure compiles to a **capture struct** holding the variables it uses. How that struct is stored and called depends on the type it is given:
 
 - **`Impl(Fn(...))` — static dispatch, not reference counted.** The compiler monomorphizes the closure into its own function, passes the capture struct **by value**, and emits a direct call. No heap allocation, no vtable, no reference count. Each closure has its own distinct type (see [Closure Type Restrictions](#closure-type-restrictions)), so this form cannot hold two different closures in one variable.
-- **`Box(Dyn(Fn(...)))` and `&Dyn(Fn(...))` — dynamic dispatch.** The value is a fat pointer of `{data, vtable}` ([DYN_DESIGN.md](./DYN_DESIGN.md)): `dyn(Box.new(f))` moves the capture struct into a heap box the `Box` owns, and `dyn(&f)` borrows a closure where it is, with no allocation. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written, at a binding, a field, an argument and a result alike; a plain `dyn(f)` of a closure, a named `fn` or an `Impl(Fn(...))` value is E0620. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
+- **`Box(Dyn(Fn(...)))` and `&Dyn(Fn(...))` — dynamic dispatch.** The value is a fat pointer of `{data, vtable}` ([TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)): `dyn(Box.new(f))` moves the capture struct into a heap box the `Box` owns, and `dyn(&f)` borrows a closure where it is, with no allocation. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written, at a binding, a field, an argument and a result alike; a plain `dyn(f)` of a closure, a named `fn` or an `Impl(Fn(...))` value is E0620. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
 
 In both cases the *captured values* follow the usual rules: a captured `Rc` handle is owned by the capture and released when the capture is dropped.
 

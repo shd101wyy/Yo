@@ -78,14 +78,14 @@ A type can have the following **Kind**:
 #### Static/Dynamic dispatch types:
 
 - `Impl(Trait)` (static dispatch type that implements Trait)
-- `Dyn(Trait)` (dynamic dispatch: an unsized trait object, used behind a pointer such as `Box(Dyn(Trait))`, `Rc(Dyn(Trait))` or `&Dyn(Trait)`; see [DYN_DESIGN.md](./DYN_DESIGN.md))
+- `Dyn(Trait)` (dynamic dispatch: an unsized trait object, used behind a pointer such as `Box(Dyn(Trait))`, `Rc(Dyn(Trait))` or `&Dyn(Trait)`; see [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md))
 
 #### Unsized types
 
 A type with no size of its own lives only behind a pointer: `&T`, `&mut T`, `*T`, or an owning handle such as `Box(T)`. There are three:
 
 - `[T]` (`Slice(T)`), a run of `T`s whose length is carried by the pointer. `unsize(&a)` turns a `&Array(T, N)` into a `&[T]` (`&mut a` and `*Array(T, N)` likewise), and `&xs(a..b)` is a view of part of a container whose `Index(Range(usize))` impl has `Output : [T]`, with no copy. `size_of_val(s)` and `align_of_val(s)` measure through the pointer.
-- `Dyn(Trait, ...)`, a trait object, whose pointer carries the vtable ([DYN_DESIGN.md](./DYN_DESIGN.md)).
+- `Dyn(Trait, ...)`, a trait object, whose pointer carries the vtable ([TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)).
 - A struct whose last field is unsized.
 
 A pointer to an unsized type is two words, the address and the length or vtable. Using an unsized type by value (a local, a by-value parameter or result, a field other than a struct's last, an element, `size_of(T)`) is E0619, and so is assigning to an unsized place. `unsize` and `dyn` change a pointer's type, never a value's, so `unsize(a)` of a value is E0620. A `generic(T : Type)` binder carries the implicit bound `where(T <: Sized)`; a generic whose body uses `T` only behind a pointer declares `generic(T : ?Sized)` and accepts unsized types too, and its body is checked where it is defined:

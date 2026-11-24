@@ -228,3 +228,159 @@ comptime_assert(s(3 .. 6) == "中"); // 字节区间
 - 想表达"有多少个字符"时，写 `s.chars().count()`；想表达"缓冲区多大"时，写
   `s.len()`。
 - `Content-Length` 这类协议字段数的是字节；如今 `len()` 默认就是正确答案。
+
+## 字符串字面量作为 `str` 或 C 字符串指针
+
+```yo
+s := "Hello"; // s : str —— 字符串字面量就是内建的静态字符串视图 `str`。
+(s2 : *u8) = "Hi"; // 可以显式声明一个 C 字符串指针。
+s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
+```
+
+## String（可增长字符串）
+
+堆分配的可增长 UTF-8 字符串，与 Rust 的 `String` 形态一致。它**不是**不可变的：
+`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、`clear`、
+`truncate`、`insert_str`、`insert`、`remove` 和 `pop` 接受 `self : &mut Self`
+并就地修改；而 `+` 之类的运算符仍然产生新字符串。
+
+增量拼接请使用 `StringBuilder`：它是一个拥有自己字节缓冲区的值
+——`b2 := b` 是移动，`b.clone()` 是独立副本，
+`into_string()` 把缓冲区直接交还为 `String`，不新分配。需要多个所有者
+共享的构建器写作 `Rc(RefCell(StringBuilder))`。
+
+```yo
+s := String.new();
+s2 := String.from("Hello World!");
+s3 := (s + s2); // 创建一个新字符串。
+```
+
+### 通过 `String` 的副本写入
+
+`clone()` 才是独立的副本：它复制字节（O(n)），所以对克隆所做的任何事都不会通过原值
+看到，反之亦然，无论原值是否为空。每个修改方法都接受 `self : &mut Self` 并就地写入，空
+`String` 在第一次写入之前不分配任何内存。
+
+`String` 唯一地拥有自己的字节（`newtype(_bytes : ArrayList(u8))`，而 `ArrayList`
+是值类型）。因此普通的复制就是移动：`t := s`、用 `s` 构造结构体、按值传递 `s`，都会把
+字符串交出去，之后再使用 `s` 是 E0901，其帮助信息会给出 `s.clone()`。从集合中读出的值
+要么就地借用，要么克隆（`xs.get_cloned(i)`）。没有任何缓冲区是共享的，所以写入不会经由
+另一个名字影响到字符串
+（`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`，
+由此修复）。
+
+写入落在被写的位置上：
+
+- **`&T` 参数** `fn(out : &String)` 借用调用方的值。写入它
+  （`out.push_str("!")`，或把它传给 `&mut T` 形参）是 E0908。要修改调用方的字符串，
+  请接受 `out : &mut String`；要产生新字符串，请按值接受 `out`（普通的
+  `out : String` 拥有其实参，可以写入）并返回它。
+- **`for` 或 `match` 的绑定**同样是借用：`for(xs, s => s.push_str("!"))` 是
+  E0908。`for(&mut xs, s => s.push_str("!"))` 会就地写入每个元素，
+  `xs(i).push_str("!")` 也一样。
+- **结构体字段**通过它的位置写入：在 `p : &mut T` 形参或局部变量上写
+  `p.name.push_str("!")`。
+
+```yo
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+
+// `&mut T` 参数传入的是调用方的变量本身。
+append_mut :: (fn(out : &mut String) -> unit)({
+  out.push_str("!");
+});
+
+// `&T` 参数是借用的：写一个局部克隆并返回它。
+with_bang :: (fn(s : &String) -> String)({
+  mut(t) := s.clone();
+  t.push_str("!");
+  t
+});
+
+main :: (fn() -> unit)({
+  a := String.from("hi");
+  mut(b) := a.clone(); // b 拥有自己的一份字节
+  b.push_str("?"); // a 不受影响
+  println(`"${a}" "${b}"`); // "hi" "hi?"
+
+  e := String.new();
+  mut(f) := e.clone();
+  f.push_str("x"); // 无论是否为空，克隆都是独立的
+  println(`"${e}" "${f}"`); // "" "x"
+
+  mut(c) := String.new();
+  append_mut(&mut c);
+  d := with_bang(&a);
+  println(`"${c}" "${a}" "${d}"`); // "!" "hi" "hi!"
+
+  mut(names) := ArrayList(String).new();
+  names.push(String.new());
+  names.push(String.from("n"));
+  for(&mut names, s => {
+    s.push_str("!"); // 就地写入元素
+  });
+  println(`"${names(usize(0))}" "${names(usize(1))}"`); // "!" "n!"
+});
+export(main);
+```
+
+由于 `String` 之外的任何东西都不能写它的缓冲区，字节 API 只复制或移动，不出借：
+`to_bytes()` 返回一个独立的 `ArrayList(u8)`；`into_bytes()` 消耗字符串并把缓冲区
+移出（没有其他副本共享时不复制）；`from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`
+接管传入的列表。就地读取字节用 `len()`、`byte_at(i)`、`get_byte(i)` 和 `bytes()`；
+运行期的 `String` 没有 `s(i)`（见 [STRINGS.md](./STRINGS.md)）。
+
+### 使用 `${}` 语法的模板字符串插值：
+
+模板字符串的工作方式类似于 JavaScript 的模板字面量，允许你使用 `${}` 语法在字符串中嵌入表达式。`${}` 内的值必须实现 `ToString` trait 才能被转换为 `String`。
+
+```yo
+name := "Alice";
+age := 16;
+greeting := `Hello, ${name}!, age: ${age}`;
+// greeting: String
+// 值为 "Hello, Alice!, age: 16"
+```
+
+含两个或更多部分的模板只构建一个 `String`，并按顺序把各部分追加进去：字面量部分用 `push_str`，插值部分用 `ToString.append_to(self, out : &mut String)`。`append_to` 的默认实现追加 `self.to_string()`；`String` 和 `str` 以借用方式追加自己的字节，因此 `String` 部分不会先被复制一次。类型可以重写 `append_to`，把自己的文本直接写入结果。只有一个部分的模板（`${s}`）就是 `s.to_string()`。
+
+#### 格式说明符 —— `${value:spec}`
+
+插值可以在冒号后带一个格式说明符，语法与 Rust、Python 一致（不支持动态宽度与精度）：
+
+```text
+spec  := [[fill]align][+][#][0][width][.precision][kind]
+align := "<" | ">" | "^"
+kind  := "x" | "X" | "b" | "o"
+```
+
+```yo
+name := `ada`;
+n := i32(255);
+pi := f64(3.14159);
+
+`[${name:>8}]`; // "[     ada]"   右对齐至宽度 8
+`[${name:<6}]`; // "[ada   ]"     左对齐
+`[${name:^7}]`; // "[  ada  ]"    居中
+`[${name:*>6}]`; // "[***ada]"     自定义填充字符
+`${n:x}`; // "ff"           小写十六进制
+`${n:#06x}`; // "0x00ff"       替代形式并补零
+`${pi:.2}`; // "3.14"         保留两位小数
+`${pi:>8.3}`; // "   3.142"     宽度在精度之后生效
+```
+
+宽度以**字符**计。数字补零时，零位于符号或进制前缀与数字之间——`${i32(-(42)):08}`
+得到 `-0000042`，而非 `000-0042`。
+
+数字支持全部部分：符号、进制与补零，以及宽度、填充、对齐与截断。文本、`bool`、`Option`、`Result`、`ArrayList` 以及其他实现了 `ToString` 的 std 类型通过 `Format` 的默认成员支持宽度、填充、对齐与截断。由于没有一揽子 impl（见上文“一致性”），自定义类型用一行代码接入：
+
+```yo
+impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(Point, Format());
+`[${Point(x : i32(1), y : i32(2)):>8}]` // "[  (1, 2)]"
+```
+
+说明符与表达式之间以冒号分隔，且**冒号前不能有空格**。带空格的冒号不会被拆分，因此插值中
+普通的冒号对保持原义；位于调用参数或字符串字面量内部的冒号——如 `${parts.join(":")}`
+——也绝不会被误判为分隔符。

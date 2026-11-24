@@ -429,4 +429,4 @@ d := state.wrapping_sub(inc);
 - [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) —— 所有权、移动、拷贝、`&`/`&mut` 引用及其来源。
 - `plans/archive/EXTERN_UNSAFE_WRAP.md` —— 对 extern "c" 函数调用要求逐调用包装的设计。
 - `plans/archive/ITERATOR_REDESIGN.md` —— 安全模型下迭代如何工作。
-- `docs/zh-CN/DESIGN.md` —— 更广的语言设计；指针 / unsafe 部分与本页交叉引用。
+- `docs/zh-CN/FFI.md` —— 裸指针与 C 互操作；其指针 / unsafe 部分与本页交叉引用。

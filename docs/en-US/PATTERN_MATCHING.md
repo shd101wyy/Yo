@@ -5,7 +5,6 @@ its scrutinee. Enums and ADTs are in [DATA_TYPES.md](./DATA_TYPES.md).
 
 ## Overview
 
-
 The compiler performs exhaustive checking on pattern matching.
 
 ```yo

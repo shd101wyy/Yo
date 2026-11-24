@@ -105,6 +105,7 @@ Chinese.
 - [Version pinning](./docs/en-US/VERSION_MANAGEMENT.md) with `.yo-version`
 - Editors: [LSP setup](./docs/en-US/LSP.md); Vim/Neovim syntax in [vscode-extension/syntaxes](./vscode-extension/syntaxes/README.md)
 - Examples: [raylib-yo](https://github.com/shd101wyy/raylib-yo), [tetris-yo](https://github.com/shd101wyy/tetris-yo) ([play](https://shd101wyy.github.io/tetris-yo/)), [http-server-demo-yo](https://github.com/shd101wyy/http-server-demo-yo), [markdown-it-yo](https://github.com/shd101wyy/markdown-it-yo), [markdown-yo](https://github.com/shd101wyy/markdown-yo) ([try it](https://shd101wyy.github.io/markdown-yo/))
+- [Philosophy and inspiration](./docs/about/en-US/PHILOSOPHY.md)
 - [My story with programming languages](./docs/about/en-US/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md)
 
 ## Contributing

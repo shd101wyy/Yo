@@ -1,5 +1,31 @@
 # 内联汇编（`asm`）设计
 
+## 概述
+
+Yo 提供了 `asm()` 和 `global_asm()` 内置函数用于嵌入内联汇编，灵感来自 Rust 的 `asm!` 宏。特性包括：
+
+- **操作数类型**：`in`、`out`、`inout`、`lateout`、`inlateout`、`const_val`、`sym`
+- **寄存器约束**：`reg`、`imm`、`mem`、显式寄存器名（例如 `"rax"`）
+- **命名操作数**：`out("result", reg, i32)` 配合模板引用 `{result}`
+- **变量目标输出**：`out(reg, x)` 直接写入变量，包括未初始化的变量
+- **破坏声明和选项**：`clobber("memory")`、`asm_options(volatile, noreturn)`
+- **多架构支持**：x86_64 和 aarch64
+
+````yo
+```yo
+// 简单示例：将立即数移入寄存器
+result := asm(
+  "mov {0}, #42",
+  out(reg, i32)
+);
+
+// 未初始化变量输出
+x : i32;
+asm("mov {0}, #42", out(reg, x));
+````
+
+完整的设计、语法参考和 C 代码生成细节，请参阅 [INLINE_ASSEMBLY.md](INLINE_ASSEMBLY.md)。
+
 ## 1. 动机
 
 Yo 目前没有发出内联汇编的机制。底层操作（系统调用、SIMD、硬件内置指令、性能关键的内部循环、CPU 特性检测）必须以 C 外部函数的形式实现，这迫使开发者维护单独的 C 源文件，并通过 FFI 手动接入。
