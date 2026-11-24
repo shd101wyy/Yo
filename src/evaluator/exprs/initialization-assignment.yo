@@ -104,7 +104,7 @@
 { _type_origin_names_into } :: import("../types/function.yo");
 { Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ type_implements_comptime, type_implements_runtime_full } :: import("../trait-checking.yo");
+{ type_implements_comptime, type_implements_runtime_full, deref_target_type, is_deref_handle } :: import("../trait-checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { reject_dyn_place_by_value, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, binding_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled } :: import("../utils.yo");
 { is_mut_binding, is_thread_local_binding, owner_deref_object, ast_rewritten_node } :: import("../../expr.yo");
@@ -1147,6 +1147,82 @@ _subscript_root_args :: (fn(call : &AstExpr) -> ArrayList(ProjectionRootArg))({
   );
   out
 });
+/// The `.*` step of a re-point's chain (`hops`, outermost first, rooted at
+/// `root_var`) that P1b does not admit, if any. Admitted are exactly the
+/// steps a deref forwarding took through a handle, written or not
+/// (VERDICTS-73 made them written; the verdict stays): a handle's `.*`
+/// (`Box`/`Rc`/`Arc`, `is_deref_handle`) with a field read past it
+/// (`cur = &h.*.v`, decision 25's step into an `Rc`), and a reference's
+/// `.*` followed by a handle's `.*` or by a field of the handle it reaches
+/// (`cur = &mut n.*.*.next` / `cur = &mut n.*.next`, `n : &mut Box(Node)`).
+/// A raw pointer's `.*`, a reference's `.*` before its referent's own
+/// field, and a trailing `.*` are P1b.
+_repoint_unadmitted_star :: (
+  fn(hops : &ArrayList(_InoutPlaceHop), root_var : &Variable, env : &Environment, ctx : &EvalContext) -> Option(AstExpr)
+)({
+  n := hops.len();
+  // Per step, innermost first (step `k` is at `n - 1 - k`): 0 a field, 1 a
+  // reference's `.*`, 2 a handle's `.*`, 3 any other `.*`; and whether the
+  // step yields a handle.
+  (kinds : ArrayList(i32)) = ArrayList(i32).new();
+  (yields_handle : ArrayList(bool)) = ArrayList(bool).new();
+  (cur_ty : TypeValue) = variable_value_type(root_var);
+  (pending_ref : bool) = (variable_is_reference_binding(root_var) && !t_slot_is_borrow(&cur_ty));
+  (k : usize) = n;
+  while(k > usize(0), {
+    k = (k - usize(1));
+    hop := match(hops.get_cloned(k), .Some(h) => h, .None => _InoutPlaceHop(node : make_err_expr(), field : make_err_expr()));
+    kind := cond(
+      ast_expr_is_atom_of(&hop.field, "*") => cond(
+        pending_ref => i32(1),
+        t_slot_is_borrow(&cur_ty) => i32(1),
+        is_deref_handle(&cur_ty) => i32(2),
+        true => i32(3)
+      ),
+      true => i32(0)
+    );
+    if(kind == i32(1), {
+      if(pending_ref, {
+        pending_ref = false;
+      }, {
+        cur_ty = t_slot_pointee(&cur_ty);
+      });
+    });
+    if(kind == i32(2), {
+      cur_ty = match(deref_target_type(&cur_ty, env), .Some(t) => t, .None => t_unit());
+    });
+    if(kind == i32(0), {
+      pending_ref = false;
+      cur_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&hop.node)), .Some(fi) => Rc.clone(fi.ty()), .None => t_unit());
+    });
+    kinds.push(kind);
+    yields_handle.push(is_deref_handle(&cur_ty));
+  });
+  (j : usize) = usize(0);
+  while(j < n, {
+    kj := match(kinds.get_cloned((n - usize(1)) - j), .Some(v) => v, .None => i32(0));
+    (field_outward : bool) = false;
+    (o : usize) = usize(0);
+    while(o < j, {
+      if(match(kinds.get_cloned((n - usize(1)) - o), .Some(v) => (v == i32(0)), .None => false), {
+        field_outward = true;
+      });
+      o = (o + usize(1));
+    });
+    outer := cond((j > usize(0)) => match(kinds.get_cloned(n - j), .Some(v) => v, .None => i32(-1)), true => i32(-1));
+    admitted := cond(
+      (kj == i32(0)) => true,
+      (kj == i32(2)) => field_outward,
+      (kj == i32(1)) => ((outer == i32(2)) || ((outer == i32(0)) && match(yields_handle.get_cloned((n - usize(1)) - j), .Some(b) => b, .None => false))),
+      true => false
+    );
+    if(!admitted, {
+      return(match(hops.get_cloned(j), .Some(h) => Option(AstExpr).Some(Rc.clone(h.field)), .None => Option(AstExpr).None));
+    });
+    j = (j + usize(1));
+  });
+  Option(AstExpr).None
+});
 /// `cur = &place` / `cur = &mut place`: re-point the local borrow `cur`
 /// to `place` (plans/VALUES_BY_DEFAULT.md decision 25, the cursor walk).
 ///
@@ -1259,17 +1335,6 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       make_err_expr()
     }
   );
-  (hi : usize) = usize(0);
-  while(hi < hops.len(), {
-    match(
-      hops.get_cloned(hi),
-      .Some(hop) => if(ast_expr_is_atom_of(&hop.field, "*"), {
-        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&hop.field), `Cannot re-point \`${name}\` through a pointer dereference ('p.*'): a re-point to a place behind a dereference is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`))));
-      }),
-      .None => ()
-    );
-    hi = (hi + usize(1));
-  });
   old_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
   ctx.expected_type = old_expected_type.clone();
@@ -1308,6 +1373,16 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       exn.throw(dyn(Box.new(format_error_message(&root_tok, `Variable "${root_tok.*.value.*}" is not defined.`))));
       make_err_variable(&env)
     }
+  );
+  // A `.*` step is P1b unless it is one a deref forwarding took
+  // (`_repoint_unadmitted_star`): both spellings of a step take this one
+  // check, so spelling the step does not change the verdict.
+  match(
+    _repoint_unadmitted_star(&hops, &root_var, &env, ctx),
+    .Some(bad_star) => {
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&bad_star), `Cannot re-point \`${name}\` through a pointer dereference ('p.*'): a re-point to a place behind a dereference is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`))));
+    },
+    .None => ()
   );
   place := match(
     local_borrow_place_of(&evaluated_rhs, &env, ctx),
