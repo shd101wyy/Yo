@@ -1,0 +1,19 @@
+{ println } :: import("std/fmt");
+Bump :: trait(bump : (fn(self : &Self, x : &mut i32) -> unit));
+Cat :: struct(n : i32);
+impl(
+  Cat,
+  Bump(
+    bump : (fn(self : &Self, x : &mut i32) -> unit)({
+      x.* = (x.* + self.n);
+    })
+  )
+);
+main :: (fn() -> unit)({
+  c := Cat(n : i32(3));
+  (d : &Dyn(Bump)) = dyn(&c);
+  mut(k) := i32(10);
+  d.bump(&mut k);
+  println(`OUT: ${k.to_string()}`);
+});
+export(main);
