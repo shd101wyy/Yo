@@ -25,7 +25,7 @@ most distinctive, Yo has decided the other way on the record:
 
 | Jai's choice | Yo's ruling |
 | --- | --- |
-| an implicit `context` (allocator, temporary storage, logger) passed to every procedure | dynamic scoping, rejected: `ALLOCATOR_PLACEMENT.md` §8 item 8; allocators are placed by argument |
+| an implicit `context` (allocator, temporary storage, logger) passed to every procedure | dynamic scoping, rejected: `plans/reference/ALLOCATOR_PLACEMENT.md` §8 item 8; allocators are placed by argument |
 | code-splicing metaprogramming (`#insert`, `#code`, `#expand` macros) | the macro layer is deleted; "exprs are data; two doors make code" (`COMPTIME_METAPROGRAMMING_AUDIT.md` §0) |
 | manual memory, pointer arithmetic, no captures | ownership, origins, `Rc`/`Arc` (VALUES_BY_DEFAULT) |
 
@@ -374,7 +374,7 @@ package that needs a build-time switch.
 
 | Jai feature | Why not |
 | --- | --- |
-| `context`, `push_context`, `#add_context`, `,,` | dynamic scoping: `ALLOCATOR_PLACEMENT.md` §8 item 8. A handler-shaped need is an algebraic effect, which is in the signature |
+| `context`, `push_context`, `#add_context`, `,,` | dynamic scoping: `plans/reference/ALLOCATOR_PLACEMENT.md` §8 item 8. A handler-shaped need is an algebraic effect, which is in the signature |
 | ambient temporary storage (`temp`, `tprint`) | the same; J2 keeps the arena and drops the ambience |
 | `#insert` in expression position, `#code`, `#expand` macros, backtick names, `for_expansion` | the macro layer, deleted by `MACRO_AND_ISO_REMOVAL.md`; a general splice is the third door `COMPTIME_METAPROGRAMMING_AUDIT.md` rejects |
 | `#run` that does arbitrary I/O and calls foreign code (the wiki's test example runs `run_command` under `#run`) | CTFE has no runtime storage, no extern calls, and file reads sandboxed to the package root; `yo check` and the editor run it on every edit. Build steps are where commands run |

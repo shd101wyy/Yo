@@ -1168,7 +1168,7 @@ and every free routes through the owner prefix.
   - a `Dyn` cell or an async state machine.
   - **(2026-10-24, reversed by the maintainer)** There is no scope: a
     creation without `alloc :` goes to the global allocator
-    (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1/B2).
+    (`plans/reference/ALLOCATOR_PLACEMENT.md` B1/B2).
 - **An explicit `clone()` lands where its source lives**, not in the
   current scope. This is today's `ArrayList.clone` rule
   (`std/collections/array_list.yo`), as in Rust's `Vec<T, A>: Clone`, and
@@ -1187,7 +1187,7 @@ and every free routes through the owner prefix.
     `with_allocator` should take an `FnOnce` body (decision 37), so a body
     can move a captured value out.
     - **(2026-10-24)** Moot: `scoped` and `with_allocator` are deleted
-      (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1).
+      (`plans/reference/ALLOCATOR_PLACEMENT.md` B1).
   - **(2026-10-24, std/arena deleted by the maintainer)** std ships no
     arena until `plans/backlog/ZIG_STYLE_ALLOCATORS.md` A1/A3; the rule of
     this bullet (blocks stay where they were placed, `clone_in` moves them
@@ -1197,7 +1197,7 @@ and every free routes through the owner prefix.
   keyword.
   Containers keep `new_in`/`with_capacity_in` for now; moving them to the
   same `alloc` parameter is a separate decision.
-  - **(2026-10-24, decided)** They move: `plans/backlog/ALLOCATOR_PLACEMENT.md`
+  - **(2026-10-24, decided)** They move: `plans/reference/ALLOCATOR_PLACEMENT.md`
     B2 (v0.2.72) gives the containers the defaulted `alloc` parameter,
     deletes `new_in`/`with_capacity_in`, and adds `clone_in`.
 - **`Allocator` and `AllocatorVTable` live in the prelude** (done in two
@@ -1941,7 +1941,7 @@ and in git, not a silent edit.
     clone inherits its source's owner (§3.11).
     - **(2026-10-24, reversed by the maintainer)** There is no scope: a
       creation without `alloc :` goes to the global allocator
-      (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1/B2). The clone rule
+      (`plans/reference/ALLOCATOR_PLACEMENT.md` B1/B2). The clone rule
       stands.
 13. **A future is move-only** (§3.13 A1).
     - Rejected: Swift's copyable `Task` handle, a type whose copies alias
@@ -3677,7 +3677,7 @@ and in git, not a silent edit.
   stay.
   - **(2026-10-24, reversed by the maintainer)** `with_allocator` goes: it is
     dynamic scoping. Placement is only the `alloc` argument at the creation
-    site (`plans/backlog/ALLOCATOR_PLACEMENT.md`; B1 at v0.2.71, B2 at
+    site (`plans/reference/ALLOCATOR_PLACEMENT.md`; B1 at v0.2.71, B2 at
     v0.2.72).
 - **A closure's capture mode, when no capture list is written,** follows
   the parameter the closure is passed to (`f : &Impl(…)` or a by-value `f`,
@@ -5060,7 +5060,7 @@ and in git, not a silent edit.
       `Box`'s `Drop` reads the placed bit from the handle's pointer word and
       the extent from `size_of_val`/`align_of_val`; a global cell is the
       payload alone, and a `size_of_val` of 0 frees nothing (VERDICTS-29,
-      `plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout").
+      `plans/reference/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout").
     - **`downcast`/`upcast`.** `downcast(r : &Dyn(T), V) -> Option(&V)`,
       `&mut` → `Option(&mut V)`; `downcast(b : Box(Dyn(T)), V) ->
       Result(Box(V), Box(Dyn(T)))`, `Rc`/`Arc` likewise — the same block
@@ -9417,7 +9417,7 @@ plugs in. Two of its signatures stop Zig-style allocators from fitting.
   two; the global vtable serves alignments above 16 from the aligned family.
   `ArrayList`, `Deque` and `HashMap` tell every release the buffer's byte
   size and the element alignment. Allocator placement B2a rides the same
-  PR (`plans/backlog/ALLOCATOR_PLACEMENT.md` §6 B2). Tests: a ledger
+  PR (`plans/reference/ALLOCATOR_PLACEMENT.md` §6 B2). Tests: a ledger
   allocator that checks every `realloc`/`free` against the size and
   alignment it handed out, over `rc`, `arc`, `box`, `dyn` and the four
   containers; a 256-aligned block through `Allocator.alloc`/`realloc`; a
@@ -10671,5 +10671,5 @@ inside a settled design:
   not to work. Decided in V3's async work.
 - **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
   the constructors' `alloc` parameter. Decided after V2b. *(Decided
-  2026-10-24: they move, `plans/backlog/ALLOCATOR_PLACEMENT.md` B2.)*
+  2026-10-24: they move, `plans/reference/ALLOCATOR_PLACEMENT.md` B2.)*
 - *(Decided as decision 35, 2026-10-05: the capture list.)*
