@@ -57,7 +57,9 @@ pragma(Pragma.AllowUnsafe);
   is_mut_binding,
   ast_rewritten_node,
   for_desugar_site_of,
-  value_tail_mode
+  value_tail_mode,
+  BK_DYN_LOWER,
+  BF_UPCAST
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -10003,10 +10005,15 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       ),
       _ => false
     );
-    if(!callee_result_may_carry && !root_is_ref_binding, {
-      if(debug_knob(`YO_DEBUG_ORIGIN_RNONE`).is_some(), {
-        eprintln(`[rnone] ${ast_expr_to_string(&stripped)} : ${type_to_string(&fi.ty())} dropped`);
-      });
+    // A `dyn(...)` or `upcast(...)` re-types its operand's pointer: the
+    // reference-kind one (`dyn(&c)`, `dyn(&mut c)`, an upcast of either)
+    // passed bare to a `&Dyn(T)` parameter is read at its POINTEE's type,
+    // the `Dyn(T)`, in the same positions, while the value the parameter
+    // receives is the reference its operand lends. Its origin is R-COMP's
+    // over that operand below, as at a by-value slot
+    // (issues/fixed/2026-11-25-a-dyn-of-a-place-passed-to-a-reference-parameter-gives-the-call-result-no-origin.md).
+    (root_is_dyn_conversion : bool) = (ast_expr_is_fn_call_of(&stripped, BK_DYN_LOWER, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&stripped, BF_UPCAST, Option(usize).Some(usize(2))));
+    if(!callee_result_may_carry && (!root_is_ref_binding && !root_is_dyn_conversion), {
       return(());
     });
   });
@@ -10254,9 +10261,6 @@ _origin_of_reference_arg_into :: (fn(e : &AstExpr, is_mut : bool, env : &Environ
       }),
       .None => ()
     );
-  });
-  if(debug_knob(`YO_DEBUG_ORIGIN_RNONE`).is_some(), {
-    eprintln(`[refarg] ${ast_expr_to_string(e)} -> _origin_of_into`);
   });
   _origin_of_into(e, env, ctx, out, depth);
 });
