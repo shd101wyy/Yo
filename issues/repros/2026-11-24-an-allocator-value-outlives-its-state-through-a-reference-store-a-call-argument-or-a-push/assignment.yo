@@ -1,0 +1,12 @@
+// SAFE file (no pragma). The same escape as a plain assignment: rejected.
+{ Counting } :: import("./counting.yo");
+main :: (fn() -> unit)({
+  mut(stale) := Allocator.global();
+  {
+    mut(c) := Counting.new();
+    stale = c.allocator();
+  };
+  b := Box.new(i32(7), alloc : .Some(stale));
+  _ := b;
+});
+export(main);

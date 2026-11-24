@@ -1,0 +1,13 @@
+// Open S2: issues/2026-11-23-a-generic-reference-parameter-at-box-dyn-is-lent-again-and-emits-invalid-c.md
+// Expected: prints 7. Actual: `yo check` passes, `yo compile` fails in the C compiler (`&x` passed where `x` is expected).
+{ println } :: import("std/fmt");
+S :: trait(n : (fn(self : &Self) -> i32));
+A :: struct(v : i32);
+impl(A, S(n : (self -> self.v)));
+impl(generic(T : ?Sized), where(T <: S), Box(T), S(n : (fn(self : &Self) -> i32)(self.as_ref().n())));
+via :: (fn(generic(T : ?Sized), x : &T, where(T <: S)) -> i32)(x.n());
+main :: (fn() -> unit)({
+  (d : Box(Dyn(S))) = dyn(Box.new(A(v : i32(7))));
+  println(via(&d));
+});
+export(main);

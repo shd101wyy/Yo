@@ -1038,7 +1038,9 @@ node_module :: import("./node.yo"); // whole module
   `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401).
 - `assert`/`panic` come from `std/assert` (`{ assert, panic } :: import("std/assert");`). Messages take any
   `ToString` (template strings included); `assert(cond)` has a default message. The diverging builtin for
-  value-position arms is `__yo_panic("str only")`.
+  value-position arms is `__yo_panic("str only")`. Its message is a literal, a `&str` parameter or a local:
+  a method call in the argument (`__yo_panic(m.unwrap_or("x"))`) is E0601 against the arm's type, so bind
+  it first (`issues/2026-11-24-yo-panic-with-a-method-call-message-reports-a-unify-error-against-the-arm-type.md`).
 
 ### Definition order
 
@@ -1223,8 +1225,8 @@ or `spare` is exempt (a safe-mode privilege token). Check with `yo public-safe-r
 ## Design-by-contract: `requires` / `ensures` / `invariant` / `ghost`
 
 Backed by the Z3 verifier (`plans/backlog/FORMAL_VERIFICATION.md`). Without a verify pragma contracts lower
-to run-time `assert(...)` (`comptime_assert(...)` in comptime fns); `yo verify <path>` discharges them (see
-the yo-verification skill).
+to run-time `assert(...)` (`comptime_assert(...)` in comptime fns); `yo verify <path>` discharges them
+(`docs/en-US/FORMAL_VERIFICATION.md`).
 
 - **Clauses go in the parameter list in this enforced order**: `generic(...)`, parameters, `where(...)`,
   `requires(...)`, `ensures(...)`, `decreases(...)`, `assumed()`. Out of order is a syntax error ("X appears

@@ -4,10 +4,12 @@
 
 **Status: APPROVED 2026-10-02; AMENDED 2026-10-13 (maintainer).**
 
-- **Landed:** K0 (#1138) and K1 (#1139–#1142).
-- **The rest waits for VALUES_BY_DEFAULT V5** (§4 "Order"). VBD is still
-  rewriting the language these documents describe, so a sweep before V5 would
-  have to be redone.
+- **Landed:** K0 (#1138), K1 (#1139–#1142), K4 (v0.2.79), and K2, K3 and K6
+  (2026-11-24, branch `docs/akc-k2k3k6`; outcomes under each phase below).
+- **K5's report-only half landed** (`scripts/check-docs.py`, CI job
+  `docs-checks`). Its blocking flip and K7, the post-VBD docs sweep, wait for
+  v0.2.82: v0.2.81 (Display/Debug) and v0.2.82 (implicit dup removal,
+  consuming destructuring) still change the language the docs describe.
 
 The 2026-10-13 amendment:
 
@@ -205,6 +207,27 @@ Move the ~250 lines into `c-codegen`, `testing`, `debugging` and
 gates go to `plans/backlog/SEED_VERSION_AUTOMATION.md` when still live, and are
 deleted when lifted.
 
+> **LANDED 2026-11-24 (branch `docs/akc-k2k3k6`).** Mined from
+> `c121df6cb:.github/skills/`; every kept fact was re-verified with a probe
+> compiled by a tree binary built from develop `34359627e`. Six facts moved:
+> the async-core-only `__yo_get_thread_id` versus the always-emitted
+> `__yo_thread_self` (`c-codegen`); `Token.character` versus `byte_offset`, a
+> swallowing handler's `unwind` skipping the restore, and `std/assert`'s own
+> import path (`yo-design`); the `__yo_panic` message binding (`yo-syntax`,
+> with its misleading error filed); "Yo has no X" comments (`debugging`).
+> Dropped as stale: the proto-evaluator source-string pitfalls and
+> `get_callee` (the API is typed `comptime(Expr)` now), the `src/`
+> String-versus-`str` notes, the Windows-macro local names (locals are
+> mangled in C), "a trap kills its test batch" (the runner isolates each
+> test), `__yo_panic` beside a `()` arm (it compiles), `Tuple(A, B)(a, b)`
+> passing `check` (E0606 now), the enum-binding C bug, the async-arm
+> mis-lowerings and mid-body `return` (fixed by the single-pass lowering).
+> Every seed gate the skills named is lifted (definition order, `\` before
+> `${`, associated constants, bare prefix operators, `mut(name)` in `src/`,
+> borrows in `io.async`, `yield`'s timer, `c_type` in `std/`), so none moved
+> to `SEED_VERSION_AUTOMATION.md`. The rest was already in the instruction
+> files.
+
 ### K3 — Pack: trim ~60 lines, add ~50–60
 
 (After V5. The line numbers below are from the 2026-10-02 audit; re-read the
@@ -220,6 +243,16 @@ pack before editing.)
   the `=>` arm-paren rule, and the E1104 comptime-locals rule.
 - **Limit:** stays under 24 KB (`wc -c` in the PR). If the adds would overflow
   it, the overflow goes to a manual, not the pack.
+
+> **LANDED 2026-11-24 (branch `docs/akc-k2k3k6`).** The pack had been
+> rewritten as pack-version 4 since this list was drawn up: Verification is
+> already a pointer, and the Option/Result and duplicate sharp-edge blocks are
+> gone. Added, each probed with a tree binary: `return()` versus
+> `return(unit)` and `return` ending its block, `Option ==` needing an `Eq`
+> payload, positional tuples, parameter reassignment (E0902), `dyn` needing
+> `Error`, the closed operator set, the `=>` arm-paren rule and E1104.
+> `comptime_str` was not added: no probe reached a case an agent hits.
+> 20,152 → 20,918 bytes.
 
 ### K4 — Delete the shipped skills and `yo skills install` (amended 2026-10-13)
 
@@ -296,6 +329,12 @@ K5 upgrades that parse check to a **type-check**.
   conventions: `.github/instructions/documentation.instructions.md`.
 
 ### K6 — Rules that point at the old layout
+
+> **LANDED 2026-11-24 (branch `docs/akc-k2k3k6`).** K4 had already rewritten
+> `AGENTS.md`, `docs/*/CONTEXT.md` and the testing golden note. What remained:
+> two "yo-verification skill" pointers (`yo-syntax`, `yo-design`), now
+> `docs/en-US/FORMAL_VERIFICATION.md`, and the `reference/YO_CONTEXT.md` C6
+> addendum.
 
 - `AGENTS.md` "update the cheatsheets … immediately" becomes "update the pack,
   the manual, or `.github/instructions/`, whichever is the fact's home (§D2)".

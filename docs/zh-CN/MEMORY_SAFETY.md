@@ -152,7 +152,7 @@ ys := ArrayList(i32).new(); // 没有参数：全局分配器
 - **默认全局，放置靠参数。** 不带分配器参数的创建使用全局分配器，所以一个调用做什么从不取决于它的调用者。`Box.new`、`Rc.new` 和 `Arc.new` 接受 `alloc : .Some(a)`，容器的 `new` / `with_capacity` 也一样；`clone_in(a)` 放置一个副本。缓冲区之后的每次增长都留在创建它的分配器里。`ref` 构造、`dyn` 盒子、插值字符串、闭包环境、任务状态机以及运行时自己的簿记都使用全局分配器。
 - **传递放置是安全代码。** `Allocator`、`Option(Allocator)` 以及持有它的结构体都是不透明句柄：安全文件可以声明 `(alloc : Option(Allocator)) ?= .None` 并把它传下去。使用句柄的裸字段（`a.alloc(n, align)`）仍然需要该 pragma。
 - **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`，所以只要它自己的回调是线程安全的，一个分配器就可以服务多个线程。
-- **分配器必须比它的块活得更久。** Yo 不检查这一点：用户编写的分配器的上下文和 vtable 必须一直有效，直到它分配出去的每个块都被释放。
+- **分配器必须比它的块和它的 `Allocator` 值活得更久。** 用户编写的分配器的上下文和 vtable 一直有效，直到它分配出去的每个块都被释放。`ctx` 指向自身状态的 `AllowUnsafe` 分配器模块还承诺：这个状态比由它构造的每个 `Allocator` 值活得更久。安全代码可以把这样的值保留到状态之后（经引用存储、传给会存储它的调用、推入容器），之后通过它分配就会读取已释放的内存。编译器目前还不检查这两项承诺（[未解决的 issue](https://github.com/shd101wyy/Yo/blob/develop/issues/2026-11-24-an-allocator-value-outlives-its-state-through-a-reference-store-a-call-argument-or-a-push.md)）。
 
 std 不提供 arena 或固定缓冲区分配器；可以基于 `Allocator` 接口自行编写（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
 

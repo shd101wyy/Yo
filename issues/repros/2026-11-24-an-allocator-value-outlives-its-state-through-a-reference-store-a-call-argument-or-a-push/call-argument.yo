@@ -1,0 +1,17 @@
+// SAFE file (no pragma). The `Allocator` leaves `fill`'s frame as a by-value
+// argument that `set` stores through its `&mut` parameter.
+{ Counting } :: import("./counting.yo");
+set :: (fn(dst : &mut Allocator, a : Allocator) -> unit)({
+  dst.* = a;
+});
+fill :: (fn(dst : &mut Allocator) -> unit)({
+  mut(c) := Counting.new();
+  set(dst, c.allocator());
+});
+main :: (fn() -> unit)({
+  mut(stale) := Allocator.global();
+  fill(&mut stale);
+  b := Box.new(i32(7), alloc : .Some(stale));
+  _ := b;
+});
+export(main);

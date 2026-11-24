@@ -65,7 +65,7 @@ the parallelism half of the same consult.
 
 So today `io` is a type-level capability token. The reactor it stands for is
 found through the thread, not through the value. That is dynamic scoping, the
-property that `plans/backlog/ALLOCATOR_PLACEMENT.md` §0 deleted from
+property that `plans/reference/ALLOCATOR_PLACEMENT.md` §0 deleted from
 allocators when it removed `with_allocator`.
 
 ## 1. The four rules
