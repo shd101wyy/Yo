@@ -311,6 +311,52 @@ test("every AnyError payload thrown in a loop is released", {
     "each of the 20 thrown payloads is released exactly once"
   );
 });
+// Regression (issues/fixed/2026-11-20-evaluate-matchs-scrutinee-temporary-place-leaks-on-every-unwind.md):
+// the escape path took every local whose name CONTAINS `_temp_` for a
+// compiler-minted temporary and skipped its drop, so a user binding named
+// `scr_temp_place` leaked on every unwind through its frame. The plainly
+// named twin is the control.
+(mut(g_temp_named_local_disposed) : i32) = i32(0);
+TempNamedRes :: struct(tag : i32);
+impl(
+  TempNamedRes,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_temp_named_local_disposed = (g_temp_named_local_disposed + i32(1));
+    })
+  )
+);
+_throw_past_temp_named_local :: (fn(exn : Exception) -> i32)({
+  (scr_temp_place : Option(TempNamedRes)) = Option(TempNamedRes).Some(TempNamedRes(tag : i32(1)));
+  r := match(&scr_temp_place, .Some(p) => p.tag, .None => i32(0));
+  _throw_payload(exn) + r
+});
+_throw_past_plain_local :: (fn(exn : Exception) -> i32)({
+  (place : Option(TempNamedRes)) = Option(TempNamedRes).Some(TempNamedRes(tag : i32(1)));
+  r := match(&place, .Some(p) => p.tag, .None => i32(0));
+  _throw_payload(exn) + r
+});
+_catch_past_local :: (fn(temp_named : bool) -> i32)({
+  exn := Exception(
+    throw : (
+      err -> unwind(i32(0) - i32(1))
+    )
+  );
+  if(temp_named, _throw_past_temp_named_local(exn), _throw_past_plain_local(exn))
+});
+test("a local named like `scr_temp_place` is released when an unwind passes its frame", {
+  before := g_temp_named_local_disposed;
+  (mut(i) : i32) = i32(0);
+  while(i < i32(10), {
+    assert(_catch_past_local(true) == (i32(0) - i32(1)), "the handler unwound with its sentinel");
+    assert(_catch_past_local(false) == (i32(0) - i32(1)), "the handler unwound with its sentinel");
+    i = (i + i32(1));
+  });
+  assert(
+    (g_temp_named_local_disposed - before) == i32(20),
+    "both locals are released on each of the 10 unwinds"
+  );
+});
 // Regression (issues/fixed/parser-internal-tests-report-a-40-byte-lsan-leak-locally.md):
 // a local MOVED OUT through the return value (the body's tail is the bare
 // local, so ownership leaves the frame and the scope-end scheduler skips its
