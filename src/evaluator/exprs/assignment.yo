@@ -53,7 +53,6 @@ pragma(Pragma.AllowUnsafe);
   variable_value_type,
   variable_slot_type,
   variable_set_is_ref,
-  variable_set_reference_mut,
   variable_move_note
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
@@ -72,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
   shared_values
 } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ TypeValue, t_refine_inner, no_labels, t_reference, t_reference_with_origin, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner, no_labels, t_reference, t_reference_with_origin, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
   is_comptime_int_type,
@@ -2784,8 +2783,13 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // auto-dereferences nor reports the lookup failure
   // (issues/fixed/2026-11-21-a-typed-reference-local-bound-to-a-reference-value-crashes-the-member-read.md).
   if(is_typed_binding_lhs && !variable.is_module_level() && !variable.is_compile_time_only() && t_slot_is_borrow(&variable_slot_type(&variable)) && !variable_is_reference_binding(&variable) && is_reference_read(ast_expr_id(&rhs_evaled)), {
+    // The flag write re-derives the stored type by wrapping it in a
+    // reference (`_variable_resync_reference`), but the stored type is
+    // already the declared `&T` / `&mut(T, o)`: restore it, mode and origin
+    // as written, so a read is `T` and `l.*` writes `T`, not `&T`.
+    tr_slot := variable_slot_type(&variable);
     variable_set_is_ref(&variable, true);
-    variable_set_reference_mut(&variable, t_slot_is_mut_ref(&variable_slot_type(&variable)));
+    variable.set_bound_ty(tr_slot);
   });
   // VERDICTS-74 rule 2 at the typed declaration `(l : &(T, static)) = v`
   // with a VALUE right-hand side (the place-lend spelling is checked in
