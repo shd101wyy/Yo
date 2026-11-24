@@ -1272,12 +1272,31 @@ _closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context 
   });
   default_cty
 });
+/// The argument `a` names a by-`ref` binding (`rp := &mut r`, a `&mut T`
+/// parameter, a capture-list borrow): its C storage is the pointer, and
+/// every read of it (`_var_read_code`: `(*rp)`) is ALREADY the place it
+/// refers to, whatever type the read is recorded at.
+_arg_reads_ref_binding :: (fn(a : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  ast_expr_is_atom(a) && match(
+    context.base.get_expr_info(a),
+    .Some(rb_ei) => match(
+      scope_variables(ast_expr_id(a), &rb_ei.env(), &ast_expr_token(a).value.*).last_cloned(),
+      .Some(rb_v) => (rb_v.is_ref() && !rb_v.is_borrow_match_binding()),
+      .None => false
+    ),
+    .None => false
+  )
+);
 /// The runtime argument `i` is the reference its borrow slot takes
 /// (VERDICTS-75 rider r1): its type IS the slot (`&T` at `&T`, `T` sized)
-/// and it is a reference VALUE (`reference_operand_is_value`: a call's
-/// result, a by-value `&T` binding), not a place the slot lends. The
-/// evaluator admits it as the slot's value: a receiver that is itself a
-/// reference value needs no borrow.
+/// and it is a reference VALUE whose C is the pointer
+/// (`reference_operand_is_value`: a call's result, a by-value `&T`
+/// binding), not a place the slot lends. The evaluator admits it as the
+/// slot's value: a receiver that is itself a reference value needs no
+/// borrow. A by-`ref` binding (`_arg_reads_ref_binding`, `g(rp)` with
+/// `rp : &mut &i32` at `&mut &i32`) is not one: its C read is already the
+/// place, which the slot re-lends as `rp` itself
+/// (issues/fixed/2026-11-24-a-mut-reference-binding-passed-bare-to-a-mut-reference-to-a-reference-parameter-passes-its-referent.md).
 _reference_value_at_own_slot :: (fn(slots : &SharedList(TypeValue), i : usize, runtime_args : &ArrayList(AstExpr), context : &FunctionGenerationContext) -> bool)(
   match(
     slots.get(i),
@@ -1285,7 +1304,7 @@ _reference_value_at_own_slot :: (fn(slots : &SharedList(TypeValue), i : usize, r
       t_slot_is_borrow(&rv_slot) && type_is_sized(&t_slot_pointee(&rv_slot)) && match(
         runtime_args.get_cloned(i),
         .Some(rv_arg) => (
-          reference_operand_is_value(&rv_arg, context) && !is_reference_self_place(ast_expr_id(&rv_arg)) && match(context.base.get_expr_info(&rv_arg), .Some(rv_ei) => (type_key(&rv_ei.ty()) == type_key(&rv_slot)), .None => false)
+          reference_operand_is_value(&rv_arg, context) && !is_reference_self_place(ast_expr_id(&rv_arg)) && !_arg_reads_ref_binding(&rv_arg, context) && match(context.base.get_expr_info(&rv_arg), .Some(rv_ei) => (type_key(&rv_ei.ty()) == type_key(&rv_slot)), .None => false)
         ),
         .None => false
       )

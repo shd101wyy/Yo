@@ -64,3 +64,8 @@ reborrow one level up.
 
 A case in `tests/ref_of_ref.test.yo` with the fix; the reproducer is its
 positive program.
+
+## Fix
+
+Rider r1 (#2048) made the conservative argument check accept a reference value at its own slot, and with it the bare binding. That acceptance first lowered to the referent instead of the reference: an S1, `issues/fixed/2026-11-24-a-mut-reference-binding-passed-bare-to-a-mut-reference-to-a-reference-parameter-passes-its-referent.md`. The 2026-11-24 fix makes codegen pass `rp` itself. `set(rp, &other)` is now accepted, re-points `r`, and reports the same E0911 as `set(&mut rp.*, &other)` when `other` dies first. Test: `tests/ref-of-ref.test.yo`, "the corpus shape".
+

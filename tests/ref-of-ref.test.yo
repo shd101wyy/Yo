@@ -162,3 +162,55 @@ comptime_expect_error(
   }),
   "Cannot assign a value holding origin `q`"
 );
+
+// A `&mut` binding of a reference passed bare at a `&mut &T` slot is a
+// reborrow: the callee receives the binding's pointer itself, never the
+// referent it holds (O3 "Reborrows";
+// issues/fixed/2026-11-24-a-mut-reference-binding-passed-bare-to-a-mut-reference-to-a-reference-parameter-passes-its-referent.md,
+// issues/fixed/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md).
+rr_peek_through :: (fn(dst : &mut &i32) -> i32)(dst.*.*);
+rr_point_at :: (fn(generic(p : Origin), dst : &mut&(i32, p), v : &(i32, p)) -> unit)({
+  dst.* = v;
+});
+RrX :: struct(s : String);
+rr_point_at_x :: (fn(generic(p : Origin), dst : &mut&(Rc(RrX), p), v : &(Rc(RrX), p)) -> unit)({
+  dst.* = v;
+});
+rr_read_two :: (fn(x : & &i32) -> i32)(x.*.*);
+rr_write_through :: (fn(x : &mut &mut i32) -> unit)({
+  x.*.* = i32(5);
+});
+RrPeek :: trait(rr_peek : (fn(self : &mut Self) -> i32));
+impl(&i32, RrPeek(rr_peek : (fn(self : &mut Self) -> i32)(self.*.*)));
+test("a bare &mut &T binding at a &mut &T slot passes the reference, not its referent", {
+  a := i32(7);
+  mut(r) := &a;
+  rp := &mut r;
+  assert(rr_peek_through(rp) == i32(7), "dst is rp: dst.*.* reads a");
+  b := i32(2);
+  rr_point_at(rp, &b);
+  assert(r.* == i32(2), "the write through dst re-points r itself");
+});
+test("the corpus shape: a bare &mut &Rc(X) binding re-points its reference", {
+  outer := Rc.new(RrX(s : String.from("0123456789")));
+  other := Rc.new(RrX(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz")));
+  mut(r) := &outer;
+  rp := &mut r;
+  rr_point_at_x(rp, &other);
+  assert(r.*.*.s.len() == usize(36), "r now refers to other");
+});
+test("the siblings: a &&T reborrow, a bare &mut &mut T binding, a &mut &T receiver", {
+  c := i32(9);
+  rc := &c;
+  rr := &rc;
+  assert(rr_read_two(&rr.*) == i32(9), "the &&T slot takes the reborrow &rr.*");
+  mut(m) := i32(1);
+  mut(pm) := &mut m;
+  ppm := &mut pm;
+  rr_write_through(ppm);
+  assert(m == i32(5), "the write lands on m through pm");
+  d := i32(11);
+  mut(rd) := &d;
+  rdp := &mut rd;
+  assert(rdp.rr_peek() == i32(11), "the receiver rdp fills the &mut &i32 slot");
+});
