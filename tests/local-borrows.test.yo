@@ -449,6 +449,31 @@ comptime_expect_error(
   }),
   "is not yet admitted"
 );
+// VERDICTS-73: a re-point's step into an `Rc`'s payload is written
+// `&h.*.v`, and it takes the check the step deref forwarding synthesized for
+// `&h.v` took (decision 25: the step pins the cell). The unspelled step is
+// E0623; a step through a raw pointer stays P1b (deref-explicit-unsafe).
+_RpCell :: struct(v : i32);
+comptime_expect_error(
+  repoint_through_an_unspelled_rc_rejected :: (fn() -> i32)({
+    x := i32(1);
+    cur := &x;
+    h := Rc.new(_RpCell(v : i32(2)));
+    cur = &h.v;
+    cur.*
+  }),
+  "write `h.*.v`"
+);
+repoint_through_a_spelled_rc :: (fn() -> i32)({
+  x := i32(1);
+  cur := &x;
+  h := Rc.new(_RpCell(v : i32(2)));
+  cur = &h.*.v;
+  cur.*
+});
+test("a re-point through an Rc's payload is spelled `&h.*.v` and takes forwarding's step (VERDICTS-73)", {
+  assert(repoint_through_a_spelled_rc() == i32(2), "the re-point reads the payload's field");
+});
 comptime_expect_error(
   repoint_keeps_the_mode :: (fn() -> unit)({
     l1 := List(head : .None);

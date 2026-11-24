@@ -684,7 +684,6 @@ comptime_expect_error(
 );
 rr_owning_ref_box :: (fn(b : &Box(String)) -> &String)(&b.*.*);
 rr_owning_ref_rc :: (fn(h : &Rc(RrHandled)) -> &String)(&h.*.*.s);
-rr_owning_ref_rc_auto :: (fn(h : &Rc(RrHandled)) -> &String)(&h.s);
 rr_owning_mut_box :: (fn(b : &mut Box(String)) -> &mut String)(&mut b.*.*);
 impl(RrHandleW, rr_owning_ref_self : (fn(self : &Self) -> &String)(&self.h.*.s));
 test("a `.*` on a handle reached through a reference parameter stays in the caller's storage", {
@@ -694,7 +693,6 @@ test("a `.*` on a handle reached through a reference parameter stays in the call
   assert(b.*.len() == usize(5), "`&mut b.*.*` through `&mut Box` writes the caller's payload");
   h := Rc.new(RrHandled(s : String.from("rc")));
   assert(rr_owning_ref_rc(&h).len() == usize(2), "`&h.*.*.s` through `&Rc`");
-  assert(rr_owning_ref_rc_auto(&h).len() == usize(2), "`&h.s` through `&Rc`");
   w := RrHandleW(h : Rc.new(RrHandled(s : String.from("self"))));
   assert(w.rr_owning_ref_self().len() == usize(4), "`&self.h.*.s` through `self : &Self`");
 });

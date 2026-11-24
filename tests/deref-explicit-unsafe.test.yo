@@ -19,3 +19,18 @@ test("E0623: a raw pointer's pointee member read with . alone", {
   comptime_expect_error(q.x, "`.` does not read through a raw pointer");
   comptime_expect_error(q.x, "write `q.*.x`: `q.*` names the pointee");
 });
+// A re-point's step through a raw pointer is not one deref forwarding took,
+// so spelling it does not admit it: it stays P1b.
+comptime_expect_error(
+  _repoint_through_a_raw_pointer :: (fn() -> i32)(
+    unsafe({
+      x := i32(1);
+      cur := &x;
+      mut(p) := _P2(x : i32(1), y : i32(2));
+      q := addr_of(p);
+      cur = &q.*.y;
+      cur.*
+    })
+  ),
+  "Cannot re-point `cur` through a pointer dereference"
+);
