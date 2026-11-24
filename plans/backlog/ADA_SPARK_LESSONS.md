@@ -138,7 +138,7 @@ type_invariant(Span, _span_ok); // proved at exits of public fns returning Span 
 - Static predicates in `match`: refine is erased for typing (`ATS_STYLE_INDEXED_TYPES.md:84`).
 - `Ranged`/`Modular`: `Bounded` already exists (`std/spec/refine.yo:55`); `wrapping_*` covers powers of two.
 - Order-free named arguments, user-defined literals: standing rejections (`LANGUAGE_FEATURE_CANDIDATES.md:25-26`).
-- NoHeap: Yo has no allocation effect; `noalloc` is backlog (`ALLOCATOR_PLACEMENT.md:517`).
+- NoHeap: Yo has no allocation effect; `noalloc` is backlog (`ZIG_STYLE_ALLOCATORS.md` §7.6).
 - A `[profile]` table in yo.toml: yo.toml is dependency data (`src/manifest.yo:1-11`).
 - `--level` proof-level presets: they would alias `--strict`, and AGENTS.md forbids aliases. SPARK itself maps silver and gold to the same `--mode=all`.
 - Per-site `justify`: the critiques disagree. I side with dropping it, because `verify+` already keeps the runtime assert per obligation (`docs/en-US/FORMAL_VERIFICATION.md:476`).

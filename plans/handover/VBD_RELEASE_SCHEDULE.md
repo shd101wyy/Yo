@@ -129,6 +129,6 @@ Not counted above:
 - the issue-date rename;
 - PARALLEL_COMPILATION P4 step 2;
 - sizing `YO_TEST_FORK`;
-- allocator placement step C (`plans/backlog/ALLOCATOR_PLACEMENT.md` §6 C): the root module's
+- allocator placement step C (`plans/backlog/ZIG_STYLE_ALLOCATORS.md` §7.1, formerly `ALLOCATOR_PLACEMENT.md` §6 C): the root module's
   `global_allocator`, the `std/heap` catalog, and the deletion of `--allocator` on compile and build,
   `--heap-size`, `--debug-heap`, `build.allocator` and `AllocatorKind` (`yo test --allocator debug` stays).
