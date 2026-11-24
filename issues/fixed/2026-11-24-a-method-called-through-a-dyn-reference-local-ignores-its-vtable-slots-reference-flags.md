@@ -86,3 +86,34 @@ to both lookups.
 The three shapes on a `&Dyn` local (a `&mut` argument, a `-> &i32` result read through `.*`, a `-> &String` result's
 `.len()`) as a case in `tests/dyn.test.yo`, which fails today (SEGV, a wrong
 value, a C compile error) and passes with the fix; `probes/cells/tip/dv06_dyn_ref_generic_id.yo` then compiles.
+
+## Fixed
+
+Fixed 2026-11-24 on branch `v0280/s1-dyn-ref-local` (`src/codegen/exprs/other-fn-call.yo`, the `dm_has_slot` branch):
+
+- Both slot lookups take `dm_recv_dyn_ty`, the Dyn `dyn_dispatch_receiver_type` unwrapped, so a `&Dyn` local, a
+  `&mut Dyn` local and `dd.*` over a `dd : &(&Dyn(T))` read the slot's own flags: a `&mut` argument (and a
+  projection's `&` argument) passes its place's address, and a `-> &T` / `-> &mut T` result is the place `(*slot(...))`.
+- The receiver's fat pointer is read by type (`_dyn_receiver_fat_code`): a receiver typed as the Dyn is a place
+  `(*F)` and folds to `F`; a receiver typed as a reference to the Dyn is `F` already. The old textual fold turned
+  `dd.*`'s `(*dd)` into the pointer `dd` and dispatched through it (a C compile error).
+- An unsized projection result (`-> &[T]`, `-> &Dyn(U)`) is the fat pair, as on the direct-call path, held in the
+  call's temp when it has one. Through a `&Dyn` local such a result had been declared at its pointee type
+  (`Slice(i32) t = ...`, "Unknown type"); through a `&Dyn` parameter a `-> &Dyn(U)` result used as a receiver was
+  called twice (`(slot(...)).vtable->m((slot(...)).data)`).
+
+Siblings, each a row of `tests/dyn.test.yo` run under ASan, against the develop `ea49fbb42` binary (before) and the
+fixed one (after):
+
+| Row | Before | After |
+| --- | --- | --- |
+| `&Dyn` local: `&mut` and projection `&` arguments, `-> &i32` bound and in place, `-> &String`, `-> &[i32]`, by value | C compile error | pass |
+| `&mut Dyn` local: `&mut` arguments, `-> &mut i32` written through, `-> &i32`, `-> &String` | C compile error | pass |
+| `Box(Dyn)` through `&` (`rb.*.*.m(...)`) | pass (the receiver is the Dyn place) | pass |
+| `&&Dyn` local (`dd.*.m(...)`) and parameter | C compile error | pass |
+
+`probes/cells/tip/dv06_dyn_ref_generic_id.yo` now compiles and prints `OUT: 72` ASan-clean.
+
+A neighbour outside the slot path stays open:
+`issues/2026-11-24-a-reference-to-a-dyn-reference-binding-passed-to-a-reference-to-reference-parameter-passes-the-pair.md`
+(`f(&d)` at `f : fn(dd : &(&Dyn(T)))` passes `d`'s pair instead of its address; the test row spells `&dd.*`).
