@@ -6272,7 +6272,7 @@ _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), 
         // receiver of a `&mut self` method) writes the binding below module
         // level whose own storage the place is.
         if(l.exclusive, {
-          place_require_mut(&l.place, &ast_expr_token(&l.lent_arg), &`lend \`&mut\` (${l.form})`, true, env, ctx, exn);
+          place_require_mut(&l.place, &ast_expr_token(&l.lent_arg), &`lend \`&mut\` (${l.form})`, true, l.marked, env, ctx, exn);
         });
       }),
       .None => ()
@@ -11589,7 +11589,7 @@ _require_exclusive_fnmut_callee :: (fn(callee : &AstExpr, callee_info : &ExprInf
     ),
     .None => ()
   );
-  place_require_mut(callee, &tok, &String.from("call the `FnMut(...)` closure"), false, env, ctx, exn);
+  place_require_mut(callee, &tok, &String.from("call the `FnMut(...)` closure"), false, false, env, ctx, exn);
 });
 _evaluate_function_call_unanchored :: (
   fn(

@@ -1319,6 +1319,94 @@ comptime_expect_error(
   }),
   "reading the value it refers to is spelled `v.at.*`"
 );
+// A store of a reference into a reference field, `h.r = &y`, is E0926, and
+// `&mut h.r` on a `&` field is E0908 (VERDICTS-78 Q1, v0.2.80): each message
+// says what the code does and the help spells it as the whole-holder store,
+// which is accepted. The in-place store is admitted in v0.2.81
+// (issues/2026-11-23-a-reference-field-cannot-be-re-pointed-in-place.md).
+BsRF :: struct(r : &i32, n : i32);
+bs_rf_setp :: (fn(generic(p : Origin), slot : &mut&(i32, p), v : &(i32, p)) -> unit)({
+  slot.* = v;
+});
+comptime_expect_error(
+  bs_rf_store :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    h.r = &y;
+  }),
+  "`h.r = &y` stores a reference into the field `r` (`&i32`): a reference field is set by writing the whole holder"
+);
+comptime_expect_error(
+  bs_rf_store_help :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    h.r = &y;
+  }),
+  "write the whole holder: `h = BsRF(r : &y, n : h.n)`"
+);
+comptime_expect_error(
+  bs_rf_store_tuple :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    mut(t) := (&x, i32(0));
+    t.0 = &y;
+  }),
+  "write the whole holder: `t = (&y, t.1)`"
+);
+comptime_expect_error(
+  bs_rf_store_through_param :: (fn(h : &mut BsRF, y : &i32) -> unit)({
+    h.r = y;
+  }),
+  "write the whole holder: `h.* = BsRF(r : y, n : h.n)`"
+);
+comptime_expect_error(
+  bs_rf_lend_field :: (fn() -> unit)({
+    x := i32(1);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    p := &mut h.r;
+  }),
+  "`&mut h.r` lends the reference field itself"
+);
+comptime_expect_error(
+  bs_rf_lend_field_to_slot :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    bs_rf_setp(&mut h.r, &y);
+  }),
+  "`&mut h.r` lends the reference field itself"
+);
+// Unchanged: a value stored into the field reads it as its referent, and a
+// write through a `&` field is a write through a read-only borrow.
+comptime_expect_error(
+  bs_rf_store_value :: (fn() -> unit)({
+    x := i32(1);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    h.r = i32(3);
+  }),
+  "reading the value it refers to is spelled `h.r.*`"
+);
+bs_rf_bump :: (fn(v : &mut i32) -> unit)({
+  v.* = (v.* + i32(1));
+});
+comptime_expect_error(
+  bs_rf_lend_referent :: (fn() -> unit)({
+    x := i32(1);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    bs_rf_bump(&mut h.r.*);
+  }),
+  "Cannot write through `h.r`: it is a `&` reference field"
+);
+test("A reference field is re-pointed by writing the whole holder", {
+  x := i32(1);
+  y := i32(2);
+  mut(h) := BsRF(r : &x, n : i32(5));
+  h = BsRF(r : &y, n : h.n);
+  assert(h.r.* == i32(2), "the holder refers to the new place");
+  assert(h.n == i32(5), "the other field is kept");
+});
 // A holder made by a call whose body is evaluated at the call (a
 // `generic(...)` function, specialized there) keeps its binding's live range:
 // the body's own bindings no longer take the range away, so the place stays
