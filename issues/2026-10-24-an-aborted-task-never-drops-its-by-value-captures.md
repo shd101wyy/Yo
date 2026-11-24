@@ -49,3 +49,11 @@ Aborting a task drops what its state machine owns: its live locals (it does, `is
 
 - Not root-caused yet. The abort path (`FutureState.Aborted`, the abort-dispose emitted by `src/codegen/async/`) releases the task's live locals; the reproducer suggests the capture slots are not among what it releases.
 - `tests/net/unix.test.yo`'s abort test is the leak-verdict regression run for the fix, with a direct test over the reproducer added to `tests/async_await.test.yo` under `pragma(Pragma.NeedsLeakVerdict)` (or the leak-verdict allowlist in `.github/workflows/leak-verdict.yml`).
+- 2026-11-24, test 7 rehearsal on develop `964a9c2d6`: the leak is wider than the captures. A spawned `io.async`
+  task with NO capture and no live local, aborted while suspended and then awaited, leaks the same two objects
+  (152 and 64 bytes, "Indirect leak", 216 bytes in 2 allocations); without the `h.abort()` it leaks nothing. So the
+  aborted task's state machine allocation itself is never released, and a capture (or a live `String` local: 320
+  bytes in 3 allocations) leaks with it. Test 7's six leak-only programs are this issue: the audit corpus's
+  `probes/async-effects/h01.yo`, `h01b.yo`, `h01c.yo` (a `select` loser owning a body local) and `h03.yo`, `h03b.yo`,
+  `h03c.yo` (spawn, abort while suspended, a body local live). The reproducer's `box(i32(7))` is E0401 today; with
+  `Box.new(i32(7))` it leaks 236 bytes in 3 allocations (168, 64 and 4 bytes).
