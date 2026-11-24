@@ -157,7 +157,7 @@ A literal converts to any runtime integer type at argument positions (`xs.push(1
 
 - Gate a specification directory with `yo verify <path> --strict` (= `--deny assumed,outside-subset,unproven`), which fails those outcomes in every mode, including `verify+`. Adding `assumed()` to silence a finding is then visible.
 - Read the summary line, not just the exit code: it prints every outcome count and how many `ok` results were VACUOUS (discharged no obligation). `--format json` carries the same under `summary`. `plans/backlog/SELF_VERIFICATION.md` ratchets on the non-vacuous count.
-- **Laws state claims outside the code:** `name :: law(fn(x : T, requires(p), ensures(q)) -> unit);` (a written-out fn type with clauses, no body). A law is proved from the callee's CONTRACT alone, evaluates to `unit` and is erased in codegen. A non-`unit` return, no `ensures`, `assumed()`, `decreases(...)` or a named alias in place of the fn type are compile errors; `unproven` has no assert fallback for a law (so `--strict` decides); a law is never `outside-subset`; its callee may be imported. Full contract: `docs/en-US/FORMAL_VERIFICATION.md` §Laws; workflow: the yo-verification skill.
+- **Laws state claims outside the code:** `name :: law(fn(x : T, requires(p), ensures(q)) -> unit);` (a written-out fn type with clauses, no body). A law is proved from the callee's CONTRACT alone, evaluates to `unit` and is erased in codegen. A non-`unit` return, no `ensures`, `assumed()`, `decreases(...)` or a named alias in place of the fn type are compile errors; `unproven` has no assert fallback for a law (so `--strict` decides); a law is never `outside-subset`; its callee may be imported. Full contract and workflow: `docs/en-US/FORMAL_VERIFICATION.md` §Laws.
 
 ## API stability: the language may still break, `std` may not
 
@@ -498,6 +498,8 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
 
 ## Standard library module organization (`std/`)
 
+- **A module on `std/assert`'s own import path cannot import it.** `std/assert` imports `std/string`, so
+  `std/string/string.yo` (and anything else `std/assert` reaches) panics with the `__yo_panic` builtin.
 - **`dir/index.yo`** only when a directory holds a single public module whose name would duplicate the directory's (`dir/dir.yo`): users write `import("std/url")`, not `import("std/url/url")`. Examples: `std/url`, `std/regex`.
 - **A flat `.yo` file** for a module with one file and no planned submodules (`std/env.yo`, `std/log.yo`, `std/glob.yo`), not a directory holding only an `index.yo`. Use a directory once the module has companion files (helpers, platform splits, sub-APIs).
 - **No catch-all `index.yo`** for a directory of distinct submodules; users import each one (`import("std/net/tcp")`, `import("std/collections/hash-map")`, `import("std/fs/file")`). This category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
@@ -552,6 +554,30 @@ env_mut = result.env;
 // CORRECT:
 env_adopt(&env_mut, &result.env);
 ```
+
+### Token positions: `character` is a rune offset, `byte_offset` indexes the source
+
+`Token.character` counts runes (the lexer's `input.chars()` counter, served to the LSP as a `character`
+position); `Token.input` is byte-indexed. Slicing `input` with `character` corrupts any source holding a
+multibyte character (`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`, where `yo fmt`
+rewrote non-ASCII files at rc 0). Index with `Token.byte_offset` (`src/token.yo`).
+
+### A swallowing handler's `unwind` skips the restore after the guarded call
+
+`unwind(...)` exits the function that installed the handler, so a save/restore around the guarded call
+in that same function never restores on the failure path:
+
+```yo ignore
+saved := ctx.flag;
+ctx.flag = true;
+r := evaluate_something(..., exn); // the handler unwinds from here
+ctx.flag = saved; // skipped when the handler unwinds
+```
+
+Install the handler in a helper and save/restore in its caller, which the `unwind` lands in. Adding a
+swallowing handler to existing code is therefore not behaviour-preserving: a flag that leaked harmlessly
+while the error aborted the compile now stays set for the rest of it (a leaked
+`is_analyzing_ctfe_capability` once hollowed `tests/fn.test.yo` while every single-file repro was clean).
 
 ### Exception threading: always add `exn` to calls
 
