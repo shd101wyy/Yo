@@ -241,7 +241,7 @@ main :: (fn(io : Io) -> unit)({
 ### Future 类型
 
 ```yo
-// `io.async(fn)` 返回 `Impl(Future(T))`——指向堆分配状态机的指针。
+// `io.async(fn)` 返回 `Impl(Future(T, E))`——指向堆分配状态机的指针。
 // 状态机存储：
 //   - state: int（0 = 冷，1..N = 中间状态，-1 = 已完成，-2 = 已中止）
 //   - continuation_fn / continuation_sm（完成后恢复谁）
@@ -273,13 +273,16 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 1. **按效应包类型相等。** 当 `E1` 与 `E2` 兼容时，`Future(T, E1)` 与
    `Future(T, E2)` 匹配。不再存在「顺序无关的集合匹配」——没有集合，
    只有一个效应包。
-2. **无效应包的 future 适配任何效应包；带效应包的 future 只有在效应包是
-   `Io` 时才适配 `Future(T)`。** 类型中不带效应包的 future（原始
-   `IoFuture`、`yield`）与任意 `E` 的 `Future(T, E)` 兼容：它不读取效应包。
-   反方向更窄：通过 `Future(T)` 类型进行的 await 或 spawn 不会注入任何东西，
-   所以带效应包的 future 只有在效应包为 `Io` 时才能被视为 `Future(T)`——`Io`
-   的字段是编译器内建函数，函数体从不通过它们调用。效应包里带处理器的 future
-   在传递时必须保留其效应包；把它视为 `Future(T)` 是 `yo check` 错误。
+2. **无效应包的 future 适配任何效应包；带效应包的 future 从不适配
+   `Future(T)`。** 类型中不带效应包的 future（原始 `IoFuture`）与任意 `E`
+   的 `Future(T, E)` 兼容：它不读取效应包。反方向是错误。通过 `Future(T)`
+   类型进行的 await 或 spawn 不会注入任何东西，而函数体从效应包中取得它的
+   效应，包括它的 `io`。带效应包的 future 在传递时的每个类型中都保留其效应包：
+   返回 `io.async((io : Io) => ...)` 的函数的类型是 `-> Impl(Future(T, Io))`，
+   把它视为 `Future(T)` 是 `yo check` 错误（E0605）。`sleep`、`yield`、
+   `Interval.tick`、`Mutex.lock`、`Mutex.with_lock` 以及通道的 `send` 和
+   `recv` 都返回 `Impl(Future(T, Io))`，因此效应包是 struct 的任务用该 struct
+   的 `Io` 来 await 它们：`ctx.io.await(sleep(d, ctx.io), ctx.io)`。
 3. **使用 await 的异步体需要 Io。** 任何调用 `io.await` / `yield`
    的异步体都需要在效应包中包含 `Io`，因此效应包 struct 通常会有一个
    `io : Io` 字段。

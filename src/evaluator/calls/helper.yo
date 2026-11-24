@@ -87,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ reject_dyn_place_by_value, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type, legacy_str_type_arg } :: import("../utils.yo");
+{ reject_dyn_place_by_value, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type, legacy_str_type_arg, future_view_error } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation-summary.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_is_binder_slot, t_value_slot, fn_result_slot } :: import("../../types/definitions.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
@@ -120,7 +120,7 @@ pragma(Pragma.AllowUnsafe);
   is_legacy_value_str,
   is_static_view_slot
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_type_kind, is_void_type, is_type_hierarchy_type, is_type_parameter_type, is_fn_trait_type, is_never_type, is_pointer_type, is_str_reference_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_type_kind, is_void_type, is_type_hierarchy_type, is_type_parameter_type, is_fn_trait_type, is_never_type, is_pointer_type, is_str_reference_type, is_prelude_io_struct } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env-lookup.yo");
 {
   type_implements_future,
@@ -220,8 +220,7 @@ pragma(Pragma.AllowUnsafe);
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 {
   are_types_compatible,
-  are_types_compatible_exact,
-  future_view_drops_a_bundle
+  are_types_compatible_exact
 } :: import("../../types/compatibility.yo");
 { register_specialized_base } :: import("../builtins/contracts.yo");
 {
@@ -1693,26 +1692,23 @@ check_argument_for_parameter :: (
     arg_expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// The parameter's written type, when the caller has it: the E0605 future
+    /// view's `yo fix` repair edits it.
+    (param_type_expr : Option(AstExpr)) ?= Option(AstExpr).None
   ) -> TypeValue
 )({
   // An `Impl(Future(T))` parameter binds per call through the trait check,
   // which matches `Future` by name; the bundle direction rule
-  // (`future_view_drops_a_bundle`) has to be applied here too, or a
-  // handler-bundled future reaches an await that injects nothing
-  // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
-  if(future_view_drops_a_bundle(arg_ty, resolved_pt), {
-    exn.throw(
-      dyn(
-        Box.new(
-          format_error_message(
-            arg_tok,
-            `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(arg_ty)}\nThe future carries an effect bundle the parameter's type does not name; an await or spawn through it would inject nothing. Name the bundle in the parameter (\`Impl(Future(T, E))\`).`
-          )
-        )
-      )
-    );
-  });
+  // (`future_view_drops_a_bundle`) has to be applied here too, or a bundled
+  // future reaches an await that injects nothing
+  // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md,
+  // VERDICTS-68).
+  match(
+    future_view_error(arg_tok, &`Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(arg_ty)}`, arg_ty, resolved_pt, &param_type_expr),
+    .Some(fv_err) => exn.throw(dyn(Box.new(fv_err))),
+    .None => ()
+  );
   if(param_is_ct && (!in_def_time_trial() && !ctx.is_analyzing_ctfe_capability) && runtime_value_for_comptime_param(arg_ty, &arg_info.value()), {
     exn.throw(
       dyn(
@@ -1876,7 +1872,10 @@ check_if_function_parameter_matches_argument :: (
     /// The parameter's slot when it is the legacy value `str`
     /// (`is_static_view_slot`, decision 49 S2): it binds as that
     /// `&(str, static)` value.
-    (param_view_slot : Option(TypeValue)) ?= Option(TypeValue).None
+    (param_view_slot : Option(TypeValue)) ?= Option(TypeValue).None,
+    /// The parameter's written type (`get_func_param_type_exprs`), when the
+    /// callee has one: `check_argument_for_parameter`'s E0605 repair edits it.
+    (param_type_expr : Option(AstExpr)) ?= Option(AstExpr).None
   ) -> CheckParamResult
 )({
   // Step 1: labels are readability-only (see `strip_argument_label`).
@@ -2096,7 +2095,7 @@ check_if_function_parameter_matches_argument :: (
   (arg_type : TypeValue) = match(
     t9_lend_ty,
     .Some(t9_w) => Rc.clone(t9_w),
-    .None => if(str_place_at_binder, t_str(), check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty(), &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn))
+    .None => if(str_place_at_binder, t_str(), check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty(), &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn, param_type_expr.clone()))
   );
   // Record the runtime type a comptime literal lowered to, so codegen renders
   // the right C form (comptime_str → `*(char)` emits a bare string literal,
@@ -3482,7 +3481,9 @@ _eval_and_check_specialized_body :: (
     func_type : &TypeValue,
     forall_names : &ArrayList(String),
     forall_args : &ArrayList(ArgEntry),
-    out : &mut ArrayList(AstExpr)
+    out : &mut ArrayList(AstExpr),
+    /// The function's written result type, for the E0605 future-view repair.
+    ret_type_expr : &Option(AstExpr)
   ) -> Option(AnyError)
 )({
   // A block, not a bare `e -> unwind(...)` body: a seed before v0.2.73
@@ -3543,6 +3544,17 @@ _eval_and_check_specialized_body :: (
       // (`true` for `-> i32`) stopped raising E0604 and
       // `comptime_expect_error` reported "evaluated successfully"
       // (tests/type-soundness.test.yo, the v0.2.79 battery red).
+      // A bundled future returned as a bundle-less `Impl(Future(T))`
+      // (VERDICTS-68). Judged before `sb_skip`, which passes every `Impl`
+      // result: an instantiation is where a generic `R`'s bundle is concrete
+      // (a `-> Impl(Future(R))` over `Mutex.with_lock`'s `Impl(Future(R, Io))`).
+      if(!has_any_control_flow(sb_info.control_flow()), {
+        match(
+          future_view_error(ast_expr_token(cloned_body), &`Function body has type \`${type_to_string(&sb_ty)}\`, but the declared result type is \`${type_to_string(spec_ret_ty)}\`.`, &sb_ty, spec_ret_ty, ret_type_expr),
+          .Some(sb_fv) => spec_trap.throw(dyn(Box.new(sb_fv))),
+          .None => ()
+        );
+      });
       sb_skip := (has_any_control_flow(sb_info.control_flow()) || is_void_type(spec_ret_ty) || is_type_hierarchy_type(spec_ret_ty) || (get_all_some_types(spec_ret_ty).len() > usize(0)) || (get_all_some_types(&sb_ty).len() > usize(0)) || sb_ret_is_ref);
       // A projection's specialized body yields its place's address,
       // the concrete path's decision-24 check per instantiation: a
@@ -5183,7 +5195,8 @@ create_specialized_function_inline :: (
             func_type,
             &forall_names,
             &arg_values.forall_args,
-            &mut sb_out
+            &mut sb_out,
+            &get_func_return_type_expr(func_id.clone())
           );
           pop_active_where_trait_ids();
           specialized_body := match(
@@ -7923,6 +7936,13 @@ try_to_call_function_with_arguments :: (
         .Some(_) => ArrayList(Option(EvalValue)).new(),
         .None => ArrayList(Option(EvalValue)).new()
       );
+      // The parameters' written types, for the E0605 future-view repair.
+      call_param_type_exprs := match(
+        func_val,
+        .Some(Rc(.FuncVal(__fvd_pte, _))) => get_func_param_type_exprs(__fvd_pte.func_id.clone()),
+        .Some(_) => ArrayList(Option(AstExpr)).new(),
+        .None => ArrayList(Option(AstExpr)).new()
+      );
       (n_required : usize) = n_params;
       if(call_param_defaults.len() == n_params, {
         (nr : usize) = usize(0);
@@ -9143,7 +9163,8 @@ try_to_call_function_with_arguments :: (
           p_sink,
           fn_param_is_ptr_borrow(&norm_func_type2, pi),
           _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0), ctx),
-          match(pt.get(pi), .Some(pvs) => if(is_static_view_slot(&pvs), Option(TypeValue).Some(pvs), Option(TypeValue).None), .None => Option(TypeValue).None)
+          match(pt.get(pi), .Some(pvs) => if(is_static_view_slot(&pvs), Option(TypeValue).Some(pvs), Option(TypeValue).None), .None => Option(TypeValue).None),
+          match(call_param_type_exprs.get_cloned(pi), .Some(pte) => pte, .None => Option(AstExpr).None)
         );
         _check_reference_argument(
           _unlabeled_argument(match(written_args.get_cloned(pi), .Some(w) => w, .None => Rc.clone(parg))),
@@ -9317,12 +9338,37 @@ try_to_call_function_with_arguments :: (
                     });
                     if(!ebc_layout_ok, {
                       ebc_arg := match(adjusted_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
+                      // A future whose bundle is the prelude's `Io` (`sleep`,
+                      // `yield`, the async `Mutex` and channels) awaited with
+                      // a struct that holds an `Io`: the hint names that field
+                      // (VERDICTS-68).
+                      (ebc_io_field : Option(String)) = .None;
+                      if(is_prelude_io_struct(&ebc_te), {
+                        (ebc_fi : usize) = usize(0);
+                        while((ebc_fi < ebc_elabels.len()) && ebc_io_field.is_none(), ebc_fi = (ebc_fi + usize(1)), {
+                          if(is_prelude_io_struct(&resolve_cell_chain(&match(ebc_etypes.get(ebc_fi), .Some(x) => x, .None => t_unit()))), {
+                            ebc_io_field = ebc_elabels.get_cloned(ebc_fi);
+                          });
+                        });
+                      });
+                      ebc_help := match(
+                        &ebc_io_field,
+                        .Some(ebc_lbl) => Option(String).Some(
+                          match(
+                            &ebc_arg,
+                            Rc(.Atom(_, ebc_atok)) => `this future reads only an \`Io\`: pass the \`Io\` the bundle holds, \`${ebc_atok.value.*}.${ebc_lbl}\``,
+                            _ => `this future reads only an \`Io\`: pass the bundle's \`${ebc_lbl}\` field`
+                          )
+                        ),
+                        .None => Option(String).None
+                      );
                       exn.throw(
                         dyn(
                           Box.new(
-                            format_error_message(
+                            format_error_message_with_help(
                               ast_expr_token(&ebc_arg),
-                              `Effect argument does not match the future's effect bundle:\n- The future's effect type: ${type_to_string(&ebc_te)}\n- The argument's type      : ${type_to_string(&ebc_eff_ty)}\nPass the future's own bundle (e.g. \`IoExn(io : io, exn : exn)\` or a record with exactly its fields, or forward \`e\` inside a handler) — a mismatched record corrupts the task's effect state.`
+                              &`Effect argument does not match the future's effect bundle:\n- The future's effect type: ${type_to_string(&ebc_te)}\n- The argument's type      : ${type_to_string(&ebc_eff_ty)}\nPass the future's own bundle (e.g. \`IoExn(io : io, exn : exn)\` or a record with exactly its fields, or forward \`e\` inside a handler) — a mismatched record corrupts the task's effect state.`,
+                              &ebc_help
                             )
                           )
                         )
