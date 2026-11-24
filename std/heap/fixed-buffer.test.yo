@@ -56,8 +56,10 @@ test("the handle moved and moved back keeps its state and its count", {
   consume(b);
   assert(back.live_blocks() == usize(0), "both blocks were released into the moved handle's state");
 });
+// The workers free their blocks out of order, so a block's bytes come back
+// only when it happens to be the most recent one: the buffer holds all 800.
 test("blocks placed in it are dropped on other threads, and threads allocate through copies", {
-  mut(buf) := Array(u8, 8192).fill(u8(0));
+  mut(buf) := Array(u8, 65536).fill(u8(0));
   fba := FixedBufferAllocator.new(&mut buf.*);
   a := fba.allocator();
   {
