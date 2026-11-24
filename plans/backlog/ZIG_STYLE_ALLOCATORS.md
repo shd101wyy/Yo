@@ -1,11 +1,12 @@
 # Zig's allocator catalog in Yo: `std/heap`, and the real arena
 
-> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG (2026-10-21), updated 2026-11-07. A0 (interface v2: alignment, sized free) landed, and A2's `--allocator debug` landed as #1580. std/heap is not started and begins with ALLOCATOR_PLACEMENT step C after VBD. The collector is deleted (decision 48 W6b). Read `with_allocator`/`new_in` as `alloc : .Some(a)`.
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG (2026-10-21), updated 2026-11-07. A0 (interface v2: alignment, sized free) landed, and A2's `--allocator debug` landed as #1580. std/heap is not started and begins with phase C0 (§7), the root `global_allocator` declaration, moved here from ALLOCATOR_PLACEMENT step C when that plan landed (`plans/reference/ALLOCATOR_PLACEMENT.md`). The collector is deleted (decision 48 W6b). Read `with_allocator`/`new_in` as `alloc : .Some(a)`.
 
 **Status: BACKLOG — drafted 2026-10-21 at the maintainer's request** ("I
 was expecting we have real arena … I expect Yo to have all the kinds of
 allocators that Zig supports, such as page_allocator, FixedBufferAllocator,
-ArenaAllocator, SmpAllocator, c_allocator"). Nothing here is started. It
+ArenaAllocator, SmpAllocator, c_allocator"). Nothing here is started; the
+first phase is C0 (§7), the root `global_allocator` declaration. It
 builds on three landed or queued pieces and changes none of them:
 `plans/reference/EXPLICIT_ALLOCATORS.md` (the `Allocator` value, the owner
 prefix, the scope), the allocator interface version 2 queued after V2b
@@ -18,7 +19,7 @@ and §4.3 (Option C′), whose analysis stays the record of why the DYNAMIC
 forms cannot drop reference counting.
 
 **Amended 2026-10-24 (maintainer adopted the allocator verdict,
-[`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md)):**
+[`ALLOCATOR_PLACEMENT.md`](../reference/ALLOCATOR_PLACEMENT.md)):**
 
 - **No scope.** `with_allocator`, `current_allocator` and `Arena.scoped`
   are deleted in that plan's B1 (v0.2.71), and the thread-local in its B2
@@ -29,8 +30,7 @@ forms cannot drop reference counting.
   `new_in`/`with_capacity_in`. Where a section below says "usable with
   `with_allocator`" or "through the scope", or spells `new_in(a)`, read
   `alloc : .Some(a)`.
-- **The process heap is a root declaration** (that plan's step C, after
-  v0.2.75): `global_allocator :: heap.Mimalloc;`, `heap.System` when
+- **The process heap is a root declaration** (phase C0, §7): `global_allocator :: heap.Mimalloc;`, `heap.System` when
   absent. `std/heap/{system,mimalloc,tlsf,debug}` are the catalog's first
   modules, each with a global face and a value face (§3.4's `CAllocator`
   is `system`'s value face, §3.9's `TlsfAllocator` is `tlsf`'s, §3.5's
@@ -39,7 +39,7 @@ forms cannot drop reference counting.
   there. `yo test --allocator debug` is the one surviving flag.
 - **Rejected:** a `ctl` `Alloc` effect (§6), and the same-day "hybrid"
   draft that kept `with_allocator` as a scoped handler
-  (`ALLOCATOR_PLACEMENT.md` §8).
+  (`ALLOCATOR_PLACEMENT.md` §8, in `plans/reference/`).
 
 **Amended 2026-10-24 (maintainer decision: `std/arena` deleted):** the
 one-region `Arena` (a bump region with a generation-stamped state table,
@@ -54,7 +54,7 @@ explicit allocator" now use `Allocator.global()` or a counting allocator
 defined in the test file.
 
 **Amended 2026-10-25 (the two faces have two interfaces,
-[`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md) §11):** the "global
+[`ALLOCATOR_PLACEMENT.md`](../reference/ALLOCATOR_PLACEMENT.md) §11):** the "global
 face and value face" above are written against different interfaces.
 
 - **The value face** is this plan's §3: a state value whose `.allocator()`
@@ -71,8 +71,8 @@ So `heap.Tlsf` (global) and §3.9's `TlsfAllocator` (value) are two
 implementations of one algorithm. The global one is thread-safe (today's C
 uses an `atomic_flag` spinlock), and the value one is single-threaded unless
 it is wrapped (§3.8). A user writes either face the same way std does; the
-examples are in `ALLOCATOR_PLACEMENT.md` §11.1 and §11.2. That plan's
-§10.1 C1–C7 are open for the maintainer.
+examples are in `plans/reference/ALLOCATOR_PLACEMENT.md` §11.1 (the value
+face) and §7.4 here (the global face). The decisions C1–C7 are in §7.3.
 
 **Checked 2026-11-15 against the post-VBD language (at the maintainer's
 request: "does it fit, and how long").** *Judgment* marks an estimate.
@@ -113,7 +113,7 @@ request: "does it fit, and how long").** *Judgment* marks an estimate.
 
   | Piece | Work | Notes |
   | --- | --- | --- |
-  | `ALLOCATOR_PLACEMENT.md` step C (`global_allocator`), which this plan starts from | 1 to 2 weeks | seed-gated: Generation A and B in two releases |
+  | C0 (§7: `global_allocator`), this plan's first phase | 1 to 2 weeks | seed-gated: Generation A and B in two releases |
   | A1 | 1.5 to 2.5 weeks | seven allocators, three OS back ends and wasm, the stale-state rule |
   | A2's value face, A6 | 3 to 5 days each | allocation sites wait for `source_location` |
   | A3 | 1 to 2 weeks | |
@@ -290,7 +290,7 @@ the alignment.
 ### 3.5 `DebugAllocator`, `--allocator debug` and `yo test --allocator debug`
 
 *2026-10-24:* the global face landed as `--allocator debug` (#1580). At
-`ALLOCATOR_PLACEMENT.md` step C, `yo compile`/`yo build` lose the flag (a
+C0 (§7), `yo compile`/`yo build` lose the flag (a
 program that wants the tracker declares `global_allocator ::
 heap.Debug(…)` over a backing heap), and `yo test --allocator debug`
 stays as the one surviving `--allocator` spelling, wrapping whatever the
@@ -348,7 +348,7 @@ frees already route by owner prefix, so a remote free can push onto the
 owning thread's list without the vtable knowing. The honest position: Yo
 has mimalloc, which is this design done by a team that benchmarks it for a
 living, and selecting it is one flag today (`--allocator mimalloc`) and,
-from `ALLOCATOR_PLACEMENT.md` step C on (after v0.2.75), one declaration
+from C0 (§7) on, one declaration
 in the root module: `global_allocator :: heap.Mimalloc;`. A Yo-written `SmpAllocator`
 is justified only if it wins on a measured workload where mimalloc cannot
 be used (a freestanding target, where `fixed` is today's answer) or if it
@@ -441,6 +441,7 @@ The first exists from phase A3; the second from A4.
 
 | Phase | Lands | Needs | Gate |
 | --- | --- | --- | --- |
+| C0 | the root `global_allocator :: <value>` declaration and the `GlobalAlloc` trait; `std/heap/{system,mimalloc,tlsf,debug}.yo` as its first implementors; `--allocator` (compile and build), `--heap-size`, `--debug-heap` and `build.AllocatorKind` deleted (§7) | a seed that carries Generation A (Generation B declares `global_allocator` in `src/main.yo`) | §7.2 |
 | A0 | the allocator interface, version 2 (alignment; sized `free`) — already queued in `VALUES_BY_DEFAULT.md` §6 after V2b; this plan adds nothing to it | V2b | that item's tests |
 | A1 | `std/heap/`: `PageAllocator`, `FixedBufferAllocator` (+ the thread-safe variant, `StackFallbackAllocator`), `CAllocator`, `FailingAllocator`, `LoggingAllocator`, `ThreadSafeAllocator`; `FixedBufferAllocator` is new (`std/arena` was deleted 2026-10-24, nothing moves) | A0 for page alignment (the rest can land on version 1 with the 16-byte contract) | each allocator's unit tests; every existing counting-allocator test; a cli-case under `--allocator fixed` using `CAllocator` |
 | A2 | `DebugAllocator`, `--allocator debug`, `yo test --allocator debug` (Z11) | Z4 for sites, optional | the leak gates in the tree switch to it; a double-free and a size-mismatch abort test |
@@ -449,8 +450,8 @@ The first exists from phase A3; the second from A4.
 | A5 | `SmpAllocator`, go/no-go | A3, CP0's counters | ≥ mimalloc on the compiler's allocation profile, or a freestanding target that needs it; otherwise archived with its numbers |
 | A6 | `MemoryPool(T)` | A0 | header-free create/destroy; pool exhaustion returns `AllocError` |
 
-Each phase is one PR, Generation A where the compiler is touched (A2's
-flag), library-only otherwise. Docs:
+Each phase is one PR, Generation A where the compiler is touched (C0's
+declaration, A2's flag), library-only otherwise. Docs:
 `docs/en-US/EXPLICIT_ALLOCATORS.md` and `MEMORY_SAFETY.md` gain a catalog
 section, in both languages, per phase.
 
@@ -460,7 +461,7 @@ section, in both languages, per phase.
   2026-10-21 text re-exported `std/arena` for one seed; moot since its
   deletion on 2026-10-24.)
 - **Should `with_allocator` scopes accept the real arena?** *(Moot since
-  2026-10-24: the scope is deleted, `ALLOCATOR_PLACEMENT.md`; the
+  2026-10-24: the scope is deleted, `plans/reference/ALLOCATOR_PLACEMENT.md`; the
   position below still holds for the `alloc :` argument.)* No: the scope
   places counted cells, the real arena holds uncounted values; mixing them
   through one `Allocator` value would reintroduce the §2 hazard. The real
@@ -490,4 +491,360 @@ section, in both languages, per phase.
   root declaration, and frees go by owner prefix. The design and the other
   rejected alternatives (Zig's allocator parameter, a declared or inferred
   effect, the hybrid, `Vec<T, A>`, an implicit context) are in
-  [`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md) §8.
+  [`ALLOCATOR_PLACEMENT.md`](../reference/ALLOCATOR_PLACEMENT.md) §8.
+
+## 7. C0: the root `global_allocator` declaration
+
+The first phase, before A1. C0 lands the root declaration that selects the process heap and the first four
+`heap.*` modules; A1 adds the rest of the catalog. The placement face it sits beside (`alloc : .Some(a)`, the `Allocator` handle, the owner
+prefix) landed and is the record in `plans/reference/ALLOCATOR_PLACEMENT.md`, which has the verdict, the four rules,
+the rejected alternatives and §11.1, the placement allocator a user writes. Nothing in this section is started
+(`global_allocator`, `std/heap` and `GlobalAlloc` do not exist in `src/` or `std/`).
+
+### 7.1 The declaration: Generation A, std, Generation B
+
+- **Generation A (compiler).**
+  - Read `global_allocator` from the entry module. **The declaration's nature (2026-10-25):** the *choice* is
+    comptime, the *instance* is a runtime static the compiler emits.
+    - `global_allocator :: <expr>;` binds a comptime **value** whose **type** implements `GlobalAlloc` (§7.4).
+      That type can be any type: one of std's `heap.*` or the user's own. A value, not a type, because the value
+      carries the configuration and the initial state together (`heap.Tlsf(region : …)`). A parameterless
+      allocator is a unit-struct constant (`System :: SystemAlloc();`).
+    - The value must be **comptime-evaluable** and **constant-emittable**: no heap value anywhere in it, and a
+      pointer only if it is null, a function, or `addr_of` of a `::` constant (all three are valid C static
+      initializers; `ALLOCATOR_PLACEMENT.md` §11.1's `_VTABLE` constant emits as one). The compiler emits it once, as a C static
+      initializer (`static <T> __yo_global_allocator = {…};`). It is not assigned in `__yo_main_module_init`:
+      module-level initializers run inside that function, in an order no assignment can be guaranteed to
+      precede (`src/codegen/functions/generation.yo:1630-1646`), and the runtime's own blocks and C static
+      constructors allocate before it runs.
+    - **Reaching the live static.** `addr_of(global_allocator)` names `__yo_global_allocator` itself, and std
+      exports an accessor for other modules (a counter's `live(state : *Self)` reads through it). A by-value use
+      of `global_allocator` is an error: it would copy the initial state. This differs from any other `::`
+      constant, whose `addr_of` makes its own static and whose by-value read gives the initial value.
+    - **Library builds.** In a library build the six entry points are `extern` declarations and the final
+      program defines them, so a block made in the library and freed in the program goes through one
+      allocator. A library that declares `global_allocator` is error 1. Today both sides resolve to libc, so the
+      mismatch cannot show (the library's runtime helpers are already `static` duplicates,
+      `src/codegen/c/collection.yo:259-266`).
+    - State that needs runtime setup (a region's headers, an `mmap`, a lock word) is stored in its "not yet"
+      form (zero, `.None`), and the allocator initializes it **lazily on its first call**, behind a flag it owns.
+      There is no `init` hook (§7.4).
+    - Why `::` and not `:=`: the binding is the comptime choice. Untagged blocks must all come from one allocator
+      for the life of the process, allocation starts before `main`, and mimalloc is a link decision, so the choice
+      can never change at run time. The mutable thing is the static's interior, which only the allocator's own
+      methods touch.
+  - Codegen: the six `__yo_*` entry points (`src/codegen/c/collection.yo:187-270`, today one `#define` arm per
+    `--allocator`) become `static inline` wrappers that call `T`'s `GlobalAlloc` methods directly on
+    `&__yo_global_allocator`, with no vtable (§7.4 "Wiring").
+  - The ten codegen and build sites that compare an allocator name read its tag: `src/codegen/c/collection.yo:190`, `:197`, `:202`,
+    `:267`; `src/codegen/functions/generation.yo:1154`, `:1587`, `:1815`; `src/codegen/functions/gc_runtime.yo:1296`;
+    `src/codegen/types/generation.yo:1167`; `src/build_runner.yo:2013`. `src/main.yo`'s flag handling compares the
+    name too: the compile path's validation (`:6996`, `:7003`, `:7016`), `:7136`, `:7169` and the link step
+    (`:7817`, `:7837`, `:7844`); the test path's validation (`:9075`, `:9080`, `:9093`) and its debug-allocator
+    reads (`:9336`, `:9675`, `:9892`, `:9993`). The compile path reads the declaration instead; the test path
+    keeps only `debug`.
+  - Errors:
+    1. `global_allocator` declared outside the entry module, or in a library build (the message names the root).
+    2. A value that is not comptime-evaluable, or not constant-emittable (it holds a heap value, or a pointer
+       that is not null, a function or `addr_of` of a `::` constant); also a by-value use of `global_allocator`.
+    3. A value whose type has no `GlobalAlloc` impl.
+    4. `heap.Mimalloc` on wasm (`--allocator mimalloc` with a wasm target has been an error since 2026-10-24).
+    5. A `heap.Tlsf` region over 4 GiB on a 32-bit target (moved from `:7136`).
+    6. A `GlobalAlloc` method that allocates through the global allocator: a runtime abort under the debug wrapper
+       now, a compile error once §7.6's `noalloc` exists (§7.3 C5).
+  - Add a module-level link-source declaration, so that reaching `std/heap/mimalloc` links
+    `vendor/mimalloc/src/static.c`. **Decided 2026-10-24 (maintainer), and already implemented for `--allocator
+    mimalloc` ahead of this step:** a missing `vendor/` is a hard error that names the path
+    (`_require_bundled_mimalloc` in `src/main.yo`), and the emitted C's mimalloc block is `#error` without
+    `<mimalloc.h>` (`src/codegen/c/collection.yo`). The link-source declaration carries the same error over
+    (`issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md`, §7.3 "A missing `vendor/mimalloc`").
+  - `__yo_build_executable` accepts both arities: slot 4 is the allocator and slot 8 the heap size
+    (`src/evaluator/builtins/build.yo:1228-1229`; `std/build.yo:355`).
+- **std.** `std/heap/{system,mimalloc,tlsf,debug}.yo` plus `index.yo`, the catalog's first face
+  (A1). `heap.Tlsf(region : …, report_at_exit : …)` replaces `--allocator fixed`,
+  `--heap-size` and `--debug-heap`. A std use of the link-source builtin waits for a seed that carries it (the
+  E0401 rule in AGENTS.md). `GlobalAlloc` (§7.4) is declared in `std/heap/index.yo`, and the four modules are
+  its first implementors. `heap.Tlsf` is `src/codegen/c/allocator_fixed.yo`'s C ported to Yo, the reference
+  example of lazy initialization. `GlobalAllocator`'s static surface (`std/allocator.yo:94-176`) then calls the
+  declared allocator, and `__yo_aligned_free` takes the alignment (§7.3 C3).
+- **Generation B (on that seed).**
+  - `src/main.yo` declares its allocator, and `build.yo` drops `host_allocator` (`build.yo:39-53`).
+  - **OPEN (2026-10-27): the compiler's per-target allocator has no home after the deletion.** `host_allocator`
+    picks mimalloc on Linux (`x86_64` and `aarch64`, gnu and musl) and system on macOS and Windows, the split the
+    shipped bundles follow (`plans/reference/WINDOWS_ALLOCATOR_DECISION.md`). One `global_allocator ::
+    heap.Mimalloc;` in `src/main.yo` would lose it. When C0 deletes `host_allocator`, the root declaration
+    must express the per-target choice itself, in one of two ways. The first is a comptime conditional on the
+    compilation target; it must not be the build host, which is what `host_allocator` reads today
+    (`build.target_host`). The second is a std `heap.PlatformDefault` that resolves to `heap.Mimalloc` on Linux
+    and the system heap elsewhere. Generation A's declaration rules (a comptime value, §7.4) must admit whichever
+    is picked.
+  - **With it:** `test.yml`'s `test-native` step "--allocator mimalloc on Windows (a user program)" was added on
+    2026-10-27, when the Windows suite legs moved to the system allocator the bundles ship. Since then it is
+    the only CI coverage of mimalloc on Windows. The sweep below converts it rather than deleting it: it becomes
+    a test root declaring `global_allocator :: heap.Mimalloc;`, compiled and run on each Windows leg.
+  - Deleted: `--allocator` on compile and build, `--heap-size`, `--debug-heap`, `build.AllocatorKind`
+    (`std/build.yo:57-78`, default `:146`) and the ten-argument arity.
+  - Kept: `yo test --allocator debug`, the one surviving spelling.
+  - The sweep covers 13 `--allocator` uses in `test.yml` (counted before 2026-10-27; add the Windows mimalloc step above), 10 in `release.yml` and 2 in `fixpoint-arm64.yml`, 16
+    cli-cases, 6 docs files per language, 2 instruction files and 3 skills. `markdown_yo`'s `build.yo` drops its
+    two `AllocatorKind.System` lines (16 and 25) in a companion release.
+- **Seed steps.** `release.yml:623` and `:1090` run the seed with `--allocator mimalloc`. They keep the flag until
+  `SEED_VERSION` carries Generation B, then a follow-up drops it.
+
+### 7.2 Tests
+
+- **C0.** Each `heap.*` root runs a container, `rc`, `dyn` and `io.async` workload. The three declaration errors and
+  mimalloc-on-wasm fail to compile. The cli-case without `vendor/` (`tests/cli-cases/compile-allocator-mimalloc-missing-vendor`,
+  landed with the `--allocator` error) moves to the root declaration and still fails naming the path.
+  `yo test --allocator debug` fails a leaking test (the existing Z11 case). Added 2026-10-25 for §7.4:
+  - **A user-written global allocator.** The root declares §7.4's `LiveCount` example and reads the count
+    through `addr_of(global_allocator)` (§7.1, "Reaching the live static"). Inside `main`, the count before and
+    after a scoped workload is equal. A module-level initializer's allocation shows as a count ≥ 1 at `main`'s
+    entry (module globals are never dropped, `src/codegen/c/allocator_debug.yo:18-19`). A spawned thread's
+    workload leaves the count unchanged after `join`. A second root uses an allocator with lazily initialized
+    state, and its first allocation comes from a module-level initializer.
+  - **The declaration rules.** Each of §7.1's errors 1–3 is a compile error with its message: a declaration in a
+    non-root module and one in a library build; a value holding a `String`, one holding a pointer that is not
+    null, a function or `addr_of` of a `::` constant, and a by-value use of `global_allocator`; a type with no
+    `GlobalAlloc` impl. A value holding a function pointer compiles.
+  - **A library and a program.** A static library that returns a `String` to a program whose root declares
+    `LiveCount` sees the count rise and fall by one: the library's entry points are the program's.
+  - **The debug wrapper over a user allocator.** `yo test --allocator debug` over that root reports a leak, and its
+    report counts blocks that came through `LiveCount`'s `alloc`. A `GlobalAlloc` whose `alloc` builds a `String`
+    aborts with "the global allocator allocated through itself" (error 6).
+  - **The hot path.** Under `--optimize 2`, the emitted C of a `heap.System` root calls `malloc` from
+    `__yo_malloc` with no indirect call. `check src/main.yo` allocation counts and RSS stay within the
+    ratchets.
+  - **One family.** A `heap.System` block allocated with `align` 64 is released through the same `free`, which
+    `align` routes (a Windows CI job).
+
+### 7.3 Open questions and decisions
+
+**Open questions.**
+
+- **The portable-C arm's allocator.** `release.yml:643` emits the portable C with `--allocator system` for a Linux
+   triple, while `src/main.yo`'s C0 declaration picks mimalloc on Linux. **Position:** a second root file
+   declares `global_allocator :: heap.System;` and runs `src/main.yo`'s `main`. The release emits the portable C
+   from that root, so no flag survives for it. Decide in C0's Generation B.
+- **A missing `vendor/mimalloc` under C0. Resolved 2026-10-24 (maintainer): a hard error.** The position was
+   the question's own recommendation, option 2: a hard error that names the path, and `#error` in the emitted C. The
+   maintainer confirmed it and asked for it now, so it landed for today's `--allocator mimalloc` before C0
+   (`issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md`); C0 keeps it.
+
+**DECIDED 2026-10-25 (maintainer adopted every recommendation).** C1–C5 come from the advisor's design (§7.4). C6
+and C7 came up while the examples were checked against v0.2.70. Each item states the recommendation the maintainer
+adopted on 2026-10-25.
+
+- **C1. A value, not a type: DECIDED.** `global_allocator :: heap.X(...)` binds a comptime value whose type implements
+  `GlobalAlloc`. **Recommendation:** adopt. A type alone cannot carry `Tlsf`'s region size or `Debug`'s report
+  flag. A parameterless allocator is a unit-struct constant, so `global_allocator :: heap.Mimalloc;` reads the
+  same as before.
+- **C2. `GlobalAlloc` is a separate, unsized interface: DECIDED.** It is the three-function libc family of §7.4
+  (`alloc` and `realloc` with an alignment, `free` with the alignment but no size), distinct from the placement
+  vtable. **Recommendation:** adopt. A global block is untagged and has no extent, and `__yo_rc_free(void*)`
+  (`src/codegen/types/generation.yo:1108`, `:1133`) knows neither its size nor its type. The alternative, a sized
+  free for every global block, puts a per-type release path into every `__yo_rc_free` call.
+- **C3. `__yo_aligned_free` gains an `align` argument: DECIDED.** **Recommendation:** adopt, as a small std change in
+  C0's Generation A, so `GlobalAlloc` stays one family. It also removes the two-family hazard
+  (`std/allocator.yo:77-93`) for every allocator except Windows' libc, where `heap.System` routes by `align`.
+- **C4. A missing `vendor/mimalloc` is a hard error: DECIDED** (maintainer, 2026-10-24; landed for `--allocator mimalloc` ahead of this phase, `ALLOCATOR_PLACEMENT.md` §10.1). The link-source declaration keeps the same error.
+- **C5. The re-entry check is runtime-only, under `--allocator debug`, until `noalloc`: DECIDED.**
+  **Recommendation:** adopt, and do not delay C0 on §7.6. The debug wrapper keeps a thread-local re-entry flag
+  and aborts with "the global allocator allocated through itself". Once `noalloc` lands, every `GlobalAlloc`
+  impl is implicitly `noalloc`, and re-entry becomes a compile error.
+- **C6. How the `GlobalAlloc` methods reach the static: DECIDED (found while writing).** The advisor's draft
+  takes `self : &Self`, as Rust's `GlobalAlloc` does. In Yo today a `&T` parameter reaches C **by value**. The
+  probe (2026-10-25, v0.2.70, `--emit-c`): a method `(fn(self : &Self) -> Allocator)` on a one-field struct
+  compiles to `f(__yo_t_… __yo_v_self)`, and `addr_of(self)` inside it is `(void*)(&__yo_v_self)`, the address
+  of the parameter's copy. So an atomic update through `self` would change a copy of the static, and an address
+  taken from `self` dangles. **Recommendation:** each method takes `state : *Self`, a raw pointer to the static.
+  This is true on every seed, independent of how decision 43 and V5 lower `&T`. It is also honest: every write
+  is already a raw or atomic store under `AllowUnsafe`, and the placement face's `ctx` is the same kind of pointer.
+  Do not use `&mut Self`: every thread calls through the one static concurrently, so it would claim an exclusive
+  access that does not exist. **This is final, not provisional:** decision 34 lowers `x : &T` to `T x` for a
+  small `Copy` `T` permanently, and to `const T*` otherwise, where a write through it is E0908
+  (`plans/VALUES_BY_DEFAULT.md:251`, `:2264-2267`, `:2598`). Neither form is a writable address of the static,
+  so `&Self` can never be the `GlobalAlloc` receiver. The maintainer confirms the spelling, not a revisit date. Whether the compiler should reject `addr_of` of a `&T` parameter at all was filed as a question and is decided (maintainer, 2026-10-25): it is error E0921, for the parameter and for any place inside it, so the `self : &Self` receiver above no longer compiles (`issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`). The implementation found that today every `&T` parameter of a non-projection function reaches C by value, whatever the size of `T` (`fn_param_is_ptr_borrow`, `src/types/utils.yo`); only a projection's (`-> &T`, decision 24) is a pointer, and that one keeps `addr_of`.
+- **C7. Atomics in a `GlobalAlloc` state: DECIDED (found while writing).** The advisor's draft allows
+  `std/sync/atomic`. Its types are `atomic(ref(struct((*) : …)))` (`std/sync/atomic.yo:1295`), heap cells, and
+  **they stay cells after V5**: V5 Generation A rewrites every `Atomic*` type onto `__yo_atomic_cell(State)`
+  (`plans/VALUES_BY_DEFAULT.md:731-734`, `:5456-5461`; `plans/handover/VBD_RELEASE_SCHEDULE.md:219`), which is
+  one allocation with the count header (`:615-635`). So a state holding an `AtomicUsize` is never
+  constant-emittable, and making one allocates. The supported state for a `GlobalAlloc` is
+  `std/libc/stdatomic.yo`'s inline `atomic_size_t` (and its siblings) with the `__yo_atomic_*` externs; a probe
+  (2026-10-25, v0.2.70) shows `LiveCount(live : atomic_size_t(usize(0)))` bound with `::` emitting
+  `static … __yo_cptr_0 = { .__yo_v_live = 0 };`. §7.4's example uses it. **Recommendation:** add
+  `__yo_atomic_fetch_add_size_t`/`__yo_atomic_fetch_sub_size_t` to `std/libc/stdatomic.yo` (today it has only
+  load, store, exchange and compare-exchange, `:256-268`, hence the example's CAS loop) in C0's Generation A.
+  The alternative, a std inline value-atomic type, is a larger decision that VBD has not taken; it is not needed
+  for C0.
+
+### 7.4 The global face: what a user writes
+
+**The declaration** (§7.1): the root module binds a comptime value whose type implements `GlobalAlloc`.
+
+```yo ignore
+// The root module.
+heap :: import("std/heap");
+global_allocator :: heap.Tlsf(region : (usize(64) * usize(1 << 20)), report_at_exit : true);
+```
+
+**The trait: the libc family, three functions, an unsized `free`, one family.** The receiver is `state : *Self`,
+§7.3 C6's recommendation. The advisor's draft had `self : &Self`, which does not reach the static in Yo today.
+
+```yo ignore
+GlobalAlloc :: trait(
+  alloc : (fn(state : *Self, size : usize, align : usize) -> ?*void),
+  realloc : (fn(state : *Self, ptr : ?*void, new_size : usize, align : usize) -> ?*void),
+  free : (fn(state : *Self, ptr : ?*void, align : usize) -> unit)
+);
+```
+
+- **Shared, never exclusive.** Every thread calls through the one static concurrently, so all mutation is atomic,
+  or a raw store under the implementor's own lock, under `AllowUnsafe`. Rust's `GlobalAlloc` takes `&self` for the
+  same reason. Yo spells it as a raw pointer because a Yo `&T` is not an address (§7.3 C6).
+- **`align` everywhere.** One family serves both `__yo_malloc` (`align = 16`) and `__yo_aligned_alloc`. `free`
+  takes `align` so that `heap.System` on Windows can route `align > 16` to `_aligned_free` without a second
+  family (§7.3 C3).
+- **`__yo_calloc`** is `alloc` plus `memset` in the compiler's wrapper. It is not a trait method: `heap.System`
+  loses nothing measurable, and the rule stays small.
+- **Unsized `free`.** A global block is untagged and has no extent, and `__yo_rc_free` (`src/codegen/types/
+  generation.yo:1108`, `:1133`) knows neither its size nor its type. So a global allocator keeps its own size
+  bookkeeping, as `malloc` does. A sized global free would put a per-type release path into every untagged free
+  (§7.3 C2).
+
+**State and initialization.** The state is the declared value's fields, constant-initialized. Anything that needs
+runtime setup (the TLSF region's headers, an `mmap`, a lock word) is stored in its "not yet" form (zero,
+`.None`), and the allocator initializes it **lazily on its first call**, under a once-protocol it owns: a lock,
+or a state word claimed by compare-exchange (`uninit → initializing → ready`, with the losers waiting for
+`ready`). A bare "initialized" flag is not enough, because two threads can both see it clear and both initialize.
+There is no `init` hook. The compiler cannot run one before the runtime's own first blocks, before `__yo_main_module_init`'s
+module-level globals, or before C static constructors. mimalloc and Rust make the same choice. `heap.Tlsf` already
+works this way in C (`src/codegen/c/allocator_fixed.yo:281-301`: `__yo_fixed_ensure_init` runs on first touch,
+inside the `atomic_flag` spinlock every call already holds), and its port to Yo is the reference example.
+
+**What a `GlobalAlloc` method may use.** It may not create any block: no container, no `String`, no interpolation,
+no `rc`, no `Mutex` (its cell is a block). That also excludes `std/sync/atomic`'s types, which are heap cells and
+stay cells after V5 (§7.3 C7). The method may use `std/libc/stdatomic.yo`'s inline atomics, raw memory,
+`heap.Page` as backing (A1), `heap.System` and `extern` C. It must never back itself with
+`GlobalAllocator.*`, which after C0 *is* the declared allocator. C0 ships a runtime guard only in the
+debug wrapper: a thread-local re-entry flag that aborts with "the global allocator allocated through itself". The
+compile-time check is §7.6's `noalloc`, applied implicitly to `GlobalAlloc` impls once it lands. Without the debug
+wrapper, re-entry is unbounded recursion, or a silent deadlock when the method holds its own lock.
+
+**The contract the C wrappers rely on.**
+
+- **Failure is `.None`.** `alloc` and `realloc` return `.None` (NULL) on failure and never panic; the wrapper
+  calls `__yo_alloc_fail` (`src/codegen/c/collection.yo:270`), which reports and aborts.
+- **Alignment.** The result is aligned to `max(align, 16)`.
+- **`realloc` keeps `min(old, new)` bytes** and moves the block if it must; on failure it returns `.None` and
+  leaves the old block untouched. The allocator learns `old` from its own bookkeeping (the unsized interface).
+- **`free(.None)` does nothing.**
+- **`__yo_calloc`** is the wrapper's: it checks `nmemb * size` for overflow (a failure, as above), then calls
+  `alloc` and zeroes the block.
+- **The static is never dropped.** A `Drop` on the type never runs for the global instance; a type that also
+  serves as a placement allocator (`ALLOCATOR_PLACEMENT.md` §11.1) gets its `Drop` only on its placement values.
+
+**Scope: what the declared allocator serves.** Only Yo's six `__yo_*` entry points: every untagged block, plus
+`GlobalAllocator.*`. It does not see libc's own allocations, the runtime's C-side buffers (the Windows TLS shim's
+raw `realloc`/`free`/`calloc`, `src/codegen/async/runtime_io_common.yo:2141`, `:2172`, `:2223`; the debug
+tracker's tables, `src/codegen/c/allocator_debug.yo:247`, `:326`, `:588`), or any foreign C. A buffer that crosses
+into or out of C is freed by the family that made it: `std/env.yo:400-415` hands `realpath` its own buffer for
+exactly this reason.
+
+**An example: a global heap that counts its live blocks over `heap.System`.** The method bodies are
+the ones type-checked on 2026-10-25 (v0.2.70) as free functions over a module-level `:=` state. The `impl`,
+`GlobalAlloc` and `heap` are C0's.
+
+```yo ignore
+// counting_heap.yo
+pragma(Pragma.AllowUnsafe);
+heap :: import("std/heap");
+{ GlobalAlloc, SystemAlloc } :: import("std/heap");
+{ atomic_size_t, memory_order_relaxed, __yo_atomic_load_size_t, __yo_atomic_compare_exchange_size_t } ::
+  import("std/libc/stdatomic");
+
+// Configuration and state in one constant-emittable value: no heap value, no non-null pointer.
+LiveCount :: struct(live : atomic_size_t);
+
+_bump :: (fn(cell : *atomic_size_t, up : bool) -> unit)({
+  (mut(current) : usize) = unsafe(__yo_atomic_load_size_t(cell, memory_order_relaxed));
+  (mut(swapped) : bool) = false;
+  while(!swapped, {
+    next := cond(up => current.wrapping_add(usize(1)), true => current.wrapping_sub(usize(1)));
+    swapped = unsafe(
+      __yo_atomic_compare_exchange_size_t(cell, addr_of(current), next, memory_order_relaxed, memory_order_relaxed)
+    );
+  });
+});
+
+impl(
+  LiveCount,
+  GlobalAlloc(
+    alloc : (fn(state : *Self, size : usize, align : usize) -> ?*void)({
+      block := SystemAlloc.alloc(addr_of(heap.System), size, align);
+      cond(
+        block.is_some() => _bump(addr_of(state.*.live), true),
+        true => ()
+      );
+      block
+    }),
+    realloc : (fn(state : *Self, ptr : ?*void, new_size : usize, align : usize) -> ?*void)(
+      SystemAlloc.realloc(addr_of(heap.System), ptr, new_size, align)
+    ),
+    free : (fn(state : *Self, ptr : ?*void, align : usize) -> unit)({
+      cond(
+        ptr.is_some() => _bump(addr_of(state.*.live), false),
+        true => ()
+      );
+      SystemAlloc.free(addr_of(heap.System), ptr, align);
+    })
+  ),
+  live : (fn(state : *Self) -> usize)(unsafe(__yo_atomic_load_size_t(addr_of(state.*.live), memory_order_relaxed)))
+);
+export(LiveCount);
+
+// The root module.
+{ LiveCount } :: import("./counting_heap.yo");
+{ atomic_size_t } :: import("std/libc/stdatomic");
+global_allocator :: LiveCount(live : atomic_size_t(usize(0)));
+// `addr_of(global_allocator)` is the running static; `LiveCount.live(global_allocator)` would be an error.
+live_blocks :: (fn() -> usize)(LiveCount.live(addr_of(global_allocator)));
+```
+
+**Wiring and the hot path.** The calls are direct, with no vtable. The compiler emits
+`static <T> __yo_global_allocator = {…};` and, for each of the six names that `src/codegen/c/collection.yo:187-270`
+defines today, a wrapper such as
+`static inline void* __yo_malloc(size_t n) { return <mangled T.alloc>(&__yo_global_allocator, n, 16); }`. These
+wrappers replace the per-`--allocator` `#define` arms. `heap.System`'s `alloc` is one extern call, so under `-O2`
+the wrapper folds to `malloc`, and the self-hosted compiler pays nothing. `heap.Mimalloc` is the same struct with
+methods that call `mi_*`. Its module's link-source declaration pulls `vendor/mimalloc/src/static.c` into the link
+(`src/main.yo:7815`), and a missing `vendor/` is a hard error (§7.3 "A missing `vendor/mimalloc`").
+
+**`yo test --allocator debug` does not replace the declaration.** `heap.Debug` is Z11's tracker. Under the flag,
+the compiler emits the debug arm with its backing calls bound to the declared `GlobalAlloc` instead of libc. A leak
+report is then still about the user's heap, and the re-entry guard runs on it.
+
+**Errors.** These are §7.1's list, items 1–6.
+
+### 7.5 Comparison
+
+- **Rust.** `GlobalAlloc` on a `static`, with `&self` and a sized `dealloc`. Rust knows every layout statically.
+  Yo's untagged RC blocks do not know theirs, hence the unsized `free`. A Rust `&self` is an address and a Yo `&T`
+  is not, hence `*Self` (§7.3 C6).
+- **Zig.** There is no global allocator at all: every call takes an allocator. That was rejected (`ALLOCATOR_PLACEMENT.md` §8 item 2)
+  because interpolation, tasks and `dyn` have no slot for one.
+- **Odin.** An implicit `context.allocator`, the dynamic scoping this plan deleted.
+- **C.** Link-time `malloc` interposition replaces every caller's heap, libc's and foreign code's included. Yo's
+  declaration replaces only Yo's `__yo_*` entry points (§7.4 "Scope"), as mimalloc's link line does today:
+  `vendor/mimalloc/src/alloc-override.c` compiles only under `MI_MALLOC_OVERRIDE`, which the link step does not
+  define (`src/main.yo:7815-7833`), and the emitted C renames `__yo_malloc` to `mi_malloc`
+  (`src/codegen/c/collection.yo:207-212`).
+
+### 7.6 Backlog note: `noalloc`
+
+A checked `noalloc` function marker would mark the side that carries information: the 12 % of functions that never
+allocate. It would serve real-time code and fixed-region users. A `noalloc` function may call only `noalloc`
+functions and may create no block. A `dyn` or function-pointer call is not `noalloc` unless its type says so. It
+is designed after decision 43 N1 (`plans/backlog/REFERENCES_AND_ORIGINS.md`), whose function-type machinery it
+reuses. Nothing is scheduled.

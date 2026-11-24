@@ -362,4 +362,4 @@ bytes (the owner and the cell's extent), and a placed container buffer's is
 
 The design decisions are summarized in
 `plans/reference/EXPLICIT_ALLOCATORS.md`, and the placement rules ("global by
-default, placement by argument") in `plans/backlog/ALLOCATOR_PLACEMENT.md`.
+default, placement by argument") in `plans/reference/ALLOCATOR_PLACEMENT.md`.
