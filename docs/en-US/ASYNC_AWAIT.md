@@ -243,7 +243,7 @@ main :: (fn(io : Io) -> unit)({
 ### Future Type
 
 ```yo
-// `io.async(fn)` returns `Impl(Future(T))` — a pointer to a heap-allocated state machine.
+// `io.async(fn)` returns `Impl(Future(T, E))` — a pointer to a heap-allocated state machine.
 // The state machine stores:
 //   - state: int (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)
 //   - continuation_fn / continuation_sm (who to resume on completion)
@@ -275,15 +275,18 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 1. **Type equality on the bundle.** `Future(T, E1)` matches `Future(T, E2)` when
    `E1` and `E2` are compatible types. There is no order-independent set matching
    anymore — there is no set, just one bundle.
-2. **A bundle-less future fits any bundle; a bundled one fits `Future(T)`
-   only with `Io`.** A future whose type names no bundle (a raw `IoFuture`,
-   `yield`) is compatible with `Future(T, E)` for any `E`: it reads no
-   bundle. The other direction is narrower. An await or spawn through a
-   `Future(T)` type injects nothing, so a bundled future may be viewed as
-   `Future(T)` only when its bundle is `Io`, whose fields are compiler
-   builtins the body never calls through. A future whose bundle carries
-   handlers keeps its bundle in every type it is passed as; viewing it as
-   `Future(T)` is a `yo check` error.
+2. **A bundle-less future fits any bundle; a bundled one never fits
+   `Future(T)`.** A future whose type names no bundle (a raw `IoFuture`) is
+   compatible with `Future(T, E)` for any `E`: it reads no bundle. The other
+   direction is an error. An await or spawn through a `Future(T)` type
+   injects nothing, and the body takes its effects, its `io` included, from
+   the bundle. A bundled future keeps its bundle in every type it is passed
+   as: a function returning `io.async((io : Io) => ...)` is typed
+   `-> Impl(Future(T, Io))`, and viewing it as `Future(T)` is a `yo check`
+   error (E0605). `sleep`, `yield`, `Interval.tick`, `Mutex.lock`,
+   `Mutex.with_lock` and the channels' `send` and `recv` return
+   `Impl(Future(T, Io))`, so a task whose bundle is a struct awaits them with
+   the struct's `Io`: `ctx.io.await(sleep(d, ctx.io), ctx.io)`.
 3. **Io when the body awaits.** Any async body that calls `io.await` / `yield`
    needs an `Io` in its bundle, so the bundle struct typically has an `io : Io`
    field.

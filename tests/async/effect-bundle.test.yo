@@ -6,6 +6,10 @@
 //! test leg, 2026-08-27).
 { assert } :: import("std/assert");
 { Exception, IoExn } :: import("std/error");
+{ Mutex } :: import("std/async/mutex");
+{ sleep } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+IO_timer :: import("std/sys/timer");
 
 give :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => usize(11))
@@ -32,10 +36,12 @@ test("matching bundles still pass", {
   assert((a == usize(11)) && (b == usize(11)), "typed and structural bundles both work");
 });
 // ---------------------------------------------------------------------------
-// A bundled future may not be viewed as a bundle-less `Future(T)` unless its
-// bundle is `Io`: an await through the view injects nothing, and the body
-// called a null handler
-// (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
+// A bundled future is never viewed as a bundle-less `Future(T)`, whatever its
+// bundle: an await through the view injects nothing, and the body called a
+// null handler
+// (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md);
+// an `Io` bundle is no exception, the body reads its `io` from the bundle
+// (VERDICTS-68, issues/questions/2026-11-19-a-future-viewed-as-bundle-less-runs-with-a-zeroed-io.md).
 // ---------------------------------------------------------------------------
 /// A handler bundle: `tell` is called through by the body.
 Tell :: (fn(x : i32) -> i32);
@@ -45,14 +51,66 @@ tells :: (fn(io : Io) -> Impl(Future(i32, TellCtx)))(
 );
 /// A view that names no bundle.
 await_view :: (fn(sink(f) : Impl(Future(i32)), io : Io) -> i32)(io.await(f, io));
-/// An `Io`-only future viewed as `Future(i32)`: still legal.
-io_only :: (fn(io : Io) -> Impl(Future(i32)))(io.async((io : Io) => i32(4)));
+/// A spawn through a view that names no bundle.
+spawn_view :: (fn(sink(f) : Impl(Future(i32)), io : Io) -> JoinHandle(i32))(io.spawn(f, io));
+/// An `Io`-bundled future, typed with its bundle.
+io_only :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(4)));
 test("a handler-bundled future cannot be viewed as Future(T)", {
   comptime_expect_error(await_view(tells(io), io));
   assert(true, "rejected at check time");
 });
-test("an Io-bundled future can still be viewed as Future(T)", {
-  assert(await_view(io_only(io), io) == i32(4), "Io bundles carry nothing the body calls through");
+test("an Io-bundled future cannot be viewed as Future(T)", {
+  // The parameter view.
+  comptime_expect_error(await_view(io_only(io), io), "Name the bundle");
+  // A spawn through the view.
+  comptime_expect_error(spawn_view(io_only(io), io), "Name the bundle");
+  // The return-position view.
+  comptime_expect_error((fn(io : Io) -> Impl(Future(i32)))(io.async((io : Io) => i32(4))), "Name the bundle");
+  // A `Dyn(Future(T))` slot.
+  comptime_expect_error({
+    (_d : Dyn(Future(i32))) = dyn(Box.new(io_only(io)));
+  });
+  // A local annotation.
+  comptime_expect_error({
+    (_f : Impl(Future(i32))) = io_only(io);
+  }, "Name the bundle");
+  // A generic `R` returned through `with_lock`'s `Impl(Future(R, Io))`.
+  m := Mutex(i32).new(i32(1));
+  comptime_expect_error(_lock_view(&m, &mut (v => (v.* + i32(1))), io));
+  assert(true, "every view rejected at check time");
+});
+/// A generic view over `Mutex.with_lock`'s `Impl(Future(R, Io))`: rejected
+/// at each concrete `R`.
+_lock_view :: (fn(generic(R : Type), m : &Mutex(i32), body : &mut Impl(FnMut(v : &mut i32) -> R), io : Io) -> Impl(Future(R)))(
+  m.with_lock(body, io)
+);
+test("an Io-bundled future keeps its bundle in the type", {
+  assert(io.await(io_only(io), io) == i32(4), "awaited through its own type");
+  (d : Dyn(Future(i32, Io))) = dyn(Box.new(io_only(io)));
+  assert(io.await(d, io) == i32(4), "a Dyn slot that names the bundle");
+  h := io.spawn(io_only(io), io);
+  assert(match(h.await(io), .Some(v) => v, .None => i32(0)) == i32(4), "spawned with its bundle");
+});
+/// A raw `IoFuture` reads no bundle: it flows into any bundle's type.
+_raw_as_io :: (fn(f : IoFuture) -> Impl(Future(i32, Io)))(f);
+_raw_as_ctx :: (fn(f : IoFuture) -> Impl(Future(i32, TellCtx)))(f);
+test("a raw IoFuture flows into Future(T, Io)", {
+  assert(io.await(_raw_as_io(IO_timer.sleep(u64(0))), io) >= i32(0), "an IoFuture viewed with the Io bundle");
+  t :: (fn(x : i32) -> i32)(x);
+  assert(io.await(_raw_as_ctx(IO_timer.sleep(u64(0))), TellCtx(io : io, tell : t)) >= i32(0), "an IoFuture viewed with a handler bundle");
+});
+/// A struct-bundled task awaits `sleep` with the bundle's `io`.
+_SleepCtx :: struct(io : Io, n : i32);
+_sleeper :: (fn(io : Io) -> Impl(Future(i32, _SleepCtx)))(
+  io.async((ctx : _SleepCtx) => {
+    ctx.io.await(sleep(Duration.from_millis(i64(1)), ctx.io), ctx.io);
+    ctx.n
+  })
+);
+test("a struct-bundled task awaits sleep(d, ctx.io) with ctx.io as the bundle", {
+  assert(io.await(_sleeper(io), _SleepCtx(io : io, n : i32(7))) == i32(7), "slept, then read its bundle");
+  // `sleep`'s future reads an `Io`: the struct is not its bundle.
+  comptime_expect_error(io.await(sleep(Duration.from_millis(i64(1)), io), _SleepCtx(io : io, n : i32(7))), "effect bundle");
 });
 // Same labels, different handler TYPE: a different bundle
 // (plans/archive/ASYNC_IO_API_AUDIT.md F6).
