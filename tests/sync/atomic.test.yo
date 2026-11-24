@@ -102,7 +102,7 @@ test("AtomicI32 cross-thread counter", {
   t := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => {
     (mut(i) : i32) = i32(0);
     while(i < iterations, {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
       i = (i + i32(1));
     });
   });

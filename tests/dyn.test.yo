@@ -726,7 +726,7 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
 test("Dyn: upcast of an AnyError to its ToString supertrait", {
   (e : AnyError) = dyn(Box.new(_UpErr.Bad));
   (ts : Box(Dyn(ToString))) = upcast(e, Dyn(ToString));
-  assert(ts.to_string() == String.from("bad"), "the supertrait's slot");
+  assert(ts.*.to_string() == String.from("bad"), "the supertrait's slot");
 });
 _UpErr :: enum(Bad);
 derive(_UpErr, Copy, Clone);
