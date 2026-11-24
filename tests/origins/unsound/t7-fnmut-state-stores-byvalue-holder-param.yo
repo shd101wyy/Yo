@@ -1,0 +1,20 @@
+// expect: E0923
+// An `FnMut` closure stores its by-value holder parameter into its own by-value state: the state is kept across
+// calls, and the stored `H` points into a `y` that the next call no longer has.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H :: struct(r : &Box(String));
+main :: (fn() -> unit)({
+  (mut(f) : Impl(FnMut(h : H) -> usize)) = ({ o : Option(H).None }(h) => {
+    n := match(&o, .Some(old) => old.r.*.len(), .None => usize(0));
+    o = .Some(h);
+    n
+  });
+  {
+    y := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    f(H(r : &y));
+  };
+  z := Box.new(String.from("z"));
+  println(`OUT: ${f(H(r : &z)).to_string()}`);
+});
+export(main);

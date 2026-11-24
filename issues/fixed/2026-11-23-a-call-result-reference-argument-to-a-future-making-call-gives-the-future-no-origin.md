@@ -47,3 +47,27 @@ future-result twin of audit cluster 1 ("an argument's value is not a loan", A1/A
 Give a call-result reference argument its own lend (the cluster 1 design: every origin-carrying argument value is a
 hidden temporary for the call) when computing the result future's origin. Add the reproducer to
 `tests/origins/unsound/`.
+
+## Fixed
+
+Fixed on `v0280/s1-test7b` (2026-11-23). The future a call returns gets its places from
+`_future_call_lends_into` (`src/evaluator/calls/function.yo`), which maps each callee parameter the future's origin
+names to the call's argument: a place lend (`&s`), a bound reference (`r`), or a by-value argument whose type
+carries an origin. A computed reference (`xs.index(0)`, `first(&xs)`: a projection call's result, typed as its
+pointee) matched none of them, so the future recorded no root and its binding froze nothing. A computed reference
+argument (`is_computed_reference_operand`) now contributes `origin_of` of the argument, R-CALL over its own root
+arguments, exactly as an origin-carrying by-value argument does. `fut := mkf(xs.index(0), io); xs.clear()` is
+E0911 at `xs.clear()`, as the bound form `r := xs.index(0); fut := mkf(r, io)` already was.
+
+The argument's origin can name a temporary (R-TEMP): `mkf(c.borrow_mut().get(), io)` reads through a temporary
+guard whose `Drop` replaces the box the future points into when the statement ends. That variant was accepted and
+ASan-dirty on develop too, and the first cut of this fix dropped the entry again: the future's roots are recorded
+by root NAME (`FutureRoot`) and read back through the environment, where `#temporary` names no binding. A
+`FutureRoot` (and the `_FutureLend` it is made from) now keeps the entry's text, and `_future_value_roots_into`
+returns an R-TEMP / R-ARM root as the entry itself, so `fut := mkf(c.borrow_mut().get(), io)` is rejected as
+`r := c.borrow_mut().get()` is, while `io.await(mkf(c.borrow_mut().get(), io), io)` — awaited in the statement that
+made it — stays accepted.
+
+G-B: `tests/origins/unsound/t7-future-call-result-ref-arg.yo` (the reproducer), `t7-future-call-result-ref-arg-free-fn.yo`
+(the probe's `first(&xs)` form, e04), `t7-future-call-result-ref-arg-temp-guard.yo`, and the positive twins
+`t7-future-call-result-ref-arg-pos.yo` (`xs` cleared after the awaits) and `t7-future-call-result-ref-arg-temp-guard-pos.yo`.

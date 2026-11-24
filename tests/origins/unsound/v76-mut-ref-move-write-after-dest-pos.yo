@@ -1,0 +1,12 @@
+// expect: accept
+// VERDICTS-76 Q1 row 3, positive control: the write of `x` comes after `a`'s last use.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  a := m;
+  a.* = i32(2);
+  x = i32(9);
+  println(`OUT: ${x.to_string()}`);
+});
+export(main);

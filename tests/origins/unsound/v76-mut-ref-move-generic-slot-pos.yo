@@ -1,0 +1,12 @@
+// expect: accept
+// VERDICTS-76 Q1 row 17, positive control: the result carries `m`'s origin.
+{ println } :: import("std/fmt");
+id :: (fn(comptime(T) : Type, v : T) -> T)(v);
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  a := id(&mut i32, m);
+  a.* = i32(2);
+  println(`OUT: ${x.to_string()}`);
+});
+export(main);
