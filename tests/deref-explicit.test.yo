@@ -397,7 +397,7 @@ derive(_Late, Copy, Clone, Hash);
 test("explicit: derive over handle fields whose payload derives later", {
   h := _LateHolder(r : Rc.new(_Late(n : i32(1))), b : Box.new(_Late(n : i32(2))), a : Arc.new(_Late(n : i32(3))));
   c := h.clone();
-  assert(((c.r.*.n == i32(1)) && (c.b.*.n == i32(2))) && (c.a.*.n == i32(3)), "every field cloned");
+  assert((c.r.*.n == i32(1)) && (c.b.*.n == i32(2)) && (c.a.*.n == i32(3)), "every field cloned");
   assert(hash_one(&h) == hash_one(&c), "and hashes alike");
 });
 // `Deref` carries the projection `deref`, and `Box` the write half
