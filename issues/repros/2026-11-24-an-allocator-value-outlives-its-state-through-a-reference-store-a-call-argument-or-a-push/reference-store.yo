@@ -1,0 +1,14 @@
+// SAFE file (no pragma). The `Allocator` is stored through a `&mut` into a
+// binding that outlives `c`, then allocated through: stack-use-after-scope.
+{ Counting } :: import("./counting.yo");
+main :: (fn() -> unit)({
+  mut(stale) := Allocator.global();
+  {
+    mut(c) := Counting.new();
+    r := &mut stale;
+    r.* = c.allocator();
+  };
+  b := Box.new(i32(7), alloc : .Some(stale));
+  _ := b;
+});
+export(main);

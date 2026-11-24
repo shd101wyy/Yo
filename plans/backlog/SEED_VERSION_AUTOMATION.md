@@ -630,7 +630,7 @@ retyped std is recorded in the PR.
 constructor bodies).
 
 - Delete the scope swap in `Rc.new`, `Arc.new`, `__yo_rc_cell` and `__yo_arc_cell`, and delete the three
-  `__yo_scope_ctx`/`__yo_scope_vtable`/`__yo_scope_set` externs. B2b (`plans/backlog/ALLOCATOR_PLACEMENT.md` §6)
+  `__yo_scope_ctx`/`__yo_scope_vtable`/`__yo_scope_set` externs. B2b (`plans/reference/ALLOCATOR_PLACEMENT.md` §6)
   follows.
 - Migrate the tests' direct constructions `Rc(T)(v)`/`Arc(T)(v)`, which become E0405 (the field is private), to
   `Rc.new(v)`/`Arc.new(v)`.
@@ -871,7 +871,7 @@ asks its allocator for alignment 16. The containers' `align_of(T)` is safe:
 `src/` holds no container of such a type, which the seed build proves.
 
 **Generation B (once `SEED_VERSION` carries the fix, v0.2.73 or later):**
-`Box`'s layout PR (`plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s
+`Box`'s layout PR (`plans/reference/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s
 layout") already asks for the payload's alignment, reading it without
 `align_of`: `Box(T)._align()` is `size_of(_BoxAlignProbe(T)) - size_of(T)`.
 Once the seed carries the fix, `_align()` becomes `align_of(T)` and

@@ -43,6 +43,13 @@ Runtime C is emitted from backtick string literals in `src/codegen/`.
 - **Gate for platform C you cannot compile locally:** `zig cc -target x86_64-windows-gnu` (and `aarch64-windows-gnu`) compiles and links emitted Windows C against MinGW's Win32 headers with the warning flags `src/main.yo` passes; the link proves the import libraries added to `src/main.yo` export every symbol you call. A five-line probe with `zig cc -target wasm32-wasi` / `x86_64-linux-musl` / `x86_64-linux-gnu` / `aarch64-macos` (or `emcc`) settles "does this libc define that macro?" per toolchain.
 - **Platform constants in runtime C are macro names, never one platform's literal.** `AT_FDCWD` (-2 on macOS, -100 on Linux), `AT_REMOVEDIR`, `AT_SYMLINK_NOFOLLOW` differ per kernel, and the Yo half (`std/sys/constants.yo`, re-exporting `std/libc/fcntl`'s `c_include`) emits the macro name too. The Windows template's `#ifndef AT_FDCWD`-style fallback block is the one sanctioned place for a literal (the CRT defines none). `tests/internal/uring-runtime.test.yo` pins the spellings per target.
 - **Windows reparse-point structs: spell them as the kernel writes them.** `REPARSE_DATA_BUFFER` (driver-kit `<ntifs.h>` only, so runtime code defines it) is `DWORD ReparseTag; USHORT ReparseDataLength; USHORT Reserved;` with the name block at offset **8** (the often-quoted `DWORD ReparseDataLength` shifts every offset by 2). The symlink variant (`IO_REPARSE_TAG_SYMLINK`) has a `ULONG Flags` before `PathBuffer`, the mount-point variant does not: compute `PathBuffer`'s base per tag.
+- **A `__yo_*` runtime function exists only where its preamble is emitted.** The threading preamble
+  (`src/codegen/types/generation.yo`, defining the `__yo_thread_self()` macro) is in every program; the
+  async runtime core (`src/codegen/async/runtime-core.yo`, defining `__yo_get_thread_id`) is emitted only when
+  `context.uses_async` (`generate_all_functions`, `src/codegen/functions/generation.yo`). std code that calls an
+  async-core symbol fails to link in every program without `io`, so std takes thread identity from
+  `__yo_thread_self` (declared in `std/sync/mutex.yo`). Before calling a runtime function from std, find its
+  preamble and the preamble's gate, then compile a probe whose `main` takes no `io`.
 - **Winsock errors never reach `errno`:** every socket-error site translates through `__yo_wsa_to_errno` (`runtime-io-windows.yo`), or `IoError.from_errno` reports "unknown I/O error (os error 10048)".
 
 ## Spelling a Yo name in C: `__yo_v_` (src/codegen/utils/index.yo)
@@ -189,7 +196,7 @@ Explicit allocators (`plans/reference/EXPLICIT_ALLOCATORS.md`):
 
 ### A `Box` payload projection masks the handle's placed bit
 
-`Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell pointer is the handle's "placed" bit (`plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout"). Every payload projection (`b.*`, `b.field`, `b.method()`, `&b.*`, `addr_of(b.*)`, a `Box(p)` pattern) goes through `box_payload_place_code` (`src/codegen/utils/index.yo`), which writes `(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`, or masks the address word of the fat pointer for an unsized payload; never spell `(*b)` for a `Box`. A place that takes the address back strips the outer `(*…)` and keeps the masked pointer. `tests/box-layout.test.yo` covers every projection.
+`Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell pointer is the handle's "placed" bit (`plans/reference/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout"). Every payload projection (`b.*`, `b.field`, `b.method()`, `&b.*`, `addr_of(b.*)`, a `Box(p)` pattern) goes through `box_payload_place_code` (`src/codegen/utils/index.yo`), which writes `(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`, or masks the address word of the fat pointer for an unsized payload; never spell `(*b)` for a `Box`. A place that takes the address back strips the outer `(*…)` and keeps the masked pointer. `tests/box-layout.test.yo` covers every projection.
 
 ### A pointer to an unsized type is the fat `__yo_slice_t`
 

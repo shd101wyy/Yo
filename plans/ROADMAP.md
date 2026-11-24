@@ -87,7 +87,7 @@ programming, and a language designed for LLM authorship from day one.
   - `Rc`/`Arc` without a collector, with `Weak`
     ([`archive/WEAK_AND_UNCOLLECTED_RC.md`](archive/WEAK_AND_UNCOLLECTED_RC.md));
   - allocator placement by argument
-    ([`backlog/ALLOCATOR_PLACEMENT.md`](backlog/ALLOCATOR_PLACEMENT.md));
+    ([`reference/ALLOCATOR_PLACEMENT.md`](reference/ALLOCATOR_PLACEMENT.md));
   - static argument inference
     ([`archive/STATIC_ARGUMENT_INFERENCE.md`](archive/STATIC_ARGUMENT_INFERENCE.md));
   - the isolated-transfer type deleted;
