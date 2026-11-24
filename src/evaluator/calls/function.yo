@@ -13611,6 +13611,9 @@ Fix: wrap the call:
         // inference must NOT lower comptime_int/float args matched against a
         // COMPTIME param.
         fv_param_ct := get_func_param_comptime(func_id_fv.clone());
+        // The parameters' written types, for the E0605 future-view repair
+        // (`check_argument_for_parameter`).
+        fv_param_type_exprs := get_func_param_type_exprs(func_id_fv.clone());
         (n_required_reg : usize) = n_p;
         if(fv_defaults.len() == n_p, {
           (nrr : usize) = usize(0);
@@ -14834,7 +14837,8 @@ Fix: wrap the call:
               match(fv_args.get_cloned(pi), .Some(ae) => ae, .None => Rc.clone(expr.*)),
               env,
               ctx,
-              exn
+              exn,
+              match(fv_param_type_exprs.get_cloned(pi), .Some(pte) => pte, .None => Option(AstExpr).None)
             );
           });
           // A reference VALUE passed by value (the read rule, decision 43
