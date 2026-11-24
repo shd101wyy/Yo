@@ -797,16 +797,12 @@ test("borrowed for: read-only and fresh-storage methods on a copy do not trip th
   });
   assert((names(usize(0)) == "a!") && (names.len() == usize(2)), "cloning a collection of RC elements inside the borrowed body");
 });
-// The borrowed `for`'s guard over a VALUE-rooted place (V2b's unique
-// buffers: after Generation B a collection is a value with no cell header).
-// Unique ownership checks such a place statically
-// (plans/VALUES_BY_DEFAULT.md §3.10, "the borrowed-`for` guard splits by
-// path"), so `__yo_borrow_acquire`/`__yo_borrow_release` lower to nothing
-// for it. They used to cast the struct itself to `void*`, which is invalid C.
-test("a borrow guard over a value-rooted place sets no flag", {
-  // Since B8 an `ArrayList` is such a value, so a borrowed `for` over a local
-  // list is this case (the guard itself takes a raw pointer, which a test
-  // cannot spell).
+// A borrowed `for` over a VALUE-rooted place: unique ownership checks it
+// statically (plans/VALUES_BY_DEFAULT.md §3.10, "the borrowed-`for` guard
+// splits by path"), and the loop emits nothing at run time for the borrow.
+test("a borrowed for over a value-rooted place walks it untouched", {
+  // An `ArrayList` is such a value, so a borrowed `for` over a local list is
+  // this case.
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));

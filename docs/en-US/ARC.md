@@ -170,7 +170,7 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ## Semantics
 
 - **Atomic RC**: `Arc` uses atomic increment/decrement operations, and `ref_count(a)` reads the
-  count with an atomic load ([DESIGN.md](./DESIGN.md#reading-the-count)).
+  count with an atomic load ([SHARED_OWNERSHIP.md](./SHARED_OWNERSHIP.md#reading-the-count)).
 - **Shared ownership**: `Arc.clone(a)` shares the underlying allocation; an implicit copy of a
   handle whose source is used again is E0901.
 - **Borrowed deref**: `.*` gives borrowed access to the wrapped value.

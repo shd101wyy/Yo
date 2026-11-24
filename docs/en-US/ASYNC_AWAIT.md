@@ -37,6 +37,8 @@ export(main);
 | **Parallelism** | `Thread(T).spawn`        | Multiple tasks running on SEPARATE threads |
 
 ```yo
+{ Thread } :: import("std/thread");
+
 // Concurrency: Same thread, interleaved execution
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
