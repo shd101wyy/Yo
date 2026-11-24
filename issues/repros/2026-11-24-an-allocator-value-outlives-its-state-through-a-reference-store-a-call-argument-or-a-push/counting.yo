@@ -1,0 +1,28 @@
+// The allocator module: the address-as-`ctx` pattern of
+// plans/reference/ALLOCATOR_PLACEMENT.md §11.1, reduced. It needs the pragma;
+// the files that use it do not.
+pragma(Pragma.AllowUnsafe);
+{ GlobalAllocator } :: import("std/allocator");
+{ assert } :: import("std/assert");
+Counting :: struct(live : usize);
+_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
+  s := (*Counting)(ctx.unwrap());
+  unsafe(s.*.live = (s.*.live + usize(1)));
+  GlobalAllocator.aligned_alloc(align, size)
+});
+_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(.None);
+_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
+  s := (*Counting)(ctx.unwrap());
+  unsafe(s.*.live = (s.*.live - usize(1)));
+  GlobalAllocator.aligned_free(ptr);
+});
+_VTABLE := AllocatorVTable(alloc : _alloc, realloc : _realloc, free : _free);
+impl(
+  Counting,
+  new : (fn() -> Self)(Counting(live : usize(0))),
+  allocator : (fn(self : &mut Self) -> Allocator)(
+    Allocator(ctx : .Some((*void)(addr_of(self.*))), vtable : addr_of(_VTABLE))
+  ),
+  Drop(drop : (fn(self : &mut Self) -> unit)(assert(self.live == usize(0), "Counting dropped with live blocks")))
+);
+export(Counting);
