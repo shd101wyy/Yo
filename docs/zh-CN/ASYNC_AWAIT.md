@@ -250,6 +250,22 @@ main :: (fn(io : Io) -> unit)({
 // 丢弃/销毁 Future 时释放状态机。
 ```
 
+future 在这个指针之后已经是类型擦除的，所以 `Future` 不能出现在 `Dyn` 中：`Dyn(Future(T, E))` 在任何位置都是 E0614。单个 future 的类型写作 `Impl(Future(T, E))`（参数、返回值或结构体字段）。要把多个不同的任务放进同一个集合，就保存它们的句柄：逐个 spawn，保存在 `ArrayList(JoinHandle(T))` 中，`join_all` 和 `race` 接受这个列表。
+
+```yo
+{ ArrayList } :: import("std/collections/array-list");
+{ join_all } :: import("std/async");
+one :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(1)));
+add :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async({ n }(io : Io) => (n + i32(1))));
+main :: (fn(io : Io) -> unit)({
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
+  hs.push(io.spawn(one(io), io));
+  hs.push(io.spawn(add(i32(41), io), io));
+  rs := io.await(join_all(hs, io), io); // ArrayList(Option(i32))：.Some(1)、.Some(42)
+});
+export(main);
+```
+
 #### 带效应的 Future
 
 `Future(T)` 可以携带代数效应信息。形态为：

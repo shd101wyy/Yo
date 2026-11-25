@@ -1,0 +1,9 @@
+{ println } :: import("std/fmt");
+mk :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(4)));
+main :: (fn(io : Io) -> unit)({
+  f := mk(io);
+  (d : Dyn(Future(i32, Io))) = dyn(&f);
+  (v : i32) = io.await(d, io);
+  println(&v);
+});
+export(main);
