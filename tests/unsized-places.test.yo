@@ -242,6 +242,30 @@ comptime_expect_error(
   }),
   "declared over the empty origin `static`"
 );
+// The instance that specializes the method first does not decide: the
+// elided-origin instance's `put` runs first here, then the static one's.
+_UpBox2 :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : Option(T))
+);
+impl(
+  generic(T : Type),
+  _UpBox2(T),
+  put : (fn(self : &mut Self, v : T) -> unit)({
+    self.v = .Some(v);
+  })
+);
+comptime_expect_error(
+  _up_static_box_put_after_elided :: (fn() -> unit)({
+    x := _UpX(n : i32(1));
+    mut(e) := _UpBox2(&_UpX)(v : .None);
+    e.put(&x);
+    mut(b) := _UpBox2(&(_UpX, static))(v : .None);
+    b.put(&x);
+    _ := e;
+    _ := b;
+  }),
+  "declared over the empty origin `static`"
+);
 test("a generic container over a static reference stores static values", {
   mut(b) := _UpBox1(&(_UpX, static))(v : .None);
   b.put(&_UpG);

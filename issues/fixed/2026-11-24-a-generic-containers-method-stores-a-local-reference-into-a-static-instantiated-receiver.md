@@ -89,10 +89,18 @@ value that holds a place is E0923 through `_static_origin_reject`, naming the re
 also occupies a non-static position, which one the callee writes is not known at the call, and the static one
 decides (VERDICTS-74 rule 4: a site that cannot tell rejects). Method specialization is unchanged.
 
+The pointee is read off the lent ARGUMENT (`_argument_origin_type`, as step 1 reads a `&mut` argument), not off the
+slot. A generic impl's specialized method is shared by the instances whose `type_key` agrees, and the static bit is
+not in `type_key`: whichever of `Box1(&X)` and `Box1(&(X, static))` specializes `put` first, its `self` slot is the
+other's too. A first version read the slot, and in a file that used the static instance first it rejected
+`Box1(&X).put(&x)` (a false E0923), while with the elided instance first it accepted `Box1(&(X, static)).put(&x)` (the
+hole again).
+
 ## The test
 
 `tests/origins/unsound/static-generic-method-store.yo` (the inner-block repro with `b.v` read after,
 `// expect: E0923`) and its `-pos` control (`b.put(&G)` for an immutable module-level `G`); in
-`tests/unsized-places.test.yo`, the five variants above as `comptime_expect_error` rows, a positive
+`tests/unsized-places.test.yo`, the five variants above as `comptime_expect_error` rows, a sixth over a second
+container whose elided-origin instance calls `put` first, a positive
 (`Box1(&(X, static)).put(&G)`, `ArrayList(&(X, static)).push(&G)` twice) and a non-static control
 (`Box1(&X).put(&x)` still accepted).

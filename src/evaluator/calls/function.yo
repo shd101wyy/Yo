@@ -10513,7 +10513,8 @@ _type_occurs_at_static_position :: (fn(needle : &TypeValue, hay : &TypeValue, de
   false
 });
 /// `lend_through` step 1c (VERDICTS-74 rule 2 at a generic container's
-/// method): the `wi`-th argument is lent `&mut` as each of `pointees`, and
+/// method): the `wi`-th argument is lent `&mut` as each of `pointees` (the
+/// argument's own types, which the caller reads off it), and
 /// a pointee spelled over the empty origin `static` (`Box1(&(X, static))`)
 /// takes only static values at those positions. A specialized method types
 /// a `v : T` parameter from the ARGUMENT (`&X` for `b.put(&x)`), so no slot
@@ -10989,17 +10990,26 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   // (top-level, or nested in a by-value parameter as step 3 reads it) whose
   // pointee instantiates a generic container over `static` takes only static
   // values where the callee may store them (`_static_type_argument_stores`).
+  // The pointee is read off the ARGUMENT, not the slot: a generic impl's
+  // specialized method is shared by the instances whose `type_key` agrees,
+  // and the static bit is not in `type_key`, so the slot of
+  // `Box1(&X).put`'s receiver may spell `Box1(&(X, static))` (or the other
+  // way round), whichever instance specialized it first.
   (sc_i : usize) = usize(0);
   while(sc_i < op_args.len(), sc_i = (sc_i + usize(1)), {
     match(
       slots.get(sc_i),
       .Some(sc_slot) => {
+        sc_place := ast_expr_strip_borrow_marker(&_unlabeled_argument(match(op_args.get_cloned(sc_i), .Some(a) => a, .None => make_err_expr())));
+        sc_ty := match(_argument_origin_type(&sc_place, env, ctx), .Some(t) => t, .None => Rc.clone(&sc_slot));
         sc_pointees := ArrayList(TypeValue).new();
         if(t_slot_is_mut_ref(&sc_slot), {
-          sc_pointees.push(t_slot_pointee(&sc_slot));
+          // As step 1 reads a `&mut` argument: a self place (`&mut r` on a
+          // reference binding) is typed as the reference, its own pointee.
+          sc_pointees.push(cond(is_reference_self_place(ast_expr_id(&sc_place)) => Rc.clone(&sc_ty), true => t_slot_pointee(&sc_ty)));
         }, if(!t_slot_is_borrow(&sc_slot), {
           sc_seen := ArrayList(String).new();
-          _nested_mut_pointees(&sc_slot, &mut sc_pointees, &mut sc_seen, u32(0));
+          _nested_mut_pointees(&sc_ty, &mut sc_pointees, &mut sc_seen, u32(0));
         }));
         _static_type_argument_stores(&op_args, &slots, sc_i, &sc_pointees, env, ctx, exn);
       },
