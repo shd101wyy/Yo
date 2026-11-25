@@ -105,5 +105,5 @@ Each is accepted on develop `64f33c710`, except `static-type-ctor-arg` (E0911) a
 which is unchanged.
 
 Still open: std and pragma'd files keep the unchecked reading. That residue is
-`issues/2026-11-11-a-static-origin-in-a-pragmad-file-is-an-unchecked-assertion-until-v0278.md` (S2). When v0.2.78
+`issues/fixed/2026-11-11-a-static-origin-in-a-pragmad-file-is-an-unchecked-assertion-until-v0278.md` (S2). When v0.2.78
 checks `static`, these rows expect E0923.

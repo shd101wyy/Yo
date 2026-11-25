@@ -59,7 +59,7 @@ case "$MODE" in today | target) ;; *) echo "mode is today or target, got $MODE" 
 
 # The codes N1/N2 assign to the rules the plan names but has not numbered.
 # Empty means "any rejection" (the row cannot be checked more precisely yet).
-declare -A RULE_CODES=([WF_SELF]="E0924" [WF_UNDECLARED]="E0922" [ORIGIN_MISMATCH]="E0923" [UNION]="" [TYPE]="E0601")
+declare -A RULE_CODES=([WF_SELF]="E0924" [WF_UNDECLARED]="" [ORIGIN_MISMATCH]="E0923" [UNION]="" [TYPE]="E0601")
 
 fail=0
 problem() { echo "  FAIL $1"; fail=$((fail + 1)); }

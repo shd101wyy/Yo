@@ -106,6 +106,8 @@ int32_t r = d.vtable->speak(d.data);
 
 只有这些方法拥有虚表槽位。通过 `Dyn` 调用其他方法会在调用处报错 E0614（`yo explain E0614`）。带有按值 `self` 方法的 trait 完全不能放到 `Dyn` 后面，无论载荷是什么：按值接收操作数的运算符 trait（`LogicalNot`、`Negate`、`Add` 等）都在此列。
 
+`Future` 同样不能出现在 `Dyn` 中，任何位置都不行（在写出该类型的地方报 E0614）。future 本身就是指向其状态机的一个指针，await 或 spawn 会消耗它（`io.await(f, e)`、`io.spawn(f, e)`）。单个 future 的类型写作 `Impl(Future(T, E))`。多个不同的运行中任务保存为 `JoinHandle(T)`：逐个 spawn，把句柄收集到 `ArrayList(JoinHandle(T))` 中，`std/async` 中的 `join_all` 和 `race` 接受这个列表。
+
 ```yo ignore
 Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));
 (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
@@ -324,6 +326,7 @@ export(main);
 | 你想要…… | 用 | 藏的是什么，怎么藏 |
 | --- | --- | --- |
 | 把**不同**具体类型的值放进同一个变量、字段或集合，并对它们调用 trait 方法 | `Box(Dyn(Trait))` + `dyn(Box.new(v))`，或 `&Dyn(Trait)` + `dyn(&v)` | 类型被**擦除**：一个胖指针 `{data, vtable}`；使用者只能用到 vtable。只能通过 `downcast(&d.*, T)` 找回具体类型。 |
+| 把多个**不同的** future（任务）放在一起 | `ArrayList(JoinHandle(T))` + `io.spawn(f, io)`，用 `join_all` 或 `race`（`std/async`）等待 | spawn 会**擦除**每个 future 的类型和效果包：`JoinHandle(T)` 只能 join 和 abort。`Dyn(Future(...))` 是 E0614：future 本身就是指向其状态机的一个指针。 |
 | 返回**一个**具体类型但不点名它（闭包、迭代器、future） | 返回位置的 `Impl(Trait)`、`Impl(Fn(...))`、`Impl(Future(T, E))` | 类型是**不透明的，但没有被擦除**：每条返回路径必须产出同一个具体类型，编译器对调用方做单态化，不装箱。 |
 | 隐藏类型所依赖的**长度**或其他值（ATS / DML 里的 `[n:nat] list(a, n)`） | 一个普通的运行时值加上契约：`ensures(r.len() == ...)`、`requires(i < xs.len())`、`refine(T, p)` | 见证是验证器推理的**幽灵值**（[FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)）；运行时什么都不存在。 |
 

@@ -128,6 +128,12 @@ Only these methods get a vtable slot. Calling one of the others through a `Dyn` 
 `Dyn` at all, for any payload: the operator traits that take their operand by value
 (`LogicalNot`, `Negate`, `Add`, ...) are among them.
 
+`Future` cannot be listed in a `Dyn` either, in any position (E0614 where the type is written). A
+future is one pointer to its state machine, and awaiting or spawning it consumes it
+(`io.await(f, e)`, `io.spawn(f, e)`). One future is typed `Impl(Future(T, E))`. Several different
+running tasks are kept as `JoinHandle(T)`: spawn each and collect the handles in an
+`ArrayList(JoinHandle(T))`, which `join_all` and `race` in `std/async` take.
+
 ```yo ignore
 Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));
 (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
@@ -409,6 +415,7 @@ Which one to reach for:
 | You want to... | Use | What is hidden, and how |
 | --- | --- | --- |
 | store values of **different** concrete types in one variable, field or collection, and call trait methods on them | `Box(Dyn(Trait))` + `dyn(Box.new(v))`, or `&Dyn(Trait)` + `dyn(&v)` | the type is **erased**: a fat pointer `{data, vtable}`; the vtable is the only thing the consumer can use. Recover a concrete type only with `downcast(&d.*, T)`. |
+| keep several **different** futures (tasks) together | `ArrayList(JoinHandle(T))` + `io.spawn(f, io)`, joined with `join_all` or `race` (`std/async`) | each future's type and effect bundle are **erased** by the spawn: a `JoinHandle(T)` only joins and aborts. `Dyn(Future(...))` is E0614: a future is already one pointer to its state machine. |
 | return **one** concrete type without naming it (a closure, an iterator, a future) | `Impl(Trait)` in result position, `Impl(Fn(...))`, `Impl(Future(T, E))` | the type is **opaque, not erased**: every return path must produce the same concrete type, the compiler monomorphizes the callers, nothing is boxed. |
 | hide a **length** or other value the type depends on (`[n:nat] list(a, n)` in ATS / DML) | an ordinary runtime value plus a contract: `ensures(r.len() == ...)`, `requires(i < xs.len())`, `refine(T, p)` | the witness is a **ghost** the verifier reasons about ([FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)); nothing exists at runtime. |
 

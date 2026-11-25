@@ -186,6 +186,9 @@ with at most four running at once:
   solver's distribution have landed, and it erases proved checks once std
   bodies are proved.
 - **F. std and reach.**
+  - std's shapes against Rust's (closures by value, a read API on `str`, getters that lend, borrowing `iter()`, `&str`
+    text parameters) and the compiler's Rust-name hints, S-0..S-6 and P-1..P-4, plus the `try(expr)` builtin (L-1)
+    ([`backlog/STD_RUST_ALIGNMENT.md`](backlog/STD_RUST_ALIGNMENT.md); S-1 to S-6 in v0.2.81).
   - HTTP keep-alive and `lines()`.
   - Raw string literals.
   - A package registry and `yo publish`
