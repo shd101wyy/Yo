@@ -7603,13 +7603,14 @@ run_test :: (
           ni = (ni + usize(1));
         });
         prog_src.push_str("__yo_batch_env :: import(\"std/env\");\n");
-        prog_src.push_str("main :: (fn() -> unit)({\n");
-        prog_src.push_str("  io :: __yo_builtin_io;\n");
+        // `main` takes the calling thread's native `Io`: a test body awaits
+        // through `io` from this sync context (`IoVTable.run_until`).
+        prog_src.push_str("main :: (fn(io : Io) -> unit)({\n");
         // A test body need not name `io` (an implicit `using(io : Io)`
-        // parameter picks it up from scope), so the binding stays; this use
-        // keeps the unused-variable lint quiet for the batches that never
-        // name it. `_`-prefixed names are exempt from the lint.
-        prog_src.push_str("  _yo_batch_io :: io;\n");
+        // parameter picks it up from scope); this use keeps the unused
+        // lint quiet for the batches that never name it. `_`-prefixed names
+        // are exempt from the lint.
+        prog_src.push_str("  _yo_batch_io := io;\n");
         prog_src.push_str("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
         prog_src.push_str("    .Some(__yo_test_idx) => cond(\n");
         // Arms are numbered RELATIVE to the batch (0..n-1), so YO_TEST_INDEX below

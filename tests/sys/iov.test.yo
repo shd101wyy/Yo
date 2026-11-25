@@ -40,8 +40,8 @@ test("iov writev and readv on pipe", {
   assert((recv_b.add(usize(1))).* == u8(32), "byte 5 should be ' '");
   assert((recv_b.add(usize(2))).* == u8(89), "byte 6 should be 'Y'");
   assert((recv_b.add(usize(3))).* == u8(111), "byte 7 should be 'o'");
-  c1 := io.await(file.close(read_fd), io);
-  c2 := io.await(file.close(write_fd), io);
+  c1 := io.await(file.close(read_fd, io), io);
+  c2 := io.await(file.close(write_fd, io), io);
   assert(c1 == i32(0), "closing read end should succeed");
   assert(c2 == i32(0), "closing write end should succeed");
   free(.Some((*void)(write_iov)));
@@ -55,7 +55,7 @@ test("iov pwritev and preadv on regular file", {
   path_c := path_str.to_cstr();
   path := path_c.ptr().unwrap();
   flags := (O_RDWR | O_CREAT | O_TRUNC);
-  fd := io.await(file.openat(AT_FDCWD, path, flags, i32(0o644)), io);
+  fd := io.await(file.openat(AT_FDCWD, path, flags, i32(0o644), io), io);
   assert(fd >= i32(0), "openat should create a regular file for iov test");
   iov_bytes := (iov_io.iovec_size() * usize(2));
   write_iov := (*u8)(malloc(iov_bytes).unwrap());
@@ -81,9 +81,9 @@ test("iov pwritev and preadv on regular file", {
   assert((recv_b.add(usize(0))).* == u8(114), "third preadv byte should be 'r'");
   assert((recv_b.add(usize(1))).* == u8(108), "fourth preadv byte should be 'l'");
   assert((recv_b.add(usize(2))).* == u8(100), "fifth preadv byte should be 'd'");
-  close_ret := io.await(file.close(fd), io);
+  close_ret := io.await(file.close(fd, io), io);
   assert(close_ret == i32(0), "closing regular file should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, path, i32(0)), io);
+  rm := io.await(dir.unlink(AT_FDCWD, path, i32(0), io), io);
   assert(rm == i32(0), "unlinking iov test file should succeed");
   free(.Some((*void)(write_iov)));
   free(.Some((*void)(read_iov)));

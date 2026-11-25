@@ -134,14 +134,14 @@ impl(
   generic(T : Type),
   _ChannelState(T),
   /// A fresh park whose waker is queued (moved) behind the blocked senders.
-  _park_sender : (fn(self : &mut Self) -> Park)({
-    p := Park.new();
+  _park_sender : (fn(self : &mut Self, io : Io) -> Park)({
+    p := Park.new(io);
     self._send_waiters.push(p.waker());
     p
   }),
   /// A fresh park whose waker is queued (moved) behind the blocked receivers.
-  _park_receiver : (fn(self : &mut Self) -> Park)({
-    p := Park.new();
+  _park_receiver : (fn(self : &mut Self, io : Io) -> Park)({
+    p := Park.new(io);
     self._recv_waiters.push(p.waker());
     p
   })
@@ -205,7 +205,7 @@ impl(
           // wake. Re-check after waking rather than trusting it: the waker
           // says "space may have appeared", and a `try_send` from a third
           // task can have taken that slot in between.
-          p := ch._st.with_mut(s => s._park_sender());
+          p := ch._st.with_mut({ io }(s) => s._park_sender(io));
           io.await(p.wait(io), io);
         });
       });
@@ -231,7 +231,7 @@ impl(
           waiting = false;
         });
         if(waiting, {
-          p := ch._st.with_mut(s => s._park_receiver());
+          p := ch._st.with_mut({ io }(s) => s._park_receiver(io));
           io.await(p.wait(io), io);
         });
       });

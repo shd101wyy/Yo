@@ -373,6 +373,12 @@ jobs:
           set -euo pipefail
           bash scripts/check-issue-refs.sh
 
+      # The Io interface's guard rails (plans/backlog/ALLOCATION_FREE_ASYNC.md
+      # §4): Io table calls only in std/sys, IoFuture only in its four homes,
+      # and every std/sys operation above std/sys awaited where it is made.
+      - name: Io guard rails (check-io-guard-rails)
+        run: bash scripts/check-io-guard-rails.sh
+
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
     needs: [changes, tree-hygiene]
@@ -2109,7 +2115,7 @@ jobs:
           { assert } :: import("std/assert");
           main :: (fn(io : Io) -> unit)({
             e := IoExn(io : io, exn : Exception(throw : ((_e) -> unwind(()))));
-            io.await(sleep(u64(20)), e);
+            io.await(sleep(u64(20), io), e);
             // A socket op that PARKS on the fallback: the recv is issued before
             // the peer sends, so it must wait for readiness and be woken.
             mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
@@ -2120,9 +2126,9 @@ jobs:
             assert(fcntl.setfl(fd0, (fcntl.getfl(fd0) | O_NONBLOCK)) == i32(0), "nonblocking");
             mut(b_uninit) := MaybeUninit(Array(u8, usize(16))).new();
             b := (*u8)(b_uninit.as_ptr());
-            r := tcp.recv(fd0, b, usize(16), i32(0));
+            r := tcp.recv(fd0, b, usize(16), i32(0), io);
             io.await(yield(io), io);
-            assert(io.await(tcp.send(fd1, (*u8)("k"), usize(1), i32(0)), io) == i32(1), "send");
+            assert(io.await(tcp.send(fd1, (*u8)("k"), usize(1), i32(0), io), io) == i32(1), "send");
             assert(io.await(r, io) == i32(1), "parked recv woken");
             io.await(write_string(Path.new(String.from("/probe-out.txt")), String.from("ok"), io), e);
           });

@@ -1,6 +1,10 @@
 //! Extern C runtime function declarations.
 //!
-//! All low-level extern functions for async I/O operations.
+//! The runtime's helper entry points: synchronous syscalls, buffer and
+//! address accessors, wakers and join waits. The operations an event loop
+//! mediates are not here: they are `IoVTable` entries, reached through the
+//! `Io` every `std/sys` operation takes
+//! (`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md` §2).
 //!
 //! ## Stability
 //!
@@ -18,59 +22,22 @@
 //! the same reason, and that is deliberate rather than a gap in the doc
 //! sweep.
 pragma(Pragma.AllowUnsafe);
-{ IoFuture } :: import("./future.yo");
 // ============================================================================
 // Extern C runtime functions
 // ============================================================================
 extern(
   "Yo",
   // ========================================================================
-  // File Operations
-  // ========================================================================
-  __yo_async_read_start : (fn(fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture),
-  __yo_async_write_start : (fn(fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture),
-  __yo_async_openat_start : (fn(dirfd : i32, path : *u8, flags : i32, mode : i32) -> IoFuture),
-  __yo_async_close_start : (fn(fd : i32) -> IoFuture),
-  __yo_async_statx_start : (fn(dirfd : i32, path : *u8, flags : i32, mask : u32, statxbuf : *u8) -> IoFuture),
-  __yo_async_mkdirat_start : (fn(dirfd : i32, path : *u8, mode : i32) -> IoFuture),
-  __yo_async_unlinkat_start : (fn(dirfd : i32, path : *u8, flags : i32) -> IoFuture),
-  __yo_async_renameat_start : (fn(olddirfd : i32, oldpath : *u8, newdirfd : i32, newpath : *u8) -> IoFuture),
-  __yo_async_symlinkat_start : (fn(target : *u8, newdirfd : i32, linkpath : *u8) -> IoFuture),
-  __yo_async_linkat_start : (fn(olddirfd : i32, oldpath : *u8, newdirfd : i32, newpath : *u8, flags : i32) -> IoFuture),
-  __yo_async_fsync_start : (fn(fd : i32) -> IoFuture),
-  __yo_async_fdatasync_start : (fn(fd : i32) -> IoFuture),
-  __yo_async_ftruncate_start : (fn(fd : i32, length : i64) -> IoFuture),
-  // ========================================================================
   // Directory Listing (for fs.readdir)
   // ========================================================================
-  __yo_async_getdents_start : (fn(fd : i32, buf : *u8, buf_size : u32) -> IoFuture),
   __yo_dirent_size : (fn() -> usize),
   __yo_dirent_reclen : (fn(entry : *u8) -> u16),
   __yo_dirent_type : (fn(entry : *u8) -> u8),
   __yo_dirent_name : (fn(entry : *u8) -> *u8),
   __yo_dirent_ino : (fn(entry : *u8) -> u64),
   // ========================================================================
-  // Symbolic Link Resolution (for fs.readlink)
-  // ========================================================================
-  // ========================================================================
-  // File Descriptor Operations (async dup/dup2/pipe removed - now sync)
-  // ========================================================================
-  // ========================================================================
   // Socket Operations (for tcp, udp, unix sockets)
   // ========================================================================
-  __yo_async_socket_start : (fn(domain : i32, sock_type : i32, protocol : i32) -> IoFuture),
-  __yo_async_bind_start : (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture),
-  __yo_async_listen_start : (fn(sockfd : i32, backlog : i32) -> IoFuture),
-  __yo_async_accept_start : (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture),
-  __yo_async_connect_start : (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture),
-  __yo_async_send_start : (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture),
-  __yo_async_stream_write_start : (fn(sockfd : i32, buf : *u8, len : usize) -> IoFuture),
-  __yo_async_recv_start : (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture),
-  __yo_async_sendto_start : (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, dest_addr : *u8, addrlen : u32) -> IoFuture),
-  __yo_async_recvfrom_start : (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, src_addr : *u8, addrlen : *u32) -> IoFuture),
-  __yo_async_shutdown_start : (fn(sockfd : i32, how : i32) -> IoFuture),
-  __yo_async_setsockopt_start : (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> IoFuture),
-  __yo_async_getsockopt_start : (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> IoFuture),
   __yo_sync_getsockname : (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> i32),
   __yo_sync_getpeername : (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> i32),
   __yo_sync_setsockopt : (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> i32),
@@ -86,11 +53,6 @@ extern(
   // ========================================================================
   // Process Operations
   // ========================================================================
-  /// Spawn with a working directory (`.None` = inherit the parent's). POSIX:
-  /// posix_spawn_file_actions_addchdir_np (ENOSYS on a libc without it);
-  /// Windows: lpCurrentDirectory. The only spawn entry point.
-  __yo_async_spawn_start_cwd : (fn(file : *u8, argv : *?*u8, envp : ?*?*u8, stdin_fd : i32, stdout_fd : i32, stderr_fd : i32, cwd : ?*u8) -> IoFuture),
-  __yo_async_waitpid_start : (fn(pid : i32, options : i32) -> IoFuture),
   __yo_process_exit_status : (fn(status : i32) -> i32),
   __yo_process_term_signal : (fn(status : i32) -> i32),
   // ========================================================================
@@ -148,26 +110,16 @@ extern(
   __yo_htonl : (fn(hostlong : u32) -> u32),
   __yo_ntohl : (fn(netlong : u32) -> u32),
   // ========================================================================
-  // Timer Operations
-  // ========================================================================
-  __yo_async_sleep_start : (fn(milliseconds : u64) -> IoFuture),
-  // ========================================================================
   // Waker / park — "resume THIS task"
   // ========================================================================
-  // `__yo_async_park_start` returns a future NO backend will ever complete;
-  // only `__yo_waker_wake` does. See `std/async/waker.yo` for the safe
+  // A park future (`std/sys/future`'s `park`, through the `Io`) completes only
+  // when `__yo_waker_wake` fires. See `std/async/waker.yo` for the safe
   // ordering and `plans/archive/WAKER_BASED_SCHEDULING.md` for why it exists.
-  __yo_async_park_start : (fn() -> IoFuture),
-  // A future that is pending NOW and completed by the next ready-task drain —
-  // the timer-free fairness yield. It cannot be an already-complete future:
-  // the await point takes an inline fast path for one of those, so the task
-  // never leaves the C stack and the loop never gets its turn.
-  __yo_async_yield_start : (fn() -> IoFuture),
-  // A wait on spawned tasks: a park completed when ANY task added to it is
-  // terminal (completed or aborted); adding an already-terminal task completes
-  // it at once. `JoinHandle.join` and the `std/async` combinators are built on
-  // it, which is what lets them be awaited from inside a task.
-  __yo_join_wait_new : (fn() -> IoFuture),
+  // A JOIN WAIT is a park that a task's end completes: adding a task makes the
+  // park complete when ANY task added to it is terminal (completed or
+  // aborted); adding an already-terminal task completes it at once.
+  // `JoinHandle.join` and the `std/async` combinators are built on it, which
+  // is what lets them be awaited from inside a task.
   __yo_join_wait_add : (fn(wait : &IoFuture, task : *void) -> unit),
   __yo_waker_new : (fn(future : &IoFuture) -> *u8),
   __yo_waker_wake : (fn(waker : *u8) -> unit),
@@ -185,7 +137,7 @@ extern(
   __yo_async_blocking_begin : (fn() -> unit),
   __yo_async_blocking_end : (fn(loop : *u8) -> unit),
   // ========================================================================
-  // File Extra Operations (async only: sleep remains async)
+  // Statfs Buffer Accessors
   // ========================================================================
   __yo_statfs_buf_size : (fn() -> usize),
   __yo_statfs_type : (fn(buf : *u8) -> u64),
@@ -196,17 +148,8 @@ extern(
   __yo_statfs_files : (fn(buf : *u8) -> u64),
   __yo_statfs_ffree : (fn(buf : *u8) -> u64),
   // ========================================================================
-  // Directory Scanning
-  // ========================================================================
-  __yo_async_scandir_start : (fn(dirfd : i32, path : *u8) -> IoFuture),
-  __yo_async_opendir_start : (fn(path : *u8) -> IoFuture),
-  __yo_async_readdir_start : (fn(dir : *u8, entries : *u8, max_entries : usize) -> IoFuture),
-  __yo_async_closedir_start : (fn(dir : *u8) -> IoFuture),
-  // ========================================================================
   // DNS Operations
   // ========================================================================
-  __yo_async_getaddrinfo_start : (fn(node : *u8, service : ?*u8, hints : ?*u8, result : *?*u8) -> IoFuture),
-  __yo_async_getnameinfo_start : (fn(addr : *u8, addrlen : u32, host : *u8, hostlen : usize, service : *u8, servlen : usize, flags : i32) -> IoFuture),
   __yo_freeaddrinfo : (fn(res : *u8) -> unit),
   __yo_addrinfo_size : (fn() -> usize),
   __yo_addrinfo_flags : (fn(ai : *u8) -> i32),
@@ -231,20 +174,6 @@ extern(
   __yo_tty_reset_mode : (fn() -> i32),
   __yo_tty_get_winsize : (fn(fd : i32, width : *i32, height : *i32) -> i32),
   __yo_isatty : (fn(fd : i32) -> i32),
-  // ========================================================================
-  // FS Event Operations
-  // ========================================================================
-  __yo_fs_event_init : (fn() -> *u8),
-  __yo_fs_event_start : (fn(handle : *u8, path : *u8, flags : u32, callback : *u8, user_data : *u8) -> i32),
-  __yo_fs_event_stop : (fn(handle : *u8) -> i32),
-  __yo_fs_event_close : (fn(handle : *u8) -> unit),
-  // ========================================================================
-  // Poll Operations
-  // ========================================================================
-  __yo_poll_init : (fn(fd : i32) -> *u8),
-  __yo_poll_start : (fn(handle : *u8, events : i32, callback : *u8, user_data : *u8) -> i32),
-  __yo_poll_stop : (fn(handle : *u8) -> i32),
-  __yo_poll_close : (fn(handle : *u8) -> unit),
   // ========================================================================
   // Synchronous Operations (no IoFuture overhead)
   // ========================================================================
@@ -303,41 +232,13 @@ extern(
   __yo_io_stats_recv_would_block : (fn() -> u64)
 );
 export(
-  // File operations
-  __yo_async_read_start,
-  __yo_async_write_start,
-  __yo_async_openat_start,
-  __yo_async_close_start,
-  __yo_async_statx_start,
-  __yo_async_mkdirat_start,
-  __yo_async_unlinkat_start,
-  __yo_async_renameat_start,
-  __yo_async_symlinkat_start,
-  __yo_async_linkat_start,
-  __yo_async_fsync_start,
-  __yo_async_fdatasync_start,
-  __yo_async_ftruncate_start,
   // Directory listing
-  __yo_async_getdents_start,
   __yo_dirent_size,
   __yo_dirent_reclen,
   __yo_dirent_type,
   __yo_dirent_name,
   __yo_dirent_ino,
   // Socket operations
-  __yo_async_socket_start,
-  __yo_async_bind_start,
-  __yo_async_listen_start,
-  __yo_async_accept_start,
-  __yo_async_connect_start,
-  __yo_async_send_start,
-  __yo_async_stream_write_start,
-  __yo_async_recv_start,
-  __yo_async_sendto_start,
-  __yo_async_recvfrom_start,
-  __yo_async_shutdown_start,
-  __yo_async_setsockopt_start,
-  __yo_async_getsockopt_start,
   __yo_sync_getsockname,
   __yo_sync_getpeername,
   __yo_sync_setsockopt,
@@ -349,8 +250,6 @@ export(
   __yo_sync_gethostname,
   __yo_sync_umask,
   // Process operations
-  __yo_async_spawn_start_cwd,
-  __yo_async_waitpid_start,
   __yo_process_exit_status,
   __yo_process_term_signal,
   // Synchronous file helpers
@@ -401,12 +300,7 @@ export(
   __yo_ntohs,
   __yo_htonl,
   __yo_ntohl,
-  // Timer operations
-  __yo_async_sleep_start,
   // Waker / park
-  __yo_async_park_start,
-  __yo_async_yield_start,
-  __yo_join_wait_new,
   __yo_join_wait_add,
   __yo_waker_new,
   __yo_waker_wake,
@@ -416,7 +310,7 @@ export(
   __yo_async_loop_self_ptr,
   __yo_async_blocking_begin,
   __yo_async_blocking_end,
-  // File extra operations (statfs accessors only - statfs itself is now sync)
+  // Statfs buffer accessors
   __yo_statfs_buf_size,
   __yo_statfs_type,
   __yo_statfs_bsize,
@@ -425,14 +319,7 @@ export(
   __yo_statfs_bavail,
   __yo_statfs_files,
   __yo_statfs_ffree,
-  // Directory scanning
-  __yo_async_scandir_start,
-  __yo_async_opendir_start,
-  __yo_async_readdir_start,
-  __yo_async_closedir_start,
-  // DNS operations
-  __yo_async_getaddrinfo_start,
-  __yo_async_getnameinfo_start,
+  // DNS helpers
   __yo_freeaddrinfo,
   __yo_addrinfo_size,
   __yo_addrinfo_flags,
@@ -453,16 +340,6 @@ export(
   __yo_tty_reset_mode,
   __yo_tty_get_winsize,
   __yo_isatty,
-  // FS Event operations
-  __yo_fs_event_init,
-  __yo_fs_event_start,
-  __yo_fs_event_stop,
-  __yo_fs_event_close,
-  // Poll operations
-  __yo_poll_init,
-  __yo_poll_start,
-  __yo_poll_stop,
-  __yo_poll_close,
   // Synchronous operations
   __yo_sync_pipe,
   __yo_sync_dup,

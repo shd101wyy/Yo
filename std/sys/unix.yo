@@ -27,8 +27,7 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
-{ IoFuture } :: import("./future.yo");
-{ __yo_async_socket_start, __yo_async_bind_start, __yo_async_listen_start, __yo_async_accept_start, __yo_async_connect_start, __yo_async_send_start, __yo_async_stream_write_start, __yo_async_recv_start, __yo_async_close_start, __yo_sockaddr_un_set_path, __yo_sockaddr_un_get_path, __yo_sockaddr_set_family } :: import("./externs.yo");
+{ __yo_sockaddr_un_set_path, __yo_sockaddr_un_get_path, __yo_sockaddr_set_family } :: import("./externs.yo");
 { AF_UNIX, SOCK_STREAM, SOCK_DGRAM, sockaddr_un_size } :: import("./socket.yo");
 // ============================================================================
 // UnixAddr - sockaddr_un buffer with pointer and length
@@ -57,8 +56,8 @@ export(UnixAddr);
 /// SOCK_STREAM, 0)`. Resolves to the new fd, or a negative errno. This is the
 /// one to use: it is reliable, ordered and connection-based, like TCP but
 /// without the network.
-socket_stream :: (fn() -> IoFuture)(
-  __yo_async_socket_start(AF_UNIX, SOCK_STREAM, i32(0))
+socket_stream :: (fn(io : Io) -> IoFuture)(
+  io.vtable.*.socket(io.ctx, AF_UNIX, SOCK_STREAM, i32(0))
 );
 /// Create a datagram Unix-domain socket — `socket(AF_UNIX, SOCK_DGRAM, 0)`.
 /// Resolves to the new fd, or a negative errno.
@@ -66,8 +65,8 @@ socket_stream :: (fn() -> IoFuture)(
 /// Unlike UDP, `AF_UNIX` datagrams ARE reliable and ordered — the kernel
 /// never drops them — so this is a message-boundary-preserving channel rather
 /// than a lossy one. It does not exist on Windows.
-socket_dgram :: (fn() -> IoFuture)(
-  __yo_async_socket_start(AF_UNIX, SOCK_DGRAM, i32(0))
+socket_dgram :: (fn(io : Io) -> IoFuture)(
+  io.vtable.*.socket(io.ctx, AF_UNIX, SOCK_DGRAM, i32(0))
 );
 /// Bind the socket to a filesystem path — POSIX `bind(2)`. Resolves to 0, or
 /// a negative errno.
@@ -78,13 +77,13 @@ socket_dgram :: (fn() -> IoFuture)(
 /// Closing the socket does not remove the file; that is the owner's job too.
 /// Access is governed by the directory's write permission, which is what
 /// makes a socket in a mode-0700 directory a private channel.
-bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
-  __yo_async_bind_start(sockfd, addr, addrlen)
+bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32, io : Io) -> IoFuture)(
+  io.vtable.*.bind(io.ctx, sockfd, addr, addrlen)
 );
 /// Mark the socket as accepting connections — POSIX `listen(2)`. Resolves to
 /// 0, or a negative errno. `backlog` bounds the pending-connection queue.
-listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
-  __yo_async_listen_start(sockfd, backlog)
+listen :: (fn(sockfd : i32, backlog : i32, io : Io) -> IoFuture)(
+  io.vtable.*.listen(io.ctx, sockfd, backlog)
 );
 /// Accept the next connection — POSIX `accept(2)`. Resolves to the new
 /// connection's fd, or a negative errno. `addr`/`addrlen` receive the peer's
@@ -92,22 +91,22 @@ listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
 /// no path), so do not rely on it to identify the caller — read the peer
 /// credentials with `SO_PEERCRED`/`LOCAL_PEERCRED` through
 /// `std/sys/sockinfo` if you need that.
-accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture)(
-  __yo_async_accept_start(sockfd, addr, addrlen)
+accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32, io : Io) -> IoFuture)(
+  io.vtable.*.accept(io.ctx, sockfd, addr, addrlen)
 );
 /// Connect to a bound Unix-domain path — POSIX `connect(2)`. Resolves to 0,
 /// or a negative errno; `-ENOENT` when nothing has bound the path and
 /// `-ECONNREFUSED` when the file exists but no process is listening, which is
 /// exactly the stale-socket-file case.
-connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
-  __yo_async_connect_start(sockfd, addr, addrlen)
+connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32, io : Io) -> IoFuture)(
+  io.vtable.*.connect(io.ctx, sockfd, addr, addrlen)
 );
 /// Send on a connected socket — POSIX `send(2)`. Resolves to the number of
 /// bytes accepted (which may be short on a `SOCK_STREAM` socket), or a
 /// negative errno. The `SIGPIPE` caveat from `std/sys/tcp`'s `send` applies
 /// here too: the runtime does not ignore it.
-send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
-  __yo_async_send_start(sockfd, buf, len, flags)
+send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.send(io.ctx, sockfd, buf, len, flags)
 );
 /// Write from `buf` on a connected stream socket that `std/net` owns — the
 /// cheapest write entry point per platform: `write(2)` on macOS,
@@ -120,19 +119,19 @@ send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
 /// Every socket the runtime creates or accepts is non-blocking; `std/net` sets
 /// `SO_NOSIGPIPE` when it creates a stream. Use `send` with `MSG_NOSIGNAL` on a
 /// socket nobody configured.
-stream_write :: (fn(sockfd : i32, buf : *u8, len : usize) -> IoFuture)(
-  __yo_async_stream_write_start(sockfd, buf, len)
+stream_write :: (fn(sockfd : i32, buf : *u8, len : usize, io : Io) -> IoFuture)(
+  io.vtable.*.stream_write(io.ctx, sockfd, buf, len)
 );
 /// Receive on a connected socket — POSIX `recv(2)`. Resolves to the number of
 /// bytes read, or a negative errno. On a `SOCK_STREAM` socket **0 means the
 /// peer closed**; on a `SOCK_DGRAM` one it is a zero-length message.
-recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
-  __yo_async_recv_start(sockfd, buf, len, flags)
+recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.recv(io.ctx, sockfd, buf, len, flags)
 );
 /// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
 /// errno. It does NOT unlink the socket file a `bind` created.
-close :: (fn(fd : i32) -> IoFuture)(
-  __yo_async_close_start(fd)
+close :: (fn(fd : i32, io : Io) -> IoFuture)(
+  io.vtable.*.close(io.ctx, fd)
 );
 // ============================================================================
 // Unix Socket Address Helpers

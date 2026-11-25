@@ -98,7 +98,7 @@ test("Test std/async yield is the timer-free mechanism", {
 // so an already-woken park resumes inline instead of suspending.
 // ---------------------------------------------------------------------------
 test("Test a wake before the park suspends is not lost", {
-  p := Park.new();
+  p := Park.new(io);
   w := p.waker();
   w.wake();
   assert(w.is_woken(), "the park is woken before anyone waits on it");
@@ -118,13 +118,13 @@ test("Test a wake before the park suspends is not lost", {
 // the ASan-armed CI legs report a use-after-free if the await frees it early).
 // ---------------------------------------------------------------------------
 test("Test a park is waited on once, and its waker outlives the wait", {
-  p := Park.new();
+  p := Park.new(io);
   w := p.waker();
   w.wake();
   io.await(p.wait(io), io);
   assert(w.is_woken(), "the waker still reads the woken future after the wait");
   comptime_expect_error({
-    q := Park.new();
+    q := Park.new(io);
     io.await(q.wait(io), io);
     io.await(q.wait(io), io);
   }, "moved");
@@ -135,7 +135,7 @@ test("Test a park is waited on once, and its waker outlives the wait", {
 //     moves it back out to fire it, and dropping it releases its token.
 // ---------------------------------------------------------------------------
 test("Test a waker is moved into a waiter list and back out", {
-  p := Park.new();
+  p := Park.new(io);
   mut(waiters) := ArrayList(Waker).new();
   waiters.push(p.waker());
   w := waiters.remove(usize(0));
@@ -143,7 +143,7 @@ test("Test a waker is moved into a waiter list and back out", {
   io.await(p.wait(io), io);
   assert(waiters.len() == usize(0), "the waker left the list when it was taken out");
   comptime_expect_error({
-    q := Park.new();
+    q := Park.new(io);
     a := q.waker();
     b := a;
     a.wake();
@@ -190,7 +190,7 @@ test("Test park moves its waker into register, which keeps it", {
 //    everyone without tracking who already ran.
 // ---------------------------------------------------------------------------
 test("Test waking twice is a no-op", {
-  p := Park.new();
+  p := Park.new(io);
   w := p.waker();
   w.wake();
   w.wake();
@@ -206,7 +206,7 @@ test("Test waking twice is a no-op", {
 //    from `main` (a blocking await inside a task nests the event loop).
 // ---------------------------------------------------------------------------
 test("Test a spawned task parks until the top level wakes it", {
-  p := Park.new();
+  p := Park.new(io);
   w := p.waker();
   ran := Rc.new(RefCell(bool).new(false));
   h := io.spawn(
@@ -241,7 +241,7 @@ test("Test one signal wakes every waiter in a list", {
   woken := Rc.new(RefCell(i32).new(i32(0)));
   (mut(i) : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
-    p := Park.new();
+    p := Park.new(io);
     wakers.push(p.waker());
     handles.push(
       io.spawn(
@@ -285,14 +285,14 @@ test("Test one signal wakes every waiter in a list", {
 // ---------------------------------------------------------------------------
 test("Test dropping a waker leaves the loop able to finish other work", {
   {
-    p := Park.new();
+    p := Park.new(io);
     _w := p.waker();
     ()
   };
   // The dropped park is gone. Ordinary work must still complete.
   h := io.spawn(
     io.async((io : Io) => {
-      io.await(sleep(u64(1)), io);
+      io.await(sleep(u64(1), io), io);
       return(i32(5));
     }),
     io
@@ -321,7 +321,7 @@ test("Test a waker relay hands off without a millisecond floor", {
   (mut(next_w) : Option(Waker)) = Option(Waker).None;
   (mut(t) : usize) = usize(0);
   while(t < n, t = (t + usize(1)), {
-    mine := Park.new();
+    mine := Park.new(io);
     mine_w := mine.waker();
     handles.push(
       io.spawn(
@@ -384,7 +384,7 @@ test("Test a waker relay hands off without a millisecond floor", {
 test("Test a poll-until-finished loop over yield_now still polls I/O", {
   h := io.spawn(
     io.async((io : Io) => {
-      io.await(sleep(u64(30)), io);
+      io.await(sleep(u64(30), io), io);
       return(i32(1));
     }),
     io

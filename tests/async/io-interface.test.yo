@@ -1,0 +1,117 @@
+//! `Io` is a value (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2, IO-1b):
+//! `{ ctx, vtable : *IoVTable }`, and every operation std submits goes through
+//! the table of the `Io` it is handed. The decorator below wraps this
+//! thread's native `Io`: each entry it overrides counts the call and forwards
+//! to the native table, so a test sees which `Io` an operation went through.
+//! It overrides `spawn` and `run_until` only to forward them (the allocation-
+//! free async plan's rule: a Yo-written `Io` never reads, starts, retains or
+//! frees the task it is handed, plans/backlog/ALLOCATION_FREE_ASYNC.md §4).
+pragma(Pragma.SkipWasm32Wasi);
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+{ read_to_string } :: import("std/fs/file");
+{ Path } :: import("std/path");
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ Park } :: import("std/async/waker");
+IO_future :: import("std/sys/future");
+// --- the counting decorator -------------------------------------------------
+_Counted :: struct(inner : Io, sleeps : i32, opens : i32, spawns : i32, runs : i32, parks : i32);
+_counted_of :: (fn(ctx : ?*void) -> *_Counted)((*_Counted)(ctx.unwrap()));
+_counted_sleep :: (fn(ctx : ?*void, milliseconds : u64) -> IoFuture)({
+  c := _counted_of(ctx);
+  unsafe(c.*.sleeps = (c.*.sleeps + i32(1)));
+  unsafe(c.*.inner.vtable.*.sleep(c.*.inner.ctx, milliseconds))
+});
+// ENOENT without touching the file system: an answer known at once.
+_counted_openat :: (fn(ctx : ?*void, dirfd : i32, path : *u8, flags : i32, mode : i32) -> IoFuture)({
+  c := _counted_of(ctx);
+  unsafe(c.*.opens = (c.*.opens + i32(1)));
+  IO_future.completed(i32(-2))
+});
+_counted_spawn :: (fn(ctx : ?*void, fut : *void) -> unit)({
+  c := _counted_of(ctx);
+  unsafe(c.*.spawns = (c.*.spawns + i32(1)));
+  unsafe(c.*.inner.vtable.*.spawn(c.*.inner.ctx, fut));
+});
+_counted_run_until :: (fn(ctx : ?*void, fut : *void) -> unit)({
+  c := _counted_of(ctx);
+  unsafe(c.*.runs = (c.*.runs + i32(1)));
+  unsafe(c.*.inner.vtable.*.run_until(c.*.inner.ctx, fut));
+});
+_counted_park :: (fn(ctx : ?*void) -> IoFuture)({
+  c := _counted_of(ctx);
+  unsafe(c.*.parks = (c.*.parks + i32(1)));
+  unsafe(c.*.inner.vtable.*.park(c.*.inner.ctx))
+});
+/// The native table with the counted entries swapped in.
+_counted_table :: (fn(native : Io) -> IoVTable)({
+  mut(vt) := native.vtable.*;
+  vt.sleep = _counted_sleep;
+  vt.openat = _counted_openat;
+  vt.spawn = _counted_spawn;
+  vt.run_until = _counted_run_until;
+  vt.park = _counted_park;
+  vt
+});
+_counted :: (fn(native : Io) -> _Counted)(_Counted(inner : native, sleeps : i32(0), opens : i32(0), spawns : i32(0), runs : i32(0), parks : i32(0)));
+/// An `Io` over `c` and `vt`, which must outlive every use of it.
+_decorated :: (fn(c : *_Counted, vt : *IoVTable) -> Io)(Io(ctx : .Some((*void)(c)), vtable : vt));
+test("main's io is this thread's native Io", {
+  n := Io.native();
+  assert(n.ctx == io.ctx, "the same loop");
+  assert((*void)(n.vtable) == (*void)(io.vtable), "the same native table");
+});
+test("std/time's sleep goes through the Io it is handed", {
+  mut(c) := _counted(io);
+  mut(vt) := _counted_table(io);
+  fake := _decorated(addr_of(c), addr_of(vt));
+  io.await(sleep(Duration.from_millis(u64(1)), fake), fake);
+  assert(c.sleeps == i32(1), `one sleep through the decorator, got ${c.sleeps}`);
+  io.await(sleep(Duration.from_millis(u64(1)), io), io);
+  assert(c.sleeps == i32(1), "the native io's sleep does not reach it");
+});
+/// Read a file through `fake`: `false` when the read threw (its handler
+/// unwinds out of this function).
+_read_through :: (fn(fake : Io, io : Io) -> bool)({
+  exn := Exception(throw : (err -> unwind(false)));
+  p := Path.new(String.from("io-interface-no-such-file"));
+  _s := io.await(read_to_string(&p, io), IoExn(io : fake, exn : exn));
+  true
+});
+test("std/fs's open goes through the bundle's Io", {
+  mut(c) := _counted(io);
+  mut(vt) := _counted_table(io);
+  fake := _decorated(addr_of(c), addr_of(vt));
+  assert(!_read_through(fake, io), "the decorator's ENOENT was thrown");
+  assert(c.opens == i32(1), `the open reached the decorator: ${c.opens}`);
+});
+test("io.spawn and a sync await go through the receiver's table, and forward the task", {
+  mut(c) := _counted(io);
+  mut(vt) := _counted_table(io);
+  fake := _decorated(addr_of(c), addr_of(vt));
+  h := fake.spawn(
+    fake.async((io : Io) => {
+      io.await(IO_future.yield(io), io);
+      i32(5)
+    }),
+    fake
+  );
+  assert(c.spawns == i32(1), `spawn went through the table: ${c.spawns}`);
+  v := fake.await(
+    fake.async((io : Io) => {
+      p := Park.new(io);
+      w := p.waker();
+      w.wake();
+      io.await(p.wait(io), io);
+      i32(2)
+    }),
+    fake
+  );
+  assert(c.runs == i32(1), `the sync await drove the loop through run_until: ${c.runs}`);
+  assert(c.parks == i32(1), `the task body's Park used the bundle's Io: ${c.parks}`);
+  assert(v == i32(2), "the awaited task's result");
+  assert(h.await(io) == Option(i32).Some(i32(5)), "the forwarded task ran to completion");
+});

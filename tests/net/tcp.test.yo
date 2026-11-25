@@ -785,7 +785,7 @@ test("connecting to a non-routable address does not park the event loop", {
     io
   );
   started := Instant.now();
-  io.await(sleep(u64(300)), io);
+  io.await(sleep(u64(300), io), io);
   (sleep_ms : i64) = started.elapsed().as_millis();
   assert(
     sleep_ms < i64(900),
@@ -811,7 +811,7 @@ _tcp_write_until_error :: (fn(s : &TcpStream, io : Io) -> bool)({
   (mut(i) : i32) = i32(0);
   while(i < i32(50), i = (i + i32(1)), {
     io.await(s.write_str("x", io), e);
-    io.await(sleep(u64(2)), e);
+    io.await(sleep(u64(2), io), e);
   });
   false
 });

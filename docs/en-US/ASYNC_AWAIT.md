@@ -184,6 +184,32 @@ test("my test", {
 });
 ```
 
+### An `Io` is a value
+
+`io : Io` is the event loop and its reactor: an opaque context plus a table
+of operations, the way `Allocator` is an allocator.
+
+```yo ignore
+Io :: struct(ctx : ?*void, vtable : *IoVTable);
+```
+
+`main` receives the calling thread's native `Io`. A `Thread` or pool task is
+handed its worker's. A task body sees the `io` its awaiter passed in the
+effect bundle.
+
+Every operation that suspends or submits goes through `io`: `File.open`,
+`TcpListener.accept`, `sleep`, `io.spawn`, `Park.new`, `fs/watch`'s `watch`.
+A plain blocking call does not: `println`, `Instant.now`, `sleep_blocking`.
+Below the public modules, every `std/sys` operation takes the `io` as its last
+argument and calls the table (`std/sys/file`'s `read(fd, buf, size, offset, io)`), so the
+`Io` a caller passes decides which loop the operation runs on.
+
+A test can hand code a different `Io`, for example one that fakes the clock or
+scripts a peer, built from the native value or from its own table. Never
+construct one yourself outside a test: `Io.native()`, the calling thread's
+native `Io`, needs `pragma(Pragma.AllowUnsafe)` and exists for the runtime's
+entry points.
+
 ### API
 
 ```yo ignore
@@ -330,15 +356,19 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-The `Io` effect record is itself a bundle-shaped struct that the async runtime
-provides:
+The `Io` effect record is itself a plain struct, two words (`ctx` and
+`vtable`, see "An `Io` is a value"), and it rides in a bundle like any other
+field. `io.async`, `io.await`, `io.state` and `io.spawn` are its methods,
+bound to the compiler's own operations:
 
-```yo
-Io :: struct(
-  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
-  await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
-  spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+```yo ignore
+impl(
+  Io,
+  async : __yo_io_async,   // (action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))
+  await : __yo_io_await,   // (fut : Impl(Future(T, E)), e : E) -> T
+  state : __yo_io_state,   // (fut : &Impl(Future(T, E))) -> FutureState
+  spawn : __yo_io_spawn,   // (fut : Impl(Future(T, E)), e : E) -> JoinHandle(T)
+  native : __yo_io_native  // () -> Io, under pragma(Pragma.AllowUnsafe)
 );
 ```
 
@@ -572,7 +602,7 @@ The aborted task's locals are dropped when its last reference goes away.
 { sleep } :: import("std/sys/timer");
 
 f := io.async((io : Io) => {
-  io.await(sleep(u64(50)), io);
+  io.await(sleep(u64(50), io), io);
   i32(7)
 });
 // The awaiting task owns `f` (a capture list moves it in, §3.13 A1).
@@ -903,9 +933,9 @@ while(i < rest.len(), i = (i + usize(1)), {
 });
 ```
  Under the wait is one runtime primitive, a park future the task's
-completion or abort wakes (`__yo_join_wait_new` / `__yo_join_wait_add` in
-`std/sys/externs`); `race`, `timeout` and `select` add several tasks to one
-wait.
+completion or abort wakes (a park made through the task's `io`, with
+`__yo_join_wait_add` from `std/sys/externs`); `race`, `timeout` and `select`
+add several tasks to one wait.
 
 ### Timeouts and select over borrowing Futures
 
@@ -935,7 +965,7 @@ operand may be a borrowing Future: its borrow ends when the call does.
 Counter :: struct(n : i32);
 bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async({ c : &mut c.*, ms }(io : Io) => {
-    io.await(sleep(ms), io);
+    io.await(sleep(ms, io), io);
     c.n = (c.n + i32(1));
     c.n
   })
@@ -1570,7 +1600,7 @@ task's progress*. That needs a token the other side can fire, and
 
 // The waiter. Create the park, hand its waker to whoever will signal, then
 // suspend — in that order, and with no await in between.
-p := Park.new();
+p := Park.new(io);
 waiters.push(p.waker());
 io.await(p.wait(io), io);
 
@@ -1649,7 +1679,7 @@ main :: (fn(io : Io) -> unit)({
     io.async({ worker }(io : Io) => {
       io.await(worker.*.lock(io), io);
       before := worker.*.get();
-      io.await(sleep(u64(1)), io); // the section stays exclusive across the await
+      io.await(sleep(u64(1), io), io); // the section stays exclusive across the await
       worker.*.set(before + i64(1));
       worker.*.unlock();
     }),

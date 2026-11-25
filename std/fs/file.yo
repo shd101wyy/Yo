@@ -129,7 +129,7 @@ _close_file_state :: (fn(st : *_FileState, io : Io) -> Impl(Future(unit, IoExn))
         unsafe(st.*._is_closed) => (),
         true => {
           unsafe(consume(st.*._is_closed = true));
-          result := e.io.await(IO_file.close(unsafe(st.*._fd)), e.io);
+          result := e.io.await(IO_file.close(unsafe(st.*._fd), e.io), e.io);
           IoError.check(result, e.exn);
           ()
         }
@@ -168,7 +168,7 @@ impl(
     io.async(e => {
       cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       cstr := cstr_bytes.ptr().unwrap();
-      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
+      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode, e.io), e.io);
       fd := IoError.check(result, e.exn);
       File._new(fd, path_str.clone())
     })
@@ -216,7 +216,7 @@ impl(
       path_str := path_owned.clone();
       cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       cstr := cstr_bytes.ptr().unwrap();
-      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
+      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode, e.io), e.io);
       fd := IoError.check(result, e.exn);
       File._new(fd, path_str)
     })
@@ -239,7 +239,7 @@ impl(
         (data_bytes.len() == usize(0)) => usize(0),
         true => {
           st := self._st();
-          result := e.io.await(IO_file.write(self._cell._fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), self._cell._pos), e.io);
+          result := e.io.await(IO_file.write(self._cell._fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), self._cell._pos, e.io), e.io);
           n := IoError.check(result, e.exn);
           unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
           usize(n)
@@ -255,7 +255,7 @@ impl(
         (data.len() == usize(0)) => usize(0),
         true => {
           st := self._st();
-          result := e.io.await(IO_file.write(self._cell._fd, data.ptr().unwrap(), u32(data.len()), self._cell._pos), e.io);
+          result := e.io.await(IO_file.write(self._cell._fd, data.ptr().unwrap(), u32(data.len()), self._cell._pos, e.io), e.io);
           n := IoError.check(result, e.exn);
           unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
           usize(n)
@@ -271,7 +271,7 @@ impl(
   flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
       fd := self._cell._fd;
-      result := e.io.await(IO_file.fsync(fd), e.io);
+      result := e.io.await(IO_file.fsync(fd, e.io), e.io);
       IoError.check(result, e.exn);
       ()
     })
@@ -282,7 +282,7 @@ impl(
   set_len : (fn(self : &Self, length : i64, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, length }(e : IoExn) => {
       fd := self._cell._fd;
-      result := e.io.await(IO_file.ftruncate(fd, length), e.io);
+      result := e.io.await(IO_file.ftruncate(fd, length, e.io), e.io);
       IoError.check(result, e.exn);
       ()
     })
@@ -389,7 +389,7 @@ impl(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size }(e : IoExn) => {
         st := self._st();
-        result := e.io.await(IO_file.read(self._cell._fd, buf, u32(size), self._cell._pos), e.io);
+        result := e.io.await(IO_file.read(self._cell._fd, buf, u32(size), self._cell._pos, e.io), e.io);
         n := IoError.check(result, e.exn);
         unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
         usize(n)
@@ -405,7 +405,7 @@ impl(
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size }(e : IoExn) => {
         st := self._st();
-        result := e.io.await(IO_file.write(self._cell._fd, buf, u32(size), self._cell._pos), e.io);
+        result := e.io.await(IO_file.write(self._cell._fd, buf, u32(size), self._cell._pos, e.io), e.io);
         n := IoError.check(result, e.exn);
         unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
         usize(n)
@@ -533,7 +533,7 @@ _exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
-    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), io);
+    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf, io), io);
     free(.Some((*void)(buf)));
     result >= i32(0)
   })
@@ -558,7 +558,7 @@ try_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, IoExn)))({
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
-    result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), e.io);
+    result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf, e.io), e.io);
     free(.Some((*void)(buf)));
     cond(
       (result >= i32(0)) => true,
@@ -616,7 +616,7 @@ is_file :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
-    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), io);
+    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf, io), io);
     r := cond(
       (result < i32(0)) => false,
       true => {
@@ -645,7 +645,7 @@ is_dir :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
-    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), io);
+    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf, io), io);
     r := cond(
       (result < i32(0)) => false,
       true => {
@@ -676,7 +676,7 @@ canonicalize :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))({
     // Async stat to verify path exists (provides await point for proper RC cleanup)
     buf_size := __yo_statx_buf_size();
     stat_buf := (*u8)(malloc(buf_size).unwrap());
-    stat_result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, stat_buf), e.io);
+    stat_result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, stat_buf, e.io), e.io);
     free(.Some((*void)(stat_buf)));
     IoError.check(stat_result, e.exn);
     // Resolve the canonical path

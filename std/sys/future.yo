@@ -1,10 +1,15 @@
-//! `IoFuture` — the opaque handle every async I/O extern hands back.
+//! `IoFuture` and the executor operations of an `Io`.
 //!
-//! This is the one type the whole `std/sys` async surface is written in terms
-//! of: `sys/file`, `sys/dir`, `sys/tcp`, `sys/udp`, `sys/unix`, `sys/dns`,
-//! `sys/process` and `sys/timer` all return it, and `io.await` is what turns
-//! it back into an `i32`. Every public module above them (`std/fs`,
-//! `std/net`, `std/process`, `std/time/sleep`) reaches it only through those.
+//! An `IoFuture` is what every `std/sys` operation hands back, and `io.await`
+//! turns it into an `i32`. Every operation takes the `Io` it runs on as its
+//! last argument and calls that `Io`'s table (`io.vtable.*.<op>(io.ctx, …)`,
+//! `IoVTable` in the prelude), so the `Io` a caller passes decides which
+//! event loop and reactor the operation goes to
+//! (`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md` §2). This module holds the
+//! executor's operations (`park`, `yield`) and `completed`; the file, socket,
+//! process, DNS, timer and watch operations live beside it in `std/sys`.
+//! The public modules above (`std/fs`, `std/net`, `std/process`,
+//! `std/time/sleep`, `std/async`) forward the `io` they already hold.
 //!
 //! ## Stability
 //!
@@ -12,55 +17,39 @@
 //! the compiler's own runtime (`src/codegen/async/`) with a layout the await
 //! codegen indexes directly (`state`, `result`), so its shape is pinned to
 //! the async state-machine representation and moves with it, not with a
-//! library decision. Its *value* convention is one thing on every platform
-//! since 2026-10-03: a resolved `i32` that is a non-negative syscall result
-//! or a negative errno, with `sys/dns` alone resolving to its documented
-//! `DNS_ERR_*` codes (above every errno). The raw `i32` stays — a typed
-//! `Result(i32, IoError)` channel at the extern boundary was considered and
+//! library decision (the plan's §3 is the contract). Its *value* convention
+//! is one thing on every platform: a resolved `i32` that is a non-negative
+//! syscall result or a negative errno, with `sys/dns` alone resolving to its
+//! documented `DNS_ERR_*` codes (above every errno). The raw `i32` stays — a
+//! typed `Result(i32, IoError)` channel at this boundary was considered and
 //! declined (`plans/archive/ASYNC_IO_API_AUDIT.md` Q2): `IoError.check` and
-//! `IoError.from_result` turn the answer into a value at the call site. What
-//! would still have to be true to freeze it: a state-machine layout that
-//! codegen promises to keep.
-// ============================================================================
-// Extern type for I/O Future
-// ============================================================================
+//! `IoError.from_result` turn the answer into a value at the call site. The
+//! operations' own shape is not final either: the allocation-free async plan
+//! starts them in a slot the caller owns
+//! (`plans/backlog/ALLOCATION_FREE_ASYNC.md` AFA-8). An `IoFuture` is
+//! therefore awaited where it is made (`io.await(IO_file.read(…, io), io)`),
+//! never bound and awaited later.
 pragma(Pragma.AllowUnsafe);
 extern(
   "Yo",
-  __yo_io_future_t : Type
+  __yo_io_future_completed : (fn(result : i32) -> IoFuture)
 );
-/// A pending (or already finished) I/O operation, resolved with `io.await`.
-///
-/// `Impl(Concrete(__yo_io_future_t), Future(i32))`: an opaque C struct laid
-/// out like an async state machine, so `await` reads its `state` and `result`
-/// the same way it reads a Yo `async` block's. `state` 0 means still in
-/// flight, `-1` already completed (the common case on macOS and Windows,
-/// where most file operations run synchronously and are handed back finished)
-/// and `-2` aborted — see the effects model in AGENTS.md.
-///
-/// It resolves to a raw `i32`: a non-negative syscall result (an fd, a byte
-/// count, or 0) or a NEGATIVE errno, on every platform (the Windows runtime
-/// maps Winsock's codes to errno). Nothing here throws, so error handling is
-/// `IoError.from_result` / `IoError.check` at the call site. `sys/dns`
-/// resolves to its own `DNS_ERR_*` codes, which `std/net/dns` maps to
-/// `DnsError`. `io.state` reads an in-flight raw future as `Running`: it was
-/// submitted when it was created, so it is never `Cold`.
-IoFuture :: Impl(Concrete(__yo_io_future_t), Future(i32));
-// The native Io's executor entries and IoFuture.completed
-// (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2, §3, IO-1a). Declared here
-// because a `__yo_` extern member outside std is E0407.
-extern(
-  "Yo",
-  __yo_io_future_completed : (fn(result : i32) -> IoFuture),
-  __yo_io_spawn_task : (fn(fut : *void) -> unit),
-  __yo_io_run_until : (fn(fut : *void) -> unit),
-  __yo_io_now_ns : (fn() -> u64)
+/// A future that suspends the task until a `Waker` made from it fires
+/// (`std/async/waker`'s `Park`). No backend ever completes it on its own.
+park :: (fn(io : Io) -> IoFuture)(
+  io.vtable.*.park(io.ctx)
 );
-export(
-  __yo_io_future_t,
-  IoFuture,
-  __yo_io_future_completed,
-  __yo_io_spawn_task,
-  __yo_io_run_until,
-  __yo_io_now_ns
+/// A future that is pending now and completed by the loop's next ready-task
+/// drain: one turn of the event loop, with one I/O poll in between. It is
+/// never an already-completed future, because an await takes the inline fast
+/// path for one of those and the task would never leave the C stack.
+yield :: (fn(io : Io) -> IoFuture)(
+  io.vtable.*.yield(io.ctx)
 );
+/// A future born completed with `result`: what an `Io` whose answer is known
+/// at once returns from an operation. An await of it takes the inline fast
+/// path, so nothing ever schedules it.
+completed :: (fn(result : i32) -> IoFuture)(
+  __yo_io_future_completed(result)
+);
+export(IoFuture, park, yield, completed);

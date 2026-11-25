@@ -156,7 +156,7 @@ _run_timers :: (fn(io : Io) -> unit)({
     task := io.async((io : Io) => {
       (left : i64) = left_i;
       while(left > i64(0), {
-        io.await(sleep(u64(1)), io);
+        io.await(sleep(u64(1), io), io);
         left = (left - i64(1));
       });
       match(done.try_send(()), .Ok(_) => (), .Err(_) => ());

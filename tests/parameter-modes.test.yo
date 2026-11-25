@@ -90,7 +90,7 @@ test("an io.async body shares a handle into a by-value parameter: the slot keeps
   t := io.async((io : Io) => {
     mut(xs) := ArrayList(Rc(_PmHandle)).new();
     q := Rc.new(_PmHandle(n : i32(2)));
-    io.await(sleep(u64(1)), io);
+    io.await(sleep(u64(1), io), io);
     xs.push(Rc.clone(&q));
     (ref_count(q) * usize(10)) + xs.len()
   });

@@ -71,7 +71,7 @@ test("a contended lock suspends the waiter, and the loop stays live", {
   holder := io.spawn(
     io.async({ m_holder : Arc.clone(m_holder) }(io : Io) => {
       io.await(m_holder.*.lock(io), io);
-      io.await(sleep(u64(10)), io);
+      io.await(sleep(u64(10), io), io);
       m_holder.*.set(m_holder.*.get() + i64(1));
       m_holder.*.unlock();
       return(());
@@ -79,7 +79,7 @@ test("a contended lock suspends the waiter, and the loop stays live", {
     io
   );
   // Let the holder enter its (sleeping) section before probing.
-  io.await(sleep(u64(2)), io);
+  io.await(sleep(u64(2), io), io);
   assert(m.*.is_locked(), "the holder is inside its section");
   m_waiter := Arc.clone(m);
   waiter := io.spawn(

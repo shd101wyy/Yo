@@ -186,7 +186,7 @@ _flush_wbio :: (fn(t : _TlsIo, io : Io) -> Impl(Future(unit, IoExn)))(
           (mut(sent) : usize) = usize(0);
           (want : usize) = usize(n);
           while(sent < want, {
-            r := e.io.await(IO_tcp.stream_write(t._fd, buf.ptr().unwrap().add(sent), want - sent), e.io);
+            r := e.io.await(IO_tcp.stream_write(t._fd, buf.ptr().unwrap().add(sent), want - sent, e.io), e.io);
             w := usize(NetError.check(r, e.exn));
             sent = (sent + w);
           });
@@ -203,7 +203,7 @@ _feed_rbio :: (fn(t : _TlsIo, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
     mut(buf) := ArrayList(u8).with_capacity(_PUMP_CAP());
     buf.resize_with_byte(_PUMP_CAP(), int(0));
-    r := e.io.await(IO_tcp.recv(t._fd, buf.ptr().unwrap(), _PUMP_CAP(), i32(0)), e.io);
+    r := e.io.await(IO_tcp.recv(t._fd, buf.ptr().unwrap(), _PUMP_CAP(), i32(0), e.io), e.io);
     n := usize(NetError.check(r, e.exn));
     cond(
       (n > usize(0)) => {

@@ -57,8 +57,7 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("../time/duration");
 { Instant } :: import("../time/instant");
 IO_timer :: import("../sys/timer");
-{ __yo_join_wait_new } :: import("../sys/externs.yo");
-{ _scope, _scoped_state, _scoped_abort, _scoped_wait_on, _scoped_join } :: import("../async/index");
+{ _scope, _scoped_state, _scoped_abort, _scoped_wait_either, _scoped_join } :: import("../async/index");
 { Reader } :: import("../io");
 { HttpMethod, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, HttpError, parse_response } :: import("./http.yo");
 { read_http_message_buffered, MessageKind } :: import("./wire.yo");
@@ -933,14 +932,11 @@ _deadline_join :: (fn(h : JoinHandle(HttpResponse), limit : Duration, io : Io) -
     // made, so nothing can drop it between the spawn and this line.
     mut(child) := _scope(h);
     deadline_fut := io.async((io : Io) => {
-      io.await(IO_timer.sleep(ms.*), io);
+      io.await(IO_timer.sleep(ms.*, io), io);
       return(());
     });
     mut(deadline) := _scope(io.spawn(deadline_fut, io));
-    w := unsafe(__yo_join_wait_new());
-    _scoped_wait_on(&child, &w);
-    _scoped_wait_on(&deadline, &w);
-    _w := io.await(w, io);
+    _w := io.await(_scoped_wait_either(&child, &deadline, io), io);
     s := _scoped_state(&child);
     elapsed := ((s != FutureState.Completed) && (s != FutureState.Aborted));
     if(elapsed, {

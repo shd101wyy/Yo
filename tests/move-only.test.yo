@@ -3554,7 +3554,7 @@ _mo_abort_after :: (fn(shape : i32, k : i32, io : Io) -> unit)({
           });
         }
       );
-      io.await(sleep(u64(50)), io);
+      io.await(sleep(u64(50), io), io);
     }),
     io
   );
@@ -3865,7 +3865,7 @@ test("move-only: an aborted task does not drop a local it moved", {
       f := _MoFd(n : i32(7));
       io.await(yield(io), io);
       _n := _mo_take(f);
-      io.await(sleep(u64(50)), io);
+      io.await(sleep(u64(50), io), io);
     }),
     io
   );

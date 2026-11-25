@@ -54,7 +54,7 @@ test("Test mutex excludes across awaits", {
         v.* = true;
       });
       before := m2.*.get();
-      io.await(sleep(u64(5)), io);
+      io.await(sleep(u64(5), io), io);
       m2.*.set(before + i64(1));
       ins.with_mut(v => {
         v.* = false;
@@ -81,7 +81,7 @@ test("Test mutex lock waits", {
   assert(m.*.try_lock(), "main takes the lock first");
   m2 := Arc.clone(m);
   releaser := io.async({ m2 : Arc.clone(m2) }(io : Io) => {
-    io.await(sleep(u64(10)), io);
+    io.await(sleep(u64(10), io), io);
     m2.*.set(i64(1));
     m2.*.unlock();
     return(());
@@ -125,7 +125,7 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   h4 := io.spawn(worker(Arc.clone(m), &order, i64(4), io), io);
   h5 := io.spawn(worker(Arc.clone(m), &order, i64(5), io), io);
   // Let them all reach the queue before anything is released.
-  io.await(sleep(u64(5)), io);
+  io.await(sleep(u64(5), io), io);
   assert(m.*.waiter_count() == usize(5), `all five queued, got ${m.*.waiter_count().to_string()}`);
   m.*.unlock();
   _r1 := h1.await(io);
@@ -214,7 +214,7 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
       // The receiver is auto-dereferenced: `a.lock(io)` lends `a.*`.
       io.await(a.lock(io), io);
       before := a.get();
-      io.await(sleep(u64(2)), io);
+      io.await(sleep(u64(2), io), io);
       a.set(before + i64(10));
       a.unlock();
       return(());
@@ -234,7 +234,7 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
     }),
     io
   );
-  io.await(sleep(u64(5)), io);
+  io.await(sleep(u64(5), io), io);
   assert(m.*.waiter_count() == usize(2), "both tasks queued on the one lock");
   m.*.set(i64(1));
   m.*.unlock();
@@ -271,7 +271,7 @@ test("Test a waiter cancelled after the lock was handed to it passes the lock on
     io
   );
   while(m.*.waiter_count() < usize(2), {
-    io.await(sleep(u64(1)), io);
+    io.await(sleep(u64(1), io), io);
   });
   // The lock is handed to a, which is cancelled before it ever runs again.
   m.*.unlock();
@@ -298,14 +298,14 @@ test("Test tasks contend through Rc handles, and lock borrows through them acros
       // The receiver is auto-dereferenced: `a.lock(io)` lends `a.*`.
       io.await(a.lock(io), io);
       before := a.get();
-      io.await(sleep(u64(2)), io);
+      io.await(sleep(u64(2), io), io);
       a.set(before + i64(10));
       a.unlock();
       return(());
     }),
     io
   );
-  io.await(sleep(u64(5)), io);
+  io.await(sleep(u64(5), io), io);
   assert(r.*.waiter_count() == usize(1), "the task queued on the lock through its own Rc handle");
   r.*.set(i64(1));
   r.*.unlock();
@@ -325,7 +325,7 @@ Gauge :: struct(n : i64);
 /// answers.
 peek_mut :: (fn(g : &mut Gauge, io : Io) -> Impl(Future(i64, Io)))(
   io.async({ g : &mut g.* }(io : Io) => {
-    io.await(sleep(u64(1)), io);
+    io.await(sleep(u64(1), io), io);
     g.n
   })
 );

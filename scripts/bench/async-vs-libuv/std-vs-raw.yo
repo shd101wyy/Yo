@@ -30,16 +30,16 @@ _raw_side :: (fn(fd : i32, first : bool, io : Io) -> Impl(Future(i64, IoExn)))(
   io.async(e => {
     buf := (*u8)(malloc(usize(64)).unwrap());
     if(first, {
-      e.io.await(IO_tcp.stream_write(fd, buf, usize(1)), e.io);
+      e.io.await(IO_tcp.stream_write(fd, buf, usize(1), e.io), e.io);
     });
     (i : i64) = i64(0);
     while(i < ROUNDS, {
-      n := e.io.await(IO_tcp.recv(fd, buf, usize(64), i32(0)), e.io);
+      n := e.io.await(IO_tcp.recv(fd, buf, usize(64), i32(0), e.io), e.io);
       if(n <= i32(0), {
         return(i);
       });
       if(((i + i64(1)) < ROUNDS) || !first, {
-        e.io.await(IO_tcp.stream_write(fd, buf, usize(1)), e.io);
+        e.io.await(IO_tcp.stream_write(fd, buf, usize(1), e.io), e.io);
       });
       i = (i + i64(1));
     });
@@ -73,7 +73,7 @@ _write_raw :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i64, IoExn)))(
     (i : i64) = i64(0);
     (sum : i64) = i64(0);
     while(i < WRITES, {
-      r := e.io.await(IO_tcp.stream_write(fd, buf, usize(1)), e.io);
+      r := e.io.await(IO_tcp.stream_write(fd, buf, usize(1), e.io), e.io);
       sum = (sum + i64(r));
       i = (i + i64(1));
     });

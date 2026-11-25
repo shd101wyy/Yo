@@ -21,19 +21,19 @@ test("pipe read/write", {
   assert(write_fd >= i32(0));
   data := (*u8)("hello pipe");
   data_len := u32(10);
-  wr := io.await(file.write(write_fd, data, data_len, u64(0)), io);
+  wr := io.await(file.write(write_fd, data, data_len, u64(0), io), io);
   unsafe(printf("  write = %d\n", wr));
   assert(wr == i32(data_len));
   mut(buf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf := (*u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
+  rd := io.await(file.read(read_fd, buf, u32(16), u64(0), io), io);
   unsafe(printf("  read = %d\n", rd));
   assert(rd == i32(data_len));
   assert((buf.add(usize(0))).* == u8(104));
   assert((buf.add(usize(6))).* == u8(112));
   assert((buf.add(usize(9))).* == u8(101));
-  c1 := io.await(file.close(read_fd), io);
-  c2 := io.await(file.close(write_fd), io);
+  c1 := io.await(file.close(read_fd, io), io);
+  c2 := io.await(file.close(write_fd, io), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
 });
@@ -47,20 +47,20 @@ test("dup reads from original pipe", {
   dup_fd := pipe_io.dup(read_fd);
   unsafe(printf("  dup = %d\n", dup_fd));
   assert(dup_fd >= i32(0));
-  close_read := io.await(file.close(read_fd), io);
+  close_read := io.await(file.close(read_fd, io), io);
   assert(close_read == i32(0));
   data := (*u8)("dup test");
   data_len := u32(8);
-  wr := io.await(file.write(write_fd, data, data_len, u64(0)), io);
+  wr := io.await(file.write(write_fd, data, data_len, u64(0), io), io);
   assert(wr == i32(data_len));
   mut(buf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf := (*u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(dup_fd, buf, u32(16), u64(0)), io);
+  rd := io.await(file.read(dup_fd, buf, u32(16), u64(0), io), io);
   assert(rd == i32(data_len));
   assert((buf.add(usize(0))).* == u8(100));
   assert((buf.add(usize(7))).* == u8(116));
-  c1 := io.await(file.close(dup_fd), io);
-  c2 := io.await(file.close(write_fd), io);
+  c1 := io.await(file.close(dup_fd, io), io);
+  c2 := io.await(file.close(write_fd, io), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
 });
@@ -80,22 +80,22 @@ test("dup2 redirects to target fd", {
   dup2_fd := pipe_io.dup2(write_fd_src, write_fd_dst);
   unsafe(printf("  dup2 = %d\n", dup2_fd));
   assert(dup2_fd == write_fd_dst);
-  c1 := io.await(file.close(write_fd_src), io);
-  c2 := io.await(file.close(read_fd_b), io);
+  c1 := io.await(file.close(write_fd_src, io), io);
+  c2 := io.await(file.close(read_fd_b, io), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
   data := (*u8)("dup2 ok");
   data_len := u32(7);
-  wr := io.await(file.write(write_fd_dst, data, data_len, u64(0)), io);
+  wr := io.await(file.write(write_fd_dst, data, data_len, u64(0), io), io);
   assert(wr == i32(data_len));
   mut(buf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf := (*u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
+  rd := io.await(file.read(read_fd, buf, u32(16), u64(0), io), io);
   assert(rd == i32(data_len));
   assert((buf.add(usize(0))).* == u8(100));
   assert((buf.add(usize(6))).* == u8(107));
-  c3 := io.await(file.close(read_fd), io);
-  c4 := io.await(file.close(write_fd_dst), io);
+  c3 := io.await(file.close(read_fd, io), io);
+  c4 := io.await(file.close(write_fd_dst, io), io);
   assert(c3 == i32(0));
   assert(c4 == i32(0));
 });
@@ -126,13 +126,13 @@ test("two concurrent async reads on one pipe end both complete", {
       read_a := Rc.new(RefCell(i32).new(-99));
       read_b := Rc.new(RefCell(i32).new(-99));
       task_a := io.async({ buf_a, read_a : Rc.clone(read_a), read_fd }(io : Io) => {
-        n := io.await(file.read(read_fd, buf_a, u32(8), u64(0)), io);
+        n := io.await(file.read(read_fd, buf_a, u32(8), u64(0), io), io);
         read_a.with_mut(cur => {
           cur.* = n;
         });
       });
       task_b := io.async({ buf_b, read_b : Rc.clone(read_b), read_fd }(io : Io) => {
-        n := io.await(file.read(read_fd, buf_b, u32(8), u64(0)), io);
+        n := io.await(file.read(read_fd, buf_b, u32(8), u64(0), io), io);
         read_b.with_mut(cur => {
           cur.* = n;
         });
@@ -140,21 +140,21 @@ test("two concurrent async reads on one pipe end both complete", {
       handle_a := io.spawn(task_a, io);
       handle_b := io.spawn(task_b, io);
       // Let both tasks reach their would-block and register.
-      io.await(sleep(u64(20)), io);
+      io.await(sleep(u64(20), io), io);
       data := (*u8)("hi!\n");
-      wr := io.await(file.write(write_fd, data, u32(4), u64(0)), io);
+      wr := io.await(file.write(write_fd, data, u32(4), u64(0), io), io);
       assert(wr == i32(4));
-      io.await(sleep(u64(20)), io);
+      io.await(sleep(u64(20), io), io);
       // One 4-byte write serves one reader; closing the write end hands the
       // other reader its EOF so BOTH complete.
-      cw := io.await(file.close(write_fd), io);
+      cw := io.await(file.close(write_fd, io), io);
       assert(cw == i32(0));
       ra := handle_a.await(io);
       rb := handle_b.await(io);
       unsafe(printf("  concurrent reads: a=%d b=%d\n", read_a.with(cur => cur.*), read_b.with(cur => cur.*)));
       assert((read_a.with(cur => cur.*) >= i32(0)) && (read_b.with(cur => cur.*) >= i32(0)));
       assert((read_a.with(cur => cur.*) + read_b.with(cur => cur.*)) == i32(4));
-      cr := io.await(file.close(read_fd), io);
+      cr := io.await(file.close(read_fd, io), io);
       assert(cr == i32(0));
     },
     true => ()

@@ -11,7 +11,7 @@
 //!
 //! ```yo
 //! { watch, WatchOptions, FsEventKind } :: import("std/fs/watch");
-//! w := watch(Path.new(`./logs`), WatchOptions.defaults(), exn);
+//! w := watch(Path.new(`./logs`), WatchOptions.defaults(), io, exn);
 //! ev := io.await(w.next(io), io); // Option(FsEvent) — .None once closed
 //! match(ev, .Some(e) => println(`${e.name} ${e.kind}`), .None => ());
 //! w.close();
@@ -102,6 +102,9 @@ impl(
 /// `Watcher` handle moves), and its `Drop` unregisters the watch.
 _WatcherState :: struct(
   _handle : events.FsEventHandle,
+  /// The `Io` the watch is registered with: the loop that calls back, and
+  /// the one `stop` and `close` go to.
+  _io : Io,
   _root : Path,
   _queue : ArrayList(FsEvent),
   /// Index of the first unread event in `_queue`; the list is compacted
@@ -123,8 +126,8 @@ _wake_waiters :: (fn(st : &mut _WatcherState) -> unit)({
 _stop_watch :: (fn(st : &mut _WatcherState) -> unit)({
   if(st._active, {
     st._active = false;
-    events.fs_event_stop(st._handle);
-    events.fs_event_close(st._handle);
+    events.fs_event_stop(st._handle, st._io);
+    events.fs_event_close(st._handle, st._io);
     _wake_waiters(&mut st.*);
   });
 });
@@ -180,16 +183,17 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
     _wake_waiters(&mut unsafe(w.*));
   });
 });
-/// Start watching `path`. Throws the backend's `IoError` (e.g. `NotFound`)
-/// through `exn`.
-watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
+/// Start watching `path` on `io`'s loop, which calls back as entries change.
+/// Throws the backend's `IoError` (e.g. `NotFound`) through `exn`.
+watch :: (fn(path : &Path, opts : WatchOptions, io : Io, exn : Exception) -> Watcher)({
   // Checked before the watcher exists: a path with an interior NUL would
   // watch its prefix (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
   cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => exn.throw(dyn(Box.new(IoError.InvalidInput))));
   w := Watcher(
     _cell : Box.new(
       _WatcherState(
-        _handle : events.fs_event_init(),
+        _handle : events.fs_event_init(io),
+        _io : io,
         _root : path.clone(),
         _queue : ArrayList(FsEvent).new(),
         _head : usize(0),
@@ -201,9 +205,9 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   st := addr_of(w._cell.*);
   cstr := cstr_bytes.ptr().unwrap();
   flags := cond(opts.recursive => events.FS_EVENT_RECURSIVE, true => u32(0));
-  status := events.fs_event_start(w._cell._handle, cstr, flags, _on_fs_event, (*u8)((*void)(st)));
+  status := events.fs_event_start(w._cell._handle, cstr, flags, _on_fs_event, (*u8)((*void)(st)), io);
   if(status < i32(0), {
-    events.fs_event_close(w._cell._handle);
+    events.fs_event_close(w._cell._handle, io);
     exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - status))));
   });
   unsafe(consume(st.*._active = true));
@@ -265,7 +269,7 @@ impl(
       io.async({ self : &mut self.* }(io : Io) => {
         st := addr_of(self._cell.*);
         while((self._cell._head >= self._cell._queue.len()) && self._cell._active, {
-          p := Park.new();
+          p := Park.new(io);
           unsafe(st.*._waiters.push(p.waker()));
           io.await(p.wait(io), io);
         });

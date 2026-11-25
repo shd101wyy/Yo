@@ -505,7 +505,7 @@ _spawn_with_fds :: (
       },
       .None => ()
     );
-    pid := e.io.await(IO_process.spawn_cwd(program_cstr, argv_buf, envp_arg, stdin_fd, stdout_fd, stderr_fd, cwd_ptr), e.io);
+    pid := e.io.await(IO_process.spawn_cwd(program_cstr, argv_buf, envp_arg, stdin_fd, stdout_fd, stderr_fd, cwd_ptr, e.io), e.io);
     // Free argv/envp buffers (storage lists drop naturally at scope end).
     free(.Some(argv_raw));
     match(
@@ -549,7 +549,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
     buf := (*u8)(malloc(buf_size).unwrap());
     mut(out) := ArrayList(u8).new();
     while(true, {
-      n := e.io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)), e.io);
+      n := e.io.await(IO_file.read(fd, buf, u32(buf_size), u64(0), e.io), e.io);
       cond(
         (n < i32(0)) => {
           free(.Some((*void)(buf)));
@@ -585,7 +585,7 @@ impl(
         _spawn_with_fds(&cmd, i32(-1), i32(-1), i32(-1), io),
         e
       );
-      raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
+      raw := e.io.await(IO_process.waitpid(pid, i32(0), e.io), e.io);
       IoError.check(raw, e.exn);
       ExitStatus(raw : raw)
     })
@@ -609,8 +609,8 @@ impl(
       pr2 := IO_pipe.pipe(err_fd);
       cond(
         (pr2 < i32(0)) => {
-          e.io.await(IO_file.close(out_read), e.io);
-          e.io.await(IO_file.close(out_write), e.io);
+          e.io.await(IO_file.close(out_read, e.io), e.io);
+          e.io.await(IO_file.close(out_write, e.io), e.io);
           e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - pr2))));
         },
         true => ()
@@ -625,8 +625,8 @@ impl(
         e
       );
       // Close write ends in parent so reads see EOF when child exits.
-      e.io.await(IO_file.close(out_write), e.io);
-      e.io.await(IO_file.close(err_write), e.io);
+      e.io.await(IO_file.close(out_write, e.io), e.io);
+      e.io.await(IO_file.close(err_write, e.io), e.io);
       // Drain both pipes CONCURRENTLY. Draining stdout to EOF first deadlocked
       // on any child that filled the 64 KiB stderr pipe before closing stdout
       // (it blocks in write(2); we block in read) —
@@ -648,9 +648,9 @@ impl(
           ArrayList(u8).new()
         }
       );
-      e.io.await(IO_file.close(out_read), e.io);
-      e.io.await(IO_file.close(err_read), e.io);
-      raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
+      e.io.await(IO_file.close(out_read, e.io), e.io);
+      e.io.await(IO_file.close(err_read, e.io), e.io);
+      raw := e.io.await(IO_process.waitpid(pid, i32(0), e.io), e.io);
       IoError.check(raw, e.exn);
       Output(
         status : ExitStatus(raw : raw),
@@ -707,13 +707,13 @@ impl(Child, !Sync());
 // before use reports itself, with no branch inside the `io.async` body.
 _pipe_write :: (fn(fd : i32, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
-    n := e.io.await(IO_file.write(fd, buf, u32(size), u64(0)), e.io);
+    n := e.io.await(IO_file.write(fd, buf, u32(size), u64(0), e.io), e.io);
     usize(IoError.check(n, e.exn))
   })
 );
 _pipe_read :: (fn(fd : i32, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
-    n := e.io.await(IO_file.read(fd, buf, u32(size), u64(0)), e.io);
+    n := e.io.await(IO_file.read(fd, buf, u32(size), u64(0), e.io), e.io);
     usize(IoError.check(n, e.exn))
   })
 );
@@ -748,7 +748,7 @@ _pipe_close :: (fn(end : *_PipeEnd, io : Io) -> Impl(Future(unit, IoExn)))(
         unsafe(end.*._closed) => (),
         true => {
           unsafe(consume(end.*._closed = true));
-          result := e.io.await(IO_file.close(unsafe(end.*._fd)), e.io);
+          result := e.io.await(IO_file.close(unsafe(end.*._fd), e.io), e.io);
           IoError.check(result, e.exn);
           ()
         }
@@ -947,7 +947,7 @@ impl(
           i32(-1)
         }
       );
-      n := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)), e.io);
+      n := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0), e.io), e.io);
       usize(IoError.check(n, e.exn))
     })
   ),
@@ -961,7 +961,7 @@ impl(
           // Cleared BEFORE the await: a task aborted mid-close must not let
           // the state's `Drop` close the (possibly reused) fd again.
           unsafe(consume(st.*._stdin_fd = Option(i32).None));
-          e.io.await(IO_file.close(f), e.io);
+          e.io.await(IO_file.close(f, e.io), e.io);
         },
         .None => ()
       );
@@ -1014,7 +1014,7 @@ impl(
         self._cell._stdin_fd,
         .Some(sf) => {
           unsafe(consume(st.*._stdin_fd = Option(i32).None));
-          e.io.await(IO_file.close(sf), e.io);
+          e.io.await(IO_file.close(sf, e.io), e.io);
         },
         .None => ()
       );
@@ -1022,7 +1022,7 @@ impl(
         self._cell._stdout_fd,
         .Some(of) => {
           unsafe(consume(st.*._stdout_fd = Option(i32).None));
-          e.io.await(IO_file.close(of), e.io);
+          e.io.await(IO_file.close(of, e.io), e.io);
         },
         .None => ()
       );
@@ -1030,11 +1030,11 @@ impl(
         self._cell._stderr_fd,
         .Some(ef) => {
           unsafe(consume(st.*._stderr_fd = Option(i32).None));
-          e.io.await(IO_file.close(ef), e.io);
+          e.io.await(IO_file.close(ef, e.io), e.io);
         },
         .None => ()
       );
-      raw := e.io.await(IO_process.waitpid(self._cell._pid, i32(0)), e.io);
+      raw := e.io.await(IO_process.waitpid(self._cell._pid, i32(0), e.io), e.io);
       IoError.check(raw, e.exn);
       unsafe(consume(st.*._reaped = true));
       ExitStatus(raw : raw)
@@ -1097,19 +1097,19 @@ impl(
       // Close the CHILD ends in the parent (the child holds its own copies).
       cond(
         (in_pair(usize(0)) >= i32(0)) => {
-          e.io.await(IO_file.close(in_pair(usize(0))), e.io);
+          e.io.await(IO_file.close(in_pair(usize(0)), e.io), e.io);
         },
         true => ()
       );
       cond(
         (out_pair(usize(0)) >= i32(0)) => {
-          e.io.await(IO_file.close(out_pair(usize(0))), e.io);
+          e.io.await(IO_file.close(out_pair(usize(0)), e.io), e.io);
         },
         true => ()
       );
       cond(
         (err_pair(usize(0)) >= i32(0)) => {
-          e.io.await(IO_file.close(err_pair(usize(0))), e.io);
+          e.io.await(IO_file.close(err_pair(usize(0)), e.io), e.io);
         },
         true => ()
       );

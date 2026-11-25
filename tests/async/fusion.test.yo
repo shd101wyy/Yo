@@ -195,7 +195,7 @@ test("a bound future keeps the ordinary path", {
 _nap :: (fn(ms : u64, io : Io) -> Impl(Future(u64, IoExn)))({
   d := ms;
   io.async(e => {
-    e.io.await(sleep(d), e.io);
+    e.io.await(sleep(d, e.io), e.io);
     d
   })
 });
@@ -215,7 +215,7 @@ test("aborting a task suspended at a fused await cancels the wait", {
     )
   );
   h := io.spawn(_napper(io), IoExn(io : io, exn : exn));
-  io.await(sleep(u64(5)), io);
+  io.await(sleep(u64(5), io), io);
   h.abort();
   assert(h.await(io).is_none(), "an aborted task has no result");
 });
@@ -553,7 +553,7 @@ _throws_lent :: (fn(s : &String, io : Io) -> Impl(Future(unit, IoExn)))({
 _parks_then_throws :: (fn(s : &String, io : Io) -> Impl(Future(unit, IoExn)))({
   owned := s.clone();
   io.async(e => {
-    e.io.await(sleep(u64(1)), e.io);
+    e.io.await(sleep(u64(1), e.io), e.io);
     _raise_for(&owned, e.exn);
     ()
   })

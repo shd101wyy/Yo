@@ -10,8 +10,6 @@ tcp :: import("std/sys/tcp");
 { AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
 { O_NONBLOCK } :: import("std/sys/constants");
 {
-  __yo_async_send_start,
-  __yo_async_recv_start,
   __yo_sync_fcntl_getfl,
   __yo_sync_fcntl_setfl,
   __yo_io_stats_kernel_enters,
@@ -38,14 +36,14 @@ _echo_side :: (fn(fd : i32, server : bool, rounds : usize, io : Io) -> Impl(Futu
     (bad : i32) = i32(0);
     while(k < rounds, k = (k + usize(1)), {
       if(server, {
-        got := io.await(__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io);
+        got := io.await(tcp.recv(fd, ebuf, usize(64), i32(0), io), io);
         if(got != i32(32), {
           bad = (bad + i32(1));
         });
-        io.await(__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
+        io.await(tcp.send(fd, ebuf, usize(32), i32(0), io), io);
       }, {
-        io.await(__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
-        got := io.await(__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io);
+        io.await(tcp.send(fd, ebuf, usize(32), i32(0), io), io);
+        got := io.await(tcp.recv(fd, ebuf, usize(64), i32(0), io), io);
         if(got != i32(32), {
           bad = (bad + i32(1));
         });
@@ -85,10 +83,10 @@ main :: (fn(io : Io) -> unit)({
   before := _syscalls();
   i := usize(0);
   while(i < N_ECHO, {
-    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
-    io.await(__yo_async_recv_start(fd_b, buf, usize(64), i32(0)), io);
-    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
-    io.await(__yo_async_recv_start(fd_a, buf, usize(64), i32(0)), io);
+    io.await(tcp.send(fd_a, buf, usize(32), i32(0), io), io);
+    io.await(tcp.recv(fd_b, buf, usize(64), i32(0), io), io);
+    io.await(tcp.send(fd_b, buf, usize(32), i32(0), io), io);
+    io.await(tcp.recv(fd_a, buf, usize(64), i32(0), io), io);
     i = (i + usize(1));
   });
   a_delta := (_syscalls() - before);
@@ -107,11 +105,11 @@ main :: (fn(io : Io) -> unit)({
   before = _syscalls();
   i = usize(0);
   while(i < N_ECHO, {
-    rb := __yo_async_recv_start(fd_b, buf, usize(64), i32(0));
-    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    rb := tcp.recv(fd_b, buf, usize(64), i32(0), io);
+    io.await(tcp.send(fd_a, buf, usize(32), i32(0), io), io);
     io.await(rb, io);
-    ra := __yo_async_recv_start(fd_a, buf, usize(64), i32(0));
-    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    ra := tcp.recv(fd_a, buf, usize(64), i32(0), io);
+    io.await(tcp.send(fd_b, buf, usize(32), i32(0), io), io);
     io.await(ra, io);
     i = (i + usize(1));
   });
@@ -121,8 +119,8 @@ main :: (fn(io : Io) -> unit)({
   if(d_delta > budget_d, {
     panic(String.from("BUDGET D VIOLATED"));
   });
-  io.await(tcp.close(fd_a), io);
-  io.await(tcp.close(fd_b), io);
+  io.await(tcp.close(fd_a, io), io);
+  io.await(tcp.close(fd_b, io), io);
 
   // --- Budget B: N timer ticks are LINEAR in the syscall total. A sleep is a
   // node in the loop's userspace timer heap on both backends: arming it costs
@@ -132,7 +130,7 @@ main :: (fn(io : Io) -> unit)({
   before = _syscalls();
   i = usize(0);
   while(i < N_TIMERS, {
-    io.await(sleep(u64(1)), IoExn(io : io, exn : exn));
+    io.await(sleep(u64(1), io), IoExn(io : io, exn : exn));
     i = (i + usize(1));
   });
   b_delta := (_syscalls() - before);
@@ -153,10 +151,10 @@ main :: (fn(io : Io) -> unit)({
   parked_a := (sv2.add(usize(0))).*;
   parked_b := (sv2.add(usize(1))).*;
   __yo_sync_fcntl_setfl(parked_a, __yo_sync_fcntl_getfl(parked_a) | O_NONBLOCK);
-  parked := __yo_async_recv_start(parked_a, buf, usize(64), i32(0));
+  parked := tcp.recv(parked_a, buf, usize(64), i32(0), io);
   before = _syscalls();
   before_zt := __yo_io_stats_zero_timeout_enters();
-  io.await(sleep(u64(150)), IoExn(io : io, exn : exn));
+  io.await(sleep(u64(150), io), IoExn(io : io, exn : exn));
   c_delta := (_syscalls() - before);
   c_zt := (__yo_io_stats_zero_timeout_enters() - before_zt);
   println(`budget C (150 ms blocked window, one parked recv): syscalls=${c_delta} zero_timeout=${c_zt} (both must be <= 8)`);
@@ -167,12 +165,12 @@ main :: (fn(io : Io) -> unit)({
     panic(String.from("BUDGET C VIOLATED (zero-timeout probes)"));
   });
   // The parked recv is still live: complete it.
-  io.await(__yo_async_send_start(parked_b, buf, usize(1), i32(0)), io);
+  io.await(tcp.send(parked_b, buf, usize(1), i32(0), io), io);
   if(io.await(parked, io) != i32(1), {
     panic(String.from("the parked recv did not complete"));
   });
-  io.await(tcp.close(parked_a), io);
-  io.await(tcp.close(parked_b), io);
+  io.await(tcp.close(parked_a, io), io);
+  io.await(tcp.close(parked_b, io), io);
 
   // --- Budget E: a two-task echo (each side parks its recv and the peer
   // task answers it) pays about NO inline recv that would block. The
@@ -201,8 +199,8 @@ main :: (fn(io : Io) -> unit)({
   if(e_wb > budget_e, {
     panic(String.from("BUDGET E VIOLATED"));
   });
-  io.await(tcp.close(echo_a), io);
-  io.await(tcp.close(echo_b), io);
+  io.await(tcp.close(echo_a, io), io);
+  io.await(tcp.close(echo_b, io), io);
 
   println("ALL BUDGETS OK");
 });
