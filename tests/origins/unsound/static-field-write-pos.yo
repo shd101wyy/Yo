@@ -1,0 +1,15 @@
+// expect: accept
+// The positive control of static-field-write: a field spelled over static
+// written with `&G` of an immutable module-level binding, a static value
+// (VERDICTS-74 rule 3), read after the write.
+{ println } :: import("std/fmt");
+X :: struct(n : i32);
+H :: struct(r : Option(&(X, static)));
+G := X(n : i32(7));
+main :: (fn() -> unit)({
+  mut(h) := H(r : .None);
+  h.r = .Some(&G);
+  match(h.r, .Some(r) => println(`OUT: ${r.*.n.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
