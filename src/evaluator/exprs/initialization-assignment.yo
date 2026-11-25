@@ -656,7 +656,7 @@ _evaluate_inout_local_binding :: (
         // (`static`, `()`), which holds only values that borrow no place;
         // `&G` of an immutable module-level binding is one.
         if(!_static_module_level(&root_var), {
-          _static_origin_reject(&var_name, &t_reference_with_origin(&place_type, is_mut, &t_origin_static()), &root_var.name, &ast_expr_token(rhs), ctx, exn);
+          _static_origin_reject(&var_name, &t_reference_with_origin(&place_type, is_mut, &t_origin_static()), &root_var.*.name, &ast_expr_token(rhs), ctx, exn);
         });
         declared_origin = Option(TypeValue).Some(t_origin_static());
       }, {
@@ -667,7 +667,7 @@ _evaluate_inout_local_binding :: (
                 with_code(
                   format_error_message(
                     ast_expr_token(rhs),
-                    `\`${sig}${local_borrow_place_text(rhs)}\` lends \`${root_var.name}\`, outside the declared origin \`${ast_expr_to_string(&ao)}\` of \`${var_name}\`.`
+                    `\`${sig}${local_borrow_place_text(rhs)}\` lends \`${root_var.*.name}\`, outside the declared origin \`${ast_expr_to_string(&ao)}\` of \`${var_name}\`.`
                   ),
                   E_ORIGIN_MISMATCH
                 )

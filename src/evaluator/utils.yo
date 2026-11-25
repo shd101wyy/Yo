@@ -2092,7 +2092,7 @@ note_second_class_binding :: (
     // `static` (`Impl(Future(..., static))`) holding a borrowing future is
     // the static subset violation — the more precise verdict of the two.
     if(type_spells_checked_static(ty), {
-      _static_origin_reject(&holder.name, ty, &capture_borrow_place_string(&b0), tok, ctx, exn);
+      _static_origin_reject(&holder.*.*.name, ty, &capture_borrow_place_string(&b0), tok, ctx, exn);
     });
     raise_flow_violation(
       with_code(
@@ -11845,7 +11845,7 @@ _param_declared_slot :: (fn(v : &Variable, env : &Environment, ctx : &EvalContex
   labels := _body_param_labels(&ft, ctx);
   (i : usize) = usize(0);
   while(i < labels.len(), {
-    if(match(labels.get(i), .Some(l) => (l == v.name), .None => false), {
+    if(match(labels.get(i), .Some(l) => (l == v.*.*.name), .None => false), {
       return(slots.get(i));
     });
     i = (i + usize(1));
@@ -11856,7 +11856,7 @@ param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &Eval
   match(
     _param_declared_slot(v, env, ctx),
     .Some(sl) => {
-      rigid := rigid_param_slot(&sl, &v.name);
+      rigid := rigid_param_slot(&sl, &v.*.*.name);
       names := ArrayList(String).new();
       origin_param_names_of(&rigid, &mut names, u32(0));
       if(names.len() > usize(0), Option(TypeValue).Some(rigid), Option(TypeValue).None)
@@ -12360,7 +12360,7 @@ _byvalue_param_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue,
 /// declared without `mut(name)`, decision 47: never written after its
 /// initializer) that has runtime storage.
 _static_module_level :: (fn(v : &Variable) -> bool)(
-  v.is_module_level() && !v.is_compile_time_only() && !is_mut_global(&v.token.module_path.*, &v.name)
+  v.*.*.is_module_level() && !v.*.*.is_compile_time_only() && !is_mut_global(&v.*.*.token.*.module_path.*, &v.*.*.name)
 );
 /// VERDICTS-74 rule 3: the parameter `v`'s declared slot spells the empty
 /// origin — a spelled `&(T, static)` parameter (its caller was checked to
@@ -12391,7 +12391,7 @@ _static_offending_root :: (fn(roots : &ArrayList(OriginRootPlace), skip : &Strin
       roots.get_cloned(ri),
       .Some(rt) => if((rt.place.root_name != skip.*) && match(
         get_variables_from_env(env, rt.place.root_name.clone()).last_cloned(),
-        .Some(rv) => !(_static_module_level(&rv) || (rv.is_parameter() && _static_slot_param(&rv, env, ctx))),
+        .Some(rv) => !(_static_module_level(&rv) || (rv.*.is_parameter() && _static_slot_param(&rv, env, ctx))),
         // A hidden temporary, a lost or a scrutinee pseudo-place: never
         // static.
         .None => true
@@ -12463,7 +12463,7 @@ _static_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
           // whose declared result is `comptime(...)` (a struct built through
           // a type application, `H(static)(r : …)`); its result is built at
           // check time, so R-CALL does not govern it.
-          .Some(Rc(.FuncVal(scd, _))) => match(get_func_type(&scd.*.func_id), Rc(.Func({ meta : scm })) => scm.result_is_comptime_only, _ => false),
+          .Some(Rc(.FuncVal(scd, _))) => match(get_func_type(&scd.*.func_id), Rc(.Func({ meta : scm })) => scm.*.result_is_comptime_only, _ => false),
           _ => !(is_function_type(&svr_ci.ty()) || is_type_value(&svr_ci.value()))
         ),
         .None => true
@@ -12582,11 +12582,11 @@ _static_origin_reject :: (fn(holder : &String, holder_ty : &TypeValue, what : &S
 /// parameter name never is.
 _static_join_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, roots : &ArrayList(OriginRootPlace), pv_names : &ArrayList(String), value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(pv_names.len() > usize(0), {
-    _static_origin_reject(&variable.name, holder_ty, &pv_names(0).clone(), &ast_expr_token(value), ctx, exn);
+    _static_origin_reject(&variable.*.*.name, holder_ty, &pv_names(0).clone(), &ast_expr_token(value), ctx, exn);
   });
   match(
-    _static_offending_root(roots, &variable.name, env, ctx),
-    .Some(off) => _static_origin_reject(&variable.name, holder_ty, &off.place.text, &ast_expr_token(value), ctx, exn),
+    _static_offending_root(roots, &variable.*.*.name, env, ctx),
+    .Some(off) => _static_origin_reject(&variable.*.*.name, holder_ty, &off.place.text, &ast_expr_token(value), ctx, exn),
     .None => ()
   );
 });
@@ -12685,11 +12685,11 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
     _static_join_subset_check(variable, &holder_ty, &sj_roots, &pv_names, value, env, ctx, exn);
   });
   if((roots.len() == usize(0)) && (pv_names.len() == usize(0)), {
-    local_borrow_joins_clear(variable.name.clone(), &variable.token);
+    local_borrow_joins_clear(variable.*.*.name.clone(), &variable.*.*.token);
     return(());
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] join ${variable.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
+    eprintln(`[n2b] join ${variable.*.*.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
   });
   _capture_store_param_origins(variable, &holder_names, &pv_names, value, ctx, exn);
   if(holder_names.len() > usize(0), {
@@ -14170,8 +14170,8 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
                 with_code(
                   format_error_message_with_help(
                     ast_expr_token(e),
-                    `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the result is declared over the empty origin \`static\`, which holds only values that borrow no place, and the value holds \`${rv.name}\` (decision 49; plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
-                    Option(String).Some(`return a static value (a literal, a read of a \`static\`-typed place, \`&G\` of an immutable module-level binding), or spell the place the result points into, \`-> &(T, ${rv.name})\``)
+                    `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the result is declared over the empty origin \`static\`, which holds only values that borrow no place, and the value holds \`${rv.*.name}\` (decision 49; plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                    Option(String).Some(`return a static value (a literal, a read of a \`static\`-typed place, \`&G\` of an immutable module-level binding), or spell the place the result points into, \`-> &(T, ${rv.*.name})\``)
                   ),
                   E_ORIGIN_MISMATCH
                 ),
