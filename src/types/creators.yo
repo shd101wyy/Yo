@@ -866,6 +866,17 @@ _patch_self_shell :: (
     true => Rc.clone(t)
   )
 );
+/// `_patch_self_shell`, also reporting whether `t` held the shell: the
+/// enum definition records from it whether the enum is recursive.
+patch_self_shell_reporting :: (
+  fn(t : &TypeValue, shell_id : &String, final_ty : &TypeValue) -> Tuple(TypeValue, bool)
+)(
+  cond(
+    _contains_self_shell(t, shell_id.clone(), ArrayList(String).new()) =>
+      (_patch_self_shell_guarded(t, shell_id, final_ty, ArrayList(String).new()), true),
+    true => (Rc.clone(t), false)
+  )
+);
 // Enum finalization side-table: `enum_id -> finalized EnumT`. During an
 // enum's own definition, `Self` is bound to a PRELIMINARY empty-variant
 // shell (enum.yo). TypeValues are value-typed snapshots, so leaked shells
@@ -882,6 +893,17 @@ _patch_self_shell :: (
 /// `TypeValue :: Rc(TypeValueNode)` tree (plans/VALUES_BY_DEFAULT.md decision
 /// 21's "As built" note), as the struct registry below was before it.
 (g_enum_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
+/// The ids of the enums whose declaration names `Self` (one of whose
+/// payloads holds the self-shell). Every enum registers a final; only these
+/// can occur inside themselves, so only they need the `type_key` cycle guard.
+(g_recursive_enum_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+mark_enum_recursive :: (fn(enum_id : &String) -> unit)({
+  rk := enum_id.clone();
+  _ := g_recursive_enum_ids.with_mut({ rk }(m) => m.insert(rk));
+});
+enum_is_recursive :: (fn(eid : &String) -> bool)(
+  g_recursive_enum_ids.with({ eid : &eid.* }(m) => m.contains(eid))
+);
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
   if((enum_id.len() > usize(0)) && g_enum_finals.with({ enum_id : &enum_id.* }(m) => m.get_cloned(enum_id)).is_none(), {
     // Owned captures (`with_mut`'s callback is a sink parameter).
@@ -1277,11 +1299,11 @@ resolve_some_binder_kind :: (fn(name : &String, lvl : usize) -> Option(TypeValue
     .None => Option(TypeValue).None
   )
 );
-export(register_enum_final, resolve_enum_shell, _patch_self_shell);
+export(register_enum_final, resolve_enum_shell, _patch_self_shell, patch_self_shell_reporting, mark_enum_recursive);
 export(UNFRAMED_BINDER_LEVEL);
 export(stamp_enum_final_type_arguments, enum_phantom_positions, register_ctor_phantom_positions, ctor_phantom_flags);
 export(register_struct_final, resolve_struct_shell);
-export(stamp_struct_final_type_arguments, struct_final_type_arguments, enum_final_recorded_args, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_base_final, is_substituted_shell, shell_with_list);
+export(stamp_struct_final_type_arguments, struct_final_type_arguments, enum_final_recorded_args, enum_is_recursive, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_base_final, is_substituted_shell, shell_with_list);
 export(register_type_binding_name, type_binding_name, clear_type_binding_names);
 export(
   generate_some_type_id,

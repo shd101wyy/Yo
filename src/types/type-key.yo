@@ -11,7 +11,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash-map");
 { TypeValue, TypeValueNode, no_types, no_labels, no_label_lists, SharedList, no_discriminants } :: import("./definitions.yo");
 { type_to_string, bump_type_key_epoch, type_key_epoch } :: import("./string.yo");
-{ resolve_enum_shell, resolve_struct_shell, enum_phantom_positions, enum_final_recorded_args } :: import("./creators.yo");
+{ resolve_enum_shell, resolve_struct_shell, enum_phantom_positions, enum_final_recorded_args, enum_is_recursive } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type, enum_decl_identity, is_prelude_enum_decl } :: import("./guards.yo");
 { is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked, type_mentions_some_type } :: import("./utils.yo");
 { debug_knob } :: import("../utils.yo");
@@ -585,11 +585,19 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // second C type beside the declared `Option(Option(i32))`
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
       e_node_targs := _tk_enum_targs(&eid, &match(&rs, Rc(.EnumT({ type_arguments : nd_tas })) => Rc.clone(nd_tas), _ => no_types()));
-      e_node := _tk_node_id(&eid, &e_node_targs);
-      if((eid.len() > usize(0)) && _tk_seen(&e_node), {
+      // Only a recursive enum (one whose declaration names `Self`) can occur
+      // inside itself, so only it is a node of the guard. A non-recursive
+      // instance met twice on one path sits around a recursive type (an
+      // `Option(Rc(N))` field of `N`), and two presentations of it (a
+      // substituted copy, def-era id; the constructor's instance, its own id)
+      // would cut at different depths there and key apart (VERDICTS-77, I2).
+      // The recursive type inside it is the cut.
+      e_guarded := (eid.len() > usize(0)) && enum_is_recursive(&eid);
+      e_node := if(e_guarded, _tk_node_id(&eid, &e_node_targs), String.new());
+      if(e_guarded && _tk_seen(&e_node), {
         return(_tk_enum_cut(&eid, &e_node_targs, depth));
       });
-      if(eid.len() > usize(0), {
+      if(e_guarded, {
         g_tk_visited.with_mut(xs => xs.push(e_node.clone()));
       });
       // An EMPTY-id enum must still be keyed STRUCTURALLY (via the sig path
