@@ -1743,10 +1743,19 @@ static void __yo_ring_fd_teardown(void) {
 
 // Cancel hook for the fd-bound ring operations with no post-completion hook
 // of their own (read, write, recv, send, connect, accept): the cancel is
-// queued, the continuation is taken by __yo_async_io_cancel, and the op's own
-// -ECANCELED CQE releases the ring's reference.
+// queued, and the op's own CQE (-ECANCELED, or its result when it completed
+// first) releases the ring's reference. It answers false even when the
+// cancel was queued: the kernel holds the op's buffer until that CQE — an op
+// still only in the SQ is submitted ahead of its cancel and can complete
+// inline at the enter, and an io-wq op that already started is not
+// interrupted — so the continuation stays and the CQE resumes the aborted
+// task, whose guard releases it then (__yo_async_io_cancel). Answering true
+// released the task's block at the abort, and the kernel wrote the read into
+// freed memory
+// (issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md).
 static bool __yo_ring_fd_future_cancel(__yo_io_future_t* future) {
-  return __yo_io_ring_submit_cancel(future);
+  (void)__yo_io_ring_submit_cancel(future);
+  return false;
 }
 
 // Re-arm the wakeup channel's POLL_ADD. One-shot per completion, so every
@@ -2968,12 +2977,15 @@ typedef struct {
   uint32_t* addrlen_out;         // recvfrom: caller's in/out length, written at CQE
 } __yo_dgram_future_t;
 
-// Ring cancellation for a datagram future. Also serves as its TYPE TAG:
-// __yo_io_process_cqe compares cancel_fn against this function to learn that
-// the completion path may read the __yo_dgram_future_t extension — only
+// Ring cancellation for a datagram future: queued, answering false for
+// __yo_ring_fd_future_cancel's reason — and the CQE also writes the address
+// length back through the caller's addrlen pointer. Also serves as its TYPE
+// TAG: __yo_io_process_cqe compares cancel_fn against this function to learn
+// that the completion path may read the __yo_dgram_future_t extension — only
 // futures allocated with that shape carry it.
 static bool __yo_dgram_future_cancel(__yo_io_future_t* future) {
-  return __yo_io_ring_submit_cancel(future);
+  (void)__yo_io_ring_submit_cancel(future);
+  return false;
 }
 
 

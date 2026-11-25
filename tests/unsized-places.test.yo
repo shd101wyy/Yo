@@ -6,6 +6,7 @@
 //! the fat pointer. `static` is the empty origin.
 pragma(Pragma.AllowUnsafe);
 { assert, panic } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
 { malloc, free } :: import("std/libc/stdlib.yo");
 
 // A test-local container: the prelude's `Index` keeps `Output : Type` until
@@ -117,4 +118,65 @@ test("an unsized projection call result is read where the call may unwind", {
   assert(v.len() == usize(3), "bound, then read");
   assert(_up_row_name(&r).len() == usize(4), "a free &str projection");
   assert(_up_any_view(&r.a.*).len() == usize(3), "a generic projection at T = [i32]");
+});
+// ---------------------------------------------------------------------------
+// `static` becomes a checked origin (VERDICTS-74, 2026-11-21): a reference's
+// origin enters type identity as one bit (static or not), the empty origin is
+// spelled in any file, and only values that borrow no place flow into it.
+// ---------------------------------------------------------------------------
+// Each order uses its own pointee, so the instance it asks about first is
+// the first one created (probes s13a and s13b); a `::` alias is evaluated at
+// its first use.
+_UpX :: struct(n : i32);
+_UpY :: struct(n : i32);
+_UpOptStaticX :: Option(&(_UpX, static));
+_UpOptElidedX :: Option(&_UpX);
+_UpOptElidedY :: Option(&_UpY);
+_UpOptStaticY :: Option(&(_UpY, static));
+test("Option(&(X, static)) and Option(&X) are two instances, static written first", {
+  comptime_assert(Type.impls(_UpOptStaticX, Escapable), "Option of a static reference is Escapable");
+  comptime_assert(!Type.impls(_UpOptElidedX, Escapable), "Option of an elided-origin reference is not Escapable");
+});
+test("Option(&(X, static)) and Option(&X) are two instances, elided written first", {
+  comptime_assert(!Type.impls(_UpOptElidedY, Escapable), "Option of an elided-origin reference is not Escapable");
+  comptime_assert(Type.impls(_UpOptStaticY, Escapable), "Option of a static reference is Escapable");
+});
+_UpStaticFn :: (fn(a : &(str, static), b : &(str, static)) -> &(str, static))(cond(true => a, true => b));
+_UpStaticHolder :: struct(name : &(str, static));
+test("a -> &(str, static) function over two literals", {
+  s := _UpStaticFn("hello", "world");
+  assert(s.len() == usize(5), "the static result reads");
+});
+test("a &(str, static) field and an ArrayList(&(str, static)) element", {
+  h := _UpStaticHolder(name : "abc");
+  mut(xs) := ArrayList(&(str, static)).new();
+  xs.push("def");
+  // Bound first: a method call straight on `xs(i)` emits invalid C
+  // (issues/2026-11-23-a-method-call-on-an-arraylist-str-element-read-by-index-emits-a-dot-on-a-pointer.md).
+  e := xs(usize(0));
+  assert((h.name.len() == usize(3)) && (e.len() == usize(3)), "static slots hold literals");
+});
+test("a static value passed to a &str parameter", {
+  takes :: (fn(s : &str) -> usize)(s.len());
+  (lit : &(str, static)) = "static";
+  assert(takes(lit) == usize(6), "a static value widens into every origin position");
+});
+_UpG := _UpX(n : i32(7));
+_UpStaticSlot :: struct(r : Option(&(_UpX, static)));
+_UpStaticWrap :: (fn(v : &(_UpX, static)) -> Option(&(_UpX, static)))(.Some(v));
+_UpStaticFieldOf :: (fn(t : &_UpStaticSlot) -> Option(&(_UpX, static)))(t.r);
+_UpStaticCopyField :: (fn(s : &mut _UpStaticSlot, t : &_UpStaticSlot) -> unit)({
+  s.r = t.r;
+});
+test("a read of a static parameter or of a static-typed field is a static value", {
+  // A bare static parameter returned as `-> &(T, static)` checks but emits
+  // invalid C (issues/2026-11-25-a-static-reference-parameter-returned-bare-emits-its-referent.md).
+  mut(h) := _UpStaticSlot(r : .None);
+  h.r = _UpStaticWrap(&_UpG);
+  mut(k) := _UpStaticSlot(r : .None);
+  // A `&mut` / `&` of a holder with a static field borrows the holder; it
+  // is no static value, and no static slot asks it to be.
+  _UpStaticCopyField(&mut k, &h);
+  rk := &k;
+  assert(match(_UpStaticFieldOf(rk), .Some(r) => (r.*.n == i32(7)), .None => false), "the static reference reads through every hop");
 });
