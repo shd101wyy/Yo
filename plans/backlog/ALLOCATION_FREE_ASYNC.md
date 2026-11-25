@@ -309,7 +309,13 @@ Today an operation the backend refuses to cancel lives on as its own cell
 header's count already expresses it. Q6 (adopted): the rule is confirmed, and
 today's io_uring behaviour for a read into a buffer that lives in the frame of
 a task aborted mid-read is investigated now, in its own lane, because it is a
-potential S1 independent of this plan.
+potential S1 independent of this plan. Result (2026-11-25): it was an S1, and
+today's runtime now follows the rule for the await chain: a task whose
+operation the abort cannot take back synchronously (io_uring, IOCP) reads
+`-4` (Aborting) and is released by the operation's completion
+(`issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md`).
+Scoped combinator operands outside the await chain are still open
+(`issues/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`).
 
 **Wakers.** A waker holds a task header, never a child frame (guard rail 3).
 
