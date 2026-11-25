@@ -38,7 +38,7 @@ export(main);
 `free(): double free detected in tcache 2`. With `<:` the spawn is E0602, as it should be.
 
 In a file with no pragma this needs the generic-impl gate hole
-(`issues/2026-11-25-a-generic-or-aliased-send-impl-skips-the-allow-unsafe-gate.md`); with the pragma it does not: the author wrote the
+(`issues/fixed/2026-11-25-a-generic-or-aliased-send-impl-skips-the-allow-unsafe-gate.md`); with the pragma it does not: the author wrote the
 bound that makes the claim true, and the compiler dropped it without a word.
 
 The same drop, with other traits:
