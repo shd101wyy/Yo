@@ -89,7 +89,14 @@ main :: (fn(io : Io) -> unit)({
     // 32 bytes, no newline: the line read would keep waiting.
     _w := io.await(client.write_str("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", io), ioe);
     io.await(yield(io), io);
-    s := match(server.take(), .Some(x) => x, .None => { assert(false, "stream"); return(()); });
+    s := match(
+      server.take(),
+      .Some(x) => x,
+      .None => {
+        assert(false, "stream");
+        return(());
+      }
+    );
     reader := BufReader(TcpStream).with_capacity(s, usize(4096));
     r := io.await(select(timeout(_line(&reader, io), Duration.from_millis(i64(1000)), io), _ready(io), io), io);
     assert(match(r, .Some(.Second(v)) => (v == i32(7)), _ => false), "the ready operand wins");

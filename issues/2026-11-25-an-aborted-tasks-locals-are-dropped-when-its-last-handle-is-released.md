@@ -15,9 +15,14 @@ Both are safe code. `p3`: when is an aborted task's `Drop` local dropped?
 { sleep } :: import("std/sys/timer");
 
 Loud :: struct(id : i32);
-impl(Loud, Drop(drop : (fn(self : &mut Self) -> unit)({
-  println(`  drop Loud ${self.id}`);
-})));
+impl(
+  Loud,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`  drop Loud ${self.id}`);
+    })
+  )
+);
 
 _task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
