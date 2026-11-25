@@ -44,3 +44,21 @@ Either reject `Dyn(Future(...))` at check time (a future is already a pointer to
 
 The VERDICTS-68 PR's `tests/async/effect-bundle.test.yo` checks only the negative (a bundled future
 into `Dyn(Future(i32))` is E0605); a positive `Dyn(Future(i32, Io))` round trip waits for this fix.
+
+## Fix
+
+Decided by VERDICTS-80 (Fable 5.2, adopted 2026-11-25): reject, no vtable. `Future` cannot be listed in a `Dyn`. A future is one pointer to its state machine, and awaiting or spawning it consumes it. One future is typed `Impl(Future(T, E))`. Several different running tasks are kept as `JoinHandle(T)`.
+
+- `evaluate_dyn_type` (`src/evaluator/types/dyn.yo`) throws E0614 at a `Future(...)` argument of `Dyn(...)`, negated or not. Every position forms its `Dyn` there: a local, a parameter, a struct field, a list element, and a generic alias over a `Trait` binder applied to a `Future`. The message:
+
+  ```text
+  error[E0614]: `Dyn(Future(i32, Io))` cannot be made: `Future` has no vtable slot. A future is awaited or spawned by value (`io.await(f, e)`, `io.spawn(f, e)`), which consumes it, and a `Dyn` is unsized and lives behind the pointer that owns it. A future is already one pointer to its state machine.
+  help: type one future as `Impl(Future(i32, Io))`: a parameter, a result or a struct field
+  help: to keep several different tasks in one collection, spawn each and keep its handle: `ArrayList(JoinHandle(i32))` (`io.spawn(f, io)`; `join_all` and `race` in `std/async` take the list)
+  ```
+
+- The two `Dyn(Future)` paths #2072 added are deleted as unreachable: the `DynT` arm of `_future_trait_of` (`src/types/compatibility.yo`) and the future-view check in `_require_dyn_traits_implemented` (`src/evaluator/values/dyn.yo`).
+- The E0902 static-dispatch texts (reassigning an `Impl` local, different concrete types across branches or returns) no longer suggest `Dyn(...)` when the `Impl` is a future: they name `JoinHandle(T)` (`impl_dispatch_hint`).
+- `yo explain E0614`, `docs/*/TRAIT_OBJECTS.md`, `docs/*/ASYNC_AWAIT.md` and the pack state the rule.
+
+Tests: `tests/dyn.test.yo` ("a Dyn that lists Future cannot be made, in every position", the E0902 hint, and two running positives: different tasks as `ArrayList(JoinHandle(i32))` joined with `join_all`, different cold futures behind one `Impl(Future(i32, Io))` struct field); `tests/async/effect-bundle.test.yo`'s `Dyn(Future(i32))` row now expects E0614; the cli-case `a-dyn-of-a-future-is-e0614` pins the rendered diagnostic and the `explain` text.
