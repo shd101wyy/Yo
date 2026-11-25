@@ -132,3 +132,12 @@ Infrastructure (the hosted macOS Intel VM or its agent), S3 as filed. No file or
 1. **Release handling.** A lost macos-26-intel job on a release-candidate battery gets `gh run rerun <id> --failed` (AGENTS.md's one rerun). A second loss on the same tip counts as infrastructure only if the rerun's lost job is a different shard or a different step; the same shard and step lost twice is investigated (disk, descriptors and process count on that leg) before the release goes ahead.
 2. **Record what the VM does before it dies**, because a lost runner's logs never land: in the `Run tests` and "Compile the suite compiler natively" steps of the macOS Intel leg start a background loop that prints `df -h /`, `vm_stat | head -4` and `ps -A | wc -l` every 30 s (printed lines survive up to the last flushed chunk). That settles disk and process headroom, the two causes this document cannot rule out. If a retry-on-"lost communication" policy is wanted, it belongs in the same maintainer decision as the sampler.
 3. Keep the leg: moving its shards to `macos-latest` drops x86_64 macOS coverage (see above).
+
+## Update 2026-11-25: two more losses on consecutive develop batteries
+
+| Date | Run | Job | Shard | Step | Ran for |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-24 | 45447738994 (01673f592) | 138709110628 | 1/4 | Compile the suite compiler natively | 51 min |
+| 2026-11-25 | 45534578147 (b25971e82) | 138975944670 | 3/4 | Run tests | 64 min |
+
+Both carry only the "hosted runner lost communication" annotation, and the log blob is missing (HTTP 404). The rest of each battery was green. The two losses are on different shards and in different steps, so recommendation 1 counts them as infrastructure: the first one's battery was superseded by green 45460102665 (78a71eae1), and the second one got `gh run rerun --failed`. Recommendation 2's VM sampler has still not been added. Each loss costs a rerun of a 50–65 minute leg on the release path.
