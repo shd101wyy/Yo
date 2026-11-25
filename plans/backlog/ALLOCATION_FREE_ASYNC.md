@@ -285,8 +285,9 @@ Generation A/B/C triple over a file set that IO-1b keeps small.
 **The five guard rails IO-1b and IO-1c must respect:**
 
 1. **No `io.vtable.<op>` call and no `IoFuture` in a signature outside
-   `std/sys`** (today: `std/async/index.yo` and `waker.yo` only). Add a grep
-   gate. Then the in-place flip rewrites `std/sys` and two files.
+   `std/sys`** (today: `std/async/index.yo` and `waker.yo` only). The grep
+   gate is `scripts/check-io-guard-rails.sh`, run by CI's `tree-hygiene` job.
+   Then the in-place flip rewrites `std/sys` and two files.
 2. **Std above `std/sys` awaits an operation only as the direct operand of
    `io.await`.** A bound `IoFuture` relies on the operation being submitted
    at the call, which the cold form ends.
@@ -314,8 +315,25 @@ today's runtime now follows the rule for the await chain: a task whose
 operation the abort cannot take back synchronously (io_uring, IOCP) reads
 `-4` (Aborting) and is released by the operation's completion
 (`issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md`).
-Scoped combinator operands outside the await chain are still open
-(`issues/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`).
+Scoped combinator operands outside the await chain were still open
+(`issues/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`),
+and so was a pending `IoFuture` held by a local
+(`issues/2026-11-25-a-pending-io-future-dropped-with-its-task-keeps-writing-into-the-released-buffer.md`).
+Both have one cause: an abort does not drop the task's frame, whose locals
+are dropped only at its last release
+(`issues/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md`).
+VERDICTS-83 (2026-11-25) decided the fix, the first v0.2.81 PR: **the abort
+walk on today's cells**, compiler-only. (1) Once an aborted task's await slot
+has retired, it drops its live locals, newest first, before it wakes its
+waiters. (2) A drop that aborts a future which does not retire stops the
+walk; the task stays `-4` and continues when that future retires. (3)
+Aborting an Aborting future answers "not retired". (4) A join wait added to
+an Aborting task cannot be cancelled. (5) A pending `IoFuture` held by a local
+is aborted by the walk, like the one in the await slot. Parts 1–3 are this
+plan's abort walk (§3) and survive AFA. Part 4 dies with AFA-8's in-place
+join wait. Part 5 holds until AFA-8 makes operations cold; the finish and
+scope-end path of a named operation stays the caller's obligation until then
+(`std/sys/future.yo`).
 
 **Wakers.** A waker holds a task header, never a child frame (guard rail 3).
 
@@ -343,7 +361,7 @@ name std must spell (`BoxFuture`, `io.spawn_scoped`, `alloc` on `spawn`,
 | **AFA-1** | v0.2.83 | no | Evaluator: each `io.async` instance is its own concrete type; a by-value `Impl(Future)` parameter is generic; the await graph and its cycles are recorded. No frame change | The async emit-diff changes only in instances of future-taking generics. Printed: share of await sites with a static child in `std/` and `src/`, the cycles, the instance count, `yo.c` size and C-compile RSS |
 | **AFA-2** | v0.2.83 | no | Codegen: the future value is the capture struct; the frame cell is allocated at the start | A future made and dropped costs 0 cells. The async suites. `async-chain` no slower |
 | **AFA-3** | v0.2.83–84 | no | Embedding: the child frame in the await-slot union for a static, acyclic operand; `resume(frame, task)`; the static abort walk; stack frames for sync-context awaits; ASan poisoning; `--max-frame-size`. A cycle still falls back to a cell. `YO_ASYNC_EMBED=0` for one release | `async-chain` ≤ 400 instructions per iteration (model 160). 0 cells per await at static sites. Pools off under valgrind: allocations = tasks + a constant. `std-vs-raw` stays 1.00–1.01; `bench-vs-libuv.sh` rows and `io-floors.env` no worse. Then measure fusion off: if within noise, delete fusion |
-| **AFA-4** | with AFA-3 | A | `BoxFuture` in the compiler: the builtins, await in the box, `io.spawn` of a box reuses its block; `io.spawn_scoped` and the `alloc` argument of `io.spawn` | Tests call the `__yo_*` builtins directly; a cli-case |
+| **AFA-4** | with AFA-3 | A | `BoxFuture` in the compiler: the builtins, await in the box, `io.spawn` of a box reuses its block; `io.spawn_scoped` and the `alloc` argument of `io.spawn`. The abort walk aborts each live `io.spawn_scoped` child of the frame, and the block lingers until every one it could not take back retires (VERDICTS-83) | Tests call the `__yo_*` builtins directly; a cli-case. VERDICTS-83's abort reproducers on `io.spawn_scoped` children, io_uring and epoll: `p1` (safe `select(timeout(read_line), ready)`, then the buffer is freed), `p4` (the holder is aborted while `select` joins its aborted loser), `p5` (`timeout(read)`), `q6h` (`select(read)`), each 0 bytes written after the abort is observed |
 | **AFA-5** | next release | B | The prelude declares `BoxFuture`; `std/`, `src/` and tests box their recursion (`yo fix`). The compiler rejects: an unboxed cycle, two futures at one slot, an `Impl(Future)` field, a `Dyn` method or function-pointer type returning `Impl(Future)` | The four issues move to `issues/fixed/`. cli goldens for the four diagnostics |
 | **AFA-6** | with AFA-5 | B | std: `select`, `timeout` and `both` on scoped children; `_Scoped` and the three `unsafe` go; the prelude's `spawn` takes `alloc` | `select` and `timeout`: 0 cells (today, read from `std/async/index.yo`: a task cell per operand, a join-wait cell per wait, two join futures, and for `timeout` a deadline task, its timer and an `Rc`; AFA-0 counts them). The timeout bench |
 | **AFA-7** | next | C | Delete the cell fallback, the erased-parameter lowering, `_future_field_upcast`, `YO_ASYNC_EMBED` | `check ./src`; the same files |
