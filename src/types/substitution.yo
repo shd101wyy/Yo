@@ -623,62 +623,70 @@ _subst_trait_fields_with :: (fn(s : &mut Substitution, fts : &ArrayList(TypeValu
 /// The Struct arm's body under the substitution the arm chose. A recursive
 /// struct's self-shell goes through `_subst_shell`.
 _subst_struct_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
-  if(shell_base_final(ty).is_some(), _subst_shell(s, ty), match(
-    ty,
-    Rc(.Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns })) => {
-      new_types := _subst_list(s, &types.*);
-      // Substitute the stored type arguments too, so a generic pattern's
-      // `type_arguments` (e.g. `[K, V]`) becomes the concrete `[String, V]`
-      // after substitution — keeping them aligned with the substituted fields.
-      new_tyargs := _subst_list(s, &tyargs.*);
-      // Preserve constructor_func_id across substitution so the
-      // type-constructor identity travels with specialized instantiations.
-      Rc.new(TypeValueNode.Struct(id.clone(), name.clone(), Rc.clone(labels), new_types, is_ref.*, is_atomic.*, is_nt.*, cfid.clone(), new_tyargs, is_sns.*))
-    },
-    _ => Rc.clone(ty)
-  ))
+  if(
+    shell_base_final(ty).is_some(),
+    _subst_shell(s, ty),
+    match(
+      ty,
+      Rc(.Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns })) => {
+        new_types := _subst_list(s, &types.*);
+        // Substitute the stored type arguments too, so a generic pattern's
+        // `type_arguments` (e.g. `[K, V]`) becomes the concrete `[String, V]`
+        // after substitution — keeping them aligned with the substituted fields.
+        new_tyargs := _subst_list(s, &tyargs.*);
+        // Preserve constructor_func_id across substitution so the
+        // type-constructor identity travels with specialized instantiations.
+        Rc.new(TypeValueNode.Struct(id.clone(), name.clone(), Rc.clone(labels), new_types, is_ref.*, is_atomic.*, is_nt.*, cfid.clone(), new_tyargs, is_sns.*))
+      },
+      _ => Rc.clone(ty)
+    )
+  )
 );
 /// The EnumT arm's body under the substitution the arm chose. A recursive
 /// enum's self-shell goes through `_subst_shell`.
 _subst_enum_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
-  if(shell_base_final(ty).is_some(), _subst_shell(s, ty), match(
-    ty,
-    Rc(.EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas)) => {
-      new_variant_fields := ArrayList(SharedList(TypeValue)).new();
-      (vf_changed : bool) = false;
-      (i : usize) = usize(0);
-      while(i < variant_fields.len(), {
-        vf := match(variant_fields.get(i), .Some(vf_inner) => vf_inner, .None => no_types());
-        new_vf := _subst_list(s, &vf);
-        vf_changed = (vf_changed || !__yo_ptr_eq(&new_vf, &vf));
-        new_variant_fields.push(new_vf);
-        i = (i + usize(1));
-      });
-      // Every type argument is substituted, as the Struct arm's are, so
-      // an instance built inside a generic body reports its concrete
-      // arguments: `_E(Option(V))` at `V := i32` reports `[Option(i32)]`,
-      // not the definition-era `Option(V)` with `V` open, which a trait
-      // query (`Copy` for the flip) could not answer
-      // (issues/fixed/2026-11-05-a-generic-body-copies-a-non-copy-instance-whose-type-argument-is-compound.md).
-      // A compound argument usually also occurs in a payload the walk
-      // above already rewrote; it is the same node, so the walk's node
-      // memo (`_substitute_at`) answers it without a second walk.
-      // A recursive enum's pre-final records no arguments of its own; it is
-      // its final's instance, so its copy records the final's arguments under
-      // `s` when `s` changes them (`enum_final_recorded_args`; type_key reads
-      // an unsubstituted pre-final the same way).
-      new_etas := cond(
-        (etas.len() > usize(0)) => _subst_list(s, &etas.*),
-        true => {
-          pf_args := enum_final_recorded_args(&id.*);
-          match(_subst_list_changed(s, &pf_args, false), .Some(pf_new) => shared_list(pf_new), .None => Rc.clone(etas))
-        }
-      );
-      // A list no element of which changed is kept, not rebuilt.
-      Rc.new(TypeValueNode.EnumT(id.clone(), name.clone(), Rc.clone(variant_names), if(vf_changed, shared_list(new_variant_fields), Rc.clone(variant_fields)), svn.clone(), Rc.clone(vfl), Rc.clone(discs), eirs.*, eiar.*, new_etas))
-    },
-    _ => Rc.clone(ty)
-  ))
+  if(
+    shell_base_final(ty).is_some(),
+    _subst_shell(s, ty),
+    match(
+      ty,
+      Rc(.EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas)) => {
+        new_variant_fields := ArrayList(SharedList(TypeValue)).new();
+        (vf_changed : bool) = false;
+        (i : usize) = usize(0);
+        while(i < variant_fields.len(), {
+          vf := match(variant_fields.get(i), .Some(vf_inner) => vf_inner, .None => no_types());
+          new_vf := _subst_list(s, &vf);
+          vf_changed = (vf_changed || !__yo_ptr_eq(&new_vf, &vf));
+          new_variant_fields.push(new_vf);
+          i = (i + usize(1));
+        });
+        // Every type argument is substituted, as the Struct arm's are, so
+        // an instance built inside a generic body reports its concrete
+        // arguments: `_E(Option(V))` at `V := i32` reports `[Option(i32)]`,
+        // not the definition-era `Option(V)` with `V` open, which a trait
+        // query (`Copy` for the flip) could not answer
+        // (issues/fixed/2026-11-05-a-generic-body-copies-a-non-copy-instance-whose-type-argument-is-compound.md).
+        // A compound argument usually also occurs in a payload the walk
+        // above already rewrote; it is the same node, so the walk's node
+        // memo (`_substitute_at`) answers it without a second walk.
+        // A recursive enum's pre-final records no arguments of its own; it is
+        // its final's instance, so its copy records the final's arguments under
+        // `s` when `s` changes them (`enum_final_recorded_args`; type_key reads
+        // an unsubstituted pre-final the same way).
+        new_etas := cond(
+          (etas.len() > usize(0)) => _subst_list(s, &etas.*),
+          true => {
+            pf_args := enum_final_recorded_args(&id.*);
+            match(_subst_list_changed(s, &pf_args, false), .Some(pf_new) => shared_list(pf_new), .None => Rc.clone(etas))
+          }
+        );
+        // A list no element of which changed is kept, not rebuilt.
+        Rc.new(TypeValueNode.EnumT(id.clone(), name.clone(), Rc.clone(variant_names), if(vf_changed, shared_list(new_variant_fields), Rc.clone(variant_fields)), svn.clone(), Rc.clone(vfl), Rc.clone(discs), eirs.*, eiar.*, new_etas))
+      },
+      _ => Rc.clone(ty)
+    )
+  )
 );
 /// `s` applied to a recursive type's self-shell (VERDICTS-77, I1): the
 /// self-reference inside `σ(N)` denotes `σ(N)`. The shell's list
