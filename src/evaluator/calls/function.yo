@@ -10484,6 +10484,81 @@ _type_occurs_in_type_arguments :: (fn(needle : &TypeValue, hay : &TypeValue, dep
   });
   false
 });
+/// `_type_occurs_in_type_arguments`'s walk, judged for VERDICTS-74 rule 2:
+/// one of the positions of `hay` that `needle` occupies spells the empty
+/// origin `static` at a checked position (`type_spells_checked_static`).
+/// Positions compare as `are_types_compatible_exact` does, which keeps no
+/// origin, so `&X` occupies `&(X, static)`.
+_type_occurs_at_static_position :: (fn(needle : &TypeValue, hay : &TypeValue, depth : u32) -> bool)({
+  if(depth > u32(8), {
+    return(false);
+  });
+  if(are_types_compatible_exact(needle, hay) && type_spells_checked_static(hay), {
+    return(true);
+  });
+  (args : SharedList(TypeValue)) = match(
+    hay,
+    Rc(.Struct({ type_arguments : os_tas })) => os_tas.clone(),
+    Rc(.EnumT({ type_arguments : os_tas })) => os_tas.clone(),
+    Rc(.Tuple({ field_types : os_fts })) => os_fts.clone(),
+    Rc(.Reference(os_p, _, _)) => return(recur(needle, &os_p.*, (depth + u32(1)))),
+    _ => return(false)
+  );
+  (i : usize) = usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    if(match(args.get(i), .Some(a) => recur(needle, &a, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// `lend_through` step 1c (VERDICTS-74 rule 2 at a generic container's
+/// method): the `wi`-th argument is lent `&mut` as each of `pointees`, and
+/// a pointee spelled over the empty origin `static` (`Box1(&(X, static))`)
+/// takes only static values at those positions. A specialized method types
+/// a `v : T` parameter from the ARGUMENT (`&X` for `b.put(&x)`), so no slot
+/// spells `static` for step 1b, and a holder whose every origin is `static`
+/// carries none, so step 3's by-type-argument solve never runs. Each other
+/// argument whose type occupies a static position among a pointee's type
+/// arguments is what the callee may store there, and is judged as that
+/// store would be. When its type also occupies a non-static position, which
+/// one the callee writes is not known here, and the static one decides (rule
+/// 4: a site that cannot tell rejects).
+_static_type_argument_stores :: (
+  fn(op_args : &ArrayList(AstExpr), slots : &SharedList(TypeValue), wi : usize, pointees : &ArrayList(TypeValue), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  (pi : usize) = usize(0);
+  while(pi < pointees.len(), pi = (pi + usize(1)), {
+    st_pointee := Rc.clone(&pointees(pi));
+    if(type_spells_checked_static(&st_pointee), {
+      (xj : usize) = usize(0);
+      while(xj < op_args.len(), xj = (xj + usize(1)), {
+        match(
+          slots.get(xj),
+          // A slot that spells `static` itself is step 1b's.
+          .Some(x_slot) => if((xj != wi) && !type_spells_checked_static(&x_slot), {
+            // A binder-typed by-value slot specialized to a reference is
+            // `ValueSlot(&X)` (R3): the value it takes is the bare `&X`.
+            x_needle := match(&x_slot, Rc(.ValueSlot(xn_inner)) => Rc.clone(xn_inner), _ => Rc.clone(&x_slot));
+            if(_type_occurs_at_static_position(&x_needle, &st_pointee, u32(0)), {
+              x_arg := _unlabeled_argument(match(op_args.get_cloned(xj), .Some(a) => a, .None => make_err_expr()));
+              w_arg := _unlabeled_argument(match(op_args.get_cloned(wi), .Some(a) => a, .None => make_err_expr()));
+              if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+                eprintln(`[n2b] lend-through static type argument: ${ast_expr_to_string(&x_arg)} at ${type_to_string(&x_slot)} stored in ${type_to_string(&st_pointee)}`);
+              });
+              match(
+                _static_value_offense(&x_arg, env, ctx),
+                .Some(x_what) => _static_origin_reject(&local_borrow_place_text(&ast_expr_strip_borrow_marker(&w_arg)), &st_pointee, &x_what, &ast_expr_token(&x_arg), ctx, exn),
+                .None => ()
+              );
+            });
+          }),
+          .None => ()
+        );
+      });
+    });
+  });
+});
 /// The pointee of every `&mut` a by-value `ty` holds, through struct
 /// fields, enum payloads and tuple components (`W(&mut Option(T))`'s
 /// `Option(T)`). A `&` stops the walk: nothing is written through it. `seen`
@@ -10909,6 +10984,27 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
       .None => ()
     );
     sb_i = (sb_i + usize(1));
+  });
+  // 1c. Rule 2 at a type argument spelled over `static`: a `&mut` argument
+  // (top-level, or nested in a by-value parameter as step 3 reads it) whose
+  // pointee instantiates a generic container over `static` takes only static
+  // values where the callee may store them (`_static_type_argument_stores`).
+  (sc_i : usize) = usize(0);
+  while(sc_i < op_args.len(), sc_i = (sc_i + usize(1)), {
+    match(
+      slots.get(sc_i),
+      .Some(sc_slot) => {
+        sc_pointees := ArrayList(TypeValue).new();
+        if(t_slot_is_mut_ref(&sc_slot), {
+          sc_pointees.push(t_slot_pointee(&sc_slot));
+        }, if(!t_slot_is_borrow(&sc_slot), {
+          sc_seen := ArrayList(String).new();
+          _nested_mut_pointees(&sc_slot, &mut sc_pointees, &mut sc_seen, u32(0));
+        }));
+        _static_type_argument_stores(&op_args, &slots, sc_i, &sc_pointees, env, ctx, exn);
+      },
+      .None => ()
+    );
   });
   // 2. Every other argument whose parameter names a fixed origin carries
   // origins within it. (Step 3 below still runs when NO origin parameter
