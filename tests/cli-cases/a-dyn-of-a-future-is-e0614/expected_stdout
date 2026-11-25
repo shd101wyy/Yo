@@ -1,0 +1,50 @@
+$ yo explain E0614
+E0614 — a trait method cannot be called through a Dyn
+
+A `Dyn(Trait)` value erases its concrete type and calls its methods through a vtable, one function per method. A method whose signature mentions `Self` anywhere but the receiver (a `Self` parameter, a `Self` or `Option(Self)` result) has no single C type at the call once the concrete type is erased, and a method with `generic(...)` parameters has no single function to put in the vtable. Such methods get no vtable slot, so calling one through a `Dyn` is an error. Forming the `Dyn` and calling its other methods is fine. A method that takes `self` by value has no slot either, and forming a `Dyn` over its trait is rejected for every payload (plans/VALUES_BY_DEFAULT.md decision 49): a `Dyn` is unsized and lives behind the pointer that owns it, so there is no value to hand the method, and a call would move the payload out of that pointer.
+
+`Future` cannot be listed in a `Dyn`, in any position: a parameter, a field, a list element. A future is one pointer to its state machine, and awaiting or spawning it consumes it. One future is typed `Impl(Future(T, E))`. Several different running tasks are kept as `JoinHandle(T)` (`io.spawn(f, io)`; `join_all` and `race` in `std/async` take an `ArrayList(JoinHandle(T))`).
+
+Call the method on a concrete value instead, or declare it so that `Self` appears only as the receiver and it takes no `generic(...)` parameters. Before this was an error the call passed `check` and failed inside the C compiler.
+
+Example — this fails:
+  Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));
+  Cat :: struct(n : i32);
+  derive(Cat, Copy, Clone);
+  impl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));
+  main :: (fn() -> unit)({
+    (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
+    c := d.me();
+  });
+  
+Example — write this instead:
+  Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));
+  Cat :: struct(n : i32);
+  derive(Cat, Copy, Clone);
+  impl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));
+  main :: (fn() -> unit)({
+    (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
+    n := d.speak();
+  });
+  
+  `me` returns `Self`, whose concrete type the `Dyn(Sp)` erased; `speak` returns `i32` and is callable.
+Run 'yo explain --list' for all codes.
+rc=0
+$ yo check main.yo
+error[E0614]: `Dyn(Future(i32, Io))` cannot be made: `Future` has no vtable slot. A future is awaited or spawned by value (`io.await(f, e)`, `io.spawn(f, e)`), which consumes it, and a `Dyn` is unsized and lives behind the pointer that owns it. A future is already one pointer to its state machine.
+  --> main.yo:5:12
+  |
+5 |   (d : Dyn(Future(i32, Io))) = dyn(&f);
+  |            ^^^^^^
+help: type one future as `Impl(Future(i32, Io))`: a parameter, a result or a struct field
+help: to keep several different tasks in one collection, spawn each and keep its handle: `ArrayList(JoinHandle(i32))` (`io.spawn(f, io)`; `join_all` and `race` in `std/async` take the list)
+help: run `yo explain E0614` for more information
+yo: error: check: 1 file(s) failed evaluator coverage
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing main.yo
+check: parsed 5 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+rc=1

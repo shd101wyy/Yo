@@ -254,6 +254,25 @@ main :: (fn(io : Io) -> unit)({
 // Dropping/disposing the Future frees the state machine.
 ```
 
+A future is already type-erased behind that pointer, so `Future` cannot be listed in a `Dyn`:
+`Dyn(Future(T, E))` is E0614 in every position. One future is typed `Impl(Future(T, E))` (a
+parameter, a result or a struct field). Several different tasks go into one collection as their
+handles: spawn each and keep an `ArrayList(JoinHandle(T))`, which `join_all` and `race` take.
+
+```yo
+{ ArrayList } :: import("std/collections/array-list");
+{ join_all } :: import("std/async");
+one :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(1)));
+add :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async({ n }(io : Io) => (n + i32(1))));
+main :: (fn(io : Io) -> unit)({
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
+  hs.push(io.spawn(one(io), io));
+  hs.push(io.spawn(add(i32(41), io), io));
+  rs := io.await(join_all(hs, io), io); // ArrayList(Option(i32)): .Some(1), .Some(42)
+});
+export(main);
+```
+
 #### Future with Effects
 
 `Future(T)` can carry algebraic-effect information. The shape is:
