@@ -90,10 +90,8 @@ enum_decls_differ :: (fn(a_id : &String, e_id : &String) -> bool)(
     )
   )
 );
-/// Whether `t` is the prelude's `Io` struct: the effect bundle whose fields are
-/// the compiler's async builtins, never called through at run time. A future
-/// whose bundle is `Io` behaves the same whether or not the bundle was
-/// injected, which is what lets it be viewed as a bundle-less `Future(T)`.
+/// Whether `t` is the prelude's `Io` struct (`{ ctx, vtable : *IoVTable }`),
+/// identified by its declaration, so a user struct named `Io` is not one.
 is_prelude_io_struct :: (fn(t : &TypeValue) -> bool)(
   match(
     t,

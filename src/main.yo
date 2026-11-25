@@ -176,7 +176,7 @@ json :: import("std/encoding/json");
 { host_target, set_current_target, get_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi, _find_available_compiler } :: import("./target.yo");
 { set_target_pointer_size, type_lacks_clone } :: import("./types/utils.yo");
 { TypeValue, TypeValueNode, SharedList, no_types, no_labels, slot_pointee_at, t_slot_pointee } :: import("./types/definitions.yo");
-{ is_function_type } :: import("./types/guards.yo");
+{ is_function_type, is_prelude_io_struct } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
 { compile_module } :: import("./codegen/codegen-c.yo");
 { get_needs_intel_asm_syntax, get_uses_parallelism, fresh_local_counts_reset } :: import("./codegen/utils/index.yo");
@@ -8435,12 +8435,10 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
   kinds := ArrayList(String).new();
   match(
     t,
-    Rc(.Struct({ name, field_labels, field_types })) => {
+    Rc(.Struct({ field_types })) => {
       (has_ctl : bool) = false;
-      (has_async : bool) = false;
       (fi : usize) = usize(0);
       while(fi < field_types.len(), {
-        flabel := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.new());
         fty := match(field_types.get(fi), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         fi = (fi + usize(1));
         match(
@@ -8448,12 +8446,6 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
           Rc(.Func({ meta : fmeta })) => {
             if(fmeta.is_control, {
               has_ctl = true;
-            });
-            // The prelude `Io` is the struct whose primitives are named
-            // `async`/`await`/`spawn`; naming the type alone would also match
-            // a user struct called Io.
-            if(((flabel == "async") || (flabel == "await")) && (name.* == "Io"), {
-              has_async = true;
             });
           },
           _ => {
@@ -8471,12 +8463,14 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
       if(has_ctl, {
         _push_unique(&mut kinds, String.from("ctl"));
       });
-      if(has_async, {
-        _push_unique(&mut kinds, String.from("io"));
-      });
     },
     _ => ()
   );
+  // The prelude `Io`, identified by its declaration (a user struct named
+  // `Io` is not one); its fields are a context and a table, no effects.
+  if(is_prelude_io_struct(t), {
+    _push_unique(&mut kinds, String.from("io"));
+  });
   kinds
 });
 /// The effect labels/types of a `Future(T, E)` result: a bare `FutureTraitT`,

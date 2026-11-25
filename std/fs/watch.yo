@@ -102,9 +102,12 @@ impl(
 /// `Watcher` handle moves), and its `Drop` unregisters the watch.
 _WatcherState :: struct(
   _handle : events.FsEventHandle,
-  /// The `Io` the watch is registered with: the loop that calls back, and
-  /// the one `stop` and `close` go to.
-  _io : Io,
+  /// The `Io` the watch is registered with (the loop that calls back, and
+  /// the one `stop` and `close` go to), held as its two words: a struct
+  /// reaching `IoVTable` breaks `Stream.map` on `Watcher`
+  /// (issues/2026-11-25-a-stream-combinator-on-a-type-reaching-a-future-returning-fn-field-calls-an-unemitted-function.md).
+  _io_ctx : ?*void,
+  _io_vtable : *void,
   _root : Path,
   _queue : ArrayList(FsEvent),
   /// Index of the first unread event in `_queue`; the list is compacted
@@ -126,8 +129,9 @@ _wake_waiters :: (fn(st : &mut _WatcherState) -> unit)({
 _stop_watch :: (fn(st : &mut _WatcherState) -> unit)({
   if(st._active, {
     st._active = false;
-    events.fs_event_stop(st._handle, st._io);
-    events.fs_event_close(st._handle, st._io);
+    io := Io(ctx : st._io_ctx, vtable : (*IoVTable)(st._io_vtable));
+    events.fs_event_stop(st._handle, io);
+    events.fs_event_close(st._handle, io);
     _wake_waiters(&mut st.*);
   });
 });
@@ -193,7 +197,8 @@ watch :: (fn(path : &Path, opts : WatchOptions, io : Io, exn : Exception) -> Wat
     _cell : Box.new(
       _WatcherState(
         _handle : events.fs_event_init(io),
-        _io : io,
+        _io_ctx : io.ctx,
+        _io_vtable : (*void)(io.vtable),
         _root : path.clone(),
         _queue : ArrayList(FsEvent).new(),
         _head : usize(0),
