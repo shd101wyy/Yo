@@ -145,7 +145,7 @@ pragma(Pragma.AllowUnsafe);
   format_error_message_with_repair_at
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
+{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH, E_INTERNAL_COMPILER_ERROR } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -3608,6 +3608,13 @@ audit_record_copy_trait :: (
 /// `consume_case_body_temp_var`).
 /// `exn` is threaded because `generate_expr_from_code` /
 /// `evaluate_expression_raw` require an explicit exception handler.
+/// E1301 for a copy that reached the implicit dup of
+/// `set_expr_as_needs_to_call_dup`: every value that holds a count needs a
+/// drop, and a value that needs a drop copies only explicitly.
+_throw_implicit_dup_reached :: (fn(rhs : &AstExpr, ty : &TypeValue, copy_path : &(str, static), exn : Exception) -> unit)({
+  msg := `internal compiler error: an implicit copy of \`${_place_text(rhs)}\` (type \`${type_to_string_for_message(ty)}\`, a ${copy_path} store) reached the implicit dup; a value that needs a drop copies only explicitly\nThis is a bug in the Yo compiler, not in your program — please report it:\nhttps://github.com/shd101wyy/Yo/issues`;
+  exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(rhs), &msg), E_INTERNAL_COMPILER_ERROR))));
+});
 set_expr_as_needs_to_call_dup :: (
   fn(
     rhs : &AstExpr,
@@ -3731,6 +3738,10 @@ set_expr_as_needs_to_call_dup :: (
       if(!type_has_no_open_some(&ei.ty()), {
         return(());
       });
+      // A value that needs a drop is not implicitly copyable
+      // (`type_requires_explicit_copy`, VERDICTS-70 row 9), so its copy moved
+      // above. An implicit dup reaching here is a compiler bug.
+      _throw_implicit_dup_reached(rhs, &ei.ty(), copy_path, exn);
       // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
       saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);

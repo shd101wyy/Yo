@@ -2059,7 +2059,19 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
     _ => false
   )
 );
-type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || (type_holds_counted_handle(ty) || type_holds_dyn_by_value(ty))));
+/// `type_requires_explicit_copy`'s permanent form (VERDICTS-70 Q1, amendment 3) is Rust's rule: a value
+/// is implicitly copyable only if it has no drop glue
+/// (`type_needs_drop_glue`). The kinds named above are the cases a type
+/// still mentioning an open type variable is judged by before its
+/// instantiation; every value that needs a drop is explicit-copy, so no copy
+/// is ever lowered as a count increment (`set_expr_as_needs_to_call_dup`).
+type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || (type_holds_counted_handle(ty) || (type_holds_dyn_by_value(ty) || type_needs_drop_glue(ty)))));
+/// Does a value of `ty` need a drop where its owner's life ends: a count to
+/// release, a cell, a buffer, a `Drop` impl, or a part holding one
+/// (`type_contains_rc_type`)? A type that mentions an open type variable is
+/// judged at its instantiation (a generic body is re-evaluated per
+/// instantiation), so it answers false here.
+type_needs_drop_glue :: (fn(ty : &TypeValue) -> bool)(type_contains_rc_type(ty) && type_has_no_open_some(ty));
 /// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc`/`Arc` needs
 /// `.clone()`, as in Rust. A new handle is a new owner, so sharing is visible
 /// where it is created: `Rc.clone(h)`, `Arc.clone(h)`. True for a counted
