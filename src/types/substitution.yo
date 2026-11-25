@@ -687,7 +687,8 @@ _subst_shell :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)({
   if(changed.is_none(), {
     return(Rc.clone(ty));
   });
-  new_list := shared_list(match(changed, .Some(nl) => nl, .None => ArrayList(TypeValue).new()));
+  (new_items : ArrayList(TypeValue)) = match(changed, .Some(nl) => nl, .None => ArrayList(TypeValue).new());
+  new_list := shared_list(new_items);
   new_key := shell_subst_key(&sh_id, &new_list);
   if(new_key == list_key, {
     return(Rc.clone(ty));
