@@ -2,8 +2,8 @@
 
 **Severity:** S2 — `JoinHandle.abort()` (or an enclosing `select`/`timeout`) leaves an aborted task's locals alive until the task's last handle is released: a local's `Drop` runs late, and a task that is a `select` or `timeout` keeps running its operands after the abort (six more ticks in the reproducer), on every backend.
 
-- Filed: 2026-11-25 (lane abort-walk, VERDICTS-83 probes `p3` and `p6`; the cause under `issues/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`).
-- Status: open. Known open in v0.2.80; the fix is VERDICTS-83 §3 (the abort walk), the first v0.2.81 PR.
+- Filed: 2026-11-25 (lane abort-walk, VERDICTS-83 probes `p3` and `p6`; the cause under `issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`).
+- Status: FIXED by the abort walk (VERDICTS-83 §3), the first v0.2.81 PR (`wip/v0281-abort-walk`). Known open in v0.2.80.
 
 ## Reproducers
 
@@ -121,4 +121,6 @@ On io_uring and IOCP the same lateness is a write into freed memory: the operand
 
 ## Fix
 
-VERDICTS-83 §3: once an aborted task's await slot has retired, the task drops its live locals, newest first, before it wakes its waiters; a drop that aborts a future which cannot retire at once makes the task linger (`-4`) and continue the walk when that future retires. Tests: `p3` and `p6` as ordering tests in `tests/sys/pipe.test.yo` or `tests/sys/socketpair.test.yo`, failing before the fix.
+VERDICTS-83 §3: once an aborted task's await slot has retired, the task drops its live locals, newest first, before it wakes its waiters; a drop that aborts a future which cannot retire at once makes the task linger (`-4`) and continue the walk when that future retires. The mechanism is described in `issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`.
+
+Tests in `tests/sys/pipe.test.yo`, on the default backend and on the epoll fallback, both failing before the fix on both: "an aborted task's locals are dropped at the abort" (`p3`: a `Drop` local's count is 1 right after `h.abort()` returns) and "aborting a task that is a select stops its operands at the abort" (`p6`: no tick in the 20 ms after the abort).
