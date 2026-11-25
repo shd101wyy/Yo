@@ -249,7 +249,7 @@ test("a task may spawn on its own pool: the nested task runs and join_all return
   spawn(&pool.*, { pool : Arc.clone(pool), count : Arc.clone(count), done : done.clone() }(io) => {
     count.*.fetch_add(i32(1), MemoryOrder.SeqCst);
     spawn(&pool.*, { count, done }(io) => {
-      total := count.fetch_add(i32(10), MemoryOrder.SeqCst);
+      total := count.*.fetch_add(i32(10), MemoryOrder.SeqCst);
       _ := done.send(total + i32(10));
       ()
     });

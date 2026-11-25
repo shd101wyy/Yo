@@ -230,7 +230,7 @@ _is_adopted_extern_c_field :: (fn(rhs_type : &TypeValue, fval_opt : &Option(Eval
 /// destructured value still holds
 /// (issues/fixed/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md).
 _throw_mut_destructure_copy :: (fn(b_atom : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
-  name := ast_expr_token(b_atom).value.*.clone();
+  name := ast_expr_token(b_atom).*.value.*.clone();
   msg := `use of moved value: cannot copy \`${name}\` out of the destructured value: a \`mut(name)\` binding of a destructuring copies its element by value, and its type \`${type_to_string(ty)}\` holds data the destructured value still holds.`;
   help := `bind \`${name}\` without \`mut\` (it borrows its element) and copy it explicitly into a \`mut\` local (\`.clone()\`), or match the value instead: a \`match\` of a value you own moves its parts into the arm's bindings, \`mut\` ones included`;
   raise_flow_violation(

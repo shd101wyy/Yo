@@ -7939,7 +7939,7 @@ try_to_call_function_with_arguments :: (
       // The parameters' written types, for the E0605 future-view repair.
       call_param_type_exprs := match(
         func_val,
-        .Some(Rc(.FuncVal(__fvd_pte, _))) => get_func_param_type_exprs(__fvd_pte.func_id.clone()),
+        .Some(Rc(.FuncVal(__fvd_pte, _))) => get_func_param_type_exprs(__fvd_pte.*.*.func_id.clone()),
         .Some(_) => ArrayList(Option(AstExpr)).new(),
         .None => ArrayList(Option(AstExpr)).new()
       );
@@ -9356,7 +9356,7 @@ try_to_call_function_with_arguments :: (
                         .Some(ebc_lbl) => Option(String).Some(
                           match(
                             &ebc_arg,
-                            Rc(.Atom(_, ebc_atok)) => `this future reads only an \`Io\`: pass the \`Io\` the bundle holds, \`${ebc_atok.value.*}.${ebc_lbl}\``,
+                            Rc(.Atom(_, ebc_atok)) => `this future reads only an \`Io\`: pass the \`Io\` the bundle holds, \`${ebc_atok.*.*.value.*}.${ebc_lbl}\``,
                             _ => `this future reads only an \`Io\`: pass the bundle's \`${ebc_lbl}\` field`
                           )
                         ),

@@ -1520,8 +1520,8 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       },
       v.*.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       moves_reference_itself(rhs, &ei.ty(), &v) => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
-      (v.is_ref() && !v.*.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.*.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
+      (v.*.is_ref() && !v.*.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
+      is_fn_capture_value_binding(v.*.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.*.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
       v.*.is_owning_the_rc_value() => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
       _move_through_sink_shadow(&v, rhs, &ei.env(), ctx, exn) => (),
@@ -3656,10 +3656,10 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
         _throw_explicit_copy_violation(rhs, &ei.ty(), &what, ctx, exn);
       }),
       v.*.is_compile_time_only() => (),
-      v.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
+      v.*.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       moves_reference_itself(rhs, &ei.ty(), &v) => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
-      (v.is_ref() && !v.*.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.*.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
+      (v.*.is_ref() && !v.*.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
+      is_fn_capture_value_binding(v.*.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.*.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
       (v.*.is_parameter() && !v.*.is_owning_the_rc_value() && _owning_param_binding_beside(&ei.env(), &v).is_none()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&T` parameter, and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn),
       true => {
@@ -4535,7 +4535,7 @@ _bundleless_future_tokens :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> u
     Rc(.FnCall(_, callee, Rc(args), _, _)) => {
       match(
         &callee.*,
-        Rc(.Atom(_, bf_tok)) => if((bf_tok.value.* == "Future") && (args.len() == usize(1)), {
+        Rc(.Atom(_, bf_tok)) => if((bf_tok.*.*.value.* == "Future") && (args.len() == usize(1)), {
           out.push(Rc.clone(bf_tok.*));
         }),
         _ => ()
@@ -4554,9 +4554,9 @@ _bundleless_future_tokens :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> u
 /// when the token has no source text to scan (a synthesized token) or the
 /// call is not spelled `Future(...)` there.
 _future_bundle_insertion :: (fn(ftok : &Token) -> Option(Span))({
-  src := &ftok.input.*;
+  src := &ftok.*.*.input.*;
   n := src.len();
-  start := usize(ftok.byte_offset);
+  start := usize(ftok.*.*.byte_offset);
   _byte :: (fn(s : &String, i : usize) -> u8)(match(s.get_byte(i), .Some(b) => b, .None => u8(0)));
   if(((start + usize(6)) > n) || (src.substring(start, (start + usize(6))) != "Future"), {
     return(Option(Span).None);
@@ -4589,8 +4589,8 @@ _future_bundle_insertion :: (fn(ftok : &Token) -> Option(Span))({
   if(_byte(src, (q - usize(1))) == u8(44), {
     return(Option(Span).None);
   });
-  (row : usize) = usize(ftok.row);
-  (col : usize) = usize(ftok.column);
+  (row : usize) = usize(ftok.*.*.row);
+  (col : usize) = usize(ftok.*.*.column);
   (j : usize) = start;
   while(j < q, j = (j + usize(1)), {
     b := _byte(src, j);
@@ -4605,7 +4605,7 @@ _future_bundle_insertion :: (fn(ftok : &Token) -> Option(Span))({
       true => ()
     );
   });
-  Option(Span).Some(Span(path : ftok.module_path.*.clone(), row : row, col : col, len : usize(0)))
+  Option(Span).Some(Span(path : ftok.*.*.module_path.*.clone(), row : row, col : col, len : usize(0)))
 });
 /// VERDICTS-68: the E0605 for a bundled future viewed as a bundle-less
 /// `Future(T)` (`future_view_drops_a_bundle`), or `.None` when `actual` into
@@ -7123,7 +7123,7 @@ ReferenceFieldStore :: struct(holder : AstExpr, holder_is_reference : bool, rhs_
 derive(ReferenceFieldStore, Clone);
 _c_len_rfs :: (fn(m : &HashMap(String, ReferenceFieldStore)) -> usize)(m.len());
 _names_reference_binding :: (fn(e : &AstExpr, env : &Environment) -> bool)(
-  ast_expr_is_atom(e) && match(get_variables_from_env(env, ast_expr_token(e).value.*.clone()).last_cloned(), .Some(v) => variable_is_reference_binding(&v), .None => false)
+  ast_expr_is_atom(e) && match(get_variables_from_env(env, ast_expr_token(e).*.value.*.clone()).last_cloned(), .Some(v) => variable_is_reference_binding(&v), .None => false)
 );
 /// Before the target `lhs` of `lhs = rhs` is evaluated: records the store
 /// when `lhs` is a field `h.r` and `rhs` is spelled as a reference. Returns
@@ -7135,7 +7135,7 @@ reference_field_store_mark :: (fn(lhs : &AstExpr, rhs : &AstExpr, env : &Environ
   rfs_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(Option(Token).None));
   holder := match(rfs_args.get_cloned(usize(0)), .Some(a) => a, .None => return(Option(Token).None));
   label := match(rfs_args.get_cloned(usize(1)), .Some(a) => a, .None => return(Option(Token).None));
-  if(!ast_expr_is_atom(&label) || (ast_expr_token(&label).value.* == "*"), {
+  if(!ast_expr_is_atom(&label) || (ast_expr_token(&label).*.value.* == "*"), {
     return(Option(Token).None);
   });
   rhs_text := cond(
@@ -7186,11 +7186,11 @@ _reference_field_store_whole_holder :: (fn(st : &ReferenceFieldStore, label : &S
     .Some(ls) => {
       parts := String.new();
       (i : usize) = usize(0);
-      while(i < ls.items.len(), i = (i + usize(1)), {
+      while(i < ls.*.items.len(), i = (i + usize(1)), {
         // A tuple's positional element is labelled by its index (or not at
         // all) and is spelled bare; a labelled one is `name : value`.
         position := i.to_string();
-        name := if(ls.items(i).len() == usize(0), position.clone(), ls.items(i).clone());
+        name := if(ls.*.items(i).len() == usize(0), position.clone(), ls.*.items(i).clone());
         value := if(name == label.*, st.rhs_text.clone(), `${holder}.${name}`);
         if(i > usize(0), {
           parts.push_str(", ");
@@ -12332,8 +12332,8 @@ _byvalue_param_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue,
 /// gives a by-value parameter no root, so those two never see it
 /// (issues/fixed/2026-11-23-an-fnmut-closure-stores-its-by-value-holder-parameter-through-a-mut-capture-unchecked.md).
 _capture_store_param_origins :: (fn(variable : &Variable, holder_names : &ArrayList(String), pv_names : &ArrayList(String), value : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
-  through := match(borrow_capture_outer(variable.id()), .Some(bco) => if(bco.is_mut, Option(BorrowCaptureOuter).Some(bco), Option(BorrowCaptureOuter).None), .None => Option(BorrowCaptureOuter).None);
-  if(through.is_none() && !is_fnmut_capture_value_binding(variable.id()), {
+  through := match(borrow_capture_outer(variable.*.*.id()), .Some(bco) => if(bco.is_mut, Option(BorrowCaptureOuter).Some(bco), Option(BorrowCaptureOuter).None), .None => Option(BorrowCaptureOuter).None);
+  if(through.is_none() && !is_fnmut_capture_value_binding(variable.*.*.id()), {
     return(());
   });
   (i : usize) = usize(0);
@@ -12348,7 +12348,7 @@ _capture_store_param_origins :: (fn(variable : &Variable, holder_names : &ArrayL
             match(
               &through,
               .Some(bco) => `Cannot store \`${ast_expr_to_string(value)}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: the value holds ${origin_name_phrase(&n)}, an origin of this literal's per-call parameter \`${param}\`, \`${bco.place.text}\` outlives the call, and a per-call origin cannot be named outside the literal (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2).`,
-              .None => `Cannot store \`${ast_expr_to_string(value)}\` into \`${variable.name}\`: \`${variable.name}\` is a by-value capture of this \`FnMut\` closure, kept in the closure across calls, and the value holds ${origin_name_phrase(&n)}, an origin of the literal's per-call parameter \`${param}\`, which a later call cannot name (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`
+              .None => `Cannot store \`${ast_expr_to_string(value)}\` into \`${variable.*.*.name}\`: \`${variable.*.*.name}\` is a by-value capture of this \`FnMut\` closure, kept in the closure across calls, and the value holds ${origin_name_phrase(&n)}, an origin of the literal's per-call parameter \`${param}\`, which a later call cannot name (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`
             ),
             Option(String).Some(`store an owned value, or declare one origin on the enclosing function's \`generic(p : Origin)\` and spell it in both the slot type and the holder's type`)
           ),

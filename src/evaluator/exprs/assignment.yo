@@ -2543,8 +2543,8 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // (`a := r`, VERDICTS-76 Q1) it is E0901, never a store that revives it.
   if(is_deref_write && variable_is_reference_binding(&variable), {
     match(
-      variable.consumed_at_token(),
-      .Some(dw_moved_at) => raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &moved_value_type(&variable), ast_expr_token(&lhs_resolved), variable_move_note(&variable, &dw_moved_at)), ctx, exn),
+      variable.*.consumed_at_token(),
+      .Some(dw_moved_at) => raise_flow_violation(use_of_moved_value_error(variable.*.name.clone(), &moved_value_type(&variable), ast_expr_token(&lhs_resolved), variable_move_note(&variable, &dw_moved_at)), ctx, exn),
       .None => ()
     );
   });

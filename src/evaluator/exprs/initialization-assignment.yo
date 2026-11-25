@@ -809,7 +809,7 @@ _chain_leaf_moves_reference :: (fn(leaf : &AstExpr, env : &Environment, ctx : &E
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf)),
     .Some(li) => (
       t_slot_is_mut_ref(&li.ty()) && match(
-        get_variables_from_env(&li.env(), ast_expr_token(leaf).value.*.clone()).last_cloned(),
+        get_variables_from_env(&li.env(), ast_expr_token(leaf).*.value.*.clone()).last_cloned(),
         .Some(lv) => variable_is_reference_binding(&lv),
         .None => false
       )
@@ -1386,13 +1386,13 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   // to a place not reached through `cur` gives `cur` a new value, as any
   // assignment of a moved `mut` local does: it is usable again.
   match(
-    cur_var.consumed_at_token(),
+    cur_var.*.consumed_at_token(),
     .Some(rp_moved_at) => {
       rp_hops := ArrayList(_InoutPlaceHop).new();
-      rp_through_cur := match(_inout_place_chain(&rhs, &mut rp_hops), .Some(rp_root) => (ast_expr_token(&rp_root).value.* == name), .None => false);
+      rp_through_cur := match(_inout_place_chain(&rhs, &mut rp_hops), .Some(rp_root) => (ast_expr_token(&rp_root).*.value.* == name), .None => false);
       if(!rp_through_cur, {
-        record_branch_init(cur_var.id(), &variable_value_type(&cur_var), &Option(TypeValue).None, &name_tok, &cur_var.initialized_at_token(), &Option(Token).Some(rp_moved_at));
-        cur_var.set_consumed_at_token(Option(Token).None);
+        record_branch_init(cur_var.*.id(), &variable_value_type(&cur_var), &Option(TypeValue).None, &name_tok, &cur_var.*.initialized_at_token(), &Option(Token).Some(rp_moved_at));
+        cur_var.*.set_consumed_at_token(Option(Token).None);
       });
     },
     .None => ()
