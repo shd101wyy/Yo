@@ -13492,6 +13492,9 @@ IoVTable :: struct(
   fs_event_stop : (fn(ctx : ?*void, handle : *u8) -> i32),
   fs_event_close : (fn(ctx : ?*void, handle : *u8) -> unit)
 );
+// Plain data (function pointers), so a table is copied whole: a decorator
+// starts from the native one and replaces the entries it overrides.
+derive(IoVTable, Copy, Clone);
 export(IoVTable);
 /// The event loop and its reactor, as a value: an opaque context plus an
 /// immortal table of operations (`IoVTable`), the way `Allocator` is an

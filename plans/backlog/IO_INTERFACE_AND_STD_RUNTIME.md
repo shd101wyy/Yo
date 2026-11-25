@@ -412,6 +412,56 @@ NO_LIBC's std-only P3 and P7 are unaffected and may run at any time.
 - Docs: `ASYNC_AWAIT.md` gains §8's section in both languages, and
   `std/sys/future.yo`'s header is rewritten.
 
+**IO-1b as implemented (branch `wip/v0281-io-1b`, Generation B):**
+- **The prelude** declares `__yo_io_future_t` and `IoFuture`, `IoVTable`
+  (the executor entries `spawn`, `run_until`, `now`, `sleep`, `park`,
+  `yield`, then every operation and watch registration under the labels
+  `native_io_entry_c_name` offers, typed as `std/sys/externs.yo` typed the
+  `_start` externs), `Io :: struct(ctx : ?*void, vtable : *IoVTable)`, and
+  `impl(Io, async, await, state, spawn, native)` bound to the externs.
+  `__yo_io_native_vtable` is not declared: nothing in Yo names it, and
+  `Io.native().vtable` reaches it.
+- **`Io.native()` is gated by rule D6**: a static member of a type bound to a
+  runtime extern is that extern called by name
+  (`_d6_callee_is_by_name`, `src/evaluator/calls/function.yo`), so a safe file
+  gets the D6 error (cli-case `io-native-safe-code`).
+- **`src/main.yo` needs no `Io.native()`**: the test runner's batch `main` is
+  `main :: (fn(io : Io) -> unit)` and receives the native `Io` like any
+  `main`. Nothing in `src/` or `std/` calls `Io.native()`.
+- **`IoFuture.completed` is `std/sys/future`'s `completed(result)`**: a
+  static member on the `Impl(Concrete(__yo_io_future_t), Future(i32))` alias
+  does not resolve (E0610), and nothing above the tests needs it before
+  AFA-8. `std/sys/future.yo` also holds `park(io)` and `yield(io)`.
+- **The operation externs are gone from `std/sys/externs.yo`** (every
+  `__yo_async_*_start`, the watch registrations, `__yo_join_wait_new`), and
+  the runtime's dead `__yo_join_wait_new` with them. A join wait is a park
+  made through the `Io` (`std/sys/future`'s `park`) plus
+  `__yo_join_wait_add`.
+- **Signatures above `std/sys` that gained `io`**, because what they wrap is a
+  table entry: `Park.new(io)` (`std/async/waker`), `watch(path, opts, io,
+  exn)` (`std/fs/watch`; the watcher keeps its `Io` for the `Drop` that
+  unregisters it), and the private `_park_sender`/`_park_receiver`
+  (`std/async/channel`), `_acquire_or_park` (`std/async/mutex`) and
+  `_wait_any` (`std/async`).
+- **Guard rails** (ALLOCATION_FREE_ASYNC §4): `scripts/check-io-guard-rails.sh`
+  (a `tree-hygiene` step) rejects an `IoVTable` call outside `std/sys`,
+  `IoFuture` outside `std/sys`, the prelude, `std/async/index.yo` and
+  `std/async/waker.yo`, and, above `std/sys`, an operation that is not the
+  direct operand of an `.await(` (or is destructured out of its module).
+  `std/http/client`'s deadline race awaits `std/async`'s
+  `_scoped_wait_either(a, b, io)` directly instead of binding a join wait.
+- **The VERDICTS-68 audit.** A future is started with its bundle at every
+  start site: `io.await` in a task (`_emit_await_suspension_core`, the
+  bundle argument or the enclosing task's own bundle field), a sync-context
+  `io.await` (`emit_effect_injection_for_await` under the cold check, before
+  `run_until`), `io.spawn` (`emit_io_spawn_effect_injection`, before the
+  table's `spawn`), and a fused await site (the bundle expression bound once
+  at the site, ASYNC_AWAIT_SITE_FUSION §3.2). `JoinHandle.await`/`join` and
+  the table's `spawn`/`run_until` never start a cold future of their own:
+  their task was started by its `io.spawn`. The async suites run every
+  `std/sys` operation from a task body through the bundle's `io`, which now
+  reads `io.vtable`, so a start without the bundle would fault.
+
 NO_LIBC P0b's crt0 main path then constructs `__yo_io_native()` once, in the
 final shape.
 
