@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
-{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
+{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str, static_origin_marks_text } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type-key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function-value.yo");
@@ -3255,10 +3255,17 @@ _fmg_cache_usable :: (fn() -> bool)(
   && debug_knob(`YO_DEBUG_WARM`).is_none()
   && (_currently_registering_concrete_impls.with(_c_len_1) == usize(0))
 );
-/// The composed slow-map key: structural type key, method name, owner, joined
-/// on 0x01 (no type key or file path contains it).
+/// The composed slow-map key: structural type key, the static bits the type
+/// key leaves out, method name, owner, joined on 0x01 (no type key or file
+/// path contains it). `Box1(&X)` and `Box1(&(X, static))` are two instances
+/// (VERDICTS-74 rule 1) whose specialized methods differ in their slots and
+/// results: sharing one entry typed `Box1(&X).get()` as the static instance's
+/// `Option(&(X, static))`
+/// (issues/fixed/2026-11-25-a-generic-containers-method-result-is-typed-by-whichever-instance-looked-it-up-first.md).
 _fmg_cache_key :: (fn(resolved : &TypeValue, method_name : &String, owner : &String) -> String)({
   key := type_key(resolved);
+  key.push_byte(u8(1));
+  key.push_string(static_origin_marks_text(resolved));
   key.push_byte(u8(1));
   key.push_string(method_name.clone());
   key.push_byte(u8(1));

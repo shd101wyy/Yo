@@ -191,7 +191,8 @@ impl(
   _UpBox1(T),
   put : (fn(self : &mut Self, v : T) -> unit)({
     self.v = .Some(v);
-  })
+  }),
+  get : (fn(self : &Self) -> Option(T))(self.v)
 );
 _UpBoxHolder :: struct(inner : _UpBox1(&(_UpX, static)));
 comptime_expect_error(
@@ -256,6 +257,22 @@ comptime_expect_error(
     _ := b;
   }),
   "Cannot store a reference to `x` in `b` here"
+);
+// A method result is typed by the receiver's own instance, not by whichever
+// instance looked the method up first: `_UpBox1(&_UpX).get()` is no static
+// value after `_UpBox1(&(_UpX, static)).get()`
+// (issues/fixed/2026-11-25-a-generic-containers-method-result-is-typed-by-whichever-instance-looked-it-up-first.md).
+comptime_expect_error(
+  _up_elided_box_get_after_static :: (fn() -> unit)({
+    a := _UpBox1(&(_UpX, static))(v : .Some(&_UpG));
+    _s := a.get();
+    mut(k) := _UpStaticSlot(r : .None);
+    x := _UpX(n : i32(1));
+    b := _UpBox1(&_UpX)(v : .Some(&x));
+    k.r = b.get();
+    _ := k;
+  }),
+  "declared over the empty origin `static`"
 );
 // The instance that specializes the method first does not decide: the
 // elided-origin instance's `put` runs first here, then the static one's.
