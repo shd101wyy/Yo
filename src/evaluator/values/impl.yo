@@ -94,12 +94,12 @@ pragma(Pragma.AllowUnsafe);
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { some_t_bounds, FuncMeta, TypeValue, TypeValueNode, t_refine_inner, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind, fn_result_slot, fn_result_composite_origin_names, fn_param_pointee_in_result_origin, t_slot_is_by_value } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
-{ t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view, is_type_0 } :: import("../../types/guards.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
-{ get_all_some_types, type_contains_some_type, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
+{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type-key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function-value.yo");
@@ -2949,96 +2949,7 @@ _check_self_pattern_substitution :: (fn(spec_s : &Substitution, pattern : &TypeV
   exact_back := are_types_compatible_exact(receiver, &got);
   if((got_key != recv_key) || !exact_fwd || !exact_back, {
     eprintln(`[self-pattern-mismatch] pattern=${type_to_string(pattern)} receiver=${type_to_string(receiver)} keys_equal=${(got_key == recv_key).to_string()} exact=${exact_fwd.to_string()}/${exact_back.to_string()}`);
-    if(debug_knob(`YO_DEBUG_V77`).is_some(), {
-      eprintln(`  got_key=${got_key}`);
-      eprintln(`  recv_key=${recv_key}`);
-      _v77_explain(&got, receiver, usize(0));
-    });
   });
-});
-/// TEMPORARY (lane v81-v77 debugging): the first exactly-incompatible pair
-/// of children under two exactly-incompatible types.
-_v77_explain :: (fn(a_in : &TypeValue, b_in : &TypeValue, depth : usize) -> unit)({
-  a := resolve_enum_shell(&resolve_struct_shell(a_in));
-  b := resolve_enum_shell(&resolve_struct_shell(b_in));
-  if((depth > usize(10)) || are_types_compatible_exact(&a, &b), {
-    return(());
-  });
-  ind := String.new();
-  (k : usize) = usize(0);
-  while(k < depth, {
-    ind.push_str("  ");
-    k = (k + usize(1));
-  });
-  eprintln(`  ${ind}[v77-x] a=${type_to_string(&a)} b=${type_to_string(&b)} a_id=${match(&a, Rc(.Struct({ id : i })) => i.clone(), Rc(.EnumT({ id : i })) => i.clone(), _ => String.from("-"))} b_id=${match(&b, Rc(.Struct({ id : i })) => i.clone(), Rc(.EnumT({ id : i })) => i.clone(), _ => String.from("-"))} a_n=${match(&a, Rc(.Struct({ type_arguments : t })) => t.len().to_string(), Rc(.EnumT({ type_arguments : t })) => t.len().to_string(), _ => String.from("-"))} b_n=${match(&b, Rc(.Struct({ type_arguments : t })) => t.len().to_string(), Rc(.EnumT({ type_arguments : t })) => t.len().to_string(), _ => String.from("-"))}`);
-  eprintln(`  ${ind}  attrs a=${_v77_attrs(&a)} b=${_v77_attrs(&b)}`);
-  a_kids := _v77_kids(&a);
-  b_kids := _v77_kids(&b);
-  if(a_kids.len() != b_kids.len(), {
-    eprintln(`  ${ind}  kids ${a_kids.len().to_string()} vs ${b_kids.len().to_string()}`);
-    return(());
-  });
-  (i : usize) = usize(0);
-  (found : bool) = false;
-  while((i < a_kids.len()) && !found, {
-    ak := match(a_kids.get_cloned(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
-    bk := match(b_kids.get_cloned(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
-    if(!are_types_compatible_exact(&ak, &bk), {
-      eprintln(`  ${ind}  child ${i.to_string()}:`);
-      _v77_explain(&ak, &bk, depth + usize(1));
-      found = true;
-    });
-    i = (i + usize(1));
-  });
-});
-_v77_attrs :: (fn(t : &TypeValue) -> String)(
-  match(
-    t,
-    Rc(.Struct({ name : n, constructor_func_id : cf, is_reference_semantics : r, is_atomic_rc : at, is_newtype : nt, field_labels : fl, is_source_namespace : sn })) => `S name=${n} cfid=${cf} ref=${r.to_string()} atomic=${at.to_string()} newtype=${nt.to_string()} labels=${fl.len().to_string()} sns=${sn.to_string()} some=${type_contains_some_type(t).to_string()}`,
-    Rc(.EnumT({ name : n, variant_names : vn, is_reference_semantics : r })) => `E name=${n} vns=${vn.len().to_string()} ref=${r.to_string()} some=${type_contains_some_type(t).to_string()}`,
-    Rc(.SomeT({ id : i, name : n, frame_level : l, resolution : res })) => `T ${i}/${n}@${l.to_string()} res=${res.is_some().to_string()}`,
-    _ => type_to_string(t)
-  )
-);
-_v77_kids :: (fn(t : &TypeValue) -> ArrayList(TypeValue))({
-  out := ArrayList(TypeValue).new();
-  match(
-    t,
-    Rc(.Struct({ field_types : fts, type_arguments : tas })) => {
-      (i : usize) = usize(0);
-      while(i < tas.len(), {
-        match(tas.get(i), .Some(x) => out.push(x), .None => ());
-        i = (i + usize(1));
-      });
-      (j : usize) = usize(0);
-      while(j < fts.len(), {
-        match(fts.get(j), .Some(x) => out.push(x), .None => ());
-        j = (j + usize(1));
-      });
-    },
-    Rc(.EnumT({ variant_fields : vfs, type_arguments : tas })) => {
-      (i : usize) = usize(0);
-      while(i < tas.len(), {
-        match(tas.get(i), .Some(x) => out.push(x), .None => ());
-        i = (i + usize(1));
-      });
-      (j : usize) = usize(0);
-      while(j < vfs.len(), {
-        match(vfs.get(j), .Some(fl) => {
-          (k : usize) = usize(0);
-          while(k < fl.len(), {
-            match(fl.get(k), .Some(x) => out.push(x), .None => ());
-            k = (k + usize(1));
-          });
-        }, .None => ());
-        j = (j + usize(1));
-      });
-    },
-    Rc(.Pointer(p)) => out.push(Rc.clone(p)),
-    Rc(.Reference(p, _, _)) => out.push(Rc.clone(p)),
-    _ => ()
-  );
-  out
 });
 /// The uncached scan behind `find_methods_from_generic_impls`: every registry
 /// bucket, the name prefilter, `try_match_generic_impl`, visibility judged

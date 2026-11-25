@@ -17,8 +17,7 @@
 { ArrayList } :: import("std/collections/array-list");
 { HashSet } :: import("std/collections/hash-set");
 { HashMap } :: import("std/collections/hash-map");
-{ profile_enabled, fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_to_string } :: import("../../types/string.yo");
+{ profile_enabled, fnv1a64 } :: import("../../utils.yo");
 { TypeValue, TypeValueNode, no_types, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST, ast_rewritten_view } :: import("../../expr.yo");
 { ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs, expr_info_runtime_destructurings, expr_info_capture_type, expr_info_capture_field_inits, expr_info_closure_function_value, expr_info_macro_expansion } :: import("../../expr-info.yo");
@@ -273,9 +272,6 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
   );
   if(context.get_type_entry(type_key(&type)).is_some(), {
     return(()); // Already collected this type
-  });
-  if(debug_knob(`YO_DEBUG_V77`).is_some(), {
-    eprintln(`[v77-collect] key=${type_key(&type)} ty=${type_to_string(&type)}`);
   });
   // A comptime-only record (the reflection `TypeInfo` family) has no C form.
   if(_has_comptime_only_runtime_field(&type), {

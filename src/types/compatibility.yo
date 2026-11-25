@@ -1154,7 +1154,12 @@ _compat_impl :: (
       // vs CodegenExternFnEntry (identical fields, distinct names) collided in the
       // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
       // and HashMap(_, CodegenExternFnEntry).values() to one instantiation.
-      ((aname.len() != usize(0)) && (ename.len() != usize(0)) && (aname.* != ename.*) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
+      // Two instances of ONE constructor are told apart by their type
+      // arguments (compared above), not by their names: a constructor stamps
+      // its argument's spelling into the name (`Box(<struct:…>)`), and a
+      // substituted copy keeps the definition-era instance's (VERDICTS-77;
+      // the lenient arm has the same exception).
+      ((aname.len() != usize(0)) && (ename.len() != usize(0)) && (aname.* != ename.*) && !((acfid.len() > usize(0)) && (acfid.* == ecfid.*)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
       // SAME-NAMED DISTINCT DECLARATIONS: reaching here means
       // aid != eid (the id-equality arm above returned true otherwise). Two
       // structs with the SAME non-empty stamped name, different ids, no

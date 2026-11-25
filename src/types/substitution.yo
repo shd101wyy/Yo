@@ -16,39 +16,9 @@ pragma(Pragma.AllowUnsafe);
 { t_dyn, struct_final_type_arguments, enum_final_recorded_args, shell_base_final, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_with_list, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { HashMap } :: import("std/collections/hash-map");
 { HashSet } :: import("std/collections/hash-set");
-{ debug_knob } :: import("../utils.yo");
-{ eprintln } :: import("std/fmt");
-{ type_to_string } :: import("./string.yo");
 { RefCell } :: import("std/sync/refcell");
 { resolve_cell_chain, get_all_some_types } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
-/// TEMPORARY (lane v81-v77 debugging).
-_v77_list_str :: (fn(xs : &SharedList(TypeValue)) -> String)({
-  out := String.new();
-  (i : usize) = usize(0);
-  while(i < xs.len(), {
-    match(
-      xs.get(i),
-      .Some(x) => match(
-        &x,
-        Rc(.SomeT({ id : xid, name : xnm, frame_level : xl })) => out.push_string(`[${xid}/${xnm}@${xl.to_string()}]`),
-        _ => out.push_string(`[${type_to_string(&x)}]`)
-      ),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  out
-});
-_v77_subst_str :: (fn(s : &mut Substitution) -> String)({
-  out := String.new();
-  (i : usize) = usize(0);
-  while(i < s.names.len(), {
-    out.push_string(`{${match(s.names.get_cloned(i), .Some(n) => n, .None => String.new())}@${match(s.levels.get(i), .Some(l) => l.to_string(), .None => String.new())}=${match(s.types.get_cloned(i), .Some(t) => type_to_string(&t), .None => String.new())}}`);
-    i = (i + usize(1));
-  });
-  out
-});
 /// Registry keys of substituted shells whose final is being computed.
 (g_shell_subst_in_progress : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// A constructor shell's list per (shell id, recorded-argument count): its
@@ -725,9 +695,6 @@ _subst_shell :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)({
   });
   changed := _subst_list_changed(s, &list, false);
   if(changed.is_none(), {
-    if(debug_knob(`YO_DEBUG_V77`).is_some(), {
-      eprintln(`[v77-shell-same] id=${sh_id} list=${_v77_list_str(&list)} subst=${_v77_subst_str(s)}`);
-    });
     return(Rc.clone(ty));
   });
   (new_items : ArrayList(TypeValue)) = match(changed, .Some(nl) => nl, .None => ArrayList(TypeValue).new());
@@ -743,9 +710,6 @@ _subst_shell :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)({
   _ins := g_shell_subst_in_progress.with_mut({ k : new_key.clone() }(m) => m.insert(k));
   cur := resolve_enum_shell(resolve_struct_shell(ty));
   fin := _substitute_at(s, &cur, false);
-  if(debug_knob(`YO_DEBUG_V77`).is_some(), {
-    eprintln(`[v77-shell] key=${new_key} cur=${type_to_string(&cur)} fin=${type_to_string(&fin)}`);
-  });
   register_shell_subst_final(&new_key, &fin);
   _rm := g_shell_subst_in_progress.with_mut({ &new_key }(m) => m.remove(new_key));
   out
