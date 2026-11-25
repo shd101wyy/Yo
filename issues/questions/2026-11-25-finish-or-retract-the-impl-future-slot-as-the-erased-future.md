@@ -2,6 +2,8 @@
 
 **Kind:** design question — an open decision, not a defect.
 
+**Status:** DECIDED 2026-11-25 (VERDICTS-81): **B, retract**, adopted in full on the maintainer's request. See `## Verdict`; the `## Recommendation` below is the superseded original.
+
 Filed 2026-11-25 by the dyn-future-reject lane, from VERDICTS-80's "Not in this PR" (Fable 5.2, adopted 2026-11-25). VERDICTS-80 rejects `Dyn(Future(...))` (E0614) and points the user at two spellings: `Impl(Future(T, E))` for one future, `JoinHandle(T)` for several running tasks. The first is only half built.
 
 ## The question
@@ -27,3 +29,16 @@ Everywhere else in the language `Impl(Trait)` is static dispatch: one concrete t
 ## Recommendation
 
 **A, after VBD** (VERDICTS-80's lean, confidence 0.6). The lowering exists and is tested for fields; extending it to every `Impl(Future(T, E))` slot closes the `cond`-arms S2 and the async-function-list S2 with one rule, and gives a list of different cold futures a spelling that does not start them. Until then, the E0902 text for an `Impl(Future)` local names `JoinHandle` (VERDICTS-80's PR), and the E0610 that a list element raises inside std belongs to this decision rather than to a separate fix. This deserves its own consultation before implementation.
+
+## Verdict
+
+**B, retract** — decided 2026-11-25 by VERDICTS-81 (Fable 5.2, confidence 0.8 on the retraction), adopted in full. The recommendation above (A) is superseded; no work on option A starts.
+
+- **`Impl(Future(T, E))` becomes static dispatch at every slot**, like every other `Impl(Trait)`: one concrete type per slot, a by-value parameter generic over it, a result the function's one future. The struct field stops being the exception. `_future_field_upcast` and its test go (AFA-7), and the field is rejected like any other `Impl` field (the census found zero uses in `std/` and `src/`).
+- **The erased form is `BoxFuture(T, E)`** (`BoxFuture(T, E, p)` when it borrows): one owning pointer to a block laid out like a task, header then frame. VERDICTS-80's reasoning still holds, since the table is in the prefix and needs no `Dyn` pair. A list of different cold futures is `ArrayList(BoxFuture(i32, Io))`, which does not start them; running ones are `ArrayList(JoinHandle(i32))`.
+- **Why B and not A.** A future-only `Impl` exception has to be taught and keeps a by-value future parameter erased, which blocks the allocation-free lowering (a future value as its capture struct, its frame embedding its children). Making the cost visible at the use site (`BoxFuture.new`) is the explicit-over-implicit choice. A would have been built and then reverted by the allocation-free design.
+- **The four failures in the table close by one rule**: two different futures at one slot (a reassigned local, two `cond` arms) is an error that names `BoxFuture`; the list-element E0610 and the function-typed element (`issues/2026-10-25-a-list-of-async-function-values-does-not-compile.md`) are the same rule; a `Dyn` method or function-pointer type whose result is `Impl(Future(...))` is rejected and returns `BoxFuture` (VERDICTS-80's `j2` and `j3`). The diagnostics land in AFA-5.
+- **Timing.** Code starts at v0.2.83 (`plans/backlog/ALLOCATION_FREE_ASYNC.md`, AFA-1 to AFA-7). Until then the E0902 text for an `Impl(Future)` local keeps naming `JoinHandle`.
+- **VERDICTS-80's E0614** (`Dyn(Future(...))` rejected) stands.
+
+The plan: [`plans/backlog/ALLOCATION_FREE_ASYNC.md`](../../plans/backlog/ALLOCATION_FREE_ASYNC.md).
