@@ -124,3 +124,7 @@ On io_uring and IOCP the same lateness is a write into freed memory: the operand
 VERDICTS-83 §3: once an aborted task's await slot has retired, the task drops its live locals, newest first, before it wakes its waiters; a drop that aborts a future which cannot retire at once makes the task linger (`-4`) and continue the walk when that future retires. The mechanism is described in `issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`.
 
 Tests in `tests/sys/pipe.test.yo`, on the default backend and on the epoll fallback, both failing before the fix on both: "an aborted task's locals are dropped at the abort" (`p3`: a `Drop` local's count is 1 right after `h.abort()` returns) and "aborting a task that is a select stops its operands at the abort" (`p6`: no tick in the 20 ms after the abort).
+
+## Not covered (filed separately)
+
+- An effect `unwind` out of a task still leaves its locals to the last release: `issues/2026-11-26-an-effect-unwound-tasks-locals-are-dropped-when-its-last-handle-is-released.md`.
