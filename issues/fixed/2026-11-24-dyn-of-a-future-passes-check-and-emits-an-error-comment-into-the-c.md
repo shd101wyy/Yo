@@ -49,7 +49,7 @@ into `Dyn(Future(i32))` is E0605); a positive `Dyn(Future(i32, Io))` round trip 
 
 Decided by VERDICTS-80 (Fable 5.2, adopted 2026-11-25): reject, no vtable. `Future` cannot be listed in a `Dyn`. A future is one pointer to its state machine, and awaiting or spawning it consumes it. One future is typed `Impl(Future(T, E))`. Several different running tasks are kept as `JoinHandle(T)`.
 
-- `evaluate_dyn_type` (`src/evaluator/types/dyn.yo`) throws E0614 at a `Future(...)` argument of `Dyn(...)`, negated or not. Every position forms its `Dyn` there: a local, a parameter, a struct field, a list element, and a generic alias over a `Trait` binder applied to a `Future`. The message:
+- `evaluate_dyn_type` (`src/evaluator/types/dyn.yo`) throws E0614 at a `Future(...)` argument of `Dyn(...)`, negated or not. Every position forms its `Dyn` there: a local, a parameter, a struct field, a list element. Every `Dyn` type a program writes is formed there, and a `Dyn` a `dyn(...)` derives from its payload needs an expected `Dyn` type, which was formed there. A generic alias over a `Trait` binder (`(fn(comptime(Tr) : Trait) -> comptime(Type))(Box(Dyn(Tr)))`) would also reach it at its application, but its definition is rejected today (`issues/2026-11-25-a-comptime-type-function-over-a-trait-binder-cannot-form-dyn-of-it.md`), so the verdict's seventh test row is not written. The message:
 
   ```text
   error[E0614]: `Dyn(Future(i32, Io))` cannot be made: `Future` has no vtable slot. A future is awaited or spawned by value (`io.await(f, e)`, `io.spawn(f, e)`), which consumes it, and a `Dyn` is unsized and lives behind the pointer that owns it. A future is already one pointer to its state machine.
