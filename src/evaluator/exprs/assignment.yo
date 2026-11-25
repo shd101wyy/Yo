@@ -180,7 +180,8 @@ pragma(Pragma.AllowUnsafe);
   ref_payload_source,
   is_reference_read,
   reference_field_store_mark,
-  reference_field_store_clear
+  reference_field_store_clear,
+  future_view_error
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1602,6 +1603,14 @@ _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &
 ///   - property/index LHS: `x.a = rhs`, `arr(0) = rhs`
 ///
 ///
+/// The written type of a typed binding `(x : T) = v` (its `T`), `.None` for
+/// any other assignment target.
+_binding_annotation :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
+  cond(
+    ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))) => match(lhs, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(1)), _ => Option(AstExpr).None),
+    true => Option(AstExpr).None
+  )
+);
 evaluate_assignment :: (
   fn(
     expr : &AstExpr,
@@ -2918,6 +2927,19 @@ comptime(${variable_name}) : ${dgc_ty_str}
   );
   // O7 for the same route (audit A48): the value's origins fit the slot's.
   raise_function_value_origin_mismatch(&variable_value_type(&variable), &rhs_type, &rhs, &ast_expr_token(&lhs_resolved), &`The write of \`${variable_name}\``, ctx, exn);
+  // A bundled future bound to a bundle-less `Impl(Future(T))` (VERDICTS-68,
+  // E0605); a typed binding's annotation is what `yo fix` repairs.
+  match(
+    future_view_error(
+      ast_expr_token(&lhs_resolved),
+      &`Incompatible types:\n- Expected: ${type_to_string(&variable_value_type(&variable))}\n- Given   : ${type_to_string(&rhs_type)}`,
+      &rhs_type,
+      &variable_value_type(&variable),
+      &_binding_annotation(&lhs)
+    ),
+    .Some(fv_err) => exn.throw(dyn(Box.new(mark_generic_independent(&fv_err, &variable_value_type(&variable), &rhs_type)))),
+    .None => ()
+  );
   // Type-compatibility check.
   if(!are_types_compatible(&rhs_type, &variable_value_type(&variable)), {
     var_ty_str := type_to_string(&variable_value_type(&variable));

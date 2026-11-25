@@ -9,16 +9,16 @@
 { String } :: import("std/string");
 { Channel } :: import("std/sync/channel");
 
-leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(io.async((e : Io) => (n + i32(1))));
 // Sync future (no await): the closure captures the enclosing fn's parameter.
-sync_captures_param :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+sync_captures_param :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (f : Impl(Fn(v : i32) -> i32)) = (v => (v + n));
     f(n)
   })
 );
 // Sync future, capture-free closure.
-sync_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+sync_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (f : Impl(Fn(v : i32) -> i32)) = (v => (v * i32(3)));
     f(n)
@@ -26,7 +26,7 @@ sync_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
 );
 // State machine: an await before the binding, the closure captures the
 // parameter and a local bound after the await.
-sm_captures_param_and_local :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+sm_captures_param_and_local :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     r := e.await(leaf(e, n), e);
     (f : Impl(Fn(v : i32) -> i32)) = (v => (v + n + r));
@@ -34,7 +34,7 @@ sm_captures_param_and_local :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
   })
 );
 // State machine, capture-free closure, called after a second await.
-sm_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+sm_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     r := e.await(leaf(e, n), e);
     (f : Impl(Fn(v : i32) -> i32)) = (v => (v * i32(2)));
@@ -43,7 +43,7 @@ sm_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
   })
 );
 // A reference-typed capture: the nested closure owns its copy.
-sm_captures_string :: (fn(io : Io, name : &String) -> Impl(Future(usize)))({
+sm_captures_string :: (fn(io : Io, name : &String) -> Impl(Future(usize, Io)))({
   owned_name := name.clone();
   io.async((e : Io) => {
     r := e.await(leaf(e, i32(1)), e);
