@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
-{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
+{ get_all_some_types, type_contains_some_type, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type-key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function-value.yo");
@@ -2936,6 +2936,11 @@ _inject_forall_captures :: (
 /// (I1) and that the key does not split the two presentations (I2). Each
 /// mismatch is reported on stderr as `[self-pattern-mismatch]`.
 _check_self_pattern_substitution :: (fn(spec_s : &Substitution, pattern : &TypeValue, receiver : &TypeValue) -> unit)({
+  // A receiver that is itself generic compares its type variables by
+  // lineage, which is not this check's question.
+  if(type_contains_some_type(receiver), {
+    return(());
+  });
   mut(chk) := _subst_clone(spec_s);
   got := substitute(&mut chk, pattern);
   got_key := type_key(&got);

@@ -16,6 +16,9 @@ pragma(Pragma.AllowUnsafe);
 { t_dyn, shell_base_final, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_with_list, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { HashMap } :: import("std/collections/hash-map");
 { HashSet } :: import("std/collections/hash-set");
+{ debug_knob } :: import("../utils.yo");
+{ eprintln } :: import("std/fmt");
+{ type_to_string } :: import("./string.yo");
 { RefCell } :: import("std/sync/refcell");
 { resolve_cell_chain, get_all_some_types } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
@@ -700,6 +703,9 @@ _subst_shell :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)({
   _ins := g_shell_subst_in_progress.with_mut({ k : new_key.clone() }(m) => m.insert(k));
   cur := resolve_enum_shell(resolve_struct_shell(ty));
   fin := _substitute_at(s, &cur, false);
+  if(debug_knob(`YO_DEBUG_V77`).is_some(), {
+    eprintln(`[v77-shell] key=${new_key} cur=${type_to_string(&cur)} fin=${type_to_string(&fin)}`);
+  });
   register_shell_subst_final(&new_key, &fin);
   _rm := g_shell_subst_in_progress.with_mut({ &new_key }(m) => m.remove(new_key));
   out
@@ -756,7 +762,7 @@ _shell_list :: (fn(ty : &TypeValue) -> Tuple(SharedList(TypeValue), String))({
   key := shell_subst_key(&sh_id, &list);
   (list, key)
 });
-/// The distinct free type variables of `ty` (by `SomeT` id), through
+/// The distinct type variables of `ty` (by `SomeT` id), through
 /// fields, payloads, elements, pointees, parameters and type arguments.
 /// `seen` holds the named types already walked and the variables already
 /// collected; a shell is walked as its final.
@@ -764,11 +770,11 @@ _shell_free_vars :: (fn(ty_in : &TypeValue, acc : &mut ArrayList(TypeValue), see
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
     &ty,
-    Rc(.SomeT({ id : fv_id, resolution : fv_res })) => {
+    Rc(.SomeT({ id : fv_id })) => {
       tok := `T:${fv_id}`;
       if(!seen.contains(&tok), {
         seen.push(tok);
-        match(fv_res, .Some(_) => (), .None => acc.push(Rc.clone(&ty)));
+        acc.push(Rc.clone(&ty));
       });
     },
     Rc(.Struct({ id : st_id, field_types : st_fts, type_arguments : st_tas })) => {
