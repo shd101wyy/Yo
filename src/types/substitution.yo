@@ -664,6 +664,12 @@ _subst_enum_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
     _ => Rc.clone(ty)
   ))
 );
+/// Registry keys of substituted shells whose final is being computed.
+(g_shell_subst_in_progress : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// A constructor shell's list per (shell id, recorded-argument count): its
+/// final is fixed once registered, and only the stamp of its type arguments
+/// (`stamp_enum_final_type_arguments`) changes what it records.
+(g_shell_base_lists : RefCell(HashMap(String, SharedList(TypeValue)))) = RefCell(HashMap(String, SharedList(TypeValue))).new(HashMap(String, SharedList(TypeValue)).new());
 /// `s` applied to a recursive type's self-shell (VERDICTS-77, I1): the
 /// self-reference inside `σ(N)` denotes `σ(N)`. The shell's list
 /// (`_shell_list`) is mapped through `s`; an unchanged list keeps the shell.
@@ -697,12 +703,6 @@ _subst_shell :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)({
   _rm := g_shell_subst_in_progress.with_mut({ &new_key }(m) => m.remove(new_key));
   out
 });
-/// Registry keys of substituted shells whose final is being computed.
-(g_shell_subst_in_progress : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-/// A constructor shell's list per (shell id, recorded-argument count): its
-/// final is fixed once registered, and only the stamp of its type arguments
-/// (`stamp_enum_final_type_arguments`) changes what it records.
-(g_shell_base_lists : RefCell(HashMap(String, SharedList(TypeValue)))) = RefCell(HashMap(String, SharedList(TypeValue))).new(HashMap(String, SharedList(TypeValue)).new());
 /// The list a shell stands for and its registry key: the list the shell
 /// carries, or, on a constructor's shell (an empty list), its final's
 /// recorded type arguments followed by the final's free type variables

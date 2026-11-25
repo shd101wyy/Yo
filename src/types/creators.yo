@@ -891,6 +891,8 @@ register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
     bump_type_key_epoch();
   });
 });
+/// Substituted finals by `shell_subst_key` (see `shell_subst_key` below).
+(g_shell_subst_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 /// Resolve an empty-variant EnumT shell to its finalized form (no-op for
 /// non-enums, populated enums, and unknown ids). A substituted shell (one
 /// carrying a list, see `g_shell_subst_finals`) resolves to the substituted
@@ -1076,7 +1078,6 @@ _struct_has_fields :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Struct({ field_t
 // (issues/fixed/2026-11-20-an-untyped-trait-member-literal-on-a-generic-box-self-enum-emits-mismatched-c-types.md).
 // The list covers every free variable, so it determines the substituted
 // final: two substitutions that agree on it give one type.
-(g_shell_subst_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 /// The registry key of shell `shell_id` carrying `list`: the id, then each
 /// element's structural key (`type_intern_key`), length-prefixed so the
 /// concatenation is unambiguous.
