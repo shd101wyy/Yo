@@ -1,0 +1,21 @@
+// expect: E0901
+// A destructuring borrows its elements from the call's temporary, which releases them at scope end.
+// A `mut(written)` copy of the `Rc` element, reassigned anywhere in the body, released the element a
+// second time: heap-use-after-free at the read, even on the call that does not reassign.
+{ println } :: import("std/fmt");
+Node :: struct(n : i32);
+pair :: (fn(e : &Rc(Node)) -> Tuple(Rc(Node), usize))((Rc.clone(e.*), usize(0)));
+use :: (fn(e : &Rc(Node), swap : bool) -> i32)({
+  (mut(written), _synth) := pair(e);
+  if(swap, {
+    written = Rc.new(Node(n : i32(9)));
+  });
+  written.*.n
+});
+main :: (fn() -> unit)({
+  x := Rc.new(Node(n : i32(7)));
+  keep := Rc.clone(x);
+  a := use(&x, false);
+  println(`OUT: ${ref_count(keep)} ${a}`);
+});
+export(main);

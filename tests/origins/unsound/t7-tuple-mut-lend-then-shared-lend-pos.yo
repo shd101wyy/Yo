@@ -1,0 +1,19 @@
+// expect: accept
+// The positive twins: a `&mut` and a `&` of disjoint fields in one tuple, and `(&x, &x)`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+P :: struct(a : String, b : String);
+main :: (fn() -> unit)({
+  mut(p) := P(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"), b : String.from("b"));
+  t := (&mut p.a, &p.b);
+  match(
+    t,
+    (a, b) => {
+      a.* = String.from("q");
+      println(`OUT: ${b.*}`);
+    }
+  );
+  u := (&p.a, &p.a);
+  match(u, (c, d) => println(`OUT: ${c.*} ${d.*}`));
+});
+export(main);

@@ -157,7 +157,7 @@ generate_dyn_box_functions :: (fn(context : &mut FunctionGenerationContext) -> u
             context.base.emitter.emit_declaration_line("");
           });
           context.base.emitter.emit_string_line(`static ${box_name}* __yo_new_${box_name}(${param_str} value) {`);
-          // `dyn(...)`'s own box is global (ALLOCATOR_PLACEMENT.md §2.4: a
+          // `dyn(...)`'s own box is global (plans/reference/ALLOCATOR_PLACEMENT.md §2.4: a
           // placed payload is a placed `Rc`, used as the data object).
           context.base.emitter.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_rc_alloc(sizeof(${box_name}));`);
           context.base.emitter.emit_line("  box->header.ref_count = 1u;");
@@ -462,7 +462,7 @@ _dyn_clone_fn_name :: (fn(impl_key : &String) -> String)(`__yo_dyn_clone_${impl_
 /// source's owner (`__yo_scope_of_object`) as its constructor's explicit
 /// allocator; the auto-boxed `dyn(v)`'s box is global, as its source's is.
 /// What the impl's `clone` allocates itself is global: there is no
-/// allocation scope (plans/backlog/ALLOCATOR_PLACEMENT.md §6 B2b). A
+/// allocation scope (plans/reference/ALLOCATOR_PLACEMENT.md §6 B2b). A
 /// reference payload is the impl's result itself. A payload-convention impl
 /// reads its payload where the data word points, whatever the payload is (an
 /// `Rc` handle included), as its method wrappers and slot functions do; only

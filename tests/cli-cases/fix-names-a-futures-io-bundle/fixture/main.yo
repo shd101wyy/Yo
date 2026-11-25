@@ -1,0 +1,10 @@
+//! Futures whose bodies read an `Io`, typed as if they read no bundle.
+tick :: (fn(io : Io) -> Impl(Future(u64)))(
+  io.async((io : Io) => u64(1))
+);
+run :: (fn(sink(f) : Impl(Future(u64)), io : Io) -> u64)(io.await(f, io));
+main :: (fn(io : Io) -> unit)({
+  (f : Impl(Future(u64))) = tick(io);
+  _t := run(f, io);
+});
+export(main);

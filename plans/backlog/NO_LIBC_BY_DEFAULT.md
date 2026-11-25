@@ -243,7 +243,7 @@ it stays emitted, target-selected C. Its *identity* is now fixed: it is the
 - P4 swaps libc calls *inside* the native table's functions and changes no
   entry.
 - P5/P6 port `parallelism/runtime.yo`'s pool **handles**
-  ([`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
+  ([`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
   TP-1), not its former statics.
 
 Both pieces land after VALUES_BY_DEFAULT and before P0b, in the order

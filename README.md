@@ -29,7 +29,7 @@ mascot is Youyou (柚柚), a panda hugging a halved pomelo.
 - [Formal verification](./docs/en-US/FORMAL_VERIFICATION.md) — `requires`/`ensures` contracts and refinement types proved at compile time by Z3 (`yo verify`), with a counter-example when one fails.
 - [Compile-time evaluation](./docs/en-US/CTFE.md) — first-class types, and functions with `comptime` parameters run in the compiler.
 - [Algebraic effects](./docs/en-US/ALGEBRAIC_EFFECTS.md) and [async/await](./docs/en-US/ASYNC_AWAIT.md) — one-shot effect handlers; async is the builtin `Io` effect on a single-threaded event loop.
-- [Parallelism](./docs/en-US/PARALLELISM.md) — a thread-per-core runtime, separate from async.
+- [Parallelism](./docs/en-US/PARALLELISM.md) — threads and an owned worker pool, each thread with its own event loop, separate from async.
 - [C interop](./docs/en-US/FFI.md) — `c_include(...)` and `extern(...)` bind C headers and symbols.
 - [One way to write each thing](./docs/en-US/GRAMMAR.md) — no operator precedence, no function overloading.
 - [Build system and packages](./docs/en-US/BUILD_SYSTEM.md) — `yo init`, `yo build`, dependencies in `yo.toml`, [WebAssembly](./docs/en-US/WASM.md) targets.
@@ -54,10 +54,8 @@ The script installs a prebuilt compiler (under `~/.local`, or
 `%LOCALAPPDATA%\Yo` on Windows), plus clang and git if they are missing.
 `curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --help` lists
 its options: a specific `--version`, a `--prefix`, or `--from-source` on
-platforms without a prebuilt bundle (NixOS, Alpine). Manual setup:
-[Linux](./docs/en-US/INSTALL_LINUX.md), [macOS](./docs/en-US/INSTALL_MACOS.md),
-[Windows](./docs/en-US/INSTALL_WINDOWS.md),
-[WebAssembly](./docs/en-US/INSTALL_WASM.md).
+platforms without a prebuilt bundle (NixOS, Alpine). Manual setup of the C
+toolchain, upgrading and WebAssembly: [INSTALL.md](./docs/en-US/INSTALL.md).
 
 ### Install with an agent
 
@@ -102,12 +100,13 @@ Chinese.
 
 ## Documentation
 
-- [Language design](./docs/en-US/DESIGN.md)
+- [Manuals](./docs/en-US/INDEX.md): every page by topic, and which tool answers what
 - [Standard library reference](https://shd101wyy.github.io/Yo/std)
 - [Version pinning](./docs/en-US/VERSION_MANAGEMENT.md) with `.yo-version`
 - Editors: [LSP setup](./docs/en-US/LSP.md); Vim/Neovim syntax in [vscode-extension/syntaxes](./vscode-extension/syntaxes/README.md)
 - Examples: [raylib-yo](https://github.com/shd101wyy/raylib-yo), [tetris-yo](https://github.com/shd101wyy/tetris-yo) ([play](https://shd101wyy.github.io/tetris-yo/)), [http-server-demo-yo](https://github.com/shd101wyy/http-server-demo-yo), [markdown-it-yo](https://github.com/shd101wyy/markdown-it-yo), [markdown-yo](https://github.com/shd101wyy/markdown-yo) ([try it](https://shd101wyy.github.io/markdown-yo/))
-- [My story with programming languages](./docs/en-US/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md)
+- [Philosophy and inspiration](./docs/about/en-US/PHILOSOPHY.md)
+- [My story with programming languages](./docs/about/en-US/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md)
 
 ## Contributing
 

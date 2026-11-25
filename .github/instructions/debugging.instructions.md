@@ -10,7 +10,8 @@ A mechanism that convincingly explains a symptom is wrong about half the time: f
 
 1. **Probe before you fix.** Print at the predicate you believe decides, on BOTH a failing and a working case, and compare. A trace without a control is not evidence.
 2. **When a probe is ambiguous, widen the probe; do not go back to reading.** When several sites could be the one, tag them all in one build (distinct `eprintln` markers) instead of bisecting by inference.
-3. **Do not count one signal twice** (two views of the same layer are one confirmation), and **a green exit code can mean "nothing ran"**: `yo compile` exits 0 on a body emitted as an abort stub, and `yo check` never runs codegen.
+3. **A comment saying "Yo has no X" goes stale as the language grows.** Probe it with a 15-line `tmp/` file (`yo compile … --emit-c --skip-c-compiler`) before building a workaround on it.
+4. **Do not count one signal twice** (two views of the same layer are one confirmation), and **a green exit code can mean "nothing ran"**: `yo compile` exits 0 on a body emitted as an abort stub, and `yo check` never runs codegen.
 
 ## Evaluator debugging
 
@@ -50,7 +51,7 @@ After a swallowed trial, a later pass over the now-hollow body can raise a DERIV
 - `YO_DEBUG_RRE=1`: return-type re-evaluation, `[rre] callee=… hkt=… resolved_ret=…`. On E0613 for a call whose `T` should come from a closure, `hkt=T` means no forall binding reached the re-evaluation.
 - `YO_DEBUG_FRESHEN`: per-call freshening of a generic callee's forall binders (`before-ids=` / `after-ids=`). Identical ids mean the freshening fired and changed nothing: `substitute` matches a `SomeT` on (name, frame_level) and the declaration's `forall_types` entry carries a different level.
 - `YO_DEBUG_PARAMCHECK`: `[param-check] declared=… final=…`. Only a callee with no `FuncVal` (an `extern`, a builtin) goes through `try_to_call_function_with_arguments` → `check_if_function_parameter_matches_argument`; a Yo callee binds its own parameters in `evaluate_function_call`'s FuncVal arm (`[abstract-spec]`). "The same call with a Yo callee works" says nothing about the extern route. A `final` still naming the callee's binder means the re-evaluation lost a binding (`issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`).
-- `YO_DEBUG_BORROW_MASK=1`: `[borrow-all]` lines, for a borrowed-`for` panic or "Strict borrow: … may mutate" on a method that only reads. An unresolvable call (an indirect call through a function-pointer field) counts as mutating everything.
+- `YO_DEBUG_BORROW_MASK=1`: `[borrow-all]` lines, for a "Strict borrow: … may mutate" error on a method that only reads. An unresolvable call (an indirect call through a function-pointer field) counts as mutating everything.
 - `YO_DEBUG_ASYNC_LAYOUT=1`: per `io.async` block, each closure parameter's declaration sites and each captured local's id, site and whether it got a state-machine field.
 - `YO_DEBUG_BODY_SUMMARY=1`: `[body-summary] <module> offered=N summarized=M` (see below).
 - `YO_DEBUG_CAPTURE=1`: the closure-capture pipeline (below).

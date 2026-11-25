@@ -43,8 +43,9 @@ pragma(Pragma.AllowUnsafe);
 { is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type, type_decl_module } :: import("../../types/guards.yo");
 { private_member_blocked } :: import("../../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
-{ unknown_field_message, unknown_field_code } :: import("../../types/utils.yo");
+{ format_error_message, format_error_message_with_help, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
+{ unknown_field_message, unknown_field_code, type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { is_valid_variable_name, reject_malformed_mut_marker } :: import("../utils.yo");
 { is_mut_binding } :: import("../../expr.yo");
 { clone_value } :: import("../values/clone-value.yo");
@@ -225,6 +226,22 @@ _is_adopted_extern_c_field :: (fn(rhs_type : &TypeValue, fval_opt : &Option(Eval
     _ => false
   )
 );
+/// E0901 for a `mut(name)` destructuring binding whose element holds data the
+/// destructured value still holds
+/// (issues/fixed/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md).
+_throw_mut_destructure_copy :: (fn(b_atom : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  name := ast_expr_token(b_atom).*.value.*.clone();
+  msg := `use of moved value: cannot copy \`${name}\` out of the destructured value: a \`mut(name)\` binding of a destructuring copies its element by value, and its type \`${type_to_string(ty)}\` holds data the destructured value still holds.`;
+  help := `bind \`${name}\` without \`mut\` (it borrows its element) and copy it explicitly into a \`mut\` local (\`.clone()\`), or match the value instead: a \`match\` of a value you own moves its parts into the arm's bindings, \`mut\` ones included`;
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(ast_expr_token(b_atom), &msg, Option(String).Some(help)),
+      E_USE_OF_MOVED_VALUE
+    ),
+    ctx,
+    exn
+  );
+});
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
 _find_field_index :: (fn(field_labels : &ArrayList(String), label : &String) -> Option(usize))({
@@ -679,6 +696,16 @@ handle_member_destructuring :: (
                 );
                 // A `mut(name)` binding may be reassigned (decision 47).
                 if(is_mut_binding(&ast_expr_token(&var_tok_expr), &var_name), {
+                  // A destructuring borrows: each name is a by-value copy
+                  // of its element, which the destructured value still
+                  // owns and releases (there are no partial moves). A
+                  // `mut` copy of an element holding an RC cell or an
+                  // owned buffer would release that data on its write
+                  // and at its scope end a second time: E0901, as a `&`
+                  // match's `mut(name)` binding (VERDICTS-28 Q2).
+                  if(ref_elem.is_none() && !is_compile_time_only && type_contains_rc_cell_or_move_only(&bind_field_type), {
+                    _throw_mut_destructure_copy(&var_tok_expr, &bind_field_type, ctx, exn);
+                  });
                   added_var.*.set_is_reassignable(true);
                 });
               },

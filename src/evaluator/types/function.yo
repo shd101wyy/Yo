@@ -2586,7 +2586,7 @@ evaluate_function_parameter :: (
             .Some(_dv_val) => {
               // A runtime CALL (`?= seven()`, `?= String.new()`) yields a
               // RUNTIME-ONLY placeholder, not a value: `?=` defaults are
-              // compile-time known (DESIGN.md); re-evaluated at each call
+              // compile-time known (FUNCTIONS.md); re-evaluated at each call
               // site, the call emitted broken C (an unnamed function value).
               // A comptime parameter's placeholder (`?= Lhs`) is
               // not runtime-only and stays legal: the call site decides it.
@@ -2662,7 +2662,7 @@ evaluate_function_parameter :: (
   // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
   // annotate a parameter with a type whose representation carries a raw
   // pointer (`*[T]`, structs wrapping *(T), ...). The prelude's
-  // `Allocator` passes as an opaque handle (ALLOCATOR_PLACEMENT.md A2).
+  // `Allocator` passes as an opaque handle (plans/reference/ALLOCATOR_PLACEMENT.md A2).
   if(!ctx.unsafe_context &&
     !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).*.module_path.*.clone())) &&
       parameter_type_contains_raw_ptr(&final_param_type), {

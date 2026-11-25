@@ -290,8 +290,13 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
   // never declaring them) yet still get their scope-end drop scheduled.
   // Skipping an undeclared temp's drop cannot double-free or leak (no C variable exists).
   // See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+  // A minted temp is exactly a name of `generate_new_temp_variable_name`'s
+  // shape: a user binding whose name merely contains `_temp_`
+  // (`scr_temp_place`) is a C local like any other, judged by the scope
+  // stack below, and its declaration is never recorded in the temp set
+  // (issues/fixed/2026-11-20-evaluate-matchs-scrutinee-temporary-place-leaks-on-every-unwind.md).
   guard_cn := sanitize_for_c_identifier(var_name.clone(), false);
-  if(guard_cn.contains(String.from("_temp_")) && !context.base.declared_c_var_names.*.with({ &guard_cn }(dn_s) => dn_s.contains(guard_cn.clone())), {
+  if(is_any_temp_variable_name(&var_name) && !context.base.declared_c_var_names.*.with({ &guard_cn }(dn_s) => dn_s.contains(guard_cn.clone())), {
     return(false);
   });
   // A call-scoped share's drop is pending only while its call's arguments

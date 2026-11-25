@@ -3,7 +3,7 @@
 //! `with_capacity`) places the block in `a`, `clone_in(a)` places a copy
 //! there, and its release is routed back to `a`. A creation without
 //! one is global; there is no allocation scope
-//! (`plans/backlog/ALLOCATOR_PLACEMENT.md`). Also the `Allocator` vtable
+//! (`plans/reference/ALLOCATOR_PLACEMENT.md`). Also the `Allocator` vtable
 //! surface itself (`plans/archive/EXPLICIT_ALLOCATORS.md` P0): the owner
 //! prefix, the global allocator's value, an `Allocator` value shared across
 //! threads, and interface version 2's aligned blocks and sized free
@@ -131,7 +131,7 @@ test("A dyn over a placed Rc reuses the Rc's cell: no second cell", {
 });
 // A `Dyn` clone of a placed `Rc` builds its fresh cell with the source's
 // owner as the cell constructor's explicit allocator
-// (plans/backlog/ALLOCATOR_PLACEMENT.md §6 B2b). Until B2b it made the owner
+// (plans/reference/ALLOCATOR_PLACEMENT.md §6 B2b). Until B2b it made the owner
 // the thread's allocation scope for the impl's `clone`, the one path whose
 // placement rode the thread-local.
 test("A Dyn(Trait, Clone) over a placed Rc clones into its allocator, twice", {
@@ -174,7 +174,7 @@ test("An allocator whose callbacks allocate places Rc, Arc and a Dyn clone witho
   };
   assert(counts.live == usize(0), `all four went back: ${counts.live}`);
 });
-// `Box`'s layout L2 (plans/backlog/ALLOCATOR_PLACEMENT.md, "Related: `Box`'s
+// `Box`'s layout L2 (plans/reference/ALLOCATOR_PLACEMENT.md, "Related: `Box`'s
 // layout", VERDICTS-29): the placed bit is bit 0 of the handle's cell
 // pointer, a global cell is the payload alone, a placed cell is the owner
 // prefix then the payload, and a global zero-sized payload allocates nothing.
@@ -242,7 +242,7 @@ test("An alloc argument takes any Allocator value", {
   };
   assert(counts.live == usize(0), `the placed point went back: ${counts.live}`);
 });
-// ===== The containers' default constructors are global (ALLOCATOR_PLACEMENT.md B1) =====
+// ===== The containers' default constructors are global (plans/reference/ALLOCATOR_PLACEMENT.md B1) =====
 test("ArrayList.new, HashMap.new, Deque.new and Box.new(v) are on the global allocator", {
   mut(list) := ArrayList(i32).new();
   list.push(i32(1));
@@ -379,7 +379,7 @@ test("An Allocator value crosses threads and every release comes back to it", {
   t3 := Thread(unit).spawn(io => _churn(g));
   t3.join();
 });
-// ===== clone_in: a copy placed explicitly (ALLOCATOR_PLACEMENT.md B2a) =====
+// ===== clone_in: a copy placed explicitly (plans/reference/ALLOCATOR_PLACEMENT.md B2a) =====
 test("clone_in places a copy in the allocator it names, wherever the source lives", {
   counts := _counts();
   heap := _counting(addr_of(counts));

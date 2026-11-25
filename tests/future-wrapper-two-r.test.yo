@@ -17,7 +17,7 @@ impl(
   generic(T : Type),
   Holder(T),
   new : (fn(value : &T) -> Self)(Self(_value : value.*)),
-  apply_async_r : (fn(generic(R : Type), self : &mut Self, body : &Impl(Fn(v : &mut T) -> R), io : Io) -> Impl(Future(R)))(
+  apply_async_r : (fn(generic(R : Type), self : &mut Self, body : &Impl(Fn(v : &mut T) -> R), io : Io) -> Impl(Future(R, Io)))(
     io.async({ v : &mut self._value, f : &body.* }(io : Io) => {
       r := f(v);
       return(r);

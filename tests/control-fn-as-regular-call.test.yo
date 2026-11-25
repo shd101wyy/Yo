@@ -57,9 +57,9 @@ test("control fn called as regular function from multiple sites", {
 test("control fn called from worker closures", {
   // Runs everywhere, INCLUDING standalone WASI, where pthread_create fails: the
   // pool used to queue this task to a worker that does not exist and
-  // `join_all` blocked forever (the CI leg hung 3.4 h here). `__yo_worker_spawn`
-  // now runs a task inline when its slot has no OS thread, so the assertion
-  // below really executes on WASI too
+  // `join_all` blocked forever (the CI leg hung 3.4 h here). A pool with no
+  // worker thread now runs a task inline, so the assertion below really
+  // executes on WASI too
   // (issues/fixed/wasi-thread-pool-submit-deadlock.md).
   // Match the yo-http-benchmark multi-threaded pattern: call the
   // control fn from main AND from a ThreadPool task closure.

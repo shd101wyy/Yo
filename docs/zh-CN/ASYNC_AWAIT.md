@@ -37,6 +37,8 @@ export(main);
 | **并行** | `Thread(T).spawn`     | 多个任务在不同线程上同时执行 |
 
 ```yo
+{ Thread } :: import("std/thread");
+
 // 并发：同一线程，交替执行
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
@@ -48,10 +50,12 @@ main :: (fn(io : Io) -> unit)({
 });
 
 // 并行：不同线程，真正的同时执行
-task := Task(i32, bool).spawn(parent -> .{
-  // 运行在不同线程上！
-  // 完全隔离——无共享内存
+thread := Thread(unit).spawn(io => {
+  // 运行在不同的线程上，拥有自己独立的事件循环。
+  // 隔离：只有 Send 值能越过线程边界。
+  ();
 });
+thread.join();
 ```
 
 ## 执行模型：基于代数效应的惰性启动
@@ -237,7 +241,7 @@ main :: (fn(io : Io) -> unit)({
 ### Future 类型
 
 ```yo
-// `io.async(fn)` 返回 `Impl(Future(T))`——指向堆分配状态机的指针。
+// `io.async(fn)` 返回 `Impl(Future(T, E))`——指向堆分配状态机的指针。
 // 状态机存储：
 //   - state: int（0 = 冷，1..N = 中间状态，-1 = 已完成，-2 = 已中止）
 //   - continuation_fn / continuation_sm（完成后恢复谁）
@@ -269,13 +273,16 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 1. **按效应包类型相等。** 当 `E1` 与 `E2` 兼容时，`Future(T, E1)` 与
    `Future(T, E2)` 匹配。不再存在「顺序无关的集合匹配」——没有集合，
    只有一个效应包。
-2. **无效应包的 future 适配任何效应包；带效应包的 future 只有在效应包是
-   `Io` 时才适配 `Future(T)`。** 类型中不带效应包的 future（原始
-   `IoFuture`、`yield`）与任意 `E` 的 `Future(T, E)` 兼容：它不读取效应包。
-   反方向更窄：通过 `Future(T)` 类型进行的 await 或 spawn 不会注入任何东西，
-   所以带效应包的 future 只有在效应包为 `Io` 时才能被视为 `Future(T)`——`Io`
-   的字段是编译器内建函数，函数体从不通过它们调用。效应包里带处理器的 future
-   在传递时必须保留其效应包；把它视为 `Future(T)` 是 `yo check` 错误。
+2. **无效应包的 future 适配任何效应包；带效应包的 future 从不适配
+   `Future(T)`。** 类型中不带效应包的 future（原始 `IoFuture`）与任意 `E`
+   的 `Future(T, E)` 兼容：它不读取效应包。反方向是错误。通过 `Future(T)`
+   类型进行的 await 或 spawn 不会注入任何东西，而函数体从效应包中取得它的
+   效应，包括它的 `io`。带效应包的 future 在传递时的每个类型中都保留其效应包：
+   返回 `io.async((io : Io) => ...)` 的函数的类型是 `-> Impl(Future(T, Io))`，
+   把它视为 `Future(T)` 是 `yo check` 错误（E0605）。`sleep`、`yield`、
+   `Interval.tick`、`Mutex.lock`、`Mutex.with_lock` 以及通道的 `send` 和
+   `recv` 都返回 `Impl(Future(T, Io))`，因此效应包是 struct 的任务用该 struct
+   的 `Io` 来 await 它们：`ctx.io.await(sleep(d, ctx.io), ctx.io)`。
 3. **使用 await 的异步体需要 Io。** 任何调用 `io.await` / `yield`
    的异步体都需要在效应包中包含 `Io`，因此效应包 struct 通常会有一个
    `io : Io` 字段。
@@ -936,7 +943,7 @@ int main(int argc, char** argv) {
 
 **I/O 初始化是惰性的**：`__yo_io_init()` 在首次实际 I/O 操作（文件打开、socket 连接等）时才被调用，而非程序启动时。这意味着仅使用 `yield()` 和纯计算的程序不会产生任何 I/O 初始化开销。
 
-类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread(T).spawn` 或 `std/thread` 的 `spawn(&pool, cb)` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
+类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread(T).spawn` 或 `std/thread` 的 `ThreadPool` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
 
 **同步系统辅助函数**（stat/dirent 访问器、sendfile/copyfile、同步文件操作、mmap/madvise、fcntl、flock、socket 地址辅助函数、信号处理器、TTY）始终通过 `generateSysRuntime()` 生成，其中包括跨平台辅助函数和平台特定的同步辅助函数（`generatePlatformSysRuntime{MacOS,Linux,Windows}`）。这些**不依赖 IoFuture**。所有函数均为 `static`，因此未使用的函数会被 C 编译器的死代码消除机制剥离。这确保了使用信号、stat、mmap、TTY 等功能的非异步程序在编译时不会引入完整的异步运行时。
 

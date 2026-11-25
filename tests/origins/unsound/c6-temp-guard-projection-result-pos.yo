@@ -1,0 +1,27 @@
+// expect: accept
+// The positive twins: the read through the temporary guard ends within the body (an owned result), and a
+// projection that reads the cell without a guard.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Cell :: struct(b : Box(String));
+Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &mut(Cell, p)));
+impl(
+  generic(p : Origin),
+  Guard(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.c.b = Box.new(String.from("released"));
+    })
+  )
+);
+impl(Cell, borrow_mut : (fn(self : &mut Self) -> Guard(self))(Guard(self)(c : self)));
+impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &String)(&self.c.b.*));
+n :: (fn(c : &mut Cell) -> usize)(c.borrow_mut().get().len());
+direct :: (fn(c : &mut Cell) -> &String)(&c.b.*);
+main :: (fn() -> unit)({
+  mut(c) := Cell(b : Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  k := n(&mut c);
+  r := direct(&mut c);
+  println(`OUT: ${k.to_string()} ${r.len().to_string()}`);
+});
+export(main);

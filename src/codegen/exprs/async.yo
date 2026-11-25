@@ -1576,7 +1576,7 @@ generate_async_block_state_dispose_function :: (
 /// The allocation of a future of type `struct_name`: one from its type's pool
 /// (phase 7; the dispose dispatch gives released ones back). A task is never
 /// placed: it is global, as every creation without an `alloc` argument is
-/// (plans/backlog/ALLOCATOR_PLACEMENT.md §6 B2b). The caller zeroes it.
+/// (plans/reference/ALLOCATOR_PLACEMENT.md §6 B2b). The caller zeroes it.
 _sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, context : &mut FunctionGenerationContext) -> String)({
   pid := context.base.sm_pool_id_for(dispose_function_name);
   `__yo_sm_take(${pid.to_string()}, sizeof(${struct_name}))`
@@ -3764,10 +3764,11 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
     }),
     .None => ()
   );
-  // Parallelism extern (__yo_thread_spawn / __yo_worker_spawn).
+  // Parallelism extern: __yo_thread_spawn, or any __yo_worker_* pool entry
+  // (a pool that is created and dropped without a task still links them).
   match(
     _called_extern_name(expr, context),
-    .Some(name) => if((name == "__yo_thread_spawn") || (name == "__yo_worker_spawn"), {
+    .Some(name) => if((name == "__yo_thread_spawn") || name.starts_with(String.from("__yo_worker_")), {
       context.uses_parallelism = true;
       // Mirror into the module global so main.yo can see it when it assembles
       // the emcc link line.

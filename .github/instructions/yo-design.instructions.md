@@ -41,7 +41,7 @@ Spelling (what parses) lives in `yo-syntax.instructions.md`; this file holds sem
   - Writing through a borrowed copy (a by-value parameter, a `for`/`match` binding) is E0908: take `x : &mut String`, return the new string, or clone into a local. `for(&mut xs, s => s.push_str("!"))` and `xs(i).push_str("!")` write elements in place.
   - Bytes are copied or moved, never lent: `to_bytes()` (copy), `into_bytes()` (moves out), `from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`; read in place with `len()`, `byte_at(i)`, `get_byte(i) -> Option(u8)`, `bytes()`. `String`'s `Index(usize)` is read-only (`s(i)` reads a byte; `s(i) = b` is an error naming `IndexMut`, since a byte write could break UTF-8).
   - A template string appends a `String` part by borrow (`ToString.append_to`); only a first part renders through `to_string()`.
-  - Shared text is `Rc(String)`. User docs: `docs/en-US/DESIGN.md` §Writing through a copy of a `String`, `docs/en-US/STRINGS.md`.
+  - Shared text is `Rc(String)`. User docs: `docs/en-US/STRINGS.md` §Writing through a copy of a `String`, `docs/en-US/STRINGS.md`.
 - **String indexing is byte-based everywhere** (`plans/archive/STD_API_AUDIT_D4_PLAN.md`): `len()` is the O(1) byte count; `at`, `substring`, `s(a..b)`, `index_of`, `last_index_of`, the positional arguments of `contains`/`starts_with`/`ends_with` and the `Pattern` trait all use byte offsets, at runtime and for `comptime_str`. `substring` clamps out-of-range but panics on an offset inside a rune; `try_substring` does not panic; `floor_char_boundary`/`ceil_char_boundary` snap offsets. Rune work is `chars()` / `char_indices()`; the rune count is `s.chars().count()` (the O(n) cost stays visible).
 - **`replace` replaces every occurrence** (Rust's `str::replace`); `replacen(pattern, new, count)` is the bounded form. `replace_first` / `replace_all` are deprecated aliases still exported. **`Regex.replace(haystack, rep)` (the method on a `Regex`) replaces the first match**, as in the Rust regex crate; `String.replace(re, rep)` (the `Pattern` dispatch) replaces all.
 - Print with `println` / `print` from `std/fmt` (a template string or any `ToString` value), not `printf`.
@@ -93,10 +93,10 @@ A file without `pragma(Pragma.AllowUnsafe)` gets these guarantees. When you chan
 The guarantee is data-race freedom for every program that compiles without `pragma(Pragma.AllowUnsafe)` and uses std's primitives.
 
 - **`Send` vs `Sync` (D10, decision 38 E).** `Send` = may be MOVED to another thread; `Sync` = copies may be READ from several threads. `Send` needs every component `Send` and no non-atomic cell.
-  - An atomic object (`Arc`, `ThreadPool`) is `Send` iff its fields are `Sync`. The `std/sync` types are NOT atomic objects (VERDICTS-70 Q2): `Mutex(T)`, `RawMutex`, `RwLock(T)`, `Cond`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`, `OnceCell(T)` and the `Atomic*` types are move-only structs over a private `Box` with explicit `Send`/`Sync` impls and `self : &Self` methods, shared as `Arc(Mutex(T))` (a copy is E0901); `Channel(T)` holds an `Arc` of its queue and implements `Clone`. `Mutex(T)` is `Sync` for `T <: Send` (explicit impl). Raw pointers are neither: a type holding one opts in with `impl(T, Send())`/`impl(T, Sync())` under the pragma (`Channel`, `Waker`); `enforce_atomic_object_send` (asks `Sync`) skips pragma'd files because their impl registers after the type.
+  - An atomic object (`Arc`) is `Send` iff its fields are `Sync`. `ThreadPool` is a move-only value that owns its workers (TP-1), shared as `&pool` or `Arc(ThreadPool)`; dropping it is `shutdown`. The `std/sync` types are NOT atomic objects (VERDICTS-70 Q2): `Mutex(T)`, `RawMutex`, `RwLock(T)`, `Cond`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`, `OnceCell(T)` and the `Atomic*` types are move-only structs over a private `Box` with explicit `Send`/`Sync` impls and `self : &Self` methods, shared as `Arc(Mutex(T))` (a copy is E0901); `Channel(T)` holds an `Arc` of its queue and implements `Clone`. `Mutex(T)` is `Sync` for `T <: Send` (explicit impl). Raw pointers are neither: a type holding one opts in with `impl(T, Send())`/`impl(T, Sync())` under the pragma (`Channel`, `Waker`); `enforce_atomic_object_send` (asks `Sync`) skips pragma'd files because their impl registers after the type.
   - `Dyn(Trait)` is `Send`/`Sync` only through an explicit bound (`_thread_marker_named_in`, `values/dyn.yo`); a `Dyn(Trait, Send)` payload need not be `Sync` (a `Box`-owned payload has one owner), but a shared payload must be atomically counted (`Arc.new(v)`, not `Rc.new(v)`). A closure literal that borrows its captures (`closure_literal_is_borrowed`) is never `Send`.
   - Every marker list (`_marker_name_of`, the step-4b re-derivation, `record_closure_capture_verdicts`, `function_value_marker`, the manual-impl pragma gate) names both markers.
-  - Bounds: `Arc` and `RwLock` need `T <: (Send, Sync)` (each handle or read guard reads from its own thread; the last release may run on any thread). `Arc(T)`'s own `Send`/`Sync` impls stay explicit under that bound (an `Impl(Fn)` payload is `Sync` only by value). `Mutex`/`Channel`/`Sender`/`Receiver`/`OnceCell`/`Thread(T)` need `T <: Send`. None requires or declares `Acyclic` (an `Arc` cycle leaks, as in Rust; `plans/archive/WEAK_AND_UNCOLLECTED_RC.md`): the marker is derived and a positive impl is rejected (`_throw_if_acyclic_impl`, `values/impl.yo`; `impl(T, !Acyclic)` opts out). `Thread.spawn` / `ThreadPool` / `spawn` take `Impl(FnOnce(...), Send)` with a `T <: Send` result.
+  - Bounds: `Arc` and `RwLock` need `T <: (Send, Sync)` (each handle or read guard reads from its own thread; the last release may run on any thread). `Arc(T)`'s own `Send`/`Sync` impls stay explicit under that bound (an `Impl(Fn)` payload is `Sync` only by value). `Mutex`/`Channel`/`Sender`/`Receiver`/`OnceCell`/`Thread(T)` need `T <: Send`. None requires or declares `Acyclic` (an `Arc` cycle leaks, as in Rust; `plans/archive/WEAK_AND_UNCOLLECTED_RC.md`): the marker is derived and a positive impl is rejected (`_throw_if_acyclic_impl`, `values/impl.yo`; `impl(T, !Acyclic)` opts out). `Thread.spawn` / `spawn` / `spawn_on` take `Impl(FnOnce(...), Send)` with a `T <: Send` result.
   - A `Send`-but-not-`Sync` type (`impl(T, !(Sync()))`) is the canary (`tests/send-sync.test.yo`).
 - **Rust's thread rule.** Data that crosses threads must itself be `Send`, derived purely structurally; there is no runtime uniqueness walk. An `Rc` graph is thread-local; `Rc.try_unwrap` takes the value out of a uniquely held handle.
 - **D1, module globals.** A closure bound to a `Send`/`Sync` closure type (a spawn body, a pool task, a `Dyn(Trait, Send)` method) may not reach a non-`Sync` module-level global, directly or through anything it calls, nor a value global written anywhere (a mutable static). Check: `function_reaches_non_send_global` (`src/evaluator/effects/mutation-summary.yo`). Use `thread_local(name)` for per-thread state, an `Atomic*` or a `std/sync` lock for shared state. A pragma'd std file is the audited base (its globals are under a lock: `std/log.yo`, `std/encoding/html.yo`).
@@ -117,7 +117,7 @@ The guarantee is data-race freedom for every program that compiles without `prag
 ## Explicit allocators: placement, not lifetime (`plans/archive/EXPLICIT_ALLOCATORS.md`)
 
 - An `Allocator` (`std/allocator.yo`) is `{ctx, vtable}`: a two-word `Send` value, never reference counted. Every block it hands out carries a 16-byte owner prefix (`{ctx, vtable}`) before the returned pointer, and every release routes through it, so a block returns to its allocator on any thread. Codegen writes the same layout (`__yo_alloc_prefix_t`) for a placed RC object and marks it with the top bit of `ref_count` (`__YO_RC_TAG`): mask every count TEST with `__YO_RC_COUNT`, never a write.
-- **Global by default, placement by argument** (`plans/backlog/ALLOCATOR_PLACEMENT.md`). A creation without an allocator argument is global. `Box.new`/`Rc.new`/`Arc.new` and the containers' `new`/`with_capacity` take `(alloc : Option(Allocator)) ?= .None`; `clone_in(a)` on `ArrayList`/`HashMap`/`String`/`StringBuilder` places a copy. There is no allocation scope (`with_allocator`/`current_allocator` are deleted).
+- **Global by default, placement by argument** (`plans/reference/ALLOCATOR_PLACEMENT.md`). A creation without an allocator argument is global. `Box.new`/`Rc.new`/`Arc.new` and the containers' `new`/`with_capacity` take `(alloc : Option(Allocator)) ?= .None`; `clone_in(a)` on `ArrayList`/`HashMap`/`String`/`StringBuilder` places a copy. There is no allocation scope (`with_allocator`/`current_allocator` are deleted).
   - Global: the containers' default constructors, `dyn`'s cell, interpolated strings, closure environments, `io.async` task state machines (`__yo_rc_alloc`). A cell constructor takes its allocator as its first C parameter (`__yo_rc_alloc_in`).
   - A user function that passes placement on declares `(alloc : Option(Allocator)) ?= .None`; the raw-view parameter gate treats the prelude's `Allocator` as an opaque handle, so a safe file may.
   - std is compiled into the compiler by the seed, so a std change that calls a new runtime hook is seed-gated.
@@ -157,7 +157,7 @@ A literal converts to any runtime integer type at argument positions (`xs.push(1
 
 - Gate a specification directory with `yo verify <path> --strict` (= `--deny assumed,outside-subset,unproven`), which fails those outcomes in every mode, including `verify+`. Adding `assumed()` to silence a finding is then visible.
 - Read the summary line, not just the exit code: it prints every outcome count and how many `ok` results were VACUOUS (discharged no obligation). `--format json` carries the same under `summary`. `plans/backlog/SELF_VERIFICATION.md` ratchets on the non-vacuous count.
-- **Laws state claims outside the code:** `name :: law(fn(x : T, requires(p), ensures(q)) -> unit);` (a written-out fn type with clauses, no body). A law is proved from the callee's CONTRACT alone, evaluates to `unit` and is erased in codegen. A non-`unit` return, no `ensures`, `assumed()`, `decreases(...)` or a named alias in place of the fn type are compile errors; `unproven` has no assert fallback for a law (so `--strict` decides); a law is never `outside-subset`; its callee may be imported. Full contract: `docs/en-US/FORMAL_VERIFICATION.md` §Laws; workflow: the yo-verification skill.
+- **Laws state claims outside the code:** `name :: law(fn(x : T, requires(p), ensures(q)) -> unit);` (a written-out fn type with clauses, no body). A law is proved from the callee's CONTRACT alone, evaluates to `unit` and is erased in codegen. A non-`unit` return, no `ensures`, `assumed()`, `decreases(...)` or a named alias in place of the fn type are compile errors; `unproven` has no assert fallback for a law (so `--strict` decides); a law is never `outside-subset`; its callee may be imported. Full contract and workflow: `docs/en-US/FORMAL_VERIFICATION.md` §Laws.
 
 ## API stability: the language may still break, `std` may not
 
@@ -202,7 +202,7 @@ The core rule (`return(expr)` in a handler resumes, `unwind(expr)` discards the 
 
 ## Futures, `io.async` and `io.await`
 
-- `Future(T)` or `Future(T, E)`: `E` is ONE type, typically a struct bundling every effect the async body needs (`Ctx :: struct(io : Io, raise : Raise)`). A function using `io : Io` that runs an async body names the bundle in its return type: `Impl(Future(Result(T, E), Ctx))`.
+- `Future(T)` or `Future(T, E)`: `E` is ONE type, typically a struct bundling every effect the async body needs (`Ctx :: struct(io : Io, raise : Raise)`). A function using `io : Io` that runs an async body names the bundle in its return type: `Impl(Future(Result(T, E), Ctx))`, and `Impl(Future(T, Io))` for an `(io : Io) =>` body. A bundled future is never viewed as `Future(T)` (E0605: an await through the view injects nothing); `Future(T)` is a raw `IoFuture`'s type, and it flows into any bundle. `sleep`, `yield` and the async `Mutex`/channel methods return `Impl(Future(T, Io))`: a struct-bundled task awaits them with its `Io`, `ctx.io.await(sleep(d, ctx.io), ctx.io)`.
 - `io.async` takes one closure typed `Impl(FnOnce(e : E) -> T)` and returns `Impl(Future(T, E))` (`std/prelude.yo`). The closure takes exactly ONE parameter, the effects struct: `(io : Io) =>` for an `Io`-only future, `(e : IoExn) =>` when it also throws, with every operation through `e.io` / `e.exn`. The body must NOT capture `io` or `exn` from the enclosing scope (control-bound values cannot be captured).
 - `io.await(future, e)` takes the future's effects type: `Future(T, Io)` → `io.await(future, io)`; `Future(T, IoExn)` → `e.io.await(future, e)`; low-level IO futures (`IO_*`, e.g. `IO_dir.mkdir`) → `io.await(future, io)` only.
 - Return `io.async(...)` directly as the last expression, or through a local that a later statement returns (or that is the body tail); both infer the closure's bare-variant tail from the function's result type (`issues/fixed/io-async-variant-inference-passes-check-but-fails-compile.md`):
@@ -416,7 +416,7 @@ chained := x.and_then(
 
 ## Generalized Algebraic Data Types (GADTs)
 
-An enum variant may declare the instantiation it produces with `-> recur(...)` (syntax: yo-syntax "GADT variants"; design: `plans/reference/GADTS.md`, `docs/en-US/GADTS.md`).
+An enum variant may declare the instantiation it produces with `-> recur(...)` (syntax: yo-syntax "GADT variants"; design: `plans/reference/GADTS.md`, `docs/en-US/ADVANCED_TYPES.md`).
 
 - Without the annotation a variant produces the unconstrained type parameters (regular enum behavior); annotated and unannotated variants mix.
 - Match refines the type parameter per arm: in `match(v, .IntVal(i) => i, .BoolVal(b) => b)` each arm sees `T` as the variant's declared type.
@@ -498,6 +498,8 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
 
 ## Standard library module organization (`std/`)
 
+- **A module on `std/assert`'s own import path cannot import it.** `std/assert` imports `std/string`, so
+  `std/string/string.yo` (and anything else `std/assert` reaches) panics with the `__yo_panic` builtin.
 - **`dir/index.yo`** only when a directory holds a single public module whose name would duplicate the directory's (`dir/dir.yo`): users write `import("std/url")`, not `import("std/url/url")`. Examples: `std/url`, `std/regex`.
 - **A flat `.yo` file** for a module with one file and no planned submodules (`std/env.yo`, `std/log.yo`, `std/glob.yo`), not a directory holding only an `index.yo`. Use a directory once the module has companion files (helpers, platform splits, sub-APIs).
 - **No catch-all `index.yo`** for a directory of distinct submodules; users import each one (`import("std/net/tcp")`, `import("std/collections/hash-map")`, `import("std/fs/file")`). This category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
@@ -552,6 +554,30 @@ env_mut = result.env;
 // CORRECT:
 env_adopt(&env_mut, &result.env);
 ```
+
+### Token positions: `character` is a rune offset, `byte_offset` indexes the source
+
+`Token.character` counts runes (the lexer's `input.chars()` counter, served to the LSP as a `character`
+position); `Token.input` is byte-indexed. Slicing `input` with `character` corrupts any source holding a
+multibyte character (`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`, where `yo fmt`
+rewrote non-ASCII files at rc 0). Index with `Token.byte_offset` (`src/token.yo`).
+
+### A swallowing handler's `unwind` skips the restore after the guarded call
+
+`unwind(...)` exits the function that installed the handler, so a save/restore around the guarded call
+in that same function never restores on the failure path:
+
+```yo ignore
+saved := ctx.flag;
+ctx.flag = true;
+r := evaluate_something(..., exn); // the handler unwinds from here
+ctx.flag = saved; // skipped when the handler unwinds
+```
+
+Install the handler in a helper and save/restore in its caller, which the `unwind` lands in. Adding a
+swallowing handler to existing code is therefore not behaviour-preserving: a flag that leaked harmlessly
+while the error aborted the compile now stays set for the rest of it (a leaked
+`is_analyzing_ctfe_capability` once hollowed `tests/fn.test.yo` while every single-file repro was clean).
 
 ### Exception threading: always add `exn` to calls
 

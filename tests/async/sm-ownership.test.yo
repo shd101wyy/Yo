@@ -1184,7 +1184,7 @@ _CapCh :: struct(_st : Thing);
 derive(_CapCh, Clone);
 impl(
   _CapCh,
-  get : (fn(self : &Self, io : Io) -> Impl(Future(i32)))(
+  get : (fn(self : &Self, io : Io) -> Impl(Future(i32, Io)))(
     io.async({ st : Rc.clone(&self._st) }(io : Io) => {
       y := st.*.n;
       return(y);
@@ -1194,7 +1194,7 @@ impl(
 _CapRx :: struct(_ch : _CapCh);
 impl(
   _CapRx,
-  get : (fn(self : &Self, io : Io) -> Impl(Future(i32)))(
+  get : (fn(self : &Self, io : Io) -> Impl(Future(i32, Io)))(
     io.async({ ch : self._ch.clone() }(io : Io) => {
       got := io.await(ch.get(io), io);
       got

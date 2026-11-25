@@ -2,7 +2,8 @@
 # JOIN every worker, so a task still blocked when the program ends (here: an
 # hour-long sleep) kept the process alive for good
 # (issues/fixed/worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md).
-# Exit now signals the workers and returns. The case's timeout is the oracle: on
-# the unfixed runtime the test binary never exits and the case times out.
+# A pool held in a module global is never dropped, and exit does not wait for
+# its workers. The case's timeout is the oracle: a runtime that waited would
+# never let the test binary exit, and the case would time out.
 stdout_keep_match=1 passed
 timeout=120

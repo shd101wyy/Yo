@@ -55,7 +55,7 @@ extern(
 );
 /// Suspend the current async task for `duration`, letting other tasks on the
 /// event loop run in the meantime.
-sleep :: (fn(duration : Duration, io : Io) -> Impl(Future(unit)))({
+sleep :: (fn(duration : Duration, io : Io) -> Impl(Future(unit, Io)))({
   ms := u64(duration.as_millis());
   io.async((io : Io) => {
     io.await(IO_timer.sleep(ms), io);
@@ -107,7 +107,7 @@ impl(
   /// deliberately not implemented until something needs it — the choice has
   /// to be made per call site and guessing it here would be worse than
   /// leaving it out.
-  tick : (fn(self : &mut Self, io : Io) -> Impl(Future(unit)))({
+  tick : (fn(self : &mut Self, io : Io) -> Impl(Future(unit, Io)))({
     due := self._next;
     // Advance BEFORE waiting, so the schedule does not depend on when the
     // sleep actually returns.

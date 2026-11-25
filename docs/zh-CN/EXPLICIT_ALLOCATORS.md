@@ -28,7 +28,8 @@ Yo 用引用计数管理内存：对象在最后一个引用消失时被释放�
   也会回到正确的地方。不可能把块释放到错误的分配器里。
 
 Yo 不检查的是分配器自身的生命周期：它的上下文和 vtable 必须比它分配出去的每个块
-活得更久（见[编写自己的分配器](#编写自己的分配器)）。
+活得更久，`ctx` 指向的状态必须比由它构造的每个 `Allocator` 值活得更久（见[编写自己的分配器](#编写自己的分配器)和
+[MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器)）。
 
 **默认全局，放置靠参数。** 不带分配器参数的创建总是使用全局分配器。调用方无法设置
 分配作用域：`ArrayList(i32).new()` 或 `Rc.new(v)` 这样的调用做什么，从不取决于它的调用者。
@@ -321,4 +322,4 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
   类型的对齐超过 16；`extern` C 类型可能超过。
 
 设计决定汇总在 `plans/reference/EXPLICIT_ALLOCATORS.md`，放置规则（“默认全局，
-放置靠参数”）见 `plans/backlog/ALLOCATOR_PLACEMENT.md`。
+放置靠参数”）见 `plans/reference/ALLOCATOR_PLACEMENT.md`。

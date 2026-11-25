@@ -1,0 +1,25 @@
+// expect: E0912
+// A projection returns a reference read through a temporary guard: the guard's drop at the body's end replaces
+// the box the result points into.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Cell :: struct(b : Box(String));
+Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &mut(Cell, p)));
+impl(
+  generic(p : Origin),
+  Guard(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.c.b = Box.new(String.from("released"));
+    })
+  )
+);
+impl(Cell, borrow_mut : (fn(self : &mut Self) -> Guard(self))(Guard(self)(c : self)));
+impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &String)(&self.c.b.*));
+f :: (fn(c : &mut Cell) -> &String)(&c.borrow_mut().get());
+main :: (fn() -> unit)({
+  mut(c) := Cell(b : Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  r := f(&mut c);
+  println(`OUT: ${r.len().to_string()}`);
+});
+export(main);

@@ -101,4 +101,4 @@ capture), `t7-generic-method-stores-ref-param` (`s.replace(v)` across two spelle
 `t7-generic-free-fn-stores-ref-param` (`store(s, v)`), all E0923; positive twins
 `t7-fnmut-capture-method-stores-param-pos` (the closure stores a reference it captured from outside) and
 `t7-generic-method-stores-ref-param-pos` (both parameters over one `p`), both clean under ASan. Found beside it and
-filed: `issues/2026-11-20-a-lend-passed-to-a-methods-by-value-binder-parameter-is-reported-as-e0910-not-e0914.md`.
+filed: `issues/fixed/2026-11-20-a-lend-passed-to-a-methods-by-value-binder-parameter-is-reported-as-e0910-not-e0914.md`.

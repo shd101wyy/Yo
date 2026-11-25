@@ -139,10 +139,11 @@ pragma(Pragma.AllowUnsafe);
   TokenAndError,
   YoError,
   with_code,
-  with_primary_repair_at_token
+  with_primary_repair_at_token,
+  format_error_message_with_repair_at
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
+{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -151,8 +152,9 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided, origin_names_contain } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
-{ are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
-{ type_to_string, type_to_string_for_message } :: import("../types/string.yo");
+{ are_types_compatible, are_types_compatible_exact, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation } :: import("../types/compatibility.yo");
+{ type_to_string, type_to_string_for_message, type_key_epoch } :: import("../types/string.yo");
+{ type_identity_slot, type_identity_slot_holds, TYPE_IDENTITY_CACHE_CAP } :: import("../types/type-key.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
 { is_global_mut_rule_exempt } :: import("./memory-safety.yo");
@@ -296,6 +298,9 @@ derive(BorrowMatchSourceDecl, Clone);
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
+/// The stores `h.r = e` being judged whose right side is a reference, by
+/// their target label's source position (`reference_field_store_mark`).
+(g_reference_field_stores : RefCell(HashMap(String, ReferenceFieldStore))) = RefCell(HashMap(String, ReferenceFieldStore)).new(HashMap(String, ReferenceFieldStore).new());
 /// The nodes the read rule (decision 43 step 2 N1e-2b) types as a reference
 /// VALUE — a reference binding's read, a projection's result, a reference
 /// field's read at a position expecting a reference. Their C is still the
@@ -710,7 +715,7 @@ require_expr_not_consumed :: (
           if(same_site, {
             return(());
           });
-          exn.throw(dyn(Box.new(use_of_moved_value_error(&var_name, &variable_value_type(&v), ast_expr_token(rhs), variable_move_note(&v, &consumed_tok)))));
+          exn.throw(dyn(Box.new(use_of_moved_value_error(&var_name, &moved_value_type(&v), ast_expr_token(rhs), variable_move_note(&v, &consumed_tok)))));
         }
       );
     }
@@ -771,31 +776,41 @@ _copy_derive_target :: (fn(ty : &TypeValue) -> String)({
 /// move-only and the ways to use it without a copy; for an explicit-copy type,
 /// the `.clone()` that copies it. `.None` for an implicitly copyable type.
 move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
-  match(
-    // A `Box(Dyn(...))` is the owned `Dyn` (decision 49 S2): its note says
-    // how a `Dyn` copies (`Clone` in its trait list), not the box's `Drop`.
-    if(_is_box_of_dyn(ty), Option(String).None, move_only_reason(ty)),
-    .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it: create it with \`Arc.new(...)\` and give each sharer its own \`Arc.clone(...)\` (\`Rc.new\`/\`Rc.clone\` within one thread; an \`Rc(RefCell(...))\` to write it). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
-    ),
-    .None => cond(
-      (type_holds_dyn_by_value(ty) || _is_box_of_dyn(ty)) => Option(String).Some(_dyn_copy_note(name, ty)),
-      (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
-        `\`${name}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, name.clone())}`
+  cond(
+    // A `&mut` reference moves where it is read by value; the reborrow
+    // `&mut m.*` lends it instead and leaves it usable (VERDICTS-76 Q1).
+    t_slot_is_mut_ref(ty) => Option(String).Some(_mut_reference_move_help(name)),
+    true => match(
+      // A `Box(Dyn(...))` is the owned `Dyn` (decision 49 S2): its note says
+      // how a `Dyn` copies (`Clone` in its trait list), not the box's `Drop`.
+      if(_is_box_of_dyn(ty), Option(String).None, move_only_reason(ty)),
+      .Some(why) => Option(String).Some(
+        `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it: create it with \`Arc.new(...)\` and give each sharer its own \`Arc.clone(...)\` (\`Rc.new\`/\`Rc.clone\` within one thread; an \`Rc(RefCell(...))\` to write it). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
       ),
-      (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
-        `\`${name}\` has type \`${type_to_string(ty)}\`, which is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move it (\`sink(${name})\`).`
-      ),
-      (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
-        `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
-      ),
-      type_holds_counted_handle(ty) => Option(String).Some(_counted_handle_help(name, ty)),
-      type_requires_explicit_copy(ty) => Option(String).Some(
-        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it to a \`&mut T\` parameter. A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
-      ),
-      true => Option(String).None
+      .None => cond(
+        (type_holds_dyn_by_value(ty) || _is_box_of_dyn(ty)) => Option(String).Some(_dyn_copy_note(name, ty)),
+        (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
+          `\`${name}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, name.clone())}`
+        ),
+        (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
+          `\`${name}\` has type \`${type_to_string(ty)}\`, which is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move it (\`sink(${name})\`).`
+        ),
+        (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
+          `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
+        ),
+        type_holds_counted_handle(ty) => Option(String).Some(_counted_handle_help(name, ty)),
+        type_requires_explicit_copy(ty) => Option(String).Some(
+          `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it to a \`&mut T\` parameter. A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
+        ),
+        true => Option(String).None
+      )
     )
   )
+);
+/// The E0901 note for a moved `&mut` reference `name`: the reborrow that
+/// keeps it usable.
+_mut_reference_move_help :: (fn(name : &String) -> String)(
+  `a \`&mut\` reference moves where it is bound, assigned or passed by value, and the destination holds its borrow from then on. To keep using \`${name}\`, reborrow it instead: \`&mut ${name}.*\` lends the place it refers to until the reborrow's last use, and \`${name}\` is usable again after it.`
 );
 /// `ty` is a `Box(Dyn(...))`.
 _is_box_of_dyn :: (fn(ty : &TypeValue) -> bool)(match(unique_box_payload_type(ty), .Some(bp) => is_dyn_type(&bp), .None => false));
@@ -890,6 +905,11 @@ note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
 });
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
   (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
+);
+/// The type an E0901 for the moved binding `v` names: a reference binding's
+/// own reference type (a moved `&mut`), any other binding's value type.
+moved_value_type :: (fn(v : &Variable) -> TypeValue)(
+  if(variable_is_reference_binding(v), variable_slot_type(v), variable_value_type(v))
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
 /// with the move-only note when `ty` is move-only.
@@ -1135,7 +1155,7 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
     .Some(ct) => {
       same_site := ((ct.*.row == tok.*.*.row) && ((ct.*.column == tok.*.*.column) && (ct.*.module_path == tok.*.*.module_path)));
       if(!same_site, {
-        raise_flow_violation(use_of_moved_value_error(v.*.*.name.clone(), &variable_value_type(v), tok, variable_move_note(v, &ct)), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(v.*.*.name.clone(), &moved_value_type(v), tok, variable_move_note(v, &ct)), ctx, exn);
       });
     },
     .None => {
@@ -1498,6 +1518,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
         });
       },
       v.*.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
+      moves_reference_itself(rhs, &ei.ty(), &v) => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
       (v.*.is_ref() && !v.*.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.*.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.*.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
@@ -1510,6 +1531,14 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
     )
   );
 });
+/// A by-value position that reads the `&mut` reference binding `v` itself
+/// (`a := m`, `(a : &mut T) = m`, a tuple element, a generic `T` slot), not
+/// through `.*`: the REFERENCE moves (VERDICTS-76 Q1), the same reference with
+/// the same origin, and `v` is consumed. The value it refers to never moves
+/// through it: `t := m.*` keeps the E0901 for a move-only referent.
+moves_reference_itself :: (fn(rhs : &AstExpr, ty : &TypeValue, v : &Variable) -> bool)(
+  t_slot_is_mut_ref(ty) && variable_is_reference_binding(v) && ast_expr_is_atom(rhs) && !is_reference_deref_site(ast_expr_token(rhs))
+);
 /// E0901 for `r.*` copied out of a reference binding `r` whose referent is
 /// not implicitly copyable: the reference is the parameter's point, so the
 /// repair is to read through `r` where the value is used or to copy explicitly
@@ -2675,7 +2704,7 @@ set_expr_as_consumed :: (
               },
               // Step 4: throw `use of moved value`.
               true => {
-                exn.throw(dyn(Box.new(use_of_moved_value_error(&name.*, &variable_value_type(&v), ast_expr_token(expr), variable_move_note(&v, &consumed_tok)))));
+                exn.throw(dyn(Box.new(use_of_moved_value_error(&name.*, &moved_value_type(&v), ast_expr_token(expr), variable_move_note(&v, &consumed_tok)))));
               }
             )
           );
@@ -3204,29 +3233,54 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
 /// E0908: a write of `place` that goes through a `&` reference field
 /// (`v.at.* = x`, `v.at.f = x` or `&mut v.at` with `at : &(T, p)`, decision
 /// 43 step 2 N1e-2). The field lends the place it refers to read-only, as a
-/// `&T` parameter does; a `&mut` field lends it writable.
-reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+/// `&T` parameter does; a `&mut` field lends it writable. `lent_by_marker`:
+/// the place is lent by a written `&mut` (`&mut v.at`, not a `&mut self`
+/// receiver or a reference passed whole); when the place is the field
+/// itself, the message says that the lend is of the reference field.
+reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Token, lent_by_marker : bool, ctx : &EvalContext, exn : Exception) -> unit)({
   if(g_reference_field_reads.with(_c_len_2) == usize(0), {
     return(());
   });
   (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
+  (rw_top : bool) = true;
   while(!ast_expr_is_atom(&cur), {
-    if(match(reference_field_read_mode(ast_expr_id(&cur)), .Some(rw_mut) => !rw_mut, .None => false), {
-      rw_text := _place_text(&cur);
-      raise_flow_violation(
-        with_code(
-          format_error_message_with_help(
-            tok,
-            `Cannot write through \`${rw_text}\`: it is a \`&\` reference field, a read-only borrow of the place it refers to.`,
-            Option(String).Some(`declare the field \`&mut\` to write through it, or copy the value into a local first (\`q := ${rw_text}.*;\`) and write the copy`)
+    match(
+      reference_field_read_type(ast_expr_id(&cur)),
+      .Some(rw_ty) => if(!t_slot_is_mut_ref(&rw_ty), {
+        rw_text := _place_text(&cur);
+        // `&mut v.at` lends the field; `&mut v.at.*` (rewritten to the field
+        // read with its label at the `*`, a deref site) lends its referent.
+        rw_label := match(
+          Rc.clone(cur),
+          Rc(.FnCall(_, _, Rc(rw_largs), _, _)) => match(rw_largs.get_cloned(usize(1)), .Some(rw_l) => Option(Token).Some(ast_expr_token(&rw_l)), .None => Option(Token).None),
+          Rc(.Atom(_, _)) => Option(Token).None
+        );
+        rw_lends_field := (lent_by_marker && rw_top && match(&rw_label, .Some(rw_lt) => !is_reference_deref_site(rw_lt), .None => false));
+        raise_flow_violation(
+          with_code(
+            if(
+              rw_lends_field,
+              format_error_message_with_help(
+                tok,
+                `\`&mut ${rw_text}\` lends the reference field itself (\`${type_to_string_for_message(&rw_ty)}\`), not the place it refers to, and a reference field is not re-pointed in place.`,
+                Option(String).Some(`to re-point \`${rw_text}\`, write the whole holder with the new reference in that field; to write the place it refers to, declare the field \`&mut\` and lend \`&mut ${rw_text}.*\``)
+              ),
+              format_error_message_with_help(
+                tok,
+                `Cannot write through \`${rw_text}\`: it is a \`&\` reference field, a read-only borrow of the place it refers to.`,
+                Option(String).Some(`declare the field \`&mut\` to write through it, or copy the value into a local first (\`q := ${rw_text}.*;\`) and write the copy`)
+              )
+            ),
+            E_WRITE_THROUGH_BORROW
           ),
-          E_WRITE_THROUGH_BORROW
-        ),
-        ctx,
-        exn
-      );
-      return(());
-    });
+          ctx,
+          exn
+        );
+        return(());
+      }),
+      .None => ()
+    );
+    rw_top = false;
     (rw_next : AstExpr) = match(
       Rc.clone(cur),
       Rc(.FnCall(_, rw_callee, Rc(rw_args), rw_infix, _)) => cond(
@@ -3247,8 +3301,10 @@ reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Toke
 /// call or `&mut` lend of the handle writes what it points to, not the
 /// binding). A module-level root is judged by the globals step at its own
 /// sites, and a compile-time root holds no runtime storage to lend.
-place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  reject_write_through_shared_reference_field(place, tok, ctx, exn);
+/// `lent_by_marker`: the place is lent by a written `&mut`
+/// (`reject_write_through_shared_reference_field`).
+place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, lent_by_marker : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  reject_write_through_shared_reference_field(place, tok, lent_by_marker, ctx, exn);
   root := place_root_binding(place, env, ctx);
   // Memory safety, not decision 47's marker, so every tree: a write of an
   // implicit capture where the closure may not write it (A46), and a write
@@ -3600,6 +3656,7 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
       }),
       v.*.is_compile_time_only() => (),
       v.*.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
+      moves_reference_itself(rhs, &ei.ty(), &v) => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
       (v.*.is_ref() && !v.*.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.*.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.*.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
@@ -4469,6 +4526,116 @@ _operand_carries_origin :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
 /// type that carries an origin (`type_carries_origin`, whose fast path
 /// answers `false` for a program that spells no origin type outside a slot).
 _type_hands_origin :: (fn(ty : &TypeValue) -> bool)(t_slot_is_borrow(ty) || type_carries_origin(ty));
+/// The callee tokens of the bundle-less `Future(T)` calls (one argument) in
+/// a written type annotation.
+_bundleless_future_tokens :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
+  match(
+    e,
+    Rc(.FnCall(_, callee, Rc(args), _, _)) => {
+      match(
+        &callee.*,
+        Rc(.Atom(_, bf_tok)) => if((bf_tok.*.*.value.* == "Future") && (args.len() == usize(1)), {
+          out.push(Rc.clone(bf_tok.*));
+        }),
+        _ => ()
+      );
+      recur(&callee.*, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get_cloned(i), .Some(a) => recur(&a, out), .None => ());
+      });
+    },
+    _ => ()
+  )
+);
+/// Where `, Io` goes in the written `Future(T)` whose callee token is
+/// `ftok`: right after `T`, before the call's closing parenthesis. `.None`
+/// when the token has no source text to scan (a synthesized token) or the
+/// call is not spelled `Future(...)` there.
+_future_bundle_insertion :: (fn(ftok : &Token) -> Option(Span))({
+  src := &ftok.*.*.input.*;
+  n := src.len();
+  start := usize(ftok.*.*.byte_offset);
+  _byte :: (fn(s : &String, i : usize) -> u8)(match(s.get_byte(i), .Some(b) => b, .None => u8(0)));
+  if(((start + usize(6)) > n) || (src.substring(start, (start + usize(6))) != "Future"), {
+    return(Option(Span).None);
+  });
+  (i : usize) = (start + usize(6));
+  if(_byte(src, i) != u8(40), {
+    return(Option(Span).None);
+  });
+  open := i;
+  (depth : usize) = usize(0);
+  (close : Option(usize)) = .None;
+  while((i < n) && close.is_none(), i = (i + usize(1)), {
+    b := _byte(src, i);
+    if(b == u8(40), {
+      depth = (depth + usize(1));
+    });
+    if(b == u8(41), {
+      depth = (depth - usize(1));
+      if(depth == usize(0), {
+        close = .Some(i);
+      });
+    });
+  });
+  (q : usize) = match(close, .Some(c) => c, .None => return(Option(Span).None));
+  while((q > (open + usize(1))) && ((_byte(src, (q - usize(1))) == u8(32)) || (_byte(src, (q - usize(1))) == u8(10)) || (_byte(src, (q - usize(1))) == u8(9)) || (_byte(src, (q - usize(1))) == u8(13))), {
+    q = (q - usize(1));
+  });
+  // A trailing comma already separates the arguments: no single insertion
+  // spells the bundle there.
+  if(_byte(src, (q - usize(1))) == u8(44), {
+    return(Option(Span).None);
+  });
+  (row : usize) = usize(ftok.*.*.row);
+  (col : usize) = usize(ftok.*.*.column);
+  (j : usize) = start;
+  while(j < q, j = (j + usize(1)), {
+    b := _byte(src, j);
+    cond(
+      (b == u8(10)) => {
+        row = (row + usize(1));
+        col = usize(0);
+      },
+      ((b & u8(192)) != u8(128)) => {
+        col = (col + usize(1));
+      },
+      true => ()
+    );
+  });
+  Option(Span).Some(Span(path : ftok.*.*.module_path.*.clone(), row : row, col : col, len : usize(0)))
+});
+/// VERDICTS-68: the E0605 for a bundled future viewed as a bundle-less
+/// `Future(T)` (`future_view_drops_a_bundle`), or `.None` when `actual` into
+/// `expected` is not that view. `lead` is the site's own mismatch sentence;
+/// the rule's explanation follows it. When the dropped bundle is exactly the
+/// prelude's `Io` and `annotation` is the written type `expected` came from
+/// with exactly one bundle-less `Future(T)` in it, `yo fix` inserts `, Io`
+/// there.
+future_view_error :: (
+  fn(token : &Token, lead : &String, actual : &TypeValue, expected : &TypeValue, annotation : &Option(AstExpr)) -> Option(YoError)
+)({
+  if(!future_view_drops_a_bundle(actual, expected), {
+    return(Option(YoError).None);
+  });
+  msg := `${lead}\n${future_view_explanation(actual, expected)}`;
+  fv_span := match(
+    annotation,
+    .Some(ann) => if(future_view_drops_only_io(actual), {
+      fv_toks := ArrayList(Token).new();
+      _bundleless_future_tokens(ann, &mut fv_toks);
+      match(fv_toks.get_cloned(usize(0)), .Some(ft) => if(fv_toks.len() == usize(1), _future_bundle_insertion(&ft), Option(Span).None), .None => Option(Span).None)
+    }, Option(Span).None),
+    .None => Option(Span).None
+  );
+  err := match(
+    fv_span,
+    .Some(sp) => format_error_message_with_repair_at(token, &msg, &Option(String).None, &sp, &String.from(", Io"), &String.from("name the future's `Io` bundle: `Future(T, Io)`")),
+    .None => format_error_message(token, &msg)
+  );
+  Option(YoError).Some(with_code(&err, E_TYPE_MISMATCH))
+});
 /// The latest token of `e`'s own source: the end of an arm.
 _last_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
   (best : Token) = Rc.clone(root.*);
@@ -6388,7 +6555,7 @@ export(reject_dyn_place_by_value, legacy_box_dyn_lend);
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
-export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
+export(move_only_help, move_only_type_help, use_of_moved_value_error, moved_value_type, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle);
 export(audit_copy_trait_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy);
@@ -6399,7 +6566,7 @@ export(capture_place_crosses_cell, is_cell_handle_deref_step, place_rc_handle, r
 export(set_closure_writes_captures, reject_implicit_capture_write, reject_write_through_shared_capture, reference_binding_referents);
 export(CaptureFreezeConflict, local_borrow_root_variable, capture_freeze_conflict, raise_capture_freeze_conflict, capture_freeze_access_at, capture_freeze_access, capture_freezes_active, loans_active, access_place, access_variable, access_move, access_expr);
 export(doc_comment_lookup_key_from_token);
-export(_last_token_of);
+export(_last_token_of, future_view_error);
 export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow, reject_guard_moves, drop_moves_of_skippable_operand, CondConditionMove, cond_condition_moves, drop_cond_condition_moves_in_earlier_arms);
 export(are_values_equal);
 /// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
@@ -6904,12 +7071,34 @@ reference_field_read_mode :: (fn(id : usize) -> Option(bool))(
 is_reference_field_read :: (fn(id : usize) -> bool)(reference_field_read_mode(id).is_some());
 /// E0926 at a field read `text` whose field is the reference `ref_ty`, used
 /// as a whole value without `.*` (N1e-2; the binding form is
-/// `reject_reference_without_deref`). `tok` is the field label's token.
+/// `reject_reference_without_deref`). `tok` is the field label's token. At
+/// the target of a store whose right side is a reference (`h.r = &y`,
+/// `reference_field_store_mark`) the message says what the store is and
+/// spells it as the whole-holder store.
 reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   if(ctx.is_in_function_call_checking_phase, {
     return(());
   });
   shown := type_to_string_for_message(ref_ty);
+  match(
+    _reference_field_store_at(tok),
+    .Some(st) => {
+      raise_flow_violation(
+        &with_code(
+          format_error_message_with_help(
+            tok,
+            `\`${text} = ${st.rhs_text}\` stores a reference into the field \`${label}\` (\`${shown}\`): a reference field is set by writing the whole holder`,
+            Option(String).Some(`write the whole holder: \`${_reference_field_store_whole_holder(&st, label, ctx)}\``)
+          ),
+          E_REFERENCE_READ_WITHOUT_DEREF
+        ),
+        ctx,
+        exn
+      );
+      return(());
+    },
+    .None => ()
+  );
   raise_flow_violation(
     &with_code(
       format_error_message_with_help(
@@ -6922,6 +7111,95 @@ reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref
     ctx,
     exn
   );
+});
+/// A store `h.r = e` whose right side is spelled as a reference (a borrow
+/// `&x` / `&mut x`, or a reference binding), recorded while its target is
+/// evaluated: E0926 at the target names the store
+/// (`reject_reference_field_without_deref`). `holder` is `h` as written,
+/// `holder_is_reference` when `h` names a reference binding (its whole
+/// holder is `h.*`), `rhs_text` is `e` as written.
+ReferenceFieldStore :: struct(holder : AstExpr, holder_is_reference : bool, rhs_text : String);
+derive(ReferenceFieldStore, Clone);
+_c_len_rfs :: (fn(m : &HashMap(String, ReferenceFieldStore)) -> usize)(m.len());
+_names_reference_binding :: (fn(e : &AstExpr, env : &Environment) -> bool)(
+  ast_expr_is_atom(e) && match(get_variables_from_env(env, ast_expr_token(e).*.value.*.clone()).last_cloned(), .Some(v) => variable_is_reference_binding(&v), .None => false)
+);
+/// Before the target `lhs` of `lhs = rhs` is evaluated: records the store
+/// when `lhs` is a field `h.r` and `rhs` is spelled as a reference. Returns
+/// the field label's token, for `reference_field_store_clear`.
+reference_field_store_mark :: (fn(lhs : &AstExpr, rhs : &AstExpr, env : &Environment) -> Option(Token))({
+  if(!ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(Token).None);
+  });
+  rfs_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(Option(Token).None));
+  holder := match(rfs_args.get_cloned(usize(0)), .Some(a) => a, .None => return(Option(Token).None));
+  label := match(rfs_args.get_cloned(usize(1)), .Some(a) => a, .None => return(Option(Token).None));
+  if(!ast_expr_is_atom(&label) || (ast_expr_token(&label).*.value.* == "*"), {
+    return(Option(Token).None);
+  });
+  rhs_text := cond(
+    ast_expr_is_fn_call_of(rhs, BF_ADDRESS_OF, Option(usize).Some(usize(1))) => `&${_place_text(rhs)}`,
+    ast_expr_is_fn_call_of(rhs, BK_BORROW_MUT, Option(usize).Some(usize(1))) => `&mut ${_place_text(rhs)}`,
+    _names_reference_binding(rhs, env) => _place_text(rhs),
+    true => return(Option(Token).None)
+  );
+  label_tok := ast_expr_token(&label);
+  key := _reference_deref_site_key(&label_tok);
+  store := ReferenceFieldStore(holder : holder.clone(), holder_is_reference : _names_reference_binding(&holder, env), rhs_text : rhs_text);
+  _old := g_reference_field_stores.with_mut({ key, store }(m) => m.insert(key, store));
+  Option(Token).Some(label_tok)
+});
+/// After the target was evaluated (`reference_field_store_mark`).
+reference_field_store_clear :: (fn(label_tok : &Token) -> unit)({
+  key := _reference_deref_site_key(label_tok);
+  _old := g_reference_field_stores.with_mut({ key }(m) => m.remove(&key));
+  ()
+});
+/// The store whose target field's label is at `tok`.
+_reference_field_store_at :: (fn(tok : &Token) -> Option(ReferenceFieldStore))(
+  if(g_reference_field_stores.with(_c_len_rfs) == usize(0), Option(ReferenceFieldStore).None, g_reference_field_stores.with({ tok : &tok.* }(m) => m.get_cloned(&_reference_deref_site_key(tok))))
+);
+/// The whole-holder store `st` spells for its field `label`:
+/// `h = H(r : &y, n : h.n)`, `t = (&y, t.1)`, `w.* = H(r : &y, n : w.n)`.
+_reference_field_store_whole_holder :: (fn(st : &ReferenceFieldStore, label : &String, ctx : &EvalContext) -> String)({
+  holder := _place_text(&st.holder);
+  target := if(st.holder_is_reference, `${holder}.*`, holder.clone());
+  fallback := `${target} = …(${label} : ${st.rhs_text}, …the other fields of ${holder})`;
+  mut(holder_ty) := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_rewritten_node(&st.holder))),
+    .Some(hi) => t_refine_inner(&hi.ty()),
+    .None => return(fallback)
+  );
+  if(t_slot_is_borrow(&holder_ty), {
+    holder_ty = t_refine_inner(&t_slot_pointee(&holder_ty));
+  });
+  is_tuple := is_tuple_type(&holder_ty);
+  labels := match(
+    &holder_ty,
+    Rc(.Tuple(tl, _)) => Option(SharedList(String)).Some(Rc.clone(tl)),
+    Rc(.Struct({ field_labels : sl, is_source_namespace : sns })) => if(sns.*, Option(SharedList(String)).None, Option(SharedList(String)).Some(Rc.clone(sl))),
+    _ => Option(SharedList(String)).None
+  );
+  match(
+    labels,
+    .Some(ls) => {
+      parts := String.new();
+      (i : usize) = usize(0);
+      while(i < ls.*.items.len(), i = (i + usize(1)), {
+        // A tuple's positional element is labelled by its index (or not at
+        // all) and is spelled bare; a labelled one is `name : value`.
+        position := i.to_string();
+        name := if(ls.*.items(i).len() == usize(0), position.clone(), ls.*.items(i).clone());
+        value := if(name == label.*, st.rhs_text.clone(), `${holder}.${name}`);
+        if(i > usize(0), {
+          parts.push_str(", ");
+        });
+        if(is_tuple && (name == position), parts.push_string(&value), parts.push_string(&`${name} : ${value}`));
+      });
+      if(is_tuple, `${target} = (${parts})`, `${target} = ${type_to_string_for_message(&holder_ty)}(${parts})`)
+    },
+    .None => fallback
+  )
 });
 /// After `e` was evaluated.
 deref_exempt_clear :: (fn() -> unit)({
@@ -9368,7 +9646,12 @@ _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(
 /// the mode of the reference that put it into the future's origin (an
 /// `io.async` capture-list entry, or the `&`/`&mut` lend of the call that
 /// made the future). The origin itself carries no mode.
-FutureRoot :: struct(name : String, path : ArrayList(String), is_mut : bool);
+/// A place a borrowing future holds: its root binding's `name` and the field
+/// `path` from it. A root that names no binding — an R-TEMP or R-ARM entry of
+/// an argument's origin (`ORIGIN_TEMPORARY_ROOT`, `ORIGIN_SCOPED_ROOT`,
+/// `ORIGIN_LOST_ROOT`) — keeps the entry's `text` for the binding's
+/// rejection; `text` is empty otherwise.
+FutureRoot :: struct(name : String, path : ArrayList(String), is_mut : bool, text : String);
 derive(FutureRoot, Clone);
 note_future_roots :: (fn(id : usize, roots : &ArrayList(FutureRoot)) -> unit)({
   v := roots.clone();
@@ -9399,20 +9682,33 @@ _future_value_roots_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCon
       (fi : usize) = usize(0);
       while(fi < frs.len(), fi = (fi + usize(1)), {
         fr := frs(fi).clone();
-        match(
-          get_variables_from_env(env, fr.name.clone()).last_cloned(),
-          .Some(rv) => {
-            place := local_borrow_place_of_variable(&rv);
-            (pi : usize) = usize(0);
-            while(pi < fr.path.len(), pi = (pi + usize(1)), {
-              place.steps.push(fr.path(pi).clone());
-              place.text.push_str(".");
-              place.text.push_string(&fr.path(pi));
-            });
-            out.push(OriginRootPlace(place : place, is_mut : fr.is_mut));
-          },
-          .None => ()
-        );
+        // An argument's R-TEMP / R-ARM entry: the future points into
+        // storage that ends with the statement that made it, so a binding
+        // of it is rejected as a binding of the reference itself is
+        // (issues/fixed/2026-11-23-a-call-result-reference-argument-to-a-future-making-call-gives-the-future-no-origin.md).
+        if((fr.name == ORIGIN_TEMPORARY_ROOT) || ((fr.name == ORIGIN_SCOPED_ROOT) || (fr.name == ORIGIN_LOST_ROOT)), {
+          out.push(
+            OriginRootPlace(
+              place : LocalBorrowPlace(root_name : fr.name.clone(), root_decl : ast_expr_token(&stripped), steps : fr.path.clone(), through_cell : false, module_root : false, text : fr.text.clone()),
+              is_mut : fr.is_mut
+            )
+          );
+        }, {
+          match(
+            get_variables_from_env(env, fr.name.clone()).last_cloned(),
+            .Some(rv) => {
+              place := local_borrow_place_of_variable(&rv);
+              (pi : usize) = usize(0);
+              while(pi < fr.path.len(), pi = (pi + usize(1)), {
+                place.steps.push(fr.path(pi).clone());
+                place.text.push_str(".");
+                place.text.push_string(&fr.path(pi));
+              });
+              out.push(OriginRootPlace(place : place, is_mut : fr.is_mut));
+            },
+            .None => ()
+          );
+        });
       });
       return(());
     },
@@ -10921,7 +11217,7 @@ holder_future_roots :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext)
   (i : usize) = usize(0);
   while(i < places.len(), i = (i + usize(1)), {
     r := places(i).clone();
-    out.push(FutureRoot(name : r.place.root_name.clone(), path : r.place.steps.clone(), is_mut : r.is_mut));
+    out.push(FutureRoot(name : r.place.root_name.clone(), path : r.place.steps.clone(), is_mut : r.is_mut, text : r.place.text.clone()));
   });
   out
 });
@@ -12023,6 +12319,46 @@ _byvalue_param_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue,
     });
   });
 });
+/// A store into a holder that outlives the closure call — the outer place
+/// of a `&mut` capture (VERDICTS-37 Q3), or an `FnMut` literal's by-value
+/// state (audit A35) — of a value that holds an origin of one of the
+/// literal's BY-VALUE parameters (`byvalue_param_origin_names`: `.Some(h)`
+/// for `h : H`, `H`'s field origin elided). That origin is per call, so
+/// unless the holder's type names it (a slot type sharing an origin
+/// parameter of the enclosing function), the stored value could outlive
+/// what it points into: E0923, as `_capture_store` and
+/// `_capture_state_store` judge a reference parameter's root. `origin_of`
+/// gives a by-value parameter no root, so those two never see it
+/// (issues/fixed/2026-11-23-an-fnmut-closure-stores-its-by-value-holder-parameter-through-a-mut-capture-unchecked.md).
+_capture_store_param_origins :: (fn(variable : &Variable, holder_names : &ArrayList(String), pv_names : &ArrayList(String), value : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  through := match(borrow_capture_outer(variable.*.*.id()), .Some(bco) => if(bco.is_mut, Option(BorrowCaptureOuter).Some(bco), Option(BorrowCaptureOuter).None), .None => Option(BorrowCaptureOuter).None);
+  if(through.is_none() && !is_fnmut_capture_value_binding(variable.*.*.id()), {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < pv_names.len(), i = (i + usize(1)), {
+    n := pv_names(i).clone();
+    if(!holder_names.contains(&n), {
+      param := _rigid_origin_param(&n);
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            ast_expr_token(value),
+            match(
+              &through,
+              .Some(bco) => `Cannot store \`${ast_expr_to_string(value)}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: the value holds ${origin_name_phrase(&n)}, an origin of this literal's per-call parameter \`${param}\`, \`${bco.place.text}\` outlives the call, and a per-call origin cannot be named outside the literal (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2).`,
+              .None => `Cannot store \`${ast_expr_to_string(value)}\` into \`${variable.*.*.name}\`: \`${variable.*.*.name}\` is a by-value capture of this \`FnMut\` closure, kept in the closure across calls, and the value holds ${origin_name_phrase(&n)}, an origin of the literal's per-call parameter \`${param}\`, which a later call cannot name (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`
+            ),
+            Option(String).Some(`store an owned value, or declare one origin on the enclosing function's \`generic(p : Origin)\` and spell it in both the slot type and the holder's type`)
+          ),
+          E_ORIGIN_MISMATCH
+        ),
+        ctx,
+        exn
+      );
+    });
+  });
+});
 /// O-1's `=` join (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3, §5's
 /// place-write row): after a whole-holder assignment `h = v` succeeds, the
 /// holder's loan set becomes the join over reaching definitions — the value's
@@ -12064,6 +12400,7 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   );
   holder_names := ArrayList(String).new();
   origin_param_names_of(&holder_ty, &mut holder_names, u32(0));
+  _capture_store_param_origins(variable, &holder_names, &pv_names, value, ctx, exn);
   if(holder_names.len() > usize(0), {
     _bind_join_subset_check(variable, &holder_ty, &holder_names, &roots, value, env, ctx, exn);
     _byvalue_param_subset_check(variable, &holder_ty, &holder_names, &pv_names, value, env, ctx, exn);
@@ -13825,15 +14162,19 @@ _invariant_type_argument_pairs :: (
     match(rs.get(i), .Some(rt) => match(vs.get(i), .Some(vt) => _invariant_origin_pairs(&rt, &vt, inv, out_r, out_v, seen, (depth + u32(1))), .None => ()), .None => ());
   });
 });
-/// The parameter names of the type constructor whose call produced the
-/// instance `ty` (a struct's `constructor_func_id`, an enum's registered
-/// constructor), in order; empty for any other type.
-_ctor_param_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
+/// Constructor parameter `i`'s name for the type constructor whose call
+/// produced the instance `ty` (a struct's `constructor_func_id`, an enum's
+/// registered constructor); `.None` for any other type, an unregistered
+/// constructor, or an index it has no parameter at. Read per INDEX, not as
+/// a copied list: `_ctor_arg_is_invariant` asks for one position at a time,
+/// and cloning the constructor's whole `params` list per question was most
+/// of this family's allocation cost.
+_ctor_param_name_at :: (fn(ty : &TypeValue, i : usize) -> Option(String))({
   cfid := match(ty, Rc(.Struct({ constructor_func_id : cp_c })) => cp_c.clone(), Rc(.EnumT({ id : cp_e })) => lookup_enum_cfid(&cp_e.*), _ => String.new());
   if(cfid.len() == usize(0), {
-    return(ArrayList(String).new());
+    return(Option(String).None);
   });
-  match(lookup_type_ctor_value(&cfid), .Some(Rc(.FuncVal(cp_fv, _))) => cp_fv.*.params.clone(), _ => ArrayList(String).new())
+  match(lookup_type_ctor_value(&cfid), .Some(Rc(.FuncVal(cp_fv, _))) => cp_fv.*.params.get_cloned(i), _ => Option(String).None)
 });
 /// Type argument `i` of the constructor instance `inst` is invariant: the
 /// constructor's parameter there occurs below a `&mut` pointee in its
@@ -13847,8 +14188,7 @@ _ctor_arg_is_invariant :: (fn(inst : &TypeValue, i : usize, seen : &mut ArrayLis
   if(depth > u32(16), {
     return(false);
   });
-  names := _ctor_param_names(inst);
-  n := match(names.get_cloned(i), .Some(x) => x, .None => return(false));
+  n := match(_ctor_param_name_at(inst, i), .Some(x) => x, .None => return(false));
   cid := match(inst, Rc(.Struct({ id : ci_s })) => ci_s.clone(), Rc(.EnumT({ id : ci_e })) => ci_e.clone(), _ => String.new());
   key := `${cid}:${i.to_string()}`;
   if(seen.contains(&key), {
@@ -13911,7 +14251,128 @@ _name_occurs_invariant_args :: (fn(inst : &TypeValue, tas : &SharedList(TypeValu
 /// The origin names `ty` spells at its invariant positions (below a `&mut`
 /// pointee, or at a constructor argument its fields place below one; O3
 /// step 3), for the call rule that fixes them (`lend_through` step 1).
+///
+/// `lend_through` runs after every non-std call and asks for the callee's
+/// slot types, so the same `TypeValue` handle is asked for at every call
+/// site of a function: the answer is memoized by the type's IDENTITY — the
+/// `type_key` memos' discipline (`types/type-key.yo`; also
+/// `g_lacks_copy_fast` in trait-checking.yo) — handles sorted by address, a
+/// parallel answer list, both lists cleared whenever the type-key epoch
+/// moves (a registration may change what `_ctor_param_name_at` reads) or
+/// the list reaches `TYPE_IDENTITY_CACHE_CAP`. EVERY handle is recorded,
+/// not only `type_identity_cacheable` ones: this walk reads no field that
+/// grows in place — a `SomeT`'s trait lists are why that gate exists, and
+/// no arm of the walk reads them (the `SomeT` arms read only the name) —
+/// so an answer cannot go stale the way a render's can.
+/// `YO_DEBUG_INV_NAMES_MEMO_CHECK=1` re-walks every hit and panics on a
+/// mismatch. A miss runs the walk unchanged and records its own answer, so
+/// a served answer is the walk's by construction.
+(g_invariant_names_handles : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
+(g_invariant_names_answers : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
+(mut(g_invariant_names_epoch) : u64) = u64(0);
+(mut(g_inv_names_memo_check) : u8) = u8(0);
+/// `YO_DEBUG_INV_NAMES_MEMO_CHECK=1`: every identity-memo hit and every
+/// pre-filter answer is re-walked and compared, and a mismatch aborts (the
+/// `type_key_memo_check` pattern).
+_inv_names_memo_check_enabled :: (fn() -> bool)({
+  if(g_inv_names_memo_check == u8(0), {
+    on := match(debug_knob(String.from("YO_DEBUG_INV_NAMES_MEMO_CHECK")), .Some(v) => (v == "1"), .None => false);
+    g_inv_names_memo_check = if(on, u8(2), u8(1));
+  });
+  g_inv_names_memo_check == u8(2)
+});
+/// `ty` may reach a `&mut` reference: through reference pointees, value
+/// slots, struct fields and type arguments, enum payloads and type
+/// arguments, and tuple components. Every position the invariant walk
+/// pairs, and every field `_ctor_arg_is_invariant` searches, is reached this
+/// way, and each one starts out covariant: it turns invariant only below a
+/// `&mut` it crosses, or at a constructor argument whose parameter its
+/// constructor's fields place below one. So a type that reaches no `&mut`
+/// has no invariant position and the walk names nothing. The answer is
+/// `true` when unsure — past depth 32, or after `budget` nodes — so a
+/// `false` is always exact. Reads only the type's own nodes, and allocates
+/// nothing.
+_may_reach_mut_reference :: (fn(ty : &TypeValue, budget : &mut u32, depth : u32) -> bool)({
+  if((depth > u32(32)) || (budget.* == u32(0)), {
+    return(true);
+  });
+  budget.* = (budget.* - u32(1));
+  match(
+    ty,
+    Rc(.Reference(mr_p, mr_m, _)) => (mr_m.* || recur(&mr_p.*, budget, (depth + u32(1)))),
+    Rc(.ValueSlot(mr_v)) => recur(&mr_v.*, budget, (depth + u32(1))),
+    Rc(.Struct({ field_types : mr_fts, type_arguments : mr_tas })) => (_may_reach_mut_reference_list(&mr_fts.*, budget, depth) || _may_reach_mut_reference_list(&mr_tas.*, budget, depth)),
+    Rc(.EnumT({ variant_fields : mr_vfs, type_arguments : mr_etas })) => {
+      (vi : usize) = usize(0);
+      while(vi < mr_vfs.len(), vi = (vi + usize(1)), {
+        if(match(mr_vfs.get(vi), .Some(vf) => _may_reach_mut_reference_list(&vf, budget, depth), .None => false), {
+          return(true);
+        });
+      });
+      _may_reach_mut_reference_list(&mr_etas.*, budget, depth)
+    },
+    Rc(.Tuple({ field_types : mr_tfs })) => _may_reach_mut_reference_list(&mr_tfs.*, budget, depth),
+    _ => false
+  )
+});
+_may_reach_mut_reference_list :: (fn(tys : &SharedList(TypeValue), budget : &mut u32, depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < tys.len(), i = (i + usize(1)), {
+    if(match(tys.get(i), .Some(t) => _may_reach_mut_reference(&t, budget, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The node budget of `_may_reach_mut_reference` per question.
+INVARIANT_PREFILTER_BUDGET :: u32(512);
 invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
+  (budget : u32) = INVARIANT_PREFILTER_BUDGET;
+  if(!_may_reach_mut_reference(ty, &mut budget, u32(0)), {
+    if(_inv_names_memo_check_enabled(), {
+      again := _invariant_origin_names_walk(ty);
+      if(again.len() > usize(0), {
+        panic(`YO_DEBUG_INV_NAMES_MEMO_CHECK: invariant_origin_names(${type_to_string(ty)}): the pre-filter answers [], the walk [${_origin_list_text(&shared_list(again.clone()))}]`);
+      });
+    });
+    return(ArrayList(String).new());
+  });
+  if(g_invariant_names_epoch != type_key_epoch(), {
+    g_invariant_names_handles.with_mut(xs => xs.clear());
+    g_invariant_names_answers.with_mut(xs => xs.clear());
+    g_invariant_names_epoch = type_key_epoch();
+  });
+  (slot : usize) = g_invariant_names_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
+  if(g_invariant_names_handles.with({ ty : &ty.*, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
+    served := match(g_invariant_names_answers.with({ slot }(xs) => xs.get_cloned(slot)), .Some(a) => a, .None => ArrayList(String).new());
+    if(_inv_names_memo_check_enabled(), {
+      again := _invariant_origin_names_walk(ty);
+      if(!_origin_name_sets_equal(&shared_list(again.clone()), &shared_list(served.clone())), {
+        panic(`YO_DEBUG_INV_NAMES_MEMO_CHECK: invariant_origin_names(${type_to_string(ty)}): the identity memo answers [${_origin_list_text(&shared_list(served.clone()))}], the walk [${_origin_list_text(&shared_list(again.clone()))}]`);
+      });
+    });
+    return(served);
+  });
+  names := _invariant_origin_names_walk(ty);
+  // Record the answer only when the epoch it was computed in still holds:
+  // the walk reads the constructor registry (`_ctor_param_name_at`), and a
+  // registration since the lookup would change what it reads.
+  if(g_invariant_names_epoch == type_key_epoch(), {
+    if(g_invariant_names_handles.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
+      g_invariant_names_handles.with_mut(xs => xs.clear());
+      g_invariant_names_answers.with_mut(xs => xs.clear());
+    });
+    (at : usize) = g_invariant_names_handles.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
+    if(!g_invariant_names_handles.with({ ty : &ty.*, at }(xs) => type_identity_slot_holds(xs, at, ty)), {
+      g_invariant_names_handles.with_mut({ at, ty : Rc.clone(ty) }(xs) => xs.insert(at, Rc.clone(ty)));
+      g_invariant_names_answers.with_mut({ at, names : names.clone() }(xs) => xs.insert(at, names));
+    });
+  });
+  names
+});
+/// The walk `invariant_origin_names` memoizes: the type paired with itself
+/// at every invariant position, its declared-side origins collected by name.
+_invariant_origin_names_walk :: (fn(ty : &TypeValue) -> ArrayList(String))({
   out_r := ArrayList(TypeValue).new();
   out_v := ArrayList(TypeValue).new();
   seen := ArrayList(String).new();
@@ -14132,6 +14593,8 @@ export(
   reference_field_read_mode,
   reference_field_read_type,
   reject_reference_field_without_deref,
+  reference_field_store_mark,
+  reference_field_store_clear,
   reject_write_through_shared_reference_field,
   note_reference_deref_site,
   is_reference_deref_site,

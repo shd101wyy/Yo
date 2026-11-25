@@ -9,6 +9,28 @@ dir :: import("std/sys/dir");
 { AT_FDCWD } :: import("std/sys/constants");
 temp_io :: import("std/sys/temp");
 mmap_io :: import("std/sys/mmap");
+{ platform, Platform } :: import("std/process");
+// `<sys/mman.h>` per target: Linux (glibc and musl) MAP_ANONYMOUS 0x20 and
+// MS_SYNC 4; macOS 0x1000 and 0x10; FreeBSD MAP_ANON 0x1000 and MS_SYNC 0x0000.
+// Windows and wasm have no such header; their runtimes read the Linux values.
+test("the mapping flags are the target's <sys/mman.h> values", {
+  comptime_assert(
+    mmap_io.MAP_ANONYMOUS == cond(
+      (platform == Platform.Macos) => i32(0x1000),
+      (platform == Platform.FreeBSD) => i32(0x1000),
+      true => i32(0x20)
+    ),
+    "MAP_ANONYMOUS is the target's value"
+  );
+  comptime_assert(
+    mmap_io.MS_SYNC == cond(
+      (platform == Platform.Macos) => i32(0x10),
+      (platform == Platform.FreeBSD) => i32(0),
+      true => i32(4)
+    ),
+    "MS_SYNC is the target's value"
+  );
+});
 test("mmap invalid fd returns encoded error", {
   mapped := mmap_io.mmap(
     .None,
