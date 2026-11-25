@@ -1675,9 +1675,8 @@ dyn_type_lists_clone :: (fn(ty : &TypeValue) -> bool)(
 /// (struct, enum, tuple, array, closure capture record) holding one? A
 /// reference type, an `Rc`/`Arc` handle and a pointer stop the walk: copying
 /// one shares the `Dyn` instead of copying it. Such a value copies only
-/// explicitly once `Dyn` is uniquely owned (plans/VALUES_BY_DEFAULT.md
-/// decision 7), which the evaluator enforces on every copy
-/// (`check_dyn_copy`, evaluator/utils.yo).
+/// explicitly: `Dyn` is uniquely owned (plans/VALUES_BY_DEFAULT.md
+/// decision 7, `type_requires_explicit_copy`).
 type_holds_dyn_by_value :: (fn(ty : &TypeValue) -> bool)(_holds_dyn_by_value_inner(ty, u32(0)));
 _any_holds_dyn_by_value :: (fn(fields : &ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
@@ -1718,12 +1717,19 @@ _holds_dyn_by_value_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
     _ => false
   )
 });
+/// A `Dyn` owns its payload uniquely (plans/VALUES_BY_DEFAULT.md decision 7):
+/// one whose trait list has no `Clone`, or names a call-once or
+/// exclusive-call closure trait (`_dyn_move_only_fn_trait`), is move-only. A
+/// `Dyn(Trait, Clone)` is explicit-copy (`type_requires_explicit_copy`), and
+/// a value aggregate holding a `Dyn` follows it, by containment.
+_dyn_is_move_only :: (fn(ty : &TypeValue) -> bool)(
+  match(ty, Rc(.DynT(required_trait_types : _)) => (!dyn_type_lists_clone(ty) || !_dyn_move_only_fn_trait(ty).is_empty()), _ => false)
+);
 /// The closure trait of a move-only `Dyn`: `"FnOnce"` for a `Dyn(FnOnce(...))`
 /// (plans/VALUES_BY_DEFAULT.md decision 37: its call consumes it, so two
 /// handles to one payload would run a call-once body twice), `"FnMut"` for a
 /// `Dyn(FnMut(...))` (its call borrows the payload exclusively, so two handles
-/// would be two writers of one state), `""` otherwise — although a `Dyn` is
-/// reference counted.
+/// would be two writers of one state), `""` otherwise.
 _dyn_move_only_fn_trait :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
@@ -1863,7 +1869,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : 
       w.cut = true;
       false
     },
-    !_dyn_move_only_fn_trait(&ty).is_empty() => true,
+    _dyn_is_move_only(&ty) => true,
     is_future_value_type(&ty) => true,
     is_rc_type(&ty) => false,
     _nominal_declares_move_only(&ty) => true,
@@ -1970,9 +1976,9 @@ type_is_move_only :: (fn(ty : &TypeValue) -> bool)({
 /// no-partial-moves rule and closure-capture moves all key on this predicate;
 /// only "may it be copied with `.clone()`" and the `Drop` rule key on
 /// `type_is_move_only`, its strict sub-case. It holds for move-only types and,
-/// since decision 36's flip, for a plain-data type that is not `Copy`. A
-/// value owning a buffer (`String`, the collections, `Dyn`) joins in V2b's
-/// own, separately measured migration.
+/// since decision 36's flip, for a plain-data type that is not `Copy`, a
+/// counted handle (decision 17) and a value holding a `Dyn` (decision 7: a
+/// `Dyn(Trait, Clone)` is explicit-copy, any other `Dyn` move-only).
 /// Decision 36's flip (plans/VALUES_BY_DEFAULT.md, Generation B): a
 /// plain-data type (no owned buffer, no counted cell) that is not `Copy` is
 /// explicit-copy too. The `Copy` question needs the trait registry and an
@@ -2053,15 +2059,15 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
     _ => false
   )
 );
-type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || type_holds_counted_handle(ty)));
+type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || (type_holds_counted_handle(ty) || type_holds_dyn_by_value(ty))));
 /// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc`/`Arc` needs
 /// `.clone()`, as in Rust. A new handle is a new owner, so sharing is visible
 /// where it is created: `Rc.clone(h)`, `Arc.clone(h)`. True for a counted
 /// handle (`is_counted_handle_value_type`) and for a value aggregate (struct,
 /// enum, tuple, array) holding one by value: a composite is implicitly
 /// copyable only when every part is. The walk stops at every other `ref`
-/// object, `Dyn` and future (each a shared handle of its own, which copies
-/// implicitly until V5 and B12), at a closure (judged by its capture record,
+/// object, `Dyn` and future (each judged on its own: a future is move-only,
+/// a `Dyn` by decision 7), at a closure (judged by its capture record,
 /// decision 36: one owning an `Rc` is not `Copy`) and at an open type
 /// variable; a bound one is walked through its resolution. A
 /// generic body's copy of a `T` is judged as decision 36's flip judges it,
@@ -2146,6 +2152,9 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   });
   if(dmo == "FnMut", {
     return(Option(String).Some(`\`${type_to_string(&ty)}\` is an exclusive-call closure: its call borrows it exclusively to write its state, so two copies would be two writers of one state`));
+  });
+  if(_dyn_is_move_only(&ty), {
+    return(Option(String).Some(`\`${type_to_string(&ty)}\` owns its payload uniquely, and a \`Dyn\` copies only when \`Clone\` is in its trait list`));
   });
   if((depth > _TYPE_WALK_MAX_DEPTH) || is_rc_type(&ty), {
     return(Option(String).None);

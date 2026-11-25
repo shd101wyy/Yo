@@ -89,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_flowable_expr, flow_options_default, FlowOptions, raise_flow_violation }
+{ is_flowable_expr, flow_options_default, FlowOptions }
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type, type_carries_origin } :: import("../../types/utils.yo");
@@ -109,9 +109,6 @@ pragma(Pragma.AllowUnsafe);
   snapshot_loop_flow,
   ImplicitCopyPending,
   audit_take_implicit_copy_pending,
-  take_dyn_copy_pending,
-  dyn_copy_pending_exists,
-  dyn_copy_used_again_error,
   reject_second_class_return,
   reject_second_class_result_outliving,
   local_borrows_mark,
@@ -1064,33 +1061,18 @@ _ICScan :: struct(
   later : bool,
   /// Every path through the site has ended within the scanned region: it
   /// left the function (`return`, `unwind`, `panic`), left or restarted the
-  /// innermost loop (`break`, `continue`), or (`stop_at_write`) wrote the
-  /// variable, so nothing after it in the region reads the copied value.
+  /// innermost loop (`break`, `continue`), so nothing after it in the region
+  /// reads the copied value.
   done : bool,
   /// A path through the site reached a `break` of the innermost loop, so
   /// the code after that loop is on it whatever the rest of the loop does.
   broke : bool,
   /// A path through the site reached a `continue` of the innermost loop,
   /// so the next iteration is on it whatever the rest of the body does.
-  continued : bool,
-  /// The scan starts after the site (the next iteration of a loop that
-  /// holds it): every read is later, and every write or exit is on a path
-  /// through the site.
-  post_site : bool,
-  /// The first read after the site, when `later` came from one (a loop that
-  /// runs the site again sets `later` with none).
-  later_tok : Option(Token),
-  /// An assignment to the variable after the site (or around it, `v =
-  /// f(v)`) ends the scan: what follows reads the new value. The unique
-  /// `Dyn` rule (`judge_dyn_copies`) sets it; the audit counts such reads.
-  stop_at_write : bool
+  continued : bool
 );
 _ic_new_scan :: (fn() -> _ICScan)(
-  _ICScan(site_seen : false, reads : usize(0), later : false, done : false, broke : false, continued : false, post_site : false, later_tok : Option(Token).None, stop_at_write : false)
-);
-/// A nested scan that keeps `acc`'s mode.
-_ic_sub_scan :: (fn(acc : &_ICScan) -> _ICScan)(
-  _ICScan(site_seen : false, reads : usize(0), later : false, done : false, broke : false, continued : false, post_site : acc.post_site, later_tok : Option(Token).None, stop_at_write : acc.stop_at_write)
+  _ICScan(site_seen : false, reads : usize(0), later : false, done : false, broke : false, continued : false)
 );
 /// Fold a nested scan's reads into `acc` (whether its end ends `acc`'s path
 /// is the caller's call).
@@ -1101,9 +1083,6 @@ _ic_merge :: (fn(acc : &mut _ICScan, sub : &_ICScan) -> unit)({
   });
   if(sub.later, {
     acc.later = true;
-    if(acc.later_tok.is_none(), {
-      acc.later_tok = sub.later_tok.clone();
-    });
   });
 });
 /// Fold a nested scan's jumps out of the innermost loop into `acc`: a path
@@ -1116,24 +1095,20 @@ _ic_merge_jumps :: (fn(acc : &mut _ICScan, sub : &_ICScan) -> unit)({
     acc.continued = true;
   });
 });
-/// `tok` lies after the site on a path through it: the scan starts past the
-/// site, or `tok` follows it in the source.
-_ic_after_site :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &mut _ICScan) -> bool)(
-  acc.post_site || ((tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset))
+/// `tok` follows the site in the source.
+_ic_after_site :: (fn(tok : &Token, site : &ImplicitCopyPending) -> bool)(
+  (tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset)
 );
 _ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &mut _ICScan) -> unit)({
   acc.reads = (acc.reads + usize(1));
-  if(_ic_after_site(tok, site, acc), {
+  if(_ic_after_site(tok, site), {
     acc.later = true;
-    if(acc.later_tok.is_none(), {
-      acc.later_tok = Option(Token).Some(tok.clone());
-    });
   });
 });
 /// A `break` or `continue` at `tok` (`is_break`: which): a path through the
 /// site that reaches it leaves the rest of the loop body.
 _ic_jump :: (fn(is_break : bool, tok : &Token, site : &ImplicitCopyPending, acc : &mut _ICScan) -> unit)({
-  if(acc.site_seen || _ic_after_site(tok, site, acc), {
+  if(acc.site_seen || _ic_after_site(tok, site), {
     if(is_break, {
       acc.broke = true;
     }, {
@@ -1159,40 +1134,13 @@ _ic_while_runs_body :: (fn(args : &ArrayList(AstExpr)) -> bool)(
     .None => false
   )
 );
-/// The next iteration of the `while` (`args`) that holds the site, scanned
-/// from its start in `post_site` mode (step, condition, body): true when it
-/// reads the variable before a write or an exit ends every path, which
-/// includes reaching the site itself again.
-_ic_next_iteration_reads :: (fn(args : &ArrayList(AstExpr), v : &Variable, site : &ImplicitCopyPending, acc : &mut _ICScan, ctx : &EvalContext) -> bool)({
-  next := _ic_sub_scan(acc);
-  next.post_site = true;
-  order := ArrayList(AstExpr).new();
-  cond(
-    (args.len() == usize(3)) => {
-      order.push(Rc.clone(args(usize(1))));
-      order.push(Rc.clone(args(usize(0))));
-      order.push(Rc.clone(args(usize(2))));
-    },
-    true => {
-      (oi : usize) = usize(0);
-      while(oi < args.len(), oi = (oi + usize(1)), {
-        order.push(Rc.clone(args(oi)));
-      });
-    }
-  );
-  (ni : usize) = usize(0);
-  while((ni < order.len()) && !(next.later || next.done), ni = (ni + usize(1)), {
-    _ic_scan(&order(ni), v, site, &mut next, ctx);
-  });
-  next.later
-});
 /// Walk `e` in the declaring block for reads of `v` after `site`. A read is
 /// an atom resolving to `v` (by id, so a shadowing binding is not one), or a
 /// closure literal capturing `v` (its body is another function, so only its
 /// position counts). The left side of `v = …`, a field name after `.` and a
 /// label before `:` are not reads. A `while` that holds the site runs it
 /// again when a path through the site reaches the next iteration (`!done`, or
-/// a `continue`) and that iteration reads `v` before writing it. Follows
+/// a `continue`) and the loop reads `v` and assigns it nowhere. Follows
 /// `macro_expansion` as the dup collector does.
 _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : &mut _ICScan, ctx : &EvalContext) -> unit)({
   if(acc.later || acc.done, {
@@ -1276,9 +1224,6 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       });
       if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && ast_expr_is_atom(&first) && (ast_expr_token(&first).value.* == v.name), {
         recur(&second, v, site, acc, ctx);
-        if(acc.stop_at_write && (acc.site_seen || _ic_after_site(&tok, site, acc)), {
-          acc.done = true;
-        });
         return(());
       });
       // A branch: an arm whose BODY holds the site excludes the arms after
@@ -1304,7 +1249,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
                   exhaustive = true;
                 });
                 recur(&arm_head, v, site, acc, ctx);
-                body_scan := _ic_sub_scan(acc);
+                body_scan := _ic_new_scan();
                 // By name, not `recur` (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
                 _ic_scan(&arm_body, v, site, &mut body_scan, ctx);
                 _ic_merge(acc, &body_scan);
@@ -1345,7 +1290,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         });
         return(());
       });
-      scan := _ic_sub_scan(acc);
+      scan := _ic_new_scan();
       // By name, not `recur` (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
       _ic_scan(&f.*, v, site, &mut scan, ctx);
       (ai : usize) = usize(0);
@@ -1356,21 +1301,15 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       if(is_exit, {
         _ic_merge(acc, &scan);
         _ic_merge_jumps(acc, &scan);
-        if(scan.site_seen || acc.site_seen || _ic_after_site(&tok, site, acc), {
+        if(scan.site_seen || acc.site_seen || _ic_after_site(&tok, site), {
           acc.done = true;
         });
       });
       if(is_while, {
         // The loop runs the site again when a path through it reaches the
-        // next iteration and that iteration reads the variable first. The
-        // audit keeps its coarser test: the loop reads the variable and
-        // assigns it nowhere.
+        // next iteration, the loop reads the variable and assigns it nowhere.
         reaches_next := (scan.site_seen && !scan.later && (!scan.done || scan.continued));
-        repeats := cond(
-          !reaches_next => false,
-          acc.stop_at_write => _ic_next_iteration_reads(&args.*, v, site, acc, ctx),
-          true => ((scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx))
-        );
+        repeats := (reaches_next && ((scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx)));
         _ic_merge(acc, &scan);
         if(repeats, {
           acc.later = true;
@@ -1425,63 +1364,6 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
     i = (i + usize(1));
   });
 });
-/// The unique `Dyn`, Generation A (plans/VALUES_BY_DEFAULT.md decision 7):
-/// judge the pending `Dyn` copies of `frame`'s variables (`check_dyn_copy`,
-/// evaluator/utils.yo) against `scanned`, the block or arm body that declares
-/// them. A copy whose variable is read again after it is E0901, at the first
-/// such read (Generation B moves the variable at the copy); one with no later
-/// read is the last use, a move. An assignment to the variable after the copy
-/// ends the scan, since later reads see the new value.
-judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
-  fvars := frame.variables();
-  (i : usize) = usize(0);
-  while(i < fvars.len(), i = (i + usize(1)), {
-    match(
-      fvars.get_cloned(i),
-      .Some(v) => match(
-        take_dyn_copy_pending(v.id()),
-        .Some(sites) => {
-          (si : usize) = usize(0);
-          while(si < sites.len(), si = (si + usize(1)), {
-            match(
-              sites.get_cloned(si),
-              .Some(p) => {
-                acc := _ic_new_scan();
-                acc.stop_at_write = true;
-                (ci : usize) = usize(0);
-                while((ci < scanned.len()) && !acc.later && !acc.done, ci = (ci + usize(1)), {
-                  match(scanned.get_cloned(ci), .Some(c) => _ic_scan(&c, &v, &p.site, &mut acc, ctx), .None => ());
-                });
-                if(acc.later, {
-                  raise_flow_violation(dyn_copy_used_again_error(&p, acc.later_tok.clone()), ctx, exn);
-                });
-              },
-              .None => ()
-            );
-          });
-        },
-        .None => ()
-      ),
-      .None => ()
-    );
-  });
-});
-/// Drop, unjudged, the pending `Dyn` copies of `frame`'s variables: a copy a
-/// `match` guard makes is judged by no body (`judge_dyn_copies`), and the rule
-/// rejects only a copy it can see read again.
-discard_dyn_copies :: (fn(frame : &Frame) -> unit)({
-  fvars := frame.variables();
-  (i : usize) = usize(0);
-  while(i < fvars.len(), i = (i + usize(1)), {
-    match(
-      fvars.get_cloned(i),
-      .Some(v) => {
-        _ := take_dyn_copy_pending(v.id());
-      },
-      .None => ()
-    );
-  });
-});
 /// Judge, at the end of a `match` arm, the pending copies of the arm's
 /// pattern bindings (`frame`) against the arm's body (`scanned`): an arm
 /// whose body is one expression has no block epilogue of its own to judge
@@ -1513,7 +1395,7 @@ audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
     );
   });
 });
-export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _subtree_assigns_variable);
+export(audit_judge_arm_copies, audit_commit_arm_copies, _subtree_assigns_variable);
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
@@ -3056,14 +2938,6 @@ _evaluate_begin_expression_impl :: (
     match(&current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(&audit_fr.*, &begin_args, ctx), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames_len() >= usize(2)), {
       match(env.frame_at(env.frames_len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(&audit_pfr, &begin_args, ctx), .None => ());
-    });
-  });
-  // The unique `Dyn`, Generation A: judge the pending `Dyn` copies of this
-  // block's locals and, for a function body, of its parameters.
-  if(dyn_copy_pending_exists(), {
-    match(&current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr.*, &begin_args, ctx, exn), .None => ());
-    if(is_evaluating_function_body_begin_block && (env.frames_len() >= usize(2)), {
-      match(env.frame_at(env.frames_len() - usize(2)), .Some(dyn_pfr) => judge_dyn_copies(&dyn_pfr, &begin_args, ctx, exn), .None => ());
     });
   });
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the

@@ -99,7 +99,7 @@
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_copy_trait_enabled, audit_record_copy_trait, dyn_copy_rule_applies, check_dyn_capture, _rc_clone_spelling } :: import("../utils.yo");
+{ audit_copy_trait_enabled, audit_record_copy_trait, _rc_clone_spelling } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1520,11 +1520,6 @@ generate_captured_variable_dup_expressions :: (
                 );
               },
               type_contains_rc_type(&ci.ty) => {
-                // The unique `Dyn` (`check_dyn_capture`): the capture of a
-                // variable holding a `Dyn` moves it.
-                if(!borrow_captures && dyn_copy_rule_applies(&ci.ty), {
-                  match(get_variables_from_env(env, var_name.clone()).last_cloned(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
-                });
                 dup_code := `___dup(${var_name})`;
                 dup_expr := generate_expr_from_code(&dup_code, exn);
                 evaluated := evaluate_expression_raw(&dup_expr, env, ctx, exn);
