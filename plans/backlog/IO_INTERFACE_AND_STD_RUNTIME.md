@@ -440,7 +440,9 @@ NO_LIBC's std-only P3 and P7 are unaffected and may run at any time.
 - **Signatures above `std/sys` that gained `io`**, because what they wrap is a
   table entry: `Park.new(io)` (`std/async/waker`), `watch(path, opts, io,
   exn)` (`std/fs/watch`; the watcher keeps its `Io` for the `Drop` that
-  unregisters it), and the private `_park_sender`/`_park_receiver`
+  unregisters it, as its two words while a struct reaching `IoVTable`
+  breaks `Stream.map`:
+  `issues/2026-11-25-a-stream-combinator-on-a-type-reaching-a-future-returning-fn-field-calls-an-unemitted-function.md`), and the private `_park_sender`/`_park_receiver`
   (`std/async/channel`), `_acquire_or_park` (`std/async/mutex`) and
   `_wait_any` (`std/async`).
 - **Guard rails** (ALLOCATION_FREE_ASYNC §4): `scripts/check-io-guard-rails.sh`
