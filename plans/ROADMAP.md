@@ -133,6 +133,11 @@ with at most four running at once:
 - **B. Runtime and platform.** In order:
   1. `Io` becomes an interface value
      ([`backlog/IO_INTERFACE_AND_STD_RUNTIME.md`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)).
+     Allocation-free async follows it: a future value is cold and movable,
+     a started future is a place that never moves, `Impl(Future)` is static
+     dispatch and the erased future is `BoxFuture` (decided 2026-11-25; the
+     plan lands in v0.2.81–82, code from v0.2.83;
+     [`backlog/ALLOCATION_FREE_ASYNC.md`](backlog/ALLOCATION_FREE_ASYNC.md)).
   2. `ThreadPool` owns its workers and shares one queue
      ([`reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)): landed in v0.2.80 (TP-1).
   3. The root `global_allocator`.
