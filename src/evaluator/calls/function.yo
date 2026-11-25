@@ -10512,6 +10512,22 @@ _type_occurs_at_static_position :: (fn(needle : &TypeValue, hay : &TypeValue, de
   });
   false
 });
+/// The type the `ai`-th argument, lent at the `&mut` slot `slot`, points at,
+/// read off the ARGUMENT as step 1 reads it (a self place `&mut r` on a
+/// reference binding is typed as the reference, its own pointee); the slot's
+/// pointee when the argument has no recorded type. Not the slot's: a generic
+/// impl's specialized method is shared by the instances whose `type_key`
+/// agrees, and the static bit is not in `type_key`, so the `self` slot of
+/// `Box1(&X).put` spells `Box1(&(X, static))` (or the other way round) when
+/// that instance specialized `put` first.
+_lent_argument_pointee :: (fn(op_args : &ArrayList(AstExpr), ai : usize, slot : &TypeValue, env : &Environment, ctx : &EvalContext) -> TypeValue)({
+  lp_place := ast_expr_strip_borrow_marker(&_unlabeled_argument(match(op_args.get_cloned(ai), .Some(a) => a, .None => make_err_expr())));
+  match(
+    _argument_origin_type(&lp_place, env, ctx),
+    .Some(lp_ty) => cond(is_reference_self_place(ast_expr_id(&lp_place)) => lp_ty, true => t_slot_pointee(&lp_ty)),
+    .None => t_slot_pointee(slot)
+  )
+});
 /// `lend_through` step 1c (VERDICTS-74 rule 2 at a generic container's
 /// method): the `wi`-th argument is lent `&mut` as each of `pointees` (the
 /// argument's own types, which the caller reads off it), and
@@ -10990,24 +11006,19 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   // (top-level, or nested in a by-value parameter as step 3 reads it) whose
   // pointee instantiates a generic container over `static` takes only static
   // values where the callee may store them (`_static_type_argument_stores`).
-  // The pointee is read off the ARGUMENT, not the slot: a generic impl's
-  // specialized method is shared by the instances whose `type_key` agrees,
-  // and the static bit is not in `type_key`, so the slot of
-  // `Box1(&X).put`'s receiver may spell `Box1(&(X, static))` (or the other
-  // way round), whichever instance specialized it first.
+  // The pointee is the lent argument's own (`_lent_argument_pointee`), not
+  // the slot's.
   (sc_i : usize) = usize(0);
   while(sc_i < op_args.len(), sc_i = (sc_i + usize(1)), {
     match(
       slots.get(sc_i),
       .Some(sc_slot) => {
-        sc_place := ast_expr_strip_borrow_marker(&_unlabeled_argument(match(op_args.get_cloned(sc_i), .Some(a) => a, .None => make_err_expr())));
-        sc_ty := match(_argument_origin_type(&sc_place, env, ctx), .Some(t) => t, .None => Rc.clone(&sc_slot));
         sc_pointees := ArrayList(TypeValue).new();
         if(t_slot_is_mut_ref(&sc_slot), {
-          // As step 1 reads a `&mut` argument: a self place (`&mut r` on a
-          // reference binding) is typed as the reference, its own pointee.
-          sc_pointees.push(cond(is_reference_self_place(ast_expr_id(&sc_place)) => Rc.clone(&sc_ty), true => t_slot_pointee(&sc_ty)));
+          sc_pointees.push(_lent_argument_pointee(&op_args, sc_i, &sc_slot, env, ctx));
         }, if(!t_slot_is_borrow(&sc_slot), {
+          sc_place := ast_expr_strip_borrow_marker(&_unlabeled_argument(match(op_args.get_cloned(sc_i), .Some(a) => a, .None => make_err_expr())));
+          sc_ty := match(_argument_origin_type(&sc_place, env, ctx), .Some(t) => t, .None => Rc.clone(&sc_slot));
           sc_seen := ArrayList(String).new();
           _nested_mut_pointees(&sc_ty, &mut sc_pointees, &mut sc_seen, u32(0));
         }));
@@ -11149,7 +11160,12 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             // variable — another argument whose type occurs among the
             // pointee's type arguments is what the callee may store
             // (audit A4's generic-container form).
-            (by_type_argument : bool) = ((w_names.len() == usize(0)) && ((w_tvars.len() == usize(0)) && type_carries_origin(&t_slot_pointee(&w_slot))));
+            // That pointee is the lent argument's own: the specialized
+            // method's slot may be another instance's
+            // (`_lent_argument_pointee`), and `Box1(&(X, static))`'s carries
+            // no origin where `Box1(&X)`'s does.
+            w_arg_pointee := _lent_argument_pointee(&op_args, wi, &w_slot, env, ctx);
+            (by_type_argument : bool) = ((w_names.len() == usize(0)) && ((w_tvars.len() == usize(0)) && type_carries_origin(&w_arg_pointee)));
             if(by_type_argument, {
               unfixed = true;
             });

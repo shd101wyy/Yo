@@ -242,6 +242,21 @@ comptime_expect_error(
   }),
   "declared over the empty origin `static`"
 );
+// The elided-origin instance keeps its flow check when the static one
+// specialized `put` first: its `self` slot is the static instance's, which
+// carries no origin
+// (issues/fixed/2026-11-25-a-generic-containers-elided-instance-skips-its-store-check-after-the-static-instance-specialized-the-method.md).
+comptime_expect_error(
+  _up_elided_box_put_after_static :: (fn() -> unit)({
+    mut(b) := _UpBox1(&_UpX)(v : .None);
+    {
+      x := _UpX(n : i32(1));
+      b.put(&x);
+    };
+    _ := b;
+  }),
+  "Cannot store a reference to `x` in `b` here"
+);
 // The instance that specializes the method first does not decide: the
 // elided-origin instance's `put` runs first here, then the static one's.
 _UpBox2 :: (fn(comptime(T) : Type) -> comptime(Type))(

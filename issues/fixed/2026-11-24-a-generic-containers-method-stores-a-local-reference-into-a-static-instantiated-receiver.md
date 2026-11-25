@@ -89,12 +89,12 @@ value that holds a place is E0923 through `_static_origin_reject`, naming the re
 also occupies a non-static position, which one the callee writes is not known at the call, and the static one
 decides (VERDICTS-74 rule 4: a site that cannot tell rejects). Method specialization is unchanged.
 
-The pointee is read off the lent ARGUMENT (`_argument_origin_type`, as step 1 reads a `&mut` argument), not off the
+The pointee is read off the lent ARGUMENT (`_lent_argument_pointee`, as step 1 reads a `&mut` argument), not off the
 slot. A generic impl's specialized method is shared by the instances whose `type_key` agrees, and the static bit is
 not in `type_key`: whichever of `Box1(&X)` and `Box1(&(X, static))` specializes `put` first, its `self` slot is the
 other's too. A first version read the slot, and in a file that used the static instance first it rejected
 `Box1(&X).put(&x)` (a false E0923), while with the elided instance first it accepted `Box1(&(X, static)).put(&x)` (the
-hole again).
+hole again). The same shared slot hid step 3 for the elided instance: `issues/fixed/2026-11-25-a-generic-containers-elided-instance-skips-its-store-check-after-the-static-instance-specialized-the-method.md`.
 
 ## The test
 
