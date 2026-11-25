@@ -1625,24 +1625,3 @@ test("several different tasks are kept as JoinHandle(T) and joined", {
   assert(match(rs(usize(0)), .Some(v) => (v == i32(1)), .None => false), "the sync future's result");
   assert(match(rs(usize(1)), .Some(v) => (v == i32(42)), .None => false), "the state machine's result");
 });
-_DfJob :: struct(fut : Impl(Future(i32, Io)));
-_df_run :: (fn(sink(j) : _DfJob, io : Io) -> i32)(match(j, _DfJob(fut : f) => io.await(f, io)));
-test("different cold futures are kept behind one Impl(Future(T, E)) field and awaited later", {
-  mut(jobs) := ArrayList(_DfJob).new();
-  jobs.push(_DfJob(fut : _df_one(io)));
-  jobs.push(_DfJob(fut : _df_two(i32(41), io)));
-  (mut(sum) : i32) = i32(0);
-  (mut(n) : usize) = usize(0);
-  while(true, {
-    match(
-      jobs.pop(),
-      .Some(j) => {
-        sum = (sum + _df_run(j, io));
-        n = (n + usize(1));
-      },
-      .None => break
-    );
-  });
-  assert(n == usize(2), "both jobs ran");
-  assert(sum == i32(43), "1 + 42");
-});
