@@ -5,8 +5,9 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio");
 socketpair_io :: import("std/sys/socketpair");
 tcp :: import("std/sys/tcp");
+udp_io :: import("std/sys/udp");
 pipe_io :: import("std/sys/pipe");
-{ AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
+{ AF_UNIX, SOCK_DGRAM, SOCK_STREAM } :: import("std/sys/socket");
 fcntl :: import("std/sys/fcntl");
 { O_NONBLOCK } :: import("std/sys/constants");
 { write } :: import("std/libc/unistd");
@@ -417,5 +418,56 @@ test("a top-level await completed by the I/O poll returns despite unrelated pend
   if(platform == Platform.Linux, {
     env.set("YO_IO_BACKEND", "epoll");
     _await_completed_by_poll(io);
+  });
+});
+// An aborted task's block holds the buffers its in-flight operation was
+// given: here the recvfrom's address-length word, which the io_uring
+// completion writes back. The ring's cancellation is asynchronous — the
+// operation still completes (-ECANCELED, or with the datagram) after the
+// abort — so the block must outlive that completion. It was released at the
+// abort, and the completion wrote into freed memory (AddressSanitizer:
+// heap-use-after-free); a READ still queued in the SQ at the abort wrote a
+// whole buffer there
+// (issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md).
+_spawn_recvfrom_and_abort :: (fn(fd : i32, io : Io) -> unit)({
+  fut := io.async((e : Io) => {
+    mut(b_uninit) := MaybeUninit(Array(u8, usize(16))).new();
+    mut(sa_uninit) := MaybeUninit(Array(u8, usize(128))).new();
+    mut(len_uninit) := MaybeUninit(Array(u32, usize(1))).new();
+    b := (*u8)(b_uninit.as_ptr());
+    sa := (*u8)(sa_uninit.as_ptr());
+    len := (*u32)(len_uninit.as_ptr());
+    len.* = u32(128);
+    r := e.await(udp_io.recvfrom(fd, b, usize(16), i32(0), sa, len), e);
+    r + i32(len.*)
+  });
+  h := io.spawn(fut, io);
+  io.await(yield(io), io);
+  h.abort();
+  assert(match(h.await(io), .Some(_) => false, .None => true), "the recvfrom task was aborted");
+});
+_aborted_recvfrom_frame_outlives_the_op :: (fn(io : Io) -> unit)({
+  mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
+  sv := (*i32)(sv_uninit.as_ptr());
+  assert(socketpair_io.socketpair(AF_UNIX, SOCK_DGRAM, i32(0), sv) == i32(0), "socketpair");
+  fd0 := (sv.add(usize(0))).*;
+  fd1 := (sv.add(usize(1))).*;
+  assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
+  _spawn_recvfrom_and_abort(fd0, io);
+  // Let the loop deliver whatever the cancelled operation still reports.
+  io.await(yield(io), io);
+  io.await(yield(io), io);
+  io.await(tcp.close(fd0), io);
+  io.await(tcp.close(fd1), io);
+});
+test("an aborted task's frame outlives the recvfrom it was suspended in", {
+  if(platform != Platform.Windows, {
+    _aborted_recvfrom_frame_outlives_the_op(io);
+  });
+});
+test("an aborted task's frame outlives the recvfrom it was suspended in (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _aborted_recvfrom_frame_outlives_the_op(io);
   });
 });

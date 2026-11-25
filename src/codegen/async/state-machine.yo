@@ -1849,8 +1849,12 @@ generate_async_block_resume_function_inline :: (
   context.base.emitter.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
   context.base.emitter.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
   // Externally aborted while suspended or queued: release the pending await's
-  // future and the task's own reference; never resume.
-  context.base.emitter.emit_string_line(`  if (sm->state == -2) {`);
+  // future and the task's own reference; never resume. An Aborting task (-4)
+  // was resumed by the completion of the operation its abort could not take
+  // back: it is Aborted now, and its waiters, held until the operation
+  // retired, are woken (the abort hook below).
+  context.base.emitter.emit_string_line(`  if (sm->state == -2 || sm->state == -4) {`);
+  context.base.emitter.emit_string_line(`    if (sm->state == -4) { sm->state = -2; __yo_future_wake_waiters(sm_ptr); }`);
   context.base.emitter.emit_string_line(`    if (sm->__yo_await_slot) { __yo_decr_rc(sm->__yo_await_slot); sm->__yo_await_slot = NULL; }`);
   context.base.emitter.emit_string_line(`    __yo_decr_rc((void*)sm);`);
   context.base.emitter.emit_string_line(`    return;`);
@@ -2005,6 +2009,13 @@ generate_async_block_resume_function_inline :: (
 /// suspended on in `prev_state` (the one `__yo_await_slot`), then wake its
 /// waiters — the phase-2 protocol of generate_async_block_cancel_pending_function,
 /// with the per-state facts the lowering recorded as it emitted each await.
+/// It returns whether the task retired at once. When the awaited operation
+/// (or the awaited future's own operation, down the chain) is still in
+/// flight, the task becomes Aborting (-4) and keeps its waiters and its own
+/// reference: a buffer that operation writes into may be one of its locals,
+/// so it is released only by its aborted-entry guard, which that operation's
+/// completion runs
+/// (issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md).
 generate_async_block_cancel_pending_function_inline :: (
   fn(async_block_id : &String, struct_name : &String, context : &mut FunctionGenerationContext) -> Option(String)
 )({
@@ -2012,10 +2023,10 @@ generate_async_block_cancel_pending_function_inline :: (
   // `InlineSuspension` has no `Clone`.
   sps := match(g_inline_suspensions.with_mut({ k : async_block_id.clone() }(m) => m.remove(&k)), .Some(l) => l, .None => ArrayList(InlineSuspension).new());
   fn_name := `${async_block_id.clone()}_cancel_pending`;
-  context.base.emitter.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
+  context.base.emitter.emit_declaration_string_line(`bool ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
   context.base.emitter.emit_declaration_line("");
   context.base.emitter.emit_string_line(`// Abort hook for async block ${async_block_id.clone()} (single-pass lowering)`);
-  context.base.emitter.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state) {`);
+  context.base.emitter.emit_string_line(`bool ${fn_name.clone()}(void* sm_ptr, int prev_state) {`);
   context.base.emitter.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
   context.base.emitter.emit_string_line(`  switch (prev_state) {`);
   (i : usize) = usize(0);
@@ -2030,14 +2041,19 @@ generate_async_block_cancel_pending_function_inline :: (
           context.base.emitter.emit_string_line(`        sm->__yo_await_slot = NULL;`);
           context.base.emitter.emit_string_line(`        __yo_future_wake_waiters(sm_ptr);`);
           context.base.emitter.emit_string_line(`        __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
-          context.base.emitter.emit_string_line(`        return;`);
+          context.base.emitter.emit_string_line(`        return true;`);
+          context.base.emitter.emit_string_line(`      }`);
+          context.base.emitter.emit_string_line(`      if (sm->__yo_await_slot != NULL) {`);
+          context.base.emitter.emit_string_line(`        sm->state = -4;  // Aborting: the operation is in flight until its completion resumes this task`);
+          context.base.emitter.emit_string_line(`        return false;`);
           context.base.emitter.emit_string_line(`      }`);
           context.base.emitter.emit_string_line(`      break;`);
         },
         sp.in_slot => {
           context.base.emitter.emit_string_line(`    case ${sp.state.to_string()}:`);
-          context.base.emitter.emit_string_line(`      if (sm->__yo_await_slot != NULL) {`);
-          context.base.emitter.emit_string_line(`        __yo_future_abort(sm->__yo_await_slot);  // structured cancellation`);
+          context.base.emitter.emit_string_line(`      if (sm->__yo_await_slot != NULL && !__yo_future_abort(sm->__yo_await_slot)) {  // structured cancellation`);
+          context.base.emitter.emit_string_line(`        sm->state = -4;  // Aborting: the awaited future lingers, and wakes this task when it retires`);
+          context.base.emitter.emit_string_line(`        return false;`);
           context.base.emitter.emit_string_line(`      }`);
           context.base.emitter.emit_string_line(`      break;`);
         },
@@ -2050,6 +2066,7 @@ generate_async_block_cancel_pending_function_inline :: (
   context.base.emitter.emit_string_line(`      break;`);
   context.base.emitter.emit_string_line(`  }`);
   context.base.emitter.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
+  context.base.emitter.emit_string_line(`  return true;`);
   context.base.emitter.emit_string_line(`}`);
   context.base.emitter.emit_string_line(String.from(""));
   g_inline_suspensions.with_mut({ k : async_block_id.clone(), sps }(m) => m.insert(k, sps));

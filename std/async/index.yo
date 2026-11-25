@@ -294,9 +294,10 @@ any_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io)
 /// - the combinator aborts and joins it on every path before it resolves;
 /// - if the combinator's future is aborted or dropped first, dropping this
 ///   aborts the task.
-/// An aborted task never resumes, so whatever it borrows is no longer touched
-/// once the abort returns. `_p` is the task's pointer, valid while `_h` holds
-/// the handle (`_scoped_join` takes it out).
+/// An aborted task never resumes, and its join returns only once the
+/// operation it was suspended in can no longer touch its memory, so whatever
+/// it borrows is no longer touched once the join returns. `_p` is the task's
+/// pointer, valid while `_h` holds the handle (`_scoped_join` takes it out).
 _Scoped :: (fn(comptime(U) : Type) -> comptime(Type))(
   struct(_h : Option(JoinHandle(U)), _p : *void)
 );
