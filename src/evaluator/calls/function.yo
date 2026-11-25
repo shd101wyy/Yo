@@ -10772,9 +10772,13 @@ _field_path_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
       Rc(.FnCall(_, _, Rc(fr_args), _, _)) => match(fr_args.get_cloned(usize(1)), .Some(fr_l) => if(ast_expr_is_atom(&fr_l), fr_args.get_cloned(usize(0)), Option(AstExpr).None), .None => Option(AstExpr).None),
       Rc(.Atom(_, _)) => Option(AstExpr).None
     );
-    match(fr_next, .Some(n) => {
-      cur = n;
-    }, .None => return(Option(AstExpr).None));
+    match(
+      fr_next,
+      .Some(n) => {
+        cur = n;
+      },
+      .None => return(Option(AstExpr).None)
+    );
   });
   if(ast_expr_is_atom(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
 });

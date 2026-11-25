@@ -13,7 +13,9 @@ X :: struct(s : String);
 mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("abc"))));
 H :: struct(o : Option(&Rc(X)), n : i32);
 use :: (fn(o : &Option(&Rc(X))) -> unit)(match(o, .Some(r) => println(r.*.*.s.len()), .None => ()));
-put :: (fn(generic(p : Origin), dst : &mut Option(&(Rc(X), p)), v : &(Rc(X), p)) -> unit)({ dst.* = .Some(v); });
+put :: (fn(generic(p : Origin), dst : &mut Option(&(Rc(X), p)), v : &(Rc(X), p)) -> unit)({
+  dst.* = .Some(v);
+});
 main :: (fn() -> unit)({
   z := mk();
   mut(h) := H(o : .Some(&z), n : i32(0));
