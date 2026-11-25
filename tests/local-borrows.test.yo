@@ -1335,3 +1335,37 @@ comptime_expect_error(
   }),
   "declared over the empty origin `static`"
 );
+// VERDICTS-73: a local borrow through a handle's payload is written
+// `&b.*.x`, and it takes the check the step deref forwarding synthesized for
+// `&b.x` took: admitted, rooted at `b`, which stays frozen while the borrow
+// lives (E0911). A reference to a `Box` takes both stars (`&n.*.*.next`).
+_LbBox :: struct(x : i32, y : i32);
+test("a local borrow through a spelled Box star takes forwarding's step (VERDICTS-73)", {
+  b := Box.new(_LbBox(x : i32(1), y : i32(2)));
+  d := &b.*.x;
+  assert(d.* == i32(1), "the borrow reads the payload's field");
+  mut(m) := Box.new(_LbBox(x : i32(1), y : i32(2)));
+  {
+    e := &mut m.*.y;
+    e.* = i32(5);
+  };
+  assert(m.*.y == i32(5), "the write landed in the payload");
+  l := BList(head : .Some(Box.new(BNode(value : i32(7), next : .None))));
+  match(
+    &l.head,
+    .Some(n) => {
+      v := &n.*.*.value;
+      assert(v.* == i32(7), "a reference to a Box takes both stars");
+    },
+    .None => ()
+  );
+});
+comptime_expect_error(
+  local_borrow_through_a_spelled_box_freezes_the_box :: (fn() -> i32)({
+    mut(b) := Box.new(_LbBox(x : i32(1), y : i32(2)));
+    d := &b.*.x;
+    b = Box.new(_LbBox(x : i32(3), y : i32(4)));
+    d.*
+  }),
+  "Cannot write `b` here: `d` borrows `b.*.x`"
+);
