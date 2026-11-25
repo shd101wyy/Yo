@@ -1,0 +1,22 @@
+// expect: E0911
+// `dyn(&c)` passed to a `&Dyn(Name)` parameter lends `c` to the call's result `o`: moving `c` while `o` lives is rejected
+// (issues/fixed/2026-11-25-a-dyn-of-a-place-passed-to-a-reference-parameter-gives-the-call-result-no-origin.md).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Name :: trait(name : (fn(self : &Self) -> &String));
+Cat :: struct(s : String);
+impl(Cat, Name(name : (fn(self : &Self) -> &String)(&self.s)));
+_get_opt :: (fn(d : &Dyn(Name)) -> Option(&Dyn(Name)))(Option(&Dyn(Name)).Some(d));
+main :: (fn() -> unit)({
+  c := Cat(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz"));
+  o := _get_opt(dyn(&c));
+  {
+    _d := c;
+  };
+  match(
+    o,
+    .Some(d) => println(`OUT: ${d.name().clone().len().to_string()}`),
+    .None => ()
+  );
+});
+export(main);
