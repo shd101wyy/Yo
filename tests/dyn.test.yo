@@ -1111,7 +1111,7 @@ test("a Dyn copy whose source is used again is E0901", {
   assert(true, "rejected");
 });
 test("a Dyn copy out of storage that cannot give it away is E0901 at once", {
-  comptime_expect_error((fn(d : &Dyn(_UdCounter, Clone)) -> Box(Dyn(_UdCounter, Clone)))(d.*), "it is a `&T` parameter");
+  comptime_expect_error((fn(d : &Dyn(_UdCounter, Clone)) -> Box(Dyn(_UdCounter, Clone)))(d.*), "the value it refers to stays with its owner");
   comptime_expect_error({
     h := _UdHolder(d : _ud_tally(i32(1)));
     e := h.d;
