@@ -66,11 +66,11 @@ test("an Io-bundled future cannot be viewed as Future(T)", {
   comptime_expect_error(spawn_view(io_only(io), io), "Name the bundle");
   // The return-position view.
   comptime_expect_error((fn(io : Io) -> Impl(Future(i32)))(io.async((io : Io) => i32(4))), "Name the bundle");
-  // A `Dyn(Future(T))` slot.
+  // A `Dyn(Future(T))` slot: no `Dyn` lists `Future` (E0614, VERDICTS-80).
   f := io_only(io);
   comptime_expect_error({
     (_d : Dyn(Future(i32))) = dyn(&f);
-  }, "Name the bundle");
+  }, "cannot be made: `Future` has no vtable slot");
   // A local annotation.
   comptime_expect_error({
     (_f : Impl(Future(i32))) = io_only(io);

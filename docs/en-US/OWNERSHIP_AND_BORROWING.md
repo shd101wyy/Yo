@@ -1069,7 +1069,6 @@ Run tests under `--sanitize address` when a change leans on the borrow rules.
 | E0917 | a write to a binding declared without `mut` |
 | E0918 | a run-time write to a `::` constant |
 | E0919 | a write through an `Rc` handle |
-| E0922 | an origin that no `generic(p : Origin)` declares |
 | E0923 | a reference outside its declared origin |
 | E0924 | a type or binding that names itself as an origin |
 | E0926 | a reference read or written as a whole value without `.*` |

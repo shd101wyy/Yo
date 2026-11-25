@@ -17,7 +17,7 @@
 #      import("../sys/file")`), so a destructured import of one is rejected
 #      too: the call could not be told from any other.
 #
-# Usage (from the repository root): bash scripts/check-io-guard-rails.sh
+# Usage (from anywhere in the repository): bash scripts/check-io-guard-rails.sh
 
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 2

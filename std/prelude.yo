@@ -13413,6 +13413,13 @@ export(__yo_io_future_t);
 /// codes. `io.state` reads an in-flight operation as `Running`: it was
 /// submitted when it was created, so it is never `Cold`. The operations that
 /// make one are the `IoVTable` entries, reached through `std/sys`.
+///
+/// The memory given to an operation (a buffer, an address or its length)
+/// must stay valid until its future is terminal. Dropping a pending
+/// `IoFuture` releases the handle but does not cancel the operation: it keeps
+/// running and may still write into that memory. So a started operation is
+/// awaited before the memory it was given goes away, and std above `std/sys`
+/// awaits every operation where it is made.
 IoFuture :: Impl(Concrete(__yo_io_future_t), Future(i32));
 export(IoFuture);
 /// The operations behind an `Io`: an immortal table of functions, each
@@ -13612,13 +13619,16 @@ impl(
   /// any, releases the state machine instead of resuming it). Completed and
   /// already-aborted tasks are left untouched. `await` on an aborted handle
   /// returns `.None`. An operation the task is suspended in is cancelled too
-  /// where the I/O backend can take the registration back (timers and park
-  /// futures on every backend; on Linux also the epoll and io_uring
-  /// descriptor and datagram operations, on macOS the kqueue-parked
-  /// descriptor operations): the task and what it was waiting on are then
-  /// released at once instead of when that operation would have completed.
-  /// An operation with no cancel path still runs to completion and releases
-  /// the task then; the task stays `Aborted`. The future the task is
+  /// where the I/O backend has a cancel path (timers and park futures on
+  /// every backend; on Linux also the epoll and io_uring descriptor and
+  /// datagram operations, on macOS the kqueue-parked descriptor operations,
+  /// on Windows the socket operations). The task is released, and an `await`
+  /// or join of it returns, once that operation can no longer touch the
+  /// task's memory: at once where the backend takes the registration back
+  /// (epoll, kqueue, timers), when the operation's completion arrives where
+  /// the cancellation is itself asynchronous (io_uring, IOCP), and when the
+  /// operation completes where there is no cancel path. The task reads
+  /// `Aborted` from the abort on. The future the task is
   /// awaiting is aborted with it: an await owns the future it consumed
   /// (§3.13 A1), so nothing else can be holding it. A task the aborted one
   /// was joining through a handle keeps running. A raw `IoFuture` spawned
