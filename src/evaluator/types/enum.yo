@@ -871,7 +871,7 @@ evaluate_enum_type :: (
       ft := match(vf_list.get(pf_j), .Some(t) => t, .None => t_unit());
       (patched_ft, held_shell) := patch_self_shell_reporting(&ft, shell_id.clone(), &pre_final_ty);
       names_self = (names_self || held_shell);
-      new_list.push(patched_ft);
+      new_list.push(Rc.clone(patched_ft));
       pf_j = (pf_j + usize(1));
     });
     patched_fields.push(shared_list(new_list));
