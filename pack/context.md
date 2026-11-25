@@ -69,15 +69,18 @@ export(main);
   `::`, `impl` and `derive` are order-independent. Only `export`ed names leave
   a module; `main` returns `unit` and is exported.
 - Parenthesize wherever two different operators meet, including the right side
-  of `:=`, `=` and a field's `:` (`x := (a + b);`, `.{ x : (a + b) }`), or it
-  is E0003.
+  of `:=`, `=`, a field's `:` and an arm's or closure's `=>` (`x := (a + b);`,
+  `.{ x : (a + b) }`, `.Some(q) => (q != u8(0))`), or it is E0003. The
+  operator set is closed: `**x` is two `*`s (a power is `x.pow(n)`).
 - A bare `{ ... }` in expression position is a block (`{}` is unit); a `,` or
   `label : value` inside one is E0007. `(a, b)` is a tuple, `Tuple(A, B)` its
-  type.
+  type, `t.0` its first field; tuples are positional (`(lo : a, hi : b)` is an
+  error: use a struct).
 - Control flow is calls: `cond(...)`, `match(...)`, `while(c, body)`,
   `return(v)`, `return()`, `unwind(v)`; `break`/`continue` are bare; `if(c, a)`
   and `if(c, a, b)` are sugar for `cond`. Sibling arms have one type (a block
-  ending in `;` is `unit`).
+  ending in `;` is `unit`). `return(...)` is the last expression of its block,
+  and a `-> unit` function writes `return()` (`unit` alone is the type).
 - Integer literals take their type from the slot; otherwise write `i32(1)`.
   Distinct integer types never mix implicitly; `usize(n)` converts. Overflow,
   division by zero and out-of-bounds indexing trap (`wrapping_add` wraps).
@@ -129,6 +132,8 @@ export(main);
   `impl(generic(T : Type), where(T <: ToString), Box(T), ...)`.
 - A generic type is a compile-time function, used as `Pair(i32)`:
   `Pair :: (fn(comptime(A) : Type) -> comptime(Type))(struct(a : A, b : A));`
+- A function returning a compile-time value (`-> comptime(T)`, `-> Type`)
+  declares its locals with `::` (E1104); `mut(x) :: v` makes one reassignable.
 
 ## Ownership: values by default
 
@@ -144,7 +149,7 @@ export(main);
 - **Bindings are immutable** unless declared `mut(x) := v` /
   `(mut(x) : T) = v` (module-level ones too). Reassigning, lending `&mut`,
   calling a `&mut self` method or writing a field of an unmarked binding is
-  E0917.
+  E0917. A parameter is never reassigned (E0902): copy it into a `mut` local.
 - **Drops** run at scope end, early exit and reassignment; a destructor is
   `impl(T, Drop(drop : (fn(self : &mut Self) -> unit)(...)))`. `drop(x)` ends
   a value early (`x.drop()` is E0915).
@@ -188,7 +193,9 @@ export(main);
 - **Local borrows**: `y := &place`, `y := &mut place`. A borrow is live until
   its last use and freezes its place meanwhile: no write or move under `&`,
   no access at all except through it under `&mut` (E0911). Sibling fields
-  borrow independently.
+  borrow independently. `&T` is `Copy`; a `&mut T` moves: `a := m` hands
+  `m`'s borrow to `a` and a later use of `m` is E0901, while `a := &mut m.*`
+  reborrows and leaves `m` usable after `a`'s last use.
 - Writing through `&` is E0908. A later argument may read what an earlier one
   lends (`xs.push(xs.len())`) but not move or `&mut`-lend it; overlapping
   lends with a `&mut` (`s.push_string(&s)`) are E0910.
@@ -326,7 +333,10 @@ export(main);
 - `Option(T)` (`.Some(v)` / `.None`) is absence; `Result(T, E)` is a
   recoverable failure with a real error enum (`derive(E, Error(...))`), never
   `Result(_, String)`. I/O reports failure through the `exn : Exception`
-  effect.
+  effect, and `exn.throw(dyn(Box.new(e)))` needs an `e` that implements
+  `Error` (a string does not).
+- `opt == .None` needs an `Eq` payload type (E0610); `opt.is_none()` and
+  `match` work for every `T`.
 - `unwrap`/`expect` are E0611 outside unsafe and test files: `match`, or use
   `unwrap_or`, `map`, ... (`assert`/`panic` from `std/assert` are for bugs).
 
@@ -437,7 +447,10 @@ export(main);
   `spawn_blocking`). `io.async((io : Io) => body)` builds a lazy future that
   `io.await(f, io)` runs once or `io.spawn(f, io)` starts. `io.await`
   suspends only when written in the `io.async` body itself; in a function the
-  task calls, it blocks.
+  task calls, it blocks. A future's type names the bundle its body reads:
+  `-> Impl(Future(T, Io))` for an `(io : Io) =>` body (`sleep`, `yield`, the
+  async `Mutex` and channels too); a bundled future viewed as `Future(T)` is
+  E0605.
 
 ```yo
 { assert } :: import("std/assert");
@@ -517,7 +530,8 @@ test("push then len", {
 - `yo context --list`, then `yo context <module>`: the real API surface.
 - `yo explain E0xxx` for any diagnostic; `yo fix` applies its repair.
 - The manuals ship with the toolchain: `yo context --docs` lists them,
-  `yo context --doc STRINGS` prints one (`docs/en-US/` in the repository).
+  `yo context --doc STRINGS` prints one (`docs/en-US/` in the repository), and
+  `yo context --doc INDEX` maps them by topic.
 - Contracts (`requires`, `ensures`, `invariant`) are proved by `yo verify`:
   `yo context --doc FORMAL_VERIFICATION`.
 - `yo lsp` (and the VS Code extension) gives hover, completion and go-to.

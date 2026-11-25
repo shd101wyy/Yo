@@ -43,7 +43,7 @@ The filter (RUST/LEAN §0, adapted):
    or a solver — origins are ground place sets
    ([`REFERENCES_AND_ORIGINS.md`](REFERENCES_AND_ORIGINS.md) §6); no
    second allocator model beneath the placement decisions C1–C7
-   ([`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md)); no weakening of
+   ([`ZIG_STYLE_ALLOCATORS.md`](ZIG_STYLE_ALLOCATORS.md) §7.3); no weakening of
    the freeze model (decisions 18, 42).
 2. **Fits the model.** Values by default, explicit cells, explicit
    contracts. Anything needing inference at semantic distance, or buying
@@ -348,7 +348,7 @@ Yo:
   §6
 - [`ARENA_ALLOCATOR_FEASIBILITY.md`](../archive/ARENA_ALLOCATOR_FEASIBILITY.md) —
   §0 verdicts, §4.1, §4.3 Option C′, §5 hatches
-- [`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md) — C1–C7
+- [`ZIG_STYLE_ALLOCATORS.md`](ZIG_STYLE_ALLOCATORS.md) §7.3 — C1–C7
 - [`../backlog/EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) —
   why the compiler's footprint is retention, not churn
 - [`ZIG_STYLE_ALLOCATORS.md`](ZIG_STYLE_ALLOCATORS.md) — A1/A3

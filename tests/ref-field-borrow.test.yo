@@ -203,18 +203,13 @@ test("indexed element to a ref param without the container", {
   assert(xs(usize(0)) == i32(42), "in-place element bump through the ref");
 });
 
-// --- Runtime borrow flag around interior-ref calls ---
-// Regression (issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md):
-// an element-only ref call brackets the CONTAINER with
-// `__yo_borrow_acquire` / `__yo_borrow_release`, so a growth method reached
-// through an alias the static rule cannot see panics instead of reallocating
-// under the reference (the panicking shape is pinned by
-// tests/cli-cases/inout-interior-borrow-growth-panics). The release half is
-// what these two tests pin: after the call returns — normally, or by an
-// effect unwind THROUGH the call site — the flag is back to zero, so the
-// container is freely growable again. Were the release missing (or skipped
-// on the unwind path), the `push` below would panic.
-test("interior-ref call releases the container's borrow flag on return", {
+// --- Growing a container after an interior-ref call on it ---
+// The call borrows the container for its extent only (the static rule,
+// tests/cli-cases/inout-interior-borrow-growth-e0901, rejects a growth
+// method reached through an alias), and nothing is left behind at run time:
+// after the call returns — normally, or by an effect unwind THROUGH the call
+// site — the container is freely growable again.
+test("a container is growable after an interior-ref call returns", {
   bump4 :: (fn(v : &mut i32) -> unit)({
     v.* = (v.* + i32(1));
   });
@@ -225,7 +220,7 @@ test("interior-ref call releases the container's borrow flag on return", {
   assert(xs.len() == usize(2), "push after the borrowed call ran");
   assert(xs(usize(0)) == i32(42), "the bump landed before the growth");
 });
-test("interior-ref call releases the container's borrow flag on unwind", {
+test("a container is growable after an interior-ref call unwinds", {
   Raise :: (ctl() -> unit);
   bump_then_raise :: (fn(v : &mut i32, raise : Raise) -> unit)({
     v.* = (v.* + i32(1));

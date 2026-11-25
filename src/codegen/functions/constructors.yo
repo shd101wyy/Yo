@@ -114,7 +114,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   // parameter (`__yo_cell(V)(v, alloc)`, plans/VALUES_BY_DEFAULT.md §3.5):
   // the call site passes the explicit allocator's `{ctx, vtable}`, or the
   // global one for `.None`. Every other object is global
-  // (plans/backlog/ALLOCATOR_PLACEMENT.md: there is no allocation scope).
+  // (plans/reference/ALLOCATOR_PLACEMENT.md: there is no allocation scope).
   is_cell := is_cell_primitive_type(type);
   // Signature + malloc.
   mut(sig) := String.from("static ");
@@ -147,7 +147,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
       String.from("  obj->header.ref_count = 1u;  // One reference")
     )
   );
-  context.base.emitter.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
+  context.base.emitter.emit_string_line(String.from("  obj->header.borrow_count = 0;  // no Weak handles yet"));
   // Dispose type-tag.
   match(
     dispose_opt,
@@ -257,7 +257,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
         context.base.emitter.emit_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}) {`);
         context.base.emitter.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc(sizeof(${c_name}));`);
         context.base.emitter.emit_string_line(`  obj->header.ref_count = 1u;  // One reference`);
-        context.base.emitter.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
+        context.base.emitter.emit_string_line(`  obj->header.borrow_count = 0;  // no Weak handles yet`);
         // Dispose type-tag.
         match(
           dispose_opt.clone(),

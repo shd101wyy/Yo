@@ -1,0 +1,11 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 5: the annotation adds no implicit reborrow; `m` is moved.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  (a : &mut i32) = m;
+  a.* = i32(1);
+  m.* = i32(2);
+  a.* = i32(3);
+});
+export(main);

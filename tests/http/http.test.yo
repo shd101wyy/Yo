@@ -1370,7 +1370,7 @@ test("HttpClient: the idle age limit closes a connection instead of reusing it",
   a := io.await(client.fetch(`http://127.0.0.1:19848/one`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
   assert(client.idle_count() == usize(1), "pooled");
-  io.await(sleep(Duration.from_millis(i64(20)), io), e);
+  io.await(sleep(Duration.from_millis(i64(20)), io), io);
   b := io.await(client.fetch(`http://127.0.0.1:19848/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
   assert(stats.*.with(st => st.accepts) == usize(2), `the expired connection was not reused, accepts=${stats.*.with(st => st.accepts)}`);

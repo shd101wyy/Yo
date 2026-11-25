@@ -154,7 +154,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr-traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled, future_view_error } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
 { type_carries_origin, is_dyn_fn_slot } :: import("../../types/utils.yo");
@@ -1154,7 +1154,7 @@ _evaluate_capture_list :: (
         // reassignable; a by-value parameter, a `match`/`for` binding and an
         // `imm` capture are not. (A cell is never crossed, checked above.)
         // Decision 47 step 2: and its root binding is declared `mut(name)`.
-        place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, env, ctx, exn);
+        place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, true, env, ctx, exn);
         if(!root_var.*.is_reassignable(), {
           _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.*.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.*.value.*} : &mut T\`.`);
         });
@@ -1243,7 +1243,7 @@ _evaluate_capture_list :: (
           ctx,
           exn,
           ast_expr_token(&init_e),
-          `\`${rv.*.name}\` is a \`&mut\` reference, and the by-value entry \`${label}\` would move it into the closure. A \`&mut T\` moves at its last use (decision 35); this closure cannot take it. Reborrow it for the closure's life with \`{ ${label} : &mut ${rv.*.name}.* }\`.`
+          `\`${rv.*.name}\` is a \`&mut\` reference, and the by-value entry \`${label}\` would move it into the closure, which cannot take it. Reborrow it for the closure's life with \`{ ${label} : &mut ${rv.name}.* }\`.`
         );
       });
       saved_rexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
@@ -2768,6 +2768,15 @@ Result type: ${type_to_string(&decl_result_ty)}`
               reject_second_class_return(&cr_body_ty, ast_expr_token(&anon_eb), env, ctx, exn);
             });
             cr_skip := (has_any_control_flow(cr_info.control_flow()) || is_void_type(&cr_ret_ty) || is_type_hierarchy_type(&cr_ret_ty) || (get_all_some_types(&cr_ret_ty).len() > usize(0)) || (get_all_some_types(&cr_body_ty).len() > usize(0)));
+            // A bundled future returned as a bundle-less
+            // `Impl(Future(T))` (VERDICTS-68, E0605).
+            if(!has_any_control_flow(cr_info.control_flow()) && !fn_result_is_ref(&function_type), {
+              match(
+                future_view_error(ast_expr_token(&body_expr), &`Function body has type \`${type_to_string(&cr_body_ty)}\`, but the declared result type is \`${type_to_string(&cr_ret_ty)}\`.`, &cr_body_ty, &cr_ret_ty, &Option(AstExpr).None),
+                .Some(cr_fv) => exn.throw(dyn(Box.new(cr_fv))),
+                .None => ()
+              );
+            });
             if(!cr_skip && !are_types_compatible(&cr_body_ty, &cr_ret_ty), {
               cr_hint := cond(
                 is_unit_type(&cr_body_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),

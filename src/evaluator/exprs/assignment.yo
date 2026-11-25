@@ -51,7 +51,8 @@ pragma(Pragma.AllowUnsafe);
   variable_has_undone_move,
   make_variable,
   variable_value_type,
-  variable_slot_type
+  variable_slot_type,
+  variable_move_note
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals, fn_ctx_returns_comptime } :: import("../context.yo");
@@ -109,6 +110,8 @@ pragma(Pragma.AllowUnsafe);
 {
   reject_dyn_place_by_value,
   require_expr_not_consumed,
+  use_of_moved_value_error,
+  moved_value_type,
   throw_expr_is_implicit_variable_error,
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr,
@@ -175,7 +178,10 @@ pragma(Pragma.AllowUnsafe);
   deref_rule_applies,
   reject_reference_without_deref,
   ref_payload_source,
-  is_reference_read
+  is_reference_read,
+  reference_field_store_mark,
+  reference_field_store_clear,
+  future_view_error
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1597,6 +1603,14 @@ _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &
 ///   - property/index LHS: `x.a = rhs`, `arr(0) = rhs`
 ///
 ///
+/// The written type of a typed binding `(x : T) = v` (its `T`), `.None` for
+/// any other assignment target.
+_binding_annotation :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
+  cond(
+    ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))) => match(lhs, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(1)), _ => Option(AstExpr).None),
+    true => Option(AstExpr).None
+  )
+);
 evaluate_assignment :: (
   fn(
     expr : &AstExpr,
@@ -1736,7 +1750,11 @@ evaluate_assignment :: (
     ctx.is_lhs_of_assignment = true;
     // The target's place is judged as a write below, not as a read.
     local_borrow_mark_receiver(&lhs);
+    // `h.r = &y` on a reference field `r`: E0926 at the target names the
+    // store (`reference_field_store_mark`).
+    rfs_label := reference_field_store_mark(&lhs, &rhs, &env);
     evaluated_lhs := evaluate_expression_raw(&lhs, &env, ctx, exn);
+    match(&rfs_label, .Some(rfs_tok) => reference_field_store_clear(rfs_tok), .None => ());
     local_borrow_clear_receiver();
     // D3 past the root: an inner hop may pass through an atomic object
     // (`s.a.* = v`, `t.0.*.n = v`), which the root check above cannot see.
@@ -1861,7 +1879,7 @@ evaluate_assignment :: (
     // needs `mut(name)` (after E0918, which answers a runtime write of a
     // compile-time binding).
     pw_how := if(ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))), String.from("write a field of"), String.from("write an element of"));
-    place_require_mut(&evaluated_lhs, &ast_expr_token(&lhs), &pw_how, false, &env, ctx, exn);
+    place_require_mut(&evaluated_lhs, &ast_expr_token(&lhs), &pw_how, false, false, &env, ctx, exn);
     // A write of the place: E0908 through an `imm` local borrow, E0911 while a
     // borrow of an overlapping place is live (plans/VALUES_BY_DEFAULT.md
     // decision 18).
@@ -2521,6 +2539,15 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   if(!is_deref_write && variable_is_reference_binding(&variable) && deref_rule_applies(ast_expr_token(&lhs_resolved), ctx), {
     reject_reference_without_deref(&variable, ast_expr_token(&lhs_resolved), u8(1), ctx, exn);
   });
+  // `r.* = v` writes through `r`, a use of the reference: after `r` moved
+  // (`a := r`, VERDICTS-76 Q1) it is E0901, never a store that revives it.
+  if(is_deref_write && variable_is_reference_binding(&variable), {
+    match(
+      variable.consumed_at_token(),
+      .Some(dw_moved_at) => raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &moved_value_type(&variable), ast_expr_token(&lhs_resolved), variable_move_note(&variable, &dw_moved_at)), ctx, exn),
+      .None => ()
+    );
+  });
   // Closure capture tracking — a WRITE to an outer variable from inside a
   // function body / async block is a capture too (tracked with usage "own").
   // Reads are tracked by the
@@ -2900,6 +2927,19 @@ comptime(${variable_name}) : ${dgc_ty_str}
   );
   // O7 for the same route (audit A48): the value's origins fit the slot's.
   raise_function_value_origin_mismatch(&variable_value_type(&variable), &rhs_type, &rhs, &ast_expr_token(&lhs_resolved), &`The write of \`${variable_name}\``, ctx, exn);
+  // A bundled future bound to a bundle-less `Impl(Future(T))` (VERDICTS-68,
+  // E0605); a typed binding's annotation is what `yo fix` repairs.
+  match(
+    future_view_error(
+      ast_expr_token(&lhs_resolved),
+      &`Incompatible types:\n- Expected: ${type_to_string(&variable_value_type(&variable))}\n- Given   : ${type_to_string(&rhs_type)}`,
+      &rhs_type,
+      &variable_value_type(&variable),
+      &_binding_annotation(&lhs)
+    ),
+    .Some(fv_err) => exn.throw(dyn(Box.new(mark_generic_independent(&fv_err, &variable_value_type(&variable), &rhs_type)))),
+    .None => ()
+  );
   // Type-compatibility check.
   if(!are_types_compatible(&rhs_type, &variable_value_type(&variable)), {
     var_ty_str := type_to_string(&variable_value_type(&variable));

@@ -168,6 +168,13 @@ Writing through a reference is not writing the binding, so `a := &mut p.x;
 a.* = i32(10)` needs `mut(p)`, not `mut(a)`. Parameters take no `mut`: a
 body that writes one rebinds it, `mut(y) := x`.
 
+A destructuring borrows its elements from the value it destructures, which
+still drops them. A `mut(b)` binding there is a copy of its element, so an
+element that holds an `Rc`, a `Box` or an owned buffer (a `String`, a
+collection) cannot be bound `mut` (E0901): bind it without `mut` and copy it
+explicitly (`mut(c) := b.clone()`), or `match` a value you own, which moves
+its parts into the arm's bindings.
+
 ## Drops
 
 A value is dropped when its owner stops holding it. A drop frees a buffer,
@@ -359,8 +366,26 @@ export(main);
 
 `&T` is `Copy`: `a := r; b := r;` gives two references to the same place.
 `&mut T` is not `Copy`, so there is never more than one usable `&mut` to a
-place. Passing a `&mut T` binding to a `&mut T` parameter reborrows it for
-the call and leaves the binding usable afterwards.
+place. Binding a `&mut T` to a new name moves it: after `a := m` (or
+`(a : &mut T) = m`), `a` holds `m`'s borrow until `a`'s last use, and a later
+use of `m` is E0901. A tuple element, a generic `T` argument and a return
+move it too. To keep `m`, reborrow it: `a := &mut m.*` borrows the place for
+`a`'s life, and `m` is usable again after `a`'s last use. Passing a `&mut T`
+binding to a `&mut T` parameter reborrows it for the call and leaves the
+binding usable afterwards.
+
+```yo
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  a := &mut m.*; // a reborrow: m is usable after a's last use
+  a.* = i32(2);
+  m.* = i32(3);
+  b := m; // a move: m is not usable after this
+  b.* = i32(4);
+});
+export(main);
+```
 
 ### A borrow lives until its last use
 
@@ -571,7 +596,7 @@ export(main);
 
 Indexing is the same mechanism: `xs(i)` calls `Index.index(self : &Self, i)
 -> &Output` for a read and `IndexMut.index_mut` for a write
-([INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)). `r := xs.index(i)` binds the
+([TRAITS.md](./TRAITS.md#projections)). `r := xs.index(i)` binds the
 element reference; `xs` is frozen until `r`'s last use.
 
 ### Types that hold references
@@ -955,7 +980,7 @@ the same queue. See [THREAD_SAFETY.md](./THREAD_SAFETY.md).
 
 `Dyn(Trait)` is an unsized, type-erased value. It lives behind a pointer that
 says who owns it: `Box(Dyn(Trait))` owns it, `Rc(Dyn(Trait))` shares it, and
-`&Dyn(Trait)` borrows it. See [DYN_DESIGN.md](./DYN_DESIGN.md).
+`&Dyn(Trait)` borrows it. See [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md).
 
 ## Async and threads
 
@@ -1078,8 +1103,8 @@ Run tests under `--sanitize address` when a change leans on the borrow rules.
 - [THREAD_SAFETY.md](./THREAD_SAFETY.md): `Send`, `Sync` and the `std/sync`
   types.
 - [ASYNC_AWAIT.md](./ASYNC_AWAIT.md): futures, borrowing futures and tasks.
-- [INDEX_TRAIT.md](./INDEX_TRAIT.md): projections and `xs(i)`.
-- [WEAK.md](./WEAK.md), [ARC.md](./ARC.md), [DYN_DESIGN.md](./DYN_DESIGN.md).
+- [TRAITS.md](./TRAITS.md#index-trait): projections and `xs(i)`.
+- [WEAK.md](./WEAK.md), [ARC.md](./ARC.md), [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md).
 - [ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md): every diagnostic code.
 - The design records: `plans/VALUES_BY_DEFAULT.md` (the model and its
   decisions) and `plans/backlog/REFERENCES_AND_ORIGINS.md` (origins).

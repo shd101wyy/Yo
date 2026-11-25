@@ -8,7 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 
 _DerefBox :: struct(n : i32);
-_deref_box_read :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32)))(
+_deref_box_read :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32, Io)))(
   io.async({ b : &b.* }(io : Io) => {
     return(b.*.n);
   })
@@ -17,7 +17,7 @@ test("an io.async capture `{ b : &b.* }` of a & parameter borrows the parameter 
   x := _DerefBox(n : i32(11));
   assert(io.await(_deref_box_read(&x, io), io) == i32(11), "the future reads the referent it borrows");
   comptime_expect_error(
-    _deref_box_field :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32)))(
+    _deref_box_field :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32, Io)))(
       io.async({ n : &b.*.n }(io : Io) => {
         return(n.*);
       })
@@ -25,7 +25,7 @@ test("an io.async capture `{ b : &b.* }` of a & parameter borrows the parameter 
     "borrows a `&` parameter whole"
   );
   comptime_expect_error(
-    _deref_box_bare :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32)))(
+    _deref_box_bare :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32, Io)))(
       io.async({ &b }(io : Io) => {
         return(b.*.n);
       })

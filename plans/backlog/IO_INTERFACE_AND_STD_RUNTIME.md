@@ -22,7 +22,7 @@ The question has two halves, and they get different answers:
    behind an ABI that this plan writes down. One backend is ported to Yo as a
    measured experiment after NO_LIBC P9; nothing else is.
 
-Companion: [`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
+Companion: [`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
 the parallelism half of the same consult.
 
 ## 0. What is true today (develop, 2026-11-07)
@@ -65,7 +65,7 @@ the parallelism half of the same consult.
 
 So today `io` is a type-level capability token. The reactor it stands for is
 found through the thread, not through the value. That is dynamic scoping, the
-property that `plans/backlog/ALLOCATOR_PLACEMENT.md` §0 deleted from
+property that `plans/reference/ALLOCATOR_PLACEMENT.md` §0 deleted from
 allocators when it removed `with_allocator`.
 
 ## 1. The four rules
@@ -208,6 +208,20 @@ above `__YO_FUTURE_PREFIX`.
 | `IoFuture` | `__yo_io_future_t` = the prefix plus `int32_t result`, `cancel_fn` and `backend_link` |
 | Executor entries | `IoVTable.spawn`, `run_until`, `now`, `sleep`, `park` (§2) |
 
+**Guard rails from the allocation-free async plan** (decided 2026-11-25,
+VERDICTS-81; [`ALLOCATION_FREE_ASYNC`](ALLOCATION_FREE_ASYNC.md) §4). The plan
+makes a future value cold and its frame embedded in its parent, so a prefix
+pointer is a *task header*, not "every future". IO-1b and IO-1c ship this
+section's interface unchanged and must respect five rules: no
+`io.vtable.<op>` call and no `IoFuture` in a signature outside `std/sys` (a
+grep gate); std above `std/sys` awaits an operation only as the direct operand
+of `io.await`; the prefix belongs to every task and every separately allocated
+future, and no new runtime code may assume an awaited child has a header; the
+executor releases a task only through its header and never asks for its size;
+`spawn` and `run_until` in a Yo-written `Io` forward `fut` and never read,
+start, retain or free it, and `std/io/sim`'s operation decorators wait for
+that plan's AFA-8.
+
 ## 4. Zig: what Yo follows and what it must not
 
 Zig facts as read from `ziglang/zig` master on 2026-11-07:
@@ -306,7 +320,7 @@ Until then, there is no Yo runtime.
 The parallelism runtime gets the same answer. `parallelism/runtime.yo` stays
 C, and NO_LIBC P5/P6 swap pthreads for `clone`/`futex` under it. The pool
 redesign
-([`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md))
+([`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md))
 is made in that C once, before P5, so P5 ports the final shape.
 
 ## 6. Schedule and PRs
@@ -374,7 +388,8 @@ NO_LIBC's std-only P3 and P7 are unaffected and may run at any time.
   `io : Io` whose fields are raw pointers.
 - **A program whose types include the interface-shaped `Io` links the
   reactor** (`io_native_needs_reactor`).
-- **Decided for v0.2.80 (VERDICTS-68):** a bundled future is never viewed as
+- **Decided for v0.2.80 (VERDICTS-68), implemented 2026-11-24
+  (`v0280/io-v68`):** a bundled future is never viewed as
   a bundle-less `Impl(Future(T))`. Option A, unconditional and not
   shape-keyed: the `Io` exemption in `src/types/compatibility.yo`
   (`future_view_drops_a_bundle`, the `flat_e_types.len() == 0` arm) is

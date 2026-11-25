@@ -2,9 +2,11 @@
 { ThreadPool, spawn } :: import("std/thread");
 { Duration } :: import("std/time/duration");
 { sleep_blocking } :: import("std/time/sleep");
+// A pool held in a module global is never dropped: it lives until exit, and
+// exit does not wait for its workers.
+(g_pool : ThreadPool) = ThreadPool.new(usize(2));
 test("the test returns while a pool task is still blocked", {
-  pool := ThreadPool.new(usize(2));
-  spawn(&pool, (io : Io) => {
+  spawn(&g_pool, (io : Io) => {
     sleep_blocking(Duration.from_millis(i64(3600000)));
   });
   assert(true, "returning with the task still asleep");

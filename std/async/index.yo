@@ -79,7 +79,7 @@ IO_timer :: import("../sys/timer");
 /// ALREADY-COMPLETE future is the same failure by a different route — the
 /// await point takes an inline fast path for one of those and the task never
 /// leaves the C stack.
-yield :: (fn(io : Io) -> Impl(Future(unit)))(
+yield :: (fn(io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
     _r := io.await(unsafe(__yo_async_yield_start()), io);
     ()

@@ -21,16 +21,15 @@
 { AstExpr, ast_expr_to_string, ast_expr_id, ast_expr_token, ast_expr_text, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue, no_types, no_labels, slot_pointee_at, t_slot_is_mut_ref, t_slot_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
+{ TypeValue, no_types, no_labels, slot_pointee_at, t_slot_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr-info.yo");
 { HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation, emitted_block_statements } :: import("../../expr-info.yo");
 { YoError, yo_error_from_diagnostics, note_diagnostic_of_token, format_error_message } :: import("../../error.yo");
-{ is_unit_type, is_counted_handle_type, carries_no_borrow_marks, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
-{ function_param_mutation_mask, param_mutation_mask_hits, rc_write_audit_enabled, audit_rc_writes } :: import("../../evaluator/effects/mutation-summary.yo");
-{ type_implements_future } :: import("../../evaluator/trait-checking.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ rc_write_audit_enabled, audit_rc_writes } :: import("../../evaluator/effects/mutation-summary.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { is_target_posix, is_target_windows } :: import("../../target.yo");
-{ get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member, is_index_entry_method } :: import("../../function-value.yo");
+{ get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function-value.yo");
 { declare_c_var_name, get_deferred_drop_target_atom_name, push_declared_scope, get_type_string, pointer_c_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls, note_line_position, get_variable_name_for_codegen_at, is_self_named_atom, CodeGenContext, type_key, get_runtime_struct_fields, c_field_name, c_symbol_name, io_vtable_struct_of, entry_param_c_value } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _return_type_override } :: import("./declarations.yo");
@@ -590,108 +589,6 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
   // this unreachable, which is legal C.
   _emit_erm_unit_resume_tail(function_type, indent.clone(), context);
 });
-/// Generate a single function (signature + linkage + body).
-/// Law of Exclusivity, the compiler-emitted half (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md
-/// §8 C5): at the entry of every function, for every RC-object PARAMETER whose
-/// reachable storage the body may mutate (`function_param_mutation_mask` — a
-/// length decrement, a slot overwrite, a node unlink, a realloc/free, a call
-/// it cannot see through; a fresh local the body builds and mutates does not
-/// count), emit `__yo_borrow_assert_unborrowed((void*)<param>);`. A collection
-/// held by a borrowed `for` (or an interior `inout` argument) then panics
-/// deterministically on ANY invalidating method, whoever wrote the collection
-/// — no annotation is needed: the body decides, because today a plainly
-/// passed reference-semantics handle can be written by its callee (V3b
-/// Generation B's by-value plain parameters move writes into a
-/// signature-spelled `mut(x)`, plans/VALUES_BY_DEFAULT.md decision 30).
-/// Read-only methods (`len`, `get`, `iter`, `clone`, `to_string`)
-/// carry no assert and cost nothing. An `Rc` or `Arc` cell parameter carries
-/// none either: its payload is read-only through the handle, so no borrow
-/// mark is ever set on it, and those header bits are its weak count
-/// (`carries_no_borrow_marks`). Async functions (state machines) and
-/// closures are skipped: their C prototypes do not carry the parameters.
-_maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_id : &String, body : &AstExpr, context : &mut FunctionGenerationContext) -> unit)({
-  if(is_closure_fn(func_id.clone()), return(()));
-  // The `index` method of an index-trait call runs while its caller already
-  // holds the container's borrow for the interior argument it produces
-  // (`is_index_entry_method`, function-value.yo).
-  if(is_index_entry_method(func_id.clone()), return(()));
-  // A MUT projection (`-> &mut T`, decision 24) is the same shape: it hands
-  // the caller an interior borrow of its receiver, so it runs while its own
-  // caller already holds the container's borrow flag — the borrowed `for`
-  // calls `walk_elem` through the loop guard's flag, a forwarded tail runs
-  // under the outer projection's borrow — and an entry assert would always
-  // see that flag and panic
-  // (issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md).
-  // The mutation mask still records the write-through (the caller writes
-  // through the yielded place), so the evaluator's borrow rules keep
-  // applying; any reallocation goes through a callee that asserts on its own
-  // entry, or the realloc/free auto-assert — the same trade the index-entry
-  // skip above makes.
-  match(
-    function_type,
-    Rc(.Func({ result : sk_r })) => if(t_slot_is_mut_ref(&sk_r.*), {
-      return(());
-    }),
-    _ => ()
-  );
-  match(
-    function_type,
-    Rc(.Func({ param_types : pts, result : r, meta : __fm })) => {
-      if(__fm.*.*.param_labels.len() == usize(0), return(()));
-      if(type_implements_future(&t_slot_pointee(&r.*)), return(()));
-      // Any RC-object parameter at all? (Cheap pre-check before the analysis.)
-      (has_object_param : bool) = false;
-      (pi : usize) = usize(0);
-      while(pi < pts.len(), {
-        match(
-          slot_pointee_at(&pts.*, pi),
-          .Some(t) => if(is_counted_handle_type(&t) && !carries_no_borrow_marks(&t), {
-            has_object_param = true;
-          }),
-          .None => ()
-        );
-        pi = (pi + usize(1));
-      });
-      if(!has_object_param, return(()));
-      mask := function_param_mutation_mask(func_id, body, &context.base.info_table);
-      // `YO_DEBUG_BORROW_MASK=1`: print every analysed function's mask.
-      if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
-        (bits : String) = String.new();
-        (bi : usize) = usize(0);
-        while(bi < pts.len(), {
-          bits.push_str(if(param_mutation_mask_hits(&mask, bi), "1", "0"));
-          bi = (bi + usize(1));
-        });
-        eprintln(`[borrow-mask] ${func_id} all=${mask.all} params=${bits}`);
-      });
-      (i : usize) = usize(0);
-      while(i < pts.len(), {
-        pt := match(slot_pointee_at(&pts.*, i), .Some(t) => t, .None => t_unit());
-        is_object := (is_counted_handle_type(&pt) && !carries_no_borrow_marks(&pt));
-        label := match(__fm.*.*.param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
-        if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
-          // An `inout` receiver/parameter is passed as `T** name` (a pointer to
-          // the caller's handle slot); the object the flag lives on is `*name`.
-          is_ref := match(pts.get(i), .Some(b) => t_slot_is_mut_ref(&b), .None => false);
-          pname := sanitize_for_c_identifier(label.clone(), false);
-          // An atomic object's counter is shared across threads: read it atomically.
-          line := if(is_atomic_counted_handle_type(&pt), String.from("  __yo_borrow_assert_unborrowed_atomic((void*)"), String.from("  __yo_borrow_assert_unborrowed((void*)"));
-          if(is_ref, {
-            line.push_str("(*");
-            line.push_string(&pname);
-            line.push_str(")");
-          }, {
-            line.push_string(&pname);
-          });
-          line.push_str(");");
-          context.base.emitter.emit_string_line(&line);
-        });
-        i = (i + usize(1));
-      });
-    },
-    _ => ()
-  );
-});
 (g_debug_fn_origin : bool) = debug_knob(`YO_DEBUG_FN_ORIGIN`).is_some();
 /// The error for a hollow specialization (Phase 6 step 3): what the generic
 /// body's definition-time trial swallowed, followed by a note at the call
@@ -711,6 +608,7 @@ _hollow_specialization_error :: (fn(rec : &HollowBodyError, si : &SpecInstantiat
   );
   yo_error_from_diagnostics(&entries)
 });
+/// Generate a single function (signature + linkage + body).
 generate_function :: (fn(function_value : &EvalValue, c_function_name : &String, context : &mut FunctionGenerationContext) -> unit)(
   match(
     function_value,
@@ -815,7 +713,6 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       context.base.emitter.clear_yo_line_position();
       stub_mark_b := context.base.emitter.code.len();
       context.base.emitter.emit_string_line(&open);
-      _maybe_emit_method_entry_borrow_assert(&function_type, func_id.clone(), &body_box, context);
       prev_name := replace(&mut context.base.current_function_name, String.new());
       prev_type := context.current_function_type.clone();
       prev_override := replace(&mut context.override_return_type_str, Option(String).None);

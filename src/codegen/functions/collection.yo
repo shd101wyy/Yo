@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { t_refine_inner, TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type, cell_handle_view, is_dyn_cell_type, unique_box_payload_type, is_some_type } :: import("../../types/guards.yo");
-{ is_control_fn, mark_as_effect_record_member, mark_as_index_entry_method, get_func_type, fn_has_specializations } :: import("../../function-value.yo");
+{ is_control_fn, mark_as_effect_record_member, get_func_type, fn_has_specializations } :: import("../../function-value.yo");
 { get_all_some_types, type_contains_rc_cell_or_move_only, type_contains_some_type, type_contains_some_type_deep, func_params_have_raw_some_type, type_is_move_only, is_value_nominal_type } :: import("../../types/utils.yo");
 { CodeGenContext, DynImplEntry, type_key, dyn_impl_key_suffix, c_symbol_name, function_c_name, extern_c_global_matches } :: import("../utils/index.yo");
 { is_target_wasm } :: import("../../target.yo");
@@ -749,7 +749,6 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         expr_info_index_method_value(&ei.*),
         .Some(imv) => if(is_func_val(&imv), {
           iid := _func_val_id(&imv);
-          mark_as_index_entry_method(iid.clone());
           if(!context.has_function(iid.clone()), {
             context.register_function(iid.clone(), &imv, function_c_name(&iid));
             find_function_calls_in_expr(_func_val_body(&imv), context, info);
@@ -765,7 +764,6 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         index_unchecked_twin_of(ast_expr_id(expr)),
         .Some(tw) => if(is_func_val(&tw), {
           twid := _func_val_id(&tw);
-          mark_as_index_entry_method(twid.clone());
           if(!context.has_function(twid.clone()), {
             context.register_function(twid.clone(), &tw, function_c_name(&twid));
             find_function_calls_in_expr(_func_val_body(&tw), context, info);

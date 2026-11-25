@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { E_TYPE_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_DYN_UNCALLABLE, E_BORROW_ESCAPES, E_UNSIZING_A_VALUE } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime-fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape, judge_capture_fnmut_at_fn_slot } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape, judge_capture_fnmut_at_fn_slot, future_view_error } :: import("../utils.yo");
 { closure_identity_of } :: import("../utils/closure.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type-trait-methods.yo");
 { find_methods_from_generic_impls, MethodCandidate, _substitute_self_in_method_ty } :: import("./impl.yo");
@@ -406,6 +406,14 @@ _require_dyn_traits_implemented :: (
     raise_flow_violation(format_error_message(token, &sd_msg), ctx, exn);
   });
   fv_payload := _unwrap_box_for_method_lookup(value_type);
+  // A bundled future behind a `Dyn(Future(T))` that names no bundle: an
+  // await or spawn through the `Dyn` injects nothing (VERDICTS-68, E0605).
+  fvw_payload := match(t_refine_inner(&fv_payload), Rc(.Reference(fvw_rp, _, _)) => Rc.clone(fvw_rp), _ => fv_payload.clone());
+  match(
+    future_view_error(token, &`Incompatible types:\n- Expected: ${type_to_string(dyn_type.clone())}\n- Given   : ${type_to_string(&fvw_payload)}`, &fvw_payload, dyn_type, &Option(AstExpr).None),
+    .Some(fvw_err) => raise_flow_violation(&fvw_err, ctx, exn),
+    .None => ()
+  );
   fv_judged_names := ArrayList(String).new();
   match(
     dyn_type,

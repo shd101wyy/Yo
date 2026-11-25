@@ -1,9 +1,9 @@
 { println } :: import("std/fmt");
 // No await in the block.
-leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(io.async((e : Io) => (n + i32(1))));
 // Fusable: a straight-line prologue, then one block whose single await is a
 // top-level binding.
-one_await :: (fn(io : Io, n : i32) -> Impl(Future(i32)))({
+one_await :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))({
   m := (n + i32(1));
   io.async((e : Io) => {
     r := e.await(leaf(e, m), e);
@@ -11,7 +11,7 @@ one_await :: (fn(io : Io, n : i32) -> Impl(Future(i32)))({
   })
 });
 // Two awaiting statements.
-two_awaits :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+two_awaits :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     a := e.await(leaf(e, n), e);
     b := e.await(leaf(e, a), e);
@@ -19,11 +19,11 @@ two_awaits :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
   })
 );
 // The await is an operand, not a statement.
-await_operand :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+await_operand :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => (e.await(leaf(e, n), e) + i32(1)))
 );
 // An early return from the block.
-early_return :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+early_return :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     r := e.await(leaf(e, n), e);
     if(r > i32(100), {
@@ -33,7 +33,7 @@ early_return :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
   })
 );
 // Rejected: a closure in the block captures the bundle.
-captures_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+captures_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     r := e.await(leaf(e, n), e);
     (f : Impl(Fn(v : i32) -> i32)) = (
@@ -47,7 +47,7 @@ captures_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
 );
 // Fusable: an untyped bundle parameter, mentioned only in a `cond` arm
 // (an arm is not a closure).
-arm_mentions_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+arm_mentions_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(
   io.async(e => {
     r := e.await(leaf(e, n), e);
     cond(
@@ -60,8 +60,8 @@ arm_mentions_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
   })
 );
 // No io.async at all: a delegation.
-delegate :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(one_await(io, n));
-driver :: (fn(io : Io) -> Impl(Future(i32)))(
+delegate :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(one_await(io, n));
+driver :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     a := e.await(one_await(e, i32(1)), e);
     b := e.await(two_awaits(e, i32(2)), e);

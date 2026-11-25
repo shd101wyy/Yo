@@ -690,15 +690,11 @@ function_may_mutate_rc_storage :: (
 // Answers, for a function F: WHICH of F's parameters have storage reachable
 // from them that F may (transitively) mutate — a field store, an index store,
 // a length decrement, a deref store through a pointer into that storage, a
-// `realloc`/`free`/`memmove` of it, or a call to a callee that does so. Codegen
-// emits `__yo_borrow_assert_unborrowed` at F's entry for every RC-object
-// parameter in the mask, so a collection held by a borrowed `for` (or an
-// interior `inout` argument) panics on any invalidating method, whoever wrote
-// the collection. The body decides, not the signature: today a plainly passed
-// reference-semantics handle can be written by its callee. Once V3b
-// Generation B makes a plain parameter by value, a write goes through a
-// `mut(x)` parameter the signature spells (plans/VALUES_BY_DEFAULT.md
-// decision 30).
+// `realloc`/`free`/`memmove` of it, or a call to a callee that does so. The
+// evaluator's call-site borrow rules read the mask: a collection held by a
+// borrowed `for` (or an interior `&mut` argument) is rejected at a call whose
+// callee may invalidate it, whoever wrote the callee. The body decides, not
+// the signature.
 //
 // Precision comes from ROOTING every value: a local built by a constructor
 // or a fresh-returning callee is FRESH storage, a mutation of it is not a
@@ -860,7 +856,7 @@ param_mutation_mask_is_empty :: (fn(m : &ParamMutationMask) -> bool)({
 /// allocator's private state and its immortal vtable, never Yo storage a
 /// caller reaches, the contract `_msp_allocator_slot` reads for the vtable's
 /// `ctx` and that makes it an opaque handle in safe code
-/// (plans/backlog/ALLOCATOR_PLACEMENT.md A2). So the owner record a placed
+/// (plans/reference/ALLOCATOR_PLACEMENT.md A2). So the owner record a placed
 /// block carries roots nothing, and a constructor that may place its buffer
 /// (`ArrayList(T).new(alloc : …)`) still returns fresh storage
 /// (issues/fixed/2026-10-29-a-container-constructor-that-may-place-its-buffer-returns-a-shell.md).
@@ -968,7 +964,7 @@ _msp_labels :: (fn(fid : &String) -> SharedList(String))(
 /// `__yo_aligned_alloc`, and without it here the block was unknown storage,
 /// so the cell's header and payload stores counted as mutating every
 /// argument, and a function moving a `ref` parameter into `box(b)` got the
-/// borrowed-`for` entry assert
+/// borrowed-`for` call-site rejection
 /// (issues/fixed/2026-10-30-box-layout-trips-the-interior-reference-flag-in-a-borrowed-for-through-an-alias.md).
 _msp_extern_returns_fresh :: (fn(h : &String) -> bool)(
   (h.* == "__yo_malloc")
@@ -981,14 +977,11 @@ _msp_extern_returns_fresh :: (fn(h : &String) -> bool)(
 /// The allocator-family contract for EXPLICIT allocators
 /// (plans/archive/EXPLICIT_ALLOCATORS.md): a call through a slot of std's
 /// `AllocatorVTable` is the allocator primitive the slot names, as `__yo_malloc`
-/// / `realloc` / `free` are for the global allocator. `alloc(ctx, size)` returns
-/// a fresh block and touches nothing a caller can reach — `ctx` is
-/// allocator-private state, never container storage; `realloc(ctx, p, n)`
-/// moves the block `p`; `free(ctx, p)` releases it. Interface version 2
-/// (`alloc(ctx, size, align)`, `realloc(ctx, p, old, new, align)`,
-/// `free(ctx, p, size, align)`) keeps the block at argument 1, so both shapes
-/// read the same here while std moves between them. Without this every
-/// allocation through an explicit allocator was an unresolvable call ("mutates
+/// / `realloc` / `free` are for the global allocator. `alloc(ctx, size, align)`
+/// returns a fresh block and touches nothing a caller can reach — `ctx` is
+/// allocator-private state, never container storage; `realloc(ctx, p, old, new,
+/// align)` moves the block `p`; `free(ctx, p, size, align)` releases it.
+/// Without this every allocation through an explicit allocator was an unresolvable call ("mutates
 /// everything"), and `ArrayList.clone` — which allocates from its source's
 /// allocator — tripped the borrowed-`for` check
 /// (issues/fixed/an-allocator-vtable-call-counts-as-mutating-everything.md).
@@ -1436,12 +1429,9 @@ _msp_is_borrow_marker :: (fn(head : &String, n_args : usize) -> bool)(
 /// `walk` half additionally records the write-through a `&mut` tail grants
 /// (see `_MsP.walk`). Unrecognized, the mask walk and `classify` answered
 /// "unresolved = all", so EVERY projection-tail method of an RC object
-/// carried an entry `__yo_borrow_assert_unborrowed` on its receiver — one
-/// the borrowed `for`'s own guard then tripped, because the loop calls
-/// `walk_elem` while it holds the collection's borrow flag for the walk's
-/// extent (issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md;
-/// the codegen half of the fix skips the entry assert for a `-> &mut T`
-/// method, beside `is_index_entry_method`).
+/// counted as mutating its receiver, and the borrowed `for`'s own call to
+/// `walk_elem` was rejected
+/// (issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md).
 _msp_is_projection_tail :: (fn(e : &AstExpr) -> bool)(projection_tail_mode(e).is_some());
 _msp_pass_through_head :: (fn(h : &String) -> bool)(
   (h.* == "unsafe") || (h.* == "the") || (h.* == "runtime") || (h.* == "consume") || (h.* == "___dup") || (h.* == "clone") || (h.* == "dyn") || (h.* == "as") || (h.* == "recur")
@@ -2994,9 +2984,7 @@ impl(
     // `classify` still supplies the deep/shallow distinction when it does
     // root the place (an RC hop, `self.items(cur)` of a ref receiver).
     // Before the tail was recognized, the whole body answered "all": every
-    // projection-tail method of an RC object carried an entry invalidation
-    // assert its own callers then tripped (see the codegen skip beside
-    // `is_index_entry_method`).
+    // projection-tail method of an RC object counted as mutating its receiver.
     if(_msp_is_projection_tail(e), {
       return(
         match(
@@ -3444,16 +3432,11 @@ derive(_MspAnalysis, Clone);
 /// reachable from them that the function may (transitively) mutate — not
 /// only stores that release an RC value, but a length decrement, a control-
 /// byte write, a node unlink, a `realloc`/`free`/`memmove`. This is the
-/// question the borrowed `for`'s runtime borrow flag needs answered
-/// (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 C5): codegen emits
-/// `__yo_borrow_assert_unborrowed` at the function's entry for every
-/// RC-object parameter in the mask, so a collection held by a borrowed loop
-/// panics on ANY invalidating method — with no annotation from the library
-/// author: the body decides, because today a plainly passed reference-
-/// semantics handle can be written by its callee (V3b Generation B's
-/// by-value plain parameters move writes into a signature-spelled `mut(x)`,
-/// plans/VALUES_BY_DEFAULT.md decision 30). Takes the ExprInfo
-/// table directly because codegen has no EvalContext.
+/// question the borrowed `for`'s call-site rule needs answered
+/// (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 C5): a collection held by a
+/// borrowed loop is rejected at a call to ANY invalidating method, with no
+/// annotation from the library author: the body decides. Takes the ExprInfo
+/// table directly so a caller without an EvalContext can ask.
 function_param_mutation_mask :: (
   fn(fid : &String, body : &AstExpr, table : &ExprInfoTable) -> ParamMutationMask
 )({

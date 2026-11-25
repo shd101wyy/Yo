@@ -225,6 +225,8 @@ libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执�
 步骤是命名的目标，定义了 `yo build <step>` 的行为。每个构建函数（`executable`、`static_library`、`test`、`run`）都返回一个 `Step` 值。使用 `step.depend_on(dep)` 来连接依赖：
 
 ```yo
+build :: import("std/build");
+
 // 每个构建函数都返回一个 Step
 exe :: build.executable(.{ name : "my-app", root : "./src/main.yo" });
 lib :: build.static_library(.{ name : "my-lib", root : "./src/lib.yo" });

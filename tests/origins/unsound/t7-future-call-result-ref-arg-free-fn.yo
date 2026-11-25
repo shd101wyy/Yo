@@ -1,0 +1,16 @@
+// expect: E0911
+// The probe's own form: the reference argument is a free projection's result, `first(&xs)`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+mkf :: (fn(r : &String, io : Io) -> Impl(Future(usize, Io)))(io.async({ r : &r.* }(io : Io) => r.clone().len()));
+main :: (fn(io : Io) -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  fut := mkf(first(&xs), io);
+  xs.clear();
+  v := io.await(fut, io);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

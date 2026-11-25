@@ -326,3 +326,219 @@ comptime_assert(is_prime(2) == true, "2 is prime");
 comptime_assert(is_prime(17) == true, "17 is prime");
 comptime_assert(is_prime(18) == false, "18 is not prime");
 ```
+
+## Meta-programming
+
+`quote` is similar to the `quasiquote` in Lisp.  
+`unquote` can only be used in `quote`.  
+`unquote_splicing` can only be used in `quote` to splice the values into the AST.
+
+```yo
+x :: quote(2); // comptime(x) : Expr
+list :: quote((1, unquote(x), 3)); // tuple (1, 2, 3)
+list2 :: quote((1, x, 3)); // tuple (1, x, 3)
+quote((0, unquote_splicing(list.get_args()), 4)); // tuple (0, 1, 2, 3, 4)
+```
+
+### Macro functions
+
+Macro functions use `quote` and `unquote` for code generation. A macro is
+an ordinary comptime function with one or both of two signature flags: a
+`quote(name) : Expr` parameter (the caller's raw AST is bound without
+being evaluated) and an `-> unquote(Expr)` return type (the returned AST
+is spliced into the call site). See `std/prelude.yo` for real examples
+like the `if` macro.
+
+- `quote(...)` : Quote an expression
+- `unquote(...)` : Unquote within a quoted expression
+- `gensym(...)` : Generate unique symbol
+
+`unquote` can only be used within `quote`.
+
+**Defining a macro requires `pragma(Pragma.AllowMacroDef);`** at the top
+of the file — like `Pragma.AllowUnsafe` for pointer ops, macro definition
+is a per-file opt-in (macros are unhygienic and splice code into their
+callers, so the ability to define them is gated; see
+`plans/reference/MACRO_POLICY.md`). *Calling* macros (`if`, `for`, collection
+literals) never needs the pragma, and neither does working with quoted
+`Expr` values in comptime functions (the mechanism `derive_rule` uses).
+
+```yo
+pragma(Pragma.AllowMacroDef);
+
+// Custom macro example — a lazy-body `unless`
+unless :: (fn(quote(condition) : Expr, quote(do) : Expr) -> unquote(Expr))(
+  quote(
+    cond(unquote(condition) => (), true => unquote(do))
+  )
+);
+```
+
+The prelude's `if` macro is the canonical example (current compilers
+desugar `if(...)` calls to `cond(...)` at parse time, keeping this
+definition as the spec/fallback):
+
+```yo
+if :: (
+  fn(
+    quote(condition) : Expr,
+    quote(then) : Expr,
+    (quote(else) : Expr) ?= quote(())
+  ) -> unquote(Expr)
+)(
+  quote(
+    cond(
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+    )
+  )
+);
+
+// Usage
+if(true, {
+  println("true");
+});
+```
+
+> std has no `try` macro: one would hide a caller-frame `return`, which
+> collides with algebraic effects. Match on the `Result` instead.
+
+## Compile-Time Evaluation
+
+Yo has powerful compile-time evaluation capabilities. You can perform computations, type manipulations, and code generation at compile time.
+
+### Compile-Time Variables
+
+Variables declared with `::` are compile-time constants:
+
+```yo
+// Compile-time integer
+x :: 42; // comptime_int
+y :: (x + 10); // comptime_int = 52
+// Compile-time type
+MyInt :: i32; // comptime(Type)
+value := MyInt(100); // Runtime i32
+// Compile-time computation
+factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))(
+  cond(
+    (n <= 1) => 1,
+    true => (n * recur(n - 1))
+  )
+);
+result :: factorial(5); // Computed at compile time: 120
+```
+
+### Compile-Time Arithmetic
+
+All primitive operations can be performed at compile time:
+
+```yo
+// Integer operations
+a :: 100;
+b :: 25;
+sum :: (a + b); // 125
+diff :: (a - b); // 75
+prod :: (a * b); // 2500
+quot :: (a / b); // 4
+rem :: (a % b); // 0
+// Comparison operations
+eq :: (a == b); // false
+lt :: (b < a); // true
+gte :: (a >= b); // true
+// Floating-point operations
+pi :: f32(3.14159);
+radius :: f32(5.0);
+area :: (pi * (radius * radius)); // ~78.54
+// Boolean operations
+flag1 :: true;
+flag2 :: false;
+and_result :: (flag1 && flag2); // false
+or_result :: (flag1 || flag2); // true
+not_result :: not(flag1); // false
+```
+
+### Compile-Time Arrays
+
+Arrays with compile-time known lengths:
+
+```yo
+// Inferred length
+arr :: [1, 2, 3, 4, 5]; // Array(i32, 5)
+len := arr.len(); // 5 (runtime read; the length also lives in the type)
+// Array.fill takes a comptime value, returns a runtime array
+zeros := Array(i32, 10).fill(0); // [0,0,0,0,0,0,0,0,0,0]
+// Generic array function
+create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T ; n])(Array(T, n).fill(value));
+
+int_array := create_array(i32, 5, 42); // [42,42,42,42,42]
+```
+
+### Compile-Time Assertions
+
+Use `comptime_assert` to verify compile-time conditions:
+
+```yo
+test("Compile-time assertions", {
+  // These are checked at compile time
+  comptime_assert((2 + 2) == 4);
+  comptime_assert(f32(100.5) > f32(50.0));
+  comptime_assert(Array(i32, 5).fill(0).len() == 5);
+
+  // Compile-time type checks
+  T :: i32;
+  comptime_assert(Type.to_comptime_string(T) == "i32");
+});
+```
+
+### Compile-Time Expected Errors
+
+Test that code produces compile-time errors:
+
+```yo
+test("Expected compile errors", {
+  // Verify that this code produces an error
+  comptime_expect_error(
+    x :: (1 / 0),
+    // Division by zero
+    "Division by zero"
+  );
+
+  comptime_expect_error({
+    arr : Array(i32, _); // Cannot infer length in binding
+    arr = [1, 2, 3];
+  });
+});
+```
+
+### Compile-Time vs Runtime
+
+Understanding when things happen:
+
+```yo
+// Compile-time: declared with :: or comptime(...)
+COMPT_VALUE :: 42; // Computed at compile time
+ComptimeType :: i32; // Type selected at compile time
+// Runtime: declared with :=
+runtime_value := 42; // Computed at runtime
+runtime_type := i32(100); // Value created at runtime
+// Mixed: compile-time type, runtime value
+(x : i32) = 42; // Type known at compile time
+// Value computed at runtime
+// Compile-time function parameter
+array_fn :: (fn(comptime(n) : usize) -> Array(i32, n))(
+  Array(i32, n).fill(0)
+); // n must be known at compile time
+// Runtime function parameter
+increment :: (fn(x : i32) -> i32)(
+  x + 1
+); // x is runtime value
+```
+
+### Benefits of Compile-Time Evaluation
+
+1. **Zero runtime cost**: Computations done once at compile time
+2. **Type safety**: Catch errors before execution
+3. **Generic programming**: Type-level abstraction without runtime overhead
+4. **Metaprogramming**: Generate code based on compile-time information
+
+For more examples, see `tests/comptime.test.yo`.

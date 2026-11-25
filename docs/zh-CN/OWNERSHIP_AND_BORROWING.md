@@ -143,6 +143,11 @@ export(main);
 `a := &mut p.x; a.* = i32(10)` 需要的是 `mut(p)`，而不是 `mut(a)`。参数不带 `mut`：
 要写参数的函数体把它重新绑定，`mut(y) := x`。
 
+解构从被解构的值中借用各个元素，这些元素仍由该值负责丢弃。解构中的 `mut(b)` 绑定是其元素的
+一份副本，因此持有 `Rc`、`Box` 或自有缓冲区（`String`、集合）的元素不能绑定为 `mut`
+（E0901）：不加 `mut` 绑定它，再显式复制（`mut(c) := b.clone()`）；或者对你拥有的值使用
+`match`，它会把各部分移动到分支的绑定中。
+
 ## 丢弃
 
 所有者不再持有一个值时，这个值被丢弃。丢弃会释放缓冲区、运行 `Drop` 实现，或减少 `Rc`/`Arc` 的计数。
@@ -309,8 +314,23 @@ export(main);
 ```
 
 `&T` 是 `Copy`：`a := r; b := r;` 得到指向同一位置的两个引用。`&mut T` 不是 `Copy`，因此一个位置
-永远至多有一个可用的 `&mut`。把 `&mut T` 绑定传给 `&mut T` 参数，会为这次调用重新借用它，
-调用之后该绑定仍可用。
+永远至多有一个可用的 `&mut`。把 `&mut T` 绑定到新名字会移动它：`a := m`（或 `(a : &mut T) = m`）之后，
+`a` 持有 `m` 的借用直到 `a` 的最后一次使用，之后再使用 `m` 是 E0901。元组元素、泛型 `T` 实参和返回值
+同样会移动它。要保留 `m`，请重新借用：`a := &mut m.*` 在 `a` 的生命期内借用该位置，`a` 最后一次使用之后
+`m` 又可以使用。把 `&mut T` 绑定传给 `&mut T` 参数，会为这次调用重新借用它，调用之后该绑定仍可用。
+
+```yo
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  a := &mut m.*; // 重新借用：a 最后一次使用之后 m 仍可用
+  a.* = i32(2);
+  m.* = i32(3);
+  b := m; // 移动：此后 m 不再可用
+  b.* = i32(4);
+});
+export(main);
+```
 
 ### 借用存活到最后一次使用
 
@@ -487,7 +507,7 @@ export(main);
   `fn(generic(p : Origin), a : &(T, p), b : &T) -> &(T, p)`。
 
 索引是同一机制：`xs(i)` 读取时调用 `Index.index(self : &Self, i) -> &Output`，写入时调用
-`IndexMut.index_mut`（[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。`r := xs.index(i)` 绑定元素引用；
+`IndexMut.index_mut`（[TRAITS.md](./TRAITS.md#投影)）。`r := xs.index(i)` 绑定元素引用；
 在 `r` 的最后一次使用之前，`xs` 被冻结。
 
 ### 持有引用的类型
@@ -832,7 +852,7 @@ export(main);
 ### `Dyn(Trait)`
 
 `Dyn(Trait)` 是一个大小不定、类型被擦除的值。它位于一个说明谁拥有它的指针之后：`Box(Dyn(Trait))`
-拥有它，`Rc(Dyn(Trait))` 共享它，`&Dyn(Trait)` 借用它。见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
+拥有它，`Rc(Dyn(Trait))` 共享它，`&Dyn(Trait)` 借用它。见 [TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)。
 
 ## 异步与线程
 
@@ -942,7 +962,7 @@ export(main);
 - [MEMORY_SAFETY.md](./MEMORY_SAFETY.md)：默认安全的契约、unsafe 的 opt-in 与审计工具。
 - [THREAD_SAFETY.md](./THREAD_SAFETY.md)：`Send`、`Sync` 与 `std/sync` 类型。
 - [ASYNC_AWAIT.md](./ASYNC_AWAIT.md)：Future、借用式 Future 与任务。
-- [INDEX_TRAIT.md](./INDEX_TRAIT.md)：投影与 `xs(i)`。
-- [WEAK.md](./WEAK.md)、[ARC.md](./ARC.md)、[DYN_DESIGN.md](./DYN_DESIGN.md)。
+- [TRAITS.md](./TRAITS.md#index-特征)：投影与 `xs(i)`。
+- [WEAK.md](./WEAK.md)、[ARC.md](./ARC.md)、[TRAIT_OBJECTS.md](./TRAIT_OBJECTS.md)。
 - [ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)：所有诊断代码。
 - 设计记录：`plans/VALUES_BY_DEFAULT.md`（模型及其决策）与 `plans/backlog/REFERENCES_AND_ORIGINS.md`（来源）。

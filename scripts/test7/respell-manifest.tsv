@@ -4,6 +4,8 @@
 #   <path>	respelled|kept	<the run's stop: expect E…, got E…>	<what changed and why / why it is kept>
 # `respelled`: the program in scripts/test7/respelled/<path> replaces the frozen original in the corpus (the tarball
 # keeps the original); it is today's spelling of the same unsafe pattern, so it reaches the probed hole again.
+# A `respelled` row whose note starts "header only" changes nothing but the `// expect:` line: the language made the
+# probed program sound to accept, and the note gives the evidence (the neighbouring unsafe variants it still rejects).
 # `kept`: not respelled, because the stopping diagnostic is the probed hole or its wall under another code, the shape
 # has no spelling in today's language, or the frozen probe never reached a shape.
 probes/async-effects/p13.yo	respelled	expect E0911, got E0901	E0901 stops at an implicit by-value capture (a move) the probe meant as a borrow; the borrow is the capture-list entry `{ &w }`
@@ -50,6 +52,7 @@ probes/cells/rc08_option_rc_match_ref.yo	respelled	expect E0911, got -	uncoded: 
 probes/cells/rcc01_with_returns_ref.yo	respelled	expect E0911, got E0926	E0926: a closure returning its reference parameter is spelled as a typed fn literal `(fn(v : &T) -> &T)(v)` (`v => v` reads `v` by value, `v => &v.*` is not an expression)
 probes/cells/rcc01b_with_returns_ref.yo	respelled	expect E0911, got -	E0926/`&v.*` is no expression: a `with`/`with_lock` body returning its reference parameter is the typed fn literal `(fn(v : &T) -> &T)(v)`
 probes/cells/rcc07_cell_dropped_inside_with.yo	respelled	expect E0910, got E0901	E0901 stops at an implicit by-value capture of `outer` (a move) the probe meant as a borrow; the borrow is the capture-list entry `{ &outer }`
+probes/cells/tip/dv06_dyn_ref_generic_id.yo	respelled	expect E0911, got accepted (since #2070; before it the C compile failed)	header only, `// expect: accept`: the program never touches `c` while `x` lives, and the checker tracks the borrow through `gid`: a write, a move or a block escape of `c` around `x` is E0911 (decision 49 S2 made a bound `dyn(&v)` legal). Runs ASan-clean, `OUT: 72`. Its siblings dv01/dv05 expose issues/2026-11-25-a-dyn-of-a-place-passed-to-a-reference-parameter-gives-the-call-result-no-origin.md
 probes/cells/tip/dv11_box_dyn_of_ref_holder.yo	respelled	expect E0909, got E0922	E0922: the outer holder`s `static` origin was incidental; `static` is unavailable in safe code (until P12), so the holder is typed over an outer local`s origin
 probes/cells/tip/dv12_upcast_ref_bound.yo	respelled	expect E0911, got -	uncoded: `dyn(&c)` needs its `&Dyn(Name)` type from its position; it is bound typed first, `(d : &Dyn(Name)) = dyn(&c)`
 probes/cells/tip/dv13_downcast_ref_bound_then_write.yo	respelled	expect E0911, got -	uncoded: `dyn(&c)` needs its `&Dyn(Name)` type from its position; it is bound typed first, `(d : &Dyn(Name)) = dyn(&c)`

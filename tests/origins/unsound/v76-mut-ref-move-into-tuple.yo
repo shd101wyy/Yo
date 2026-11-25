@@ -1,0 +1,10 @@
+// expect: E0901
+// VERDICTS-76 Q1 row 18: a tuple element is a by-value position; the tuple holds the moved reference.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  t := (m, i32(1));
+  m.* = i32(2);
+  t.0.* = i32(3);
+});
+export(main);

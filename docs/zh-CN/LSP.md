@@ -23,8 +23,7 @@ Yo 求值器（module_manager：缓存的 prelude、按需加载的 import）
 ### VS Code
 
 安装 [Yo 扩展](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang)，
-并确保 `PATH` 中有 `yo` 二进制（参见 [macOS](./INSTALL_MACOS.md)、
-[Linux](./INSTALL_LINUX.md) 和 [Windows](./INSTALL_WINDOWS.md) 的安装指南）。打开
+并确保 `PATH` 中有 `yo` 二进制（参见 [INSTALL.md](./INSTALL.md)）。打开
 `.yo` 文件时扩展会启动 `yo lsp`。
 
 设置项：

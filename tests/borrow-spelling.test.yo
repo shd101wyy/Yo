@@ -428,6 +428,68 @@ comptime_expect_error(
   }),
   "is still live"
 );
+// A method's by-value parameter whose type is a reference once its binder is
+// bound (`Option(&X).replace(self : &mut Self, value : T)` at `T := &X`) takes
+// a LEND, as a constructor's reference field does (T9): `slot.replace(&x)`
+// lends `x`, which stays usable and frozen while `slot` holds it. A move-only
+// `x` was moved into the slot instead, and the call reported E0910
+// (issues/fixed/2026-11-20-a-lend-passed-to-a-methods-by-value-binder-parameter-is-reported-as-e0910-not-e0914.md).
+BsLent :: struct(n : i32);
+BsHolder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : Option(T)));
+impl(
+  generic(T : Type),
+  BsHolder(T),
+  put : (fn(self : &mut Self, v : T) -> unit)({
+    self.v = .Some(v);
+  })
+);
+test("a lend to a method's by-value reference parameter keeps a move-only place", {
+  x := BsLent(n : i32(1));
+  x2 := BsLent(n : i32(2));
+  mut(slot) := Option(&BsLent).Some(&x);
+  old := slot.replace(&x2);
+  assert(match(old, .Some(r) => (r.*.n == i32(1)), .None => false), "the old lend comes back");
+  assert(match(slot, .Some(r) => (r.*.n == i32(2)), .None => false), "the slot holds the new lend");
+  assert(x2.n == i32(2), "`x2` was lent, not moved");
+  mut(h) := BsHolder(&BsLent)(v : .None);
+  h.put(&x2);
+  assert(match(h.v, .Some(r) => (r.*.n == i32(2)), .None => false), "a user generic method takes the lend");
+  mut(y) := BsLent(n : i32(5));
+  mut(z) := BsLent(n : i32(6));
+  mut(ms) := Option(&mut BsLent).Some(&mut y);
+  _old := ms.replace(&mut z);
+  match(
+    ms,
+    .Some(r) => {
+      r.*.n = i32(7);
+    },
+    .None => ()
+  );
+  assert(z.n == i32(7), "the `&mut` lend writes `z`");
+});
+comptime_expect_error(
+  bs_method_lend_freezes_move :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    x2 := BsLent(n : i32(2));
+    mut(slot) := Option(&BsLent).Some(&x);
+    _o := slot.replace(&x2);
+    _m := x2;
+    _ := slot.is_some();
+  }),
+  "Cannot move `x2` here: `slot` borrows `x2`"
+);
+comptime_expect_error(
+  bs_method_lend_outlives_place :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    mut(slot) := Option(&BsLent).Some(&x);
+    {
+      x2 := BsLent(n : i32(2));
+      _o := slot.replace(&x2);
+    };
+    _ := slot.is_some();
+  }),
+  "Cannot store a reference to `x2` in `slot` here"
+);
 comptime_expect_error(
   bs_field_undeclared_origin :: (fn() -> unit)({
     S :: struct(next : &(i32, q));
@@ -1257,6 +1319,94 @@ comptime_expect_error(
   }),
   "reading the value it refers to is spelled `v.at.*`"
 );
+// A store of a reference into a reference field, `h.r = &y`, is E0926, and
+// `&mut h.r` on a `&` field is E0908 (VERDICTS-78 Q1, v0.2.80): each message
+// says what the code does and the help spells it as the whole-holder store,
+// which is accepted. The in-place store is admitted in v0.2.81
+// (issues/2026-11-23-a-reference-field-cannot-be-re-pointed-in-place.md).
+BsRF :: struct(r : &i32, n : i32);
+bs_rf_setp :: (fn(generic(p : Origin), slot : &mut&(i32, p), v : &(i32, p)) -> unit)({
+  slot.* = v;
+});
+comptime_expect_error(
+  bs_rf_store :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    h.r = &y;
+  }),
+  "`h.r = &y` stores a reference into the field `r` (`&i32`): a reference field is set by writing the whole holder"
+);
+comptime_expect_error(
+  bs_rf_store_help :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    h.r = &y;
+  }),
+  "write the whole holder: `h = BsRF(r : &y, n : h.n)`"
+);
+comptime_expect_error(
+  bs_rf_store_tuple :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    mut(t) := (&x, i32(0));
+    t.0 = &y;
+  }),
+  "write the whole holder: `t = (&y, t.1)`"
+);
+comptime_expect_error(
+  bs_rf_store_through_param :: (fn(h : &mut BsRF, y : &i32) -> unit)({
+    h.r = y;
+  }),
+  "write the whole holder: `h.* = BsRF(r : y, n : h.n)`"
+);
+comptime_expect_error(
+  bs_rf_lend_field :: (fn() -> unit)({
+    x := i32(1);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    p := &mut h.r;
+  }),
+  "`&mut h.r` lends the reference field itself"
+);
+comptime_expect_error(
+  bs_rf_lend_field_to_slot :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    bs_rf_setp(&mut h.r, &y);
+  }),
+  "`&mut h.r` lends the reference field itself"
+);
+// Unchanged: a value stored into the field reads it as its referent, and a
+// write through a `&` field is a write through a read-only borrow.
+comptime_expect_error(
+  bs_rf_store_value :: (fn() -> unit)({
+    x := i32(1);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    h.r = i32(3);
+  }),
+  "reading the value it refers to is spelled `h.r.*`"
+);
+bs_rf_bump :: (fn(v : &mut i32) -> unit)({
+  v.* = (v.* + i32(1));
+});
+comptime_expect_error(
+  bs_rf_lend_referent :: (fn() -> unit)({
+    x := i32(1);
+    mut(h) := BsRF(r : &x, n : i32(0));
+    bs_rf_bump(&mut h.r.*);
+  }),
+  "Cannot write through `h.r`: it is a `&` reference field"
+);
+test("A reference field is re-pointed by writing the whole holder", {
+  x := i32(1);
+  y := i32(2);
+  mut(h) := BsRF(r : &x, n : i32(5));
+  h = BsRF(r : &y, n : h.n);
+  assert(h.r.* == i32(2), "the holder refers to the new place");
+  assert(h.n == i32(5), "the other field is kept");
+});
 // A holder made by a call whose body is evaluated at the call (a
 // `generic(...)` function, specialized there) keeps its binding's live range:
 // the body's own bindings no longer take the range away, so the place stays

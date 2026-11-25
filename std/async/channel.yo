@@ -193,7 +193,7 @@ impl(
   /// `.Ok(())` once buffered, or `.Err(value)` if the channel is (or
   /// becomes) closed, or its `Receiver` has been dropped — the failed value
   /// is handed back.
-  send : (fn(self : &Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
+  send : (fn(self : &Self, value : T, io : Io) -> Impl(Future(Result(unit, T), Io)))(
     io.async({ ch : self.clone(), value }(io : Io) => {
       (mut(waiting) : bool) = true;
       while(waiting, {
@@ -223,7 +223,7 @@ impl(
   ),
   /// Receive the oldest value, suspending while the channel is empty.
   /// Resolves to `.None` once the channel is closed AND drained.
-  recv : (fn(self : &Self, io : Io) -> Impl(Future(Option(T))))(
+  recv : (fn(self : &Self, io : Io) -> Impl(Future(Option(T), Io)))(
     io.async({ ch : self.clone() }(io : Io) => {
       (mut(waiting) : bool) = true;
       while(waiting, {
@@ -407,7 +407,7 @@ impl(
   }),
   /// Send a value, suspending while the buffer is full. `.Err(value)` once
   /// the channel is closed or the `Receiver` is gone (Rust's `SendError(T)`).
-  send : (fn(self : &Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
+  send : (fn(self : &Self, value : T, io : Io) -> Impl(Future(Result(unit, T), Io)))(
     self._ch.send(value, io)
   ),
   /// Send without suspending: `.Err(value)` if the buffer is full, the
@@ -487,7 +487,7 @@ impl(
   ///
   /// The future holds its own copy of the channel handle, so it borrows
   /// nothing from the `Receiver`.
-  recv : (fn(self : &Self, io : Io) -> Impl(Future(Result(T, TryRecvError))))(
+  recv : (fn(self : &Self, io : Io) -> Impl(Future(Result(T, TryRecvError), Io)))(
     io.async({ ch : self._ch.clone() }(io : Io) => {
       // Bound first, matched second: an `io.await` in a match SCRUTINEE is one
       // of the async-body shapes that miscompiles to an empty value.

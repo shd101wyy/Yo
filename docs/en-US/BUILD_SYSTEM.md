@@ -234,6 +234,8 @@ The host target is also available as `build.target_host`.
 Steps are named targets that define what `yo build <step>` does. Every build function (`executable`, `static_library`, `test`, `run`) returns a `Step` value. Use `step.depend_on(dep)` to wire dependencies:
 
 ```yo
+build :: import("std/build");
+
 // Each build function returns a Step
 exe :: build.executable(.{ name : "my-app", root : "./src/main.yo" });
 lib :: build.static_library(.{ name : "my-lib", root : "./src/lib.yo" });
