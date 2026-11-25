@@ -19,7 +19,7 @@
 { get_func_type, is_fnonce_closure_fn } :: import("../../function-value.yo");
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_reference_struct_type, cell_handle_view, is_atomic_counted_handle_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ DynImplEntry, type_key, get_type_string, dyn_slot_param_abi_string, dyn_slot_result_abi_string, dyn_concrete_func_type, dyn_concrete_c_name, dyn_impl_key_suffix, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
+{ DynImplEntry, type_key, get_type_string, dyn_slot_param_abi_string, dyn_slot_result_abi_string, dyn_concrete_func_type, dyn_concrete_c_name, dyn_impl_key_suffix, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry, erased_future_result_type_string } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop-dup.yo");
 { dyn_impl_clone_fid, clone_fn_takes_self_by_ptr } :: import("../exprs/downcast.yo");
 { type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
@@ -597,6 +597,14 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                   // __yo_once_r` temp is not C,
                   // issues/fixed/a-unit-returning-dyn-fnonce-call-slot-declares-a-void-temp.md).
                   is_void := (is_void_type(&call_result) || (return_str == "void"));
+                  // A future result: the slot returns the erased interface
+                  // pointer (`dyn_slot_result_abi_string`), and the payload's
+                  // own function its concrete `<block>_sync_fut_t*` /
+                  // `<block>_state_t*`. Every future starts with
+                  // `__YO_FUTURE_PREFIX`, so the call's result is upcast.
+                  fut_up := erased_future_result_type_string(&call_result, &mut context.base).is_some();
+                  fut_open := if(fut_up, `(${return_str})(`, String.new());
+                  fut_close := if(fut_up, String.from(")"), String.new());
                   // Dyn'd CLOSURE: the boxed payload is the closure's CAPTURE
                   // STRUCT — resolve the closure C fn via impl_closure_call_map
                   // (capture-struct id → fn name) and call it directly with
@@ -631,6 +639,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                       if(!is_void, {
                         call_p.push_string(if(p_drops_after, `${return_str} __yo_once_r = `, String.from("return ")));
                       });
+                      call_p.push_string(&fut_open);
                       call_p.push_string(&cc_fn_p);
                       call_p.push_str("(self_ptr");
                       (cpi : usize) = usize(0);
@@ -639,7 +648,9 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                         call_p.push_string((cpi + usize(1)).to_string());
                         cpi = (cpi + usize(1));
                       });
-                      call_p.push_str(");");
+                      call_p.push_str(")");
+                      call_p.push_string(&fut_close);
+                      call_p.push_str(";");
                       context.base.emitter.emit_declaration_string_line(&call_p);
                       if(p_drops_after, {
                         context.base.emitter.emit_declaration_string_line(`  __yo_dip_${impl_key.clone()}(self_ptr);`);
@@ -661,6 +672,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                       if(!is_void, {
                         pcall.push_str("return ");
                       });
+                      pcall.push_string(&fut_open);
                       pcall.push_str("((");
                       pcall.push_string(generate_function_prototype(&pf_fn, String.from("(*)"), &mut context.base, Option(String).None, false));
                       pcall.push_str(")(*(void**)self_ptr))(");
@@ -682,7 +694,9 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                         pcall.push_string((pfi + usize(1)).to_string());
                         pfi = (pfi + usize(1));
                       });
-                      pcall.push_str(");");
+                      pcall.push_str(")");
+                      pcall.push_string(&fut_close);
+                      pcall.push_str(";");
                       context.base.emitter.emit_declaration_string_line(&pcall);
                     });
                   }, if(is_boxed && cc_info.is_some(), {
@@ -694,6 +708,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                     if(!is_void, {
                       call.push_string(if(is_call_once, `${return_str} __yo_once_r = `, String.from("return ")));
                     });
+                    call.push_string(&fut_open);
                     call.push_string(&cc_fn);
                     call.push_str("((void*)&box->");
                     call.push_string(field_name.clone());
@@ -703,7 +718,9 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                       call.push_string((cai + usize(1)).to_string());
                       cai = (cai + usize(1));
                     });
-                    call.push_str(");");
+                    call.push_str(")");
+                    call.push_string(&fut_close);
+                    call.push_str(";");
                     context.base.emitter.emit_declaration_string_line(&call);
                     if(is_call_once, {
                       // The call consumed the Dyn: release the box here. A
@@ -743,6 +760,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                     if(!is_void, {
                       call.push_string(if(is_call_once, `${return_str} __yo_once_r = `, String.from("return ")));
                     });
+                    call.push_string(&fut_open);
                     call.push_str("((");
                     call.push_string(generate_function_prototype(&pay_fn, String.from("(*)"), &mut context.base, Option(String).None, false));
                     call.push_str(")box->");
@@ -766,7 +784,9 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                       call.push_string((fai + usize(1)).to_string());
                       fai = (fai + usize(1));
                     });
-                    call.push_str(");");
+                    call.push_str(")");
+                    call.push_string(&fut_close);
+                    call.push_str(";");
                     context.base.emitter.emit_declaration_string_line(&call);
                     if(is_call_once, {
                       // The call consumed the Dyn: release the box. A code
