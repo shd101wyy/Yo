@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
-{ t_dyn, shell_base_final, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_with_list, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
+{ t_dyn, enum_final_recorded_args, shell_base_final, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_with_list, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { HashMap } :: import("std/collections/hash-map");
 { HashSet } :: import("std/collections/hash-set");
 { debug_knob } :: import("../utils.yo");
@@ -666,7 +666,17 @@ _subst_enum_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
       // A compound argument usually also occurs in a payload the walk
       // above already rewrote; it is the same node, so the walk's node
       // memo (`_substitute_at`) answers it without a second walk.
-      new_etas := _subst_list(s, &etas.*);
+      // A recursive enum's pre-final records no arguments of its own; it is
+      // its final's instance, so its copy records the final's arguments under
+      // `s` when `s` changes them (`enum_final_recorded_args`; type_key reads
+      // an unsubstituted pre-final the same way).
+      new_etas := cond(
+        (etas.len() > usize(0)) => _subst_list(s, &etas.*),
+        true => {
+          pf_args := enum_final_recorded_args(&id.*);
+          match(_subst_list_changed(s, &pf_args, false), .Some(pf_new) => shared_list(pf_new), .None => Rc.clone(etas))
+        }
+      );
       // A list no element of which changed is kept, not rebuilt.
       Rc.new(TypeValueNode.EnumT(id.clone(), name.clone(), Rc.clone(variant_names), if(vf_changed, shared_list(new_variant_fields), Rc.clone(variant_fields)), svn.clone(), Rc.clone(vfl), Rc.clone(discs), eirs.*, eiar.*, new_etas))
     },

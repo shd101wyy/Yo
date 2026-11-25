@@ -918,6 +918,19 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
     _ => Rc.clone(t)
   )
 );
+/// The type arguments recorded on the final of enum `eid` (its registry entry
+/// under the self-shell id), or none. A recursive enum's PRE-FINAL (the
+/// unrolled level the final's own payloads hold) shares the final's id and
+/// records no arguments of its own; it is the same instance, so it reads
+/// these (VERDICTS-77).
+enum_final_recorded_args :: (fn(eid : &String) -> SharedList(TypeValue))({
+  shell_key := `${eid}__self_shell`;
+  match(
+    g_enum_finals.with({ &shell_key }(m) => m.get_cloned(shell_key)),
+    .Some(Rc(.EnumT({ type_arguments : rtas }))) => Rc.clone(rtas),
+    _ => no_types()
+  )
+});
 // Type-constructor phantom positions: `constructor func id -> one flag per
 // collected argument` (forall arguments, then parameters, the order of the
 // comptime-fn call site's `inst_type_args`), true where the enum the
@@ -1251,7 +1264,7 @@ export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(UNFRAMED_BINDER_LEVEL);
 export(stamp_enum_final_type_arguments, enum_phantom_positions, register_ctor_phantom_positions, ctor_phantom_flags);
 export(register_struct_final, resolve_struct_shell);
-export(shell_subst_key, shell_subst_final, register_shell_subst_final, shell_base_final, is_substituted_shell, shell_with_list);
+export(enum_final_recorded_args, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_base_final, is_substituted_shell, shell_with_list);
 export(register_type_binding_name, type_binding_name, clear_type_binding_names);
 export(
   generate_some_type_id,
