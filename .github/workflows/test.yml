@@ -373,6 +373,12 @@ jobs:
           set -euo pipefail
           bash scripts/check-issue-refs.sh
 
+      # The Io interface's guard rail 1 (plans/backlog/ALLOCATION_FREE_ASYNC.md
+      # §4): Io table calls only in std/sys, IoFuture only in std/sys and the
+      # two std/async files that build join waits and parks.
+      - name: Io guard rails (check-io-guard-rails)
+        run: bash scripts/check-io-guard-rails.sh
+
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
     needs: [changes, tree-hygiene]
