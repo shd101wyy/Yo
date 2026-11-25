@@ -468,9 +468,13 @@ _evaluate_inout_local_binding :: (
   // `&h.*.x` has the handle's place as its origin, so the borrow is rooted
   // at `h`, which stays frozen (no drop, move or reassignment) while it
   // lives, and the payload is never written through a handle (a `&mut`
-  // borrow through it is E0919 below). Any other dereference has no owner
-  // the borrow could keep alive.
+  // borrow through it is E0919 below). A step a deref forwarding took is
+  // legal too, written or not (`_forwarding_admitted_steps`: `&b.*.x`
+  // through a `Box`, `&n.*.*.next` through a `&mut Box`), so spelling it
+  // does not change the verdict. Any other dereference has no owner the
+  // borrow could keep alive.
   if(!rhs_is_privileged, {
+    forwarding_steps := _forwarding_admitted_steps(&hops, &root_var, env, ctx);
     (dk : usize) = usize(0);
     while(dk < hops.len(), {
       match(
@@ -481,7 +485,8 @@ _evaluate_inout_local_binding :: (
           // `&r.*…` through the reference binding `r` itself (N1e-1) names
           // the referent: the place `r` already borrows, not a pointer.
           d_is_reference_deref := (root_is_reference && ((dk + usize(1)) == hops.len()));
-          if(!d_is_reference_deref && !handle_payload_is_read_only(&d_recv_ty), {
+          d_is_forwarding_step := match(forwarding_steps.get_cloned(dk), .Some(b) => b, .None => false);
+          if(!d_is_reference_deref && (!handle_payload_is_read_only(&d_recv_ty) && !d_is_forwarding_step), {
             exn.throw(
               dyn(
                 Box.new(
@@ -1230,18 +1235,17 @@ _subscript_root_args :: (fn(call : &AstExpr) -> ArrayList(ProjectionRootArg))({
   );
   out
 });
-/// The `.*` step of a re-point's chain (`hops`, outermost first, rooted at
-/// `root_var`) that P1b does not admit, if any. Admitted are exactly the
-/// steps a deref forwarding took through a handle, written or not
-/// (VERDICTS-73 made them written; the verdict stays): a handle's `.*`
-/// (`Box`/`Rc`/`Arc`, `is_deref_handle`) with a field read past it
-/// (`cur = &h.*.v`, decision 25's step into an `Rc`), and a reference's
-/// `.*` followed by a handle's `.*` or by a field of the handle it reaches
-/// (`cur = &mut n.*.*.next` / `cur = &mut n.*.next`, `n : &mut Box(Node)`).
+/// Per step of a place chain (`hops`, outermost first, rooted at
+/// `root_var`), whether it is one a deref forwarding took through a handle,
+/// written or not (VERDICTS-73 made them written; the verdict stays): a
+/// field, a handle's `.*` (`Box`/`Rc`/`Arc`, `is_deref_handle`) with a field
+/// read past it (`&h.*.v`, decision 25's step into an `Rc`), and a
+/// reference's `.*` followed by a handle's `.*` or by a field of the handle
+/// it reaches (`&mut n.*.*.next` / `&mut n.*.next`, `n : &mut Box(Node)`).
 /// A raw pointer's `.*`, a reference's `.*` before its referent's own
-/// field, and a trailing `.*` are P1b.
-_repoint_unadmitted_star :: (
-  fn(hops : &ArrayList(_InoutPlaceHop), root_var : &Variable, env : &Environment, ctx : &EvalContext) -> Option(AstExpr)
+/// field, and a trailing `.*` are not.
+_forwarding_admitted_steps :: (
+  fn(hops : &ArrayList(_InoutPlaceHop), root_var : &Variable, env : &Environment, ctx : &EvalContext) -> ArrayList(bool)
 )({
   n := hops.len();
   // Per step, innermost first (step `k` is at `n - 1 - k`): 0 a field, 1 a
@@ -1281,6 +1285,7 @@ _repoint_unadmitted_star :: (
     kinds.push(kind);
     yields_handle.push(is_deref_handle(&cur_ty));
   });
+  (out : ArrayList(bool)) = ArrayList(bool).new();
   (j : usize) = usize(0);
   while(j < n, {
     kj := match(kinds.get_cloned((n - usize(1)) - j), .Some(v) => v, .None => i32(0));
@@ -1299,7 +1304,20 @@ _repoint_unadmitted_star :: (
       (kj == i32(1)) => ((outer == i32(2)) || ((outer == i32(0)) && match(yields_handle.get_cloned((n - usize(1)) - j), .Some(b) => b, .None => false))),
       true => false
     );
-    if(!admitted, {
+    out.push(admitted);
+    j = (j + usize(1));
+  });
+  out
+});
+/// The `.*` step of a re-point's chain that P1b does not admit, if any: the
+/// outermost step `_forwarding_admitted_steps` does not admit.
+_repoint_unadmitted_star :: (
+  fn(hops : &ArrayList(_InoutPlaceHop), root_var : &Variable, env : &Environment, ctx : &EvalContext) -> Option(AstExpr)
+)({
+  admitted := _forwarding_admitted_steps(hops, root_var, env, ctx);
+  (j : usize) = usize(0);
+  while(j < hops.len(), {
+    if(!match(admitted.get_cloned(j), .Some(b) => b, .None => false), {
       return(match(hops.get_cloned(j), .Some(h) => Option(AstExpr).Some(Rc.clone(h.field)), .None => Option(AstExpr).None));
     });
     j = (j + usize(1));
