@@ -139,5 +139,23 @@ Infrastructure (the hosted macOS Intel VM or its agent), S3 as filed. No file or
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-24 | 45447738994 (01673f592) | 138709110628 | 1/4 | Compile the suite compiler natively | 51 min |
 | 2026-11-25 | 45534578147 (b25971e82) | 138975944670 | 3/4 | Run tests | 64 min |
+| 2026-11-25 | 45554702069 (33d2498cf) | 139047057052 | 0/4 | Compile the suite compiler natively | 52 min (after 49 min queued) |
+| 2026-11-25 | 45554702069 (33d2498cf) | 139047057055 | 3/4 | Run tests | 79 min |
 
 Both carry only the "hosted runner lost communication" annotation, and the log blob is missing (HTTP 404). The rest of each battery was green. The two losses are on different shards and in different steps, so recommendation 1 counts them as infrastructure: the first one's battery was superseded by green 45460102665 (78a71eae1), and the second one got `gh run rerun --failed`. Recommendation 2's VM sampler has still not been added. Each loss costs a rerun of a 50–65 minute leg on the release path.
+
+The 33d2498cf battery lost two intel shards at once (the rest was green, `merge-gate` red). Shard 0 started at 08:13:13Z after 49 min queued, entered the compile step at 08:13:42Z (normally 5-9 min) and was declared lost at 09:05:15Z: 51 min inside one single-threaded `clang -O2`. Shard 3 started its tests at 07:31:03Z and was lost at 08:43:39Z, 72 min in. That makes four losses in the last three develop batteries (01673f592, b25971e82, 33d2498cf x2), three of them in or after a 51-72 min stretch.
+
+### Sharding 4 to 6 ways: measured, not done
+
+The brief's premise is that exposure grows with job length, so cutting the macos-26-intel shards from about 64 min to about 43 min would cut the rate. The step timings of the last nine green develop batteries (11-22 through 11-25; `gh api repos/shd101wyy/Yo/actions/runs/<id>/jobs`) argue against it:
+
+- **The account runs 5 macOS jobs at once, and the matrix already has 6.** In all nine batteries exactly one of the six macOS jobs (two macos-latest shards, four intel shards) waited 37-69 min in the queue (`started_at - created_at` 2234-4117 s; 33d2498cf's lost shard 0 queued 49 min as well); the other five started within 2-9 s. A 6-way intel split makes eight macOS jobs for five slots: three queue, not one. The comment above the matrix already says the four intel shards "take most of" the account's macOS slots.
+- **Wall clock does not shrink under a slot limit.** The macOS work is about 4 x 65 + 2 x 55 = 370 job-min; five slots bound the battery near 75 min, and the sixth job's queue time plus run time already puts it at 90-125 min. Splitting the intel shards finer moves job-minutes between jobs and adds two more compiles of the suite compiler (5-13 min each on the intel leg in those batteries) to the total.
+- **The loss does not follow job length.** Five losses listed here (2026-11-04, 11-08, 11-10, 11-24 and the new shard 0 one) are inside the compile step, after 46-52 min of a job whose compile step takes 5-13 min, so the VM froze while doing a task that normally ends in minutes, not because the job was long. A shorter shard would still contain that compile step, the one step every shard shares.
+
+So the 4-way sharding stays. The sampler below is what can say whether disk, memory, swap or the process table moves before a loss; a sharding change waits for that data and for a larger account macOS concurrency.
+
+### Sampler landed
+
+`scripts/ci-vm-sampler.sh` (sourced by the macOS Intel leg only, in "Compile the suite compiler natively" and "Run tests") prints, every 30 s into the step's streamed log: the UTC time, `df -h /`, `vm_stat | head -6`, `sysctl vm.swapusage`, the process count and the five processes with the largest RSS (KiB, pid, command). The loop stops with the step (an `EXIT` trap). After the next loss on the intel leg, read the last block before the log ends (`gh run view --job <id> --log` while the job is still running, or the log blob if it lands): that closes recommendation 2. Recommendation 1 (one `gh run rerun --failed` per lost job on a release-candidate battery) is unchanged.
