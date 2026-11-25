@@ -337,7 +337,15 @@ FuncMeta :: struct(
   /// (origins are erased from every identity but the borrow checker's, so
   /// nothing specializes on them). Not in `type_to_string`, `type_key` or the
   /// intern key: the slots that name them already differ. `.None` = none.
-  (origin_labels : Option(SharedList(String))) ?= Option(SharedList(String)).None
+  (origin_labels : Option(SharedList(String))) ?= Option(SharedList(String)).None,
+  /// VERDICTS-74 rule 2: the result SPELLED the empty origin — `-> &(T,
+  /// static)` — whose slot is the by-value static reference decision 49
+  /// builds (`evaluator/types/function.yo`). Only `static` values may flow
+  /// into it, checked at every result (`return_check`). A legacy value `str`
+  /// result (`-> str`, the alias `legacy_str_result`) builds the same slot
+  /// WITHOUT spelling the origin and does not set this flag (the alias arms
+  /// are PR B's to delete).
+  (result_spells_static : bool) ?= false
 );
 derive(FuncMeta, Clone);
 /// One node of the Yo type universe: the payload behind a `TypeValue` handle.
@@ -1016,6 +1024,11 @@ t_slot_origin_names :: (fn(slot : &TypeValue) -> Option(SharedList(String)))(
 /// `.None` for an elided one (O2: the union of the reference parameters) or
 /// a non-projection.
 fn_result_origin_names :: (fn(ft : &TypeValue) -> Option(SharedList(String)))(t_slot_origin_names(&fn_result_slot(ft)));
+/// VERDICTS-74 rule 2: `ft`'s declared result SPELLED `&(T, static)`
+/// (`FuncMeta.result_spells_static`), the by-value static reference slot of
+/// decision 49. The legacy value `str` result (`-> str`, the alias) does
+/// not: its arms take any `&str` until PR B deletes them.
+fn_result_spells_static :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ meta : rsm })) => rsm.*.*.result_spells_static, _ => false));
 /// Collect the origin names spelled inside `t` (an origin argument of a
 /// struct or enum instance, a reference's origin, through tuples and nested
 /// type arguments) into `out`. False when one of them is elided: an elided
@@ -1248,5 +1261,5 @@ get_struct_field_comptime_flags :: (
 );
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_trait_rank, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract);
-export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, type_spells_origin, origin_names_contain, fn_param_in_result_origin, fn_param_pointee_in_result_origin);
+export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, fn_result_spells_static, type_spells_origin, origin_names_contain, fn_param_in_result_origin, fn_param_pointee_in_result_origin);
 export(t_value_slot, t_binder_slot, t_slot_is_value_ref, t_slot_is_binder_slot, t_maybe_sized_kind, is_maybe_sized_kind, t_slice, t_origin_elided, t_origin_kind, t_origin_named, t_origin_static, t_static_str_ref, is_static_origin, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

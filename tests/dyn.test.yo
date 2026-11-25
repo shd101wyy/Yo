@@ -4,6 +4,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { AnyError, Error, Exception, IoExn } :: import("std/error");
+{ join_all, yield } :: import("std/async");
 { path_join } :: import("./helper.yo");
 TestDyn :: trait(
   print : (fn(self : &*Self) -> unit),
@@ -1579,4 +1580,48 @@ test("a method through a &&Dyn reads its slot's reference flags", {
   assert(dd.*.dr_val() == i32(5), "a by-value result");
   assert(_dr_via_refref(&dd.*, &mut k) == i32(10), "through a `&&Dyn` parameter");
   assert(k == i32(20), "the parameter's `&mut` argument is written through");
+});
+// ---------------------------------------------------------------------------
+// `Future` cannot be listed in a `Dyn` (VERDICTS-80, E0614): a future is one
+// pointer to its state machine, and awaiting or spawning it consumes it. One
+// future is typed `Impl(Future(T, E))`; several different running tasks are
+// kept as `JoinHandle(T)`. Rejected where the type is formed, in every
+// position (issues/fixed/2026-11-24-dyn-of-a-future-passes-check-and-emits-an-error-comment-into-the-c.md).
+// ---------------------------------------------------------------------------
+_df_one :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(1)));
+_df_two :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ n }(io : Io) => {
+    io.await(yield(io), io);
+    (n + i32(1))
+  })
+);
+test("a Dyn that lists Future cannot be made, in every position", {
+  f := _df_one(io);
+  comptime_expect_error({
+    (d : Dyn(Future(i32, Io))) = dyn(&f);
+    (v : i32) = io.await(d, io);
+  }, "cannot be made: `Future` has no vtable slot");
+  comptime_expect_error((fn(d : &Dyn(Future(i32, Io)), io : Io) -> unit)(()), "cannot be made: `Future` has no vtable slot");
+  comptime_expect_error(struct(f : Box(Dyn(Future(i32, Io)))), "cannot be made: `Future` has no vtable slot");
+  comptime_expect_error(ArrayList(Box(Dyn(Future(i32, Io)))).new(), "cannot be made: `Future` has no vtable slot");
+  comptime_expect_error(Dyn(Future(i32)), "cannot be made: `Future` has no vtable slot");
+  comptime_expect_error(Dyn(Future(i32, Io), Send), "cannot be made: `Future` has no vtable slot");
+  comptime_expect_error(Dyn(ToString, !(Future(i32, Io))), "cannot be made: `Future` has no vtable slot");
+  assert(true, "every Dyn(Future(...)) rejected at check time");
+});
+test("an Impl(Future) local reassigned to another future names JoinHandle, not Dyn", {
+  comptime_expect_error({
+    (mut(g) : Impl(Future(i32, Io))) = _df_one(io);
+    g = _df_two(i32(41), io);
+  }, "spawn each and keep its handle, `JoinHandle(i32)`");
+  assert(true, "E0902 names the JoinHandle");
+});
+test("several different tasks are kept as JoinHandle(T) and joined", {
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
+  hs.push(io.spawn(_df_one(io), io));
+  hs.push(io.spawn(_df_two(i32(41), io), io));
+  rs := io.await(join_all(hs, io), io);
+  assert(rs.len() == usize(2), "one result per task");
+  assert(match(rs(usize(0)), .Some(v) => (v == i32(1)), .None => false), "the sync future's result");
+  assert(match(rs(usize(1)), .Some(v) => (v == i32(42)), .None => false), "the state machine's result");
 });

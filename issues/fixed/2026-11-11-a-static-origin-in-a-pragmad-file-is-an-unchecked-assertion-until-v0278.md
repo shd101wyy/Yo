@@ -51,3 +51,23 @@ From VERDICTS-57 §1.4:
 
 The first probe is the memo question above. Once the rule lands, the wall rows in `tests/origins/unsound/static-*.yo`
 expect E0923 instead of E0922, and they join the corpus and the model (`tests/origins/corpus.tsv`).
+
+## The "Unread" question, answered (2026-11-21, VERDICTS-74's probes s13a/s13b)
+
+> Unread: whether a pragma'd module's `Option(&(X, static))` and a safe importer's `Option(&X)` share one memoized
+> type-constructor instance, which would hand the unchecked type to safe code without any spelling there.
+
+Yes. `Option` is a comptime constructor and the CTFE memo compared type arguments with origins erased, so
+`Option(&(X, static))` and `Option(&X)` were ONE instance, and the first one written decided every origin-dependent
+fact for both: with `A :: Option(&(X, static))` written first, `B :: Option(&X)` answered `Escapable`; with `B`
+first, `A` answered not-`Escapable` (probes s13a/s13b, the v0.2.79 seed and the integration binary agreeing). The
+memo is global, so a second module sees the same instance.
+
+## Fixed by P12 (2026-11-21)
+
+VERDICTS-74 rules 1-5: the CTFE memo's argument equality rejects a pair whose static marks differ
+(`static_origin_marks_differ`), so `Option(&(X, static))` and `Option(&X)` are two instances; the subset check runs at
+every expected-type site (`bind_join`, `return_check`, the argument check in `lend_through`, the typed-local site);
+E0922 and its std/pragma'd exemption are deleted, so `static` is spelled in any file and CHECKED. The wall rows
+`tests/origins/unsound/static-*` expect E0923, and `tests/unsized-places.test.yo` carries s13a/s13b as rows (both
+orders).

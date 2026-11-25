@@ -2389,14 +2389,11 @@ typedef struct {
   HANDLE accept_port;
   void* next_accept;
   // Socket-operation bookkeeping (send/recv/sendto/recvfrom, AcceptEx,
-  // ConnectEx). sock_abandoned marks an op whose future was CANCELLED: IOCP
-  // cannot unpost, so CancelIoEx only recalls the kernel's access to the
-  // caller's buffer — the packet still arrives (ERROR_OPERATION_ABORTED) and
-  // the completion path must drop it without waking the released future.
-  // next_sock links the per-loop list of socket ops still pending, which is
-  // what the cancel hook scans; submits and cancels both run on the loop
-  // thread, so the list needs no lock.
-  bool sock_abandoned;
+  // ConnectEx). next_sock links the per-loop list of socket ops still
+  // pending, which is what the cancel hook scans; submits and cancels both
+  // run on the loop thread, so the list needs no lock. sock_cancelled marks
+  // an op whose cancellation was already requested.
+  bool sock_cancelled;
   void* next_sock;
 } __yo_win_overlapped_t;
 
@@ -2852,29 +2849,31 @@ static void __yo_win_sock_unlink(__yo_win_overlapped_t* ov) {
 // Cancel a pending socket operation (send/recv/sendto/recvfrom, AcceptEx,
 // ConnectEx): the abort path for a task parked in socket I/O. epoll and
 // kqueue deregister the interest and hand the caller the future; IOCP cannot
-// unpost, so the operation is ABANDONED — the blocking-accept cancel's
-// pattern: CancelIoEx recalls the kernel's hold on the caller's buffer, the
-// future is released here (nothing can resume through it any more), and the
-// packet that still arrives finds sock_abandoned and only recycles the
-// overlapped. Without this hook an aborted task's state machine — and
-// everything it captured, a TcpStream and its socket included — stayed alive
-// until the operation completed on its own, so aborting an HttpClient
-// exchange parked in a read left the connection open
+// unpost, and CancelIoEx only REQUESTS the cancellation: the operation may
+// still complete — a recv racing the cancel fills the caller's buffer — and
+// the kernel owns that buffer until the packet is dequeued. So the hook asks
+// and answers false: the operation stays registered, its packet arrives
+// promptly (ERROR_OPERATION_ABORTED, or its result when it completed first)
+// and completes the future as any packet does, which resumes the aborted
+// task, whose guard releases it (__yo_async_io_cancel). The hook used to
+// release the future at once and drop the late packet, and the task's block
+// with the buffer in it was released while the kernel could still write
+// into it
+// (issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md).
+// Without the request an aborted task's state machine — and everything it
+// captured, a TcpStream and its socket included — stayed alive until the
+// operation completed on its own, so aborting an HttpClient exchange parked
+// in a read left the connection open
 // (issues/fixed/2026-10-26-aborting-a-task-parked-in-socket-io-leaks-it-on-windows.md).
 static bool __yo_win_sock_cancel(__yo_io_future_t* future) {
   for (__yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_win_sock_ops; ov;
        ov = (__yo_win_overlapped_t*)ov->next_sock) {
-    if (ov->future == future && !ov->sock_abandoned) {
-      ov->sock_abandoned = true;
+    if (ov->future == future && !ov->sock_cancelled) {
+      ov->sock_cancelled = true;
       // ERROR_NOT_FOUND means the op already completed and its packet is on
-      // the port: the abandoned guard in __yo_win_process_completion drops
-      // it either way.
+      // the port: it completes the future either way.
       CancelIoEx((HANDLE)ov->sock, &ov->overlapped);
-      __yo_win_sock_unlink(ov);
-      ov->future = NULL;
-      __yo_pending_io_count--;
-      __yo_decr_rc((void*)future);
-      return true;
+      return false;
     }
   }
   return false;
@@ -3033,19 +3032,6 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
   if (ov->is_blocking_accept) {
     (void)bytes;
     __yo_win_blocking_accept_done(ov);
-    return;
-  }
-  if (ov->sock_abandoned) {
-    // A cancelled socket operation's late packet (the __yo_win_sock_cancel
-    // hook): its future is already released and its pending count already
-    // taken there, so deliver nothing. An abandoned AcceptEx still owns its
-    // pre-created socket — close it, exactly as an abandoned blocking accept
-    // does.
-    if (ov->is_accept && ov->accept_sock != INVALID_SOCKET) {
-      closesocket(ov->accept_sock);
-      ov->accept_sock = INVALID_SOCKET;
-    }
-    __yo_win_free_overlapped(ov);
     return;
   }
   if (ov->is_fs_event) {

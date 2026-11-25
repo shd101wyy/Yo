@@ -1121,7 +1121,9 @@ ${alloc_in_fn}`
 //   * Continuation protocol: an awaiter reads state, cold-starts a 0 and
 //     writes itself into the single continuation slot. Completion sets -1,
 //     schedules the continuation on its thread's queue and releases one
-//     reference. -2 is aborted, with cancel_pending(pre_state).
+//     reference. -2 is aborted, with cancel_pending(pre_state); -4 is
+//     aborting, while an operation the abort could not take back is in
+//     flight (cancel_pending answered false), and becomes -2 when it retires.
 //   * Bundle injection: __yo_future_set_bundle, at io.await(f, e) and
 //     io.spawn(f, e).
 //   * Waker token: __yo_waker_token_t and its ownership counter (the
@@ -1143,14 +1145,16 @@ ${alloc_in_fn}`
 // bundle goes (__yo_future_set_bundle; size 0: nowhere), and
 // \`cancel_pending\` is the abort hook, called with the pre-abort state once
 // the future is marked -2 to cancel what the task is suspended on and wake
-// its waiters. A NULL \`vt\` (a raw I/O future) or a NULL operation means
-// there is none (__yo_future_abort only wakes the waiters).
+// its waiters; it answers false, leaving the future -4 with its waiters
+// unwoken, when that operation is still in flight. A NULL \`vt\` (a raw I/O
+// future) or a NULL operation means there is none (__yo_future_abort only
+// wakes the waiters).
 // plans/archive/ASYNC_STATE_MACHINE_GENERATION.md phases 2 and 6;
 // issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md.
 typedef struct __yo_future_vtable_t {
   void (*resume)(void*);
   void (*set_effect)(void*, const char*, void*);
-  void (*cancel_pending)(void*, int);
+  bool (*cancel_pending)(void*, int);
   size_t bundle_offset;
   size_t bundle_size;
 } __yo_future_vtable_t;

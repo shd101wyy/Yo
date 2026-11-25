@@ -1347,3 +1347,16 @@ comptime_expect_error(
   }),
   "`r` borrows `hs` with `&mut` and is still live"
 );
+// The spelled `static` form of a typed reference local is the checked-origin
+// rule's typed-local site (VERDICTS-74 rule 2): a parameter's place may not
+// flow into it.
+comptime_expect_error(
+  lb_typed_static_local_from_param :: (fn() -> unit)({
+    read2 :: (fn(r : &Point) -> i32)({
+      (l : &(Point, static)) = r;
+      l.x
+    });
+    _ := read2;
+  }),
+  "declared over the empty origin `static`"
+);
