@@ -1,0 +1,11 @@
+{ println } :: import("std/fmt");
+Vl :: trait(val : (fn(self : &Self) -> i32));
+Cat :: struct(n : i32);
+impl(Cat, Vl(val : (fn(self : &Self) -> i32)(self.n)));
+via :: (fn(dd : &(&Dyn(Vl))) -> i32)(dd.*.val());
+main :: (fn() -> unit)({
+  c := Cat(n : i32(3));
+  (d : &Dyn(Vl)) = dyn(&c);
+  println(`L1 via: ${via(&d).to_string()}`);
+});
+export(main);

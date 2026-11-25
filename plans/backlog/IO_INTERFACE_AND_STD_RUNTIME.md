@@ -208,6 +208,20 @@ above `__YO_FUTURE_PREFIX`.
 | `IoFuture` | `__yo_io_future_t` = the prefix plus `int32_t result`, `cancel_fn` and `backend_link` |
 | Executor entries | `IoVTable.spawn`, `run_until`, `now`, `sleep`, `park` (§2) |
 
+**Guard rails from the allocation-free async plan** (decided 2026-11-25,
+VERDICTS-81; [`ALLOCATION_FREE_ASYNC`](ALLOCATION_FREE_ASYNC.md) §4). The plan
+makes a future value cold and its frame embedded in its parent, so a prefix
+pointer is a *task header*, not "every future". IO-1b and IO-1c ship this
+section's interface unchanged and must respect five rules: no
+`io.vtable.<op>` call and no `IoFuture` in a signature outside `std/sys` (a
+grep gate); std above `std/sys` awaits an operation only as the direct operand
+of `io.await`; the prefix belongs to every task and every separately allocated
+future, and no new runtime code may assume an awaited child has a header; the
+executor releases a task only through its header and never asks for its size;
+`spawn` and `run_until` in a Yo-written `Io` forward `fut` and never read,
+start, retain or free it, and `std/io/sim`'s operation decorators wait for
+that plan's AFA-8.
+
 ## 4. Zig: what Yo follows and what it must not
 
 Zig facts as read from `ziglang/zig` master on 2026-11-07:
@@ -374,7 +388,8 @@ NO_LIBC's std-only P3 and P7 are unaffected and may run at any time.
   `io : Io` whose fields are raw pointers.
 - **A program whose types include the interface-shaped `Io` links the
   reactor** (`io_native_needs_reactor`).
-- **Decided for v0.2.80 (VERDICTS-68):** a bundled future is never viewed as
+- **Decided for v0.2.80 (VERDICTS-68), implemented 2026-11-24
+  (`v0280/io-v68`):** a bundled future is never viewed as
   a bundle-less `Impl(Future(T))`. Option A, unconditional and not
   shape-keyed: the `Io` exemption in `src/types/compatibility.yo`
   (`future_view_drops_a_bundle`, the `flat_e_types.len() == 0` arm) is

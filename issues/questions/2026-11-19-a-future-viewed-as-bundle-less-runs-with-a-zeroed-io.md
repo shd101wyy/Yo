@@ -3,7 +3,8 @@
 **Kind:** design question — an open decision, not a defect.
 
 **Status:** DECIDED 2026-11-19 (VERDICTS-68): option A, unconditional, in
-v0.2.80 as its own PR (not shape-keyed). Filed 2026-11-19 by the IO-1a lane
+v0.2.80 as its own PR (not shape-keyed). Implemented 2026-11-24 (branch
+`v0280/io-v68`). Filed 2026-11-19 by the IO-1a lane
 ([`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md`](../../plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md) §6).
 
 ## The question

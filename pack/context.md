@@ -447,7 +447,10 @@ export(main);
   `spawn_blocking`). `io.async((io : Io) => body)` builds a lazy future that
   `io.await(f, io)` runs once or `io.spawn(f, io)` starts. `io.await`
   suspends only when written in the `io.async` body itself; in a function the
-  task calls, it blocks.
+  task calls, it blocks. A future's type names the bundle its body reads:
+  `-> Impl(Future(T, Io))` for an `(io : Io) =>` body (`sleep`, `yield`, the
+  async `Mutex` and channels too); a bundled future viewed as `Future(T)` is
+  E0605.
 
 ```yo
 { assert } :: import("std/assert");
