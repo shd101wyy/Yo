@@ -97,7 +97,7 @@ test("next(io) resolves when an event arrives and .None after close", {
 });
 // The handler is installed in the function whose return the unwind exits —
 // a `ctl` handler is frame-bound (docs/en-US/ALGEBRAIC_EFFECTS.md).
-_try_watch :: (fn(p : &String) -> Option(Watcher))({
+_try_watch :: (fn(p : &String, io : Io) -> Option(Watcher))({
   exn := Exception(
     throw : (
       err -> {
@@ -109,9 +109,9 @@ _try_watch :: (fn(p : &String) -> Option(Watcher))({
   Option(Watcher).Some(w)
 });
 test("watching a missing path throws IoError", {
-  missing := _try_watch(`/nonexistent/yo_watch_dir_zzz`);
+  missing := _try_watch(`/nonexistent/yo_watch_dir_zzz`, io);
   assert(missing.is_none(), "watch on a missing path unwinds through exn");
-  present := _try_watch(temp_dir());
+  present := _try_watch(temp_dir(), io);
   assert(present.is_some(), "an existing directory is watchable");
   match(present, .Some(w) => w.close(), .None => ());
 });
@@ -121,7 +121,7 @@ test("FsEventKind renders", {
 });
 // A watcher created inside this function drops at the function's end without
 // `close()`. Returns false if `watch` itself threw.
-_watch_and_drop :: (fn(p : &String) -> bool)({
+_watch_and_drop :: (fn(p : &String, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
@@ -162,7 +162,7 @@ test("a watcher dropped without close() releases its backend handle", {
   (mut(i) : usize) = usize(0);
   while(i < usize(200), {
     assert(
-      _watch_and_drop(&d),
+      _watch_and_drop(&d, io),
       `watch failed at iteration ${i} — dropped watchers are not releasing their backend handles`
     );
     i = (i + usize(1));
