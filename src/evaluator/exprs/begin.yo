@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_ptr } :: import("../../types/creators.yo");
 { is_some_type, is_struct_type } :: import("../../types/guards.yo");
 { is_io_async_call } :: import("../async/await-analysis.yo");
-{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ are_types_compatible, impl_dispatch_hint } :: import("../../types/compatibility.yo");
 { synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, flow_options_default, FlowOptions, raise_flow_violation }
@@ -2318,6 +2318,12 @@ _evaluate_begin_expression_impl :: (
           // body/specialization eval by create_function_body_evaluation_context
           // and the helper.yo / comptime-fn.yo save-restore sites); each later
           // return must be compatible with it.
+          // The declared result, for the static-dispatch hint below.
+          (ir_declared_ty : TypeValue) = match(
+            &ctx.is_evaluating_function_body_or_async_block,
+            .Some(ir_fb) => match(&ir_fb.func_type, .Some(Rc(.Func({ result : ir_ret }))) => t_slot_pointee(&ir_ret.*), _ => Rc.new(TypeValueNode.Unit)),
+            .None => Rc.new(TypeValueNode.Unit)
+          );
           (ir_declared_impl : bool) = match(
             &ctx.is_evaluating_function_body_or_async_block,
             .Some(ir_fb) => match(
@@ -2345,7 +2351,7 @@ _evaluate_begin_expression_impl :: (
                         ir_entries.push(
                           TokenAndError(
                             token : ast_expr_token(&expr_to_eval),
-                            error_message : String.from("All return statements must return the same concrete type for Impl(...).\nImpl(...) uses static dispatch and requires the same concrete type across all returns.\nConsider using Dyn(...) for dynamic dispatch if different concrete types are needed.")
+                            error_message : `All return statements must return the same concrete type for Impl(...).\nImpl(...) uses static dispatch and requires the same concrete type across all returns.\n${impl_dispatch_hint(&ir_declared_ty, &String.from("Consider using Dyn(...) for dynamic dispatch if different concrete types are needed."))}`
                           )
                         );
                         ir_entries.push(
