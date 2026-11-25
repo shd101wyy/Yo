@@ -450,7 +450,8 @@ export(main);
   task calls, it blocks. A future's type names the bundle its body reads:
   `-> Impl(Future(T, Io))` for an `(io : Io) =>` body (`sleep`, `yield`, the
   async `Mutex` and channels too); a bundled future viewed as `Future(T)` is
-  E0605.
+  E0605. `Dyn(Future(...))` is E0614: keep different tasks as
+  `ArrayList(JoinHandle(T))` (`io.spawn` each; `join_all`, `race`).
 
 ```yo
 { assert } :: import("std/assert");

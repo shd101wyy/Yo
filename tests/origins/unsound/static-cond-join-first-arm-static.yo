@@ -1,0 +1,19 @@
+// expect: E0923
+// A cond whose first arm is a static-typed slot and whose second arm holds a local:
+// the join is the WIDER origin (VERDICTS-74 rule 4), so the value may not flow into
+// the static result.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+G := X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+pick :: (fn(c : bool, r : &X) -> &(X, static))({
+  (lit : &(X, static)) = &G;
+  cond(c => lit, true => r)
+});
+main :: (fn() -> unit)({
+  b := X(s : String.from("hello"));
+  v := pick(false, &b);
+  drop(b);
+  println(`OUT: ${v.*.s.len().to_string()}`);
+});
+export(main);
