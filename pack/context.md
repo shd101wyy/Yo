@@ -526,6 +526,28 @@ test("push then len", {
 });
 ```
 
+## Names that are not Rust's
+
+Std keeps Rust's method names (`push`, `len`, `insert`, `contains_key`,
+`checked_add`, `Rc`, `Duration`); the types below differ on purpose. A Rust
+name that does not resolve (E0401) gets a help line naming the Yo spelling.
+
+| Rust | Yo |
+| --- | --- |
+| `Vec<T>`, `vec![..]` | `ArrayList(T)` (`std/collections/array-list`), `ArrayList(T).from([..])` |
+| `VecDeque`, `BinaryHeap`, `PathBuf` | `Deque`, `PriorityQueue`, `Path` (one owned type) |
+| `char` | `rune` (`char` is C's 8-bit type) |
+| `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` |
+| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot`/`BitNot` |
+| `collect::<Vec<_>>()`, `parse::<i32>()`, `into()` | `it.collect(ArrayList(i32))`, `s.parse(i32)`, `x.into(i64)`: the type is an argument |
+| `m.lock()`, `c.borrow_mut()`, `Cell` | `m.with_lock(v => ..)`, `c.with_mut(v => ..)` on `RefCell`; no guards |
+| `thread::spawn`, `JoinHandle<T>` | `Thread(T).spawn((io : Io) => ..)`, `t.join()` |
+| `io::Result<T>` | `exn : Exception` and `io : Io`, `-> Impl(Future(T, IoExn))` |
+| `sync::Weak`, `atomic::Ordering` | `ArcWeak`, `MemoryOrder` |
+| `Duration` over `u64`/`u128` | `Duration` over `i64`; `as_millis() -> i64` |
+| `serde_json::from_str`/`to_string` | `parse`/`stringify` (`json`, `toml`) |
+| `x.sqrt()` | `import("std/math");` registers the float methods |
+
 ## Where to look next
 
 - `yo context --list`, then `yo context <module>`: the real API surface.
