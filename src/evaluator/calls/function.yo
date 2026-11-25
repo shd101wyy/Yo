@@ -10757,9 +10757,10 @@ _lend_through_solve :: (
   });
   solved
 });
-/// The binding a field path is rooted at (`h` for `h.r`, `h.a.b`), when
-/// every hop is a field or tuple element (no `.*` dereference: a place
-/// behind one is not stored in the binding).
+/// The binding a field path is rooted at (`h` for `h.r`, `h.a.b`, `t.0`, and
+/// `w` for `w.*.r`, a field reached through a reference, a `Box` or another
+/// handle the binding holds: a store there is one the binding's flow set
+/// answers for, its own or, for a local `&mut` borrow, its target's).
 _field_path_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
   if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(AstExpr).None);
@@ -10768,7 +10769,7 @@ _field_path_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
     (fr_next : Option(AstExpr)) = match(
       Rc.clone(cur),
-      Rc(.FnCall(_, _, Rc(fr_args), _, _)) => match(fr_args.get_cloned(usize(1)), .Some(fr_l) => if(ast_expr_is_atom(&fr_l) && !ast_expr_is_atom_of(&fr_l, "*"), fr_args.get_cloned(usize(0)), Option(AstExpr).None), .None => Option(AstExpr).None),
+      Rc(.FnCall(_, _, Rc(fr_args), _, _)) => match(fr_args.get_cloned(usize(1)), .Some(fr_l) => if(ast_expr_is_atom(&fr_l), fr_args.get_cloned(usize(0)), Option(AstExpr).None), .None => Option(AstExpr).None),
       Rc(.Atom(_, _)) => Option(AstExpr).None
     );
     match(fr_next, .Some(n) => {

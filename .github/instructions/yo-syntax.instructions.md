@@ -441,7 +441,9 @@ main :: (fn() -> unit)({
   re-point `v = &place`, and a `match(v, …)` scrutinee (it matches through the reference; bindings borrow
   the payload). `match(&v, …)` on a reference is E0926.
 - Through a reference to a `Box`/`Rc`/pointer the payload is `v.*.*`. Reading a reference field is
-  `v.at.*`.
+  `v.at.*`; `v.at = &place` (or a reference binding) re-points it, checked as the whole-holder store
+  `v = H(at : &place, …)` is, and `v.at = value` is E0926. `&mut v.at` on a `&` field lends the field itself
+  (a `&mut &T`); on a `&mut` field it still lends the place it refers to.
 - An `io.async` capture of a reference parameter borrows it whole as `{ p : &p.* }` (`{ &p }` is E0926); a
   by-value capture entry `{ r }` of a reference binding copies the reference (`{ r : r.* }` copies the
   referent).
