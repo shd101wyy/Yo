@@ -122,7 +122,11 @@ An aborted task lingers until the operation its abort could not take back retire
 - A raw `IoFuture` aborted directly keeps its waiters until its completion when the backend cannot take it back.
 - Windows: `__yo_win_sock_cancel` issues `CancelIoEx` and answers false. The packet completes the future through the ordinary path, and the `sock_abandoned` drop path is gone.
 
-Tests: `tests/sys/socketpair.test.yo` (the recvfrom case, failing under ASan before the fix) and `tests/sys/pipe.test.yo` (the reproducer above, failing in an unsanitized run before the fix), each on the default backend and on the epoll fallback.
+Tests, each on the default backend and on the epoll fallback:
+
+- `tests/sys/socketpair.test.yo`, the recvfrom case. It failed under ASan before the fix.
+- `tests/sys/pipe.test.yo`, the reproducer above. It failed in an unsanitized run (`--disable-sanitize`) before the fix.
+- `tests/sys/pipe.test.yo`, a `select` whose losing read borrows the caller's buffer. The caller refills the buffer after `select` returns, and before the fix the kernel overwrote it (6400 bytes over 200 rounds in the standalone version). This one fails before the fix with or without a sanitizer, because the buffer is live memory.
 
 ## Not covered (filed separately)
 
