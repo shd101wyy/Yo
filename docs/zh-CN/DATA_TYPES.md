@@ -682,3 +682,25 @@ cond(
   true => printf("set1 is not subset of set2\n")
 );
 ```
+
+### 与 Rust 不同的名称
+
+标准库沿用 Rust 的方法名（`push`、`pop`、`len`、`insert`、`contains_key`、`checked_add`、`Rc`、`Arc`、`Duration`）。下列类型和写法是有意与 Rust 不同的：
+
+| Rust | Yo | 原因 |
+| --- | --- | --- |
+| `Vec<T>`、`vec![..]` | `ArrayList(T)`、`ArrayList(T).from([..])` | 数学中的向量大小固定，而这个类型会增长；std 中没有叫 `Vec` 的名字。 |
+| `VecDeque`、`BinaryHeap` | `Deque`、`PriorityQueue` | 使用抽象类型的名字，而不是某一种实现的名字。 |
+| `char` | `rune` | `char` 是 C 的 8 位类型，FFI 需要它。 |
+| `Path`、`PathBuf` | 一个拥有所有权的 `Path` | 没有无大小的路径视图。 |
+| `PartialEq`/`Eq`、`PartialOrd`/`Ord` | `Eq(T)`、`Ord(T)` | 浮点数带有全序的 `cmp`，因此不做拆分。 |
+| `Neg`、`Rem`、`Shl`、`Shr`、`Not` | `Negate`、`Mod`、`BitLeftShift`、`BitRightShift`、`LogicalNot` / `BitNot` | 编译器按名字查找运算符 trait。 |
+| `collect::<Vec<_>>()`、`parse::<i32>()`、`into()` | `it.collect(ArrayList(i32))`、`s.parse(i32)`、`x.into(i64)` | 类型是一个参数：Yo 不会根据结果类型推断。 |
+| `lock()`、`borrow()` / `borrow_mut()`、`Cell` | `m.with_lock(v => ..)`，`RefCell` 的 `c.with(v => ..)` / `c.with_mut(v => ..)` | 访问限定在闭包内；没有守卫，也没有锁中毒。 |
+| `io::Result<T>`、`thread::spawn`、`JoinHandle<T>` | `exn : Exception` 与 `io : Io`、`Thread(T).spawn((io : Io) => ..)`、`t.join()` | I/O 和线程是效应。 |
+| `sync::Weak`、`atomic::Ordering` | `ArcWeak`、`MemoryOrder` | prelude 是一个扁平的命名空间：`Weak` 和 `Ordering` 已被占用。 |
+| 基于 `u64` / `u128` 的 `Duration` | 基于 `i64` 的 `Duration`，`as_millis() -> i64` | 没有 128 位整数，并且负的时间跨度可以表示。 |
+| `serde_json::from_str`、`to_string` | `parse`、`stringify`（`json`、`toml`） | 所有文本格式使用同一对动词。 |
+| `x.sqrt()` | `import("std/math");` | 该导入会注册浮点方法；此模块不导出任何名称。 |
+
+无法解析的 Rust 名称（E0401）会在帮助信息中给出对应的 Yo 写法及其 import。
