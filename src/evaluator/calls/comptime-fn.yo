@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, register_struct_ctor_value, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr-info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, no_type_lists, t_slot_pointee, SharedList } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags, is_substituted_shell, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, stamp_enum_final_type_arguments, stamp_struct_final_type_arguments, ctor_phantom_flags, is_substituted_shell, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
@@ -1531,6 +1531,7 @@ evaluate_comptime_fn_call :: (
         // Mirror the shared-object stamp for copies that predate this one
         // (self-recursive shells, memoized embedders) — see expr-info.yo.
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
+        stamp_struct_final_type_arguments(sid.clone(), &inst_type_args);
         register_struct_ctor_value(&func_id_str, function_value);
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         Rc.new(

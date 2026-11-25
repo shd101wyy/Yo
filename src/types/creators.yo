@@ -1057,6 +1057,23 @@ register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
     bump_type_key_epoch();
   });
 });
+/// The type arguments a generic struct instance was stamped with, by struct
+/// id (the comptime-fn call site; the first stamp wins). The struct-final
+/// registry keeps the definition's final as it was built, without them;
+/// `substitute` reads this to know which arguments a recursive struct's
+/// self-shell stands for (VERDICTS-77, step 3).
+(g_struct_final_args : RefCell(HashMap(String, SharedList(TypeValue)))) = RefCell(HashMap(String, SharedList(TypeValue))).new(HashMap(String, SharedList(TypeValue)).new());
+stamp_struct_final_type_arguments :: (fn(struct_id : &String, args : &SharedList(TypeValue)) -> unit)({
+  if((struct_id.len() > usize(0)) && (args.len() > usize(0)) && !g_struct_final_args.with({ struct_id : &struct_id.* }(m) => m.contains_key(struct_id)), {
+    sfa_key := struct_id.clone();
+    sfa_val := Rc.clone(args);
+    _prev := g_struct_final_args.with_mut({ sfa_key, sfa_val : Rc.clone(sfa_val) }(m) => m.insert(sfa_key, sfa_val));
+  });
+});
+/// The type arguments stamped for struct id `struct_id`, or none.
+struct_final_type_arguments :: (fn(struct_id : &String) -> SharedList(TypeValue))(
+  match(g_struct_final_args.with({ struct_id : &struct_id.* }(m) => m.get_cloned(struct_id)), .Some(a) => a, .None => no_types())
+);
 /// Resolve an empty-field Struct shell to its finalized form (no-op for
 /// non-structs, populated structs, and unknown ids). A substituted shell (one
 /// carrying a list, see `g_shell_subst_finals`) resolves to the substituted
@@ -1264,7 +1281,7 @@ export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(UNFRAMED_BINDER_LEVEL);
 export(stamp_enum_final_type_arguments, enum_phantom_positions, register_ctor_phantom_positions, ctor_phantom_flags);
 export(register_struct_final, resolve_struct_shell);
-export(enum_final_recorded_args, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_base_final, is_substituted_shell, shell_with_list);
+export(stamp_struct_final_type_arguments, struct_final_type_arguments, enum_final_recorded_args, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_base_final, is_substituted_shell, shell_with_list);
 export(register_type_binding_name, type_binding_name, clear_type_binding_names);
 export(
   generate_some_type_id,
