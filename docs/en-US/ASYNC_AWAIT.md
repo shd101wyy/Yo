@@ -254,6 +254,25 @@ main :: (fn(io : Io) -> unit)({
 // Dropping/disposing the Future frees the state machine.
 ```
 
+A future is already type-erased behind that pointer, so `Future` cannot be listed in a `Dyn`:
+`Dyn(Future(T, E))` is E0614 in every position. One future is typed `Impl(Future(T, E))` (a
+parameter, a result or a struct field). Several different tasks go into one collection as their
+handles: spawn each and keep an `ArrayList(JoinHandle(T))`, which `join_all` and `race` take.
+
+```yo
+{ ArrayList } :: import("std/collections/array-list");
+{ join_all } :: import("std/async");
+one :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(1)));
+add :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async({ n }(io : Io) => (n + i32(1))));
+main :: (fn(io : Io) -> unit)({
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
+  hs.push(io.spawn(one(io), io));
+  hs.push(io.spawn(add(i32(41), io), io));
+  rs := io.await(join_all(hs, io), io); // ArrayList(Option(i32)): .Some(1), .Some(42)
+});
+export(main);
+```
+
 #### Future with Effects
 
 `Future(T)` can carry algebraic-effect information. The shape is:
@@ -549,14 +568,24 @@ cancelled with it.
 - A pending I/O operation or timer is cancelled at the OS level, where the
   backend has a cancel path (timers everywhere; on Linux the epoll and
   io_uring descriptor and datagram operations; on macOS the kqueue-parked
-  descriptor operations). An operation without one runs to completion, and
-  the task stays aborted.
+  descriptor operations; on Windows the socket operations). An operation
+  without one runs to completion, and the task stays aborted.
+- The task is released only when no operation can touch its memory any
+  more. epoll and kqueue take the operation back at once. io_uring and
+  Windows only request the cancellation, and the kernel keeps writing into
+  the buffer it was given until it reports the operation done. Until then the
+  task, and every task awaiting it, stays allocated with its locals. The
+  task's state reads `Aborted` from the abort on, and a `JoinHandle.await` or
+  join of it returns once the operation is done: one turn of the event loop
+  for a cancelled read. An operation without a cancel path holds the task
+  until it completes.
 - A child Future the task was awaiting is aborted in turn, recursively, when
   the task started it: an anonymous `io.await(child(io), io)`, or a named
   future this await cold-started. A named future someone else started may be
   shared with other awaiters, so it keeps running.
 - A raw `IoFuture` spawned directly is cancelled the same way, and its handle
-  keeps reading `.None` after the operation's time.
+  keeps reading `.None` after the operation's time. Its buffer belongs to
+  whoever passed the pointer: keep it alive until the operation is done.
 - A task parked on a `Mutex` or `Channel` leaves its queue. The next `unlock`
   or `send` skips the dead waiter and hands the lock or the message to a live
   one; a task the lock was already handed to passes it on to the next waiter
@@ -923,7 +952,8 @@ handles (§3.13 A4 of `plans/VALUES_BY_DEFAULT.md`; Tokio's `time::timeout` and
 Each operand is a `Future(T, Io)` and runs as a **scoped child task**. The loser, or
 an operand past its deadline, is aborted, and every operand is joined before
 the combinator resolves; if the combinator's own Future is aborted or dropped
-first, dropping it aborts its operands. An aborted task never resumes, so an
+first, dropping it aborts its operands. An aborted task never resumes, and
+its join returns only after the operation it was suspended in is done, so an
 operand may be a borrowing Future: its borrow ends when the call does.
 
 ```yo

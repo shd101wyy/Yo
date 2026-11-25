@@ -52,3 +52,9 @@ has not been pinned down yet.
 
 Pass the closure to a generic `Impl(Fn(...) -> Impl(Future(...)))` parameter,
 or name the function (`mk :: (fn(k : i32, io : Io) -> Impl(Future(i32, Io)))(...)`).
+
+## Fix (2026-11-25)
+
+The local adopted the closure literal's bare function type: `src/evaluator/values/anonymous-function.yo` lets a closure take on its expected `Impl(Fn(...))` wrapper, resolved to its capture struct, only when the `Fn` result is concrete or an unresolved `Impl(Fn(...))`. An `Impl(Future(...))` result now passes that gate too, so the local is the capture struct and the call goes through `impl_closure_call_map`. Same change as `issues/fixed/2026-11-25-a-closure-returning-a-future-behind-a-box-dyn-fn-is-called-through-a-zeroed-stub.md`.
+
+Test: `tests/async-await.test.yo`, "an Impl(Fn) local whose result is a future holds its closure" (the reproducer above, ASan). It fails in clang with the v0.2.79 seed (`initializing 'void *' with an expression of incompatible type`).

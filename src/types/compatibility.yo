@@ -290,14 +290,6 @@ _future_trait_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
       });
       Option(TypeValue).None
     },
-    // A `Dyn(Future(...))` slot: the future trait among its required traits.
-    Rc(.DynT(required_trait_types : drt)) => {
-      (i : usize) = usize(0);
-      while(i < drt.len(), i = (i + usize(1)), {
-        match(drt.get(i), .Some(Rc(.FutureTraitT(base_name : _))) => return(drt.get(i)), _ => ());
-      });
-      Option(TypeValue).None
-    },
     _ => Option(TypeValue).None
   )
 );
@@ -367,6 +359,16 @@ future_view_explanation :: (fn(actual : &TypeValue, expected : &TypeValue) -> St
   );
   `The future's body takes ${reads} from the effect bundle, and \`Future(${out_s})\` names no bundle: an await or spawn through it would inject nothing. Name the bundle: \`Impl(Future(${out_s}, ${bundle_s}))\`.`
 });
+/// How an `Impl(...)` static-dispatch error (E0902) ends: `dyn_hint` names
+/// `Dyn(...)`, except for an `Impl(Future(T, E))`. A future cannot be a
+/// `Dyn` (VERDICTS-80, E0614), so that hint names the `JoinHandle`.
+impl_dispatch_hint :: (fn(impl_ty : &TypeValue, dyn_hint : &String) -> String)(
+  match(
+    _future_trait_of(&resolve_cell_chain(impl_ty)),
+    .Some(Rc(.FutureTraitT(output : o))) => `A future cannot be a \`Dyn\`: to keep several different tasks, spawn each and keep its handle, \`JoinHandle(${type_to_string(&o)})\` (\`io.spawn(f, io)\`).`,
+    _ => dyn_hint.clone()
+  )
+);
 _compat_impl :: (
   fn(
     actual : &TypeValue,
@@ -1790,4 +1792,4 @@ are_types_compatible_invariant :: (fn(actual : &TypeValue, expected : &TypeValue
 are_function_types_compatible :: (fn(actual : &TypeValue, expected : &TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Flow, ArrayList(String).new())
 );
-export(are_types_compatible, are_types_compatible_exact, are_types_compatible_invariant, are_function_types_compatible, set_compat_type_implements_trait_fn, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation);
+export(are_types_compatible, are_types_compatible_exact, are_types_compatible_invariant, are_function_types_compatible, set_compat_type_implements_trait_fn, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation, impl_dispatch_hint);
