@@ -11,10 +11,12 @@ Filed 2026-11-25 by the dyn-future-reject lane. VERDICTS-80 measured this progra
 { ArrayList } :: import("std/collections/array-list");
 { yield } :: import("std/async");
 one :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(1)));
-two :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async({ n }(io : Io) => {
-  io.await(yield(io), io);
-  (n + i32(1))
-}));
+two :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ n }(io : Io) => {
+    io.await(yield(io), io);
+    n + i32(1)
+  })
+);
 Job :: struct(fut : Impl(Future(i32, Io)));
 run :: (fn(sink(j) : Job, io : Io) -> i32)(match(j, Job(fut : f) => io.await(f, io)));
 main :: (fn(io : Io) -> unit)({
@@ -22,10 +24,14 @@ main :: (fn(io : Io) -> unit)({
   jobs.push(Job(fut : one(io)));
   jobs.push(Job(fut : two(i32(41), io)));
   while(true, {
-    match(jobs.pop(), .Some(j) => {
-      v := run(j, io);
-      println(&v);
-    }, .None => break);
+    match(
+      jobs.pop(),
+      .Some(j) => {
+        v := run(j, io);
+        println(&v);
+      },
+      .None => break
+    );
   });
 });
 export(main);
