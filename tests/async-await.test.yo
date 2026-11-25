@@ -8427,3 +8427,17 @@ test("a closure returning a future behind a Box(Dyn(Fn)) is called and awaited",
   assert(io.await(mk3(io), io) == i32(7), "a capturing closure");
   assert(io.await(mk3(io), io) == i32(7), "called twice");
 });
+// A typed `Impl(Fn(...) -> Impl(Future(...)))` local holding a closure: the
+// local is the closure's capture struct, and the call goes through the
+// closure's function. It was declared `void*` and called through a function
+// pointer cast
+// (issues/fixed/an-impl-fn-local-returning-a-future-is-declared-as-a-void-pointer.md).
+test("an Impl(Fn) local whose result is a future holds its closure", {
+  (mk : Impl(Fn(k : i32, io : Io) -> Impl(Future(i32, Io)))) = (
+    (k : i32, io : Io) => io.async((io : Io) => {
+      io.await(yield(io), io);
+      k
+    })
+  );
+  assert(io.await(mk(i32(42), io), io) == i32(42), "the closure ran");
+});
