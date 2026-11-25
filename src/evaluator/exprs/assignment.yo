@@ -71,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
 { TypeValue, t_refine_inner, no_labels, t_reference, t_reference_with_origin, t_slot_is_borrow } :: import("../../types/definitions.yo");
-{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ are_types_compatible, impl_dispatch_hint } :: import("../../types/compatibility.yo");
 {
   is_comptime_int_type,
   is_comptime_float_type,
@@ -2891,7 +2891,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       ra_entries.push(
         TokenAndError(
           token : ast_expr_token(&lhs_resolved),
-          error_message : `Cannot reassign variable "${variable_name}" of type Impl(...).\nImpl(...) uses static dispatch and the concrete type is fixed at first assignment.\nConsider using Dyn(...) for dynamic dispatch if you need to reassign to different implementations.`
+          error_message : `Cannot reassign variable "${variable_name}" of type Impl(...).\nImpl(...) uses static dispatch and the concrete type is fixed at first assignment.\n${impl_dispatch_hint(&variable_value_type(&updated_variable), &String.from("Consider using Dyn(...) for dynamic dispatch if you need to reassign to different implementations."))}`
         )
       );
       ra_entries.push(
