@@ -12630,10 +12630,15 @@ store_through_mut_join :: (fn(targets : &ArrayList(OriginRootPlace), own : &Stri
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] store-through ${own}: holders=${holders.len().to_string()} value=${ast_expr_to_string(value)}`);
   });
+  // A lend stored through the reference (`rp.* = &y`, VERDICTS-78 Q1) is
+  // no re-point of `rp`'s target: `bind_join` leaves a bare lend to the
+  // re-point's own machinery, so it GENs here as any other target does.
+  value_bare := _unlabeled_value(value);
+  value_is_lend := (ast_expr_is_fn_call_of(&value_bare, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_bare, BK_BORROW_MUT, Option(usize).Some(usize(1))));
   (hi : usize) = usize(0);
   while(hi < holders.len(), {
     hv := holders(hi).clone();
-    if((holders.len() == usize(1)) && match(whole.get(usize(0)), .Some(w) => w, .None => false), {
+    if((holders.len() == usize(1)) && match(whole.get(usize(0)), .Some(w) => w, .None => false) && !value_is_lend, {
       bind_join(&hv, value, env, ctx, exn);
     }, {
       place_write_join(&hv, value, env, ctx, exn);
