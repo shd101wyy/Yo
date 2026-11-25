@@ -13,7 +13,10 @@ pragma(Pragma.AllowUnsafe);
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
-{ t_dyn } :: import("./creators.yo");
+{ t_dyn, shell_base_final, shell_subst_key, shell_subst_final, register_shell_subst_final, shell_with_list, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
+{ RefCell } :: import("std/sync/refcell");
 { resolve_cell_chain, get_all_some_types } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
 // ---------------------------------------------------------------------------
@@ -611,9 +614,10 @@ _subst_trait_fields_with :: (fn(s : &mut Substitution, fts : &ArrayList(TypeValu
   });
   new_fts
 });
-/// The Struct arm's body under the substitution the arm chose.
+/// The Struct arm's body under the substitution the arm chose. A recursive
+/// struct's self-shell goes through `_subst_shell`.
 _subst_struct_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
-  match(
+  if(shell_base_final(ty).is_some(), _subst_shell(s, ty), match(
     ty,
     Rc(.Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns })) => {
       new_types := _subst_list(s, &types.*);
@@ -626,11 +630,12 @@ _subst_struct_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
       Rc.new(TypeValueNode.Struct(id.clone(), name.clone(), Rc.clone(labels), new_types, is_ref.*, is_atomic.*, is_nt.*, cfid.clone(), new_tyargs, is_sns.*))
     },
     _ => Rc.clone(ty)
-  )
+  ))
 );
-/// The EnumT arm's body under the substitution the arm chose.
+/// The EnumT arm's body under the substitution the arm chose. A recursive
+/// enum's self-shell goes through `_subst_shell`.
 _subst_enum_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
-  match(
+  if(shell_base_final(ty).is_some(), _subst_shell(s, ty), match(
     ty,
     Rc(.EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas)) => {
       new_variant_fields := ArrayList(SharedList(TypeValue)).new();
@@ -657,8 +662,161 @@ _subst_enum_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
       Rc.new(TypeValueNode.EnumT(id.clone(), name.clone(), Rc.clone(variant_names), if(vf_changed, shared_list(new_variant_fields), Rc.clone(variant_fields)), svn.clone(), Rc.clone(vfl), Rc.clone(discs), eirs.*, eiar.*, new_etas))
     },
     _ => Rc.clone(ty)
-  )
+  ))
 );
+/// `s` applied to a recursive type's self-shell (VERDICTS-77, I1): the
+/// self-reference inside `σ(N)` denotes `σ(N)`. The shell's list
+/// (`_shell_list`) is mapped through `s`; an unchanged list keeps the shell.
+/// Otherwise the shell's final under `s` is registered once for the new list
+/// (`register_shell_subst_final`) and the shell carrying that list is
+/// returned. The final is computed by this same walk, so the shell met again
+/// inside it is answered by the in-progress mark and the walk terminates.
+_subst_shell :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)({
+  sh_id := match(ty, Rc(.EnumT({ id : eid })) => eid.clone(), Rc(.Struct({ id : sid })) => sid.clone(), _ => String.new());
+  (list, list_key) := _shell_list(ty);
+  if(list.len() == usize(0), {
+    return(Rc.clone(ty));
+  });
+  changed := _subst_list_changed(s, &list, false);
+  if(changed.is_none(), {
+    return(Rc.clone(ty));
+  });
+  new_list := shared_list(match(changed, .Some(nl) => nl, .None => ArrayList(TypeValue).new()));
+  new_key := shell_subst_key(&sh_id, &new_list);
+  if(new_key == list_key, {
+    return(Rc.clone(ty));
+  });
+  out := shell_with_list(ty, &new_list);
+  if(shell_subst_final(&new_key).is_some() || g_shell_subst_in_progress.with({ &new_key }(m) => m.contains(new_key)), {
+    return(out);
+  });
+  _ins := g_shell_subst_in_progress.with_mut({ k : new_key.clone() }(m) => m.insert(k));
+  cur := resolve_enum_shell(resolve_struct_shell(ty));
+  fin := _substitute_at(s, &cur, false);
+  register_shell_subst_final(&new_key, &fin);
+  _rm := g_shell_subst_in_progress.with_mut({ &new_key }(m) => m.remove(new_key));
+  out
+});
+/// Registry keys of substituted shells whose final is being computed.
+(g_shell_subst_in_progress : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// A constructor shell's list per (shell id, recorded-argument count): its
+/// final is fixed once registered, and only the stamp of its type arguments
+/// (`stamp_enum_final_type_arguments`) changes what it records.
+(g_shell_base_lists : RefCell(HashMap(String, SharedList(TypeValue)))) = RefCell(HashMap(String, SharedList(TypeValue))).new(HashMap(String, SharedList(TypeValue)).new());
+/// The list a shell stands for and its registry key: the list the shell
+/// carries, or, on a constructor's shell (an empty list), its final's
+/// recorded type arguments followed by the final's free type variables
+/// those do not mention (VERDICTS-77, correction 2: the recorded arguments
+/// of an enum built by a constructor nested in another determine its
+/// payloads only together with the outer constructor's variables).
+_shell_list :: (fn(ty : &TypeValue) -> Tuple(SharedList(TypeValue), String))({
+  sh_id := match(ty, Rc(.EnumT({ id : eid })) => eid.clone(), Rc(.Struct({ id : sid })) => sid.clone(), _ => String.new());
+  carried := match(ty, Rc(.EnumT({ type_arguments : etas })) => Rc.clone(etas), Rc(.Struct({ type_arguments : stas })) => Rc.clone(stas), _ => no_types());
+  if(carried.len() > usize(0), {
+    return((Rc.clone(carried), shell_subst_key(&sh_id, &carried)));
+  });
+  base := match(shell_base_final(ty), .Some(b) => b, .None => Rc.clone(ty));
+  recorded := match(&base, Rc(.EnumT({ type_arguments : retas })) => Rc.clone(retas), Rc(.Struct({ type_arguments : rstas })) => Rc.clone(rstas), _ => no_types());
+  cache_key := `${sh_id}#${recorded.len().to_string()}`;
+  list := match(
+    g_shell_base_lists.with({ &cache_key }(m) => m.get_cloned(cache_key)),
+    .Some(l) => l,
+    .None => {
+      mut(out) := ArrayList(TypeValue).new();
+      (ri : usize) = usize(0);
+      while(ri < recorded.len(), {
+        match(recorded.get(ri), .Some(ra) => out.push(ra), .None => ());
+        ri = (ri + usize(1));
+      });
+      mut(free) := ArrayList(TypeValue).new();
+      mut(free_seen) := ArrayList(String).new();
+      _shell_free_vars(&base, &mut free, &mut free_seen);
+      (fi : usize) = usize(0);
+      while(fi < free.len(), {
+        fv := match(free.get_cloned(fi), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
+        fv_id := match(&fv, Rc(.SomeT({ id : fid })) => fid.clone(), _ => String.new());
+        (mentioned : bool) = false;
+        (rj : usize) = usize(0);
+        while((rj < recorded.len()) && !mentioned, {
+          mentioned = match(recorded.get(rj), .Some(ra) => _type_mentions_some_id(&ra, &fv_id), .None => false);
+          rj = (rj + usize(1));
+        });
+        if(!mentioned, {
+          out.push(fv);
+        });
+        fi = (fi + usize(1));
+      });
+      l := shared_list(out);
+      bl_key := cache_key.clone();
+      g_shell_base_lists.with_mut({ bl_key, l : Rc.clone(l) }(m) => m.insert(bl_key, l));
+      l
+    }
+  );
+  key := shell_subst_key(&sh_id, &list);
+  (list, key)
+});
+/// The distinct free type variables of `ty` (by `SomeT` id), through
+/// fields, payloads, elements, pointees, parameters and type arguments.
+/// `seen` holds the named types already walked and the variables already
+/// collected; a shell is walked as its final.
+_shell_free_vars :: (fn(ty_in : &TypeValue, acc : &mut ArrayList(TypeValue), seen : &mut ArrayList(String)) -> unit)({
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  match(
+    &ty,
+    Rc(.SomeT({ id : fv_id, resolution : fv_res })) => {
+      tok := `T:${fv_id}`;
+      if(!seen.contains(&tok), {
+        seen.push(tok);
+        match(fv_res, .Some(_) => (), .None => acc.push(Rc.clone(&ty)));
+      });
+    },
+    Rc(.Struct({ id : st_id, field_types : st_fts, type_arguments : st_tas })) => {
+      tok := `S:${st_id}`;
+      if(!seen.contains(&tok), {
+        seen.push(tok);
+        _shell_free_vars_list(&st_tas.*, acc, seen);
+        _shell_free_vars_list(&st_fts.*, acc, seen);
+      });
+    },
+    Rc(.EnumT(en_id, _, _, en_vfs, _, _, _, _, _, en_tas)) => {
+      tok := `E:${en_id}`;
+      if(!seen.contains(&tok), {
+        seen.push(tok);
+        _shell_free_vars_list(&en_tas.*, acc, seen);
+        (vi : usize) = usize(0);
+        while(vi < en_vfs.len(), {
+          match(en_vfs.get(vi), .Some(vf) => _shell_free_vars_list(&vf, acc, seen), .None => ());
+          vi = (vi + usize(1));
+        });
+      });
+    },
+    Rc(.Pointer(pt)) => recur(&pt.*, acc, seen),
+    Rc(.Reference(rp, _, _)) => recur(&rp.*, acc, seen),
+    Rc(.ValueSlot(vs)) => recur(&vs.*, acc, seen),
+    Rc(.SliceT(sl)) => recur(&sl.*, acc, seen),
+    Rc(.Array(el, _, _)) => recur(&el.*, acc, seen),
+    Rc(.ComptimeListT(cl)) => recur(&cl.*, acc, seen),
+    Rc(.Tuple(_, tts)) => _shell_free_vars_list(&tts.*, acc, seen),
+    Rc(.Union(_, _, uts)) => _shell_free_vars_list(&uts.*, acc, seen),
+    Rc(.TypeAppT(con, targs)) => {
+      recur(&con.*, acc, seen);
+      _shell_free_vars_list(&targs.*, acc, seen);
+    },
+    Rc(.Func({ forall_types : fts, param_types : pts, result : ret })) => {
+      _shell_free_vars_list(&fts.*, acc, seen);
+      _shell_free_vars_list(&pts.*, acc, seen);
+      recur(&ret.*, acc, seen);
+    },
+    _ => ()
+  );
+});
+_shell_free_vars_list :: (fn(xs : &SharedList(TypeValue), acc : &mut ArrayList(TypeValue), seen : &mut ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    match(xs.get(i), .Some(x) => _shell_free_vars(&x, acc, seen), .None => ());
+    i = (i + usize(1));
+  });
+});
 _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)(
   // P2 hash-consing: intern each substitution result. `substitute` recurses via
   // `_substitute_at`, so wrapping the body interns EVERY level bottom-up → shared subtrees

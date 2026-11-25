@@ -22,6 +22,8 @@
 { debug_knob } :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { RefCell } :: import("std/sync/refcell");
+{ HashSet } :: import("std/collections/hash-set");
+{ type_intern_key } :: import("./intern.yo");
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
 // ---------------------------------------------------------------------------
@@ -890,13 +892,24 @@ register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
   });
 });
 /// Resolve an empty-variant EnumT shell to its finalized form (no-op for
-/// non-enums, populated enums, and unknown ids).
+/// non-enums, populated enums, and unknown ids). A substituted shell (one
+/// carrying a list, see `g_shell_subst_finals`) resolves to the substituted
+/// final registered for its list.
 resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.EnumT(eid, _, vns, _, _, _, _, _, _, _)) => {
+    Rc(.EnumT(eid, _, vns, _, _, _, _, _, _, etas)) => {
       if(vns.len() > usize(0), {
         return(Rc.clone(t));
+      });
+      if(etas.len() > usize(0), {
+        match(
+          shell_subst_final(&shell_subst_key(&eid.*, &etas.*)),
+          .Some(sf) => {
+            return(sf);
+          },
+          .None => ()
+        );
       });
       match(g_enum_finals.with({ eid : &eid.* }(m) => m.get_cloned(eid)), .Some(f) => f, .None => Rc.clone(t))
     },
@@ -1030,14 +1043,114 @@ register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
   });
 });
 /// Resolve an empty-field Struct shell to its finalized form (no-op for
-/// non-structs, populated structs, and unknown ids).
+/// non-structs, populated structs, and unknown ids). A substituted shell (one
+/// carrying a list, see `g_shell_subst_finals`) resolves to the substituted
+/// final registered for its list.
 resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.Struct({ id : sid, field_types : fts })) => cond(
+    Rc(.Struct({ id : sid, field_types : fts, type_arguments : stas })) => cond(
       (fts.len() > usize(0)) => Rc.clone(t),
-      true => match(g_struct_finals.with({ sid : &sid.* }(m) => m.get_cloned(sid)), .Some(f) => f, .None => Rc.clone(t))
+      true => match(
+        g_struct_finals.with({ sid : &sid.* }(m) => m.get_cloned(sid)),
+        .Some(f) => cond(
+          ((stas.len() > usize(0)) && _struct_has_fields(&f)) => match(shell_subst_final(&shell_subst_key(&sid.*, &stas.*)), .Some(sf) => sf, .None => f),
+          true => f
+        ),
+        .None => Rc.clone(t)
+      )
     ),
+    _ => Rc.clone(t)
+  )
+);
+_struct_has_fields :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Struct({ field_types : fts })) => (fts.len() > usize(0)), _ => false));
+// Substituted self-shells (VERDICTS-77, I1). A recursive instance refers to
+// itself through its self-shell, which the registries above resolve BY ID to
+// the final its constructor registered. `substitute` (types/substitution.yo)
+// therefore maps a shell to a copy carrying a LIST in its `type_arguments`
+// slot (empty on a constructor's shell): the images of the final's recorded
+// type arguments, followed by the images of the final's free type variables
+// those do not mention. It registers here, once per (shell id, list), the
+// substituted final that copy resolves to, so the self-reference inside
+// `σ(N)` denotes `σ(N)` and not `N` with its variables open
+// (issues/fixed/2026-11-20-an-untyped-trait-member-literal-on-a-generic-box-self-enum-emits-mismatched-c-types.md).
+// The list covers every free variable, so it determines the substituted
+// final: two substitutions that agree on it give one type.
+(g_shell_subst_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
+/// The registry key of shell `shell_id` carrying `list`: the id, then each
+/// element's structural key (`type_intern_key`), length-prefixed so the
+/// concatenation is unambiguous.
+shell_subst_key :: (fn(shell_id : &String, list : &SharedList(TypeValue)) -> String)({
+  key := shell_id.clone();
+  (i : usize) = usize(0);
+  while(i < list.len(), {
+    match(
+      list.get(i),
+      .Some(el) => {
+        ek := type_intern_key(&el, usize(0), HashSet(String).new());
+        key.push_str("#");
+        key.push_string(ek.len().to_string());
+        key.push_str(":");
+        key.push_string(&ek);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  key
+});
+/// The substituted final registered under `key` (`shell_subst_key`).
+shell_subst_final :: (fn(key : &String) -> Option(TypeValue))(
+  g_shell_subst_finals.with({ key : &key.* }(m) => m.get_cloned(key))
+);
+/// Register the substituted final for `key`; the first registration wins.
+register_shell_subst_final :: (fn(key : &String, ty : &TypeValue) -> unit)({
+  if(g_shell_subst_finals.with({ key : &key.* }(m) => m.get_cloned(key)).is_none(), {
+    ssf_key := key.clone();
+    ssf_val := Rc.clone(ty);
+    g_shell_subst_finals.with_mut({ ssf_key, ssf_val : Rc.clone(ssf_val) }(m) => m.insert(ssf_key, ssf_val));
+    bump_type_key_epoch();
+  });
+});
+/// The final a self-shell's id names in its registry: an empty-variant
+/// enum's `g_enum_finals` entry, an empty-field struct's `g_struct_finals`
+/// entry when that final has fields (a struct declared with no fields is its
+/// own final, not a shell). `.None` for any other type and for a shell whose
+/// declaration has not finished.
+shell_base_final :: (fn(t : &TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    Rc(.EnumT(eid, _, vns, _, _, _, _, _, _, _)) => cond(
+      (vns.len() > usize(0)) => Option(TypeValue).None,
+      true => g_enum_finals.with({ eid : &eid.* }(m) => m.get_cloned(eid))
+    ),
+    Rc(.Struct({ id : sid, field_types : fts })) => cond(
+      (fts.len() > usize(0)) => Option(TypeValue).None,
+      true => match(
+        g_struct_finals.with({ sid : &sid.* }(m) => m.get_cloned(sid)),
+        .Some(f) => if(_struct_has_fields(&f), Option(TypeValue).Some(f), Option(TypeValue).None),
+        .None => Option(TypeValue).None
+      )
+    ),
+    _ => Option(TypeValue).None
+  )
+);
+/// Whether `t` is a substituted self-shell: a shell (`shell_base_final`)
+/// carrying a non-empty list.
+is_substituted_shell :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t,
+    Rc(.EnumT({ type_arguments : etas })) => ((etas.len() > usize(0)) && shell_base_final(t).is_some()),
+    Rc(.Struct({ type_arguments : stas })) => ((stas.len() > usize(0)) && shell_base_final(t).is_some()),
+    _ => false
+  )
+);
+/// Shell `t` carrying `list` in its `type_arguments` slot.
+shell_with_list :: (fn(t : &TypeValue, list : &SharedList(TypeValue)) -> TypeValue)(
+  match(
+    t,
+    Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, _)) => Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs.*, eiar.*, Rc.clone(list))),
+    Rc(.Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : sirs, is_atomic_rc : siar, is_newtype : sint, constructor_func_id : scfid, is_source_namespace : sisn })) => Rc.new(TypeValueNode.Struct(sid.clone(), snm.clone(), Rc.clone(sfl), Rc.clone(sft), sirs.*, siar.*, sint.*, scfid.clone(), Rc.clone(list), sisn.*)),
     _ => Rc.clone(t)
   )
 );
@@ -1137,6 +1250,7 @@ export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(UNFRAMED_BINDER_LEVEL);
 export(stamp_enum_final_type_arguments, enum_phantom_positions, register_ctor_phantom_positions, ctor_phantom_flags);
 export(register_struct_final, resolve_struct_shell);
+export(shell_subst_key, shell_subst_final, register_shell_subst_final, shell_base_final, is_substituted_shell, shell_with_list);
 export(register_type_binding_name, type_binding_name, clear_type_binding_names);
 export(
   generate_some_type_id,
