@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
   is_legacy_value_str
 }
 :: import("../../types/utils.yo");
-{ is_implicitly_unsafe_capable_file, is_macro_def_capable_file, is_std_module_path } :: import("../memory-safety.yo");
+{ is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory-safety.yo");
 { subst_new, subst_add, subst_adopt_own_resolution, substitute, Substitution } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
   convert_comptime_type_to_runtime_type_with_expected
 } :: import("../../types/env-lookup.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
+{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
@@ -1068,9 +1068,10 @@ _is_binder_declared :: (fn(ty : &TypeValue, type_expr : &Option(AstExpr)) -> boo
 is_origin_qualified_reference_expr :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(2)))
 );
-/// E0922 for an origin position at `at`.
+/// An origin-position error at `at`: the second argument of `&(T, o)` /
+/// `&mut(T, o)` is not a well-formed origin.
 _origin_error :: (fn(at : &AstExpr, msg : &String, help : &String) -> YoError)(
-  with_code(format_error_message_with_help(ast_expr_token(at), msg, Option(String).Some(help.clone())), E_ORIGIN_NOT_DECLARED)
+  format_error_message_with_help(ast_expr_token(at), msg, Option(String).Some(help.clone()))
 );
 /// `names` holds `name`.
 _names_contain :: (fn(names : &ArrayList(String), name : &String) -> bool)({
@@ -1092,45 +1093,19 @@ _origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
 });
 /// `static`, the empty origin (decision 49): a reference that borrows no
 /// place, as a literal's `&(str, static)`. It adds no name to an origin set,
-/// and the set it leaves is `static` (`t_origin_static`).
+/// and the set it leaves is `static` (`t_origin_static`). It is spelled in
+/// any file (VERDICTS-74 rule 5): the position is CHECKED — only `static`
+/// values may flow into it (rule 2) — and `static` is reserved in origin
+/// position, so a binding named `static` does not name a place.
 _is_static_origin_spelling :: (fn(e : &AstExpr) -> bool)(ast_expr_is_atom(e) && (ast_expr_text(e).* == "static"));
-/// E0922 for the empty origin spelled outside std and unsafe-capable files:
-/// `static`, a union holding it, or the empty union `()` (VERDICTS-57 §1).
-/// Until v0.2.78's rule (P12) no check compares a value's origin with a
-/// `static` position, so a reference typed over it would accept a reference
-/// to any place and freeze nothing; there it is an unchecked assertion
-/// (issues/2026-11-11-a-static-origin-in-a-pragmad-file-is-an-unchecked-assertion-until-v0278.md).
-/// `static` is reserved in origin position: a binding named `static` does
-/// not lift the wall.
-_reject_empty_origin_in_safe_code :: (fn(e : &AstExpr, std_path : &String, exn : Exception) -> unit)({
-  mp := ast_expr_token(e).*.module_path.*.clone();
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(mp.clone())) || is_std_module_path(&mp, std_path), {
-    return(());
-  });
-  subject := if(_is_static_origin_spelling(e), String.from("The empty origin `static` is"), `\`${ast_expr_to_string(e)}\` is the empty origin \`static\`, which is`);
-  exn.throw(
-    dyn(
-      Box.new(
-        _origin_error(
-          e,
-          `${subject} not available in safe code: it is unchecked, so a reference typed over it would accept a reference to any place and freeze nothing.`,
-          String.from("elide the origin (`&T`) or name the place the reference points into (`&(T, x)`); only std and a file that declares `pragma(Pragma.AllowUnsafe);` may spell `static`, as an unchecked assertion")
-        )
-      )
-    )
-  );
-});
 /// Collect the origin names `e` spells into `out`: an origin parameter
 /// declared by the signature's `generic(o : Origin)`, or a union `(o1, o2)`
 /// of them (decision 43 step 2, N1a). In a PARAMETER type an origin names
 /// declared origin parameters only; a parameter's own place is an origin in
-/// the result type. Anything else is E0922.
+/// the result type. Anything else is an error naming the kind.
 _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     o_args := _fn_call_args(e);
-    if(o_args.len() == usize(0), {
-      _reject_empty_origin_in_safe_code(e, &ctx.std_path, exn);
-    });
     (oi : usize) = usize(0);
     while(oi < o_args.len(), {
       match(o_args.get_cloned(oi), .Some(oa) => _origin_names_into(&oa, env, ctx, out, exn), .None => ());
@@ -1139,7 +1114,6 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
     return(());
   });
   if(_is_static_origin_spelling(e), {
-    _reject_empty_origin_in_safe_code(e, &ctx.std_path, exn);
     return(());
   });
   o_text := ast_expr_to_string(e);
@@ -1240,14 +1214,11 @@ _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
 /// constructor, `generic(p : Origin)` on a function) or a binding's place (a
 /// local, a parameter or a module-level binding: a place is an origin inside
 /// bodies and at module level); a union `(a, b)` collects both. A type
-/// definition naming its own fields (`self.f`) is E0924; anything else is
-/// E0922.
+/// definition naming its own fields (`self.f`) is E0924; anything else is an
+/// error naming the kind.
 _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     o_args := _fn_call_args(e);
-    if(o_args.len() == usize(0), {
-      _reject_empty_origin_in_safe_code(e, &ctx.std_path, exn);
-    });
     (oi : usize) = usize(0);
     while(oi < o_args.len(), {
       match(o_args.get_cloned(oi), .Some(oa) => _type_origin_names_into(&oa, env, ctx, out, exn), .None => ());
@@ -1256,7 +1227,6 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
     return(());
   });
   if(_is_static_origin_spelling(e), {
-    _reject_empty_origin_in_safe_code(e, &ctx.std_path, exn);
     return(());
   });
   o_text := ast_place_text(e);
@@ -1370,7 +1340,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
 /// origin, `(xs : ArrayList(&(i32, xs))) = …` (decision 43;
 /// plans/backlog/REFERENCES_AND_ORIGINS.md O1 well-formedness). The binding
 /// is not in scope while its own annotation is read, so without this check
-/// the name is E0922's undeclared origin. An outer binding of the same name
+/// the name is an undeclared origin. An outer binding of the same name
 /// is in scope, and the annotation names THAT place, which is well formed.
 reject_annotation_naming_its_binding :: (fn(ann : &AstExpr, name : &String, env : &Environment, exn : Exception) -> unit)(
   if(get_variables_from_env(env, name).len() == usize(0), _reject_origin_naming_binding_in(ann, name, exn))
@@ -1484,7 +1454,8 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
 /// parameter's place (`-> &(T, xs)` for `xs : &T`), an origin parameter of
 /// the enclosing `impl(generic(p : Origin), …)` that a parameter's type
 /// names, or a union `(p, xs)` of them. A by-value parameter's place is the
-/// callee's own frame, which the call ends: E0912. Anything else is E0922.
+/// callee's own frame, which the call ends: E0912. Anything else is an error
+/// naming the kind.
 ///
 /// An impl's origin parameter is Rust's `impl<'p> Entry<'p, …> { fn
 /// or_insert(self) -> &'p mut V }`: a call binds it the way it binds the
@@ -1495,9 +1466,6 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
 _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env : &Environment, std_path : &String, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     r_args := _fn_call_args(e);
-    if(r_args.len() == usize(0), {
-      _reject_empty_origin_in_safe_code(e, std_path, exn);
-    });
     (ri : usize) = usize(0);
     while(ri < r_args.len(), {
       match(r_args.get_cloned(ri), .Some(ra) => _result_origin_names_into(&ra, params, env, std_path, out, exn), .None => ());
@@ -1506,7 +1474,6 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
     return(());
   });
   if(_is_static_origin_spelling(e), {
-    _reject_empty_origin_in_safe_code(e, std_path, exn);
     return(());
   });
   r_text := ast_expr_to_string(e);
@@ -2835,7 +2802,7 @@ use_id :: (fn(generic(T : Type),
       );
     });
   });
-  // The spelled origin of `x : &(T, o)`, kind-directed (E0922 unless `o`
+  // The spelled origin of `x : &(T, o)`, kind-directed (an error unless `o`
   // names declared origin parameters).
   (spelled_origin : Option(TypeValue)) = match(
     spelled_origin_expr,
@@ -5747,6 +5714,17 @@ evaluate_function_type :: (
     mint_vcomptime = params_result.variadic_param.is_compile_time_only;
     vts_mint.push(Rc.clone(params_result.variadic_param.ty));
   });
+  // VERDICTS-74 rule 2: the result SPELLED `-> &(T, static)` (the by-value
+  // static reference slot below) — the flag `return_check` reads; the legacy
+  // `-> str` alias arm does not set it. Computed before the slot's own
+  // match, which moves `return_origin`.
+  (result_spells_static_flag : bool) = (
+    is_return_type_ref && match(
+      &return_origin,
+      .Some(rss_ro) => (is_static_origin(&rss_ro.*) && !is_return_type_mut_ref),
+      .None => false
+    )
+  );
   func_type := Rc.new(
     TypeValueNode.Func(
       shared_list(forall_types),
@@ -5811,7 +5789,11 @@ evaluate_function_type :: (
             &params_result.origin_params,
             .Some(ol) => Option(SharedList(String)).Some(shared_list(ol.clone())),
             .None => Option(SharedList(String)).None
-          )
+          ),
+          // result_spells_static — the result SPELLED `-> &(T, static)`
+          // (VERDICTS-74 rule 2), the by-value static reference slot below;
+          // the legacy `-> str` alias does not set it.
+          result_spells_static : result_spells_static_flag
         )
       ),
       shared_list(vts_mint)

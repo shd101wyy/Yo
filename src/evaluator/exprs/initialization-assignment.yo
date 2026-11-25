@@ -79,7 +79,7 @@
   record_pending_def_variable
 } :: import("../context.yo");
 { EvalValue, EvalValueNode, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names, t_origin_named, t_reference_with_origin, shared_list, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_pointee } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names, t_origin_named, t_origin_static, t_reference_with_origin, shared_list, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -94,7 +94,8 @@
   type_carries_origin,
   no_origin_position_error,
   type_is_sized,
-  unsized_by_value_error
+  unsized_by_value_error,
+  type_spells_checked_static
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env-lookup.yo");
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
@@ -107,7 +108,7 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full, deref_target_type, is_deref_handle } :: import("../trait-checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ reject_dyn_place_by_value, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, binding_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled } :: import("../utils.yo");
+{ reject_dyn_place_by_value, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, binding_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled, _static_module_level, _static_origin_reject } :: import("../utils.yo");
 { is_mut_binding, is_thread_local_binding, owner_deref_object, ast_rewritten_node } :: import("../../expr.yo");
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param, throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 {
@@ -650,22 +651,32 @@ _evaluate_inout_local_binding :: (
     .Some(ao) => {
       ao_names := ArrayList(String).new();
       _type_origin_names_into(&ao, env, ctx, &mut ao_names, exn);
-      if(!ao_names.contains(&root_var.*.name), {
-        exn.throw(
-          dyn(
-            Box.new(
-              with_code(
-                format_error_message(
-                  ast_expr_token(rhs),
-                  `\`${sig}${local_borrow_place_text(rhs)}\` lends \`${root_var.*.name}\`, outside the declared origin \`${ast_expr_to_string(&ao)}\` of \`${var_name}\`.`
-                ),
-                E_ORIGIN_MISMATCH
+      if(ao_names.len() == usize(0), {
+        // VERDICTS-74 rules 2 and 3: the annotation spells the empty origin
+        // (`static`, `()`), which holds only values that borrow no place;
+        // `&G` of an immutable module-level binding is one.
+        if(!_static_module_level(&root_var), {
+          _static_origin_reject(&var_name, &t_reference_with_origin(&place_type, is_mut, &t_origin_static()), &root_var.name, &ast_expr_token(rhs), ctx, exn);
+        });
+        declared_origin = Option(TypeValue).Some(t_origin_static());
+      }, {
+        if(!ao_names.contains(&root_var.*.name), {
+          exn.throw(
+            dyn(
+              Box.new(
+                with_code(
+                  format_error_message(
+                    ast_expr_token(rhs),
+                    `\`${sig}${local_borrow_place_text(rhs)}\` lends \`${root_var.name}\`, outside the declared origin \`${ast_expr_to_string(&ao)}\` of \`${var_name}\`.`
+                  ),
+                  E_ORIGIN_MISMATCH
+                )
               )
             )
-          )
-        );
+          );
+        });
+        declared_origin = Option(TypeValue).Some(t_origin_named(&shared_list(ao_names)));
       });
-      declared_origin = Option(TypeValue).Some(t_origin_named(&shared_list(ao_names)));
     },
     .None => ()
   );
@@ -2529,7 +2540,7 @@ Use \`::\` for compile-time definitions inside impl.`
     // bound to a value whose type carries an origin freezes the places those
     // origins name, from its initialization to its last use — the E0911
     // machinery sees the contract exactly as a `y := &x` binding's.
-    if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&final_lhs_type), {
+    if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some() && (type_carries_origin(&final_lhs_type) || type_spells_checked_static(&final_lhs_type)), {
       bind(expr, &rhs, &var_name, &actual_lhs_tok, &env, ctx, exn);
     });
     if(!effective_is_compile_time_only && type_carries_origin(&final_lhs_type), {

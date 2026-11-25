@@ -57,7 +57,9 @@ pragma(Pragma.AllowUnsafe);
   is_mut_binding,
   ast_rewritten_node,
   for_desugar_site_of,
-  value_tail_mode
+  value_tail_mode,
+  BK_DYN_LOWER,
+  BF_UPCAST
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -149,13 +151,13 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, EvalValueNode, is_unknown_val, is_type_value, is_var_ref, is_func_val, lookup_type_ctor_value, lookup_enum_cfid } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided, origin_names_contain } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, fn_result_spells_static, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided, is_static_origin, origin_names_contain } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
-{ are_types_compatible, are_types_compatible_exact, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation } :: import("../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_exact, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation, impl_dispatch_hint } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message, type_key_epoch } :: import("../types/string.yo");
 { type_identity_slot, type_identity_slot_holds, TYPE_IDENTITY_CACHE_CAP } :: import("../types/type-key.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized, type_spells_checked_static } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
 { is_global_mut_rule_exempt } :: import("./memory-safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -2085,6 +2087,12 @@ note_second_class_binding :: (
     // with the places of its origin frozen until its last use.
     if(bound_by_init, {
       return(());
+    });
+    // VERDICTS-74 rule 2: a slot whose type spells the empty origin
+    // `static` (`Impl(Future(..., static))`) holding a borrowing future is
+    // the static subset violation — the more precise verdict of the two.
+    if(type_spells_checked_static(ty), {
+      _static_origin_reject(&holder.name, ty, &capture_borrow_place_string(&b0), tok, ctx, exn);
     });
     raise_flow_violation(
       with_code(
@@ -5860,7 +5868,7 @@ merge_and_check_envs :: (
                             error_message :
                               `Variable "${base_var.*.name}" has type Impl(...) but different concrete types across branches.
 Impl(...) uses static dispatch and requires the same concrete type in all branches.
-Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`
+${impl_dispatch_hint(&variable_value_type(&base_var), &String.from("Consider using Dyn(...) for dynamic dispatch if different concrete types are needed."))}`
                           )
                         );
                         exn.throw(dyn(Box.new(format_error_messages(&cb_entries))));
@@ -10114,7 +10122,15 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       ),
       _ => false
     );
-    if(!callee_result_may_carry && !root_is_ref_binding, {
+    // A `dyn(...)` or `upcast(...)` re-types its operand's pointer: the
+    // reference-kind one (`dyn(&c)`, `dyn(&mut c)`, an upcast of either)
+    // passed bare to a `&Dyn(T)` parameter is read at its POINTEE's type,
+    // the `Dyn(T)`, in the same positions, while the value the parameter
+    // receives is the reference its operand lends. Its origin is R-COMP's
+    // over that operand below, as at a by-value slot
+    // (issues/fixed/2026-11-25-a-dyn-of-a-place-passed-to-a-reference-parameter-gives-the-call-result-no-origin.md).
+    (root_is_dyn_conversion : bool) = (ast_expr_is_fn_call_of(&stripped, BK_DYN_LOWER, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&stripped, BF_UPCAST, Option(usize).Some(usize(2))));
+    if(!callee_result_may_carry && (!root_is_ref_binding && !root_is_dyn_conversion), {
       return(());
     });
   });
@@ -11247,6 +11263,20 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
     },
     .None => ()
   );
+  // VERDICTS-74 rule 2: a holder whose type spells the empty origin at a
+  // checked position (`type_spells_checked_static`) accepts only values
+  // that borrow no place — `bind` is the `:=`/typed-declaration chokepoint,
+  // reached whatever `type_carries_origin` says of a static-only holder.
+  match(
+    get_variables_from_env(env, var_name.clone()).last_cloned(),
+    .Some(sb_v) => if(type_spells_checked_static(&variable_value_type(&sb_v)), {
+      sb_pv := byvalue_param_origin_names(rhs, env, ctx);
+      (mut(sb_roots) : ArrayList(OriginRootPlace)) = ArrayList(OriginRootPlace).new();
+      _static_value_roots(rhs, env, ctx, &mut sb_roots, u32(0));
+      _static_join_subset_check(&sb_v, &variable_value_type(&sb_v), &sb_roots, &sb_pv, rhs, env, ctx, exn);
+    }),
+    .None => ()
+  );
   match(
     get_variables_from_env(env, var_name.clone()).last_cloned(),
     .Some(bv) => if(!variable_is_reference_binding(&bv), {
@@ -11798,7 +11828,11 @@ _body_param_labels :: (fn(ft : &TypeValue, ctx : &EvalContext) -> SharedList(Str
   )
 });
 _func_param_labels :: (fn(ft : &TypeValue) -> SharedList(String))(match(ft, Rc(.Func({ meta : pl_m })) => Rc.clone(pl_m.*.*.param_labels), _ => shared_list(ArrayList(String).new())));
-param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))({
+/// The slot the body's own function type declares for `v`, a parameter of
+/// the function body being evaluated, as written: the env's slot of a
+/// parameter has its origins elided, the function type keeps them. `.None`
+/// outside a function body or for a non-parameter.
+_param_declared_slot :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))({
   if(!is_body_parameter(v, env), {
     return(Option(TypeValue).None);
   });
@@ -11811,24 +11845,25 @@ param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &Eval
   labels := _body_param_labels(&ft, ctx);
   (i : usize) = usize(0);
   while(i < labels.len(), {
-    if(match(labels.get(i), .Some(l) => (l == v.*.*.name), .None => false), {
-      return(
-        match(
-          slots.get(i),
-          .Some(sl) => {
-            rigid := rigid_param_slot(&sl, &v.*.*.name);
-            names := ArrayList(String).new();
-            origin_param_names_of(&rigid, &mut names, u32(0));
-            if(names.len() > usize(0), Option(TypeValue).Some(rigid), Option(TypeValue).None)
-          },
-          .None => Option(TypeValue).None
-        )
-      );
+    if(match(labels.get(i), .Some(l) => (l == v.name), .None => false), {
+      return(slots.get(i));
     });
     i = (i + usize(1));
   });
   Option(TypeValue).None
 });
+param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))(
+  match(
+    _param_declared_slot(v, env, ctx),
+    .Some(sl) => {
+      rigid := rigid_param_slot(&sl, &v.name);
+      names := ArrayList(String).new();
+      origin_param_names_of(&rigid, &mut names, u32(0));
+      if(names.len() > usize(0), Option(TypeValue).Some(rigid), Option(TypeValue).None)
+    },
+    .None => Option(TypeValue).None
+  )
+);
 /// `bind_join`'s subset check (O3's place writes; O-3's rigid binder,
 /// VERDICTS-37): every origin the value's roots carry — a reference
 /// parameter's declared origins (rigid when elided), a local's own place
@@ -12320,6 +12355,241 @@ _byvalue_param_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue,
     });
   });
 });
+/// VERDICTS-74 rule 3: the module-level binding `v` names a place a value
+/// typed `static` may point into — an immutable module-level binding (one
+/// declared without `mut(name)`, decision 47: never written after its
+/// initializer) that has runtime storage.
+_static_module_level :: (fn(v : &Variable) -> bool)(
+  v.is_module_level() && !v.is_compile_time_only() && !is_mut_global(&v.token.module_path.*, &v.name)
+);
+/// VERDICTS-74 rule 3: the parameter `v`'s declared slot spells the empty
+/// origin — a spelled `&(T, static)` parameter (its caller was checked to
+/// pass a static value, rule 2) or a static view slot (`is_static_view_slot`,
+/// the by-value `&(U, static)` over an unsized `U`, decision 49 S2). Reading
+/// it yields a static value.
+_static_slot_param :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)({
+  slot := match(_param_declared_slot(v, env, ctx), .Some(ds) => ds, .None => variable_slot_type(v));
+  match(
+    &slot,
+    Rc(.Reference(_, _, ss_o)) => is_static_origin(&ss_o.*),
+    Rc(.ValueSlot(ss_vs)) => match(&ss_vs.*, Rc(.Reference(_, _, ss_vo)) => is_static_origin(&ss_vo.*), _ => false),
+    _ => false
+  )
+});
+/// VERDICTS-74 rule 2's static arm, shared by every expected-type site: a
+/// holder declared over the empty origin `static` at a checked position
+/// (`type_spells_checked_static`) accepts only values that borrow no place.
+/// The first root of the value that names a place `static` may not point
+/// into — anything but an immutable module-level binding or a parameter
+/// whose slot spells `static` (rule 3) — or `.None` when every root is
+/// static. `skip` names the holder itself (a root at it carries what it
+/// already holds).
+_static_offending_root :: (fn(roots : &ArrayList(OriginRootPlace), skip : &String, env : &Environment, ctx : &EvalContext) -> Option(OriginRootPlace))({
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), {
+    match(
+      roots.get_cloned(ri),
+      .Some(rt) => if((rt.place.root_name != skip.*) && match(
+        get_variables_from_env(env, rt.place.root_name.clone()).last_cloned(),
+        .Some(rv) => !(_static_module_level(&rv) || (rv.is_parameter() && _static_slot_param(&rv, env, ctx))),
+        // A hidden temporary, a lost or a scrutinee pseudo-place: never
+        // static.
+        .None => true
+      ), {
+        return(Option(OriginRootPlace).Some(rt));
+      }),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  Option(OriginRootPlace).None
+});
+/// VERDICTS-74 rule 3: `e` READS a place (a variable, a field, a `.*`)
+/// whose type spells the empty origin and carries no other origin. What that
+/// place holds was checked when it was written (rule 2), so the value read is
+/// static, whatever place it is read through (`t.r` for `t : &S`, `r :
+/// Option(&(X, static))`).
+_static_place_read :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  (ast_expr_is_atom(e) || ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))) && match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+    .Some(spr_info) => (type_spells_checked_static(&spr_info.ty()) && !type_carries_origin(&spr_info.ty())),
+    .None => false
+  )
+);
+/// VERDICTS-74 rule 2's value-side roots: `origin_of` of `e`, plus — for a
+/// CONSTRUCTOR call (a variant payload or a struct-literal field, whose
+/// comptime constructor has no runtime scope `origin_of` could map) — the
+/// deep roots of every argument whose type carries an origin. A runtime
+/// function call is NOT walked: its result's origin is R-CALL's (the
+/// callee's declared result origin substituted), and an argument a real
+/// callee only reads does not make its result non-static.
+/// An argument without its readability label (`x : e` → `e`), the local
+/// spelling of `calls/helper.yo`'s `_unlabeled_argument` (utils.yo cannot
+/// import a calls/ module: helper imports this one).
+_svr_unlabeled :: (fn(arg : &AstExpr) -> AstExpr)(
+  cond(
+    (ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))) || ast_expr_is_fn_call_of(arg, "=>", .Some(usize(2)))) => match(
+      arg,
+      Rc(.FnCall(_, _, Rc(su_args), _, _)) => match(su_args.get_cloned(usize(1)), .Some(a) => a, .None => Rc.clone(arg.*)),
+      _ => Rc.clone(arg.*)
+    ),
+    true => Rc.clone(arg.*)
+  )
+);
+_static_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  if(depth > u32(12), {
+    return(());
+  });
+  // Rule 3: a read of a place whose type spells only `static` holds no
+  // place, whatever place it is read through.
+  if(_static_place_read(e, ctx), {
+    return(());
+  });
+  svr_roots := origin_of(e, env, ctx);
+  (svr_i : usize) = usize(0);
+  while(svr_i < svr_roots.len(), {
+    _origin_push(svr_roots(svr_i).clone(), out);
+    svr_i = (svr_i + usize(1));
+  });
+  match(
+    e,
+    Rc(.FnCall(_, svr_callee, Rc(svr_args), _, _)) => {
+      svr_is_ctor := match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_callee.*)),
+        .Some(svr_ci) => match(
+          svr_ci.value(),
+          .Some(Rc(.TypeVal(_))) => true,
+          // A comptime-constructor call: the callee evaluates to a function
+          // whose declared result is `comptime(...)` (a struct built through
+          // a type application, `H(static)(r : …)`); its result is built at
+          // check time, so R-CALL does not govern it.
+          .Some(Rc(.FuncVal(scd, _))) => match(get_func_type(&scd.*.func_id), Rc(.Func({ meta : scm })) => scm.result_is_comptime_only, _ => false),
+          _ => !(is_function_type(&svr_ci.ty()) || is_type_value(&svr_ci.value()))
+        ),
+        .None => true
+      );
+      // A `cond(...)` VALUE holds what its arms hold (VERDICTS-74 rule 4:
+      // the join of the arms — a `static` arm never wins); each arm
+      // `p => v` contributes `v`'s roots. `cond` is a runtime call, so the
+      // R-CALL rule does not apply to it: the join is computed here.
+      if(!svr_is_ctor && ast_expr_is_fn_call_of(&svr_callee.*, "cond", Option(usize).None), {
+        (svr_ci2 : usize) = usize(0);
+        while(svr_ci2 < svr_args.len(), {
+          match(
+            svr_args.get_cloned(svr_ci2),
+            .Some(svr_ca0) => {
+              svr_ca := _svr_unlabeled(&svr_ca0);
+              match(
+                expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_ca)),
+                .Some(svr_cari) => if(type_carries_origin(&svr_cari.ty()) || type_spells_checked_static(&svr_cari.ty()), {
+                  _static_value_roots(&svr_ca, env, ctx, out, (depth + u32(1)));
+                }),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          svr_ci2 = (svr_ci2 + usize(1));
+        });
+      });
+      if(svr_is_ctor, {
+        (svr_ai : usize) = usize(0);
+        while(svr_ai < svr_args.len(), {
+          match(
+            svr_args.get_cloned(svr_ai),
+            .Some(svr_a0) => {
+              // A struct-literal argument is labeled (`r : &b`): the value
+              // is the label's right side.
+              svr_a := _svr_unlabeled(&svr_a0);
+              match(
+                expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_a)),
+                // An argument whose type carries an origin holds that
+                // place; one whose type SPELLS the empty origin at a
+                // checked position is itself a constructed static holder
+                // whose payload must be walked too (a `H(r : &b)` field).
+                .Some(svr_ari) => if(type_carries_origin(&svr_ari.ty()) || type_spells_checked_static(&svr_ari.ty()), {
+                  _static_value_roots(&svr_a, env, ctx, out, (depth + u32(1)));
+                }),
+                // A lend argument carries no ExprInfo of its own (the
+                // comptime trial evaluates the call, not the arg nodes);
+                // a syntactic lend borrows a place, so walk it.
+                .None => if(ast_expr_is_fn_call_of(&svr_a, BF_ADDRESS_OF, .Some(usize(1))) || ast_expr_is_fn_call_of(&svr_a, BK_BORROW_MUT, .Some(usize(1))), {
+                  _static_value_roots(&svr_a, env, ctx, out, (depth + u32(1)));
+                })
+              );
+            },
+            .None => ()
+          );
+          svr_ai = (svr_ai + usize(1));
+        });
+      });
+    },
+    Rc(.Atom(_, _)) => ()
+  );
+});
+/// `_static_offending_root` over `_static_value_roots` of `e`.
+_static_offending_root_of :: (fn(e : &AstExpr, skip : &String, env : &Environment, ctx : &EvalContext) -> Option(OriginRootPlace))({
+  svr_out := ArrayList(OriginRootPlace).new();
+  _static_value_roots(e, env, ctx, &mut svr_out, u32(0));
+  _static_offending_root(&svr_out, skip, env, ctx)
+});
+/// What a value that meets a slot spelled over the empty origin holds that
+/// is not static (VERDICTS-74 rule 2), or `.None` for a static value: an
+/// origin of a by-value parameter, a NAMED origin its type spells (it holds
+/// that place), or else a deep root (`_static_value_roots`) that is no
+/// static place (rule 3: a literal, a read of a `static`-typed place, `&G`
+/// of an immutable module-level binding).
+_static_value_offense :: (fn(value : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(String))({
+  pv := byvalue_param_origin_names(value, env, ctx);
+  if(pv.len() > usize(0), {
+    return(Option(String).Some(pv(0).clone()));
+  });
+  named := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(value)),
+    .Some(svo_info) => {
+      svo_names := ArrayList(String).new();
+      origin_param_names_of(&svo_info.ty(), &mut svo_names, u32(0));
+      svo_names.get_cloned(usize(0))
+    },
+    .None => Option(String).None
+  );
+  if(named.is_some(), {
+    return(named);
+  });
+  match(_static_offending_root_of(value, &String.new(), env, ctx), .Some(svo_off) => Option(String).Some(svo_off.place.text.clone()), .None => Option(String).None)
+});
+/// The E0923 of the static subset check (VERDICTS-74 rule 2): a holder, a
+/// result or a parameter declared over the empty origin `static` accepts
+/// only values that borrow no place. `what` names the offending place (or,
+/// for `pv`, the rigid by-value parameter name the value holds).
+_static_origin_reject :: (fn(holder : &String, holder_ty : &TypeValue, what : &String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        at,
+        `Cannot keep this value in \`${holder}\`: its type is declared over the empty origin \`static\` (\`${type_to_string(holder_ty)}\`), which holds only values that borrow no place, and the value holds \`${what}\` (decision 49; plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+        Option(String).Some(`declare the holder over the place it points into (\`&(T, (${what}, …))\`), or store a static value: a literal, a read of a \`static\`-typed place, \`&G\` of an immutable module-level binding`)
+      ),
+      E_ORIGIN_MISMATCH
+    ),
+    ctx,
+    exn
+  );
+});
+/// `bind_join`'s static arm (VERDICTS-74 rule 2): a holder whose type spells
+/// the empty origin at a checked position runs the subset against the empty
+/// set — every root the value carries must be static, and a rigid by-value
+/// parameter name never is.
+_static_join_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, roots : &ArrayList(OriginRootPlace), pv_names : &ArrayList(String), value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(pv_names.len() > usize(0), {
+    _static_origin_reject(&variable.name, holder_ty, &pv_names(0).clone(), &ast_expr_token(value), ctx, exn);
+  });
+  match(
+    _static_offending_root(roots, &variable.name, env, ctx),
+    .Some(off) => _static_origin_reject(&variable.name, holder_ty, &off.place.text, &ast_expr_token(value), ctx, exn),
+    .None => ()
+  );
+});
 /// A store into a holder that outlives the closure call — the outer place
 /// of a `&mut` capture (VERDICTS-37 Q3), or an `FnMut` literal's by-value
 /// state (audit A35) — of a value that holds an origin of one of the
@@ -12379,13 +12649,6 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   });
   roots := origin_of(value, env, ctx);
   pv_names := byvalue_param_origin_names(value, env, ctx);
-  if((roots.len() == usize(0)) && (pv_names.len() == usize(0)), {
-    local_borrow_joins_clear(variable.*.*.name.clone(), &variable.*.*.token);
-    return(());
-  });
-  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] join ${variable.*.*.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
-  });
   // A holder whose type SPELLS origins (`dst : &mut Option(&(i32, p))`'s
   // pointee, `s : Option(&(i32, x))`) checks the subset (O3's place
   // writes): every origin the VALUE's roots carry — a reference parameter's
@@ -12401,6 +12664,33 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   );
   holder_names := ArrayList(String).new();
   origin_param_names_of(&holder_ty, &mut holder_names, u32(0));
+  // VERDICTS-74 rule 2: a holder whose type spells the empty origin at a
+  // checked position (`type_spells_checked_static`) runs the subset
+  // against the empty set — only `static` values may flow into it — with
+  // the value's DEEP roots (a constructed value's payload is not in
+  // `origin_of`'s runtime-scope map), and BEFORE the empty-roots exit: a
+  // constructor call shows roots=0 to `origin_of`, which is a vacuous
+  // pass, not a static value.
+  if((holder_names.len() == usize(0)) && type_spells_checked_static(&holder_ty), {
+    (mut(sj_roots) : ArrayList(OriginRootPlace)) = ArrayList(OriginRootPlace).new();
+    // A read of a static-typed place holds no place (rule 3).
+    if(!_static_place_read(value, ctx), {
+      (sj_i : usize) = usize(0);
+      while(sj_i < roots.len(), {
+        _origin_push(roots(sj_i).clone(), &mut sj_roots);
+        sj_i = (sj_i + usize(1));
+      });
+    });
+    _static_value_roots(value, env, ctx, &mut sj_roots, u32(0));
+    _static_join_subset_check(variable, &holder_ty, &sj_roots, &pv_names, value, env, ctx, exn);
+  });
+  if((roots.len() == usize(0)) && (pv_names.len() == usize(0)), {
+    local_borrow_joins_clear(variable.name.clone(), &variable.token);
+    return(());
+  });
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] join ${variable.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
+  });
   _capture_store_param_origins(variable, &holder_names, &pv_names, value, ctx, exn);
   if(holder_names.len() > usize(0), {
     _bind_join_subset_check(variable, &holder_ty, &holder_names, &roots, value, env, ctx, exn);
@@ -13776,25 +14066,51 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
     eprintln(`[n2b] return-check ${ast_expr_to_string(e)}`);
   });
   stripped := ast_expr_strip_borrow_marker(e);
+  // VERDICTS-74 rule 2: a result spelled over the empty origin — the flag of
+  // a spelled `-> &(T, static)` (`fn_result_spells_static`) or a result type
+  // holding a static reference over a sized pointee — enters the check even
+  // when the value's own type carries no origin (every origin it holds is
+  // `static`, which `type_carries_origin` rightly does not count).
+  rc_ft := match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(cr_fb0) => match(cr_fb0.kind, .FunctionBody => match(&cr_fb0.func_type, .Some(cr_t0) => Option(TypeValue).Some(Rc.clone(cr_t0)), .None => Option(TypeValue).None), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
+  rc_static := match(
+    &rc_ft,
+    .Some(cr_t0) => (fn_result_spells_static(&cr_t0.*) || type_spells_checked_static(&fn_result_slot(&cr_t0.*))),
+    .None => false
+  );
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
-    .Some(ri) => if(type_carries_origin(&ri.ty()), {
+    .Some(ri) => if(type_carries_origin(&ri.ty()) || rc_static, {
       // A root that is a `&` match binding stands for the place it points
       // into, the scrutinee's roots: `return(.Some(items.index(i)))` inside
       // the arm is judged as the tail form of the same value is
       // (issues/fixed/2026-11-08-an-early-return-does-not-follow-a-match-binding-to-its-scrutinee.md).
-      roots := _origin_through_match_bindings(&origin_of(&stripped, env, ctx), env, ctx, u32(0));
+      // A read of a place whose type spells only `static` holds no place
+      // (VERDICTS-74 rule 3).
+      (mut(roots_join) : ArrayList(OriginRootPlace)) = cond(
+        (rc_static && _static_place_read(&stripped, ctx)) => ArrayList(OriginRootPlace).new(),
+        true => _origin_through_match_bindings(&origin_of(&stripped, env, ctx), env, ctx, u32(0))
+      );
+      // VERDICTS-74 rule 2: a constructed value's payload roots (a variant
+      // payload, a struct-literal field) join when the result spells the
+      // empty origin.
+      if(rc_static, {
+        _static_value_roots(&stripped, env, ctx, &mut roots_join, u32(0));
+      });
+      roots := roots_join;
       if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
         eprintln(`[n2b] return-check roots=${roots.len().to_string()} ty=${type_to_string(&ri.ty())}`);
       });
       // A result type that spells its origins (`-> V(a)`) names only those
       // places: a root at another parameter is outside it (E0923).
-      cr_ft := match(
-        &ctx.is_evaluating_function_body_or_async_block,
-        .Some(cr_fb) => match(cr_fb.kind, .FunctionBody => match(&cr_fb.func_type, .Some(cr_t) => Option(TypeValue).Some(Rc.clone(cr_t)), .None => Option(TypeValue).None), _ => Option(TypeValue).None),
-        .None => Option(TypeValue).None
-      );
-      cr_names := match(&cr_ft, .Some(cr_t) => fn_result_composite_origin_names(&cr_t.*), .None => Option(SharedList(String)).None);
+      cr_names := match(&rc_ft, .Some(cr_t) => fn_result_composite_origin_names(&cr_t.*), .None => Option(SharedList(String)).None);
+      // VERDICTS-74 rule 2 (cr_static, hoisted above): a parameter root the
+      // result holds is E0923 as it is for a named origin, unless the
+      // parameter's own slot spells `static` (a caller that was checked to
+      // pass a static value). A module-level root is static (rule 3's `&G`).
       (oi : usize) = usize(0);
       while(oi < roots.len(), {
         match(
@@ -13821,7 +14137,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
               );
             });
             match(
-              &cr_ft,
+              &rc_ft,
               .Some(cr_t) => match(
                 &cr_names,
                 .Some(cr_n) => {
@@ -13849,6 +14165,20 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
               ),
               .None => ()
             );
+            if(rc_static && !_static_slot_param(&rv, env, ctx), {
+              raise_flow_violation(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(e),
+                    `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the result is declared over the empty origin \`static\`, which holds only values that borrow no place, and the value holds \`${rv.name}\` (decision 49; plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                    Option(String).Some(`return a static value (a literal, a read of a \`static\`-typed place, \`&G\` of an immutable module-level binding), or spell the place the result points into, \`-> &(T, ${rv.name})\``)
+                  ),
+                  E_ORIGIN_MISMATCH
+                ),
+                ctx,
+                exn
+              );
+            });
           }, if(!rv.*.is_module_level(), {
             raise_flow_violation(
               with_code(
@@ -13903,7 +14233,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
       if(is_future_value_type(&ri.ty()), {
         _note_fn_future_result_roots(&roots, env, ctx);
       });
-      match(&cr_ft, .Some(cr_t) => _return_check_invariant_origins(e, &fn_result_slot(&cr_t.*), &ri.ty(), ctx, exn), .None => ());
+      match(&rc_ft, .Some(cr_t) => _return_check_invariant_origins(e, &fn_result_slot(&cr_t.*), &ri.ty(), ctx, exn), .None => ());
     }),
     .None => ()
   );
@@ -14557,7 +14887,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, is_computed_reference_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, is_computed_reference_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, _static_module_level, _static_slot_param, _static_offending_root, _static_origin_reject, _static_join_subset_check, _static_offending_root_of, _static_value_offense, _static_value_roots, byvalue_param_origin_names);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

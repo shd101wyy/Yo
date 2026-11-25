@@ -202,7 +202,7 @@ above `__YO_FUTURE_PREFIX`.
 | --- | --- |
 | Future prefix | `__YO_FUTURE_PREFIX` = `{__yo_ref_header_t header; int state; const __yo_future_vtable_t* vt; void (*continuation_fn)(void*); void* continuation_sm;}`; `_Static_assert`s pin the four offsets |
 | Per-type future vtable | `__yo_future_vtable_t` = `{resume, set_effect, cancel_pending, bundle_offset, bundle_size}` |
-| Continuation protocol | An awaiter reads `state`, cold-starts a `0`, and writes itself into the single continuation slot. Completion sets `-1`, schedules the continuation on its thread's queue and releases one reference. `-2` is aborted, with `cancel_pending(pre_state)` |
+| Continuation protocol | An awaiter reads `state`, cold-starts a `0`, and writes itself into the single continuation slot. Completion sets `-1`, schedules the continuation on its thread's queue and releases one reference. `-2` is aborted, with `cancel_pending(pre_state)`, which answers whether the future retired; `-4` is aborting: an operation the abort could not take back is in flight, and its completion resumes the future, whose guard marks it `-2`, wakes its waiters and releases it (issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md) |
 | Bundle injection | `__yo_future_set_bundle` at `io.await(f, e)` / `io.spawn(f, e)` |
 | Waker token | `__yo_waker_token_t` and its ownership counter (the cross-thread inbox of `__yo_loop_t`) |
 | `IoFuture` | `__yo_io_future_t` = the prefix plus `int32_t result`, `cancel_fn` and `backend_link` |
