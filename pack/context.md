@@ -130,6 +130,10 @@ export(main);
   `std/error`).
 - `impl(...)` statements end with `;`. A generic impl:
   `impl(generic(T : Type), where(T <: ToString), Box(T), ...)`.
+- A bound is `where(T <: Tr)`, several `T <: (A, B)`; read it "implements". A
+  name's `:` takes a type or a kind, never a trait: `where(T : Tr)` is E0624
+  (`yo fix` rewrites it). Rust's `T: A + B` is
+  `generic(T : Type), where(T <: (A, B))`.
 - A generic type is a compile-time function, used as `Pair(i32)`:
   `Pair :: (fn(comptime(A) : Type) -> comptime(Type))(struct(a : A, b : A));`
 - A function returning a compile-time value (`-> comptime(T)`, `-> Type`)
