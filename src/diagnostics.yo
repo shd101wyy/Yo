@@ -699,6 +699,63 @@ lookup_std_exporters :: (fn(name : &String) -> ArrayList(String))({
   });
   out
 });
+/// Every distinct std module spec under the directory spec `dir` (`std/collections`
+/// gives `std/collections/array-list`, ...), in registration order: the modules a
+/// bare directory import should have named. Empty when the index is unfilled.
+lookup_std_modules_under :: (fn(dir : &String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  prefix := `${dir}/`;
+  (i : usize) = usize(0);
+  while(i < g_std_export_modules.with(_c_len_2), {
+    match(
+      g_std_export_modules.with(xs => xs.get_cloned(i)),
+      .Some(m) => if(m.starts_with(&prefix) && !out.contains(&m), {
+        out.push(m.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// `{ name } :: import("spec");` as the help text spells an import.
+_rust_hint_import :: (fn(name : String, spec : String) -> String)(`import it: \`{ ${name} } :: import("${spec}");\``);
+/// The Rust-name table (plans/backlog/STD_RUST_ALIGNMENT.md §3.6): a name a
+/// Rust-trained author writes that Yo spells differently, and what to write
+/// instead. Read by the E0401 not-found path. Only names that fail to resolve
+/// belong here: a Rust name Yo also binds (`char`, `Ordering`) never reaches it.
+/// The column of Yo names is the class-D list the pack prints.
+rust_std_name_hint :: (fn(name : &String) -> Option(String))(
+  cond(
+    (name.* == "Vec") => .Some(`\`Vec\` is \`ArrayList(T)\` in Yo; ${_rust_hint_import(String.from("ArrayList"), String.from("std/collections/array-list"))}`),
+    (name.* == "vec") => .Some(`there is no \`vec\` macro: build the list with \`ArrayList(T).from([a, b, c])\`; ${_rust_hint_import(String.from("ArrayList"), String.from("std/collections/array-list"))}`),
+    (name.* == "VecDeque") => .Some(`\`VecDeque\` is \`Deque(T)\` in Yo; ${_rust_hint_import(String.from("Deque"), String.from("std/collections/deque"))}`),
+    (name.* == "BinaryHeap") => .Some(`\`BinaryHeap\` is \`PriorityQueue(T)\` in Yo; ${_rust_hint_import(String.from("PriorityQueue"), String.from("std/collections/priority-queue"))}`),
+    (name.* == "PathBuf") => .Some(`\`PathBuf\` is \`Path\` in Yo (one owned path type); ${_rust_hint_import(String.from("Path"), String.from("std/path"))}`),
+    (name.* == "Cell") => .Some(`\`Cell\` is \`RefCell(T)\` in Yo, read with \`c.with(v => ...)\` and written with \`c.with_mut(v => ...)\`; ${_rust_hint_import(String.from("RefCell"), String.from("std/sync/refcell"))}`),
+    (name.* == "MutexGuard") => .Some(`there is no lock guard: \`m.with_lock(v => ...)\` runs a closure under the lock of a \`Mutex(T)\`; ${_rust_hint_import(String.from("Mutex"), String.from("std/sync/mutex"))}`),
+    (name.* == "JoinHandle") => .Some(`\`JoinHandle<T>\` is \`Thread(T)\` in Yo: \`Thread(T).spawn((io : Io) => ...)\` and \`t.join()\`; ${_rust_hint_import(String.from("Thread"), String.from("std/thread"))}`),
+    (name.* == "PartialEq") => .Some(String.from("`PartialEq` and `Eq` are one trait in Yo: `Eq(T)` (the prelude binds it)")),
+    (name.* == "PartialOrd") => .Some(String.from("`PartialOrd` and `Ord` are one trait in Yo: `Ord(T)` (the prelude binds it)")),
+    (name.* == "Neg") => .Some(String.from("`Neg` is `Negate` in Yo (the prelude binds it)")),
+    (name.* == "Rem") => .Some(String.from("`Rem` is `Mod(Rhs)` in Yo (the prelude binds it)")),
+    (name.* == "Shl") => .Some(String.from("`Shl` is `BitLeftShift(Rhs)` in Yo (the prelude binds it)")),
+    (name.* == "Shr") => .Some(String.from("`Shr` is `BitRightShift(Rhs)` in Yo (the prelude binds it)")),
+    (name.* == "Not") => .Some(String.from("`Not` is `LogicalNot` for `bool` and `BitNot` for integers in Yo (the prelude binds both)")),
+    true => .None
+  )
+);
+/// The help for a method miss on a float receiver: the float math methods
+/// (`sqrt`, `sin`, `powf`, ...) are registered by `std/math`, which exports no
+/// names, so a program that never imports it has no such method (E0610).
+float_method_import_hint :: (fn(receiver_type : &String) -> Option(String))(
+  cond(
+    ((receiver_type.* == "f64") || (receiver_type.* == "f32")) => .Some(
+      String.from("the float math methods (`sqrt`, `sin`, `powf`, ...) are registered by `std/math`, which exports no names: add `import(\"std/math\");` to the file")
+    ),
+    true => .None
+  )
+);
 /// The closest candidate within `max_distance` (default 3) — the did-you-mean
 /// engine for unresolved names (P3) and unknown codes. First-listed wins ties.
 /// An ABSOLUTE threshold is right for identifiers (their callers pass this
@@ -1215,7 +1272,8 @@ export(set_color_enabled, color_enabled);
 export(set_warnings_enabled, warnings_enabled, emit_warning, emit_scoped_warning, take_warnings);
 export(take_user_warnings, flush_user_warnings);
 export(edit_distance, suggest_name);
-export(register_std_export, lookup_std_exporters, std_export_index_size);
+export(register_std_export, lookup_std_exporters, lookup_std_modules_under, std_export_index_size);
+export(rust_std_name_hint, float_method_import_hint);
 export(E_UNEXPECTED_TOKEN, E_EXPECTED_TOKEN, E_ADJACENT_OPERATORS, E_UNTERMINATED);
 export(E_UNEXPECTED_CHARACTER, E_UNKNOWN_OPERATOR, E_STRUCT_LITERAL_VS_BLOCK, E_CALL_SYNTAX, E_DELETED_SPELLING);
 export(E_VARIABLE_NOT_FOUND, E_ENUM_VARIANT_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, E_NOT_DEFINED, E_PRIVATE_MEMBER, E_FIELD_NOT_FOUND, E_RESERVED_NAME);
