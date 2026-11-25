@@ -41,10 +41,23 @@ static __yo_t_8381625107937523703* __yo_wrap___yo_t_16065164614494844924___yo_t_
 
 The wrapper is written by the `Fn`-slot pass of `src/codegen/functions/dyn.yo`. For a closure payload it looks up the closure's C function in `impl_closure_call_map` by the capture struct id, taken from the `dyn_impls` entry's `concrete_type` (a `Struct`, or a `SomeT` whose resolution is a `Struct`). Here no arm matches, so the wrapper falls through to the last branch, whose comment assumes "nothing calls it, its callers were dropped by the same eval-side throw". Nothing threw: `check` accepted the program, and the call is live.
 
-The difference from the working shape is the closure's result. The same program with `Box(Dyn(Fn(io : Io) -> i32))` and `(io : Io) => i32(1)` prints `1`. A closure whose result is an `Impl(Future(...))` (an unresolved `SomeT` until codegen picks the state machine) is the same trigger as the open `issues/an-impl-fn-local-returning-a-future-is-declared-as-a-void-pointer.md`, where the closure-typed local is lowered to `void*`. That doc's binding site and this `dyn_impls` entry probably share the cause: the closure's recorded type does not carry its capture struct when its result is a future.
+The difference from the working shape is the closure's result. The same program with `Box(Dyn(Fn(io : Io) -> i32))` and `(io : Io) => i32(1)` prints `1`. A closure whose result is an `Impl(Future(...))` (an unresolved `SomeT` until codegen picks the state machine) is the same trigger as `issues/fixed/an-impl-fn-local-returning-a-future-is-declared-as-a-void-pointer.md` (open when this was filed), where the closure-typed local is lowered to `void*`. That doc's binding site and this `dyn_impls` entry probably share the cause: the closure's recorded type does not carry its capture struct when its result is a future.
 
 The fallback stub itself is the second defect: a live call slot must never compile to `return 0`. If the payload's type cannot be resolved, codegen should fail loudly (an internal error naming the `Dyn`), not emit a NULL-returning slot.
 
 ## Fix direction
 
 Resolve the payload's capture struct for a closure whose result is `Impl(Future(...))` where the `dyn_impls` entry is recorded, and turn the stub branch into a hard codegen error for any `Dyn` whose `call` slot is reachable. The fix needs a running test (ASan) that awaits through the `Box(Dyn(Fn(...)))`.
+
+## Fix
+
+The cause was in the evaluator, at the closure literal. A closure checked against an `Impl`/`Dyn` payload wrapper takes on that wrapper as its recorded type, resolved to its capture struct (`src/evaluator/values/anonymous-function.yo`, "Build and store the ExprInfo"). That step was gated to wrappers whose `Fn` result is concrete or an unresolved `Impl(Fn(...))`. An `Impl(Future(...))` result failed the gate, so the closure kept its bare function type: the `Box.new` payload stayed an unresolved `SomeT`, `dyn_impls` keyed it by the `Fn` trait's C name, the `TypeId` was `unknown_<n>`, and the call slot fell through to the zeroed stub.
+
+- The gate also admits an unresolved `Impl(Future(...))` result (`_is_unresolved_impl_future_type`): the closure's body fixes the concrete future, as it fixes an `Impl(Fn(...))` result. The gate's `!ctx.is_inside_io_async_call` condition is unchanged, so the closures of `io.async` itself are not affected.
+- The `Dyn(Fn(...))` call wrappers (`src/codegen/functions/dyn.yo`, all four call arms) upcast a future result: the slot returns the erased interface pointer (`dyn_slot_result_abi_string`), the payload's function its concrete `<block>_sync_fut_t*` / `<block>_state_t*`, and every future starts with `__YO_FUTURE_PREFIX` (`erased_future_result_type_string`).
+
+The same gate fixes `issues/fixed/an-impl-fn-local-returning-a-future-is-declared-as-a-void-pointer.md`, the `Impl(Fn(...) -> Impl(Future(...)))` local. The named-function form (`issues/2026-11-25-a-named-async-fn-behind-a-box-dyn-fn-fails-in-clang.md`) keeps its second error, the `Box.new` specialization's parameter type; the wrapper's return no longer errors.
+
+VERDICTS-81 (#2074) plans to reject a `Dyn` method or function-pointer type whose result is `Impl(Future(...))` (AFA-5, returning `BoxFuture` instead). Until then this program runs.
+
+Test: `tests/async-await.test.yo`, "a closure returning a future behind a Box(Dyn(Fn)) is called and awaited" (a sync future, a state machine, a capturing closure called twice; ASan). It SEGVs on develop.
