@@ -19,6 +19,12 @@ pragma(Pragma.AllowUnsafe);
 { RefCell } :: import("std/sync/refcell");
 { resolve_cell_chain, get_all_some_types } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
+/// Registry keys of substituted shells whose final is being computed.
+(g_shell_subst_in_progress : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// A constructor shell's list per (shell id, recorded-argument count): its
+/// final is fixed once registered, and only the stamp of its type arguments
+/// (`stamp_enum_final_type_arguments`) changes what it records.
+(g_shell_base_lists : RefCell(HashMap(String, SharedList(TypeValue)))) = RefCell(HashMap(String, SharedList(TypeValue))).new(HashMap(String, SharedList(TypeValue)).new());
 // ---------------------------------------------------------------------------
 // Substitution map — parallel arrays for (name, level) → TypeValue.
 // ---------------------------------------------------------------------------
@@ -664,12 +670,6 @@ _subst_enum_with :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(
     _ => Rc.clone(ty)
   ))
 );
-/// Registry keys of substituted shells whose final is being computed.
-(g_shell_subst_in_progress : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-/// A constructor shell's list per (shell id, recorded-argument count): its
-/// final is fixed once registered, and only the stamp of its type arguments
-/// (`stamp_enum_final_type_arguments`) changes what it records.
-(g_shell_base_lists : RefCell(HashMap(String, SharedList(TypeValue)))) = RefCell(HashMap(String, SharedList(TypeValue))).new(HashMap(String, SharedList(TypeValue)).new());
 /// `s` applied to a recursive type's self-shell (VERDICTS-77, I1): the
 /// self-reference inside `σ(N)` denotes `σ(N)`. The shell's list
 /// (`_shell_list`) is mapped through `s`; an unchanged list keeps the shell.
