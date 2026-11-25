@@ -68,9 +68,9 @@ test("std/time's sleep goes through the Io it is handed", {
   mut(c) := _counted(io);
   mut(vt) := _counted_table(io);
   fake := _decorated(addr_of(c), addr_of(vt));
-  io.await(sleep(Duration.from_millis(u64(1)), fake), fake);
+  io.await(sleep(Duration.from_millis(i64(1)), fake), fake);
   assert(c.sleeps == i32(1), `one sleep through the decorator, got ${c.sleeps}`);
-  io.await(sleep(Duration.from_millis(u64(1)), io), io);
+  io.await(sleep(Duration.from_millis(i64(1)), io), io);
   assert(c.sleeps == i32(1), "the native io's sleep does not reach it");
 });
 /// Read a file through `fake`: `false` when the read threw (its handler

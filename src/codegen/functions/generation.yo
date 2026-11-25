@@ -1292,8 +1292,15 @@ emit_io_native_definitions :: (fn(context : &mut CodeGenContext) -> unit)({
                     call_args.push_str(", ");
                   });
                   arg_name := if(pi == usize(0), String.from("ctx"), `a${pi.to_string()}`);
-                  params.push_string(`${get_type_string(&pt, context)} ${arg_name.clone()}`);
+                  pt_c := get_type_string(&pt, context);
+                  params.push_string(`${pt_c.clone()} ${arg_name.clone()}`);
                   if(pi > usize(0), {
+                    // A pointer goes on as `void*`: the entry spells its own
+                    // pointee (`const char*` for a `*u8` path), and `void*`
+                    // converts to it without a pointer-sign warning.
+                    if(pt_c.ends_with("*"), {
+                      call_args.push_str("(void*)");
+                    });
                     call_args.push_string(&arg_name);
                   });
                 },
