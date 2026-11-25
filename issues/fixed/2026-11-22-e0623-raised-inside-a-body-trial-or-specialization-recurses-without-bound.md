@@ -50,7 +50,7 @@ __yo_decr_rc((void*)((_tmp)._0));
 `strip_synthesized_stars` returns `Rc.clone(obj)`, so every E0623 dropped the
 receiver node's count by one more than it raised it. That codegen defect is
 pre-existing and is filed separately:
-`issues/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md`
+`issues/fixed/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md`
 (S1, open).
 
 The earlier suspects (the repair's `substring` CTFE at the raise site, a
