@@ -30,13 +30,16 @@ pragma(Pragma.AllowUnsafe);
   BK_ARRAY_VAL,
   BK_ANON_STRUCT,
   BF_DOT,
+  BF_ADDRESS_OF,
+  BK_BORROW_MUT,
+  ast_place_text,
   ast_expr_strip_borrow_marker,
   is_mut_binding,
   is_thread_local_binding,
   alloc_global_expr_id,
   ast_rewritten_node
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, is_reference_self_place, expr_info_converted_runtime_type, is_mut_lend_value } :: import("../../expr-info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, is_reference_self_place, expr_info_converted_runtime_type, is_mut_lend_value, note_mut_lend_value, expr_info_adopt_env } :: import("../../expr-info.yo");
 {
   Environment,
   Variable,
@@ -129,6 +132,7 @@ pragma(Pragma.AllowUnsafe);
   LocalBorrowAccess,
   local_borrows_active,
   local_borrow_place_of,
+  access_place,
   local_borrow_place_of_variable,
   local_borrow_place_text,
   local_borrow_require_writable,
@@ -181,6 +185,8 @@ pragma(Pragma.AllowUnsafe);
   is_reference_read,
   reference_field_store_mark,
   reference_field_store_clear,
+  reject_reference_field_value_store,
+  lend_place_reference_type,
   future_view_error
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
@@ -777,6 +783,75 @@ _note_reference_value_store :: (fn(rhs : &AstExpr, rhs_info : &ExprInfo, ctx : &
     expr_info_set_converted_runtime_type(rhs_info, &rv_ty);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(rhs), rhs_info);
   });
+});
+/// The right side `&place` / `&mut place` of a store into the reference
+/// field `target` (`h.r = &y`, VERDICTS-78 Q1): a reference value
+/// `&(T, place)`, as a lend at a result chain's leaf is
+/// (`evaluate_chain_lend`): the marker stays in the tree and codegen takes the
+/// place's address. The place is evaluated against the field's pointee. A
+/// `&mut` lend writes the place it lends: the place is writable (E0917, D3,
+/// E0919) and the lend is an exclusive access (E0911).
+_evaluate_reference_field_store_lend :: (fn(rhs : &AstExpr, is_mut : bool, target : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  operand := ast_expr_strip_borrow_marker(rhs);
+  sig := if(is_mut, "&mut ", "&");
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+  deref_exempt_mark(&operand);
+  evaluated := evaluate_expression_raw(&operand, env, ctx, exn);
+  deref_exempt_clear();
+  ctx.expected_type = saved_expected;
+  info := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+    .Some(i) => Rc.clone(i),
+    .None => {
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&operand), `${sig}: failed to evaluate the place this lend borrows.`))));
+      return(Rc.clone(rhs.*));
+    }
+  );
+  lend_ty := match(
+    lend_place_reference_type(&evaluated, &info, is_mut, ctx),
+    .Some(t) => t,
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(rhs),
+              `\`${sig}${ast_place_text(&operand)}\` cannot be stored into \`${_place_source_text(target)}\`: a reference field holds a lend of a binding's place (\`&x\`, \`&x.f\`) or of a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
+            )
+          )
+        )
+      );
+      return(Rc.clone(rhs.*));
+    }
+  );
+  if(is_mut, {
+    place_require_mut(&evaluated, &ast_expr_token(&operand), &String.from("lend `&mut` (a store into a reference field)"), true, true, env, ctx, exn);
+    throw_if_mut_lend_through_atomic_object(&evaluated, env, String.from("borrow `&mut` a place in"), ctx, exn);
+    reject_write_through_rc(&evaluated, "mut-borrow", Option(TypeValue).None, ctx, exn);
+    if(loans_active(), {
+      match(
+        local_borrow_place_of(&evaluated, env, ctx),
+        .Some(ml_lp) => access_place(&ml_lp, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), env, ctx, exn),
+        .None => ()
+      );
+    });
+  });
+  // VERDICTS-57 §3.1: a `&mut` lend makes a `&mut` reference value of the
+  // place, which a callee's mutation summary reads.
+  note_mut_lend_value(ast_expr_id(&evaluated), is_mut);
+  // A lent place is its runtime address, never a known value: codegen takes
+  // the binding's address, not a literal's.
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+    .Some(pi) => {
+      pi.set_value(Option(EvalValue).None);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated), &pi);
+    },
+    .None => ()
+  );
+  out := new_expr_info(&expr_info_adopt_env(&info), &lend_ty);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(rhs), &out);
+  Rc.clone(rhs.*)
 });
 /// E0908 for the `inout` arguments of one call, the `self : &mut Self` receiver of
 /// a method call included: the callee writes the place, so a place rooted in
@@ -1750,9 +1825,10 @@ evaluate_assignment :: (
     ctx.is_lhs_of_assignment = true;
     // The target's place is judged as a write below, not as a read.
     local_borrow_mark_receiver(&lhs);
-    // `h.r = &y` on a reference field `r`: E0926 at the target names the
-    // store (`reference_field_store_mark`).
-    rfs_label := reference_field_store_mark(&lhs, &rhs, &env);
+    // `h.r = e` on a reference field `r` stores a reference: the target is
+    // the field itself, of its reference type (`reference_field_store_mark`,
+    // VERDICTS-78 Q1).
+    rfs_label := reference_field_store_mark(&lhs);
     evaluated_lhs := evaluate_expression_raw(&lhs, &env, ctx, exn);
     match(&rfs_label, .Some(rfs_tok) => reference_field_store_clear(rfs_tok), .None => ());
     local_borrow_clear_receiver();
@@ -1843,9 +1919,14 @@ evaluate_assignment :: (
     if(!type_is_sized(&expected_ty), {
       exn.throw(dyn(Box.new(unsized_by_value_error(&expected_ty, &String.from("an assignment's target"), &Option(String).None, &ast_expr_token(&lhs)))));
     });
+    // A store into a reference field (VERDICTS-78 Q1): the target is the
+    // field itself, typed as its reference (`is_reference_self_place`).
+    rfs_store := (t_slot_is_borrow(&expected_ty) && (is_reference_self_place(ast_expr_id(&evaluated_lhs)) || is_reference_self_place(ast_expr_id(&lhs))));
+    rfs_lend_is_mut := ast_expr_is_fn_call_of(&rhs, BK_BORROW_MUT, Option(usize).Some(usize(1)));
+    rfs_lend := (rfs_store && (rfs_lend_is_mut || ast_expr_is_fn_call_of(&rhs, BF_ADDRESS_OF, Option(usize).Some(usize(1)))));
     // Step 2 — Evaluate RHS with expected type from LHS
     ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_ty), env : Rc.clone(env)));
-    prop_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
+    prop_rhs := if(rfs_lend, _evaluate_reference_field_store_lend(&rhs, rfs_lend_is_mut, &lhs, &env, ctx, exn), evaluate_expression_raw(&rhs, &env, ctx, exn));
     ctx.expected_type = saved_expected.clone();
     prop_rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&prop_rhs));
     if(prop_rhs_info_opt.is_none(), {
@@ -1866,6 +1947,13 @@ evaluate_assignment :: (
       .None => new_expr_info(&env, t_unit())
     );
     env_adopt(&env, &prop_rhs_info.env());
+    // `h.r = v` with `v` a value, not a reference: the store re-points the
+    // field, so it takes a reference (E0926; `h.r.* = v` writes the place the
+    // field refers to).
+    if(rfs_store && !t_slot_is_borrow(&prop_rhs_info.ty()) && !is_comptime_string_type(&prop_rhs_info.ty()), {
+      rfs_tok := match(&rfs_label, .Some(t) => Rc.clone(t), .None => ast_expr_token(&lhs));
+      reject_reference_field_value_store(&_place_source_text(&lhs), &ast_expr_to_string(&rhs), &rfs_tok.value.*, &expected_ty, &rfs_tok, ctx, exn);
+    });
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(&prop_rhs, &env, ctx, exn);
     // E0918: a field or element of a compile-time binding written at runtime.

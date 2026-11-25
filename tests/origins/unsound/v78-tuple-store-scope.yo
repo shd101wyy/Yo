@@ -1,0 +1,17 @@
+// expect: E0911
+// VERDICTS-78 Q1 edge 9: a tuple element of reference type follows the field rule.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+main :: (fn() -> unit)({
+  z := mk();
+  mut(t) := (&z, i32(0));
+  {
+    y := mk();
+    t.0 = &y;
+  };
+  println(`OUT: ${t.0.*.*.s.len().to_string()}`);
+});
+export(main);
