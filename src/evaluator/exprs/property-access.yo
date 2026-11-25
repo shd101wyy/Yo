@@ -407,9 +407,6 @@ strip_for_borrow_marker :: (fn(e : &AstExpr) -> Option(Tuple(AstExpr, String)))(
 member_behind_deref_error :: (
   fn(obj : &AstExpr, obj_ty : &TypeValue, name_tok : &Token, stars : usize, landed : &TypeValue, is_call : bool, for_head : bool, env : &Environment) -> YoError
 )({
-  // Every name below is bound once: a `mut` name destructured from a call's
-  // tuple is released twice at scope exit
-  // (issues/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md).
   (stripped, synth) := strip_synthesized_stars(obj);
   // A reference binding (`b : &Box(P)`, a `for`/`match` element, a `&T`
   // parameter at `T := Rc(P)`) is read through by `.`, so its type here is
