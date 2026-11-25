@@ -157,7 +157,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message, type_key_epoch } :: import("../types/string.yo");
 { type_identity_slot, type_identity_slot_holds, TYPE_IDENTITY_CACHE_CAP } :: import("../types/type-key.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, type_has_no_open_some, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
 { is_global_mut_rule_exempt } :: import("./memory-safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -3887,6 +3887,16 @@ set_expr_as_needs_to_call_dup :: (
             .None => ()
           );
         });
+      });
+      // A copy of a value whose type mentions an open type variable is
+      // judged where the variable is bound, at the instantiation
+      // (`type_requires_explicit_copy` above follows a bound variable's
+      // resolution chain). While it is open nothing can be counted: a
+      // definition-time trial pass emits nothing, and a body evaluated at the
+      // variable itself (a generic `ctl` handler's `ResumeType`, bound at its
+      // erased declared type) lowers the value to an untyped word.
+      if(!type_has_no_open_some(&ei.ty()), {
+        return(());
       });
       // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
       // The unique `Dyn`: a copy of a value holding a `Dyn`

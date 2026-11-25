@@ -2013,22 +2013,21 @@ _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
   // migration of `String`, the collections and `Rc` themselves, not of the
   // closures that capture them: a closure owning a `String` is explicit-copy
   // now (issues/fixed/2026-10-14-a-closure-owning-a-string-copies-implicitly.md).
-  if(is_bound_closure_identity(ty_in) || is_closure_capture_struct(ty_in), {
-    return(match(g_type_lacks_copy_fn, .Some(f) => f(resolve_cell_chain(ty_in)), .None => false));
+  //
+  // A type variable is judged at its instantiation, as `type_is_move_only`
+  // does: by the end of its resolution chain, however many links it has. A
+  // generic `V` instantiated with a closure is such a chain: `V` is the
+  // closure's type (an `Impl` binding, or the nameless wrapper `dyn(...)`
+  // evaluates a closure literal against), which resolves to its capture
+  // record. An open variable is judged where it is bound (a generic body is
+  // re-evaluated per instantiation).
+  ty := resolution_chain_end(ty_in);
+  if(is_some_type(&ty), {
+    return(false);
   });
-  ty := match(
-    ty_in,
-    Rc(.SomeT({ resolution : sr })) => match(
-      sr,
-      .Some(c) => Rc.clone(c),
-      .None => {
-        // A generic parameter is judged where it is bound (a generic body is
-        // re-evaluated per instantiation), as `type_is_move_only` does.
-        return(false);
-      }
-    ),
-    _ => Rc.clone(ty_in)
-  );
+  if(is_closure_capture_struct(&ty), {
+    return(match(g_type_lacks_copy_fn, .Some(f) => f(&ty), .None => false));
+  });
   if(type_contains_rc_cell_or_move_only(&ty), {
     return(false);
   });
@@ -2063,7 +2062,8 @@ type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(t
 /// copyable only when every part is. The walk stops at every other `ref`
 /// object, `Dyn` and future (each a shared handle of its own, which copies
 /// implicitly until V5 and B12), at a closure (judged by its capture record,
-/// decision 36: one owning an `Rc` is not `Copy`) and at a type variable. A
+/// decision 36: one owning an `Rc` is not `Copy`) and at an open type
+/// variable; a bound one is walked through its resolution. A
 /// generic body's copy of a `T` is judged as decision 36's flip judges it,
 /// at each instantiation, std's included: a std reader that copies its
 /// element through `T` (`ArrayList(T).get`, `HashMap(K, V).get`) is E0901 at
@@ -2124,6 +2124,9 @@ _holds_counted_handle_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth
           _type_walk_leave(w, &ty, depth, found)
         }
       ),
+      // A bound type variable is judged at its instantiation, by what it
+      // resolves to; an open one where it is bound.
+      Rc(.SomeT({ resolution : hc_res })) => match(hc_res, .Some(r) => recur(&r.*, w, depth + u32(1)), .None => false),
       _ => false
     )
   )
