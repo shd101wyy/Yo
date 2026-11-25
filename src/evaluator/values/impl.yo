@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
-{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
+{ get_all_some_types, type_contains_some_type, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type-key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function-value.yo");
@@ -2971,6 +2971,7 @@ _v77_explain :: (fn(a_in : &TypeValue, b_in : &TypeValue, depth : usize) -> unit
     k = (k + usize(1));
   });
   eprintln(`  ${ind}[v77-x] a=${type_to_string(&a)} b=${type_to_string(&b)} a_id=${match(&a, Rc(.Struct({ id : i })) => i.clone(), Rc(.EnumT({ id : i })) => i.clone(), _ => String.from("-"))} b_id=${match(&b, Rc(.Struct({ id : i })) => i.clone(), Rc(.EnumT({ id : i })) => i.clone(), _ => String.from("-"))} a_n=${match(&a, Rc(.Struct({ type_arguments : t })) => t.len().to_string(), Rc(.EnumT({ type_arguments : t })) => t.len().to_string(), _ => String.from("-"))} b_n=${match(&b, Rc(.Struct({ type_arguments : t })) => t.len().to_string(), Rc(.EnumT({ type_arguments : t })) => t.len().to_string(), _ => String.from("-"))}`);
+  eprintln(`  ${ind}  attrs a=${_v77_attrs(&a)} b=${_v77_attrs(&b)}`);
   a_kids := _v77_kids(&a);
   b_kids := _v77_kids(&b);
   if(a_kids.len() != b_kids.len(), {
@@ -2990,6 +2991,15 @@ _v77_explain :: (fn(a_in : &TypeValue, b_in : &TypeValue, depth : usize) -> unit
     i = (i + usize(1));
   });
 });
+_v77_attrs :: (fn(t : &TypeValue) -> String)(
+  match(
+    t,
+    Rc(.Struct({ name : n, constructor_func_id : cf, is_reference_semantics : r, is_atomic_rc : at, is_newtype : nt, field_labels : fl, is_source_namespace : sn })) => `S name=${n} cfid=${cf} ref=${r.to_string()} atomic=${at.to_string()} newtype=${nt.to_string()} labels=${fl.len().to_string()} sns=${sn.to_string()} some=${type_contains_some_type(t).to_string()}`,
+    Rc(.EnumT({ name : n, variant_names : vn, is_reference_semantics : r })) => `E name=${n} vns=${vn.len().to_string()} ref=${r.to_string()} some=${type_contains_some_type(t).to_string()}`,
+    Rc(.SomeT({ id : i, name : n, frame_level : l, resolution : res })) => `T ${i}/${n}@${l.to_string()} res=${res.is_some().to_string()}`,
+    _ => type_to_string(t)
+  )
+);
 _v77_kids :: (fn(t : &TypeValue) -> ArrayList(TypeValue))({
   out := ArrayList(TypeValue).new();
   match(
