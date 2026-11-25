@@ -88,3 +88,39 @@ The table's three accepted rows (the move, the write, the block escape) as `comp
 `tests/dyn-pointer-kinds.test.yo`, and the reproducer pair under `tests/origins/unsound/`. Each passes `yo check`
 today and is rejected with the fix. The audit probes `probes/cells/tip/dv01_dyn_ref_call_result_bound.yo` and
 `dv05_dyn_ref_holder_from_fn.yo`, which never write `c`, stay accepted and ASan-clean.
+
+## Fix
+
+Confirmed with a print at R-NONE's early return in `_origin_of_into` (`src/evaluator/utils.yo`):
+
+```text
+[refarg] dyn(&(c)) -> _origin_of_into
+[rnone] dyn(&(c)) : Dyn(Name) dropped
+[refarg] upcast(dyn(&(c)), Dyn(Name)) -> _origin_of_into
+[rnone] upcast(dyn(&(c)), Dyn(Name)) : Dyn(Name) dropped
+```
+
+A `dyn(&c)` passed bare to a `&Dyn(T)` parameter is read at its pointee's type, `Dyn(T)`, which carries no
+origin, so R-NONE returned the empty set before R-COMP reached the lend `&c` inside it. R-NONE already kept two
+reference values read at their pointee's type (a call whose callee returns a reference, an atom naming a
+reference binding). It now keeps a third: a `dyn(...)` or `upcast(...)` call, which re-types its operand's
+pointer. Its origin is then R-COMP's over its operand, the same computation as at a by-value slot (`gid`).
+`dyn(&mut c)` gives `c(mut)`; an `upcast(dyn(&c), …)` gives `c(imm)`.
+
+After the fix, these are rejected with E0911: the move, the write and the block escape of the table, `mkhold`
+then a move, `_fwd(dyn(&c))` then a move, `_get_opt(upcast(dyn(&c), Dyn(Name)))` then a move, and a read of `c`
+while `_get_mut(dyn(&mut c))`'s result lives. A `dyn(&mut c)` passed through `fn(d : &mut Dyn(T)) -> &mut Dyn(T)`
+and bound by `r := …` was rejected as a borrow of a temporary before the fix. It now binds, and a read of `c`
+while `r` lives is E0911.
+
+Sibling wrappers audited at a reference parameter: `&Option(&Cat).Some(&c)` and a `cond` whose arms are
+`dyn(&c)` values are rejected as a borrow of a temporary (R-TEMP), which is sound. The `cond` case is an
+over-rejection, filed as `issues/2026-11-25-a-cond-of-dyn-references-passed-to-a-reference-parameter-is-read-as-a-temporary.md`.
+`Box(&Cat)` is E0909, and `&c` is no block or arm value. A `dyn(&c)` at a by-value `Option`, as a
+constructor's reference field or inside `Option(&Dyn(T)).Some(...)` already froze `c`.
+
+Tests: seven `comptime_expect_error` rows and one positive row in `tests/dyn-pointer-kinds.test.yo`
+("a dyn(&v) at a reference parameter lends v to the call's result", "a dyn(&v) call result outlives its
+statement while v stays put"), and the pair `tests/origins/unsound/dyn-place-ref-param-result-move{,-pos}.yo`.
+Test 7's overlay flips the headers of `dv01`, `dv04` and `dv05` to `// expect: accept`
+(`scripts/test7/respell-manifest.tsv`).

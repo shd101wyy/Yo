@@ -235,6 +235,131 @@ test("a dyn(&v) consumed inside its statement is sound", {
   assert(_speak_via(&_fwd(dyn(&c))) == i32(8), "forwarded through a projection");
   assert(_speak_via(upcast(dyn(&c), Dyn(Speak))) == i32(8), "reference upcast as an argument");
 });
+// A `dyn(&v)` passed bare to a `&Dyn(T)` parameter lends `v` to the call's
+// result, as `&v` at a `&T` parameter does
+// (issues/fixed/2026-11-25-a-dyn-of-a-place-passed-to-a-reference-parameter-gives-the-call-result-no-origin.md).
+SpeakHd :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(d : &(Dyn(Speak), p)));
+_mkhold :: (fn(d : &Dyn(Speak)) -> SpeakHd(d))(SpeakHd(d)(d : d));
+_get_bump :: (fn(d : &mut Dyn(Bump)) -> Option(&mut Dyn(Bump)))(Option(&mut Dyn(Bump)).Some(d));
+test("a dyn(&v) at a reference parameter lends v to the call's result", {
+  comptime_expect_error(
+    (fn() -> i32)({
+      c := Cat(n : i32(1));
+      o := _get_opt(dyn(&c));
+      {
+        _d := c;
+      };
+      match(
+        o,
+        .Some(d) => d.speak(),
+        .None => i32(-1)
+      )
+    }),
+    "Cannot move `c` here: `o` borrows `c`"
+  );
+  comptime_expect_error(
+    (fn() -> i32)({
+      (mut(c) : Cat) = Cat(n : i32(1));
+      o := _get_opt(dyn(&c));
+      c = Cat(n : i32(2));
+      match(
+        o,
+        .Some(d) => d.speak(),
+        .None => i32(-1)
+      )
+    }),
+    "Cannot write `c` here: `o` borrows `c`"
+  );
+  comptime_expect_error(
+    (fn() -> i32)({
+      o := {
+        c := Cat(n : i32(1));
+        _get_opt(dyn(&c))
+      };
+      match(
+        o,
+        .Some(d) => d.speak(),
+        .None => i32(-1)
+      )
+    }),
+    "Cannot end this block while its result borrows `c`"
+  );
+  comptime_expect_error(
+    (fn() -> i32)({
+      c := Cat(n : i32(1));
+      h := _mkhold(dyn(&c));
+      {
+        _d := c;
+      };
+      h.d.speak()
+    }),
+    "Cannot move `c` here: `h` borrows `c`"
+  );
+  comptime_expect_error(
+    (fn() -> i32)({
+      c := Cat(n : i32(1));
+      (r : &Dyn(Speak)) = _fwd(dyn(&c));
+      {
+        _d := c;
+      };
+      r.speak()
+    }),
+    "Cannot move `c` here: `r` borrows `c`"
+  );
+  comptime_expect_error(
+    (fn() -> i32)({
+      c := Cat(n : i32(1));
+      o := _get_opt(upcast(dyn(&c), Dyn(Speak)));
+      {
+        _d := c;
+      };
+      match(
+        o,
+        .Some(d) => d.speak(),
+        .None => i32(-1)
+      )
+    }),
+    "Cannot move `c` here: `o` borrows `c`"
+  );
+  comptime_expect_error(
+    (fn() -> i32)({
+      (mut(c) : Cat) = Cat(n : i32(1));
+      o := _get_bump(dyn(&mut c));
+      k := c.n;
+      match(
+        o,
+        .Some(d) => (d.bump() + k),
+        .None => i32(-1)
+      )
+    }),
+    "here: `o` borrows `c` with `&mut`"
+  );
+});
+test("a dyn(&v) call result outlives its statement while v stays put", {
+  c := Cat(n : i32(9));
+  o := _get_opt(dyn(&c));
+  assert(
+    match(
+      o,
+      .Some(d) => d.speak(),
+      .None => i32(-1)
+    ) == i32(9),
+    "the holder the call returned reads v"
+  );
+  h := _mkhold(dyn(&c));
+  assert(h.d.speak() == i32(9), "the holder built from the parameter reads v");
+  (mut(m) : Cat) = Cat(n : i32(1));
+  b := _get_bump(dyn(&mut m));
+  assert(
+    match(
+      b,
+      .Some(d) => d.bump(),
+      .None => i32(-1)
+    ) == i32(2),
+    "the &mut holder writes v"
+  );
+  assert(m.n == i32(2), "the write landed in v once the holder is dead");
+});
 _speak_plus :: (fn(d : &Dyn(Speak), k : i32) -> i32)(d.speak() + k);
 test("a dyn(&v) argument before and after an await is sound", {
   t := io.async((io : Io) => {
