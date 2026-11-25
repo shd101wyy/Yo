@@ -1765,6 +1765,14 @@ jobs:
       - name: Compile the suite compiler natively
         shell: bash
         run: |
+          # The macOS Intel runner is lost mid-job about 5% of the time and a lost
+          # runner's log never lands (issues/2026-11-05-the-macos-26-intel-test-
+          # runner-repeatedly-loses-communication.md): sample the VM every 30 s
+          # into the streamed log, stopped when this step ends.
+          if [ "${{ matrix.os }}" = "macos-26-intel" ]; then
+            source scripts/ci-vm-sampler.sh
+            vm_sampler_start "Compile the suite compiler natively"
+          fi
           if [ "$RUNNER_OS" = "Windows" ]; then
             case "${{ matrix.target }}" in
               windows-x64)   CT=x86_64-pc-windows-msvc ;;
@@ -1816,6 +1824,14 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
+          # The macOS Intel runner is lost mid-job about 5% of the time and a lost
+          # runner's log never lands (issues/2026-11-05-the-macos-26-intel-test-
+          # runner-repeatedly-loses-communication.md): sample the VM every 30 s
+          # into the streamed log, stopped when this step ends.
+          if [ "${{ matrix.os }}" = "macos-26-intel" ]; then
+            source scripts/ci-vm-sampler.sh
+            vm_sampler_start "Run tests"
+          fi
           if [ -f yo-suite.exe ]; then YO=./yo-suite.exe; else YO=./yo-suite; fi
           # The 2026-09-03 mingw64-lost-libasan workaround
           # (issues/fixed/windows-images-lost-libasan.md) is lifted on
