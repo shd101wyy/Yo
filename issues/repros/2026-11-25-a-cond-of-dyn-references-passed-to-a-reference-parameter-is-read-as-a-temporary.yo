@@ -1,0 +1,18 @@
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Name :: trait(name : (fn(self : &Self) -> &String));
+Cat :: struct(s : String);
+impl(Cat, Name(name : (fn(self : &Self) -> &String)(&self.s)));
+_get_opt :: (fn(d : &Dyn(Name)) -> Option(&Dyn(Name)))(Option(&Dyn(Name)).Some(d));
+main :: (fn() -> unit)({
+  c := Cat(s : String.from("abc"));
+  c2 := Cat(s : String.from("de"));
+  b := (c2.s.len() > usize(1));
+  o := _get_opt(cond(b => dyn(&c), true => dyn(&c2)));
+  match(
+    o,
+    .Some(d) => println(`OUT: ${d.name().len().to_string()}`),
+    .None => ()
+  );
+});
+export(main);
