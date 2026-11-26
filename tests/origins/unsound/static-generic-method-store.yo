@@ -1,0 +1,28 @@
+// expect: E0923
+// A generic container instantiated over static, its method handed a local's
+// reference; the local dies while the container is live and is read after.
+// VERDICTS-74 rule 2: the specialized method types `v : T` from the argument,
+// so the receiver's type argument `&(X, static)` judges the stored value.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Box1 :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : Option(T))
+);
+impl(
+  generic(T : Type),
+  Box1(T),
+  put : (fn(self : &mut Self, v : T) -> unit)({
+    self.v = .Some(v);
+  })
+);
+main :: (fn() -> unit)({
+  mut(b) := Box1(&(X, static))(v : .None);
+  {
+    x := X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    b.put(&x);
+  };
+  match(b.v, .Some(r) => println(`OUT: ${r.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
