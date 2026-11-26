@@ -38,8 +38,8 @@ import("std/fmt");
 { is_trait_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
-{ E_AMBIGUOUS_METHOD } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_eval_failure, with_code } :: import("../../error.yo");
+{ E_AMBIGUOUS_METHOD, E_DYN_UNCALLABLE } :: import("../../diagnostics.yo");
 { dyn_member_is_method, dyn_member_unsafe_reason, is_clone_trait_type } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -126,6 +126,16 @@ _reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token,
     });
     ti = (ti + usize(1));
   });
+});
+/// E0614 for a `Dyn` that lists `Future(...)` (VERDICTS-80): one future is
+/// typed `Impl(Future(T, E))`, several different running tasks are kept as
+/// `JoinHandle(T)`.
+_reject_dyn_of_future :: (fn(future : &TypeValue, output : &TypeValue, tok : &Token, exn : Exception) -> unit)({
+  fs := type_to_string(future);
+  ts := type_to_string(output);
+  msg := `\`Dyn(${fs})\` cannot be made: \`Future\` has no vtable slot. A future is awaited or spawned by value (\`io.await(f, e)\`, \`io.spawn(f, e)\`), which consumes it, and a \`Dyn\` is unsized and lives behind the pointer that owns it. A future is already one pointer to its state machine.`;
+  help := `type one future as \`Impl(${fs})\`: a parameter, a result or a struct field\nhelp: to keep several different tasks in one collection, spawn each and keep its handle: \`ArrayList(JoinHandle(${ts}))\` (\`io.spawn(f, io)\`; \`join_all\` and \`race\` in \`std/async\` take the list)`;
+  exn.throw(dyn(Box.new(with_code(format_error_message_with_help(tok, &msg, &Option(String).Some(help)), E_DYN_UNCALLABLE))));
 });
 evaluate_dyn_type :: (
   fn(
@@ -245,6 +255,14 @@ evaluate_dyn_type :: (
         )
       );
     });
+    // `Future` has no vtable slot (VERDICTS-80, E0614): a future is awaited
+    // or spawned by value, and is already one pointer to its state machine.
+    // A negated `!(Future(...))` is rejected the same way.
+    match(
+      &inner_ty,
+      Rc(.FutureTraitT(output : fo)) => _reject_dyn_of_future(&inner_ty, &fo.*, ast_expr_token(&actual_arg), exn),
+      _ => ()
+    );
     cur_env = expr_info_adopt_env(&trait_info);
     tid := trait_id_for_dedup(&inner_ty);
     if(is_negated, {

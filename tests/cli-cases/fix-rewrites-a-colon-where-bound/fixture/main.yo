@@ -1,0 +1,17 @@
+Probe :: trait(probe : (fn(self : &Self) -> i32));
+Marker :: trait();
+W :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+P :: struct(n : i32);
+impl(P, Probe(probe : (fn(self : &Self) -> i32)(self.n)));
+impl(generic(T : Type), where(T : Probe), W(T), Marker());
+Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+derive(generic(T : Type), where(T : Clone), Pair(T), Clone);
+total :: (fn(generic(T : Type), x : &T, where(T : Probe)) -> i32)(x.probe());
+comptime_assert(Type.impls(W(P), Marker), "W(P) is a Marker");
+main :: (fn() -> unit)({
+  w := W(P)(v : P(n : i32(1)));
+  p := Pair(i32)(a : i32(1), b : i32(2));
+  _q := p.clone();
+  _n := total(&w.v);
+});
+export(main);

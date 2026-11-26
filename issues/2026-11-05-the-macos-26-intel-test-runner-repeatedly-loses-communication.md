@@ -139,5 +139,54 @@ Infrastructure (the hosted macOS Intel VM or its agent), S3 as filed. No file or
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-24 | 45447738994 (01673f592) | 138709110628 | 1/4 | Compile the suite compiler natively | 51 min |
 | 2026-11-25 | 45534578147 (b25971e82) | 138975944670 | 3/4 | Run tests | 64 min |
+| 2026-11-25 | 45554702069 (33d2498cf) | 139047057052 | 0/4 | Compile the suite compiler natively | 52 min (after 49 min queued) |
+| 2026-11-25 | 45554702069 (33d2498cf) | 139047057055 | 3/4 | Run tests | 79 min |
 
 Both carry only the "hosted runner lost communication" annotation, and the log blob is missing (HTTP 404). The rest of each battery was green. The two losses are on different shards and in different steps, so recommendation 1 counts them as infrastructure: the first one's battery was superseded by green 45460102665 (78a71eae1), and the second one got `gh run rerun --failed`. Recommendation 2's VM sampler has still not been added. Each loss costs a rerun of a 50–65 minute leg on the release path.
+
+The 33d2498cf battery lost two intel shards at once (the rest was green, `merge-gate` red). Shard 0 started at 08:13:13Z after 49 min queued, entered the compile step at 08:13:42Z (normally 5-9 min) and was declared lost at 09:05:15Z: 51 min inside one single-threaded `clang -O2`. Shard 3 started its tests at 07:31:03Z and was lost at 08:43:39Z, 72 min in. That makes four losses in the last three develop batteries (01673f592, b25971e82, 33d2498cf x2), three of them in or after a 51-72 min stretch.
+
+### Sharding 4 to 6 ways: measured, not done
+
+The brief's premise is that exposure grows with job length, so cutting the macos-26-intel shards from about 64 min to about 43 min would cut the rate. The step timings of the last nine green develop batteries (11-22 through 11-25; `gh api repos/shd101wyy/Yo/actions/runs/<id>/jobs`) argue against it:
+
+- **The account runs 5 macOS jobs at once, and the matrix already has 6.** In all nine batteries exactly one of the six macOS jobs (two macos-latest shards, four intel shards) waited 37-69 min in the queue (`started_at - created_at` 2234-4117 s; 33d2498cf's lost shard 0 queued 49 min as well); the other five started within 2-9 s. A 6-way intel split makes eight macOS jobs for five slots: three queue, not one. The comment above the matrix already says the four intel shards "take most of" the account's macOS slots.
+- **Wall clock does not shrink under a slot limit.** The macOS work is about 4 x 65 + 2 x 55 = 370 job-min; five slots bound the battery near 75 min, and the sixth job's queue time plus run time already puts it at 90-125 min. Splitting the intel shards finer moves job-minutes between jobs and adds two more compiles of the suite compiler (5-13 min each on the intel leg in those batteries) to the total.
+- **The loss does not follow job length.** Five losses listed here (2026-11-04, 11-08, 11-10, 11-24 and the new shard 0 one) are inside the compile step, after 46-52 min of a job whose compile step takes 5-13 min, so the VM froze while doing a task that normally ends in minutes, not because the job was long. A shorter shard would still contain that compile step, the one step every shard shares.
+
+So the 4-way sharding stays. The sampler below is what can say whether disk, memory, swap or the process table moves before a loss; a sharding change waits for that data and for a larger account macOS concurrency.
+
+### Sampler landed
+
+`scripts/ci-vm-sampler.sh` (sourced by the macOS Intel leg only, in "Compile the suite compiler natively" and "Run tests") prints, every 30 s into the step's streamed log: the UTC time, `df -h /`, `vm_stat | head -6`, `sysctl vm.swapusage`, the process count and the five processes with the largest RSS (KiB, pid, command). The loop stops with the step (an `EXIT` trap). After the next loss on the intel leg, read the last block before the log ends (`gh run view --job <id> --log` while the job is still running, or the log blob if it lands): that closes recommendation 2. Recommendation 1 (one `gh run rerun --failed` per lost job on a release-candidate battery) is unchanged.
+
+## Update 2026-11-26: the first Windows loss, and the sampler cannot be read for a lost job
+
+### A Windows shard was lost in the same battery as an intel shard
+
+| Date | Run | Job | Shard | Ran for |
+| --- | --- | --- | --- | --- |
+| 2026-11-25 | 45617416692 (fc89e3195, develop) | 139341464958 | `test (windows-latest)` 3/4 | 76 min (16:23:35Z to 17:39:38Z) |
+| 2026-11-25 | 45617416692 (fc89e3195, develop) | 139341465067 | `test (macos-26-intel)` 2/4 | 71 min (16:21:08Z to 17:32:15Z) |
+
+Both jobs concluded `failure` with no failed step recorded and one annotation, the "hosted runner lost communication with the server" text. Both log blobs are gone (`gh api repos/shd101wyy/Yo/actions/jobs/<id>/logs` returns `BlobNotFound` for the intel job). The rest of the battery was green; `merge-gate` was the only other red job.
+
+This is the first `windows-latest` loss in this document. Every earlier entry was on `macos-26-intel`, so "the loss is intel-only" no longer holds, and a cause local to the intel VM image (the sampler's premise: disk, memory, swap or the process table on that VM) is now one hypothesis among several. Two losses on two different OSes in one battery, started 2.5 min apart and lost within 7 min of each other, point at something shared on GitHub's side (the runner-to-service connection) more than at anything in this repository's jobs. Nothing here rules the intel-specific causes out; the Windows loss means the sampler, which exists only on the intel leg, cannot explain every loss.
+
+### The sampler's "read it live" path does not exist through `gh`
+
+The 2026-11-25 section says to read the sampler's last block with `gh run view --job <id> --log` while the job is still running. That does not work:
+
+- The log blob of a lost job does not exist afterwards (the 404 above), the same as for every earlier loss, so the lines the sampler printed are not recoverable.
+- `gh run view --job <id> --log` refuses a job that is in progress ("logs will be available when it is complete"), so a job cannot be read before it is lost either. GitHub's web UI streams a running job's log, but nothing there is saved once the job is lost, and a human would have to be watching the right job for the minutes before the loss.
+
+As landed, the sampler therefore cannot answer recommendation 2 for any loss that follows the usual pattern.
+
+### Options
+
+1. **Emit the samples as annotations.** Have `scripts/ci-vm-sampler.sh` print one `::notice::` line per interval (UTC time, free disk, `vm_stat` free pages, swap used, process count, the top RSS process). Annotations are attached to the check run and survive after the log blob is gone: the "lost communication" annotation above is read back through the check-run annotations API (`gh api repos/shd101wyy/Yo/check-runs/<job-id>/annotations`) for both lost jobs even though their logs 404. Limits to design for: GitHub caps the annotations of one type per step (10 notices per step, as documented; verify on a trial) and per job, so the interval has to be coarse (one `::notice::` every 8-10 minutes, not every 30 s), with the 30-second detail dropped or kept only in the streamed log. Whether notices posted from a step that later dies are retained, rather than uploaded only when the step finishes, is not established; it needs one trial job (kill the runner process mid-step on a throwaway branch) before relying on it. `GITHUB_STEP_SUMMARY` does not help: it is uploaded when the step ends.
+2. **Drop the sampler.** It cannot be read for the failure it was written for, it runs only on the intel leg, and the Windows loss weakens its premise. Dropping it removes a background loop from two steps and leaves the rerun policy (recommendation 1) as the only response.
+
+### Recommendation
+
+Option 1, as a one-battery experiment with the interval at 10 minutes: it costs one short `::notice::` line per interval, it is the only route found by which the data can survive a loss, and the same line can be added to the Windows leg if the experiment works. If the next loss shows no sampler annotation on the lost job, take option 2 and stop investing in sampling; the pattern (both OSes, no failed step, no log) then needs a report to GitHub Support with the run and job ids in this document. The CI change is a maintainer decision and is not part of this documentation batch.

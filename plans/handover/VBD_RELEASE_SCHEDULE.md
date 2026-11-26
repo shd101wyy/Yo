@@ -105,6 +105,31 @@ Needs the v0.2.80 seed.
 - The `std/sync` channel payload back to `_ChannelState(T)`; the prelude's four `Deref` arms in
   `derive(Clone)`/`derive(Hash)`.
 - IO-1b (std Generation B of the `Io` interface).
+- VERDICTS-82 ([`backlog/STD_RUST_ALIGNMENT.md`](../backlog/STD_RUST_ALIGNMENT.md) §5; S-0, the compiler's Rust-name hints and
+  the pack's class-D list, is a v0.2.80 rider when ready before the cut, else here):
+  - S-1: closures take their item by value (`Option`/`Result`/`Iterator` combinators), `From`/`Into`/`TryFrom`/`TryInto`
+    and `from_iter_add` by value, `IterPair` → `Tuple`; after VERDICTS-78 Q3 PR 1 (both edit the prelude and `std/fmt`)
+    and after F1/F2;
+  - S-2: the additive pieces (`Ordering` with `Eq`, `Ord.max`/`min`, the `Option`/`Result` and iterator adapters,
+    `get_mut`/`first_mut`/`last_mut`/`values_mut`) and `Cell(T)` for `T <: Copy` (Q6); needs S-1's `Option(&T).cloned`;
+  - S-3: `iter()`/`keys()`/`values()` borrow and `into_*` consume for the collections, `MapEntry` → `Tuple`;
+  - S-4: the renames and signature fixes (§3.7), two PRs: collections/strings/sync, then env/thread/fs/process;
+  - S-6: re-export-only `index.yo` modules for `std/collections`, `std/fs`, `std/time`, `std/sync` and `std/net`
+    (`std/process/index.yo` already re-exports `Command`), with `yo-design`'s "no catch-all `index.yo`" rule amended
+    (VERDICTS-82 Q2, the maintainer's answer);
+  - S-5 (conditional): the `str` read API with `FromStr` and the string iterators, here only if S3b-`str` PR E shipped in
+    v0.2.80, else v0.2.82.
+- VERDICTS-87 ([`backlog/STD_RUST_ALIGNMENT.md`](../backlog/STD_RUST_ALIGNMENT.md) §9; no seed split, no `yo fix`):
+  - V87-A: the scripted rename `Mod`/`Negate`/`BitLeftShift`/`BitRightShift` to `Rem`/`Neg`/`Shl`/`Shr` (and the `Comptime*`
+    twins), **first PR after the v0.2.80 cut**; the `Not` hint row reworded; AGENTS.md's historical-names table gains the row;
+  - V87-B: std's `Ord`-bounded algorithms call `cmp` (`sort`, `sort_unstable`, `sort_by_key`, `binary_search`, `BTreeMap`,
+    `PriorityQueue`, `Iterator.min`/`max`) with NaN rows in their tests;
+  - V87-C: diagnostics for Rust-shaped spellings (`derive(P, PartialEq)`, a bare `Eq`/`Ord`, `!` at an integer slot, a moved
+    operand of a unary operator);
+  - V87-D: the `(-)`/`(~)` dispatchers return `_Self.Output`; `BitNot` leaves `longdouble`; the 22 numeric `LogicalNot` impls
+    deleted if the maintainer keeps the recommendation in `issues/questions/2026-11-26-should-bang-on-a-number-be-deleted.md`;
+  - the false VERDICTS-82 sentence ("the compiler finds the operator traits by name") is fixed docs-only before the
+    v0.2.80 tag; if that tag is cut first, the v0.2.81 notes carry it under `### Retracted claims`, with V87-A as the fix.
 - VERDICTS-77: a substituted recursive type's self-reference denotes the substituted type (`substitute` and the
   finals registries; `type_key` renders the recursion cut by declaration and arguments), two stacked PRs after
   the evalwork memo — fixes the generic `GKind(T)` impl-member S2 and its struct twin.
@@ -123,6 +148,8 @@ Needs the v0.2.81 seed.
 
 Not counted above:
 
+- the `try(expr)` builtin, the first post-VBD language item (VERDICTS-82 Q1, the maintainer's answer; PR L-1 of
+  [`backlog/STD_RUST_ALIGNMENT.md`](../backlog/STD_RUST_ALIGNMENT.md) §5; seed split);
 - the Rust-parity claim (made when `DIVERGENCES.tsv` has no row "rejected pending a parity item"), with
   N2c–N2f, P4, P5, P6 and P7;
 - evaluator performance steps 1–2;

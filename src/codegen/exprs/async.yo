@@ -105,7 +105,8 @@
   inline_await_result_field_of,
   inline_await_local_result_type,
   generate_async_block_resume_function_inline,
-  generate_async_block_cancel_pending_function_inline
+  generate_async_block_cancel_pending_function_inline,
+  is_io_future_type
 } :: import("../async/state-machine.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_sm_move_flag_field, sm_move_flag_of, sm_capture_move_flag_name } :: import("../async/state-machine-naming.yo");
 { _c_string_literal } :: import("./comptime-value.yo");
@@ -707,6 +708,11 @@ emit_async_block_struct_definition :: (
     emit_text2 := `  ${info.result_type_c_name.clone()} result;  // The result value of type ${get_type_string(&info.result_type, &mut context.base)}`;
     context.base.emitter.emit_declaration_string_line(&emit_text2);
   });
+  // The abort walk (runtime-core.yo `__yo_sm_abort_walk`): how many locals
+  // `<block>_state_dispose_locals` has dropped, and the gate it waits on
+  // while a drop's abort lingers.
+  context.base.emitter.emit_declaration_line("  int __yo_walk;  // locals the abort walk has dropped");
+  context.base.emitter.emit_declaration_line("  void* __yo_walk_gate;  // the gate the abort walk waits on (__yo_abort_gate_t), or NULL");
   context.base.emitter.emit_declaration_line("");
   // Resume function pointer for lazy start at await.
   context.base.emitter.emit_declaration_line("");
@@ -1425,9 +1431,19 @@ _emit_lent_param_installs :: (fn(capture_type : &TypeValue, sm_ptr : &String, in
 });
 /// Generate the state-machine dispose function for an async block: drops the
 /// capture struct, the result field (on normal completion, state == -1), and
-/// cross-boundary locals (on unwind/abort, state == -2). Called by `__yo_decr_rc`
-/// at refcount 0 — does NOT free memory. `local_var_drops` is
-/// retained for signature fidelity (unused).
+/// cross-boundary locals (on unwind/abort, state == -2) that the abort walk has
+/// not dropped yet. Called by `__yo_decr_rc` at refcount 0 — does NOT free
+/// memory. `local_var_drops` is retained for signature fidelity (unused).
+///
+/// The locals' drops are `<id>_state_dispose_locals`, the abort walk
+/// (VERDICTS-83 §3, runtime-core.yo `__yo_sm_abort_walk`): an aborted task runs
+/// it at the abort, once its await slot has retired. It drops the locals
+/// newest first, one at a time, counting them in `sm->__yo_walk`, so it can
+/// stop right after a drop whose abort lingered (`__yo_abort_walk_lingers`,
+/// returning false) and continue from there when the task is resumed, and so
+/// the dispose's later call drops nothing twice. A pending operation held in
+/// a local is aborted by the walk before its reference is released
+/// (`__yo_abort_walk_io_local`).
 generate_async_block_state_dispose_function :: (
   fn(async_block_id : &String, struct_name : &String, dispose_function_name : &String, result_type : &TypeValue, capture_type : &Option(TypeValue), analysis : &AwaitAnalysisResult, local_var_drops : &ArrayList(String), cross_boundary_ids : &HashSet(String), await_future_temp_var_aliases : &HashMap(String, String), overlapping_slot_aliases : &HashMap(String, String), overlapping_slots : &ArrayList(OverlappingSlot), context : &mut FunctionGenerationContext) -> unit
 )({
@@ -1494,11 +1510,15 @@ generate_async_block_state_dispose_function :: (
   });
   context.base.emitter.emit_line("");
   // Drop cross-boundary locals when unwind aborted the SM (state == -2). Normal
-  // completion drops locals inline in the final state.
+  // completion drops locals inline in the final state. Newest first: the
+  // captured variables are in declaration order, read backwards, and a shared
+  // RC slot is dropped where its newest member is.
   mut(local_drop_lines) := ArrayList(String).new();
+  mut(dropped_slots) := HashSet(String).new();
   cvs := &analysis.captured_variables;
-  (mut(i) : usize) = usize(0);
-  while(i < cvs.len(), {
+  (mut(i) : usize) = cvs.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
     match(
       cvs.get_cloned(i),
       .Some(v) => {
@@ -1509,13 +1529,26 @@ generate_async_block_state_dispose_function :: (
         // owns its part and is dropped here like a named local
         // (`note_state_machine_binding_id`).
         is_binding := match(&context.state_machine_binding_ids, .Some(bids) => bids.contains(v.base.id.to_string()), .None => false);
-        // A member of a shared slot is dropped through the slot, below.
+        // A member of a shared slot is dropped through the slot, where its
+        // newest member is.
         is_shared := overlapping_slot_aliases.contains_key(v.base.id.to_string());
+        if(is_shared, {
+          match(
+            overlapping_slot_aliases.get_cloned(v.base.id.to_string()),
+            .Some(slot_field) => _push_shared_slot_drop(&slot_field, overlapping_slots, &mut dropped_slots, &mut local_drop_lines, context),
+            .None => ()
+          );
+        });
         if(is_local && cross_boundary_ids.contains(v.base.id.to_string()) && !await_future_temp_var_aliases.contains_key(v.base.id.to_string()) && !is_owning && !is_binding && !is_shared, {
           field_name := get_state_machine_field_name(v.base.id.to_string(), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
+          drop_line := if(is_io_future_type(&v.base.ty), {
+            // A pending operation held in a local: the abort walk aborts it
+            // (VERDICTS-83 §3 part 5); its reference is released either way.
+            Option(String).Some(`    if (${field_ref} != NULL) { __yo_abort_walk_io_local((void*)${field_ref}); __yo_decr_rc((void*)${field_ref}); }`)
+          }, _rc_field_drop_line(field_ref.clone(), &v.base.ty, String.from("    "), context));
           match(
-            _rc_field_drop_line(field_ref.clone(), &v.base.ty, String.from("    "), context),
+            drop_line,
             .Some(line) => {
               // A flagged slot holds no value of its own: one moved out still
               // holds it for the moved-from name's reads (its new owner
@@ -1528,15 +1561,67 @@ generate_async_block_state_dispose_function :: (
       },
       .None => ()
     );
-    i = (i + usize(1));
   });
-  // A shared RC slot is dropped once: it is non-zero only while it owns its
-  // current member's value (every drop and move of it zeroes it).
-  (mut(osi) : usize) = usize(0);
-  while(osi < overlapping_slots.len(), osi = (osi + usize(1)), {
+  // A shared slot none of whose members is a captured variable: after them.
+  (mut(osi) : usize) = overlapping_slots.len();
+  while(osi > usize(0), {
+    osi = (osi - usize(1));
     match(
       overlapping_slots.get_cloned(osi),
-      .Some(os) => if(type_contains_rc_cell_or_move_only(&os.ty), {
+      .Some(os) => _push_shared_slot_drop(&os.field_name, overlapping_slots, &mut dropped_slots, &mut local_drop_lines, context),
+      .None => ()
+    );
+  });
+  if(local_drop_lines.len() > usize(0), {
+    context.base.emitter.emit_line("  // Drop local variables on escape (state == -2)");
+    context.base.emitter.emit_line("  if (sm->state == -2) {");
+    context.base.emitter.emit_string_line(`    __yo_sm_drop_locals(sm_ptr, ${dispose_function_name.clone()}_locals);`);
+    context.base.emitter.emit_line("  }");
+  });
+  // A fused site's fields (await-site fusion): released only while the site
+  // is live (`_emit_fused_sites_dispose`).
+  _emit_fused_sites_dispose(&fused_await_sites(analysis, context), context);
+  context.base.emitter.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
+  context.base.emitter.emit_line("}");
+  // The locals' drops on their own: the abort dispose above, and a block that
+  // catches one of its own handlers' unwinds before completing
+  // (`emit_sm_unwind_catch`).
+  context.base.emitter.emit_string_line(`bool ${dispose_function_name.clone()}_locals(void* sm_ptr) {`);
+  if(local_drop_lines.len() > usize(0), {
+    context.base.emitter.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
+    (mut(j) : usize) = usize(0);
+    while(j < local_drop_lines.len(), {
+      match(
+        local_drop_lines.get_cloned(j),
+        .Some(line) => {
+          n := (j + usize(1)).to_string();
+          context.base.emitter.emit_string_line(`  if (sm->__yo_walk < ${n}) {`);
+          context.base.emitter.emit_string_line(&line);
+          context.base.emitter.emit_string_line(`    sm->__yo_walk = ${n};`);
+          context.base.emitter.emit_line("    if (__yo_abort_walk_lingers()) return false;");
+          context.base.emitter.emit_line("  }");
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+  }, context.base.emitter.emit_line("  (void)sm_ptr;"));
+  context.base.emitter.emit_line("  return true;");
+  context.base.emitter.emit_line("}");
+});
+/// The drop of the shared RC slot `field_name` (`compute_overlapping_slots`),
+/// once: it is non-zero only while it owns its current member's value (every
+/// drop and move of it zeroes it).
+_push_shared_slot_drop :: (fn(field_name : &String, overlapping_slots : &ArrayList(OverlappingSlot), dropped_slots : &mut HashSet(String), local_drop_lines : &mut ArrayList(String), context : &mut FunctionGenerationContext) -> unit)({
+  if(dropped_slots.contains(field_name.clone()), {
+    return(());
+  });
+  dropped_slots.insert(field_name.clone());
+  (mut(k) : usize) = usize(0);
+  while(k < overlapping_slots.len(), k = (k + usize(1)), {
+    match(
+      overlapping_slots.get_cloned(k),
+      .Some(os) => if((os.field_name == field_name.*) && type_contains_rc_cell_or_move_only(&os.ty), {
         match(
           _rc_field_drop_line(`sm->${os.field_name.clone()}`, &os.ty, String.from("    "), context),
           .Some(line) => {
@@ -1548,30 +1633,6 @@ generate_async_block_state_dispose_function :: (
       .None => ()
     );
   });
-  if(local_drop_lines.len() > usize(0), {
-    context.base.emitter.emit_line("  // Drop local variables on escape (state == -2)");
-    context.base.emitter.emit_line("  if (sm->state == -2) {");
-    context.base.emitter.emit_string_line(`    ${dispose_function_name.clone()}_locals(sm_ptr);`);
-    context.base.emitter.emit_line("  }");
-  });
-  // A fused site's fields (await-site fusion): released only while the site
-  // is live (`_emit_fused_sites_dispose`).
-  _emit_fused_sites_dispose(&fused_await_sites(analysis, context), context);
-  context.base.emitter.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
-  context.base.emitter.emit_line("}");
-  // The locals' drops on their own: the abort dispose above, and a block that
-  // catches one of its own handlers' unwinds before completing
-  // (`emit_sm_unwind_catch`).
-  context.base.emitter.emit_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr) {`);
-  if(local_drop_lines.len() > usize(0), {
-    context.base.emitter.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
-    (mut(j) : usize) = usize(0);
-    while(j < local_drop_lines.len(), {
-      match(local_drop_lines.get_cloned(j), .Some(line) => context.base.emitter.emit_string_line(&line), .None => ());
-      j = (j + usize(1));
-    });
-  }, context.base.emitter.emit_line("  (void)sm_ptr;"));
-  context.base.emitter.emit_line("}");
 });
 /// The allocation of a future of type `struct_name`: one from its type's pool
 /// (phase 7; the dispose dispatch gives released ones back). A task is never
@@ -3166,7 +3227,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   result_type_c_name := get_type_string(&result_type, &mut context.base);
   // Forward declarations.
   context.base.emitter.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr);  // Dispose function for state machine`);
-  context.base.emitter.emit_declaration_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr);  // Its locals' drops`);
+  context.base.emitter.emit_declaration_string_line(`bool ${dispose_function_name.clone()}_locals(void* sm_ptr);  // Its locals' drops: the abort walk`);
   context.base.emitter.emit_declaration_line("");
   context.base.emitter.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* sm_ptr);`);
   context.base.emitter.emit_declaration_line("");

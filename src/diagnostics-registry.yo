@@ -58,6 +58,7 @@ json :: import("std/encoding/json");
   E_UNSIZING_A_VALUE,
   E_DEREF_OF_VALUE,
   E_DEREF_IMPL_SIZED_TARGET,
+  E_TRAIT_BOUND_FORM,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
@@ -75,7 +76,6 @@ json :: import("std/encoding/json");
   E_RC_PAYLOAD_WRITE,
   E_DEREF_OF_BORROW,
   E_ADDR_OF_BORROW_PARAM,
-  E_ORIGIN_NOT_DECLARED,
   E_ORIGIN_MISMATCH,
   E_ORIGIN_NAMES_ITSELF,
   E_REFERENCE_READ_WITHOUT_DEREF,
@@ -286,8 +286,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "找不到名称",
       "No binding with this name is visible at this point.",
       "此处没有可见的同名绑定。",
-      "Check the spelling first. Module-level `::` definitions and `impl` registrations are order-independent, so a helper defined below its caller is fine — but imports, pragmas and runtime bindings (`x := v`) are evaluated in order and must come before their first use. An identifier from another module needs the module imported, and a type from it is reached through the module value. The prelude's `rc(x)`, `box(x)` and `arc(x)` were deleted: they are `Rc.new(x)`, `Box.new(x)` and `Arc.new(x)`, and `yo fix` rewrites the name.",
-      "先检查拼写。模块级 `::` 定义与 `impl` 注册与顺序无关，辅助函数定义在调用者之后也没问题；但 import、pragma 和运行时绑定（`x := v`）按顺序求值，必须出现在首次使用之前。来自其他模块的标识符需要先 import，并通过模块值访问。prelude 的 `rc(x)`、`box(x)` 和 `arc(x)` 已被删除：它们分别是 `Rc.new(x)`、`Box.new(x)` 和 `Arc.new(x)`，`yo fix` 会改写这个名字。",
+      "Check the spelling first. Module-level `::` definitions and `impl` registrations are order-independent, so a helper defined below its caller is fine — but imports, pragmas and runtime bindings (`x := v`) are evaluated in order and must come before their first use. An identifier from another module needs the module imported, and a type from it is reached through the module value. The prelude's `rc(x)`, `box(x)` and `arc(x)` were deleted: they are `Rc.new(x)`, `Box.new(x)` and `Arc.new(x)`, and `yo fix` rewrites the name. A Rust std name that Yo spells differently (`Vec`, `VecDeque`, `BinaryHeap`, `PathBuf`, `Cell`, `MutexGuard`, `JoinHandle`, `PartialEq`, `PartialOrd`, `Neg`, `Rem`, `Shl`, `Shr`, `Not`) gets a help line with the Yo name and, where there is one, its import; `yo fix` makes no edit there, because the name and the import are two edits.",
+      "先检查拼写。模块级 `::` 定义与 `impl` 注册与顺序无关，辅助函数定义在调用者之后也没问题；但 import、pragma 和运行时绑定（`x := v`）按顺序求值，必须出现在首次使用之前。来自其他模块的标识符需要先 import，并通过模块值访问。prelude 的 `rc(x)`、`box(x)` 和 `arc(x)` 已被删除：它们分别是 `Rc.new(x)`、`Box.new(x)` 和 `Arc.new(x)`，`yo fix` 会改写这个名字。Yo 拼写不同的 Rust std 名称（`Vec`、`VecDeque`、`BinaryHeap`、`PathBuf`、`Cell`、`MutexGuard`、`JoinHandle`、`PartialEq`、`PartialOrd`、`Neg`、`Rem`、`Shl`、`Shr`、`Not`）会得到一条帮助信息，给出对应的 Yo 名称以及（若有）它的 import；`yo fix` 不会在这里做任何修改，因为改名与加 import 是两处编辑。",
       "main :: (fn() -> unit)({\n  helpr();\n});\nhelper :: (fn() -> unit)(());\n",
       "main :: (fn() -> unit)({\n  helper();\n});\nhelper :: (fn() -> unit)(());\n",
       "`helpr` is a typo — the binding is `helper` (its position below the caller is fine).",
@@ -391,8 +391,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "类型不兼容",
       "The value's type does not satisfy the expected type at this position.",
       "值的类型不满足此位置期望的类型。",
-      "Yo checks structurally but nominally for enums/traits. Read the Expected/Given pair in the message: convert explicitly (`i32(x)`, `String.from(...)`), or fix the producing expression. Numeric types never implicitly convert — every width change is a named conversion. Nor does a reference to a box convert to a reference to what it owns: `&b` of a `Box(Dyn(T))` where a `&Dyn(T)` is taken lends the box, and the object is lent with `&b.*` (decision 49).",
-      "Yo 对结构体做结构化检查，但对枚举/trait 采用名义类型。请阅读错误信息中的 Expected/Given：显式转换（`i32(x)`、`String.from(...)`），或修正产生该值的表达式。数值类型从不隐式转换 —— 每次位宽改变都是一次显式命名转换。指向 box 的引用也不会转换为指向它所拥有对象的引用：在接受 `&Dyn(T)` 的位置写 `Box(Dyn(T))` 的 `&b` 借出的是 box，对象用 `&b.*` 借出（决策 49）。",
+      "Yo checks structurally but nominally for enums/traits. Read the Expected/Given pair in the message: convert explicitly (`i32(x)`, `String.from(...)`), or fix the producing expression. Numeric types never implicitly convert — every width change is a named conversion. Nor does a reference to a box convert to a reference to what it owns: `&b` of a `Box(Dyn(T))` where a `&Dyn(T)` is taken lends the box, and the object is lent with `&b.*` (decision 49). A `\"...\"` literal is a `str`, not a `String`: a `String` parameter (`Command.new`, the key of a `HashMap(String, V)`) takes the backtick literal, and the help says so.",
+      "Yo 对结构体做结构化检查，但对枚举/trait 采用名义类型。请阅读错误信息中的 Expected/Given：显式转换（`i32(x)`、`String.from(...)`），或修正产生该值的表达式。数值类型从不隐式转换 —— 每次位宽改变都是一次显式命名转换。指向 box 的引用也不会转换为指向它所拥有对象的引用：在接受 `&Dyn(T)` 的位置写 `Box(Dyn(T))` 的 `&b` 借出的是 box，对象用 `&b.*` 借出（决策 49）。`\"...\"` 字面量是 `str` 而不是 `String`：`String` 参数（`Command.new`、`HashMap(String, V)` 的键）接收反引号字面量，帮助信息会这样提示。",
       "(x : i32) = i64(5);\n",
       "(x : i32) = i32(5);\n",
       "An `i64` value cannot initialise an `i32` binding; convert explicitly.",
@@ -776,27 +776,12 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   );
   out.push(
     _mk_explain(
-      E_ORIGIN_NOT_DECLARED,
-      "an origin that is not declared",
-      "未声明的 origin",
-      "The second argument of a reference type `&(T, o)` or `&mut(T, o)` is not an origin: a name no `generic(o : Origin)` declares, a type, or a parameter's place in a parameter type.",
-      "引用类型 `&(T, o)` 或 `&mut(T, o)` 的第二个参数不是 origin：它是没有被任何 `generic(o : Origin)` 声明的名字、一个类型，或出现在参数类型中的某个参数的位置。",
-      "An origin is a set of places a reference may point into (decision 43). A signature spells it as the trailing argument of a reference type, and every origin it names is declared before use, in the signature's `generic(...)` clause, as a type parameter is: `generic(p : Origin)`. A union of declared origins is written as a tuple, `&(T, (p, q))`. The second argument is read by its kind: a type there is an error rather than a tuple, because Yo spells a tuple type `Tuple(A, B)` (a reference to one is `&Tuple(A, B)`). A parameter's own place (`xs` in `xs : &T`) is an origin in the RESULT type only (`-> &(T, xs)`); in a parameter type, declare an origin parameter and use it in both positions.",
-      "origin 是引用可能指向的位置集合（决策 43）。签名把它写成引用类型的末尾参数；它所命名的每个 origin 都必须先声明后使用，与类型参数一样写在签名的 `generic(...)` 子句中：`generic(p : Origin)`。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。第二个参数按其种类解读：那里出现类型是错误而不是元组，因为 Yo 把元组类型写作 `Tuple(A, B)`（指向元组的引用是 `&Tuple(A, B)`）。参数自身的位置（`xs : &T` 中的 `xs`）只在结果类型中是 origin（`-> &(T, xs)`）；在参数类型中，请声明一个 origin 参数并在两处使用它。",
-      "first :: (fn(v : &(i32, q)) -> i32)(v.*);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
-      "first :: (fn(generic(q : Origin), v : &(i32, q)) -> i32)(v.*);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
-      "`q` names no origin; `generic(q : Origin)` declares it, and the call instantiates it with the place `&x` lends.",
-      "`q` 没有命名任何 origin；`generic(q : Origin)` 声明了它，调用时用 `&x` 借出的位置实例化它。"
-    )
-  );
-  out.push(
-    _mk_explain(
       E_ORIGIN_MISMATCH,
       "a reference outside its declared origin",
       "引用超出其声明的 origin",
-      "A projection whose result spells its origin, `-> &(T, o)`, yields a place reached from a parameter the origin does not name; or a trait impl declares a method result origin wider than the trait's.",
-      "结果写出 origin 的投影 `-> &(T, o)` 产出的位置来自该 origin 未列出的参数；或 trait 的 impl 为方法结果声明了比 trait 更宽的 origin。",
-      "A result origin is the set of places the returned reference may point into (decision 43). Elided, it is every reference parameter (O2); spelled, it names the parameters (`-> &(T, xs)`) or origin parameters (`-> &(T, p)`) the result borrows, and a call freezes only those arguments. The body is checked against it: the place a projection yields must be reached from a parameter the origin names. An impl of a trait method may declare a narrower origin than the trait (a subset), never a wider one: callers through the trait, a `Dyn` included, rely on the trait's.",
+      "A projection whose result spells its origin, `-> &(T, o)`, yields a place reached from a parameter the origin does not name; a trait impl declares a method result origin wider than its trait's; or a holder, result or parameter declared over the empty origin `static` receives a value that borrows a place.",
+      "结果写出 origin 的投影 `-> &(T, o)` 产出的位置来自该 origin 未列出的参数；trait 的 impl 为方法结果声明了比 trait 更宽的 origin；或声明为空 origin `static` 的持有者、结果或参数收到了借用某个位置的值。",
+      "A result origin is the set of places the returned reference may point into (decision 43). Elided, it is every reference parameter (O2); spelled, it names the parameters (`-> &(T, xs)`) or origin parameters (`-> &(T, p)`) the result borrows, and a call freezes only those arguments. The body is checked against it: the place a projection yields must be reached from a parameter the origin names. An impl of a trait method may declare a narrower origin than the trait (a subset), never a wider one: callers through the trait, a `Dyn` included, rely on the trait's. The empty origin `static` names no place, so only values that borrow no place flow into it: a literal, a read of a `static`-typed place, or `&G` of an immutable module-level binding.",
       "结果 origin 是返回的引用可能指向的位置集合（决策 43）。省略时它是所有引用参数（O2）；写出时它列出结果借用的参数（`-> &(T, xs)`）或 origin 参数（`-> &(T, p)`），调用只冻结这些实参。函数体按它检查：投影产出的位置必须来自 origin 列出的参数。trait 方法的 impl 可以声明比 trait 更窄的 origin（子集），不能更宽：通过 trait 调用的代码（包括 `Dyn`）依赖 trait 的 origin。",
       "Pair :: struct(a : i32, b : i32);\npick :: (fn(s : &Pair, t : &Pair) -> &(i32, s))(&t.a);\nmain :: (fn() -> unit)({\n  p := Pair(a : i32(1), b : i32(2));\n  _ := pick(&p, &p);\n});\nexport(main);\n",
       "Pair :: struct(a : i32, b : i32);\npick :: (fn(s : &Pair, t : &Pair) -> &(i32, s))(&s.a);\nmain :: (fn() -> unit)({\n  p := Pair(a : i32(1), b : i32(2));\n  _ := pick(&p, &p);\n});\nexport(main);\n",
@@ -976,8 +961,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "没有匹配的调用",
       "No candidate accepts this call: the receiver has no such method, or no overload fits the arguments.",
       "没有候选者接受这次调用：接收者没有这个方法，或者没有重载适配这些参数。",
-      "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Rc` or `Arc` (a `Deref` type) a method the wrapper lacks is looked up on its payload (auto-dereference, `b.m()` is `b.*.m()`); when the payload lacks it too, the message says so and names the payload.",
-      "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。对 `Rc` 或 `Arc`（`Deref` 类型），包装器没有的方法会到其载荷上查找（自动解引用，`b.m()` 即 `b.*.m()`）；若载荷也没有，错误信息会说明这一点并指出载荷。",
+      "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Rc` or `Arc` (a `Deref` type) a method the wrapper lacks is looked up on its payload (auto-dereference, `b.m()` is `b.*.m()`); when the payload lacks it too, the message says so and names the payload. The float math methods (`sqrt`, `sin`, `powf`, ...) on an `f32` or `f64` exist only after `import(\"std/math\");`, and the help says so.",
+      "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。对 `Rc` 或 `Arc`（`Deref` 类型），包装器没有的方法会到其载荷上查找（自动解引用，`b.m()` 即 `b.*.m()`）；若载荷也没有，错误信息会说明这一点并指出载荷。`f32` 或 `f64` 上的浮点数学方法（`sqrt`、`sin`、`powf` 等）只有在 `import(\"std/math\");` 之后才存在，帮助信息会这样提示。",
       "Point :: struct(x : i32);\np := Point(x : i32(1));\n_s := p.norm();\n",
       "Point :: struct(x : i32);\nnorm :: (fn(p : &Point) -> i32)(p.x);\np := Point(x : i32(1));\n_s := norm(&p);\n",
       "`Point` has no `norm` method and no impl provides one, so the method-call syntax finds no candidate; define the function (or an `impl(Point, ...)` method) first. The same code fires when a trait method's impl lives in a std module that was not imported (`to_string` from `std/fmt`).",
@@ -1034,8 +1019,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_DYN_UNCALLABLE,
       "a trait method cannot be called through a Dyn",
       "trait 方法无法通过 Dyn 调用",
-      "A `Dyn(Trait)` value erases its concrete type and calls its methods through a vtable, one function per method. A method whose signature mentions `Self` anywhere but the receiver (a `Self` parameter, a `Self` or `Option(Self)` result) has no single C type at the call once the concrete type is erased, and a method with `generic(...)` parameters has no single function to put in the vtable. Such methods get no vtable slot, so calling one through a `Dyn` is an error. Forming the `Dyn` and calling its other methods is fine. A method that takes `self` by value has no slot either, and forming a `Dyn` over its trait is rejected for every payload (plans/VALUES_BY_DEFAULT.md decision 49): a `Dyn` is unsized and lives behind the pointer that owns it, so there is no value to hand the method, and a call would move the payload out of that pointer.",
-      "`Dyn(Trait)` 值会擦除具体类型，并通过 vtable（每个方法一个函数）调用方法。签名中除接收者外还提到 `Self` 的方法（`Self` 参数、`Self` 或 `Option(Self)` 结果）在具体类型被擦除后，在调用处没有唯一的 C 类型；带 `generic(...)` 参数的方法也没有唯一的函数可以放进 vtable。这类方法没有 vtable 槽位，因此通过 `Dyn` 调用它们是错误。构造该 `Dyn` 并调用其他方法不受影响。按值接收 `self` 的方法同样没有槽位，并且无论载荷是什么，都不能在包含它的 trait 上构造 `Dyn`（plans/VALUES_BY_DEFAULT.md 决策 49）：`Dyn` 是非定长的，只能位于拥有它的指针之后，因此没有可以交给该方法的值，调用会把载荷从那个指针中移出。",
+      "A `Dyn(Trait)` value erases its concrete type and calls its methods through a vtable, one function per method. A method whose signature mentions `Self` anywhere but the receiver (a `Self` parameter, a `Self` or `Option(Self)` result) has no single C type at the call once the concrete type is erased, and a method with `generic(...)` parameters has no single function to put in the vtable. Such methods get no vtable slot, so calling one through a `Dyn` is an error. Forming the `Dyn` and calling its other methods is fine. A method that takes `self` by value has no slot either, and forming a `Dyn` over its trait is rejected for every payload (plans/VALUES_BY_DEFAULT.md decision 49): a `Dyn` is unsized and lives behind the pointer that owns it, so there is no value to hand the method, and a call would move the payload out of that pointer.\n\n`Future` cannot be listed in a `Dyn`, in any position: a parameter, a field, a list element. A future is one pointer to its state machine, and awaiting or spawning it consumes it. One future is typed `Impl(Future(T, E))`. Several different running tasks are kept as `JoinHandle(T)` (`io.spawn(f, io)`; `join_all` and `race` in `std/async` take an `ArrayList(JoinHandle(T))`).",
+      "`Dyn(Trait)` 值会擦除具体类型，并通过 vtable（每个方法一个函数）调用方法。签名中除接收者外还提到 `Self` 的方法（`Self` 参数、`Self` 或 `Option(Self)` 结果）在具体类型被擦除后，在调用处没有唯一的 C 类型；带 `generic(...)` 参数的方法也没有唯一的函数可以放进 vtable。这类方法没有 vtable 槽位，因此通过 `Dyn` 调用它们是错误。构造该 `Dyn` 并调用其他方法不受影响。按值接收 `self` 的方法同样没有槽位，并且无论载荷是什么，都不能在包含它的 trait 上构造 `Dyn`（plans/VALUES_BY_DEFAULT.md 决策 49）：`Dyn` 是非定长的，只能位于拥有它的指针之后，因此没有可以交给该方法的值，调用会把载荷从那个指针中移出。\n\n`Future` 不能出现在 `Dyn` 中，任何位置都不行：参数、字段、列表元素。future 本身就是指向其状态机的一个指针，await 或 spawn 会消耗它。单个 future 的类型写作 `Impl(Future(T, E))`。多个不同的运行中任务保存为 `JoinHandle(T)`（`io.spawn(f, io)`；`std/async` 中的 `join_all` 和 `race` 接受 `ArrayList(JoinHandle(T))`）。",
       "Call the method on a concrete value instead, or declare it so that `Self` appears only as the receiver and it takes no `generic(...)` parameters. Before this was an error the call passed `check` and failed inside the C compiler.",
       "改为在具体值上调用该方法，或把它声明为 `Self` 只作为接收者出现、且不带 `generic(...)` 参数。在这成为错误之前，这种调用能通过 `check`，却在 C 编译器中失败。",
       "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));\n  c := d.me();\n});\n",
@@ -1162,6 +1147,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "W :: struct(items : Array(i32, 3));\nimpl(W, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));\nmain :: (fn() -> unit)({\n  w := W(items : Array(i32, 3)(1, 2, 3));\n  _n := w.*.len();\n});\nexport(main);\n",
       "`[i32]` has no size of its own, so `W`'s `deref` is the only way to name its view; a sized `i32` payload is the field `w.n`.",
       "`[i32]` 没有自身的大小，因此 `W` 的 `deref` 是指代其视图的唯一方式；定长的 `i32` 载荷就是字段 `w.n`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_TRAIT_BOUND_FORM,
+      "a trait bound is written with `:` instead of `<:`",
+      "trait 约束用 `:` 写成，而不是 `<:`",
+      "An entry of a `where(...)` clause is written `T : Trait`. A trait bound is `T <: Trait`; `:` gives a name its type or kind.",
+      "`where(...)` 子句中的一项写成了 `T : Trait`。trait 约束写作 `T <: Trait`；`:` 给名字指定类型或种类。",
+      "`L <: R` says the type `L` implements the trait `R`; read it \"implements\". It is the only form a `where(...)` entry takes, in a function or type constructor's signature, a `trait(...)`, an `impl` header and a `derive`. Several bounds on one type are a tuple, `T <: (Clone, Hash)`. A `:` gives a name its type or its kind, as in `generic(T : Type)`, so `where(T : Clone)` would give `T` a second kind instead of a bound. The clause is checked where it is first read, so a mistyped bound is never dropped: an impl whose bound went unread would hold for every type. `yo fix` rewrites the `:` to `<:`.",
+      "`L <: R` 表示类型 `L` 实现了 trait `R`，读作“实现”。它是 `where(...)` 中每一项唯一的写法，无论出现在函数或类型构造器的签名、`trait(...)`、`impl` 头部还是 `derive` 中。同一类型上的多个约束写成元组 `T <: (Clone, Hash)`。`:` 给名字指定类型或种类，例如 `generic(T : Type)`，因此 `where(T : Clone)` 会给 `T` 第二个种类，而不是约束。子句在首次读取时就会检查，所以写错的约束绝不会被丢弃：若 impl 的约束未被读取，它将对所有类型成立。`yo fix` 会把 `:` 改写为 `<:`。",
+      "dup :: (fn(generic(T : Type), x : &T, where(T : Clone)) -> T)(x.clone());\nmain :: (fn() -> unit)({\n  a := i32(1);\n  _b := dup(&a);\n});\nexport(main);\n",
+      "dup :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());\nmain :: (fn() -> unit)({\n  a := i32(1);\n  _b := dup(&a);\n});\nexport(main);\n",
+      "`T <: Clone` says `T` implements `Clone`, so `x.clone()` is a `T`.",
+      "`T <: Clone` 表示 `T` 实现了 `Clone`，因此 `x.clone()` 是一个 `T`。"
     )
   );
   // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────

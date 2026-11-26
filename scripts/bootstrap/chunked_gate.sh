@@ -4,6 +4,13 @@
 #
 #   S1=<a working yo binary> N=<chunks> bash scripts/bootstrap/chunked_gate.sh
 #
+# SIDE splits the gate across machines (test.yml runs the two sides as parallel
+# legs of the `chunked-gate` job, and `chunked-gate-compare` scores them):
+#   SIDE=single  / SIDE=chunked   build that compiler and emit its C to
+#                                 /tmp/${P}_emit_<side>.c, no comparison
+#   SIDE=compare                  score two emissions already at those paths
+# Unset (the default) runs both sides and the comparison on this machine.
+#
 # The bootstrap fixpoint scripts prove that the compiler's DEFAULT emission is
 # stable (stage2 = stage3). They say nothing about `--emit-chunks`, because
 # they never pass it. This gate closes that hole from the other side: it builds
@@ -23,30 +30,49 @@
 # on every code PR (against the shared suite-candidate binary).
 set -u
 cd "$(dirname "$0")/../.." || exit 2
-S1=${S1:?set S1 to a working yo binary}
-N=${N:-4}
+SIDE=${SIDE:-all}
 P=${P:-chgate}
+case "$SIDE" in
+  all) sides="single chunked" ;;
+  single | chunked) sides=$SIDE ;;
+  compare) sides="" ;;
+  *) echo "SIDE must be single, chunked or compare, got '$SIDE'" >&2; exit 2 ;;
+esac
+if [ -n "$sides" ]; then
+  S1=${S1:?set S1 to a working yo binary}
+  N=${N:-4}
+fi
 
-echo "== building the compiler normally =="
-"$S1" compile src/main.yo --optimize 2 -o "/tmp/${P}_single" --std-path ./std > "/tmp/${P}_single_build.log" 2>&1
-echo "SINGLE_BUILD_RC=$?"
+for side in $sides; do
+  if [ "$side" = single ]; then
+    echo "== building the compiler normally =="
+    "$S1" compile src/main.yo --optimize 2 -o "/tmp/${P}_single" --std-path ./std > "/tmp/${P}_single_build.log" 2>&1
+    echo "SINGLE_BUILD_RC=$?"
+  else
+    echo "== building the compiler with --emit-chunks $N =="
+    "$S1" compile src/main.yo --optimize 2 --emit-chunks "$N" -o "/tmp/${P}_chunked" --std-path ./std > "/tmp/${P}_chunked_build.log" 2>&1
+    echo "CHUNKED_BUILD_RC=$?"
+    grep -E '^chunks: ' "/tmp/${P}_chunked_build.log" || true
+  fi
+done
 
-echo "== building the compiler with --emit-chunks $N =="
-"$S1" compile src/main.yo --optimize 2 --emit-chunks "$N" -o "/tmp/${P}_chunked" --std-path ./std > "/tmp/${P}_chunked_build.log" 2>&1
-echo "CHUNKED_BUILD_RC=$?"
-grep -E '^chunks: ' "/tmp/${P}_chunked_build.log" || true
-
-for b in "/tmp/${P}_single" "/tmp/${P}_chunked"; do
+for side in $sides; do
+  b="/tmp/${P}_${side}"
   if [ ! -x "$b" ]; then echo "GATE_FAILED: $b was not built"; exit 1; fi
 done
 
-echo "== both binaries emit the compiler's own C =="
-"/tmp/${P}_single" compile src/main.yo --optimize 2 --skip-c-compiler \
-  --emit-c-to "/tmp/${P}_emit_single.c" --std-path ./std > "/tmp/${P}_emit_single.log" 2>&1
-echo "SINGLE_EMIT_RC=$?"
-"/tmp/${P}_chunked" compile src/main.yo --optimize 2 --skip-c-compiler \
-  --emit-c-to "/tmp/${P}_emit_chunked.c" --std-path ./std > "/tmp/${P}_emit_chunked.log" 2>&1
-echo "CHUNKED_EMIT_RC=$?"
+[ -z "$sides" ] || echo "== the built binaries emit the compiler's own C =="
+for side in $sides; do
+  "/tmp/${P}_${side}" compile src/main.yo --optimize 2 --skip-c-compiler \
+    --emit-c-to "/tmp/${P}_emit_${side}.c" --std-path ./std > "/tmp/${P}_emit_${side}.log" 2>&1
+  echo "$(echo "$side" | tr '[:lower:]' '[:upper:]')_EMIT_RC=$?"
+done
+
+# One side alone has nothing to compare: its emission is scored by SIDE=compare.
+if [ "$SIDE" = single ] || [ "$SIDE" = chunked ]; then
+  if [ ! -s "/tmp/${P}_emit_${SIDE}.c" ]; then echo "GATE_FAILED: /tmp/${P}_emit_${SIDE}.c was not emitted"; exit 1; fi
+  exit 0
+fi
 
 # A "Failed to transpile" marker in either emission would make a byte-identical
 # comparison vacuous — both could be equally hollow.

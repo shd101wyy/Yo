@@ -9,6 +9,10 @@ fcntl_io :: import("std/sys/fcntl");
 { O_NONBLOCK } :: import("std/sys/constants");
 { sleep } :: import("std/sys/timer");
 { RefCell } :: import("std/sync/refcell");
+{ write, read } :: import("std/libc/unistd");
+{ yield, select, timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
+{ env } :: import("std/env");
 test("pipe read/write", {
   mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
@@ -159,4 +163,309 @@ test("two concurrent async reads on one pipe end both complete", {
     },
     true => ()
   );
+});
+// An aborted task's block must outlive the operation it was suspended in.
+// The io_uring backend queues its SQEs and submits them at the loop's next
+// kernel entry, and cancels by queueing an ASYNC_CANCEL behind them: a READ
+// aborted while still queued reaches the kernel FIRST, and with data in the
+// pipe it completes right there, into the buffer it was given. The abort had
+// released the task's block already, so the kernel wrote into freed memory —
+// here into a reused state machine of the same type, whose buffer the second
+// task (mode 1) fills and then finds overwritten. AddressSanitizer cannot see
+// a kernel write (and turns the state-machine pools off), so this is the
+// unsanitized half; tests/sys/socketpair.test.yo's recvfrom case is the
+// sanitized one
+// (issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md).
+_frame_reader :: (fn(fd : i32, mode : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    mut(b_uninit) := MaybeUninit(Array(u8, usize(256))).new();
+    b := (*u8)(b_uninit.as_ptr());
+    if(mode == i32(0), {
+      n := e.await(file.read(fd, b, u32(256), u64.MAX), e);
+      n + i32(b.*)
+    }, {
+      (mut(i) : usize) = usize(0);
+      while(i < usize(256), i = (i + usize(1)), {
+        (b.add(i)).* = u8(66);
+      });
+      e.await(yield(e), e);
+      e.await(yield(e), e);
+      (mut(bad) : i32) = i32(0);
+      (mut(j) : usize) = usize(0);
+      while(j < usize(256), j = (j + usize(1)), {
+        if((b.add(j)).* != u8(66), {
+          bad = (bad + i32(1));
+        });
+      });
+      bad
+    })
+  })
+);
+_spawn_fill_and_abort :: (fn(rfd : i32, wfd : i32, io : Io) -> unit)({
+  h := io.spawn(_frame_reader(rfd, i32(0), io), io);
+  unsafe(write(int(wfd), (*void)((*u8)("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")), usize(32)));
+  h.abort();
+});
+_aborted_read_does_not_write_into_a_released_frame :: (fn(io : Io) -> unit)({
+  mut(fds_uninit) := MaybeUninit(Array(i32, usize(2))).new();
+  fds := (*i32)(fds_uninit.as_ptr());
+  assert(pipe_io.pipe(fds) == i32(0), "pipe");
+  rfd := fds.*;
+  wfd := (fds.add(usize(1))).*;
+  assert(fcntl_io.setfl(rfd, fcntl_io.getfl(rfd) | O_NONBLOCK) == i32(0), "nonblocking");
+  (mut(bad) : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
+  while(k < i32(20), k = (k + i32(1)), {
+    _spawn_fill_and_abort(rfd, wfd, io);
+    bad = (bad + io.await(_frame_reader(rfd, i32(1), io), io));
+  });
+  assert(bad == i32(0), "no byte of a live task's buffer was overwritten by an aborted read");
+  io.await(file.close(rfd), io);
+  io.await(file.close(wfd), io);
+});
+test("an aborted task's queued read does not write into its released frame", {
+  cond(
+    ((platform == Platform.Macos) || (platform == Platform.Linux)) => _aborted_read_does_not_write_into_a_released_frame(io),
+    true => ()
+  );
+});
+test("an aborted task's queued read does not write into its released frame (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _aborted_read_does_not_write_into_a_released_frame(io);
+  });
+});
+// The same window through a combinator, on a buffer that stays alive: the
+// read borrows the CALLER's buffer, and `select` aborts it because the other
+// operand completes in the same turn, while its READ is still queued. The
+// join inside `select` returned at the abort, so the kernel wrote the pipe's
+// bytes into the caller's buffer after `select` had handed it back — visible
+// with or without a sanitizer.
+_read_into :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => e.await(file.read(fd, buf, u32(256), u64.MAX), e))
+);
+_ready_now :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => i32(1)));
+_select_loser_read_does_not_write_after_select :: (fn(io : Io) -> unit)({
+  mut(fds_uninit) := MaybeUninit(Array(i32, usize(2))).new();
+  fds := (*i32)(fds_uninit.as_ptr());
+  assert(pipe_io.pipe(fds) == i32(0), "pipe");
+  rfd := fds.*;
+  wfd := (fds.add(usize(1))).*;
+  assert(fcntl_io.setfl(rfd, fcntl_io.getfl(rfd) | O_NONBLOCK) == i32(0), "nonblocking");
+  mut(b_uninit) := MaybeUninit(Array(u8, usize(256))).new();
+  b := (*u8)(b_uninit.as_ptr());
+  mut(d_uninit) := MaybeUninit(Array(u8, usize(4096))).new();
+  (mut(bad) : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
+  while(k < i32(20), k = (k + i32(1)), {
+    unsafe(write(int(wfd), (*void)((*u8)("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")), usize(32)));
+    _r := io.await(select(_read_into(rfd, b, io), _ready_now(io), io), io);
+    (mut(i) : usize) = usize(0);
+    while(i < usize(256), i = (i + usize(1)), {
+      (b.add(i)).* = u8(66);
+    });
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    (mut(j) : usize) = usize(0);
+    while(j < usize(256), j = (j + usize(1)), {
+      if((b.add(j)).* != u8(66), {
+        bad = (bad + i32(1));
+      });
+    });
+    // Whatever the read did not take stays for the next round: drain it.
+    _d := unsafe(read(int(rfd), (*void)((*u8)(d_uninit.as_ptr())), usize(4096)));
+  });
+  assert(bad == i32(0), "the losing read wrote nothing after select returned");
+  io.await(file.close(rfd), io);
+  io.await(file.close(wfd), io);
+});
+test("a read select aborted while queued does not write after select returns", {
+  cond(
+    ((platform == Platform.Macos) || (platform == Platform.Linux)) => _select_loser_read_does_not_write_after_select(io),
+    true => ()
+  );
+});
+test("a read select aborted while queued does not write after select returns (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _select_loser_read_does_not_write_after_select(io);
+  });
+});
+// The abort of the task AROUND a combinator (VERDICTS-83). `select` and
+// `timeout` run each operand as a scoped child task, reachable only through
+// the combinator's frame, so an abort of the task that awaits the combinator
+// must walk that frame: its `_Scoped` locals abort the operands, and the task
+// lingers until each operand's operation has retired. Before the walk the
+// holder's join returned at the abort, and the operand's queued READ wrote
+// the pipe's bytes into the caller's buffer afterwards (io_uring; epoll
+// cancels synchronously and is the control). Visible with or without a
+// sanitizer: the buffer is live memory
+// (issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md).
+_nap_long :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    e.await(sleep(u64(1000)), e);
+    i32(0)
+  })
+);
+_select_holder :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => match(e.await(select(_read_into(fd, buf, e), _nap_long(e), e), e), .Some(_) => i32(1), .None => i32(0)))
+);
+// The join window: the other operand completes at once, so `select` has
+// aborted its losing read and is JOINING it when the holder is aborted. A
+// join wait on an Aborting task cannot be cancelled, so the holder lingers.
+_join_window_holder :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => match(e.await(select(_read_into(fd, buf, e), _ready_now(e), e), e), .Some(_) => i32(1), .None => i32(0)))
+);
+_timeout_holder :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => match(e.await(timeout(_read_into(fd, buf, e), Duration.from_millis(i64(1000)), e), e), .Ok(_) => i32(1), .Err(_) => i32(0)))
+);
+// `kind`: 0 the select holder, 1 the join window, 2 the timeout holder.
+_aborted_holder_read_does_not_write_after_its_join :: (fn(kind : i32, io : Io) -> unit)({
+  mut(fds_uninit) := MaybeUninit(Array(i32, usize(2))).new();
+  fds := (*i32)(fds_uninit.as_ptr());
+  assert(pipe_io.pipe(fds) == i32(0), "pipe");
+  rfd := fds.*;
+  wfd := (fds.add(usize(1))).*;
+  assert(fcntl_io.setfl(rfd, fcntl_io.getfl(rfd) | O_NONBLOCK) == i32(0), "nonblocking");
+  mut(b_uninit) := MaybeUninit(Array(u8, usize(256))).new();
+  b := (*u8)(b_uninit.as_ptr());
+  mut(d_uninit) := MaybeUninit(Array(u8, usize(4096))).new();
+  (mut(bad) : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
+  while(k < i32(20), k = (k + i32(1)), {
+    unsafe(write(int(wfd), (*void)((*u8)("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")), usize(32)));
+    h := cond(
+      (kind == i32(0)) => io.spawn(_select_holder(rfd, b, io), io),
+      (kind == i32(1)) => io.spawn(_join_window_holder(rfd, b, io), io),
+      true => io.spawn(_timeout_holder(rfd, b, io), io)
+    );
+    h.abort();
+    _hr := h.await(io);
+    // The aborted holder was joined: the buffer is ours again.
+    (mut(i) : usize) = usize(0);
+    while(i < usize(256), i = (i + usize(1)), {
+      (b.add(i)).* = u8(66);
+    });
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    (mut(j) : usize) = usize(0);
+    while(j < usize(256), j = (j + usize(1)), {
+      if((b.add(j)).* != u8(66), {
+        bad = (bad + i32(1));
+      });
+    });
+    // Whatever the read did not take stays for the next round: drain it.
+    _d := unsafe(read(int(rfd), (*void)((*u8)(d_uninit.as_ptr())), usize(4096)));
+  });
+  assert(bad == i32(0), "the operand's read wrote nothing after the aborted holder was joined");
+  io.await(file.close(rfd), io);
+  io.await(file.close(wfd), io);
+});
+test("aborting a task that awaits select returns its join after the operand's read retired", {
+  cond(
+    ((platform == Platform.Macos) || (platform == Platform.Linux)) => _aborted_holder_read_does_not_write_after_its_join(i32(0), io),
+    true => ()
+  );
+});
+test("aborting a task that awaits select returns its join after the operand's read retired (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _aborted_holder_read_does_not_write_after_its_join(i32(0), io);
+  });
+});
+test("aborting a task while its select joins the aborted loser returns after the loser's read retired", {
+  cond(
+    ((platform == Platform.Macos) || (platform == Platform.Linux)) => _aborted_holder_read_does_not_write_after_its_join(i32(1), io),
+    true => ()
+  );
+});
+test("aborting a task while its select joins the aborted loser returns after the loser's read retired (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _aborted_holder_read_does_not_write_after_its_join(i32(1), io);
+  });
+});
+test("aborting a task that awaits timeout returns its join after the operand's read retired", {
+  cond(
+    ((platform == Platform.Macos) || (platform == Platform.Linux)) => _aborted_holder_read_does_not_write_after_its_join(i32(2), io),
+    true => ()
+  );
+});
+test("aborting a task that awaits timeout returns its join after the operand's read retired (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _aborted_holder_read_does_not_write_after_its_join(i32(2), io);
+  });
+});
+// An abort drops the task's locals AT the abort, before `abort()` returns
+// when nothing lingers, not when the task's last handle is released; and a
+// task that is a `select` stops its operands there
+// (issues/fixed/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md).
+_Counted :: struct(hits : Rc(RefCell(i32)));
+impl(
+  _Counted,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.hits.*.with_mut(h => {
+        h.* = (h.* + i32(1));
+      });
+    })
+  )
+);
+_holds_counted :: (fn(hits : Rc(RefCell(i32)), io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ hits }(e : Io) => {
+    c := _Counted(hits : Rc.clone(hits));
+    e.await(sleep(u64(10000)), e);
+    c.hits.*.with(h => h.*)
+  })
+);
+_locals_dropped_at_the_abort :: (fn(io : Io) -> unit)({
+  hits := Rc.new(RefCell(i32).new(i32(0)));
+  h := io.spawn(_holds_counted(Rc.clone(hits), io), io);
+  io.await(yield(io), io);
+  h.abort();
+  assert(hits.*.with(x => x.*) == i32(1), "the aborted task's local was dropped at the abort");
+  io.await(yield(io), io);
+  _r := h.await(io);
+  assert(hits.*.with(x => x.*) == i32(1), "and only once");
+});
+test("an aborted task's locals are dropped at the abort", {
+  _locals_dropped_at_the_abort(io);
+});
+test("an aborted task's locals are dropped at the abort (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _locals_dropped_at_the_abort(io);
+  });
+});
+_ticker :: (fn(ticks : Rc(RefCell(i32)), io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ ticks }(e : Io) => {
+    (mut(i) : i32) = i32(0);
+    while(i < i32(50), i = (i + i32(1)), {
+      e.await(sleep(u64(2)), e);
+      ticks.*.with_mut(t => {
+        t.* = (t.* + i32(1));
+      });
+    });
+    i
+  })
+);
+_select_operands_stop_at_the_abort :: (fn(io : Io) -> unit)({
+  ticks := Rc.new(RefCell(i32).new(i32(0)));
+  h := io.spawn(select(_ticker(Rc.clone(ticks), io), _nap_long(io), io), io);
+  io.await(sleep(u64(5)), io);
+  h.abort();
+  at_abort := ticks.*.with(t => t.*);
+  io.await(sleep(u64(20)), io);
+  assert(ticks.*.with(t => t.*) == at_abort, "no operand ran after the select task was aborted");
+  _r := h.await(io);
+});
+test("aborting a task that is a select stops its operands at the abort", {
+  _select_operands_stop_at_the_abort(io);
+});
+test("aborting a task that is a select stops its operands at the abort (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _select_operands_stop_at_the_abort(io);
+  });
 });

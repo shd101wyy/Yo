@@ -335,7 +335,7 @@ comptime_expect_error(
   "names the value being defined"
 );
 // A binding's annotation naming the binding itself is the same rule (O1
-// well-formedness, E0924), not an undeclared origin (E0922).
+// well-formedness, E0924), not an undeclared origin (an uncoded error).
 comptime_expect_error(
   bs_binding_self_origin :: (fn() -> unit)({
     (o : Option(&(i32, o))) = .None;
@@ -518,7 +518,7 @@ comptime_expect_error(
   bs_origin_mut_pointee :: (fn(xs : &mut i32) -> &mut&mut(i32, xs))(xs),
   "a reference to a reference"
 );
-// The second argument is read by its kind: a type there is E0922, not a
+// The second argument is read by its kind: a type there is an uncoded error, not a
 // tuple (a tuple type is `Tuple(A, B)`).
 comptime_expect_error(
   bs_origin_mut_param :: (fn(xs : &mut(i32, i32)) -> unit)(()),
