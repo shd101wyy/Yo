@@ -16,6 +16,7 @@ param(
   [switch]$Uninstall,
   [switch]$NoDeps,
   [switch]$NoVerify,
+  [switch]$NoSolver,
   [switch]$DryRun,
   [switch]$Quiet,
   [switch]$Help
@@ -59,11 +60,13 @@ options:
   -Uninstall        uninstall instead of install
   -NoDeps           do not install system dependencies
   -NoVerify         skip the post-install hello-world compile
+  -NoSolver         do not download the Z3 solver (verification)
   -DryRun           show what would happen, change nothing
   -Quiet            suppress output
   -Help             show this help
 
-Installs to <Prefix>\lib\yo\<tag> and puts a `yo` shim in <Prefix>\bin.
+Installs to <Prefix>\lib\yo\<tag> and puts a `yo` shim in <Prefix>\bin; the
+Z3 solver goes to the yo cache (%YO_CACHE_DIR%, else %LOCALAPPDATA%\yo\cache)\solvers.
 
 examples:
   .\install.ps1                          # latest
@@ -375,6 +378,49 @@ exit /b %ERRORLEVEL%
   Add-ToUserPath $binDir
 }
 
+# ---------------------------------------------------------------------------
+# The Z3 solver
+#
+# The release publishes the pinned Z3 next to each bundle, built as one
+# self-contained binary (plans/backlog/DEFAULT_ON_VERIFICATION.md, step SD):
+# yo-<tag>-<triple>-z3.tar.gz, whose one top-level directory is
+# z3-<pin>-<triple>\ (bin\z3.exe, LICENSE.txt). It unpacks into the solver
+# cache, <yo cache>\solvers\, where `yo` looks for it; the cache root is
+# resolved the way src/cache.yo resolves it. A release without one, or a failed
+# download, is a note: `yo build` fetches the solver on first need.
+# ---------------------------------------------------------------------------
+
+function Get-YoCacheRoot {
+  if ($env:YO_CACHE_DIR) { return $env:YO_CACHE_DIR }
+  if ($env:XDG_CACHE_HOME) { return (Join-Path $env:XDG_CACHE_HOME 'yo') }
+  return (Join-Path (Join-Path $env:LOCALAPPDATA 'yo') 'cache')
+}
+
+function Install-Solver {
+  if ($NoSolver) { Info 'Skipping the Z3 solver (-NoSolver).'; return }
+  $triple = Get-HostTriple
+  if (-not $triple) { Info 'No Z3 solver is published for this platform; contracts keep their runtime checks.'; return }
+  $asset   = "yo-$Version-$triple-z3.tar.gz"
+  $url     = "$DistBaseUrl/$Version/$asset"
+  $solvers = Join-Path (Get-YoCacheRoot) 'solvers'
+  Info 'Installing the Z3 solver'
+  Info "  solver:  $url"
+  Info "  target:  $solvers"
+  if ($DryRun) { return }
+  $tmp = New-TempDir
+  $archive = Join-Path $tmp $asset
+  try {
+    Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+  } catch {
+    Info "$Version publishes no Z3 solver for $triple; 'yo build' fetches one on first need."
+    return
+  }
+  New-Item -ItemType Directory -Path $solvers -Force | Out-Null
+  & tar -xzf $archive -C $solvers
+  if ($LASTEXITCODE -ne 0) { Warn "Failed to extract $asset; the Z3 solver is not installed."; return }
+  Info "Installed the Z3 solver under $solvers"
+}
+
 function Add-ToUserPath($dir) {
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if (-not $userPath) { $userPath = '' }
@@ -491,6 +537,7 @@ try {
   Install-Dependencies
   Check-Dependencies
   Install-Dist
+  Install-Solver
   if ($DryRun) { exit 0 }
   Verify-Install
   Info ''

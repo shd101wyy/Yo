@@ -36,7 +36,6 @@ pragma(Pragma.AllowUnsafe);
 { remove_dir_all } :: import("std/fs/walker");
 { copy } :: import("std/fs/file");
 { TempDir } :: import("std/fs/temp");
-{ env } :: import("std/env");
 {
   host_target,
   is_target_windows,
@@ -51,22 +50,14 @@ pragma(Pragma.AllowUnsafe);
   get_install_versions_dir,
   get_install_version_dir
 } :: import("./cache.yo");
+{ yo_github_repo, yo_releases_download_url } :: import("./version.yo");
+{ try_fetch_z3_release } :: import("./verifier/z3.yo");
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 /// The first release that ships native bundles for all platforms.
 MIN_BUNDLE_VERSION :: "0.2.1";
-/// Overridable for forks/tests — matches scripts/install.sh's YO_REPO.
-/// Computed lazily (env reads are runtime, not comptime).
-_github_repo :: (fn() -> String)(
-  match(
-    env.get(`YO_REPO`),
-    .Some(r) => r,
-    .None => `shd101wyy/Yo`
-  )
-);
-_releases_api_url :: (fn() -> String)(`https://api.github.com/repos/${_github_repo()}/releases`);
-_releases_download_url :: (fn() -> String)(`https://github.com/${_github_repo()}/releases/download`);
+_releases_api_url :: (fn() -> String)(`https://api.github.com/repos/${yo_github_repo()}/releases`);
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
@@ -486,7 +477,7 @@ _http_get :: (
       // Unauthenticated GitHub API rate limit (60 requests/hour/IP).
       e.exn.throw(
         dyn(
-          Box.new(`GitHub API rate limit reached (HTTP 403). Wait a bit and retry, or check https://github.com/${_github_repo()}/releases in a browser.`)
+          Box.new(`GitHub API rate limit reached (HTTP 403). Wait a bit and retry, or check https://github.com/${yo_github_repo()}/releases in a browser.`)
         )
       );
     });
@@ -668,7 +659,7 @@ download_version :: (
     e.io.await(create_dir_all(Path.new(get_global_versions_cache_dir()), e.io), e);
     tmp_dir := e.io.await(TempDir.new_in(Path.new(get_global_versions_cache_dir()), e.io), e);
     tmp_path_str := tmp_dir.path().to_string();
-    (url : String) = `${_releases_download_url()}/v${owned_version}/${bundle_name}.tar.gz`;
+    (url : String) = `${yo_releases_download_url()}/v${owned_version}/${bundle_name}.tar.gz`;
     (tarball_path : String) = `${tmp_path_str}/${bundle_name}.tar.gz`;
     println(`Downloading Yo v${owned_version} (${bundle_name}) from GitHub Releases...`);
     code_str := e.io.await(_download_file(&url, &tarball_path, e.io), e);
@@ -684,7 +675,7 @@ download_version :: (
       short_name := host_bundle_name(&owned_version, e.exn);
       println(`No ${bundle_name}.tar.gz on v${owned_version} — retrying the pre-triple bundle name (${short_name})...`);
       bundle_name = short_name;
-      url = `${_releases_download_url()}/v${owned_version}/${bundle_name}.tar.gz`;
+      url = `${yo_releases_download_url()}/v${owned_version}/${bundle_name}.tar.gz`;
       tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
       short_code_str := e.io.await(_download_file(&url, &tarball_path, e.io), e);
       code = match(short_code_str.parse_i64(), .None => i64(0), .Some(c1) => c1);
@@ -697,7 +688,7 @@ download_version :: (
       legacy := _host_bundle_name_base(&owned_version, e.exn);
       println(`No ${bundle_name}.tar.gz on v${owned_version} — retrying the pre-musl bundle name (${legacy})...`);
       bundle_name = legacy;
-      url = `${_releases_download_url()}/v${owned_version}/${bundle_name}.tar.gz`;
+      url = `${yo_releases_download_url()}/v${owned_version}/${bundle_name}.tar.gz`;
       tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
       legacy_code_str := e.io.await(_download_file(&url, &tarball_path, e.io), e);
       code = match(legacy_code_str.parse_i64(), .None => i64(0), .Some(c2) => c2);
@@ -706,7 +697,7 @@ download_version :: (
       e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, e.exn), e);
       msg := `Yo v${owned_version} has no ${bundle_name}.tar.gz release asset.`;
       msg.push_string(String.from("\nRun `yo version list --remote` to see the published releases, or check "));
-      msg.push_string(`https://github.com/${_github_repo()}/releases`);
+      msg.push_string(`https://github.com/${yo_github_repo()}/releases`);
       e.exn.throw(dyn(Box.new(msg)));
     });
     if(code >= i64(400), {
@@ -760,6 +751,16 @@ download_version :: (
     println(`Installed Yo v${owned_version} to ${version_dir}`);
     // 4. Clean up the temp directory (the tarball stays behind in it).
     e.io.await(remove_dir_all(tmp_dir.path(), e.io), e);
+    // 5. The release's Z3 solver comes with the compiler
+    // (plans/backlog/DEFAULT_ON_VERIFICATION.md, step SD). A release that
+    // publishes none, or a failed download, is a note, not a failed install:
+    // that compiler's `yo build` fetches the solver on first need.
+    solver := e.io.await(try_fetch_z3_release(&owned_version, e.io), e);
+    match(
+      solver,
+      .Ok(where) => println(`Installed the Z3 solver of Yo v${owned_version} under ${where}`),
+      .Err(why) => println(`No Z3 solver installed for Yo v${owned_version}: ${why}`)
+    );
     version_dir
   })
 });

@@ -17,7 +17,7 @@
 { display_module_path, canonical_module_path } :: import("../../src/utils.yo");
 { _pointer_width } :: import("../../src/verifier/vc.yo");
 { run_vc_query, verify_cache_dir } :: import("../../src/verifier/driver.yo");
-{ _z3_exists_sync, z3_version_of_binary } :: import("../../src/verifier/z3.yo");
+{ _z3_exists_sync, z3_version_of_binary, SolverProbe, probe_solver_at, solver_unavailable_line, z3_host_triple, z3_release_asset_name, Z3_VERSION } :: import("../../src/verifier/z3.yo");
 { set_current_target, parse_target, host_target } :: import("../../src/target.yo");
 { cwd } :: import("std/env");
 // ---------------------------------------------------------------------------
@@ -437,6 +437,47 @@ test("z3_unsat_core_of: the get-info answers are not an unsat core", {
   assert(core.len() == usize(0), "keyword-led get-info answers are skipped");
 });
 // ---------------------------------------------------------------------------
+// Solver probe and the one missing-solver line (no solver needed)
+// ---------------------------------------------------------------------------
+test("probe_solver_at: a dangling path, a binary that cannot answer, one that can", {
+  // plans/backlog/DEFAULT_ON_VERIFICATION.md §5 item 8: a solver that cannot
+  // run is the missing-solver case (one line), not a SOLVER-ERROR block per
+  // function. `/bin/echo --version` prints a line, so the probe calls it usable.
+  match(
+    probe_solver_at(String.from("/nonexistent/yo-probe-z3")),
+    .NotFound(p) => assert(p == "/nonexistent/yo-probe-z3", "the path is reported"),
+    _ => assert(false, "a path that names no file is NotFound")
+  );
+  match(
+    probe_solver_at(String.from("/bin/false")),
+    .Unusable(p, detail) => {
+      assert(p == "/bin/false", "the path is reported");
+      assert(detail.len() > usize(0), "the detail says why it cannot run");
+    },
+    _ => assert(false, "a binary that exits non-zero on --version is Unusable")
+  );
+  match(
+    probe_solver_at(String.from("/bin/echo")),
+    .Usable(_, identity) => assert(identity == "--version", "the identity is the --version output"),
+    _ => assert(false, "a binary that answers --version is Usable")
+  );
+});
+test("solver_unavailable_line: one line naming the case, the consequence and the fix", {
+  missing := solver_unavailable_line(&SolverProbe.Missing, false, false);
+  assert(missing.starts_with("verify: no Z3 solver found — verify+ contracts keep their runtime asserts"), missing);
+  assert(missing.contains(Z3_VERSION), "the remedy names the pinned version");
+  assert(!missing.contains("\n"), "one line");
+  broken := solver_unavailable_line(&SolverProbe.Unusable(path : String.from("/x/z3"), detail : String.from("not found")), true, false);
+  assert(broken.starts_with("verify: the Z3 solver at '/x/z3' cannot run (not found) — this file's verify-mode"), broken);
+  required := solver_unavailable_line(&SolverProbe.NotFound(path : String.from("/x/z3")), false, true);
+  assert(required.starts_with("verify: error: solver path '/x/z3' does not exist, and --require-solver"), required);
+});
+test("z3_release_asset_name: named by the Yo version and this host's triple", {
+  triple := z3_host_triple();
+  assert(triple.len() > usize(0), "the release publishes a solver for every host the tests run on");
+  assert(z3_release_asset_name(String.from("1.2.3")) == `yo-v1.2.3-${triple}-z3.tar.gz`, "asset name");
+});
+// ---------------------------------------------------------------------------
 // Real-solver tests — YO_TEST_Z3=1 gated
 // ---------------------------------------------------------------------------
 test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)", {
@@ -460,6 +501,10 @@ test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)
         // The sync harness cannot download; YO_Z3_PATH or a cached install
         // must provide the solver for the real tests.
         assert(false, "no solver found: set YO_Z3_PATH or install the pinned z3 into the cache");
+        String.new()
+      },
+      .Unusable(path, detail) => {
+        assert(false, `the solver at '${path}' cannot run: ${detail}`);
         String.new()
       }
     );

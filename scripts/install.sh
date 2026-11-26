@@ -17,6 +17,7 @@ QUIET=""
 FORCE=""
 NO_DEPS=""              # skip package-manager dependency installation
 NO_VERIFY=""            # skip the post-install hello-world compile
+NO_SOLVER=""            # skip the Z3 solver download
 DRYRUN="no"
 OSARCH=""
 OSNAME=""
@@ -218,6 +219,7 @@ process_options() {
       -u|--uninstall)  MODE="uninstall";;
       --no-deps)       NO_DEPS="yes";;
       --no-verify)     NO_VERIFY="yes";;
+      --no-solver)     NO_SOLVER="yes";;
       --dry-run)       DRYRUN="yes";;
       -h|--help)       MODE="help";;
       -p|--prefix)   shift; PREFIX="$1";;
@@ -664,6 +666,57 @@ install_dist() {
 }
 
 #---------------------------------------------------------
+# The Z3 solver
+#
+# The release publishes the pinned Z3 next to each bundle, built as one
+# self-contained binary (plans/backlog/DEFAULT_ON_VERIFICATION.md, step SD):
+# yo-<tag>-<triple>-z3.tar.gz, whose one top-level directory is
+# z3-<pin>-<triple>/ (bin/z3, LICENSE.txt). It unpacks into the solver cache,
+# <yo cache>/solvers/, which is where `yo` looks for it; the cache root is
+# resolved the way src/cache.yo resolves it. The Linux solver is static, so it
+# is fetched for a source install too. A release without one, or a failed
+# download, is a note: `yo build` fetches the solver on first need.
+#---------------------------------------------------------
+
+yo_cache_root() {
+  if [ -n "${YO_CACHE_DIR:-}" ]; then echo "$YO_CACHE_DIR"
+  elif [ -n "${XDG_CACHE_HOME:-}" ]; then echo "$XDG_CACHE_HOME/yo"
+  else echo "$HOME/.cache/yo"
+  fi
+}
+
+install_solver() {
+  if [ -n "$NO_SOLVER" ]; then
+    info "Skipping the Z3 solver (--no-solver)."
+    return 0
+  fi
+  if ! triple="$(host_triple)"; then
+    info "No Z3 solver is published for $OSARCH; contracts keep their runtime checks."
+    return 0
+  fi
+  asset="yo-$VERSION-$triple-z3.tar.gz"
+  url="$YO_DIST_BASE_URL/$VERSION/$asset"
+  solvers="$(yo_cache_root)/solvers"
+  info "Installing the Z3 solver"
+  info "  solver:  $url"
+  info "  target:  $solvers"
+  if [ "$DRYRUN" = "yes" ]; then
+    return 0
+  fi
+  make_temp_dir
+  if ! download_file "$url" "$YO_TEMP_DIR/$asset"; then
+    info "$VERSION publishes no Z3 solver for $triple; 'yo build' fetches one on first need."
+    return 0
+  fi
+  mkdir -p "$solvers" || { warn "Cannot create $solvers; the Z3 solver is not installed."; return 0; }
+  if ! tar -xzf "$YO_TEMP_DIR/$asset" -C "$solvers"; then
+    warn "Failed to extract $asset; the Z3 solver is not installed."
+    return 0
+  fi
+  info "Installed $(tar -tzf "$YO_TEMP_DIR/$asset" | head -1)bin/z3 under $solvers"
+}
+
+#---------------------------------------------------------
 # Source install (the single-file yo.c)
 #
 # Used when the platform has no native bundle, or when the caller passes
@@ -916,10 +969,12 @@ main_help() {
   echo "  -u, --uninstall          uninstall instead of install"
   echo "      --no-deps            do not install system dependencies"
   echo "      --no-verify          skip the post-install hello-world compile"
+  echo "      --no-solver          do not download the Z3 solver (verification)"
   echo "      --dry-run            show what would happen, change nothing"
   echo "  -h, --help               show this help"
   echo ""
-  echo "Installs to <prefix>/lib/yo/<tag> and links <prefix>/bin/yo."
+  echo "Installs to <prefix>/lib/yo/<tag> and links <prefix>/bin/yo; the Z3"
+  echo "solver goes to the yo cache (\$YO_CACHE_DIR, else ~/.cache/yo)/solvers."
   echo ""
   echo "examples:"
   echo "  install.sh                                  # latest, into ~/.local"
@@ -962,6 +1017,7 @@ main_install() {
   else
     install_dist
   fi
+  install_solver
   if [ "$DRYRUN" = "yes" ]; then
     return 0
   fi

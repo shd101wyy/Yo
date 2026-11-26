@@ -9,6 +9,7 @@
 { Path } :: import("std/path");
 { exists, read_to_string } :: import("std/fs/file");
 { AnyError, Exception, IoExn } :: import("std/error");
+{ env } :: import("std/env");
 /// The name of the version pin file.
 YO_VERSION_FILE :: ".yo-version";
 /// The current Yo compiler version. THIS IS THE SOURCE OF TRUTH: the
@@ -20,6 +21,18 @@ YO_VERSION_FILE :: ".yo-version";
 CURRENT_YO_VERSION :: "0.2.79";
 /// Get the current Yo version string.
 current_yo_version :: (fn() -> str)(CURRENT_YO_VERSION);
+/// The GitHub repository that publishes Yo releases (`owner/name`).
+/// `YO_REPO` overrides it for forks and tests, like `scripts/install.sh`.
+/// Computed lazily (env reads are runtime, not comptime).
+yo_github_repo :: (fn() -> String)(
+  match(
+    env.get(`YO_REPO`),
+    .Some(r) => r,
+    .None => `shd101wyy/Yo`
+  )
+);
+/// The base URL of the release assets: `<base>/v<version>/<asset>`.
+yo_releases_download_url :: (fn() -> String)(`https://github.com/${yo_github_repo()}/releases/download`);
 // ---------------------------------------------------------------------------
 // Semver validation helpers
 // ---------------------------------------------------------------------------
@@ -193,6 +206,8 @@ export(
   YO_VERSION_FILE,
   CURRENT_YO_VERSION,
   current_yo_version,
+  yo_github_repo,
+  yo_releases_download_url,
   parse_yo_version,
   find_yo_version_file,
   read_yo_version,

@@ -1,0 +1,206 @@
+name: Solver
+
+# The pinned Z3 as one self-contained `z3` per release target
+# (plans/backlog/DEFAULT_ON_VERIFICATION.md: step SD, decision D9, gate G6).
+#
+# The official Z3 Linux assets need glibc 2.38/2.39 while `yo` is static musl,
+# and their archive is 157 MB of which the solver is one file. So the release
+# builds the pin itself (scripts/build-static-z3.sh) for exactly the targets it
+# publishes bundles for, and ships only the binary and its licence.
+#
+# release.yml calls this workflow; each leg uploads the artifact
+# `solver-<triple>` holding `z3-<pin>-<triple>.tar.gz`, whose one top-level
+# directory is `z3-<pin>-<triple>/` (`bin/z3[.exe]`, `LICENSE.txt`). A build is
+# cached on the pin and the recipe, so a release that does not change either
+# restores six binaries instead of compiling Z3 six times. Dispatch it by hand
+# on develop to validate a recipe change, or to warm the cache before a
+# release (a cache saved on another branch is not visible to develop's runs).
+
+on:
+  workflow_call:
+    outputs:
+      z3_version:
+        description: "The pinned Z3 version (Z3_VERSION in src/verifier/z3.yo)"
+        value: ${{ jobs.pin.outputs.version }}
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pin:
+    name: Read the pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.pin.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: src/verifier/z3.yo
+          sparse-checkout-cone-mode: false
+      - id: pin
+        run: |
+          v=$(grep -E '^Z3_VERSION :: "' src/verifier/z3.yo | sed -E 's/^Z3_VERSION :: "([^"]+)".*/\1/')
+          if [ -z "$v" ]; then
+            echo "::error::no Z3_VERSION line in src/verifier/z3.yo"
+            exit 1
+          fi
+          echo "Z3 pin: $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Z3 ${{ needs.pin.outputs.version }} (${{ matrix.triple }})
+    needs: pin
+    runs-on: ${{ matrix.os }}
+    # A cold build is ~15-30 min on a hosted runner; the cache makes it seconds.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            triple: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            triple: aarch64-unknown-linux-musl
+          - os: macos-latest
+            triple: aarch64-apple-darwin
+          # The same Intel label the macos-x64 bundle leg uses.
+          - os: macos-26-intel
+            triple: x86_64-apple-darwin
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            msvc_arch: amd64
+            pe_machine: "8664"
+          - os: windows-11-arm
+            triple: aarch64-pc-windows-msvc
+            msvc_arch: arm64
+            pe_machine: "AA64"
+    env:
+      Z3_PIN: ${{ needs.pin.outputs.version }}
+      TRIPLE: ${{ matrix.triple }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore a cached build
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: solver-out
+          key: z3-${{ needs.pin.outputs.version }}-${{ matrix.triple }}-${{ hashFiles('scripts/build-static-z3.sh') }}
+
+      # Inside Alpine, so the binary links musl statically: no loader, runs on
+      # any Linux (glibc or musl, old or new). `alpine:3.20` is multi-arch, so
+      # the arm64 runner builds the arm64 binary natively.
+      - name: Build (Linux, inside Alpine)
+        if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w -e Z3_PIN -e TRIPLE -e OWNER="$(id -u):$(id -g)" alpine:3.20 sh -euc '
+            apk add --no-cache bash build-base cmake samurai python3 curl binutils > /dev/null
+            bash scripts/build-static-z3.sh "$Z3_PIN" "$TRIPLE" solver-out
+            chown -R "$OWNER" solver-out
+          '
+
+      - name: Build (macOS)
+        if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
+        run: |
+          command -v ninja > /dev/null || brew install ninja
+          command -v cmake > /dev/null || brew install cmake
+          bash scripts/build-static-z3.sh "$Z3_PIN" "$TRIPLE" solver-out
+
+      - name: MSVC environment (Windows)
+        if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Build (Windows)
+        if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        shell: bash
+        run: |
+          command -v ninja > /dev/null || python -m pip install ninja
+          bash scripts/build-static-z3.sh "$Z3_PIN" "$TRIPLE" solver-out
+
+      - name: Save the build to the cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: solver-out
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      # A cached binary is checked as hard as a fresh one.
+      - name: "Check: a self-contained binary (Linux)"
+        if: runner.os == 'Linux'
+        run: |
+          BIN="solver-out/z3-$Z3_PIN-$TRIPLE/bin/z3"
+          file "$BIN"
+          if readelf -l "$BIN" | grep -q INTERP; then
+            echo "::error::$BIN has a program interpreter: it is not a static binary"
+            exit 1
+          fi
+          # It must run on a musl system and on an old glibc one.
+          docker run --rm -v "$PWD:/w" alpine:3.20 "/w/$BIN" --version
+          docker run --rm -v "$PWD:/w" debian:11 "/w/$BIN" --version
+
+      - name: "Check: system libraries only (macOS)"
+        if: runner.os == 'macOS'
+        run: |
+          BIN="solver-out/z3-$Z3_PIN-$TRIPLE/bin/z3"
+          otool -L "$BIN"
+          if otool -L "$BIN" | tail -n +2 | grep -vE '^[[:space:]]+(/usr/lib/|/System/)'; then
+            echo "::error::$BIN links a library outside the system: it would not run on a Mac without it"
+            exit 1
+          fi
+          lipo -archs "$BIN"
+
+      - name: "Check: architecture and no C++ runtime DLL (Windows)"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = "solver-out/z3-$env:Z3_PIN-$env:TRIPLE/bin/z3.exe"
+          $bytes = [System.IO.File]::ReadAllBytes($bin)
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          $expected = [Convert]::ToUInt16("${{ matrix.pe_machine }}", 16)
+          if ($machine -ne $expected) {
+            Write-Error ("z3.exe is machine 0x{0:X4}, expected 0x${{ matrix.pe_machine }}" -f $machine)
+            exit 1
+          }
+          # Every DLL name the import table carries: a statically linked CRT
+          # leaves only system DLLs (KERNEL32, ADVAPI32, ...).
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          $dlls = [regex]::Matches($text, '[A-Za-z0-9_\-\.]+\.dll') | ForEach-Object { $_.Value.ToLower() } | Sort-Object -Unique
+          Write-Host "DLL names in z3.exe: $($dlls -join ', ')"
+          $bad = $dlls | Where-Object { $_ -match '^(vcruntime|msvcp|ucrtbase|api-ms-win-crt)' }
+          if ($bad) {
+            Write-Error "z3.exe needs the C/C++ runtime DLLs ($($bad -join ', ')): it would not run on a Windows without the VC++ redistributable"
+            exit 1
+          }
+
+      - name: "Check: it proves, and refutes with a model"
+        shell: bash
+        run: |
+          BIN="solver-out/z3-$Z3_PIN-$TRIPLE/bin/z3"
+          [ -f "$BIN" ] || BIN="$BIN.exe"
+          printf '%s\n' '(declare-const x (_ BitVec 32))' '(assert (= x (bvadd #x00000001 #x00000001)))' '(assert (not (= x #x00000002)))' '(check-sat)' > proved.smt2
+          printf '%s\n' '(declare-const x (_ BitVec 32))' '(assert (= x (bvadd #x00000001 #x00000001)))' '(assert (not (= x #x00000003)))' '(check-sat)' '(get-value (x))' > refuted.smt2
+          got=$("$BIN" -smt2 proved.smt2 | tr -d '\r')
+          test "$got" = "unsat" || { echo "::error::expected unsat, got: $got"; exit 1; }
+          got=$("$BIN" -smt2 refuted.smt2 | tr -d '\r')
+          case "$got" in sat*"#x00000002"*) ;; *) echo "::error::expected sat with x = #x00000002, got: $got"; exit 1;; esac
+          echo "proved and refuted as expected"
+
+      - name: Package
+        shell: bash
+        run: |
+          tar -czf "z3-$Z3_PIN-$TRIPLE.tar.gz" -C solver-out "z3-$Z3_PIN-$TRIPLE"
+          ls -l "z3-$Z3_PIN-$TRIPLE.tar.gz"
+          tar -tzf "z3-$Z3_PIN-$TRIPLE.tar.gz"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: solver-${{ matrix.triple }}
+          path: z3-${{ needs.pin.outputs.version }}-${{ matrix.triple }}.tar.gz
+          retention-days: 7
+          if-no-files-found: error

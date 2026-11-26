@@ -35,6 +35,15 @@ _(env : warm_dbg_env) :: import("std/env");
 { exit } :: import("std/libc/stdlib");
 { Instant } :: import("std/time/instant");
 {
+  Z3_VERSION,
+  probe_solver,
+  solver_required,
+  z3_release_asset_url,
+  try_fetch_z3_release,
+  _z3_read_file_sync,
+  _z3_unlink_sync
+} :: import("./verifier/z3.yo");
+{
   ArtifactKind,
   BuildArtifact,
   BuildTestSuite,
@@ -174,7 +183,9 @@ ExecutionContext :: struct(
   /// NOT `exit(1)` — the watch loop's contract is that a failing round is
   /// reported and the loop continues (`unwind(false)` out of the round),
   /// and a hard exit here killed the process on the first failed round.
-  watch_round : bool
+  watch_round : bool,
+  /// `--offline`: the build fetches nothing, the solver included.
+  offline : bool
 );
 /// `git describe --tags --always` in the project dir, or `.None` when that fails
 /// for any reason (not a repo, no git, non-zero exit, empty output) — the
@@ -1538,6 +1549,68 @@ _manifest_stamp_entries :: (
     out
   })
 });
+/// The solver every compile of this build would use, for the stamp: its
+/// `--version` line, or what is wrong with it. Probed once per process.
+_build_solver_identity :: (fn() -> String)(
+  match(
+    probe_solver(&Option(String).None),
+    .Usable(_, identity) => identity.clone(),
+    .Missing => String.from("none"),
+    .NotFound(path) => `not-found ${path}`,
+    .Unusable(path, _) => `unusable ${path}`
+  )
+);
+// ---------------------------------------------------------------------------
+// A missing solver: one line per build, and the fetch on first need
+// ---------------------------------------------------------------------------
+/// Set once a compile of this build had proofs to run and no usable solver.
+(mut(g_build_solver_needed) : bool) = false;
+/// The first-need fetch runs at most once per process.
+(mut(g_build_solver_fetch_tried) : bool) = false;
+/// Read what a compile wrote to its `--solver-notice` file, delete the file,
+/// and print the line the first time any compile of the build reports one:
+/// one line for the whole build, not one per artifact.
+_collect_solver_notice :: (fn(path : &String) -> unit)({
+  text := match(_z3_read_file_sync(path), .Some(t) => t.trim(), .None => String.new());
+  _z3_unlink_sync(path);
+  if(text.len() == usize(0), {
+    return(());
+  });
+  if(!g_build_solver_needed, {
+    eprintln(&text);
+  });
+  g_build_solver_needed = true;
+});
+/// `yo build` fetches the pinned solver on first need (§5 item 8): after a
+/// step in which a compile had proofs to run and found NO solver at all, it
+/// downloads this release's solver asset into the solver cache. That build
+/// keeps its runtime checks; the solver is part of every artifact's stamp, so
+/// the next build recompiles and proves them. A dangling `YO_Z3_PATH` or a
+/// solver that cannot run is not replaced, and `--offline` fetches nothing.
+_fetch_solver_on_first_need :: (fn(offline : bool, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e : IoExn) => {
+    if(!g_build_solver_needed || g_build_solver_fetch_tried, {
+      return(());
+    });
+    g_build_solver_fetch_tried = true;
+    is_missing := match(probe_solver(&Option(String).None), .Missing => true, _ => false);
+    if(!is_missing, {
+      return(());
+    });
+    if(offline, {
+      eprintln(`verify: --offline, so Z3 ${Z3_VERSION} is not fetched`);
+      return(());
+    });
+    version := String.from(CURRENT_YO_VERSION);
+    eprintln(`verify: fetching Z3 ${Z3_VERSION} from ${z3_release_asset_url(&version)}`);
+    fetched := e.io.await(try_fetch_z3_release(&version, e.io), e);
+    match(
+      fetched,
+      .Ok(path) => eprintln(`verify: installed ${path}; the next build proves these modules`),
+      .Err(why) => eprintln(`verify: could not fetch Z3 ${Z3_VERSION}: ${why}`)
+    );
+  })
+);
 /// The artifact's input stamp, or "" when stamping failed or the cache is off.
 ///
 /// Two modes, and the difference is the whole point of
@@ -1582,6 +1655,11 @@ artifact_input_stamp :: (
     _stamp_push_str(&mut acc, `yo-version ${CURRENT_YO_VERSION}`);
     compiler_id := e.io.await(_compiler_identity(e.io), e);
     _stamp_push_str(&mut acc, `yo-binary ${compiler_id}`);
+    // The solver is an input of every compile that verifies: an artifact
+    // built without it (its proofs skipped, its runtime checks kept) is not
+    // served once a solver is installed, nor one built with a solver after it
+    // is replaced (plans/backlog/DEFAULT_ON_VERIFICATION.md §5 item 8).
+    _stamp_push_str(&mut acc, `solver ${_build_solver_identity()}`);
     sep := String.from(" ");
     _stamp_push_str(&mut acc, `argv ${sep.join(&owned_argv)}`);
     // §5.4: every `build.env` read the build file made. The invoking shell is
@@ -1871,6 +1949,15 @@ compile_artifact :: (
     // same artifact.
     cmd = cmd.arg(String.from("--emit-deps"));
     cmd = cmd.arg(`${output_path.to_string()}.deps`);
+    // The missing-solver line goes to this file and the build prints it once
+    // (`_collect_solver_notice`); like the depfile, its path is a pure
+    // function of `output_path`, so it never changes the stamp between builds.
+    solver_notice_path := `${output_path.to_string()}.solver-notice`;
+    cmd = cmd.arg(String.from("--solver-notice"));
+    cmd = cmd.arg(solver_notice_path.clone());
+    if(solver_required(), {
+      cmd = cmd.arg(String.from("--require-solver"));
+    });
     // Forward the parent's `--std-path` override to the child compile.
     match(
       get_std_path_override(),
@@ -2195,6 +2282,9 @@ compile_artifact :: (
     });
     (compile_ok : bool) = false;
     (fail_code : i32) = i32(-1);
+    // A notice left by a compile that died before this build is not this
+    // compile's.
+    _z3_unlink_sync(&solver_notice_path);
     if(ctx.in_process_compile_fn.is_some(), {
       // §7 step 2: run the artifact compile IN PROCESS against the warm
       // evaluator universe. The argv is the child's exact command line, so
@@ -2249,6 +2339,7 @@ compile_artifact :: (
         fail_code = st.code().unwrap_or(i32(-1));
       });
     });
+    _collect_solver_notice(&solver_notice_path);
     // §4.9: record from the depfile the child just wrote, rather than the
     // stamp computed before it ran.
     //
@@ -3104,6 +3195,7 @@ execute_step :: (
       return(());
     });
     results := e.io.await(execute_dag(&dag, Rc.clone(ctx), e.io, e.exn), e);
+    e.io.await(_fetch_solver_on_first_need(ctx.offline, e.io), e);
     if(ctx.summary, print_build_summary(&results, &dag, &owned_step_name));
     // A failed step must fail the build. execute_node folds per-step errors
     // into StepResult.success so the DAG finishes and the summary can show
@@ -3482,7 +3574,8 @@ run_build :: (
         run_args : owned_options.run_args.clone(),
         jobs : owned_options.jobs,
         in_process_compile_fn : g_in_process_compile_fn,
-        watch_round : owned_options.watch_in_process
+        watch_round : owned_options.watch_in_process,
+        offline : owned_options.offline
       )
     );
     requested := if(owned_options.steps.len() == usize(0), {

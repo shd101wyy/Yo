@@ -24,8 +24,7 @@ json :: import("std/encoding/json");
 { take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure, ProvedGuardSite, record_proved_guard_site } :: import("../evaluator/builtins/contracts.yo");
 { get_current_target } :: import("../target.yo");
 {
-  ensure_z3,
-  discover_z3,
+  probe_solver,
   run_z3_script,
   parse_z3_sexprs,
   z3_check_sat_of,
@@ -35,7 +34,6 @@ json :: import("std/encoding/json");
   z3_reason_unknown_of,
   z3_rlimit_used_of,
   z3_version_of_binary,
-  _z3_exists_sync,
   _z3_read_file_sync,
   _z3_write_file_sync,
   _z3_ensure_dir_sync
@@ -488,32 +486,30 @@ SolverResolution :: enum(
   /// Nothing found — the caller may run the async one-time install
   /// (`ensure_z3`).
   Installable,
-  /// An explicit `--solver-path` that does not exist (a hard error).
-  InvalidPath(path : String)
+  /// An explicit `--solver-path` or `YO_Z3_PATH` that names no file.
+  InvalidPath(path : String),
+  /// A solver that exists and does not run (`detail`: what it printed).
+  Unusable(path : String, detail : String)
 );
-/// Sync solver resolution: an explicit `--solver-path` is validated;
-/// otherwise discovery. No event-loop interaction.
+/// Sync solver resolution through the once-per-process probe
+/// (`probe_solver`): an explicit `--solver-path` wins, else discovery. A
+/// dangling override is `InvalidPath`, never a solver: as `Resolved` it let a
+/// warm verify cache answer `proved` with no solver present
+/// (issues/fixed/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md).
+/// No event-loop interaction.
 resolve_solver_sync :: (fn(cfg : &VerifyRunConfig) -> SolverResolution)(
   match(
-    &cfg.solver_path,
-    .Some(p) => if(
-      _z3_exists_sync(p.clone()),
-      SolverResolution.Resolved(path : p.clone()),
-      SolverResolution.InvalidPath(path : p.clone())
-    ),
-    // `discover_z3` hands back the `YO_Z3_PATH` override as given, so check
-    // it exists: a dangling override is `InvalidPath`, not a solver. As
-    // `Resolved` it let a warm verify cache answer `proved` with no solver
-    // present (issues/fixed/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md).
-    .None => match(
-      discover_z3(),
-      .Some(p) => if(
-        _z3_exists_sync(p.clone()),
-        SolverResolution.Resolved(path : p),
-        SolverResolution.InvalidPath(path : p)
-      ),
-      .None => SolverResolution.Installable
-    )
+    probe_solver(&cfg.solver_path),
+    .Usable(path, identity) => {
+      // The probe already ran `--version`: seed the cache's identity so the
+      // first query does not spawn the solver a second time for it.
+      g_solver_identity_binary = Option(String).Some(path.clone());
+      g_solver_identity = Option(String).Some(identity.clone());
+      SolverResolution.Resolved(path : path.clone())
+    },
+    .Missing => SolverResolution.Installable,
+    .NotFound(path) => SolverResolution.InvalidPath(path : path.clone()),
+    .Unusable(path, detail) => SolverResolution.Unusable(path : path.clone(), detail : detail.clone())
   )
 );
 // ============================================================================

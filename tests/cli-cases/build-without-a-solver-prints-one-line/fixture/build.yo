@@ -1,0 +1,9 @@
+build :: import("std/build");
+
+first :: build.executable(.{ name : "first", root : "./src/first.yo" });
+
+second :: build.executable(.{ name : "second", root : "./src/second.yo" });
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(first);
+install.depend_on(second);

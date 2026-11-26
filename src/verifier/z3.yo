@@ -16,7 +16,7 @@
 //! that drives the event loop from inside a task (C37/C42 — the runtime
 //! guard aborts under YO_ASYNC_STRICT=1). Script I/O and the solver spawn
 //! use libc directly (`system(3)` + open/read/fopen); the ONLY async path
-//! is the one-time download install (`_install_z3` — std/http has no sync
+//! is the one-time download (`fetch_z3_release` — std/http has no sync
 //! form), which mirrors `src/version-cache.yo`'s release-fetch shape.
 //!
 //! The query protocol (plan §"The query protocol"): each obligation runs as
@@ -31,12 +31,16 @@
 //!              wall-clock backstop stopped it
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
-{ env, temp_dir, home_dir } :: import("std/env");
+{ env, temp_dir } :: import("std/env");
 { Exception, IoExn } :: import("std/error");
 { FetchOptions, fetch_with } :: import("std/http/client");
 { Command } :: import("std/process/command");
 { host_target, is_target_windows, is_target_linux, is_target_macos, arch_triple_str } :: import("../target.yo");
+{ get_global_cache_dir } :: import("../cache.yo");
+{ CURRENT_YO_VERSION, yo_releases_download_url } :: import("../version.yo");
+{ tls_available } :: import("std/crypto/tls");
 { Instant } :: import("std/time/instant");
 stat :: import("std/libc/sys/stat");
 fcntl :: import("std/libc/fcntl");
@@ -48,62 +52,48 @@ stdlib :: import("std/libc/stdlib");
 // ============================================================================
 // Pin manifest
 // ============================================================================
-/// The one pinned Z3 version (bumped 4.13.3 → 5.1.0, 2026-09-08 — the
-/// current stable; asset stems moved to glibc-2.39/osx-13.3). Bumps are deliberate
-/// release-note events, never a side effect; the verification cache keys on
-/// this string so a bump invalidates honestly.
+/// The one pinned Z3 version (bumped 4.13.3 → 5.1.0, 2026-09-08). Bumps are
+/// deliberate release-note events, never a side effect. The release builds
+/// this version from source for every target it publishes
+/// (`scripts/build-static-z3.sh`, `.github/workflows/solver.yml`).
 Z3_VERSION :: "5.1.0";
-/// The host's Z3 release-asset stem (e.g. `x64-glibc-2.39`), derived from
-/// the canonical triple vocabulary of `src/target.yo`.
-z3_host_asset_stem :: (fn() -> String)({
+/// The canonical target triple of this host's solver build: the triple the
+/// release names the asset by and the solver directory carries. Linux is
+/// always the static musl build, which runs on glibc and musl systems alike
+/// (plans/backlog/DEFAULT_ON_VERIFICATION.md §2.3). `""` for a host the
+/// release publishes no solver for.
+z3_host_triple :: (fn() -> String)({
   t := host_target();
   arch := String.from(arch_triple_str(t.arch));
   cond(
-    (is_target_linux(&t) && (arch == "x86_64")) => String.from("x64-glibc-2.39"),
-    (is_target_linux(&t) && (arch == "aarch64")) => String.from("arm64-glibc-2.38"),
-    (is_target_macos(&t) && (arch == "x86_64")) => String.from("x64-osx-13.3"),
-    (is_target_macos(&t) && (arch == "aarch64")) => String.from("arm64-osx-13.3"),
-    (is_target_windows(&t) && (arch == "x86_64")) => String.from("x64-win"),
-    (is_target_windows(&t) && (arch == "aarch64")) => String.from("arm64-win"),
+    (is_target_linux(&t) && (arch == "x86_64")) => String.from("x86_64-unknown-linux-musl"),
+    (is_target_linux(&t) && (arch == "aarch64")) => String.from("aarch64-unknown-linux-musl"),
+    (is_target_macos(&t) && (arch == "x86_64")) => String.from("x86_64-apple-darwin"),
+    (is_target_macos(&t) && (arch == "aarch64")) => String.from("aarch64-apple-darwin"),
+    (is_target_windows(&t) && (arch == "x86_64")) => String.from("x86_64-pc-windows-msvc"),
+    (is_target_windows(&t) && (arch == "aarch64")) => String.from("aarch64-pc-windows-msvc"),
     true => String.from("")
   )
 });
-/// The global Yo cache root, mirroring `src/cache.yo`'s resolution order
-/// (`YO_CACHE_DIR` → `XDG_CACHE_HOME/yo` → `~/.cache/yo`).
-_yo_cache_root :: (fn() -> String)({
-  yo_cache_env := env.get(String.from("YO_CACHE_DIR"));
-  match(
-    yo_cache_env,
-    .Some(d) => d,
-    .None => {
-      xdg := env.get(String.from("XDG_CACHE_HOME"));
-      match(
-        xdg,
-        .Some(d) => d.concat(String.from("/yo")),
-        .None => {
-          home := home_dir();
-          match(
-            home,
-            .Some(h) => h.concat(String.from("/.cache/yo")),
-            .None => String.from(".yo-cache")
-          )
-        }
-      )
-    }
-  )
-});
-/// The solver binary's path inside the install directory.
+/// Where fetched solvers live: `<yo cache>/solvers` (`src/cache.yo`'s root,
+/// the same one the installers compute).
+z3_solvers_root :: (fn() -> String)(`${get_global_cache_dir()}/solvers`);
+/// The solver binary's path inside the solver cache:
+/// `<solvers>/z3-<pin>-<triple>/bin/z3[.exe]`.
 z3_binary_path :: (fn() -> String)({
-  stem := z3_host_asset_stem();
   exe := cond(
     is_target_windows(host_target()) => String.from("z3.exe"),
     true => String.from("z3")
   );
-  `${_yo_cache_root()}/solvers/z3-${Z3_VERSION}-${stem}/bin/${exe}`
+  `${z3_solvers_root()}/z3-${Z3_VERSION}-${z3_host_triple()}/bin/${exe}`
 });
-/// The GitHub Releases download URL for the pinned asset.
-z3_download_url :: (fn() -> String)(
-  `https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-${z3_host_asset_stem()}.zip`
+/// The release asset that carries Yo `yo_version`'s solver for this host:
+/// `yo-v<version>-<triple>-z3.tar.gz`, whose one top-level directory is
+/// `z3-<pin>-<triple>/` (`bin/z3`, `LICENSE.txt`). Named by the Yo version so
+/// an installer needs no copy of the pin.
+z3_release_asset_name :: (fn(yo_version : &String) -> String)(`yo-v${yo_version}-${z3_host_triple()}-z3.tar.gz`);
+z3_release_asset_url :: (fn(yo_version : &String) -> String)(
+  `${yo_releases_download_url()}/v${yo_version}/${z3_release_asset_name(yo_version)}`
 );
 // ============================================================================
 // Sync file shims (the module-manager.yo comptime-file-IO idiom)
@@ -258,77 +248,243 @@ discover_z3 :: (fn() -> Option(String))({
     }
   )
 });
-/// Download the pinned Z3 release asset into the solver cache and return
-/// the binary path. The ONLY async function in the harness: std/http has
-/// no sync form. Shape mirrors `src/version-cache.yo`'s release fetch —
-/// straight-line `e.io.await` calls, String-only values (the async backend
-/// mis-lowers captures of richer shapes; see
-/// issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md).
-/// unzip extracts straight into the solvers root (`unzip -o` overwrites),
-/// so no rename/remove-dir dance is needed.
-_install_z3 :: (
-  fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn))
-)(
+/// What a probe of the solver found. `probe_solver` runs once per process,
+/// so a missing or broken solver is reported in one line for the whole run,
+/// not once per function or file (plans/backlog/DEFAULT_ON_VERIFICATION.md
+/// §5 item 8).
+SolverProbe :: enum(
+  /// The binary runs; `identity` is its `--version` line.
+  Usable(path : String, identity : String),
+  /// No `YO_Z3_PATH`, and nothing in the solver cache.
+  Missing,
+  /// `YO_Z3_PATH` or `--solver-path` names no file.
+  NotFound(path : String),
+  /// The file exists and does not run: `detail` is the first line its
+  /// `--version` printed (a loader error, "Permission denied", ...).
+  Unusable(path : String, detail : String)
+);
+derive(SolverProbe, Clone);
+/// Probe the solver at `path`: it must exist and answer `--version`.
+probe_solver_at :: (fn(path : &String) -> SolverProbe)({
+  if(!_z3_exists_sync(path.clone()), {
+    return(SolverProbe.NotFound(path : path.clone()));
+  });
+  match(
+    _z3_run_version(path),
+    .Ok(id) => SolverProbe.Usable(path : path.clone(), identity : id),
+    .Err(detail) => SolverProbe.Unusable(path : path.clone(), detail : detail)
+  )
+});
+/// The explicit path the memoized probe answered for (`""` = discovery).
+(mut(g_solver_probe_key) : Option(String)) = Option(String).None;
+(mut(g_solver_probe) : Option(SolverProbe)) = Option(SolverProbe).None;
+/// The solver this process uses: `explicit` (a `--solver-path`) when given,
+/// else discovery. Probed once per process and path; later calls return the
+/// first answer until `forget_solver_probe`.
+probe_solver :: (fn(explicit : &Option(String)) -> SolverProbe)({
+  key := match(explicit, .Some(p) => p.clone(), .None => String.new());
+  same := match(g_solver_probe_key.clone(), .Some(k) => (k == key), .None => false);
+  if(same, {
+    match(
+      g_solver_probe.clone(),
+      .Some(known) => {
+        return(known);
+      },
+      .None => ()
+    );
+  });
+  probe := match(
+    explicit,
+    .Some(p) => probe_solver_at(p),
+    .None => match(
+      discover_z3(),
+      .Some(found) => probe_solver_at(&found),
+      .None => SolverProbe.Missing
+    )
+  );
+  g_solver_probe_key = Option(String).Some(key);
+  g_solver_probe = Option(SolverProbe).Some(probe.clone());
+  probe
+});
+/// Drop the memoized probe, so the next `probe_solver` looks again (after an
+/// install put a solver in place).
+forget_solver_probe :: (fn() -> unit)({
+  g_solver_probe_key = Option(String).None;
+  g_solver_probe = Option(SolverProbe).None;
+});
+// ----------------------------------------------------------------------------
+// Reporting a solver that is missing or cannot run
+// ----------------------------------------------------------------------------
+/// `--require-solver` (compile, check, build): a verification that cannot run
+/// for want of a solver fails instead of reporting one line.
+(mut(g_require_solver) : bool) = false;
+set_require_solver :: (fn(on : bool) -> unit)({
+  g_require_solver = on;
+});
+/// `--require-solver` or `YO_REQUIRE_SOLVER=1`.
+solver_required :: (fn() -> bool)(
+  g_require_solver || match(env.get(String.from("YO_REQUIRE_SOLVER")), .Some(v) => (v == "1"), .None => false)
+);
+/// `--solver-notice <file>` (set by `yo build` on its compiles): write the
+/// solver line to this file instead of printing it, and the build prints it
+/// once for the whole build.
+(mut(g_solver_notice_file) : Option(String)) = Option(String).None;
+set_solver_notice_file :: (fn(path : Option(String)) -> unit)({
+  g_solver_notice_file = path;
+});
+(mut(g_solver_notice_printed) : bool) = false;
+/// The one line for a verification that has tasks and no usable solver.
+/// `needs_proofs`: a `verify`-mode task is among them (its runtime asserts are
+/// suppressed, so `compile` fails); `required`: `solver_required()`.
+solver_unavailable_line :: (fn(probe : &SolverProbe, needs_proofs : bool, required : bool) -> String)({
+  what := match(
+    probe,
+    .Missing => String.from("no Z3 solver found"),
+    .NotFound(path) => `solver path '${path}' does not exist`,
+    .Unusable(path, detail) => `the Z3 solver at '${path}' cannot run (${detail})`,
+    .Usable(path, _) => `the Z3 solver at '${path}' was not used`
+  );
+  remedy := `Run 'yo verify <file>' once to fetch Z3 ${Z3_VERSION}, or point YO_Z3_PATH at one.`;
+  cond(
+    required => `verify: error: ${what}, and --require-solver (or YO_REQUIRE_SOLVER=1) requires one. ${remedy}`,
+    needs_proofs => `verify: ${what} — this file's verify-mode ensures clauses need proofs (their runtime asserts are suppressed). ${remedy}`,
+    true => `verify: ${what} — verify+ contracts keep their runtime asserts, so nothing is proved. ${remedy}`
+  )
+});
+/// Report `line` once per process: on stderr, or into the `--solver-notice`
+/// file when `yo build` asked for it (every compile writes its own file).
+report_solver_unavailable :: (fn(line : &String) -> unit)({
+  match(
+    g_solver_notice_file.clone(),
+    .Some(path) => {
+      _ := _z3_write_file_sync(&path, line);
+    },
+    .None => {
+      if(!g_solver_notice_printed, {
+        eprintln(line);
+        g_solver_notice_printed = true;
+      });
+    }
+  );
+});
+/// Download Yo release `yo_version`'s solver asset and unpack it into the
+/// solver cache. `.Ok(binary)` once the pinned binary is in place (`.Ok(the
+/// solvers root)` for another release's asset, whose pin this compiler does
+/// not know); `.Err(why)`
+/// for every expected failure (no asset for this host, no TLS, an HTTP error,
+/// an extraction failure). A transport failure inside `fetch_with` throws
+/// through `e.exn`, as every std/http call does; `try_fetch_z3_release` turns
+/// that into an `.Err` too. The one async path of the harness (std/http has no
+/// sync form): straight-line awaits on String values, the shape of
+/// `src/version-cache.yo`'s release fetch.
+fetch_z3_release :: (
+  fn(yo_version : &String, io : Io) -> Impl(Future(Result(String, String), IoExn))
+)({
+  owned_version := yo_version.clone();
   io.async((e : IoExn) => {
-    stem := z3_host_asset_stem();
-    if(stem.len() == usize(0), {
-      e.exn.throw(
-        dyn(
-          Box.new(`verify: no pinned Z3 release asset for this host (${host_target().triple}). Set YO_Z3_PATH to an existing z3 binary.`)
-        )
-      );
+    triple := z3_host_triple();
+    if(triple.len() == usize(0), {
+      return(Result(String, String).Err(`no Yo release publishes a Z3 build for this host (${host_target().triple})`));
     });
-    // `unzip -d` creates the target dir (including parents) itself — no
-    // mkdir needed (Windows CRT mkdir is single-argument, so a libc mkdir-p
-    // would need per-platform shapes for nothing).
-    solvers_root := `${_yo_cache_root()}/solvers`;
-    zip_path := _z3_temp_path(String.from("zip"));
-    url := z3_download_url();
+    if(!tls_available(), {
+      return(Result(String, String).Err(String.from("TLS is unavailable in this build, and the download needs HTTPS")));
+    });
+    root := z3_solvers_root();
+    _z3_ensure_dir_sync(&root);
+    archive := _z3_temp_path(String.from("tar.gz"));
+    url := z3_release_asset_url(&owned_version);
     opts := FetchOptions.new();
     opts = opts.with_header(`User-Agent`, `yo-verifier`);
     opts = opts.with_max_redirects(usize(5));
     opts = opts.with_max_response_bytes(usize(268435456));
     resp := e.io.await(fetch_with(url.clone(), &opts, e.io), e);
     if(resp.status.is_error(), {
-      e.exn.throw(dyn(Box.new(`verify: failed to download Z3 (HTTP ${resp.status.to_string()}) from ${url}`)));
+      return(Result(String, String).Err(`HTTP ${resp.status.to_string()} fetching ${url}`));
     });
-    if(!_z3_write_file_sync(zip_path.clone(), &resp.body), {
-      e.exn.throw(dyn(Box.new(`verify: failed to write ${zip_path}`)));
+    if(!_z3_write_file_sync(archive.clone(), &resp.body), {
+      return(Result(String, String).Err(`could not write ${archive}`));
     });
-    mut(uc) := Command.new(String.from("unzip"));
-    uc = uc.arg(String.from("-o"));
-    uc = uc.arg(zip_path.clone());
-    uc = uc.arg(String.from("-d"));
-    uc = uc.arg(solvers_root.clone());
-    uout := e.io.await(uc.output(e.io), e);
-    _z3_unlink_sync(zip_path.clone());
-    if(!uout.status.success(), {
-      e.exn.throw(
-        dyn(
-          Box.new(`verify: 'unzip' failed to extract the Z3 archive. Install 'unzip' (or set YO_Z3_PATH to an existing z3 binary).`)
-        )
-      );
+    // The archive's one top-level directory is `z3-<pin>-<triple>/`, so it
+    // unpacks straight into the solvers root.
+    mut(tc) := Command.new(String.from("tar"));
+    tc = tc.arg(String.from("-xzf"));
+    tc = tc.arg(archive.clone());
+    tc = tc.arg(String.from("-C"));
+    tc = tc.arg(root.clone());
+    tout := e.io.await(tc.output(e.io), e);
+    _z3_unlink_sync(archive.clone());
+    if(!tout.status.success(), {
+      return(Result(String, String).Err(`'tar' could not unpack ${url}`));
+    });
+    forget_solver_probe();
+    // Another release's asset may carry another pin (`yo version install`):
+    // it unpacked under its own `z3-<pin>-<triple>/`, which is where that
+    // release's compiler looks.
+    if(owned_version != CURRENT_YO_VERSION, {
+      return(Result(String, String).Ok(root));
     });
     bin := z3_binary_path();
     if(!_z3_exists_sync(bin.clone()), {
-      e.exn.throw(
-        dyn(Box.new(`verify: Z3 archive extracted but ${bin} is missing — unexpected archive layout from ${url}`))
-      );
+      return(Result(String, String).Err(`${url} does not hold ${bin}`));
     });
-    bin
+    Result(String, String).Ok(bin)
+  })
+});
+/// `fetch_z3_release` as a task with its own swallow handler, so a transport
+/// failure reads as `.Err` instead of failing the caller (`yo build`'s
+/// first-need fetch and `yo version install` must not fail over the solver).
+_z3_fetch_task :: (
+  fn(sink(version) : String, io : Io) -> Impl(Future(Result(String, String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    // The unwind payload must match the future's payload type (see
+    // `_git_output_task` in src/build-runner.yo); the task aborts either way.
+    swallow := Exception(throw : (_e -> unwind(Result(String, String).Err(String.new()))));
+    e.io.await(fetch_z3_release(&version, e.io), IoExn(io : e.io, exn : swallow))
   })
 );
-/// Resolve the solver: discovery first, install on miss.
+try_fetch_z3_release :: (
+  fn(yo_version : &String, io : Io) -> Impl(Future(Result(String, String), IoExn))
+)({
+  owned_version := yo_version.clone();
+  io.async((e : IoExn) => {
+    url := z3_release_asset_url(&owned_version);
+    // Spawned and JOINED: `join` reads the task's abort as `.None`.
+    t := e.io.spawn(_z3_fetch_task(owned_version.clone(), e.io), e);
+    out_opt := e.io.await(t.join(e.io), e.io);
+    match(
+      out_opt,
+      .Some(r) => r,
+      .None => Result(String, String).Err(`could not download ${url}`)
+    )
+  })
+});
+/// Resolve the solver for `yo verify`: discovery first, then this compiler's
+/// own release asset.
 ensure_z3 :: (
   fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn))
 )(
-  io.async(
-    (e : IoExn) => match(
-      discover_z3(),
-      .Some(p) => p,
-      .None => e.io.await(_install_z3(e.io, e.exn), e)
+  io.async((e : IoExn) => {
+    found := discover_z3();
+    match(
+      found,
+      .Some(p) => {
+        return(p);
+      },
+      .None => ()
+    );
+    version := String.from(CURRENT_YO_VERSION);
+    eprintln(`verify: fetching Z3 ${Z3_VERSION} from ${z3_release_asset_url(&version)}`);
+    fetched := e.io.await(fetch_z3_release(&version, e.io), e);
+    match(
+      fetched,
+      .Ok(p) => p,
+      .Err(why) => {
+        e.exn.throw(dyn(Box.new(`verify: could not fetch Z3 ${Z3_VERSION}: ${why}. Set YO_Z3_PATH to an existing z3 binary.`)));
+        String.new()
+      }
     )
-  )
+  })
 );
 // ============================================================================
 // The query protocol
@@ -384,7 +540,17 @@ run_z3_script :: (fn(binary : &String, script : &String) -> Result(String, Strin
 /// accepts any z3, and a verdict from one solver must not answer for
 /// another
 /// (issues/fixed/2026-11-04-the-verify-cache-stores-wall-clock-unknown-verdicts-and-keys-on-the-pinned-z3-version-not-the-binary.md).
-z3_version_of_binary :: (fn(binary : &String) -> Option(String))({
+z3_version_of_binary :: (fn(binary : &String) -> Option(String))(
+  match(
+    _z3_run_version(binary),
+    .Ok(v) => Option(String).Some(v),
+    .Err(_) => Option(String).None
+  )
+);
+/// Run `<binary> --version`: `.Ok(trimmed output)`, or `.Err(why)` with the
+/// first line the binary printed (a loader error, "Permission denied") or its
+/// exit status.
+_z3_run_version :: (fn(binary : &String) -> Result(String, String))({
   out_path := _z3_temp_path(String.from("version"));
   cmd := `${binary} --version > ${out_path} 2>&1`;
   cmd_buf := cmd.to_cstr();
@@ -394,17 +560,27 @@ z3_version_of_binary :: (fn(binary : &String) -> Option(String))({
   out_opt := _z3_read_file_sync(&op_read);
   op_unlink := out_path.clone();
   _z3_unlink_sync(&op_unlink);
-  if(status != int(0), {
-    return(Option(String).None);
-  });
-  match(
+  text := match(
     out_opt,
-    .Some(o) => {
-      text := o.trim();
-      if(text.len() == usize(0), Option(String).None, Option(String).Some(text))
-    },
-    .None => Option(String).None
-  )
+    .Some(o) => o.trim(),
+    .None => String.new()
+  );
+  if(status != int(0), {
+    first := match(
+      text.index_of(String.from("\n")),
+      .Some(nl) => text.substring(usize(0), nl).trim(),
+      .None => text.clone()
+    );
+    return(
+      Result(String, String).Err(
+        if(first.len() == usize(0), `exit status ${(status / int(256)).to_string()}`, first)
+      )
+    );
+  });
+  if(text.len() == usize(0), {
+    return(Result(String, String).Err(String.from("it printed no version")));
+  });
+  Result(String, String).Ok(text)
 });
 // ============================================================================
 // S-expression scanning (verdict parsing — pure, unit-testable)
@@ -807,15 +983,29 @@ z3_value_pairs_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
 });
 export(
   Z3_VERSION,
-  z3_host_asset_stem,
+  z3_host_triple,
+  z3_solvers_root,
   z3_binary_path,
-  z3_download_url,
+  z3_release_asset_name,
+  z3_release_asset_url,
   discover_z3,
+  SolverProbe,
+  probe_solver_at,
+  probe_solver,
+  forget_solver_probe,
+  set_require_solver,
+  solver_required,
+  set_solver_notice_file,
+  solver_unavailable_line,
+  report_solver_unavailable,
+  fetch_z3_release,
+  try_fetch_z3_release,
   ensure_z3,
   run_z3_script,
   _z3_exists_sync,
   _z3_read_file_sync,
   _z3_write_file_sync,
+  _z3_unlink_sync,
   _z3_ensure_dir_sync,
   Z3Sexpr,
   parse_z3_sexprs,

@@ -943,6 +943,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
 
+      # The solver smoke (gate G6) runs this exact bundle: the draft's assets
+      # cannot be downloaded by tag (a draft has no tag ref until published).
+      - name: Hand the bundle to the solver smoke
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.target }}
+          path: ${{ env.BUNDLE }}.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
   # THE Linux release legs (musl-only, 2026-08-20). The glibc seed-bundles
   # legs were REMOVED, not renamed: the static musl bundles run on glibc and
   # musl systems alike (measured perf delta is inside run-to-run noise and the
@@ -1265,6 +1275,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
 
+      - name: Hand the bundle to the solver smoke
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.target }}
+          path: ${{ env.BUNDLE }}.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
       # This leg's arm of the single portable `yo.c`, rehomed from the removed
       # glibc legs (plans/reference/PORTABLE_C_DISTRIBUTION.md). A SEPARATE emit rather
       # than reusing yo-musl.c, because that one is mimalloc-flavored: it
@@ -1374,6 +1392,134 @@ jobs:
           ls -la yo-v*.c.gz
           gh release upload "v${VER}" yo-v${VER}-*.c.gz --clobber
 
+  # The pinned Z3, built from source as one self-contained binary per target
+  # this release publishes (plans/backlog/DEFAULT_ON_VERIFICATION.md, step SD
+  # and gate G6). The installers and `yo version install` fetch it with the
+  # compiler, and `yo build` fetches it on first need; the official Z3 Linux
+  # assets need glibc 2.38+, which the static musl `yo` does not.
+  solver:
+    name: Solver
+    needs: release
+    uses: ./.github/workflows/solver.yml
+
+  # Published next to the bundles as `yo-v<version>-<triple>-z3.tar.gz`: named
+  # by the Yo version, so an installer needs no copy of the pin; the archive's
+  # one top-level directory `z3-<pin>-<triple>/` carries it, and unpacks
+  # straight into `<yo cache>/solvers/` where `yo` looks
+  # (src/verifier/z3.yo, `z3_release_asset_name`).
+  solver-attach:
+    name: Attach the solver builds
+    needs: [release, solver]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download the solver builds
+        uses: actions/download-artifact@v8
+        with:
+          pattern: solver-*
+          path: solver
+          merge-multiple: true
+
+      - name: Rename and attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VER: ${{ needs.release.outputs.version }}
+          PIN: ${{ needs.solver.outputs.z3_version }}
+        run: |
+          mkdir -p assets
+          for triple in x86_64-unknown-linux-musl aarch64-unknown-linux-musl \
+                        aarch64-apple-darwin x86_64-apple-darwin \
+                        x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
+            src="solver/z3-$PIN-$triple.tar.gz"
+            if [ ! -f "$src" ]; then
+              echo "::error::no solver build for $triple ($src)"
+              exit 1
+            fi
+            # The layout the installers and `yo` rely on.
+            top=$(tar -tzf "$src" | head -1)
+            case "$top" in
+              "z3-$PIN-$triple/"*) ;;
+              *) echo "::error::$src unpacks to '$top', not z3-$PIN-$triple/"; exit 1 ;;
+            esac
+            cp "$src" "assets/yo-v$VER-$triple-z3.tar.gz"
+          done
+          ls -l assets
+          gh release upload "v$VER" assets/*.tar.gz --clobber
+
+  # Gate G6 on every release target: the bundle this release built, with the
+  # solver this release built unpacked where the installer puts it, proves an
+  # obligation; and with no solver, or one that cannot run, a verify+ build
+  # passes and says so in exactly one line (scripts/solver-smoke.sh).
+  solver-smoke:
+    name: Solver smoke (${{ matrix.target }})
+    needs: [release, solver, seed-bundles-cross, musl-bundle]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64-musl
+          - os: ubuntu-24.04-arm
+            target: linux-arm64-musl
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-26-intel
+            target: macos-x64
+          - os: windows-latest
+            target: windows-x64
+          - os: windows-11-arm
+            target: windows-arm64
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+
+      - name: Download the bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: bundle-${{ matrix.target }}
+          path: smoke
+
+      - name: Download the solver build
+        uses: actions/download-artifact@v8
+        with:
+          pattern: solver-*
+          path: smoke
+          merge-multiple: true
+
+      - name: Unpack the bundle
+        shell: bash
+        env:
+          VER: ${{ needs.release.outputs.version }}
+          PIN: ${{ needs.solver.outputs.z3_version }}
+        run: |
+          . scripts/release_asset_triple.sh
+          TRIPLE=$(asset_triple "${{ matrix.target }}")
+          tar -xzf "smoke/yo-v$VER-$TRIPLE.tar.gz" -C smoke
+          BIN="smoke/yo-v$VER-$TRIPLE/bin/yo"
+          [ -f "$BIN" ] || BIN="$BIN.exe"
+          echo "YO_BIN=$PWD/$BIN" >> "$GITHUB_ENV"
+          echo "SOLVER_ARCHIVE=$PWD/smoke/z3-$PIN-$TRIPLE.tar.gz" >> "$GITHUB_ENV"
+
+      - name: G6 on the host
+        shell: bash
+        run: bash scripts/solver-smoke.sh "$YO_BIN" "$SOLVER_ARCHIVE"
+
+      # The musl bundle and the solver are both static: prove it on musl too.
+      - name: G6 on Alpine
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w -e YO_BIN="/w/${YO_BIN#"$PWD"/}" -e SOLVER_ARCHIVE="/w/${SOLVER_ARCHIVE#"$PWD"/}" alpine:3.20 sh -euc '
+            apk add --no-cache bash > /dev/null
+            bash scripts/solver-smoke.sh "$YO_BIN" "$SOLVER_ARCHIVE"
+          '
+
   publish-release:
     name: Publish the release
     # portable-c is in `needs` so the draft never flips public without the
@@ -1383,7 +1529,10 @@ jobs:
     # its continue-on-error off (the pairing rule its comment recorded): a
     # promoted leg's failure must hold publication, or a red musl run ships a
     # release whose install.sh advertises a bundle that never arrives.
-    needs: [release, seed-bundles-cross, portable-c, musl-bundle]
+    # solver-attach and solver-smoke since step SD: a release whose solver did
+    # not attach, or does not prove on one of its targets, does not publish
+    # (gate G6, plans/backlog/DEFAULT_ON_VERIFICATION.md).
+    needs: [release, seed-bundles-cross, portable-c, musl-bundle, solver-attach, solver-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

@@ -24,6 +24,7 @@ import("std/fmt");
 { platform, Platform, pid } :: import("std/process");
 { exit } :: import("std/libc/stdlib");
 { BuildRegistry, BuildArtifact, ArtifactKind, BuildVerifyConfig, ResolvedDep } :: import("../../src/evaluator/builtins/build.yo");
+{ forget_solver_probe } :: import("../../src/verifier/z3.yo");
 _mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> BuildArtifact)(
   BuildArtifact(
     kind : kind,
@@ -334,6 +335,52 @@ test("artifact stamp: a different compiler binary is a different stamp", {
   assert(a1.len() > usize(0), "the record pass produced a stamp");
   assert(!(a1 == b), "a different compiler binary must not match the recorded stamp");
   assert(a1 == a2, "the same compiler and inputs reproduce the stamp");
+});
+test("artifact stamp: installing or replacing the solver is a different stamp", {
+  /// An artifact compiled with no solver kept its runtime checks unproved; once
+  /// a solver is installed the cached artifact must not be served, nor one
+  /// proved by another solver (plans/backlog/DEFAULT_ON_VERIFICATION.md §5
+  /// item 8). `/bin/echo` answers `--version`, so the probe takes it for a
+  /// solver whose identity is "--version".
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_build_stamp_solver_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  depfile := `${dir}/app.deps`;
+  io.await(write_string(Path.new(depfile.clone()), String.from("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef ./src/main.yo\n"), io), ioexn);
+  mut(argv) := ArrayList(String).new();
+  argv.push(String.from("compile"));
+  argv.push(String.from("./src/main.yo"));
+  set_compiler_identity(String.from("compiler-A"));
+  saved_z3_path := env.get(String.from("YO_Z3_PATH"));
+  _ := env.set(String.from("YO_Z3_PATH"), String.from("/nonexistent/yo-stamp-z3"));
+  forget_solver_probe();
+  without1 := io.await(artifact_input_stamp(argv.clone(), dir.clone(), depfile.clone(), true, true, ArrayList(String).new(), io), ioexn);
+  _ := env.set(String.from("YO_Z3_PATH"), String.from("/bin/echo"));
+  forget_solver_probe();
+  with_solver := io.await(artifact_input_stamp(argv.clone(), dir.clone(), depfile.clone(), true, true, ArrayList(String).new(), io), ioexn);
+  _ := env.set(String.from("YO_Z3_PATH"), String.from("/nonexistent/yo-stamp-z3"));
+  forget_solver_probe();
+  without2 := io.await(artifact_input_stamp(argv.clone(), dir.clone(), depfile.clone(), true, true, ArrayList(String).new(), io), ioexn);
+  match(
+    saved_z3_path,
+    .Some(p) => {
+      _ := env.set(String.from("YO_Z3_PATH"), &p);
+    },
+    .None => {
+      _ := env.remove(String.from("YO_Z3_PATH"));
+    }
+  );
+  forget_solver_probe();
+  assert(without1.len() > usize(0), "the record pass produced a stamp");
+  assert(!(without1 == with_solver), "installing a solver must not match a stamp recorded without one");
+  assert(without1 == without2, "the same solver state reproduces the stamp");
 });
 /// Remove a fixture dir, tolerating absence (an `unwind` exits this helper,
 /// not the test body).

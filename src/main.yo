@@ -109,8 +109,16 @@ pragma(Pragma.AllowUnsafe);
   verify_summary_count
 } :: import("./verifier/driver.yo");
 { set_verify_mode_override, set_verify_target_paths, take_verify_tasks, clear_proved_guard_sites, elided_guard_count } :: import("./evaluator/builtins/contracts.yo");
-{ ensure_z3 } :: import("./verifier/z3.yo");
-{ Z3_VERSION } :: import("./verifier/z3.yo");
+{
+  ensure_z3,
+  Z3_VERSION,
+  probe_solver,
+  set_require_solver,
+  solver_required,
+  set_solver_notice_file,
+  solver_unavailable_line,
+  report_solver_unavailable
+} :: import("./verifier/z3.yo");
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
 { Environment, new_environment } :: import("./env.yo");
@@ -881,27 +889,18 @@ _run_contract_verification :: (
     ti = (ti + usize(1));
   });
   fail_without_solver := (strict_missing_solver && needs_proofs);
+  // A missing solver, a dangling YO_Z3_PATH and one that cannot run are one
+  // case: probed once per process, reported in one line per run (`yo build`
+  // collects its compiles' lines and prints one), never once per function or
+  // file (plans/backlog/DEFAULT_ON_VERIFICATION.md §5 item 8).
+  required := solver_required();
   binary := match(
     resolve_solver_sync(&cfg),
     .Resolved(p) => p,
-    .InvalidPath(p) => {
-      eprintln(`verify: solver path '${p}' does not exist`);
-      if(fail_without_solver, {
-        return(false);
-      });
-      return(true);
-    },
-    .Installable => {
-      if(needs_proofs, {
-        eprintln(
-          `verify: no Z3 solver found — this file's verify-mode ensures clauses need proofs (their runtime asserts are suppressed). Run 'yo verify <file>' once to auto-install the pinned Z3, or point YO_Z3_PATH at one.`
-        );
-      }, {
-        eprintln(
-          `verify: no Z3 solver found — verify+ contracts keep their runtime asserts, so nothing is proved. Run 'yo verify <file>' once to auto-install the pinned Z3, or point YO_Z3_PATH at one.`
-        );
-      });
-      if(fail_without_solver, {
+    _ => {
+      probe := probe_solver(&cfg.solver_path);
+      report_solver_unavailable(&solver_unavailable_line(&probe, needs_proofs, required));
+      if(fail_without_solver || required, {
         return(false);
       });
       return(true);
@@ -2206,13 +2205,17 @@ run_check :: (
         test_bodies = true;
         ai = (ai + usize(1));
       },
+      (a == "--require-solver") => {
+        set_require_solver(true);
+        ai = (ai + usize(1));
+      },
       (a == "--poll-ms") => {
         pv := _arg_val_req(argv, ai, String.from("--poll-ms"), exn);
         poll_ms = match(pv.parse_u64(), .Some(n) => n, .None => u64(200));
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(Box.new(`check: unknown option '${a}'. Usage: yo check <input.yo | dir>... [--exclude PATH] [--test-bodies] [--watch | --watch-once] [--poll-ms N]`)));
+        exn.throw(dyn(Box.new(`check: unknown option '${a}'. Usage: yo check <input.yo | dir>... [--exclude PATH] [--test-bodies] [--require-solver] [--watch | --watch-once] [--poll-ms N]`)));
       },
       true => {
         target_paths.push(a.clone());
@@ -2515,6 +2518,10 @@ run_verify_cmd :: (
     .Resolved(path) => path,
     .InvalidPath(path) => {
       exn.throw(dyn(Box.new(`verify: solver path '${path}' does not exist`)));
+      String.new()
+    },
+    .Unusable(path, detail) => {
+      exn.throw(dyn(Box.new(`verify: the Z3 solver at '${path}' cannot run (${detail}). Point YO_Z3_PATH at a working z3, or remove it and run 'yo verify' again to fetch Z3 ${Z3_VERSION}.`)));
       String.new()
     },
     .Installable => io.await(ensure_z3(io, exn), IoExn(io : io, exn : exn))
@@ -4681,6 +4688,9 @@ run_compile :: (
   // runner hashes exactly that list on the next build instead of walking the
   // whole project and the whole std tree per artifact. "" = unset.
   (emit_deps_to : String) = String.new();
+  // `--solver-notice <path>`: where the one missing-solver line goes when
+  // `yo build` runs this compile (it prints the line once per build).
+  (solver_notice_to : Option(String)) = Option(String).None;
   // `--emcc-environment <web|node>`: sets the emcc environment codegen option.
   // It needs a CLI flag because build_runner SHELLS OUT to `compile` instead of
   // calling codegen in-process, so the value needs a flag to travel on.
@@ -4936,6 +4946,18 @@ run_compile :: (
       (a_name == "--no-guard-elision") => {
         no_guard_elision = true;
         ai = (ai + usize(1));
+      },
+      // `--require-solver`: a verification with no usable solver fails the
+      // compile instead of reporting one line (also YO_REQUIRE_SOLVER=1).
+      (a_name == "--require-solver") => {
+        set_require_solver(true);
+        ai = (ai + usize(1));
+      },
+      // `--solver-notice <path>` (`yo build`'s compiles): write the missing-
+      // solver line to <path> instead of stderr; the build prints it once.
+      (a_name == "--solver-notice") => {
+        solver_notice_to = Option(String).Some(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
+        ai = (ai + _opt_step(&a_val));
       },
       // Internal to `--warm-selfcheck` (never user-facing): skip the
       // self-containment clears so this pass reuses the previous in-process
@@ -5466,6 +5488,7 @@ run_compile :: (
     // rewrites function bodies in place); a failure exits 1 — the
     // per-function lines are already printed by the helper.
     prof_verify_t0 := Instant.now();
+    set_solver_notice_file(solver_notice_to.clone());
     if(!_run_contract_verification(io, exn, true, !no_guard_elision), {
       _compile_fail(watch_mode, int(1));
       return(());
@@ -9191,6 +9214,9 @@ run_build_cmd :: (
         locked = true;
         offline = true;
       },
+      (arg == "--require-solver") => {
+        set_require_solver(true);
+      },
       (arg == "--watch") => {
         watch = true;
       },
@@ -9225,7 +9251,7 @@ run_build_cmd :: (
         );
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(Box.new(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--list-options] [-p <member>] [-j N] [--dry-run] [--locked] [--offline] [--verbose] [--summary] [-- <run args>]`)));
+        exn.throw(dyn(Box.new(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--list-options] [-p <member>] [-j N] [--dry-run] [--locked] [--offline] [--require-solver] [--verbose] [--summary] [-- <run args>]`)));
       },
       true => {
         steps.push(arg);
@@ -10096,6 +10122,7 @@ Options:
   --emit-deps <path>        Write the files this compile read, one per line
   --skip-c-compiler         Generate C but skip the C compile
   --no-guard-elision        Keep every safe-mode runtime guard, even ones a proof removed
+  --require-solver          Fail when proofs are due and no Z3 solver runs (also YO_REQUIRE_SOLVER=1)
   --skip-codegen            Evaluate only (no C generation)
   --emit-chunks <n|auto>    Split emitted C into n translation units (implies -flto=thin);
                             auto picks n from emitted size and core count (YO_JOBS overrides)
@@ -10154,6 +10181,7 @@ Examples:
   --emit-deps <path>        把本次编译读取的文件逐行写入该文件
   --skip-c-compiler         只生成 C，跳过 C 编译
   --no-guard-elision        保留所有安全模式运行期守卫，即使证明可以移除它们
+  --require-solver          需要证明却没有可运行的 Z3 求解器时失败（亦可设 YO_REQUIRE_SOLVER=1）
   --skip-codegen            只做求值（不生成 C）
   --emit-chunks <n|auto>    把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）；
                             auto 按产物大小与核数选 n（可用 YO_JOBS 覆盖）
@@ -10200,6 +10228,7 @@ Options:
   --locked                  Fail if fetching dependencies would change yo.lock
   --offline                 Fail if fetching dependencies would need the network
   --frozen                  --locked and --offline
+  --require-solver          Fail when proofs are due and no Z3 solver runs (also YO_REQUIRE_SOLVER=1)
   --watch                   Rebuild on source changes (artifacts recompile in-process)
   --poll-ms <ms>            Watch poll interval (default 200)
   --max-rss-mb <N>          Watch only: restart the resident process once it exceeds N MB
@@ -10231,6 +10260,7 @@ Examples:
   --locked                  若抓取依赖会改动 yo.lock 则失败
   --offline                 若抓取依赖需要联网则失败
   --frozen                  同时 --locked 与 --offline
+  --require-solver          需要证明却没有可运行的 Z3 求解器时失败（亦可设 YO_REQUIRE_SOLVER=1）
   --watch                   源码变化时重新构建（产物在同一进程内重新编译）
   --poll-ms <ms>            监听轮询间隔（默认 200）
   --max-rss-mb <N>          仅监听模式：常驻进程超过 N MB 时重启
@@ -10412,6 +10442,7 @@ over them — use 'yo compile --skip-c-compiler' to catch that class.
 
 Options:
   --exclude <path>          Exclude a directory/file (repeatable)
+  --require-solver          Fail when proofs are due and no Z3 solver runs (also YO_REQUIRE_SOLVER=1)
   --watch                   Re-check on source changes
   --watch-once              One watch iteration (for scripting)
   --poll-ms <ms>            Watch poll interval
@@ -10430,6 +10461,7 @@ Examples:
 
 选项：
   --exclude <path>          排除目录/文件（可重复）
+  --require-solver          需要证明却没有可运行的 Z3 求解器时失败（亦可设 YO_REQUIRE_SOLVER=1）
   --watch                   源码变化时重新检查
   --watch-once              只做一轮监听检查（供脚本使用）
   --poll-ms <ms>            监听轮询间隔
@@ -10452,9 +10484,9 @@ ensures, caller-side requires discharge, assert sites, and the automatic
 bounds/div-by-zero/shift-width checks (AoRTE) — are proved or refuted
 with concrete counter-examples. Non-zero exit on any failure.
 
-The solver is resolved from YO_Z3_PATH, then the pinned install in
-~/.cache/yo/solvers/, and is auto-downloaded from GitHub Releases when
-neither exists.
+The solver is resolved from YO_Z3_PATH, then the pinned install in the
+solver cache (<yo cache>/solvers/), and is downloaded from this release's
+assets when neither exists.
 
 Options:
   --verify-mode <mode>      runtime | verify | verify+ (default verify;
@@ -10489,8 +10521,8 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
 履行、assert 位点，以及自动的越界/除零/移位宽度检查（AoRTE）——都会
 被证明，或带具体反例被驳倒。任何失败都以非零退出码结束。
 
-求解器依次从 YO_Z3_PATH、~/.cache/yo/solvers/ 中的固定安装解析，
-都不存在时自动从 GitHub Releases 下载。
+求解器依次从 YO_Z3_PATH、求解器缓存（<yo 缓存>/solvers/）中的固定安装解析，
+都不存在时从本版本的发布资产下载。
 
 选项：
   --verify-mode <模式>     runtime | verify | verify+（默认 verify；
