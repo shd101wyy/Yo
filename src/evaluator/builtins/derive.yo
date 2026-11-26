@@ -49,6 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { push_in_derive_impl, pop_in_derive_impl } :: import("../../types/flowability.yo");
 { format_error_message, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ check_where_clause_form } :: import("../utils.yo");
 { extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive-rule.yo");
 { Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
@@ -738,6 +739,7 @@ _evaluate_derive_executing :: (
   );
   if(is_where_pre, {
     where_arg_opt = match(args.get_cloned(arg_idx), .Some(a) => Option(AstExpr).Some(a), .None => Option(AstExpr).None);
+    match(&where_arg_opt, .Some(w) => check_where_clause_form(w, exn), .None => ());
     arg_idx = (arg_idx + usize(1));
   });
   // Evaluate the target type.
@@ -835,6 +837,7 @@ _evaluate_derive_executing :: (
     .None => false
   );
   if(is_where_post && forall_arg_opt.is_some(), {
+    match(args.get_cloned(arg_idx), .Some(w) => check_where_clause_form(&w, exn), .None => ());
     if(where_arg_opt.is_none(), {
       where_arg_opt = match(args.get_cloned(arg_idx), .Some(a) => Option(AstExpr).Some(a), .None => Option(AstExpr).None);
     });
