@@ -372,7 +372,11 @@ What S6b contains:
   obligation queries plus 80 probe queries (+18 %); cold solving, three interleaved
   runs, 15.1 / 15.7 / 18.0 s → 18.5 / 19.1 / 21.0 s (about 42 ms a probe, the cost of
   one cold obligation); warm, every probe answers from the cache (88 to 183 ms of
-  solving for the whole module, as before).
+  solving for the whole module, as before). Over the 165 fixtures of `tests/spec/fixtures/`:
+  542 obligation queries and 84 probe queries (+15.5 %) from 79 probes, of which 63 `sat`,
+  3 `unsat` (the two new negative fixtures), 1 `dead-path` and 12 `unknown` (a quantified
+  path: 7 at the probe budget, 5 "smt tactic failed"); every fixture's outcomes are the
+  same as before S2 but those two.
 
 ## 4. The gates for the flip
 
