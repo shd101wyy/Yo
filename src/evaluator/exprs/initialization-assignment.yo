@@ -175,7 +175,8 @@
   _origin_through_match_bindings,
   OriginRootPlace,
   LocalBorrowElidedOrigin,
-  bind_join_roots_for
+  bind_join_roots_for,
+  local_borrow_alias_statement
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1702,7 +1703,9 @@ _evaluate_lending_destructuring :: (fn(expr : &AstExpr, lhs : &AstExpr, rhs : &A
       // of `x`; through a reference binding `r`, `a := &r.a` reborrows.
       src_place := cond(ls.is_sigil => Rc.clone(ls.place), true => _lend_atom(&rtok.value.*, TokenKind.Identifier, &rtok));
       place := _lend_field(&src_place, &rd.label, &ntok);
-      b_done := evaluate_initialization_assignment(&_lend_binding(expr, ls.is_mut, &name_atom, &place), env, ctx, exn);
+      b_bind := _lend_binding(expr, ls.is_mut, &name_atom, &place);
+      local_borrow_alias_statement(ast_expr_id(&b_bind), ast_expr_id(expr));
+      b_done := evaluate_initialization_assignment(&b_bind, env, ctx, exn);
       match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b_done)), .Some(bi) => env_adopt(env, &bi.env()), .None => ());
       binds.push(b_done);
     });

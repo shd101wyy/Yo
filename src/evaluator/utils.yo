@@ -349,6 +349,10 @@ derive(BorrowMatchSourceDecl, Clone);
 /// blocks' bindings in between, and with one slot the outer binding lost its
 /// range and froze nothing past its own statement.
 (g_lb_lookaheads : RefCell(ArrayList(_LbLookahead))) = RefCell(ArrayList(_LbLookahead)).new(ArrayList(_LbLookahead).new());
+/// A binding the evaluator builds for a statement (a lending destructuring's
+/// `a := &x.a`, VERDICTS-76 Q2) has no node in the block: it reads the
+/// look-ahead of the statement it stands for (`local_borrow_alias_statement`).
+(g_lb_statement_aliases : RefCell(HashMap(usize, usize))) = RefCell(HashMap(usize, usize)).new(HashMap(usize, usize).new());
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `src/utils.yo`.
@@ -7522,6 +7526,12 @@ local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt :
     xs.push(frame);
   });
 });
+/// The binding `binding_id`, built by the evaluator for the statement
+/// `stmt_id`, takes that statement's look-ahead: its live range runs to the
+/// last use of its name after the statement.
+local_borrow_alias_statement :: (fn(binding_id : usize, stmt_id : usize) -> unit)({
+  _old := g_lb_statement_aliases.with_mut({ binding_id, stmt_id }(m) => m.insert(binding_id, stmt_id));
+});
 /// One pending look-ahead (`local_borrow_set_lookahead`).
 _LbLookahead :: struct(id : usize, index : usize, stmts : ArrayList(AstExpr));
 derive(_LbLookahead, Clone);
@@ -8944,7 +8954,8 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token, 
   // bindings (in a function body the right-hand side evaluated) armed their
   // own frames in between. Without a frame the binding keeps its
   // statement-local range.
-  bid := ast_expr_id(binding);
+  own_id := ast_expr_id(binding);
+  bid := match(g_lb_statement_aliases.with({ own_id }(m) => m.get(&own_id)), .Some(sid) => sid, .None => own_id);
   match(
     g_lb_lookaheads.with({ bid }(xs) => match(_lb_lookahead_index_of(xs, bid), .Some(fi) => xs.get_cloned(fi), .None => Option(_LbLookahead).None)),
     .Some(frame) => {
@@ -15025,6 +15036,7 @@ export(
   local_borrow_is_mut_binding_stmt,
   local_borrow_is_typed_decl_stmt,
   local_borrow_set_lookahead,
+  local_borrow_alias_statement,
   local_borrow_place_of,
   local_borrow_place_of_variable,
   local_borrow_value_place_of,
