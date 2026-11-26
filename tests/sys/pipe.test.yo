@@ -308,16 +308,16 @@ _nap_long :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _select_holder :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((e : Io) => match(e.await(select(_read_into(fd, buf, e), _nap_long(e), e), e), .Some(_) => i32(1), .None => i32(0)))
+  io.async((e : Io) => match(e.await(select(_read_into(fd, buf, e), _nap_long(e), e), e), .Some => i32(1), .None => i32(0)))
 );
 // The join window: the other operand completes at once, so `select` has
 // aborted its losing read and is JOINING it when the holder is aborted. A
 // join wait on an Aborting task cannot be cancelled, so the holder lingers.
 _join_window_holder :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((e : Io) => match(e.await(select(_read_into(fd, buf, e), _ready_now(e), e), e), .Some(_) => i32(1), .None => i32(0)))
+  io.async((e : Io) => match(e.await(select(_read_into(fd, buf, e), _ready_now(e), e), e), .Some => i32(1), .None => i32(0)))
 );
 _timeout_holder :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((e : Io) => match(e.await(timeout(_read_into(fd, buf, e), Duration.from_millis(i64(1000)), e), e), .Ok(_) => i32(1), .Err(_) => i32(0)))
+  io.async((e : Io) => match(e.await(timeout(_read_into(fd, buf, e), Duration.from_millis(i64(1000)), e), e), .Ok => i32(1), .Err => i32(0)))
 );
 // `kind`: 0 the select holder, 1 the join window, 2 the timeout holder.
 _aborted_holder_read_does_not_write_after_its_join :: (fn(kind : i32, io : Io) -> unit)({
