@@ -464,13 +464,13 @@ test("probe_solver_at: a dangling path, a binary that cannot answer, one that ca
 });
 test("solver_unavailable_line: one line naming the case, the consequence and the fix", {
   missing := solver_unavailable_line(&SolverProbe.Missing, false, false);
-  assert(missing.starts_with("verify: no Z3 solver found — verify+ contracts keep their runtime asserts"), missing);
+  assert(missing.starts_with("verify: no Z3 solver found — verify+ contracts keep their runtime asserts"), &missing);
   assert(missing.contains(Z3_VERSION), "the remedy names the pinned version");
   assert(!missing.contains("\n"), "one line");
   broken := solver_unavailable_line(&SolverProbe.Unusable(path : String.from("/x/z3"), detail : String.from("not found")), true, false);
-  assert(broken.starts_with("verify: the Z3 solver at '/x/z3' cannot run (not found) — this file's verify-mode"), broken);
+  assert(broken.starts_with("verify: the Z3 solver at '/x/z3' cannot run (not found) — this file's verify-mode"), &broken);
   required := solver_unavailable_line(&SolverProbe.NotFound(path : String.from("/x/z3")), false, true);
-  assert(required.starts_with("verify: error: solver path '/x/z3' does not exist, and --require-solver"), required);
+  assert(required.starts_with("verify: error: solver path '/x/z3' does not exist, and --require-solver"), &required);
 });
 test("z3_release_asset_name: named by the Yo version and this host's triple", {
   triple := z3_host_triple();
