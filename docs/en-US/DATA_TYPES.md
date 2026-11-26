@@ -696,3 +696,25 @@ cond(
   true => printf("set1 is not subset of set2\n")
 );
 ```
+
+### Names that differ from Rust
+
+The standard library keeps Rust's method names (`push`, `pop`, `len`, `insert`, `contains_key`, `checked_add`, `Rc`, `Arc`, `Duration`). These types and spellings differ on purpose:
+
+| Rust | Yo | Why |
+| --- | --- | --- |
+| `Vec<T>`, `vec![..]` | `ArrayList(T)`, `ArrayList(T).from([..])` | In mathematics a vector has a fixed size; this type grows. No std name says `Vec`. |
+| `VecDeque`, `BinaryHeap` | `Deque`, `PriorityQueue` | The name of the abstract type, not of one implementation. |
+| `char` | `rune` | `char` is C's 8-bit type, which FFI needs. |
+| `Path`, `PathBuf` | one owned `Path` | There is no unsized path view. |
+| `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` | Floats carry a total `cmp`, so there is no split. |
+| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot` / `BitNot` | Yo's own names. `Not` is two operators: `!` is `LogicalNot` and yields `bool`, `~` is `BitNot`. |
+| `collect::<Vec<_>>()`, `parse::<i32>()`, `into()` | `it.collect(ArrayList(i32))`, `s.parse(i32)`, `x.into(i64)` | The type is an argument: Yo does not infer from the result type. |
+| `lock()`, `borrow()` / `borrow_mut()`, `Cell` | `m.with_lock(v => ..)`, `c.with(v => ..)` / `c.with_mut(v => ..)` on `RefCell` | Access is scoped to a closure; there are no guards and no lock poisoning. |
+| `io::Result<T>`, `thread::spawn`, `JoinHandle<T>` | `exn : Exception` and `io : Io`, `Thread(T).spawn((io : Io) => ..)`, `t.join()` | I/O and threads are effects. |
+| `sync::Weak`, `atomic::Ordering` | `ArcWeak`, `MemoryOrder` | One flat prelude namespace: `Weak` and `Ordering` are taken. |
+| `Duration` over `u64` / `u128` | `Duration` over `i64`, `as_millis() -> i64` | There are no 128-bit integers, and a negative span is representable. |
+| `serde_json::from_str`, `to_string` | `parse`, `stringify` (`json`, `toml`) | One verb pair for every text format. |
+| `x.sqrt()` | `import("std/math");` | The import registers the float methods; the module exports no names. |
+
+A Rust name that does not resolve (E0401) prints the Yo spelling and its import as help.

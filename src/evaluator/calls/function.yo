@@ -202,7 +202,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, &nm)
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help, _with_primary_subject } :: import("../../error.yo");
-{ E_EXPLICIT_DESTRUCTOR_CALL, E_WRITE_THROUGH_BORROW, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_ORIGIN_MISMATCH, Repair, Span } :: import("../../diagnostics.yo");
+{ E_EXPLICIT_DESTRUCTOR_CALL, E_WRITE_THROUGH_BORROW, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, float_method_import_hint, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_ORIGIN_MISMATCH, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -9880,9 +9880,9 @@ _d6_callee_is_by_name :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> bool)(
 });
 /// `No method "m" on T.` for a dot callee `recv.m` whose receiver type has
 /// neither a field nor a method `m`.
-_no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
+_no_method_receiver_type :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)(
   // D6: read where bound — the list never escapes as a copy.
-  recv_ty_str := match(
+  match(
     match(
       func_expr,
       Rc(.FnCall(_, _, Rc(a), _, _)) => a.get_cloned(usize(0)),
@@ -9894,7 +9894,15 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
       .None => ast_expr_to_string(&recv)
     ),
     .None => String.from("?")
-  );
+  )
+);
+/// The help line of a method miss (`_no_method_message`): the Rust-name hints
+/// of plans/backlog/STD_RUST_ALIGNMENT.md §3.6 that apply to the receiver.
+_no_method_help :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> Option(String))(
+  float_method_import_hint(&_no_method_receiver_type(func_expr, ctx))
+);
+_no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
+  recv_ty_str := _no_method_receiver_type(func_expr, ctx);
   method_name := match(
     func_expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.from("?")),
@@ -10484,6 +10492,98 @@ _type_occurs_in_type_arguments :: (fn(needle : &TypeValue, hay : &TypeValue, dep
   });
   false
 });
+/// `_type_occurs_in_type_arguments`'s walk, judged for VERDICTS-74 rule 2:
+/// one of the positions of `hay` that `needle` occupies spells the empty
+/// origin `static` at a checked position (`type_spells_checked_static`).
+/// Positions compare as `are_types_compatible_exact` does, which keeps no
+/// origin, so `&X` occupies `&(X, static)`.
+_type_occurs_at_static_position :: (fn(needle : &TypeValue, hay : &TypeValue, depth : u32) -> bool)({
+  if(depth > u32(8), {
+    return(false);
+  });
+  if(are_types_compatible_exact(needle, hay) && type_spells_checked_static(hay), {
+    return(true);
+  });
+  (args : SharedList(TypeValue)) = match(
+    hay,
+    Rc(.Struct({ type_arguments : os_tas })) => os_tas.clone(),
+    Rc(.EnumT({ type_arguments : os_tas })) => os_tas.clone(),
+    Rc(.Tuple({ field_types : os_fts })) => os_fts.clone(),
+    Rc(.Reference(os_p, _, _)) => return(recur(needle, &os_p.*, (depth + u32(1)))),
+    _ => return(false)
+  );
+  (i : usize) = usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    if(match(args.get(i), .Some(a) => recur(needle, &a, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The type the `ai`-th argument, lent at the `&mut` slot `slot`, points at,
+/// read off the ARGUMENT as step 1 reads it (a self place `&mut r` on a
+/// reference binding is typed as the reference, its own pointee); the slot's
+/// pointee when the argument has no recorded type. Not the slot's: a generic
+/// impl's specialized method is shared by the instances whose `type_key`
+/// agrees, and the static bit is not in `type_key`, so the `self` slot of
+/// `Box1(&X).put` spells `Box1(&(X, static))` (or the other way round) when
+/// that instance specialized `put` first.
+_lent_argument_pointee :: (fn(op_args : &ArrayList(AstExpr), ai : usize, slot : &TypeValue, env : &Environment, ctx : &EvalContext) -> TypeValue)({
+  lp_place := ast_expr_strip_borrow_marker(&_unlabeled_argument(match(op_args.get_cloned(ai), .Some(a) => a, .None => make_err_expr())));
+  match(
+    _argument_origin_type(&lp_place, env, ctx),
+    .Some(lp_ty) => cond(is_reference_self_place(ast_expr_id(&lp_place)) => lp_ty, true => t_slot_pointee(&lp_ty)),
+    .None => t_slot_pointee(slot)
+  )
+});
+/// `lend_through` step 1c (VERDICTS-74 rule 2 at a generic container's
+/// method): the `wi`-th argument is lent `&mut` as each of `pointees` (the
+/// argument's own types, which the caller reads off it), and
+/// a pointee spelled over the empty origin `static` (`Box1(&(X, static))`)
+/// takes only static values at those positions. A specialized method types
+/// a `v : T` parameter from the ARGUMENT (`&X` for `b.put(&x)`), so no slot
+/// spells `static` for step 1b, and a holder whose every origin is `static`
+/// carries none, so step 3's by-type-argument solve never runs. Each other
+/// argument whose type occupies a static position among a pointee's type
+/// arguments is what the callee may store there, and is judged as that
+/// store would be. When its type also occupies a non-static position, which
+/// one the callee writes is not known here, and the static one decides (rule
+/// 4: a site that cannot tell rejects).
+_static_type_argument_stores :: (
+  fn(op_args : &ArrayList(AstExpr), slots : &SharedList(TypeValue), wi : usize, pointees : &ArrayList(TypeValue), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  (pi : usize) = usize(0);
+  while(pi < pointees.len(), pi = (pi + usize(1)), {
+    st_pointee := Rc.clone(&pointees(pi));
+    if(type_spells_checked_static(&st_pointee), {
+      (xj : usize) = usize(0);
+      while(xj < op_args.len(), xj = (xj + usize(1)), {
+        match(
+          slots.get(xj),
+          // A slot that spells `static` itself is step 1b's.
+          .Some(x_slot) => if((xj != wi) && !type_spells_checked_static(&x_slot), {
+            // A binder-typed by-value slot specialized to a reference is
+            // `ValueSlot(&X)` (R3): the value it takes is the bare `&X`.
+            x_needle := match(&x_slot, Rc(.ValueSlot(xn_inner)) => Rc.clone(xn_inner), _ => Rc.clone(&x_slot));
+            if(_type_occurs_at_static_position(&x_needle, &st_pointee, u32(0)), {
+              x_arg := _unlabeled_argument(match(op_args.get_cloned(xj), .Some(a) => a, .None => make_err_expr()));
+              w_arg := _unlabeled_argument(match(op_args.get_cloned(wi), .Some(a) => a, .None => make_err_expr()));
+              if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+                eprintln(`[n2b] lend-through static type argument: ${ast_expr_to_string(&x_arg)} at ${type_to_string(&x_slot)} stored in ${type_to_string(&st_pointee)}`);
+              });
+              match(
+                _static_value_offense(&x_arg, env, ctx),
+                .Some(x_what) => _static_origin_reject(&local_borrow_place_text(&ast_expr_strip_borrow_marker(&w_arg)), &st_pointee, &x_what, &ast_expr_token(&x_arg), ctx, exn),
+                .None => ()
+              );
+            });
+          }),
+          .None => ()
+        );
+      });
+    });
+  });
+});
 /// The pointee of every `&mut` a by-value `ty` holds, through struct
 /// fields, enum payloads and tuple components (`W(&mut Option(T))`'s
 /// `Option(T)`). A `&` stops the walk: nothing is written through it. `seen`
@@ -10910,6 +11010,31 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
     );
     sb_i = (sb_i + usize(1));
   });
+  // 1c. Rule 2 at a type argument spelled over `static`: a `&mut` argument
+  // (top-level, or nested in a by-value parameter as step 3 reads it) whose
+  // pointee instantiates a generic container over `static` takes only static
+  // values where the callee may store them (`_static_type_argument_stores`).
+  // The pointee is the lent argument's own (`_lent_argument_pointee`), not
+  // the slot's.
+  (sc_i : usize) = usize(0);
+  while(sc_i < op_args.len(), sc_i = (sc_i + usize(1)), {
+    match(
+      slots.get(sc_i),
+      .Some(sc_slot) => {
+        sc_pointees := ArrayList(TypeValue).new();
+        if(t_slot_is_mut_ref(&sc_slot), {
+          sc_pointees.push(_lent_argument_pointee(&op_args, sc_i, &sc_slot, env, ctx));
+        }, if(!t_slot_is_borrow(&sc_slot), {
+          sc_place := ast_expr_strip_borrow_marker(&_unlabeled_argument(match(op_args.get_cloned(sc_i), .Some(a) => a, .None => make_err_expr())));
+          sc_ty := match(_argument_origin_type(&sc_place, env, ctx), .Some(t) => t, .None => Rc.clone(&sc_slot));
+          sc_seen := ArrayList(String).new();
+          _nested_mut_pointees(&sc_ty, &mut sc_pointees, &mut sc_seen, u32(0));
+        }));
+        _static_type_argument_stores(&op_args, &slots, sc_i, &sc_pointees, env, ctx, exn);
+      },
+      .None => ()
+    );
+  });
   // 2. Every other argument whose parameter names a fixed origin carries
   // origins within it. (Step 3 below still runs when NO origin parameter
   // was fixed — the flow case's `&mut` argument spells none.)
@@ -11043,7 +11168,12 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             // variable — another argument whose type occurs among the
             // pointee's type arguments is what the callee may store
             // (audit A4's generic-container form).
-            (by_type_argument : bool) = ((w_names.len() == usize(0)) && ((w_tvars.len() == usize(0)) && type_carries_origin(&t_slot_pointee(&w_slot))));
+            // That pointee is the lent argument's own: the specialized
+            // method's slot may be another instance's
+            // (`_lent_argument_pointee`), and `Box1(&(X, static))`'s carries
+            // no origin where `Box1(&X)`'s does.
+            w_arg_pointee := _lent_argument_pointee(&op_args, wi, &w_slot, env, ctx);
+            (by_type_argument : bool) = ((w_names.len() == usize(0)) && ((w_tvars.len() == usize(0)) && type_carries_origin(&w_arg_pointee)));
             if(by_type_argument, {
               unfixed = true;
             });
@@ -16459,7 +16589,7 @@ Fix: wrap the call:
                   cond(
                     ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).None) => _generated_no_method_independence(
                       &with_code(
-                        format_error_message(ast_expr_token(&func_expr), _no_method_message(&func_expr, ctx)),
+                        format_error_message_with_help(ast_expr_token(&func_expr), &_no_method_message(&func_expr, ctx), &_no_method_help(&func_expr, ctx)),
                         E_NO_MATCHING_CALL
                       ),
                       &func_expr,

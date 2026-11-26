@@ -1,0 +1,32 @@
+// expect: E0911
+// A generic container's elided-origin instance stores a block-local's
+// reference after its static instance specialized the method: the shared
+// specialized `self` slot spells the static instance, which carries no origin,
+// so the flow write-back skipped the store. The holder is read after the local
+// died.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Box2 :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : Option(T))
+);
+impl(
+  generic(T : Type),
+  Box2(T),
+  put : (fn(self : &mut Self, v : T) -> unit)({
+    self.v = .Some(v);
+  })
+);
+G := X(s : String.from("g"));
+main :: (fn() -> unit)({
+  mut(a) := Box2(&(X, static))(v : .None);
+  a.put(&G);
+  mut(b) := Box2(&X)(v : .None);
+  {
+    x := X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    b.put(&x);
+  };
+  match(b.v, .Some(r) => println(`OUT: ${r.*.s.len().to_string()}`), .None => println("none"));
+  _ := a;
+});
+export(main);
