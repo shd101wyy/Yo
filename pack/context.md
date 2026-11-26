@@ -125,6 +125,8 @@ export(main);
   (`enum(Leaf, Node(v : i32))`) and built or matched with one (`.Some(v)`). A
   type names itself `Self` in its definition (`next : Option(Box(Self))`).
 - No overloading; operators are trait methods (`Eq`, `Ord`, `Add`, ...).
+  `Ord`'s `cmp` is a total order (a float NaN is greater than every number);
+  code that needs a total order calls `cmp`, since `<` on floats is partial.
 - Derivable: `Copy` (with `Clone`), `Clone`, `Eq(T)`, `Ord(T)`, `Hash`,
   `Default`, `ToString` and `Debug` (import `std/fmt` first), `Error` (import
   `std/error`).
