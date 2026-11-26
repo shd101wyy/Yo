@@ -23,6 +23,8 @@ pragma(Pragma.AllowUnsafe);
 { Token } :: import("../token.yo");
 { format_error_message_with_help } :: import("../error.yo");
 { Exception } :: import("std/error");
+{ EvalContext } :: import("./context.yo");
+{ raise_flow_violation } :: import("../types/flowability.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
@@ -303,9 +305,13 @@ reserved_yo_name_help :: (fn() -> String)(
 /// token: the compiler mints `__yo_tpl_N`, `__yo_self`, `__yo_pat_s` and
 /// `__yo_contract_result` into user modules under the user's path, and those
 /// are never rejected. Uses stay legal.
-reject_reserved_yo_binder :: (fn(tok : &Token, std_path : &String, exn : Exception) -> unit)({
-  if(tok.written && is_yo_namespace_name(&tok.value.*) && !may_bind_yo_namespace_name(&tok.module_path.*, std_path), {
-    exn.throw(dyn(Box.new(format_error_message_with_help(tok, &reserved_yo_name_message(&tok.value.*), &Option(String).Some(reserved_yo_name_help())))));
+///
+/// Raised through `raise_flow_violation`, as the builtin-name gate beside it
+/// is: a closure parameter is bound while a call's argument is tried against
+/// the callee's signature, and a plain throw there is swallowed with the trial.
+reject_reserved_yo_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(tok.written && is_yo_namespace_name(&tok.value.*) && !may_bind_yo_namespace_name(&tok.module_path.*, &ctx.std_path), {
+    raise_flow_violation(&format_error_message_with_help(tok, &reserved_yo_name_message(&tok.value.*), &Option(String).Some(reserved_yo_name_help())), ctx, exn);
   });
 });
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):

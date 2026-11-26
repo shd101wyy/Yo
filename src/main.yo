@@ -7623,7 +7623,7 @@ run_test :: (
           );
           ni = (ni + usize(1));
         });
-        prog_src.push_str("__yo_batch_env :: import(\"std/env\");\n");
+        prog_src.push_str("_yo_batch_env :: import(\"std/env\");\n");
         prog_src.push_str("main :: (fn() -> unit)({\n");
         prog_src.push_str("  io :: __yo_builtin_io;\n");
         // A test body need not name `io` (an implicit `using(io : Io)`
@@ -7631,14 +7631,14 @@ run_test :: (
         // keeps the unused-variable lint quiet for the batches that never
         // name it. `_`-prefixed names are exempt from the lint.
         prog_src.push_str("  _yo_batch_io :: io;\n");
-        prog_src.push_str("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
-        prog_src.push_str("    .Some(__yo_test_idx) => cond(\n");
+        prog_src.push_str("  match(_yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
+        prog_src.push_str("    .Some(_yo_test_idx) => cond(\n");
         // Arms are numbered RELATIVE to the batch (0..n-1), so YO_TEST_INDEX below
         // is the within-batch index, not the file-wide one.
         (ti : usize) = batch_start;
         while(ti < batch_end, {
           t := match(tests.get_cloned(ti), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
-          prog_src.push_str("      (__yo_test_idx == `");
+          prog_src.push_str("      (_yo_test_idx == `");
           prog_src.push_string((ti - batch_start).to_string());
           prog_src.push_str("`) => { ");
           prog_src.push_string(t.body_src.clone());

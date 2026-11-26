@@ -11,7 +11,7 @@ pragma(Pragma.AllowUnsafe);
 tcp :: import("std/sys/tcp");
 { AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
 { O_NONBLOCK } :: import("std/sys/constants");
-{ __yo_async_send_start, __yo_async_recv_start, __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl } :: import("std/sys/externs");
+externs :: import("std/sys/externs");
 { GlobalAllocator } :: import("std/allocator");
 { malloc } :: GlobalAllocator;
 { write_string, read_to_string } :: import("std/fs/file");
@@ -44,14 +44,14 @@ _echo_side :: (fn(fd : i32, server : bool, rounds : usize, io : Io) -> Impl(Futu
     (bad : i32) = i32(0);
     while(i < rounds, i = (i + usize(1)), {
       if(server, {
-        got := io.await(__yo_async_recv_start(fd, buf, usize(64), i32(0)), io);
+        got := io.await(externs.__yo_async_recv_start(fd, buf, usize(64), i32(0)), io);
         if(got != i32(32), {
           bad = (bad + i32(1));
         });
-        io.await(__yo_async_send_start(fd, buf, usize(32), i32(0)), io);
+        io.await(externs.__yo_async_send_start(fd, buf, usize(32), i32(0)), io);
       }, {
-        io.await(__yo_async_send_start(fd, buf, usize(32), i32(0)), io);
-        got := io.await(__yo_async_recv_start(fd, buf, usize(64), i32(0)), io);
+        io.await(externs.__yo_async_send_start(fd, buf, usize(32), i32(0)), io);
+        got := io.await(externs.__yo_async_recv_start(fd, buf, usize(64), i32(0)), io);
         if(got != i32(32), {
           bad = (bad + i32(1));
         });
@@ -140,17 +140,17 @@ main :: (fn(io : Io) -> unit)({
   });
   fd_a := (sv.add(usize(0))).*;
   fd_b := (sv.add(usize(1))).*;
-  __yo_sync_fcntl_setfl(fd_a, __yo_sync_fcntl_getfl(fd_a) | O_NONBLOCK);
-  __yo_sync_fcntl_setfl(fd_b, __yo_sync_fcntl_getfl(fd_b) | O_NONBLOCK);
+  externs.__yo_sync_fcntl_setfl(fd_a, externs.__yo_sync_fcntl_getfl(fd_a) | O_NONBLOCK);
+  externs.__yo_sync_fcntl_setfl(fd_b, externs.__yo_sync_fcntl_getfl(fd_b) | O_NONBLOCK);
   buf := (*u8)(malloc(usize(256)).unwrap());
   msg := String.from("benchmark-payload-32-bytes-xxxxxxxx");
   t0 := Instant.now();
   i := usize(0);
   while(i < ECHO_ROUNDS, {
-    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
-    io.await(__yo_async_recv_start(fd_b, buf, usize(256), i32(0)), io);
-    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
-    io.await(__yo_async_recv_start(fd_a, buf, usize(256), i32(0)), io);
+    io.await(externs.__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    io.await(externs.__yo_async_recv_start(fd_b, buf, usize(256), i32(0)), io);
+    io.await(externs.__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    io.await(externs.__yo_async_recv_start(fd_a, buf, usize(256), i32(0)), io);
     i = (i + usize(1));
   });
   pingpong_us := Instant.now().duration_since(t0).as_micros();
@@ -162,11 +162,11 @@ main :: (fn(io : Io) -> unit)({
   t0p := Instant.now();
   i = usize(0);
   while(i < ECHO_ROUNDS, {
-    rb := __yo_async_recv_start(fd_b, buf, usize(256), i32(0));
-    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    rb := externs.__yo_async_recv_start(fd_b, buf, usize(256), i32(0));
+    io.await(externs.__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
     io.await(rb, io);
-    ra := __yo_async_recv_start(fd_a, buf, usize(256), i32(0));
-    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    ra := externs.__yo_async_recv_start(fd_a, buf, usize(256), i32(0));
+    io.await(externs.__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
     io.await(ra, io);
     i = (i + usize(1));
   });

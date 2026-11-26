@@ -9,16 +9,7 @@ pragma(Pragma.AllowUnsafe);
 tcp :: import("std/sys/tcp");
 { AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
 { O_NONBLOCK } :: import("std/sys/constants");
-{
-  __yo_async_send_start,
-  __yo_async_recv_start,
-  __yo_sync_fcntl_getfl,
-  __yo_sync_fcntl_setfl,
-  __yo_io_stats_kernel_enters,
-  __yo_io_stats_zero_timeout_enters,
-  __yo_io_stats_io_syscalls,
-  __yo_io_stats_recv_would_block
-} :: import("std/sys/externs");
+externs :: import("std/sys/externs");
 { GlobalAllocator } :: import("std/allocator");
 { malloc } :: GlobalAllocator;
 { sleep } :: import("std/sys/timer");
@@ -38,14 +29,14 @@ _echo_side :: (fn(fd : i32, server : bool, rounds : usize, io : Io) -> Impl(Futu
     (bad : i32) = i32(0);
     while(k < rounds, k = (k + usize(1)), {
       if(server, {
-        got := io.await(__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io);
+        got := io.await(externs.__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io);
         if(got != i32(32), {
           bad = (bad + i32(1));
         });
-        io.await(__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
+        io.await(externs.__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
       }, {
-        io.await(__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
-        got := io.await(__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io);
+        io.await(externs.__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
+        got := io.await(externs.__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io);
         if(got != i32(32), {
           bad = (bad + i32(1));
         });
@@ -60,7 +51,7 @@ _echo_side :: (fn(fd : i32, server : bool, rounds : usize, io : Io) -> Impl(Futu
 /// I/O, epoll_ctl). Budgets over this total compare the backends honestly —
 /// the epoll fallback does its I/O inline, so counting only its epoll_waits
 /// made it look free.
-_syscalls :: (fn() -> u64)(__yo_io_stats_kernel_enters() + __yo_io_stats_io_syscalls());
+_syscalls :: (fn() -> u64)(externs.__yo_io_stats_kernel_enters() + externs.__yo_io_stats_io_syscalls());
 
 main :: (fn(io : Io) -> unit)({
   exn := Exception(throw : (_e -> unwind(())));
@@ -79,16 +70,16 @@ main :: (fn(io : Io) -> unit)({
   });
   fd_a := (sv.add(usize(0))).*;
   fd_b := (sv.add(usize(1))).*;
-  __yo_sync_fcntl_setfl(fd_a, __yo_sync_fcntl_getfl(fd_a) | O_NONBLOCK);
-  __yo_sync_fcntl_setfl(fd_b, __yo_sync_fcntl_getfl(fd_b) | O_NONBLOCK);
+  externs.__yo_sync_fcntl_setfl(fd_a, externs.__yo_sync_fcntl_getfl(fd_a) | O_NONBLOCK);
+  externs.__yo_sync_fcntl_setfl(fd_b, externs.__yo_sync_fcntl_getfl(fd_b) | O_NONBLOCK);
   buf := (*u8)(malloc(usize(64)).unwrap());
   before := _syscalls();
   i := usize(0);
   while(i < N_ECHO, {
-    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
-    io.await(__yo_async_recv_start(fd_b, buf, usize(64), i32(0)), io);
-    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
-    io.await(__yo_async_recv_start(fd_a, buf, usize(64), i32(0)), io);
+    io.await(externs.__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    io.await(externs.__yo_async_recv_start(fd_b, buf, usize(64), i32(0)), io);
+    io.await(externs.__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    io.await(externs.__yo_async_recv_start(fd_a, buf, usize(64), i32(0)), io);
     i = (i + usize(1));
   });
   a_delta := (_syscalls() - before);
@@ -107,11 +98,11 @@ main :: (fn(io : Io) -> unit)({
   before = _syscalls();
   i = usize(0);
   while(i < N_ECHO, {
-    rb := __yo_async_recv_start(fd_b, buf, usize(64), i32(0));
-    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    rb := externs.__yo_async_recv_start(fd_b, buf, usize(64), i32(0));
+    io.await(externs.__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
     io.await(rb, io);
-    ra := __yo_async_recv_start(fd_a, buf, usize(64), i32(0));
-    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    ra := externs.__yo_async_recv_start(fd_a, buf, usize(64), i32(0));
+    io.await(externs.__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
     io.await(ra, io);
     i = (i + usize(1));
   });
@@ -152,13 +143,13 @@ main :: (fn(io : Io) -> unit)({
   });
   parked_a := (sv2.add(usize(0))).*;
   parked_b := (sv2.add(usize(1))).*;
-  __yo_sync_fcntl_setfl(parked_a, __yo_sync_fcntl_getfl(parked_a) | O_NONBLOCK);
-  parked := __yo_async_recv_start(parked_a, buf, usize(64), i32(0));
+  externs.__yo_sync_fcntl_setfl(parked_a, externs.__yo_sync_fcntl_getfl(parked_a) | O_NONBLOCK);
+  parked := externs.__yo_async_recv_start(parked_a, buf, usize(64), i32(0));
   before = _syscalls();
-  before_zt := __yo_io_stats_zero_timeout_enters();
+  before_zt := externs.__yo_io_stats_zero_timeout_enters();
   io.await(sleep(u64(150)), IoExn(io : io, exn : exn));
   c_delta := (_syscalls() - before);
-  c_zt := (__yo_io_stats_zero_timeout_enters() - before_zt);
+  c_zt := (externs.__yo_io_stats_zero_timeout_enters() - before_zt);
   println(`budget C (150 ms blocked window, one parked recv): syscalls=${c_delta} zero_timeout=${c_zt} (both must be <= 8)`);
   if(c_delta > u64(8), {
     panic(String.from("BUDGET C VIOLATED (syscalls)"));
@@ -167,7 +158,7 @@ main :: (fn(io : Io) -> unit)({
     panic(String.from("BUDGET C VIOLATED (zero-timeout probes)"));
   });
   // The parked recv is still live: complete it.
-  io.await(__yo_async_send_start(parked_b, buf, usize(1), i32(0)), io);
+  io.await(externs.__yo_async_send_start(parked_b, buf, usize(1), i32(0)), io);
   if(io.await(parked, io) != i32(1), {
     panic(String.from("the parked recv did not complete"));
   });
@@ -186,7 +177,7 @@ main :: (fn(io : Io) -> unit)({
   });
   echo_a := (sv3.add(usize(0))).*;
   echo_b := (sv3.add(usize(1))).*;
-  before_wb := __yo_io_stats_recv_would_block();
+  before_wb := externs.__yo_io_stats_recv_would_block();
   hs := io.spawn(_echo_side(echo_b, true, N_TASK_ECHO, io), io);
   hc := io.spawn(_echo_side(echo_a, false, N_TASK_ECHO, io), io);
   if(match(hc.await(io), .Some(b) => (b != i32(0)), .None => true), {
@@ -195,7 +186,7 @@ main :: (fn(io : Io) -> unit)({
   if(match(hs.await(io), .Some(b) => (b != i32(0)), .None => true), {
     panic(String.from("budget E echo server failed"));
   });
-  e_wb := (__yo_io_stats_recv_would_block() - before_wb);
+  e_wb := (externs.__yo_io_stats_recv_would_block() - before_wb);
   budget_e := ((u64(N_TASK_ECHO) / u64(10)) + u64(8));
   println(`budget E (two-task echo, ${N_TASK_ECHO} rounds): recv_would_block=${e_wb} <= ${budget_e}`);
   if(e_wb > budget_e, {
