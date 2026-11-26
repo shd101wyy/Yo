@@ -38,3 +38,13 @@ type, the assignment is a re-point by move.
 as for `a := m`), and `m` is consumed (a later use is E0901). The E0926 arm must not fire when both sides
 are the same reference type. A test in `tests/origins/unsound/` (positive and a use-of-`m` negative)
 lands with the fix.
+
+## Resolution (2026-11-26)
+
+`a = m`, with `a` a local borrow and `m` a reference binding read bare, is a re-point by move
+(`is_reference_repoint_by_move` / `evaluate_reference_repoint_by_move`,
+`src/evaluator/exprs/initialization-assignment.yo`, dispatched before the assignment evaluator): `a`'s
+old loan ends (the join KILLs it), `a` takes over the places `m` borrows (`variable_holder_roots`, no
+new loan, no access check against `m`'s own), and a `&mut` `m` is consumed (`set_expr_as_consumed`); a
+`&` one is copied. A mode mismatch (`a : &mut`, `m : &`) is E0601 naming the mode. Codegen emits the
+recorded re-point `a = m` (a pointer copy). Tests: `tests/origins/unsound/v76-row10-*.yo`.

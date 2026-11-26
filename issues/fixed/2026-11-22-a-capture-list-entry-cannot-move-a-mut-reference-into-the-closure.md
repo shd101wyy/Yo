@@ -32,3 +32,11 @@ it rejects instead of consuming `m` and giving the closure `m`'s origin.
 
 The by-value entry `{ m }` moves `m` into the closure: the closure's capture borrows are `m`'s places, a
 later use of `m` is E0901, and the reborrow entry `{ m : &mut m.* }` stays the way to keep `m`.
+
+## Resolution (2026-11-26)
+
+The by-value entry `{ m }` of a `&mut` reference binding moves `m` into the closure
+(`src/evaluator/values/anonymous-function.yo`, the `ref_copy_var` arm): the entry is a `&mut` borrow
+entry whose capture borrows are `m`'s origin, `m` is consumed (a later use is E0901), and the closure
+writes through it. `{ m : &mut m.* }` stays the reborrow. Tests: `tests/closure-capture-list.test.yo`,
+`tests/origins/unsound/v76-row20-*.yo`.

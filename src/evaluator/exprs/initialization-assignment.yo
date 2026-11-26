@@ -111,7 +111,7 @@
 { is_unit_type, is_comptime_int_type, is_counted_handle_type, is_struct_type, is_tuple_type, is_enum_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH, E_BORROW_OF_NON_PLACE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
+{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH, E_BORROW_OF_NON_PLACE, E_WRITE_THROUGH_BORROW, E_INCOMPATIBLE_TYPES } :: import("../../diagnostics.yo");
 { _type_origin_names_into } :: import("../types/function.yo");
 { Token, TokenKind, TokenData, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -1672,7 +1672,7 @@ evaluate_reference_repoint_by_move :: (fn(expr : &AstExpr, env_in : &Environment
                 true => Option(String).Some(`re-point \`${name}\` to a shared reborrow: \`${name} = &${src}.*\``)
               )
             ),
-            E_ORIGIN_MISMATCH
+            E_INCOMPATIBLE_TYPES
           )
         )
       )

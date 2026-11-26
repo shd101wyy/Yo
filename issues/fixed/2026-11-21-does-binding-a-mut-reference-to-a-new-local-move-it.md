@@ -88,7 +88,7 @@ A bare `&mut T` reference read by value MOVES; the reborrow is spelled `&mut m.*
 
 Tests: `tests/origins/unsound/v76-mut-ref-*.yo` (G-B rows 1–9, 11, 15, 17, 18, 21–23 of the review's
 table). Rows not in this change, filed: row 10
-(`issues/2026-11-22-assigning-a-mut-reference-to-a-mut-reference-binding-is-e0926-not-a-re-point-by-move.md`),
-row 12's reborrow spelling (`issues/2026-11-22-a-mut-reference-field-has-no-reborrow-spelling-into-a-local.md`),
+(`issues/fixed/2026-11-22-assigning-a-mut-reference-to-a-mut-reference-binding-is-e0926-not-a-re-point-by-move.md`),
+row 12's reborrow spelling (`issues/fixed/2026-11-22-a-mut-reference-field-has-no-reborrow-spelling-into-a-local.md`),
 row 14 (`issues/2026-11-22-a-shared-reference-field-read-bare-is-e0926-instead-of-a-copy.md`), row 20
-(`issues/2026-11-22-a-capture-list-entry-cannot-move-a-mut-reference-into-the-closure.md`).
+(`issues/fixed/2026-11-22-a-capture-list-entry-cannot-move-a-mut-reference-into-the-closure.md`).

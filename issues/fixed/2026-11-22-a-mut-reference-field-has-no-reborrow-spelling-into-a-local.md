@@ -40,3 +40,14 @@ The bare `a := s.r` is rejected too, but as E0926 (a reference field read by val
 rather than the partial-move E0901 the review's row 12 asks for; `s.r.*` then copies the referent. When
 the reborrow spelling lands, `a := s.r` should be E0901 with a help naming `a := &mut s.r.*`
 (`tests/origins/unsound/v76-mut-ref-field-move-out.yo` pins today's E0926).
+
+## Resolution (2026-11-26)
+
+`a := &mut s.r.*` (and `&s.r.*`) reborrows through a reference FIELD: `_evaluate_inout_local_binding`
+admits a `*` hop whose receiver is a reference-typed field, the binding's place is the holder's field
+`s.r` (frozen, exclusively under `&mut`), and the field's own places join the binding
+(`bind_join_roots_for` over `origin_of(s.r)`), so `x` stays frozen while `a` lives. A `&mut` borrow
+through a `&` field is E0908. The bare `a := s.r` of a `&mut` field is now E0901 (a partial move,
+decision 19) whose help names `&mut s.r.*` (`reject_reference_field_without_deref`). Tests:
+`tests/origins/unsound/v76-row12-*.yo`, `v76-mut-ref-field-move-out.yo` (E0901), the cli-case
+`check-a-mut-reference-field-read-whole-is-a-partial-move`.
