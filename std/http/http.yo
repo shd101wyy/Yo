@@ -33,17 +33,14 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array-list");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 { Error } :: import("../error");
 /// Standard HTTP request methods.
 HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH, OPTIONS);
 derive(HttpMethod, Copy, Clone);
 impl(
   HttpMethod,
-  ToString(
-    to_string : (
-      self ->
-        match(
+  Display(fmt : ((self, f) -> f.write(&match(
           self,
           .GET => `GET`,
           .POST => `POST`,
@@ -52,9 +49,7 @@ impl(
           .HEAD => `HEAD`,
           .PATCH => `PATCH`,
           .OPTIONS => `OPTIONS`
-        )
-    )
-  )
+        ))))
 );
 impl(
   HttpMethod,
@@ -194,11 +189,10 @@ impl(
 );
 impl(
   HeaderMap,
-  ToString(
-    /// The header section in wire format — each line `Name: value\r\n`,
+  Display(/// The header section in wire format — each line `Name: value\r\n`,
     /// WITHOUT the blank line that terminates the section (the message
     /// serializers add that, since they also append `Content-Length`).
-    to_string : (fn(self : &Self) -> String)({
+    fmt : ((self, f) -> f.write(&{
       mut(out) := String.new();
       (mut(i) : usize) = usize(0);
       while(i < self._entries.len(), i = (i + usize(1)), {
@@ -206,8 +200,7 @@ impl(
         out = `${out}${h.name}: ${h.value}\r\n`;
       });
       out
-    })
-  )
+    })))
 );
 /// An HTTP request with method, path, headers, and optional body.
 HttpRequest :: struct(
@@ -256,15 +249,14 @@ impl(
     self.headers.get(name)
   )
 );
-/// Wire-format serialization lives on the `ToString` trait (D1/D2: one
+/// Wire-format serialization lives on the `Display` trait (D1/D2: one
 /// spelling for "render to text", also reachable through `${req}`
-/// interpolation and any `T <: ToString` bound) — the same shape
+/// interpolation and any `T <: Display` bound) — the same shape
 /// `HttpMethod` and `HttpError` already use.
 impl(
   HttpRequest,
-  ToString(
-    /// Serialize the request to an HTTP/1.1 wire-format string.
-    to_string : (fn(self : &Self) -> String)({
+  Display(/// Serialize the request to an HTTP/1.1 wire-format string.
+    fmt : ((self, f) -> f.write(&{
       mut(result) := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n${self.headers.to_string()}`;
       result = `${result}\r\n`;
       cond(
@@ -274,8 +266,7 @@ impl(
         true => ()
       );
       result
-    })
-  )
+    })))
 );
 /// An HTTP status code — Rust's `http::StatusCode`.
 ///
@@ -373,7 +364,7 @@ impl(
 );
 impl(
   StatusCode,
-  ToString(
+  Display(
     /// The digits alone — what goes in a status line.
     to_string : (fn(self : Self) -> String)(
       self.code.to_string()
@@ -509,12 +500,11 @@ impl(
 );
 impl(
   HttpResponse,
-  ToString(
-    /// Serialize to wire format, on the status line's own `version` (so a
+  Display(/// Serialize to wire format, on the status line's own `version` (so a
     /// parsed response round-trips). A `Content-Length` header is added
     /// when none is present (the byte length of `body`), so the peer can
     /// delimit the message without waiting for close.
-    to_string : (fn(self : &Self) -> String)({
+    fmt : ((self, f) -> f.write(&{
       mut(result) := `${self.version} ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
       cond(
         self.get_header(`Content-Length`).is_none() => {
@@ -523,8 +513,7 @@ impl(
         true => ()
       );
       `${result}\r\n${self.body}`
-    })
-  )
+    })))
 );
 /// Why a raw HTTP message did not parse — the error of `parse_request` and
 /// `parse_response`, which are pure decoders and so return `Result` (D13).

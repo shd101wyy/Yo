@@ -63,7 +63,7 @@
 { String, StringBuilder } :: import("../string");
 { ArrayList } :: import("../collections/array-list");
 percent :: import("../encoding/percent");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
 /// Errors that can occur during URL parsing.
 UrlError :: enum(
@@ -1213,9 +1213,7 @@ impl(
 // Reconstruct the URL as a String
 impl(
   Url,
-  ToString(
-    to_string : (
-      self -> {
+  Display(fmt : ((self, f) -> f.write(&{
         mut(result) := `${self._scheme}:`;
         match(
           &self._host,
@@ -1255,8 +1253,6 @@ impl(
           .None => ()
         );
         result
-      }
-    )
-  )
+      })))
 );
 export(Url, UrlError);

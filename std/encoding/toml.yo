@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array-list");
 { Error } :: import("../error");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 { DateTime } :: import("../time/datetime");
 { snprintf } :: import("../libc/stdio");
 // Registers `f64.is_nan` / `f64.is_infinite` and the non-finite constants.
@@ -2733,26 +2733,20 @@ stringify :: (fn(value : &TomlValue) -> String)({
   String.from_bytes(out)
 });
 export(stringify);
-/// `ToString` — the TOML text, the same channel `JsonValue` gives
+/// `Display` — the TOML text, the same channel `JsonValue` gives
 /// `json.stringify`. The structural render is `Debug`'s job (D15), so the two
 /// do not collide.
 impl(
   TomlValue,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      stringify(self)
-    )
-  )
+  Display(fmt : ((self, f) -> f.write(&stringify(self))))
 );
 impl(
   TomlDateTime,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
+  Display(fmt : ((self, f) -> f.write(&{
       mut(out) := ArrayList(u8).new();
       _write_datetime(self.*, &mut out);
       String.from_bytes(out)
-    })
-  )
+    })))
 );
 // ============================================================================
 // Equality

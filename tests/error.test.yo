@@ -1,6 +1,6 @@
 { assert } :: import("std/assert");
 { String } :: import("std/string");
-{ ToString, println } :: import("std/fmt");
+{ Display, println } :: import("std/fmt");
 { Error, AnyError, Exception, ResumableException } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
 test("Test String as Error via AnyError", {
@@ -28,7 +28,7 @@ test("Test downcast AnyError back to String", {
 // object cast of a value enum, which the C compiler rejected outright.
 test("Test downcast AnyError to an error type this program never throws", {
   NeverThrownError :: enum(Boom(code : i32));
-  impl(NeverThrownError, ToString(to_string : (self -> `never thrown`)));
+  impl(NeverThrownError, Display(fmt : ((self, f) -> f.write(&`never thrown`))));
   impl(NeverThrownError, Error());
   is_never_thrown :: (fn(candidate : &AnyError) -> bool)(
     match(downcast(candidate, NeverThrownError), .Some(_) => true, .None => false)
@@ -89,15 +89,11 @@ test("Test Exception with custom MathError enum", {
   derive(MathError, Copy, Clone);
   impl(
     MathError,
-    ToString(
-      to_string : (
-        self -> match(
+    Display(fmt : ((self, f) -> f.write(&match(
           self,
           .DivisionByZero => `Division by zero`,
           .NegativeSqrt => `Square root of a negative number`
-        )
-      )
-    )
+        ))))
   );
   impl(MathError, Error());
   safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
@@ -162,15 +158,11 @@ test("Test ResumableException with custom MathError enum", {
   derive(MathError, Copy, Clone);
   impl(
     MathError,
-    ToString(
-      to_string : (
-        self -> match(
+    Display(fmt : ((self, f) -> f.write(&match(
           self,
           .DivisionByZero => `Division by zero`,
           .NegativeSqrt => `Square root of a negative number`
-        )
-      )
-    )
+        ))))
   );
   impl(MathError, Error());
   safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
@@ -277,7 +269,7 @@ impl(
   )
 );
 ThrownErr :: struct(detail : String, r : Rc(ThrownRes));
-impl(ThrownErr, ToString(to_string : (fn(self : &Self) -> String)(self.detail.clone())));
+impl(ThrownErr, Display(fmt : ((self, f) -> f.write(&self.detail.clone()))));
 impl(ThrownErr, Error());
 impl(
   ThrownErr,

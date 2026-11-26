@@ -1,5 +1,5 @@
 { assert } :: import("std/assert");
-{ ToString, StringBuilder, Alignment, println } :: import("std/fmt");
+{ Display, StringBuilder, Alignment, println } :: import("std/fmt");
 { rune } :: import("std/string/rune");
 { String } :: import("std/string");
 // Side-effect witness for the unit-receiver test at the bottom of this file.
@@ -120,7 +120,7 @@ test("C-interop integers, longdouble, and unit stringify (D3.8)", {
   assert(longlong(-5).to_string() == `-5`, "longlong");
   assert(ulonglong(5).to_string() == `5`, "ulonglong");
   assert(longdouble(1.5).to_string() == `1.5`, "longdouble");
-  // unit's own ToString has its own test below ("Test unit ToString").
+  // unit's own Display has its own test below ("Test unit Display").
 });
 test("ArrayList and Array stringify as bracketed lists (D3.8)", {
   { ArrayList } :: import("std/collections/array-list");
@@ -136,9 +136,9 @@ test("ArrayList and Array stringify as bracketed lists (D3.8)", {
   mut(nested) := ArrayList(Option(i32)).new();
   nested.push(Option(i32).Some(i32(4)));
   nested.push(Option(i32).None);
-  assert(nested.to_string() == `[Some(4), None]`, "nests through Option's ToString");
+  assert(nested.to_string() == `[Some(4), None]`, "nests through Option's Display");
 });
-test("Test unit ToString", {
+test("Test unit Display", {
   // The last D3.8 primitive: the receiver is `inout(self) : Self` at
   // Self = unit, which used to emit an invalid C ref-spill
   // (`void __yo_ref_spill_N = ;`) —
@@ -294,16 +294,16 @@ test("StringBuilder.write_hex renders lowercase hexadecimal", {
   assert(w.to_string() == `deadbeef`, "and the classic one");
 });
 // A template of two or more parts builds ONE String: an empty builder, then
-// every part appended to it through `ToString.append_to` (`String` and `str`
+// every part appended to it through `Display.append_to` (`String` and `str`
 // append their bytes by borrow) instead of `part.to_string()` joined with `+`
 // (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D10). A one-part template is
 // still `part.to_string()`.
 _D10Plain :: struct(n : i32);
-impl(_D10Plain, ToString(to_string : (fn(self : &Self) -> String)(`p${self.n}`)));
+impl(_D10Plain, Display(fmt : ((self, f) -> f.write(&`p${self.n}`))));
 _D10Custom :: struct(n : i32);
 impl(
   _D10Custom,
-  ToString(
+  Display(
     to_string : (fn(self : &Self) -> String)(`to_string`),
     append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str("append_to"))
   )

@@ -1,8 +1,8 @@
 { Error, Exception, IoExn } :: import("std/error");
 { String } :: import("std/string");
-{ println, ToString } :: import("std/fmt");
+{ println, Display } :: import("std/fmt");
 Boom :: struct(msg : String);
-impl(Boom, ToString(to_string : (self -> self.msg.clone())));
+impl(Boom, Display(fmt : ((self, f) -> f.write(&self.msg.clone()))));
 impl(Boom, Error());
 derive(Boom, Clone);
 _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(

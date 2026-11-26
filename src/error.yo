@@ -7,7 +7,7 @@
 //! builders keep taking a `Token` (+ verbatim message), so the ~1000
 //! emission sites across the evaluator are untouched by the restructure.
 { String, Pattern } :: import("std/string");
-{ ToString, eprintln } :: import("std/fmt");
+{ Display, eprintln } :: import("std/fmt");
 { Error, AnyError } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
 { Token } :: import("./token.yo");
@@ -307,17 +307,14 @@ YoError :: struct(
 );
 impl(
   YoError,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      // MODE-AWARE, not human-only: `--error-format json` worked for parse
+  Display(fmt : ((self, f) -> 
+// MODE-AWARE, not human-only: `--error-format json` worked for parse
       // and lexer errors but not evaluator ones, because every path that
       // stringifies a YoError through `to_string()` landed here and rendered
       // human regardless of the mode (measured on the released v0.2.35 seed,
       // so the defect predates this branch). `render_diagnostics_for_mode`
       // returns human when no mode is set, so the default is unchanged.
-      render_diagnostics_for_mode(&self.diagnostics)
-    )
-  )
+      f.write(&render_diagnostics_for_mode(&self.diagnostics))))
 );
 impl(YoError, Error());
 /// A copy of the diagnostics: an `AnyError` lists `Clone`, so keeping a
@@ -342,9 +339,7 @@ ExitWith :: struct(
 );
 impl(
   ExitWith,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(self.message.clone())
-  )
+  Display(fmt : ((self, f) -> f.write(&self.message.clone())))
 );
 impl(ExitWith, Error());
 impl(

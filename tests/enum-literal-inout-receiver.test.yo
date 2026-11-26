@@ -5,39 +5,29 @@
 // its address: "cannot take the address of an rvalue of type 'int'".
 { assert } :: import("std/assert");
 { String } :: import("std/string");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 E :: enum(A, B);
 derive(E, Copy, Clone);
 impl(
   E,
-  ToString(
-    to_string : (
-      self ->
-        match(
+  Display(fmt : ((self, f) -> f.write(&match(
           self,
           .A => String.from("a"),
           .B => String.from("b")
-        )
-    )
-  )
+        ))))
 );
 // Same enum shape with a payload-carrying variant: the payload-free variant
 // of a TAGGED enum is a struct literal, not a bare tag — both must work.
 F :: enum(A(v : i32), B);
 impl(
   F,
-  ToString(
-    to_string : (
-      self ->
-        match(
+  Display(fmt : ((self, f) -> f.write(&match(
           self,
           .A(v) => `fa${v}`,
           .B => String.from("fb")
-        )
-    )
-  )
+        ))))
 );
-// A user trait with an explicit inout receiver, to rule out ToString specifics.
+// A user trait with an explicit inout receiver, to rule out Display specifics.
 Bump :: trait(
   code : (fn(self : &mut Self) -> i32)
 );

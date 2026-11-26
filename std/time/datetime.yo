@@ -47,7 +47,7 @@
 //! decisions, not a release count.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 { Error } :: import("../error");
 { CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
 { localtime_r } :: import("../libc/time");
@@ -340,8 +340,7 @@ impl(
 );
 impl(
   DateTime,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
+  Display(fmt : ((self, f) -> f.write(&{
       // RFC3339 offset rendering: "Z" only for UTC; a non-zero
       // `utc_offset_secs` renders as ±HH:MM. This used to hardcode "Z" for
       // EVERY value, stringifying offset datetimes as if they were UTC
@@ -409,8 +408,7 @@ impl(
         }
       );
       String.from_cstr(buf_ptr).unwrap()
-    })
-  )
+    })))
 );
 
 // ============================================================================

@@ -65,7 +65,7 @@ pragma(Pragma.AllowMacroDef);
 { assert } :: import("../assert");
 { snprintf } :: import("../libc/stdio");
 { Error, AnyError, Exception } :: import("../error");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 utf8 :: import("./utf8");
 // ============================================================================
 // JsonError
@@ -1463,16 +1463,12 @@ stringify_pretty :: (fn(value : &JsonValue, indent : usize) -> String)(
     }
   )
 );
-/// `ToString` — the COMPACT JSON text, matching `serde_json::Value`'s
+/// `Display` — the COMPACT JSON text, matching `serde_json::Value`'s
 /// `Display`. The structural, Yo-shaped render is `Debug`'s job (D15), so
 /// these two do not collide.
 impl(
   JsonValue,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      stringify(self)
-    )
-  )
+  Display(fmt : ((self, f) -> f.write(&stringify(self))))
 );
 /// Deep-clone a value tree. `JsonValue` is a VALUE enum whose `Array` and
 /// `Object` payloads are `ArrayList`s — reference-counted handles — so a plain

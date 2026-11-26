@@ -10,7 +10,7 @@
 { HashMap } :: import("std/collections/hash-map");
 { HashSet } :: import("std/collections/hash-set");
 { ArrayList } :: import("std/collections/array-list");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { Error, AnyError } :: import("std/error");
 AErr :: enum(Boom(code : i32), Quiet);
 derive(AErr, Copy, Clone);
@@ -150,7 +150,7 @@ test("two recursive enums of one shape have distinct ArrayList(Self) instantiati
 // as `MaybeErr`'s struct while `downcast_my_err` returns `Option(MyErr)`:
 // `initializing ... with an expression of incompatible type` in clang.
 MyErr :: struct(code : i32);
-impl(MyErr, ToString(to_string : (self -> `my err`)));
+impl(MyErr, Display(fmt : ((self, f) -> f.write(&`my err`))));
 impl(MyErr, Error());
 derive(MyErr, Clone);
 MaybeErr :: enum(None, Some(value : MyErr));

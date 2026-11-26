@@ -30,7 +30,7 @@
 //! names and units are Rust's and are not expected to move.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 { snprintf } :: import("../libc/stdio");
 /// Span of time stored as seconds and nanoseconds.
 ///
@@ -138,14 +138,12 @@ impl(
 );
 impl(
   Duration,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
+  Display(fmt : ((self, f) -> f.write(&{
       buf := Array(u8, usize(64)).fill(u8(0));
       buf_ptr := addr_of(buf(usize(0)));
       unsafe(snprintf((*char)(buf_ptr), usize(64), "%llds %lldns", self.secs, self.nanos));
       String.from_cstr(buf_ptr).unwrap()
-    })
-  )
+    })))
 );
 
 // ============================================================================

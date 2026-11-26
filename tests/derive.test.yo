@@ -1,7 +1,7 @@
 { assert } :: import("std/assert");
 // Tests for derive(Type, Trait(Type)) — auto-generated trait implementations
 { String } :: import("std/string");
-{ ToString, Debug } :: import("std/fmt");
+{ Display, Debug } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
 { hash_one } :: import("std/hash");
 { Error } :: import("std/error");
@@ -76,16 +76,16 @@ test("derive Ord for struct", {
   assert(!(p1 < p4), "equal points should not be <");
   assert(!(p1 > p4), "equal points should not be >");
 });
-// === Test derive ToString for struct ===
-derive(Point, ToString);
-test("derive ToString for struct", {
+// === Test derive Display for struct ===
+derive(Point, Display);
+test("derive Display for struct", {
   p := Point(i32(1), i32(2));
   s := p.to_string();
   assert(s == `Point(1, 2)`, "toString should format as Point(1, 2)");
 });
 // === Test multiple derives in one call ===
 Color :: struct(r : i32, g : i32, b : i32);
-derive(Color, Eq(Color), Hash, Clone, Copy, Ord(Color), ToString);
+derive(Color, Eq(Color), Hash, Clone, Copy, Ord(Color), Display);
 test("multiple derives in one call", {
   c1 := Color(i32(255), i32(0), i32(0));
   c2 := Color(i32(255), i32(0), i32(0));
@@ -100,7 +100,7 @@ test("multiple derives in one call", {
   assert(c1 == c4, "cloned color should equal original");
   // Ord
   assert(c3 < c1, "(0,255,0) should be < (255,0,0)");
-  // ToString
+  // Display
   s := c1.to_string();
   assert(s == `Color(255, 0, 0)`, "toString should format correctly");
 });
@@ -151,9 +151,9 @@ test("derive Ord for fieldless enum", {
   assert(Direction.North <= Direction.North, "North <= North");
   assert(Direction.West > Direction.East, "West > East");
 });
-// === Test derive ToString for fieldless enum ===
-derive(Direction, ToString);
-test("derive ToString for fieldless enum", {
+// === Test derive Display for fieldless enum ===
+derive(Direction, Display);
+test("derive Display for fieldless enum", {
   d := Direction.North;
   s := d.to_string();
   assert(s == `Direction.North`, "toString should format as Direction.North");
@@ -163,7 +163,7 @@ Shape :: enum(
   Circle(radius : i32),
   Rectangle(width : i32, height : i32)
 );
-derive(Shape, Eq(Shape), Hash, Clone, ToString);
+derive(Shape, Eq(Shape), Hash, Clone, Display);
 test("derive Eq for enum with fields", {
   s1 := Shape.Circle(i32(5));
   s2 := Shape.Circle(i32(5));
@@ -181,7 +181,7 @@ test("derive Clone for enum with fields", {
   s4 := s3.clone();
   assert(s3 == s4, "cloned rectangle should equal original");
 });
-test("derive ToString for enum with fields", {
+test("derive Display for enum with fields", {
   s1 := Shape.Circle(i32(5));
   assert(s1.to_string() == `Shape.Circle(5)`, "circle toString");
   s2 := Shape.Rectangle(i32(3), i32(4));
@@ -761,7 +761,7 @@ comptime_expect_error({
   derive(DeriveUnionT, Hash);
 });
 comptime_expect_error({
-  derive(DeriveUnionT, ToString);
+  derive(DeriveUnionT, Display);
 });
 DeriveArrayT :: Array(i32, usize(2));
 comptime_expect_error({
@@ -770,36 +770,31 @@ comptime_expect_error({
 // Over-rejection canaries: a field-less struct and an all-unit-variant enum
 // are the smallest aggregates the guard admits, and every rule must take them.
 DeriveEmptyS :: struct();
-derive(DeriveEmptyS, Eq(DeriveEmptyS), Clone, Hash, ToString);
+derive(DeriveEmptyS, Eq(DeriveEmptyS), Clone, Hash, Display);
 DeriveUnitE :: enum(A, B);
-derive(DeriveUnitE, Eq(DeriveUnitE), Clone, Copy, Hash, ToString);
+derive(DeriveUnitE, Eq(DeriveUnitE), Clone, Copy, Hash, Display);
 test("derive on a tuple, union or array is a comptime error; the smallest aggregates still derive", {
   assert(DeriveEmptyS() == DeriveEmptyS(), "unit struct Eq");
   assert(DeriveUnitE.A == DeriveUnitE.A, "unit enum Eq");
   assert(DeriveUnitE.A != DeriveUnitE.B, "unit enum Ne");
   assert(DeriveUnitE.B.clone() == DeriveUnitE.B, "unit enum Clone");
   assert(hash_one(DeriveUnitE.A) != hash_one(DeriveUnitE.B), "unit enum Hash separates variants");
-  assert(DeriveUnitE.B.to_string() == `DeriveUnitE.B`, "unit enum ToString");
+  assert(DeriveUnitE.B.to_string() == `DeriveUnitE.B`, "unit enum Display");
 });
-// ===== D15: Debug is split from ToString =====
+// ===== D15: Debug is split from Display =====
 _D15Err :: enum(NotFound(path : String), Denied);
 derive(_D15Err, Debug);
 impl(
   _D15Err,
-  ToString(
-    to_string : (
-      self ->
-        match(
+  Display(fmt : ((self, f) -> f.write(&match(
           self,
           .NotFound(path) => `no such file: ${path}`,
           .Denied => `permission denied`
-        )
-    )
-  )
+        ))))
 );
 _D15Point :: struct(x : i32, y : i32);
 derive(_D15Point, Debug);
-test("derive(Debug) and a hand-written ToString coexist (D15)", {
+test("derive(Debug) and a hand-written Display coexist (D15)", {
   // The whole point of D15: before it, `derive(ToString)` emitted the
   // STRUCTURAL render, so an error type could not derive a structural dump
   // AND carry a user-facing message. Now they are separate channels.
@@ -873,15 +868,15 @@ test("derive(Error) renders each variant from its own message", {
   assert(_DeriveErr.Denied.to_string() == `permission denied`, "a payload-free variant needs no bindings");
   assert(_DeriveErr.Code(i32(7)).to_string() == `failed with code 7`, "a non-String payload interpolates too");
 });
-test("derive(Error) supplies Error, not just ToString", {
-  // The whole point of deriving `Error` rather than `ToString`: the type is
+test("derive(Error) supplies Error, not just Display", {
+  // The whole point of deriving `Error` rather than `Display`: the type is
   // propagable as an `AnyError` from ONE declaration, with no separate
   // `impl(T, Error())` line.
   comptime_assert(Type.impls(_DeriveErr, Error), "derive(Error) emits the Error impl too");
   // Not a vacuous comptime check: `JsonError` is derived this way as of this
   // change, and `tests/encoding/json.test.yo` propagates it through `AnyError`
   // and asserts on its rendered message — that is the runtime witness.
-  assert(_DeriveErr.Denied.to_string() == `permission denied`, "and ToString still works");
+  assert(_DeriveErr.Denied.to_string() == `permission denied`, "and Display still works");
 });
 // A message list that does not match the variants is a COMPILE error, so a
 // renamed, added, removed or reordered variant cannot silently take another
@@ -899,7 +894,7 @@ comptime_expect_error({
 _ErrStruct :: struct(a : u8);
 comptime_expect_error({
   // Enums only: a struct error has exactly one message, so it writes its own
-  // `ToString` impl.
+  // `Display` impl.
   derive(_ErrStruct, Error(.a => `a`));
 });
 // REGRESSION CANARY (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md):

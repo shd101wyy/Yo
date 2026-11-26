@@ -19,7 +19,7 @@
 //! be.
 pragma(Pragma.AllowUnsafe);
 { rune, String } :: import("./string");
-{ ToString } :: import("./fmt");
+{ Display } :: import("./fmt");
 { ArrayList } :: import("./collections/array-list");
 /// Platform-specific path separator: `'/'` on Unix, `'\\'` on Windows.
 PATH_SEPARATOR :: cond(
@@ -163,7 +163,7 @@ impl(
     );
   }),
   /// Join this path with another. If `other` is absolute, returns `other`.
-  /// Join with any `ToString` — a `str`/`String` literal or another `Path`
+  /// Join with any `Display` — a `str`/`String` literal or another `Path`
   /// (audit path row: `join(str)`). `Path` round-trips through `new`
   /// losslessly (its rendering re-parses to the same components), so the
   /// generic facade is semantics-preserving for existing `Path` callers.
@@ -171,7 +171,7 @@ impl(
   /// `other`'s components are APPENDED, `..` included: `"a/b".join("../c")`
   /// is `a/b/../c`, matching what `Path.new("a/b/../c")` records. Call
   /// `normalize()` on the result for the lexical fold.
-  join : (fn(generic(P : ?Sized), self : &Self, other : &P, where(P <: ToString)) -> Self)(
+  join : (fn(generic(P : ?Sized), self : &Self, other : &P, where(P <: Display)) -> Self)(
     self._join_path(Path.new(other.to_string()))
   ),
   _join_path : (fn(self : &Self, other : &Self) -> Self)({
@@ -626,7 +626,7 @@ impl(
 );
 impl(
   Path,
-  ToString(
+  Display(
     to_string : (
       self -> {
         segments := &self._segments;
@@ -804,12 +804,12 @@ impl(
   )
 );
 /// Extend this path IN PLACE with `other` (audit path row: `push` —
-/// Rust's `PathBuf::push`). Takes any `ToString` like `join`. An absolute
+/// Rust's `PathBuf::push`). Takes any `Display` like `join`. An absolute
 /// `other` replaces the contents entirely, exactly like `join`, and `..` in
 /// `other` is appended rather than folded, exactly like `join`.
 impl(
   Path,
-  push : (fn(generic(P : ?Sized), self : &mut Self, other : &P, where(P <: ToString)) -> unit)({
+  push : (fn(generic(P : ?Sized), self : &mut Self, other : &P, where(P <: Display)) -> unit)({
     joined := self._join_path(Path.new(other.to_string()));
     self._segments.clear();
     self._segments.extend_cloned(&joined._segments);
@@ -854,7 +854,7 @@ impl(
 );
 /// `Default` — the empty relative path, matching Rust's `PathBuf::default()`.
 /// It has no components; note that it RENDERS as `"."`, per the render-level
-/// rule documented on `ToString` below.
+/// rule documented on `Display` below.
 impl(
   Path,
   Default(

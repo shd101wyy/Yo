@@ -5,12 +5,12 @@
 { assert } :: import("std/assert");
 { Error, Exception, IoExn } :: import("std/error");
 { String } :: import("std/string");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
 { RefCell } :: import("std/sync/refcell");
 { sleep } :: import("std/sys/timer");
 Boom :: struct(msg : String);
-impl(Boom, ToString(to_string : (self -> self.msg.clone())));
+impl(Boom, Display(fmt : ((self, f) -> f.write(&self.msg.clone()))));
 impl(Boom, Error());
 derive(Boom, Clone);
 // The awaited leaf: a future with no await of its own.

@@ -838,10 +838,10 @@ test("soundness: never flows into every type and nothing flows into it", {
 // issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md
 // (Phase 3.8): the specialization cache keys by identity. The prelude calls
 // `is_none` on an `Option(A)` whose `A` is unresolved; that spec's `Option(T)`
-// used to be "exactly" an `Option(Dyn(ToString))`, so this call reused it and
+// used to be "exactly" an `Option(Dyn(Display))`, so this call reused it and
 // named a C function nobody emits.
 // ---------------------------------------------------------------------------
-{ ToString : _P38ToString } :: import("std/fmt");
+{ Display : _P38ToString } :: import("std/fmt");
 _p38_none :: (fn() -> bool)({
   (o : Option(Box(Dyn(_P38ToString)))) = Option(Box(Dyn(_P38ToString))).None;
   o.is_none()

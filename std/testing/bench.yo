@@ -36,7 +36,7 @@
 //! statistics set and the per-iteration/per-batch decision.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 { snprintf } :: import("../libc/stdio");
 { Instant } :: import("../time/instant");
 // ============================================================================
@@ -71,8 +71,7 @@ _u64_to_string :: (fn(v : u64) -> String)({
 });
 impl(
   BenchResult,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
+  Display(fmt : ((self, f) -> f.write(&{
       prefix := String.from("bench '");
       part1 := prefix.concat(&self.name);
       part2 := part1.concat(String.from("': iters="));
@@ -83,8 +82,7 @@ impl(
       part7 := part6.concat(_i64_to_string(self.min_ns));
       part8 := part7.concat(String.from(" max="));
       part8.concat(_i64_to_string(self.max_ns))
-    })
-  )
+    })))
 );
 export(BenchResult);
 // ============================================================================

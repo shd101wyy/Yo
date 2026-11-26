@@ -10536,7 +10536,7 @@ _replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), 
 });
 /// Evaluate a call. A call written in user code reports an error raised
 /// inside the standard library at itself (`_reported_at_user_call`):
-/// `println(p)` for a `P` without `ToString` pointed at std/fmt's where
+/// `println(p)` for a `P` without `Display` pointed at std/fmt's where
 /// clause, and `i32.MAX + 1` at the prelude's builtin
 /// (issues/fixed/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md).
 /// N2b's value wall (decision 43 step 3; plans/handover/D43_STEP3_N2_DESIGN.md
@@ -15691,7 +15691,7 @@ Fix: wrap the call:
           // comptime-returning generic-impl METHOD (e.g. Array's
           // `fill : (fn(comptime(val) : T) -> comptime(Self))`) executed
           // with the CALLER's stale ctx.self_type ("__yo_array_fill expects
-          // an ArrayType, got i8" inside i8's ToString impl).
+          // an ArrayType, got i8" inside i8's Display impl).
           old_self_ty_ct := ctx.self_type.clone();
           match(
             _static_dot_receiver_self_type(&func_expr, ctx),

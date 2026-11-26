@@ -6,7 +6,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { GlobalAllocator } :: import("std/allocator");
 // A counting allocator: forwards to the global allocator and counts the
 // blocks it holds (`live`).
@@ -100,9 +100,9 @@ test("rc, box and arc are deleted: E0401 names the constructor", {
 // `dyn(...)` around a payload that is not an object builds its cell through
 // the type's `new`: `Rc(T).new(v)`, or `Arc(T).new(v)` for a Send Dyn.
 test("dyn(i32(1)) boxes through Rc(i32).new", {
-  (d : Box(Dyn(ToString))) = dyn(Box.new(i32(1)));
+  (d : Box(Dyn(Display))) = dyn(Box.new(i32(1)));
   assert(d.*.to_string() == `1`, "the boxed payload");
-  (s : Box(Dyn(ToString, Send))) = dyn(Box.new(i32(2)));
+  (s : Box(Dyn(Display, Send))) = dyn(Box.new(i32(2)));
   assert(s.*.to_string() == `2`, "the Send payload, boxed through Arc(i32).new");
 });
 _Detector :: struct(detect : Box(Dyn(Fn(x : i32) -> i32)));

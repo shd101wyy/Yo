@@ -36,7 +36,7 @@
 //! clock but it silently turns a reversed-argument bug into a zero. Neither
 //! type has the `checked_add`/`checked_sub` Rust offers, `Instant` has no
 //! `Hash` or `Default` while `Duration` has both, and `SystemTime` has no
-//! `ToString`/`Debug` — a timestamp that cannot be printed. `Instant.add`/
+//! `Display`/`Debug` — a timestamp that cannot be printed. `Instant.add`/
 //! `sub` also multiply out to a nanosecond count, which is exactly what the
 //! `SystemTime` helpers below were written to avoid; it is harmless only
 //! because a monotonic reading is uptime rather than a date.
@@ -49,10 +49,10 @@ pragma(Pragma.AllowUnsafe);
 { panic } :: import("../assert");
 { Error } :: import("../error");
 { String } :: import("../string");
-// `derive(Error)` splices a `ToString` impl into THIS file's scope, so
-// `ToString` has to be importable here — the derived body is unhygienic
+// `derive(Error)` splices a `Display` impl into THIS file's scope, so
+// `Display` has to be importable here — the derived body is unhygienic
 // (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md).
-{ ToString } :: import("../fmt/to_string");
+{ Display } :: import("../fmt/to_string");
 /// Snapshot from the monotonic clock. Use `elapsed` to measure durations.
 Instant :: struct(
   /// Whole seconds of a raw `CLOCK_MONOTONIC` reading. The ORIGIN is

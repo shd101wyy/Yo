@@ -1,12 +1,12 @@
 // C27 (issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md):
 // an INSTANCE method taking an `Impl(Fn(...))` closure param and returning an
-// `Impl(...)` wrapper (`Impl(Future(T))`, `Impl(ToString)`) had its call typed
+// `Impl(...)` wrapper (`Impl(Future(T))`, `Impl(Display)`) had its call typed
 // as the closure's own fn type — both wrappers carry the reserved SomeT name
 // `Impl`, env resolution was name-keyed, and the return wrapper adopted the
 // closure param's concrete binding. Free functions and static methods were
 // never affected; generic and non-generic impls both were.
 { assert } :: import("std/assert");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { IoExn, Exception } :: import("std/error");
 import("std/string");
 Counter :: struct(n : i32);
@@ -38,7 +38,7 @@ impl(
     })
   ),
   // non-Future Impl return
-  describe : (fn(self : &Self, f : &Impl(Fn(x : i32) -> i32)) -> Impl(ToString))(
+  describe : (fn(self : &Self, f : &Impl(Fn(x : i32) -> i32)) -> Impl(Display))(
     f(self.n)
   )
 );
@@ -88,7 +88,7 @@ test("instance method: closure param + Impl(Future(T, IoExn)) return awaits unde
   r := io.await(c.apply_exn(x -> (x * i32(10)), io), IoExn(io : io, exn : exn));
   assert(r == i32(20), `apply_exn: ${r}`);
 });
-test("instance method: closure param + Impl(ToString) return", {
+test("instance method: closure param + Impl(Display) return", {
   c := Counter(n : i32(7));
   s := c.describe(x -> (x * i32(6))).to_string();
   assert(s == "42", `describe: ${s}`);

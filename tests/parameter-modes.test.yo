@@ -13,7 +13,7 @@
 { RefCell } :: import("std/sync/refcell");
 { sleep } :: import("std/sys/timer");
 { DefaultHasher } :: import("std/hash");
-{ ToString, Debug, Format } :: import("std/fmt");
+{ Display, Debug, Format } :: import("std/fmt");
 { ToJson, JsonValue } :: import("std/encoding/json");
 { Error, AnyError } :: import("std/error");
 
@@ -931,7 +931,7 @@ test("imm is an ordinary identifier", {
   assert(imm(i32(1)) == i32(2), "a closure named imm is called");
 });
 
-// `Clone` and `ToString` only read their receiver, so they take
+// `Clone` and `Display` only read their receiver, so they take
 // `self : &Self`, as Rust's do
 // (issues/fixed/clone-and-to-string-take-their-receiver-mutably.md): a `&T`
 // borrow, a generic one included, can clone and render. An impl member that
@@ -940,12 +940,12 @@ test("imm is an ordinary identifier", {
 // (issues/fixed/an-impl-may-write-a-receiver-its-trait-lends-read-only.md).
 _PmLbl :: struct(s : String);
 impl(_PmLbl, Clone(clone : (fn(self : &Self) -> Self)(_PmLbl(s : self.s.clone()))));
-impl(_PmLbl, ToString(to_string : (fn(self : &Self) -> String)(self.s.clone())));
+impl(_PmLbl, Display(fmt : ((self, f) -> f.write(&self.s.clone()))));
 _pm_copy_of :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
-_pm_render :: (fn(generic(T : Type), x : &T, where(T <: ToString)) -> String)(x.to_string());
+_pm_render :: (fn(generic(T : Type), x : &T, where(T <: Display)) -> String)(x.to_string());
 _PmReadM :: trait(read_m : (fn(self : &Self) -> i32));
 _PmTally :: struct(n : i32);
-test("Clone and ToString read a & borrow", {
+test("Clone and Display read a & borrow", {
   l := _PmLbl(s : String.from("x"));
   c := _pm_copy_of(&l);
   assert(c.s == "x", "cloned through a generic &T");
@@ -975,7 +975,7 @@ test("an impl member may not write a receiver its trait lends read-only", {
 // `self : &mut Self` is rejected at the impl.
 _PmKey :: struct(n : i32);
 derive(_PmKey, Hash, Debug);
-impl(_PmKey, ToString(to_string : (fn(self : &Self) -> String)(self.n.to_string())));
+impl(_PmKey, Display(fmt : ((self, f) -> f.write(&self.n.to_string()))));
 impl(_PmKey, Format());
 impl(_PmKey, ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self.n)))));
 impl(_PmKey, Error(source : (fn(self : &Self) -> Option(AnyError))(.None)));
@@ -990,7 +990,7 @@ _pm_format_of :: (fn(generic(T : Type), x : &T, where(T <: Format)) -> String)(x
 _pm_json_of :: (fn(generic(T : Type), x : &T, where(T <: ToJson)) -> JsonValue)(x.to_json());
 _pm_has_source :: (fn(generic(T : Type), x : &T, where(T <: Error)) -> bool)(x.source().is_some());
 _PmReadOnly :: struct(n : i32);
-impl(_PmReadOnly, ToString(to_string : (fn(self : &Self) -> String)(self.n.to_string())));
+impl(_PmReadOnly, Display(fmt : ((self, f) -> f.write(&self.n.to_string()))));
 test("Hash, Debug, Format, ToJson and Error.source read a & borrow", {
   k := _PmKey(n : i32(7));
   mut(h) := DefaultHasher.new();
