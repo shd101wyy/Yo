@@ -5,7 +5,7 @@ annotated with contracts (and, in verify mode, **unannotated** functions
 too) are symbolically executed and their proof obligations are discharged
 by the pinned [Z3](https://github.com/Z3Prover/z3) SMT solver. A proof
 replaces runtime checks; a refutation is a compile error with a concrete
-counter-example. Design record: [`plans/backlog/FORMAL_VERIFICATION.md`](../../plans/backlog/FORMAL_VERIFICATION.md).
+counter-example. Design record: `plans/backlog/FORMAL_VERIFICATION.md`.
 
 ```bash
 # Verify a file (or directory) — non-zero exit if anything fails

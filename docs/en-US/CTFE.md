@@ -9,8 +9,8 @@ CTFE allows the compiler to execute functions at compile-time when all inputs ar
 ```yo
 // comptime parameters + comptime return: evaluated at compile time
 factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result :: i32(1);
-  i :: i32(1);
+  mut(result) :: i32(1);
+  mut(i) :: i32(1);
   while(comptime(i <= n), {
     result = (result * i);
     i = (i + i32(1));
@@ -21,6 +21,9 @@ factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
 // The compiler evaluates factorial(10) at compile-time
 // The generated code simply contains the constant 3628800
 value :: factorial(10);
+comptime_assert(value == i32(3628800), "10! is 3628800");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ## Key Features
@@ -35,8 +38,8 @@ with `while(comptime(cond), body)`.
 ```yo
 // comptime(n) + comptime return: this runs during compilation
 sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result :: i32(0);
-  i :: i32(1);
+  mut(result) :: i32(0);
+  mut(i) :: i32(1);
   while(comptime(i <= n), {
     result = (result + (i * i));
     i = (i + i32(1));
@@ -46,6 +49,9 @@ sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
 
 // Evaluated at compile-time: 1 + 4 + 9 + 16 + 25 = 55
 total :: sum_squares(5);
+comptime_assert(total == i32(55), "1 + 4 + 9 + 16 + 25");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ### 2. Full Control Flow Support
@@ -62,8 +68,8 @@ Yo's CTFE supports all control flow constructs:
 ```yo
 // Example: Sum only odd numbers using continue
 sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
-  result :: i32(0);
-  i :: i32(0);
+  mut(result) :: i32(0);
+  mut(i) :: i32(0);
   while(comptime(i < max), {
     i = (i + i32(1));
     cond(
@@ -79,6 +85,9 @@ sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
 
 // Evaluated at compile-time: 1 + 3 + 5 + 7 + 9 = 25
 odd_sum :: sum_odd(10);
+comptime_assert(odd_sum == i32(25), "1 + 3 + 5 + 7 + 9");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ### 3. First-Class Types
@@ -254,7 +263,7 @@ During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
    `::` and `x` to `comptime(x)`. A runtime function literal nested in such a
    body keeps its runtime locals, and so does a runtime function evaluated at
    compile time (`comptime_fn(f)`)
-   ([`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md)).
+   (`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`).
    The other direction is error E0918: code that runs when the program runs
    cannot assign a compile-time binding. A runtime function body that writes
    a module-level `::` (or one of an enclosing function), or writes a runtime
@@ -262,7 +271,7 @@ During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
    was already folded to its value. Declare such a binding with `:=` (at
    module level, `mut(G) := v`: a written global needs `mut`); a
    body's own `mut(a) :: 1; a = 2;` with a compile-time value works (a compile-time binding that is written is declared `mut(a) ::` or `comptime(mut(a)) :=`; an unmarked one is E0917)
-   ([`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`](../../issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md)).
+   (`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`).
 2. Preserves function argument values for compile-time evaluation
 3. Marks parameters as compile-time only
 
@@ -304,8 +313,8 @@ is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(
     (n < 2) => false,
     true => {
-      i :: i32(2);
-      result :: true;
+      mut(i) :: i32(2);
+      mut(result) :: true;
       while(comptime((i * i) <= n), {
         cond(
           ((n % i) == 0) => {
@@ -325,6 +334,8 @@ is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
 comptime_assert(is_prime(2) == true, "2 is prime");
 comptime_assert(is_prime(17) == true, "17 is prime");
 comptime_assert(is_prime(18) == false, "18 is not prime");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ## Meta-programming
