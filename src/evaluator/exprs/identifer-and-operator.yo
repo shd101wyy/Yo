@@ -518,12 +518,12 @@ evaluate_identifier_and_operator :: (
     rr_kind := match(
       &ctx.expected_type,
       .Some(rr_et) => cond(
-        match(&rr_et.ty, Rc(.Reference(_, _, _)) => true, _ => false) => "reference",
+        match(&rr_et.ty, Rc(.Reference) => true, _ => false) => "reference",
         is_some_type(&rr_et.ty) => {
           rr_b := get_value_of_some_type_from_env(&rr_et.env, &rr_et.ty);
           cond(
             is_some_type(&rr_b) => "binder-unbound",
-            match(&rr_b, Rc(.Reference(_, _, _)) => true, _ => false) => "binder-reference",
+            match(&rr_b, Rc(.Reference) => true, _ => false) => "binder-reference",
             true => "binder-concrete"
           )
         },
@@ -641,7 +641,7 @@ evaluate_identifier_and_operator :: (
         .FunctionBody => {
           match(
             &ctx.captured_variables,
-            .Some(_) => {
+            .Some => {
               closure_frame_level := sub_env.frame_count();
               // Generation-safe INNER test: `variable.frame_level` is stamped
               // at the variable's CREATION env — for the enclosing fn's
@@ -711,7 +711,7 @@ evaluate_identifier_and_operator :: (
         .AsyncBlock => {
           match(
             &ctx.captured_variables,
-            .Some(_) => {
+            .Some => {
               async_frame_level := sub_env.frame_count();
               // Generation-safe INNER test — the SAME repair the FunctionBody
               // arm above carries (the dyn+Impl(Fn) capture loss), which this

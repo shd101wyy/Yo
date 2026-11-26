@@ -818,7 +818,7 @@ test("get_key_value returns the STORED key beside the value", {
   m.insert(i32(2), i32(20));
   assert(match(m.get_key_value(i32(1)), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "present key");
   assert(match(m.get_key_value(i32(2)), .Some(e) => (e.value == i32(20)), .None => false), "other key");
-  assert(match(m.get_key_value(i32(99)), .Some(_) => false, .None => true), "absent key is None");
+  assert(match(m.get_key_value(i32(99)), .Some => false, .None => true), "absent key is None");
   assert(m.len() == usize(2), "lookup does not mutate");
 });
 test("remove_entry hands back the entry it removed", {
@@ -828,7 +828,7 @@ test("remove_entry hands back the entry it removed", {
   assert(match(m.remove_entry(i32(1)), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "returns the entry");
   assert(m.len() == usize(1), "length shrank");
   assert(m.contains_key(i32(1)) == false, "the key is gone");
-  assert(match(m.remove_entry(i32(1)), .Some(_) => false, .None => true), "removing twice is None");
+  assert(match(m.remove_entry(i32(1)), .Some => false, .None => true), "removing twice is None");
   assert(match(m.remove_entry(i32(2)), .Some(e) => (e.value == i32(20)), .None => false), "the survivor removes");
   assert(m.is_empty() == true, "map is empty");
 });
@@ -844,7 +844,7 @@ test("entry reports occupancy and hands back the key", {
   });
   m.entry(i32(2), e => {
     assert(e.is_occupied() == false, "absent key is vacant");
-    assert(match(e.value(), .Some(_) => false, .None => true), "a vacant entry has no value");
+    assert(match(e.value(), .Some => false, .None => true), "a vacant entry has no value");
   });
 });
 test("entry.or_insert returns the stored value and inserts only when vacant", {
@@ -935,7 +935,7 @@ test("entry.remove takes the entry out of the map", {
   m.insert(i32(1), i32(10));
   assert(match(m.entry(i32(1), e => e.remove()), .Some(v) => (v == i32(10)), .None => false), "returns the value");
   assert(m.contains_key(i32(1)) == false, "the key is gone");
-  assert(match(m.entry(i32(1), e => e.remove()), .Some(_) => false, .None => true), "a vacant entry removes nothing");
+  assert(match(m.entry(i32(1), e => e.remove()), .Some => false, .None => true), "a vacant entry removes nothing");
 });
 test("entry inserts correctly across the resize its own insert triggers", {
   mut(m) := HashMap(i32, i32).with_capacity(usize(16));

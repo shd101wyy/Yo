@@ -10,7 +10,7 @@ test("a guard sees the pattern's bindings", {
       o,
       (.Some(v) && (v > i32(100))) => i32(2),
       (.Some(v) && (v > i32(10))) => i32(1),
-      .Some(_) => i32(0),
+      .Some => i32(0),
       .None => i32(-1)
     )
   );
@@ -75,7 +75,7 @@ test("guards on a compile-time scrutinee fold", {
   r :: match(
     K,
     (.Some(v) && (v > i32(100))) => i32(2),
-    .Some(_) => i32(1),
+    .Some => i32(1),
     .None => i32(0)
   );
   assert(r == i32(2));

@@ -114,7 +114,7 @@ _lv_span_end :: (fn(e : &AstExpr, w : &mut _LiveWalk) -> u64)({
   (m : u64) = _lv_pos(ast_expr_token(e), w);
   match(
     e,
-    Rc(.Atom(_, _)) => (),
+    Rc(.Atom) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       fe := recur(&func_box.*, w);
       if(fe > m, {
@@ -212,7 +212,7 @@ _lv_set_to_scope_end :: (fn(id : &String, w : &mut _LiveWalk) -> unit)(
 _lv_place_root :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e.clone(),
-    Rc(.Atom(_, _)) => Rc.clone(e.*),
+    Rc(.Atom) => Rc.clone(e.*),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => cond(
       ast_expr_is_fn_call_of(e.clone(), ".", Option(usize).Some(usize(2))) => match(args.get_cloned(usize(0)), .Some(obj) => recur(&obj), .None => Rc.clone(e.*)),
       true => recur(&func_box)
@@ -227,7 +227,7 @@ _lv_mark_scope :: (fn(e : &AstExpr, w : &mut _LiveWalk, context : &FunctionGener
       .Some(v) => _lv_set_to_scope_end(_lv_id(&v, w), w),
       .None => ()
     ),
-    Rc(.FnCall(_, _, _, _, _)) => ()
+    Rc(.FnCall) => ()
   )
 );
 /// A closure literal's capture list (`{ &x }(...) => body`, an `io.async`
@@ -239,23 +239,23 @@ _lv_mark_scope :: (fn(e : &AstExpr, w : &mut _LiveWalk, context : &FunctionGener
 _lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &mut _LiveWalk, context : &FunctionGenerationContext) -> unit)({
   entries := match(
     lhs,
-    Rc(.FnCall(_, cl_callee, _, _, _)) => match(cl_callee, Rc(.FnCall(_, _, Rc(ents), _, _)) => ents.clone(), Rc(.Atom(_, _)) => return(())),
-    Rc(.Atom(_, _)) => return(())
+    Rc(.FnCall(_, cl_callee, _, _, _)) => match(cl_callee, Rc(.FnCall(_, _, Rc(ents), _, _)) => ents.clone(), Rc(.Atom) => return(())),
+    Rc(.Atom) => return(())
   );
   (ei : usize) = usize(0);
   while(ei < entries.len(), ei = (ei + usize(1)), {
     ent := match(entries.get_cloned(ei), .Some(x) => x, .None => return(()));
     // The pun `&x` / `&mut x`, or `y : &place` / `z : &mut place`.
     place := cond(
-      ast_expr_is_capture_mode_entry(&ent) => match(ent, Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
+      ast_expr_is_capture_mode_entry(&ent) => match(ent, Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.get_cloned(usize(0)), Rc(.Atom) => Option(AstExpr).None),
       ast_expr_is_fn_call_of(&ent, ":", Option(usize).Some(usize(2))) => match(
         ent,
         Rc(.FnCall(_, _, Rc(la), _, _)) => if(
           match(la.get_cloned(usize(0)), .Some(lbl) => ast_expr_is_capture_mode_entry(&lbl), .None => false),
-          match(la.get_cloned(usize(1)), .Some(init) => match(init, Rc(.FnCall(_, _, Rc(ia), _, _)) => ia.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None), .None => Option(AstExpr).None),
+          match(la.get_cloned(usize(1)), .Some(init) => match(init, Rc(.FnCall(_, _, Rc(ia), _, _)) => ia.get_cloned(usize(0)), Rc(.Atom) => Option(AstExpr).None), .None => Option(AstExpr).None),
           Option(AstExpr).None
         ),
-        Rc(.Atom(_, _)) => Option(AstExpr).None
+        Rc(.Atom) => Option(AstExpr).None
       ),
       true => Option(AstExpr).None
     );
@@ -270,7 +270,7 @@ _lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &mu
             .Some(v) => _lv_set_to_scope_end(_lv_id(&v, w), w),
             .None => ()
           ),
-          Rc(.FnCall(_, _, _, _, _)) => ()
+          Rc(.FnCall) => ()
         );
       },
       .None => ()
@@ -398,7 +398,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &mut _LiveWal
           rhs := match(args.get_cloned(usize(1)), .Some(r) => r, .None => return(()));
           recur(rhs.clone(), stmt_end, block_end, w, context);
           lhs := match(args.get_cloned(usize(0)), .Some(l) => l, .None => return(()));
-          name_atom := match(lhs.clone(), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(n) => n, .None => lhs.clone()), Rc(.Atom(_, _)) => lhs.clone());
+          name_atom := match(lhs.clone(), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(n) => n, .None => lhs.clone()), Rc(.Atom) => lhs.clone());
           name := ast_expr_text(&name_atom).*.clone();
           match(
             _lv_resolve_keyed(ast_expr_id(name_atom.clone()), e.clone(), &name, w, context),
@@ -494,7 +494,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &mut _LiveWal
                     );
                     match(arm_args.get_cloned(usize(1)), .Some(body) => recur(&body, stmt_end, arm_end, w, context), .None => ());
                   },
-                  Rc(.Atom(_, _)) => ()
+                  Rc(.Atom) => ()
                 );
               }, {
                 recur(&a, stmt_end, block_end, w, context);
@@ -597,7 +597,7 @@ compute_cross_boundary_variables :: (
         }),
         .None => ()
       ),
-      Rc(.Atom(_, _)) => ()
+      Rc(.Atom) => ()
     );
   });
   (pi : usize) = usize(0);

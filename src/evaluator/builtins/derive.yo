@@ -268,7 +268,7 @@ call_registered_derive_rule :: (
         ti = (ti + usize(1));
       });
     },
-    Rc(.Atom(_, _)) => ()
+    Rc(.Atom) => ()
   );
   // Push a temp frame; all bindings below are comptime vars on it.
   _pf := push_env_frame(caller_env, false);
@@ -610,7 +610,7 @@ _evaluate_derive_executing :: (
   args := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
-    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+    Rc(.Atom) => ArrayList(AstExpr).new()
   );
   if(args.len() < usize(2), {
     exn.throw(
@@ -642,7 +642,7 @@ _evaluate_derive_executing :: (
     forall_params := match(
       forall_expr,
       Rc(.FnCall(_, _, Rc(fps), _, _)) => fps.clone(),
-      Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+      Rc(.Atom) => ArrayList(AstExpr).new()
     );
     _fr := env.push_frame(false);
     (fpi : usize) = usize(0);
@@ -657,12 +657,12 @@ _evaluate_derive_executing :: (
           Rc(.Atom(_, op_tok)) => cond(
             (op_tok.value.* == ":") => match(
               fa2.get_cloned(usize(0)),
-              .Some(na) => match(na, Rc(.Atom(_, ntok)) => ntok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")),
+              .Some(na) => match(na, Rc(.Atom(_, ntok)) => ntok.value.*.clone(), Rc(.FnCall) => String.from("")),
               .None => String.from("")
             ),
             true => String.from("")
           ),
-          Rc(.FnCall(_, _, _, _, _)) => String.from("")
+          Rc(.FnCall) => String.from("")
         )
       );
       if(fp_name.len() > usize(0), {
@@ -684,9 +684,9 @@ _evaluate_derive_executing :: (
               ),
               true => false
             ),
-            Rc(.FnCall(_, _, _, _, _)) => false
+            Rc(.FnCall) => false
           ),
-          Rc(.Atom(_, _)) => false
+          Rc(.Atom) => false
         );
         if(fp_kind_origin, {
           op_names := ArrayList(String).new();
@@ -709,7 +709,7 @@ _evaluate_derive_executing :: (
             match(
               fp,
               Rc(.FnCall(_, _, fa4, _, _)) => match(fa4.get_cloned(usize(1)), .Some(ka4) => is_maybe_sized_kind_spelling(&ka4), .None => false),
-              Rc(.Atom(_, _)) => false
+              Rc(.Atom) => false
             ),
             t_maybe_sized_kind(),
             Rc.new(TypeValueNode.TypeUni(usize(0)))
@@ -784,7 +784,7 @@ _evaluate_derive_executing :: (
   target_type := match(
     target_info.value(),
     .Some(Rc(.TypeVal(ty_box))) => Rc.clone(ty_box),
-    .Some(_) => {
+    .Some => {
       exn.throw(
         dyn(
           Box.new(
@@ -815,7 +815,7 @@ _evaluate_derive_executing :: (
   match(
     &target_type,
     Rc(.Struct({ id : _ })) => (),
-    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => (),
+    Rc(.EnumT) => (),
     _ => {
       exn.throw(
         dyn(

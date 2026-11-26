@@ -1453,7 +1453,7 @@ is_mut_lend_value :: (fn(id : ExprId) -> bool)(
 /// Turn the release on for `compile`'s shared table (or off with `.None`).
 scope_release_set_table :: (fn(t : &Option(ExprInfoTable)) -> unit)({
   _prev_table := g_scope_table.replace(t.clone());
-  g_scope_mode = match(t, .Some(_) => g_scope_mode_wanted, .None => usize(0));
+  g_scope_mode = match(t, .Some => g_scope_mode_wanted, .None => usize(0));
 });
 scope_release_active :: (fn() -> bool)(g_scope_mode != usize(0));
 /// The evaluator has just bound `name` in `env` at atom `key` (a `:=` lhs, a
@@ -1515,14 +1515,14 @@ _scope_log :: (fn(id : ExprId, info : &ExprInfo) -> unit)(
 _drop_target_atom_of :: (fn(d : &AstExpr) -> Option(AstExpr))(
   match(
     d,
-    Rc(.Atom(_, _)) => Option(AstExpr).None,
+    Rc(.Atom) => Option(AstExpr).None,
     Rc(.FnCall(_, func, Rc(args), _, _)) => cond(
       (args.len() == usize(0)) => match(
         func,
-        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(a0) => match(Rc.clone(a0), Rc(.Atom(_, _)) => Option(AstExpr).Some(Rc.clone(a0)), _ => Option(AstExpr).None), .None => Option(AstExpr).None),
-        Rc(.Atom(_, _)) => Option(AstExpr).None
+        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(a0) => match(Rc.clone(a0), Rc(.Atom) => Option(AstExpr).Some(Rc.clone(a0)), _ => Option(AstExpr).None), .None => Option(AstExpr).None),
+        Rc(.Atom) => Option(AstExpr).None
       ),
-      true => match(args.get_cloned(usize(0)), .Some(a0) => match(Rc.clone(a0), Rc(.Atom(_, _)) => Option(AstExpr).Some(Rc.clone(a0)), _ => Option(AstExpr).None), .None => Option(AstExpr).None)
+      true => match(args.get_cloned(usize(0)), .Some(a0) => match(Rc.clone(a0), Rc(.Atom) => Option(AstExpr).Some(Rc.clone(a0)), _ => Option(AstExpr).None), .None => Option(AstExpr).None)
     )
   )
 );
@@ -1823,7 +1823,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
   base
 });
 type_to_string_short :: (fn(ki : &Option(ExprInfo)) -> String)(
-  match(ki, .Some(k) => match(k.value(), .Some(_) => String.from("ct"), .None => String.from("rt")), .None => String.from("none"))
+  match(ki, .Some(k) => match(k.value(), .Some => String.from("ct"), .None => String.from("rt")), .None => String.from("none"))
 );
 _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) -> ArrayList(Variable))({
   truth := get_variables_from_env(env, name);
@@ -2394,7 +2394,7 @@ _mg_canon :: (fn(module_path : &String) -> String)({
     // file:// spelling's shape below; a relative path takes the prepend.
     has_drive := ((p.len() > usize(2)) && (p.substring(usize(1), usize(2)) == String.from(":")));
     if(!has_drive, {
-      base := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+      base := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
       // cwd() is backslashed on Windows — normalize to match the file://
       // spelling's separators.
       base = base.replace(String.from("\\"), String.from("/"));
@@ -2939,7 +2939,7 @@ lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
 register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)({
   match(
     g_trait_ctor_fids.with({ trait_id : &trait_id.* }(m) => m.get_cloned(trait_id.clone())),
-    .Some(_) => (),
+    .Some => (),
     .None => {
       trait_id_owned := trait_id.clone();
       ctor_fid_owned := ctor_fid.clone();
@@ -2963,7 +2963,7 @@ lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
 register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
   match(
     g_trait_type_args.with({ trait_id : &trait_id.* }(m) => m.get_cloned(trait_id.clone())),
-    .Some(_) => (),
+    .Some => (),
     .None => {
       trait_id_owned := trait_id.clone();
       args_owned := args.clone();
@@ -3225,7 +3225,7 @@ derive(SpecInstantiation, Clone);
 /// Record a module-level `:=` / `(x : T) = v` init expression for codegen.
 record_module_level_init_expr :: (fn(e : &AstExpr) -> unit)({
   eid := ast_expr_id(e);
-  already := match(g_module_level_init_seen.with(m => m.get(&eid)), .Some(_) => true, .None => false);
+  already := match(g_module_level_init_seen.with(m => m.get(&eid)), .Some => true, .None => false);
   if(!already, {
     g_module_level_init_seen.with_mut(m => m.insert(eid, true));
     mi_expr := Rc.clone(e.*);
@@ -3657,7 +3657,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
   });
   defines_fn := match(
     table.data.with({ &id }(m) => m.get_cloned(&id.*)),
-    .Some(info) => match(info.value(), .Some(v) => match(v, Rc(.FuncVal(_, _)) => true, _ => false), .None => false),
+    .Some(info) => match(info.value(), .Some(v) => match(v, Rc(.FuncVal) => true, _ => false), .None => false),
     .None => false
   );
   if(defines_fn, {
@@ -3675,7 +3675,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
         ai = (ai + usize(1));
       });
     },
-    Rc(.Atom(_, _)) => ()
+    Rc(.Atom) => ()
   );
 });
 /// Total entries across those tables (the B2 plateau test's probe).
@@ -3730,7 +3730,7 @@ _amr_bounds :: (fn(node : &AstExpr, reference : &Token, lo : Token, hi : Token) 
       });
       acc
     },
-    Rc(.Atom(_, _)) => (lo2, hi2)
+    Rc(.Atom) => (lo2, hi2)
   )
 });
 /// The earliest and the latest token of `node`'s tree in `reference`'s

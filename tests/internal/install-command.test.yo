@@ -78,7 +78,7 @@ test("parse_package_specifier: user/repo shorthand", {
       assert(url == "https://github.com/user/repo", "url");
       assert(req.is_none(), "no requirement → latest");
     },
-    .Path(_, _) => panic("expected git")
+    .Path => panic("expected git")
   );
 });
 test("parse_package_specifier: user/repo@v1.2.3 is an exact tag", {
@@ -88,19 +88,19 @@ test("parse_package_specifier: user/repo@v1.2.3 is an exact tag", {
       assert(url == "https://github.com/user/repo", "url without the suffix");
       match(req.unwrap(), .Tag(t) => assert(t == "v1.2.3", "tag"), _ => panic("expected a tag"));
     },
-    .Path(_, _) => panic("expected git")
+    .Path => panic("expected git")
   );
 });
 test("parse_package_specifier: user/repo@^1.2 is a version requirement", {
   match(
     _git("user/repo@^1.2"),
     .Git(_, _, req) => match(req.unwrap(), .Version(v) => assert(v == "^1.2", "range"), _ => panic("expected a version")),
-    .Path(_, _) => panic("expected git")
+    .Path => panic("expected git")
   );
   match(
     _git("user/repo@1.2.3"),
     .Git(_, _, req) => match(req.unwrap(), .Version(v) => assert(v == "1.2.3", "bare version is a range"), _ => panic("expected a version")),
-    .Path(_, _) => panic("expected git")
+    .Path => panic("expected git")
   );
 });
 test("parse_package_specifier: full https URL, github.com/ form, ssh remotes", {
@@ -110,12 +110,12 @@ test("parse_package_specifier: full https URL, github.com/ form, ssh remotes", {
       assert(name == "thing", "name strips .git");
       assert(url == "https://gitlab.com/group/thing.git", "url as written");
     },
-    .Path(_, _) => panic("expected git")
+    .Path => panic("expected git")
   );
   match(
     _git("github.com/user/repo"),
     .Git(_, url, _) => assert(url == "https://github.com/user/repo", "github.com/ prefix"),
-    .Path(_, _) => panic("expected git")
+    .Path => panic("expected git")
   );
   match(
     _git("git@github.com:user/repo.git"),
@@ -124,7 +124,7 @@ test("parse_package_specifier: full https URL, github.com/ form, ssh remotes", {
       assert(url == "git@github.com:user/repo.git", "the @ in the remote is not a version");
       assert(req.is_none(), "no requirement");
     },
-    .Path(_, _) => panic("expected git")
+    .Path => panic("expected git")
   );
   match(
     _git("git@github.com:user/repo.git@~2"),
@@ -132,7 +132,7 @@ test("parse_package_specifier: full https URL, github.com/ form, ssh remotes", {
       assert(url == "git@github.com:user/repo.git", "remote kept");
       match(req.unwrap(), .Version(v) => assert(v == "~2", "suffix"), _ => panic("expected a version"));
     },
-    .Path(_, _) => panic("expected git")
+    .Path => panic("expected git")
   );
 });
 test("parse_package_specifier: local path", {
@@ -142,7 +142,7 @@ test("parse_package_specifier: local path", {
       assert(name == "mylib", "name");
       assert(rel == "./libs/mylib", "path as written");
     },
-    .Git(_, _, _) => panic("expected path")
+    .Git => panic("expected path")
   );
 });
 test("parse_package_specifier: invalid specifiers are errors", {

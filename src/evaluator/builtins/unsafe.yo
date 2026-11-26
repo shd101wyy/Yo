@@ -79,7 +79,7 @@ evaluate_unsafe :: (
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   // Evaluate the argument with the unsafe context enabled, then restore.
   old_unsafe := ctx.unsafe_context;
@@ -101,7 +101,7 @@ evaluate_unsafe :: (
         )
       );
     },
-    .Some(_) => ()
+    .Some => ()
   );
   arg_info := match(info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(env, t_i32()));
   // `unsafe(...)` is transparent — propagate the inner expression's full

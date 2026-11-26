@@ -98,7 +98,7 @@ test("Url parse empty input returns EmptyInput", {
   assert(
     match(
       Url.parse(String.from("")),
-      .Ok(_) => false,
+      .Ok => false,
       .Err(e) => match(e, .EmptyInput => true, _ => false)
     ),
     "empty input is EmptyInput"
@@ -108,7 +108,7 @@ test("Url parse missing scheme returns MissingScheme", {
   assert(
     match(
       Url.parse(String.from("://example.com")),
-      .Ok(_) => false,
+      .Ok => false,
       .Err(e) => match(e, .MissingScheme => true, _ => false)
     ),
     "a URL with no scheme is MissingScheme"
@@ -118,7 +118,7 @@ test("Url parse invalid port returns InvalidPort", {
   assert(
     match(
       Url.parse(String.from("http://example.com:abc")),
-      .Ok(_) => false,
+      .Ok => false,
       .Err(e) => match(e, .InvalidPort => true, _ => false)
     ),
     "a non-numeric port is InvalidPort"
@@ -128,7 +128,7 @@ test("Url parse port out of range returns InvalidPort", {
   assert(
     match(
       Url.parse(String.from("http://example.com:99999")),
-      .Ok(_) => false,
+      .Ok => false,
       .Err(e) => match(e, .InvalidPort => true, _ => false)
     ),
     "a port above 65535 is InvalidPort"
@@ -216,7 +216,7 @@ test("Url UrlError to_string", {
 _parse_err :: (fn(src : &String) -> Option(String))(
   // D13: `Url.parse` returns a Result, so capturing the reason no longer
   // needs an Exception handler that unwinds out of the helper.
-  match(Url.parse(src), .Ok(_) => Option(String).None, .Err(e) => Option(String).Some(e.to_string()))
+  match(Url.parse(src), .Ok => Option(String).None, .Err(e) => Option(String).Some(e.to_string()))
 );
 _assert_invalid_at :: (fn(src : &String, at : usize, label : &String) -> unit)({
   want := (String.from("URL error: invalid character at position ") + at.to_string());
@@ -423,7 +423,7 @@ test("Url setters reject a raw CRLF — the request-splitting vector", {
   crlf := `/a\r\nX-Injected: 1`;
   match(
     u.set_path(&crlf),
-    .Ok(_) => assert(false, "a raw CRLF must be rejected"),
+    .Ok => assert(false, "a raw CRLF must be rejected"),
     .Err(e) =>
       match(
         e,

@@ -736,7 +736,7 @@ _build_is_trial :: (
       .None => {
         trial = true;
       },
-      .Some(Rc(.UnknownVal(_, _))) => {
+      .Some(Rc(.UnknownVal)) => {
         trial = true;
       },
       _ => ()
@@ -873,7 +873,7 @@ _build_extract_variant :: (
     .Some(Rc(.EnumVal(variant, _))) => Option(String).Some(
       if(variant.starts_with(String.from(".")), variant.substring(usize(1), variant.len()), variant.clone())
     ),
-    .Some(_) => Option(String).None,
+    .Some => Option(String).None,
     .None => Option(String).None
   )
 );
@@ -1028,7 +1028,7 @@ evaluate_yo_build_functions :: (
   args := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
-    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+    Rc(.Atom) => ArrayList(AstExpr).new()
   );
   // ── Trial evaluation (function-definition type-check) ───────────────
   // target_host returns the host triple, option returns "", everything
@@ -1067,7 +1067,7 @@ evaluate_yo_build_functions :: (
     parsed := match(
       parse_target(&triple),
       .Ok(t) => t.triple.clone(),
-      .Err(_) => triple
+      .Err => triple
     );
     return(_build_string_result(expr, env, ctx, &parsed));
   });

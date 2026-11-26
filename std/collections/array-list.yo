@@ -400,8 +400,8 @@ impl(
   )(
     match(
       Self.try_push(self, value),
-      .Ok(_) => (),
-      .Err(_) => __yo_panic("ArrayList.push: allocation failed")
+      .Ok => (),
+      .Err => __yo_panic("ArrayList.push: allocation failed")
     )
   ),
   /// Remove and return the last element, or `.None` when empty — O(1), and
@@ -475,7 +475,7 @@ impl(
             match(
               self._ptr,
               .None => __yo_panic("ArrayList has capacity but no ptr"),
-              .Some(_) => {
+              .Some => {
                 new_some_ptr := self._buf_resize(size_of(T) * self._length);
                 match(
                   new_some_ptr,

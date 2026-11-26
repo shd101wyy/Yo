@@ -362,7 +362,7 @@ test("the build's default C compiler is probed, not the literal clang", {
   // tests/internal/compile.test.yo. `copy` carries the exec bits along.
   match(
     env.get(`YO_FAKE_BUILD_CC_MODE`),
-    .Some(_) => {
+    .Some => {
       // Child mode — a fake C compiler: the availability probe only checks
       // the exit status, so succeed without producing anything.
       unsafe(exit(int(0)));
@@ -391,7 +391,7 @@ test("the build's default C compiler is probed, not the literal clang", {
       }
     )
   );
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
   // Arm the child gate AFTER this body's own check has run: every probe
   // child inherits it and exits at the gate instead of re-running the file.
   _svm := env.set(String.from("YO_FAKE_BUILD_CC_MODE"), String.from("1"));

@@ -52,7 +52,7 @@ test("a guarded, nested, or-pattern and named binding points into the scrutinee 
   pn := match(&h.v, .Some(_P(a : aa, b : _, c : _)) => addr_of(aa.*), .None => panic("the struct pattern"));
   pn.* = i32(12);
   assert(_a_of(&h) == i32(12), "a nested struct pattern's binding");
-  pw := match(&h.v, (w := .Some(_)) => addr_of(w.*), .None => panic("the named pattern"));
+  pw := match(&h.v, (w := .Some) => addr_of(w.*), .None => panic("the named pattern"));
   pw.* = .None;
   assert(_a_of(&h) == i32(-1), "a named pattern's binding is the whole place");
 });

@@ -13,8 +13,8 @@
 { Instant } :: import("std/time/instant");
 _some_eq :: (fn(o : Option(i32), want : i32) -> bool)(match(o, .Some(v) => (v == want), .None => false));
 _some_eq_u8 :: (fn(o : Option(u8), want : u8) -> bool)(match(o, .Some(v) => (v == want), .None => false));
-_none_i32 :: (fn(o : Option(i32)) -> bool)(match(o, .Some(_) => false, .None => true));
-_none_u8 :: (fn(o : Option(u8)) -> bool)(match(o, .Some(_) => false, .None => true));
+_none_i32 :: (fn(o : Option(i32)) -> bool)(match(o, .Some => false, .None => true));
+_none_u8 :: (fn(o : Option(u8)) -> bool)(match(o, .Some => false, .None => true));
 _M1 :: (i32(0) - i32(1));
 test("checked_add reports signed and unsigned overflow", {
   assert(_some_eq(i32(1).checked_add(i32(2)), i32(3)), "1+2=3");
@@ -115,8 +115,8 @@ test("clamp bounds a value into a range", {
 _some_eq_usize :: (
   fn(o : Option(usize), want : usize) -> bool
 )(match(o, .Some(v) => (v == want), .None => false));
-_none_usize :: (fn(o : Option(usize)) -> bool)(match(o, .Some(_) => false, .None => true));
-_none_u32 :: (fn(o : Option(u32)) -> bool)(match(o, .Some(_) => false, .None => true));
+_none_usize :: (fn(o : Option(usize)) -> bool)(match(o, .Some => false, .None => true));
+_none_u32 :: (fn(o : Option(u32)) -> bool)(match(o, .Some => false, .None => true));
 _some_eq_u32 :: (
   fn(o : Option(u32), want : u32) -> bool
 )(match(o, .Some(v) => (v == want), .None => false));
@@ -242,7 +242,7 @@ test("usize and isize use their TARGET width, not a hardcoded 64", {
 // ===========================================================================
 // Arithmetic part 2
 // ===========================================================================
-_none_i64 :: (fn(o : Option(i64)) -> bool)(match(o, .Some(_) => false, .None => true));
+_none_i64 :: (fn(o : Option(i64)) -> bool)(match(o, .Some => false, .None => true));
 _some_eq_i64 :: (
   fn(o : Option(i64), want : i64) -> bool
 )(match(o, .Some(v) => (v == want), .None => false));

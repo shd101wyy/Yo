@@ -1398,7 +1398,7 @@ export(
 canonical_module_path :: (fn(p : &String) -> String)({
   stripped := p.replace(String.from("file://"), String.new());
   abs := if(Path.new(stripped.clone()).is_absolute(), stripped, {
-    cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+    cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
     Path.new(&cwd_str).join(Path.new(&stripped)).to_string()
   });
   Path.new(&abs).normalize().to_string()
@@ -1416,7 +1416,7 @@ canonical_module_path :: (fn(p : &String) -> String)({
 /// See `issues/fixed/verify-report-fn-id-carries-file-scheme-absolute-path.md`.
 display_module_path :: (fn(p : &String) -> String)({
   canon := canonical_module_path(p);
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.new());
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.new());
   if(cwd_str.len() == usize(0), {
     return(canon);
   });

@@ -239,8 +239,8 @@ impl(
         entry := MapEntry(K, V)(key : key, value : value);
         match(
           self._entries.try_push(entry),
-          .Err(_) => Result(Option(V), HashMapError).Err(.AllocError(error : .OutOfMemory)),
-          .Ok(_) => {
+          .Err => Result(Option(V), HashMapError).Err(.AllocError(error : .OutOfMemory)),
+          .Ok => {
             self._index_add(h, pos);
             Result(Option(V), HashMapError).Ok(Option(V).None)
           }
@@ -257,7 +257,7 @@ impl(
     match(
       Self.try_insert(self, key, value),
       .Ok(prev) => prev,
-      .Err(_) => __yo_panic("OrderedMap.insert: allocation failed")
+      .Err => __yo_panic("OrderedMap.insert: allocation failed")
     )
   ),
   /// Remove `key`, keeping the insertion order of everything else — Rust's

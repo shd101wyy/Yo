@@ -123,7 +123,7 @@ _is_init_assignment :: (fn(arg : &AstExpr) -> bool)(
     ast_expr_is_fn_call_of(arg, BF_UNSAFE, Option(usize).Some(usize(1))) => match(
       arg,
       Rc(.FnCall(_, _, Rc(uargs), _, _)) => match(uargs.get_cloned(usize(0)), .Some(inner) => recur(&inner), .None => false),
-      Rc(.Atom(_, _)) => false
+      Rc(.Atom) => false
     ),
     true => false
   )
@@ -192,7 +192,7 @@ evaluate_consume :: (
   (cur_env : Environment) = match(&arg_info_opt, .Some(i) => expr_info_adopt_env(&i.*), .None => Rc.clone(env));
   match(
     &arg_info_opt,
-    .Some(_) => (),
+    .Some => (),
     .None => {
       exn.throw(
         dyn(
@@ -211,7 +211,7 @@ evaluate_consume :: (
     &arg_info_opt,
     .Some(info) => match(
       info.value(),
-      .Some(v) => match(v, Rc(.TypeVal(_)) => true, _ => false),
+      .Some(v) => match(v, Rc(.TypeVal) => true, _ => false),
       .None => false
     ),
     .None => false

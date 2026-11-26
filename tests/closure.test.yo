@@ -333,7 +333,7 @@ impl(
     Self(_slot : ch)
   }),
   take : (fn(self : &Self, fallback : &T) -> T)(
-    match(self._slot.try_recv(), .Ok(r) => r, .Err(_) => fallback.*)
+    match(self._slot.try_recv(), .Ok(r) => r, .Err => fallback.*)
   )
 );
 test("a generic impl method's capturing closure compiles and runs", {

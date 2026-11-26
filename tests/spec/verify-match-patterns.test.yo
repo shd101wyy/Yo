@@ -22,9 +22,9 @@ pick_lit :: (fn(s : Shape, ensures(r >= i32(0))) -> (r : i32))(
     s,
     .Circle(1) => i32(10),
     .Circle(2) => i32(20),
-    .Circle(_) => i32(30),
-    .Square(_) => i32(40),
-    .Point(_, _) => i32(50)
+    .Circle => i32(30),
+    .Square => i32(40),
+    .Point => i32(50)
   )
 );
 
@@ -46,8 +46,8 @@ pick_nested :: (fn(w : Wrap, ensures(r >= i32(0))) -> (r : i32))(
 pick_or :: (fn(s : Shape, ensures(r >= i32(0))) -> (r : i32))(
   match(
     s,
-    (.Circle(_) | .Square(_)) => i32(1),
-    .Point(_, _) => i32(2)
+    (.Circle | .Square) => i32(1),
+    .Point => i32(2)
   )
 );
 
@@ -56,9 +56,9 @@ pick_guard :: (fn(s : Shape, ensures(r >= i32(5))) -> (r : i32))(
   match(
     s,
     (.Circle(r) && (r > i32(5))) => r,
-    .Circle(_) => i32(5),
-    .Square(_) => i32(6),
-    .Point(_, _) => i32(7)
+    .Circle => i32(5),
+    .Square => i32(6),
+    .Point => i32(7)
   )
 );
 

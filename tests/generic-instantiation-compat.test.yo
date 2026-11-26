@@ -27,14 +27,14 @@ take_c :: (fn(r : &Result(i32, CErr)) -> i32)(
   match(
     r,
     .Ok(v) => v.*,
-    .Err(_) => i32(-1)
+    .Err => i32(-1)
   )
 );
 take_b :: (fn(r : Result(i32, BErr)) -> i32)(
   match(
     r,
     .Ok(v) => v,
-    .Err(_) => i32(-1)
+    .Err => i32(-1)
   )
 );
 test("Result instantiations over structurally different payloads are distinct", {
@@ -85,10 +85,10 @@ test("same-shaped twin enums: instantiations are distinct too (with the nominal 
 test("same instantiation stays compatible, and generics with placeholders still type", {
   a1 := fa(true);
   (a2 : Result(i32, AErr)) = a1;
-  assert(match(a2, .Err(e) => match(e, .Boom({ code }) => (code == i32(1)), .Quiet => false), .Ok(_) => false), "same instantiation assignable");
+  assert(match(a2, .Err(e) => match(e, .Boom({ code }) => (code == i32(1)), .Quiet => false), .Ok => false), "same instantiation assignable");
   // A generic helper over any Result — its parameter is a placeholder, so
   // every instantiation flows through it.
-  is_ok :: (fn(generic(T : Type, E : Type), r : &Result(T, E)) -> bool)(match(r, .Ok(_) => true, .Err(_) => false));
+  is_ok :: (fn(generic(T : Type, E : Type), r : &Result(T, E)) -> bool)(match(r, .Ok => true, .Err => false));
   assert(is_ok(fa(false)), "AErr result through a generic");
   assert(!is_ok(Result(i32, CErr).Err(CErr.Silent)), "CErr result through the same generic");
   assert(!is_ok(Result(i32, BErr).Err(BErr.Quiet)), "BErr result through the same generic");

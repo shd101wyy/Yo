@@ -204,7 +204,7 @@ _verdict_of_json :: (fn(v : &JsonValue) -> Option(VerifyVerdict))({
   kind := match(
     v.get(String.from("verdict")),
     .Some(.Str(s)) => s.clone(),
-    .Some(_) => String.new(),
+    .Some => String.new(),
     .None => String.new()
   );
   if(kind.len() == usize(0), {
@@ -224,13 +224,13 @@ _verdict_of_json :: (fn(v : &JsonValue) -> Option(VerifyVerdict))({
     (kind == "unproven") => match(
       v.get(String.from("reason")),
       .Some(.Str(r)) => Option(VerifyVerdict).Some(VerifyVerdict.Unproven(r.clone())),
-      .Some(_) => Option(VerifyVerdict).None,
+      .Some => Option(VerifyVerdict).None,
       .None => Option(VerifyVerdict).None
     ),
     (kind == "solver-error") => match(
       v.get(String.from("message")),
       .Some(.Str(m)) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())),
-      .Some(_) => Option(VerifyVerdict).None,
+      .Some => Option(VerifyVerdict).None,
       .None => Option(VerifyVerdict).None
     ),
     true => Option(VerifyVerdict).None
@@ -336,7 +336,7 @@ _cache_lookup :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, solver : &String) -> 
         ),
         .None => Option(VerifyResult).None
       ),
-      .Err(_) => Option(VerifyResult).None
+      .Err => Option(VerifyResult).None
     )
   )
 });
@@ -376,9 +376,9 @@ SolverAnswer :: struct(verdict : VerifyVerdict, cacheable : bool);
 /// every SolverError are not stored either.
 solver_answer_of_response :: (fn(response : &String, opts : &EncodeOptions) -> SolverAnswer)({
   verdict := verdict_of_response(response);
-  is_unknown := match(&verdict, .Unproven(_) => true, _ => false);
+  is_unknown := match(&verdict, .Unproven => true, _ => false);
   if(!is_unknown, {
-    conclusive := match(&verdict, .SolverError(_) => false, _ => true);
+    conclusive := match(&verdict, .SolverError => false, _ => true);
     return(SolverAnswer(verdict : verdict, cacheable : conclusive));
   });
   forms := parse_z3_sexprs(response);
@@ -458,7 +458,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
   answer := _solve(q, cfg.encode_opts, binary);
   match(
     &answer.verdict,
-    .Unproven(_) => {
+    .Unproven => {
       retry_opts := EncodeOptions(
         rlimit : (cfg.encode_opts.rlimit * usize(20)),
         random_seed : cfg.encode_opts.random_seed,
@@ -781,7 +781,7 @@ _proved_ensures :: (fn(obligations : &ArrayList(VerifyFnObligation)) -> ArrayLis
   for(&obligations, obl => {
     match(
       &obl.verdict,
-      .Proved(_) => {
+      .Proved => {
         idx_opt := _ens_obligation_index(obl.name.clone());
         match(
           idx_opt,
@@ -838,7 +838,7 @@ record_elidable_guard_sites :: (fn(reports : &ArrayList(VerifyFnReport)) -> usiz
   for(&reports, rp => {
     if(rp.outcome == "ok", {
       for(&rp.obligations, obl => {
-        proved := match(&obl.verdict, .Proved(_) => true, _ => false);
+        proved := match(&obl.verdict, .Proved => true, _ => false);
         match(
           &obl.site,
           .Some(gs) => if(proved && obl.elidable, {
@@ -1026,10 +1026,10 @@ verify_and_strip_tasks :: (
                 // 0 ok < 1 unproven < 2 solver-error < 3 refuted
                 rank := match(
                   &r.verdict,
-                  .Proved(_) => usize(0),
-                  .Unproven(_) => usize(1),
-                  .SolverError(_) => usize(2),
-                  .Refuted(_) => usize(3)
+                  .Proved => usize(0),
+                  .Unproven => usize(1),
+                  .SolverError => usize(2),
+                  .Refuted => usize(3)
                 );
                 if((rank > worst) && !obl.elision_only, {
                   worst = rank;

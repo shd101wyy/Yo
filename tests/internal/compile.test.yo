@@ -40,7 +40,7 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 test("the --sanitize address probe consults the chosen --c-compiler, not the system cc", {
   match(
     env.get(`YO_FAKE_CC_MODE`),
-    .Some(_) => {
+    .Some => {
       // Child mode — the fake C compiler. One log line per invocation.
       cc_argv := args();
       (mut(saw_asan_flag) : bool) = false;
@@ -90,7 +90,7 @@ test("the --sanitize address probe consults the chosen --c-compiler, not the sys
       }
     )
   );
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
   scratch := `${cwd_str}/tmp-asan-probe-it`;
   io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
   log_path := `${scratch}/fake-cc.log`;
@@ -180,7 +180,7 @@ test("a value enum's drop and dup are one function each, not a switch per site",
       }
     )
   );
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
   scratch := `${cwd_str}/tmp-venum-drop-it`;
   io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
   fixture := String.from(
@@ -238,7 +238,7 @@ test("a specialization reached through a call gets the hashed C name, not its ra
       }
     )
   );
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
   scratch := `${cwd_str}/tmp-long-fn-name-it`;
   io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
   fixture := String.from(
@@ -314,7 +314,7 @@ test("a code spill that is gone or holds other bytes fails the compile", {
     )
   );
   assert(code_spill_path_for(String.from("out/app")) == `out/app.${pid().to_string()}.yo-code-spill`, "the spill path carries this process's pid");
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
   scratch := `${cwd_str}/tmp-code-spill-check-it`;
   io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
   spill := `${scratch}/app.spill`;
@@ -341,7 +341,7 @@ test("a compile splices only its own spill, by its byte count, and removes dead 
       }
     )
   );
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
   scratch := `${cwd_str}/tmp-code-spill-own-it`;
   io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
   fixture := String.from("{ println } :: import(\"std/fmt\");\nmain :: (fn() -> unit)({\n  println(\"hi\");\n});\nexport(main);\n");

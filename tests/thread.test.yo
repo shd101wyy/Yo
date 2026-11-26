@@ -297,7 +297,7 @@ _spawn_zst_relay :: (
 test("Thread spawn relaying a generic callback's result at T = unit", {
   c := _spawn_zst_relay((io : Io) => ());
   assert(
-    match(c.try_recv(), .Ok(_) => true, .Err(_) => false),
+    match(c.try_recv(), .Ok => true, .Err => false),
     "the unit result reached the channel"
   );
 });
@@ -306,7 +306,7 @@ test("Thread spawn relaying a generic callback's result at T = i32", {
   // ZST case compile by erasing the result type would break this one.
   c := _spawn_zst_relay((io : Io) => i32(1234));
   assert(
-    match(c.try_recv(), .Ok(v) => (v == i32(1234)), .Err(_) => false),
+    match(c.try_recv(), .Ok(v) => (v == i32(1234)), .Err => false),
     "the i32 result reached the channel intact"
   );
 });
@@ -397,10 +397,10 @@ test("Test rand draws from a PER-THREAD generator, not a shared locked one", {
     _ := c.send(rand_u64());
   });
   t2.join();
-  a1 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));
-  a2 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));
-  b1 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));
-  b2 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));
+  a1 := match(c.try_recv(), .Ok(v) => v, .Err => u64(0));
+  a2 := match(c.try_recv(), .Ok(v) => v, .Err => u64(0));
+  b1 := match(c.try_recv(), .Ok(v) => v, .Err => u64(0));
+  b2 := match(c.try_recv(), .Ok(v) => v, .Err => u64(0));
   // Each thread's own two draws differ: its generator advanced.
   assert(a1 != a2, "a thread's generator advances between draws");
   assert(b1 != b2, "and so does the second thread's");
@@ -566,12 +566,12 @@ test("Channel(V) of a move-only value: send, try_send, recv, try_recv, a rejecte
     _ := ch.try_send(_ThOnceTok(n : i32(2)));
     match(ch.recv(), .Some(a) => assert(a.n == i32(1), "recv: oldest first"), .None => assert(false, "recv: missing"));
     assert(_th_disposed() == (before + usize(1)), "the received value is dropped once, at its arm's end");
-    match(ch.try_recv(), .Ok(b) => assert(b.n == i32(2), "try_recv"), .Err(_) => assert(false, "try_recv: missing"));
+    match(ch.try_recv(), .Ok(b) => assert(b.n == i32(2), "try_recv"), .Err => assert(false, "try_recv: missing"));
     assert(_th_disposed() == (before + usize(2)), "try_recv's value is dropped once");
     _ := ch.send(_ThOnceTok(n : i32(3)));
     _ := ch.send(_ThOnceTok(n : i32(4)));
     ch.close();
-    match(ch.send(_ThOnceTok(n : i32(5))), .Ok(_) => assert(false, "a closed channel takes nothing"), .Err(t) => assert(t.n == i32(5), "the rejected value comes back"));
+    match(ch.send(_ThOnceTok(n : i32(5))), .Ok => assert(false, "a closed channel takes nothing"), .Err(t) => assert(t.n == i32(5), "the rejected value comes back"));
     assert(_th_disposed() == (before + usize(3)), "the rejected value is dropped once, by the caller");
   };
   assert(_th_disposed() == (before + usize(5)), "the two buffered values are dropped once, with the channel");
@@ -586,9 +586,9 @@ test("Sender(V)/Receiver(V) carry a move-only value across a thread", {
     });
     w.join();
   };
-  match(rx.recv(), .Ok(t) => assert(t.n == i32(7), "the sent value"), .Err(_) => assert(false, "the value is missing"));
+  match(rx.recv(), .Ok(t) => assert(t.n == i32(7), "the sent value"), .Err => assert(false, "the value is missing"));
   assert(_th_disposed() == (before + usize(1)), "the value is dropped once, by the receiver");
-  match(rx.recv(), .Ok(_) => assert(false, "only one value was sent"), .Err(e) => assert(e == TryRecvError.Disconnected, "the last sender closed the channel"));
+  match(rx.recv(), .Ok => assert(false, "only one value was sent"), .Err(e) => assert(e == TryRecvError.Disconnected, "the last sender closed the channel"));
 });
 // ============================================================================
 // `String` and `ArrayList` are values (B8, lookahead D25's replacement probe)
@@ -626,7 +626,7 @@ test("a String moves through a Channel(String) across a thread", {
     });
     w.join();
   };
-  match(rx.recv(), .Ok(m) => assert(m == String.from("hello"), "the sent String"), .Err(_) => assert(false, "the String is missing"));
+  match(rx.recv(), .Ok(m) => assert(m == String.from("hello"), "the sent String"), .Err => assert(false, "the String is missing"));
 });
 // Use after the move is E0901.
 comptime_expect_error({

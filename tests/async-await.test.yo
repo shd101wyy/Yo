@@ -6192,7 +6192,7 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
         needs_latest = true;
       }
     );
-    is_path := match(&parsed, .Path(_, _) => true, .Git(_, _) => false);
+    is_path := match(&parsed, .Path => true, .Git => false);
     (mut(version) : String) = String.new();
     (mut(present) : bool) = false;
     if(is_path, {
@@ -6203,7 +6203,7 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
       v := e.io.await(_mm_latest(url.clone(), e.io), e);
       version = v;
     });
-    kind := match(parsed, .Path(_, _) => "path", .Git(_, _) => "git");
+    kind := match(parsed, .Path => "path", .Git => "git");
     `${kind} ${name} ${url} ${version} ${present.to_string()}`
   })
 });
@@ -6225,7 +6225,7 @@ _match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Futur
       src := srcs_owned(i).clone();
       i = (i + usize(1));
       requirement := match(&src, .Git(_, t) => t.clone(), .Path(p) => p.clone());
-      url := match(src, .Git(u, _) => u, .Path(_) => String.from("local"));
+      url := match(src, .Git(u, _) => u, .Path => String.from("local"));
       (mut(chosen) : String) = requirement.clone();
       if(requirement.len() == usize(0), {
         listed := e.io.await(_mm_tags_of(url.clone(), e.io), e);
@@ -7359,7 +7359,7 @@ _if_relay :: (
       _ := sink.send(cb());
       ()
     });
-    match(chan.try_recv(), .Ok(v) => v, .Err(_) => __yo_panic("no value"))
+    match(chan.try_recv(), .Ok(v) => v, .Err => __yo_panic("no value"))
   })
 );
 test("an Impl(Fn) parameter captured inside a no-await io.async block", {
@@ -7560,7 +7560,7 @@ _wrong_branch_cond_match :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     d := Option(usize).Some(usize(0));
     (mut(n) : i32) = i32(0);
     cond(
-      match(d, .Some(_) => true, .None => false) => {
+      match(d, .Some => true, .None => false) => {
         _x := io.await(_wrong_branch_inner(io), io);
         n = i32(1);
       },
@@ -7575,7 +7575,7 @@ _wrong_branch_if_match :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     d := Option(usize).Some(usize(0));
     (mut(n) : i32) = i32(2);
-    if(match(d, .Some(_) => true, .None => false), {
+    if(match(d, .Some => true, .None => false), {
       _x := io.await(_wrong_branch_inner(io), io);
       n = i32(1);
     });

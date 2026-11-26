@@ -37,7 +37,7 @@ test("AnyError.is over a second error type", {
 test("downcast recovers the value, which is what is(T) tests for", {
   (e : AnyError) = dyn(Box.new(NotFound(path : `/etc/hosts`)));
   assert(match(downcast(&e.*, NotFound), .Some(nf) => (nf.path == `/etc/hosts`), .None => false), "the payload survives");
-  assert(match(downcast(&e.*, Denied), .Some(_) => false, .None => true), "and the wrong type gives None");
+  assert(match(downcast(&e.*, Denied), .Some => false, .None => true), "and the wrong type gives None");
 });
 test("Context renders its message ahead of the cause", {
   (inner : AnyError) = dyn(Box.new(NotFound(path : `cfg.toml`)));
@@ -59,7 +59,7 @@ test("Context overrides source, and the cause is reachable inline", {
 });
 test("an error that does NOT override source reports none", {
   (e : AnyError) = dyn(Box.new(NotFound(path : `x`)));
-  assert(match(e.source(), .Some(_) => false, .None => true), "the trait default is .None");
+  assert(match(e.source(), .Some => false, .None => true), "the trait default is .None");
 });
 test("AnyError.is sees Context itself, not its cause", {
   (inner : AnyError) = dyn(Box.new(NotFound(path : `x`)));

@@ -1065,8 +1065,8 @@ test("ensure_total_capacity keeps doubling and preserves elements", {
 });
 test("first/last return the ends, .None when empty", {
   e := ArrayList(i32).new();
-  assert(match(e.first(), .Some(_) => false, .None => true), "empty first is None");
-  assert(match(e.last(), .Some(_) => false, .None => true), "empty last is None");
+  assert(match(e.first(), .Some => false, .None => true), "empty first is None");
+  assert(match(e.last(), .Some => false, .None => true), "empty last is None");
   mut(l) := ArrayList(i32).new();
   l.push(i32(10));
   l.push(i32(20));
@@ -1274,12 +1274,12 @@ test("binary_search_by finds a match and reports the insertion point otherwise",
   while(i < i32(10), i = (i + i32(1)), {
     xs.push(i * i32(2));
   });
-  assert(match(xs.binary_search_by(v => v.cmp(i32(6))), .Ok(at) => (at == usize(3)), .Err(_) => false), "an even target is found at its index");
-  assert(match(xs.binary_search_by(v => v.cmp(i32(0))), .Ok(at) => (at == usize(0)), .Err(_) => false), "the first element is found");
-  assert(match(xs.binary_search_by(v => v.cmp(i32(18))), .Ok(at) => (at == usize(9)), .Err(_) => false), "the last element is found");
-  assert(match(xs.binary_search_by(v => v.cmp(i32(7))), .Ok(_) => false, .Err(at) => (at == usize(4))), "an absent target reports where it would go");
-  assert(match(xs.binary_search_by(v => v.cmp(i32(-1))), .Ok(_) => false, .Err(at) => (at == usize(0))), "below the range inserts at the front");
-  assert(match(xs.binary_search_by(v => v.cmp(i32(100))), .Ok(_) => false, .Err(at) => (at == usize(10))), "above the range inserts at the end");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(6))), .Ok(at) => (at == usize(3)), .Err => false), "an even target is found at its index");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(0))), .Ok(at) => (at == usize(0)), .Err => false), "the first element is found");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(18))), .Ok(at) => (at == usize(9)), .Err => false), "the last element is found");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(7))), .Ok => false, .Err(at) => (at == usize(4))), "an absent target reports where it would go");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(-1))), .Ok => false, .Err(at) => (at == usize(0))), "below the range inserts at the front");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(100))), .Ok => false, .Err(at) => (at == usize(10))), "above the range inserts at the end");
 });
 test("binary_search_by searches without constructing a T", {
   // The point of the `_by` form: the comparator closes over a key, so nothing
@@ -1288,8 +1288,8 @@ test("binary_search_by searches without constructing a T", {
   xs.push(`a`);
   xs.push(`bb`);
   xs.push(`cccc`);
-  assert(match(xs.binary_search_by(s => s.len().cmp(usize(2))), .Ok(at) => (at == usize(1)), .Err(_) => false), "found by key");
-  assert(match(xs.binary_search_by(s => s.len().cmp(usize(3))), .Ok(_) => false, .Err(at) => (at == usize(2))), "and reports the gap");
+  assert(match(xs.binary_search_by(s => s.len().cmp(usize(2))), .Ok(at) => (at == usize(1)), .Err => false), "found by key");
+  assert(match(xs.binary_search_by(s => s.len().cmp(usize(3))), .Ok => false, .Err(at) => (at == usize(2))), "and reports the gap");
 });
 // ===== chunks / windows =====
 _drain_lens :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := ArrayList(i32)))) -> ArrayList(usize))({

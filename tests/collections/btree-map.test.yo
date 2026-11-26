@@ -268,8 +268,8 @@ test("pop_first/pop_last remove from the sorted ends", {
   assert(m.len() == usize(1), "pop_last removed one");
   assert(match(m.pop_first(), .Some(e) => (e.key == i32(2)), .None => false), "the survivor pops");
   assert(m.is_empty() == true, "map is empty");
-  assert(match(m.pop_first(), .Some(_) => false, .None => true), "pop_first on empty is None");
-  assert(match(m.pop_last(), .Some(_) => false, .None => true), "pop_last on empty is None");
+  assert(match(m.pop_first(), .Some => false, .None => true), "pop_first on empty is None");
+  assert(match(m.pop_last(), .Some => false, .None => true), "pop_last on empty is None");
 });
 // ===== range / FromIterator =====
 test("range yields the half-open key window in order", {
@@ -314,7 +314,7 @@ test("range bounds need not be present in the map", {
         .None => {
           break;
         },
-        .Some(_) => {
+        .Some => {
           n = (n + usize(1));
         }
       );

@@ -104,11 +104,11 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
                     return(Option(Token).Some(Rc.clone(t)));
                   });
                 },
-                Rc(.FnCall(_, _, _, _, _)) => ()
+                Rc(.FnCall) => ()
               ),
               .None => ()
             ),
-            Rc(.Atom(_, _)) => ()
+            Rc(.Atom) => ()
           );
         });
         if(ast_expr_is_fn_call_of(&e, "=", .Some(usize(2))), {
@@ -132,13 +132,13 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
                       },
                       .None => ()
                     ),
-                    Rc(.Atom(_, _)) => ()
+                    Rc(.Atom) => ()
                   );
                 });
               },
               .None => ()
             ),
-            Rc(.Atom(_, _)) => ()
+            Rc(.Atom) => ()
           );
         });
       },
@@ -191,11 +191,11 @@ _fn_literal_decl :: (fn(e : &AstExpr, name : &String) -> Option(Token))(
             true => Option(Token).None
           )
         },
-        Rc(.Atom(_, _)) => Option(Token).None
+        Rc(.Atom) => Option(Token).None
       ),
       true => Option(Token).None
     ),
-    Rc(.Atom(_, _)) => Option(Token).None
+    Rc(.Atom) => Option(Token).None
   )
 );
 /// The parameter `name` of a closure's parameter part `params`
@@ -213,7 +213,7 @@ _closure_param_decl :: (fn(params : &AstExpr, name : &String) -> Option(Token))(
         });
         found
       },
-      Rc(.Atom(_, _)) => Option(Token).None
+      Rc(.Atom) => Option(Token).None
     ),
     true => _decl_atom(params, name)
   )
@@ -229,7 +229,7 @@ _stmt_decl :: (fn(stmt : &AstExpr, name : &String) -> Option(Token))(
       (ast_expr_is_fn_call_of(stmt, "=", Option(usize).Some(usize(2))) && ast_expr_is_fn_call_of(&s_args(usize(0)), ":", Option(usize).Some(usize(2)))) => _decl_atom(&s_args(usize(0)), name),
       true => Option(Token).None
     ),
-    Rc(.Atom(_, _)) => Option(Token).None
+    Rc(.Atom) => Option(Token).None
   )
 );
 /// Every atom spelled `name` under `e`, each with the declaration its
@@ -266,7 +266,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
                     recur(&s_args(j), name, &cur, out);
                   });
                 },
-                Rc(.Atom(_, _)) => ()
+                Rc(.Atom) => ()
               );
               cur = new_scope;
             },
@@ -283,7 +283,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
           arm := Rc.clone(args(k));
           if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
             arm_scope := match(
-              if(is_match, match(Rc.clone(arm), Rc(.FnCall(_, _, Rc(arm_args), _, _)) => _decl_atom(&arm_args(usize(0)), name), Rc(.Atom(_, _)) => Option(Token).None), Option(Token).None),
+              if(is_match, match(Rc.clone(arm), Rc(.FnCall(_, _, Rc(arm_args), _, _)) => _decl_atom(&arm_args(usize(0)), name), Rc(.Atom) => Option(Token).None), Option(Token).None),
               .Some(d) => Option(Token).Some(d),
               .None => scope.clone()
             );
@@ -296,7 +296,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
                   recur(&arm_args(j), name, &arm_scope, out);
                 });
               },
-              Rc(.Atom(_, _)) => ()
+              Rc(.Atom) => ()
             );
           }, {
             recur(&arm, name, scope, out);
@@ -404,7 +404,7 @@ collect_symbol_occurrences_with_decl :: (
     .None => {
       def = _top_level_decl_token(exprs, target.value.*.clone());
     },
-    .Some(_) => ()
+    .Some => ()
   );
   match(
     def.clone(),

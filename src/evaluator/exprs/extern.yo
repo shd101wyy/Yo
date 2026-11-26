@@ -389,7 +389,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   mod_info.set_value(.Some(Rc.new(EvalValueNode.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals)))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "extern" func node) with same info.
-  callee_expr := match(expr, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
+  callee_expr := match(expr, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom) => Rc.clone(expr.*));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &mod_info);
   Rc.clone(expr.*)
 });

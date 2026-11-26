@@ -155,7 +155,7 @@ _has_abstract_some :: (fn(ty : &TypeValue) -> bool)({
       .Some(Rc(.SomeT({ resolution : has_rc }))) => if(has_rc.is_none(), {
         found = true;
       }),
-      .Some(_) => (),
+      .Some => (),
       .None => ()
     );
     i = (i + usize(1));
@@ -446,7 +446,7 @@ _resolved_type_of :: (fn(v : &EvalValue) -> Option(TypeValue))(
       t := Rc.clone(tb);
       is_placeholder := match(
         &t,
-        Rc(.SomeT(id : sid2)) => match(lookup_recursive_type_ref(&sid2.*), .Some(_) => true, .None => false),
+        Rc(.SomeT(id : sid2)) => match(lookup_recursive_type_ref(&sid2.*), .Some => true, .None => false),
         _ => false
       );
       cond(
@@ -675,7 +675,7 @@ _instance_type_args :: (fn(arg_vals : &ArrayList(EvalValue)) -> SharedList(TypeV
     match(
       arg_vals.get_cloned(i),
       .Some(Rc(.TypeVal(t))) => out.push(Rc.clone(t)),
-      .Some(_) => out.push(Rc.new(TypeValueNode.Unit)),
+      .Some => out.push(Rc.new(TypeValueNode.Unit)),
       .None => ()
     );
     i = (i + usize(1));
@@ -1151,7 +1151,7 @@ evaluate_comptime_fn_call :: (
       g_comptime_fn_caches.with_mut({ new_entry }(xs) => xs.push(new_entry));
       entry_idx_opt = Option(usize).Some(g_comptime_fn_caches.with(_c_len_2) - usize(1));
     },
-    .Some(_) => ()
+    .Some => ()
   );
   the_entry_idx := match(entry_idx_opt, .Some(i) => i, .None => usize(0));
   // Look up an existing cache entry if caching is enabled.
@@ -1440,7 +1440,7 @@ evaluate_comptime_fn_call :: (
       Rc(.FnCall(_, ce_fn, Rc(ce_args), ce_infix, _)) => cond(
         (ce_infix.* && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(&ce_fn.*, ".")) => match(
           ce_args.get_cloned(usize(1)),
-          .Some(member) => match(member, Rc(.Atom(_, m_tok)) => m_tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")),
+          .Some(member) => match(member, Rc(.Atom(_, m_tok)) => m_tok.value.*.clone(), Rc(.FnCall) => String.from("")),
           .None => String.from("")
         ),
         true => String.from("")
@@ -1483,7 +1483,7 @@ evaluate_comptime_fn_call :: (
           (has_origin_arg : bool) = false;
           (hoi : usize) = usize(0);
           while(hoi < all_arg_vals.len(), {
-            if(match(all_arg_vals.get_cloned(hoi), .Some(Rc(.TypeVal(Rc(.OriginSet(_, _))))) => true, _ => false), {
+            if(match(all_arg_vals.get_cloned(hoi), .Some(Rc(.TypeVal(Rc(.OriginSet)))) => true, _ => false), {
               has_origin_arg = true;
             });
             hoi = (hoi + usize(1));
@@ -1499,7 +1499,7 @@ evaluate_comptime_fn_call :: (
               });
               match(
                 all_arg_vals.get_cloned(tpl_i),
-                .Some(Rc(.TypeVal(Rc(.OriginSet(_, _))))) => tpl.push_str(DISPLAY_ORIGIN_MARK),
+                .Some(Rc(.TypeVal(Rc(.OriginSet)))) => tpl.push_str(DISPLAY_ORIGIN_MARK),
                 .Some(tav) => tpl.push_string(value_to_string(&tav)),
                 .None => ()
               );

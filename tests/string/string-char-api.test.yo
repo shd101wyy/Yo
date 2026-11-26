@@ -196,7 +196,7 @@ test("String char_indices yields BYTE offsets, not character offsets", {
     },
     .None => assert(false, "expected '𝄞'")
   );
-  match(it.next(), .Some(_) => assert(false, "expected exhaustion"), .None => ());
+  match(it.next(), .Some => assert(false, "expected exhaustion"), .None => ());
 });
 test("String char_indices offsets are exactly the char boundaries", {
   // The §6.1 property: i is a char_indices key <=> is_char_boundary(i),
@@ -245,7 +245,7 @@ test("String char_indices walks in lockstep with chars()", {
         expected_offset = s.ceil_char_boundary(p._0 + usize(1));
       },
       .None => {
-        match(ch.next(), .Some(_) => assert(false, "chars() ran long"), .None => ());
+        match(ch.next(), .Some => assert(false, "chars() ran long"), .None => ());
         finished = true;
       }
     );
@@ -258,7 +258,7 @@ test("String char_indices walks in lockstep with chars()", {
 });
 test("String char_indices on the empty string yields nothing", {
   mut(it) := String.new().char_indices();
-  match(it.next(), .Some(_) => assert(false, "empty yields nothing"), .None => ());
+  match(it.next(), .Some => assert(false, "empty yields nothing"), .None => ());
 });
 // ===========================================================================
 // try_substring — BYTE offsets, refuses interior offsets

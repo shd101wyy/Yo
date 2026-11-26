@@ -121,7 +121,7 @@ _adoptable_type_binding :: (fn(env : &Environment, name : &String) -> Option(Typ
   v := match(vars.get_cloned(n - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
   val := match(v.value().get(usize(0)), .Some(x) => x, .None => return(Option(TypeValue).None));
   ty := match(val, Rc(.TypeVal(t)) => Rc.clone(t), _ => return(Option(TypeValue).None));
-  match(type_decl_id(&ty), .Some(_) => Option(TypeValue).Some(ty), .None => Option(TypeValue).None)
+  match(type_decl_id(&ty), .Some => Option(TypeValue).Some(ty), .None => Option(TypeValue).None)
 });
 /// A `label : c_type("<C spelling>")` field — an opaque C type whose C name
 /// is not a Yo identifier (`struct stat`, `struct timespec`). `.Some(spelling)`
@@ -131,12 +131,12 @@ _c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String)
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(Option(String).None);
   });
-  pair := match(arg, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  pair := match(arg, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   rhs := match(pair.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(arg.*));
   if(!ast_expr_is_fn_call_of(&rhs, "c_type", .None), {
     return(Option(String).None);
   });
-  cargs := match(Rc.clone(rhs), Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  cargs := match(Rc.clone(rhs), Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   spelling_atom := match(cargs.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(rhs));
   raw := ast_expr_token(&spelling_atom).value.*.clone();
   rn := raw.len();
@@ -303,9 +303,9 @@ User code should normally call stdlib wrappers (e.g. functions in
     c_type_spelling := _c_type_field_spelling(&arg, exn);
     result := match(
       &c_type_spelling,
-      .Some(_) => EvalModuleFieldResult(
+      .Some => EvalModuleFieldResult(
         label : match(
-          match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
+          match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.get_cloned(usize(0)), Rc(.Atom) => Option(AstExpr).None),
           .Some(l) => ast_expr_token(&l).value.*.clone(),
           .None => String.new()
         ),
@@ -519,7 +519,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   mod_info.set_value(.Some(Rc.new(EvalValueNode.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals)))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "c_include" func node) with same info.
-  callee_expr := match(expr, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
+  callee_expr := match(expr, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom) => Rc.clone(expr.*));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &mod_info);
   Rc.clone(expr.*)
 });

@@ -198,7 +198,7 @@ _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(u
   while(i < types.len(), {
     t := match(types.get_cloned(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
     somes := get_all_some_types(&t);
-    match(&t, Rc(.SomeT(_, _, _, _, _, _, _)) => somes.push(Rc.clone(t)), _ => ());
+    match(&t, Rc(.SomeT) => somes.push(Rc.clone(t)), _ => ());
     (j : usize) = usize(0);
     while(j < somes.len(), {
       match(
@@ -206,7 +206,7 @@ _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(u
         .Some(Rc(.SomeT({ name : nm, frame_level : lv }))) => if(nm == label.*, {
           return(Option(usize).Some(lv));
         }),
-        .Some(_) => (),
+        .Some => (),
         .None => ()
       );
       j = (j + usize(1));
@@ -281,12 +281,12 @@ _exact_mode :: (fn(mode : _CompatMode) -> _CompatMode)(
 _future_trait_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(t)),
+    Rc(.FutureTraitT) => Option(TypeValue).Some(Rc.clone(t)),
     Rc(.SomeT(bounds : rtt_bnd)) => {
       rtt := rtt_bnd.required();
       (i : usize) = usize(0);
       while(i < rtt.len(), i = (i + usize(1)), {
-        match(rtt.get_cloned(i), .Some(Rc(.FutureTraitT(base_name : _))) => return(rtt.get_cloned(i)), _ => ());
+        match(rtt.get_cloned(i), .Some(Rc(.FutureTraitT)) => return(rtt.get_cloned(i)), _ => ());
       });
       Option(TypeValue).None
     },
@@ -406,10 +406,10 @@ _compat_impl :: (
           require_exact => false,
           true => match(
             expected,
-            Rc(.Int(_, _)) => true,
+            Rc(.Int) => true,
             Rc(.Usize) => true,
             Rc(.Isize) => true,
-            Rc(.Float(_)) => true,
+            Rc(.Float) => true,
             Rc(.ComptimeFloat) => true,
             Rc(.CChar) => true,
             Rc(.CShort) => true,
@@ -436,7 +436,7 @@ _compat_impl :: (
           require_exact => false,
           true => match(
             expected,
-            Rc(.Float(_)) => true,
+            Rc(.Float) => true,
             _ => false
           )
         )
@@ -808,7 +808,7 @@ _compat_impl :: (
     // identity, so any two origin values agree here; the borrow checker is
     // what reads them.
     Rc(.OriginKind) => match(expected, Rc(.OriginKind) => true, _ => false),
-    Rc(.OriginSet(_, _)) => match(expected, Rc(.OriginSet(_, _)) => true, _ => false),
+    Rc(.OriginSet) => match(expected, Rc(.OriginSet) => true, _ => false),
     Rc(.Array(ainner, alen, alvar)) => match(
       expected,
       Rc(.Array(einner, elen, elvar)) => {
@@ -1002,7 +1002,7 @@ _compat_impl :: (
               // VALUE binder's bookkeeping (recorded as `Type` in one era
               // and `unit` in another — tests/iterator_combinators
               // `__ii_sum`), never a payload type: skip the position.
-              pa_kind := (match(&pat, Rc(.TypeUni(_)) => true, _ => false) || match(&pet, Rc(.TypeUni(_)) => true, _ => false));
+              pa_kind := (match(&pat, Rc(.TypeUni) => true, _ => false) || match(&pet, Rc(.TypeUni) => true, _ => false));
               if(!pa_kind && !type_contains_some_type(&pat) && !type_contains_some_type(&pet), {
                 if(!recur(&pat, &pet, _CompatMode.Flow, visited), {
                   pay_differ = true;
@@ -1216,7 +1216,7 @@ _compat_impl :: (
       }),
       _ => false
     ),
-    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => match(
+    Rc(.EnumT) => match(
       // Resolve empty-variant Self shells (enum.yo) to their finalized
       // forms before comparing — pointer/exact children otherwise see a
       // 0-variant shell vs the real enum (`*(JsonValue)` vs
@@ -1284,7 +1284,7 @@ _compat_impl :: (
             while((etai < a_eta.len()) && !eta_differ, {
               aet := match(a_eta.get(etai), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
               eet := match(e_eta.get(etai), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
-              eta_kind := (match(&aet, Rc(.TypeUni(_)) => true, _ => false) || match(&eet, Rc(.TypeUni(_)) => true, _ => false));
+              eta_kind := (match(&aet, Rc(.TypeUni) => true, _ => false) || match(&eet, Rc(.TypeUni) => true, _ => false));
               eta_open := ((get_all_some_types(&aet).len() > usize(0)) || (get_all_some_types(&eet).len() > usize(0)));
               if(!eta_kind && !eta_open && !recur(&aet, &eet, mode, visited), {
                 eta_differ = true;
@@ -1307,7 +1307,7 @@ _compat_impl :: (
                 while((vfi < vafl.len()) && !vp_differ, {
                   vat := match(vafl.get(vfi), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
                   vet := match(vefl.get(vfi), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
-                  va_kind := (match(&vat, Rc(.TypeUni(_)) => true, _ => false) || match(&vet, Rc(.TypeUni(_)) => true, _ => false));
+                  va_kind := (match(&vat, Rc(.TypeUni) => true, _ => false) || match(&vet, Rc(.TypeUni) => true, _ => false));
                   if(!va_kind && !type_contains_some_type(&vat) && !type_contains_some_type(&vet), {
                     if(!recur(&vat, &vet, _CompatMode.Flow, visited), {
                       vp_differ = true;
@@ -1532,8 +1532,8 @@ _compat_impl :: (
       expected,
       Rc(.TypeAppT(constructor : econ, args : eargs)) => {
         // Both constructors must be SomeT and share the same unique ID
-        acid_valid := match(acon, Rc(.SomeT(id : _)) => true, _ => false);
-        ecid_valid := match(econ, Rc(.SomeT(id : _)) => true, _ => false);
+        acid_valid := match(acon, Rc(.SomeT) => true, _ => false);
+        ecid_valid := match(econ, Rc(.SomeT) => true, _ => false);
         if(!acid_valid || !ecid_valid, {
           return(false);
         });
@@ -1765,7 +1765,7 @@ are_types_compatible :: (fn(actual : &TypeValue, expected : &TypeValue) -> bool)
   // (issues/fixed/the-extern-opaque-scalar-coercion-composes-into-compound-types.md).
   (a_top : TypeValue) = t_refine_inner(actual);
   (e_top : TypeValue) = t_refine_inner(expected);
-  if(match(&e_top, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
+  if(match(&e_top, Rc(.ExternOpaqueT) => true, _ => false), {
     if(is_numeric_type(&a_top) || is_bool_type(&a_top) || is_c_compatible_type(&a_top) || is_comptime_int_type(&a_top) || is_comptime_float_type(&a_top), {
       return(true);
     });

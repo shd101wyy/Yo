@@ -582,7 +582,7 @@ evaluate_yo_type_impls :: (
   // If not found via value, check if the type itself is a trait type.
   trait_type_opt2 := match(
     &trait_type_opt,
-    .Some(_) => trait_type_opt.clone(),
+    .Some => trait_type_opt.clone(),
     .None => if(
       is_trait_type(&info1.ty()),
       Option(TypeValue).Some(Rc.clone(info1.ty())),
@@ -590,7 +590,7 @@ evaluate_yo_type_impls :: (
     )
   );
   // If still not found, check if it's a generic unknown (TypeUni → return unknown bool).
-  if(match(&trait_type_opt2, .None => is_type_hierarchy_type(&info1.ty()), .Some(_) => false), {
+  if(match(&trait_type_opt2, .None => is_type_hierarchy_type(&info1.ty()), .Some => false), {
     out := new_expr_info(&cur_env, t_bool());
     out.set_value(.Some(create_unknown_val(t_bool())));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
@@ -1176,7 +1176,7 @@ evaluate_yo_type_get_info :: (
     Rc(.CULongLong) => String.from("TypeInfo.ULongLong"),
     Rc(.CLongDouble) => String.from("TypeInfo.LongDouble"),
     Rc(.ExprT) => String.from("TypeInfo.Expr"),
-    Rc(.TypeAppT(_, _)) => String.from("TypeInfo.TypeApplication"),
+    Rc(.TypeAppT) => String.from("TypeInfo.TypeApplication"),
     Rc(.Int(bits, signed)) => cond(
       (signed.* && (bits.* == u8(8))) => String.from("TypeInfo.I8"),
       (signed.* && (bits.* == u8(16))) => String.from("TypeInfo.I16"),
@@ -1552,7 +1552,7 @@ evaluate_comptime_string_to_expr :: (
   if(!is_str, {
     match(
       info0.value(),
-      .Some(_) => {
+      .Some => {
         // Value exists but is not a comptime_str → return unknown Expr.
         unknown_val := create_unknown_val(t_expr_t());
         out := new_expr_info(&local_env, t_expr_t());
@@ -1757,7 +1757,7 @@ evaluate_type_join_fields :: (
   combiner_expr := match(
     info2.value(),
     .Some(Rc(.ExprVal(e_box))) => Rc.clone(e_box),
-    .Some(_) => {
+    .Some => {
       exn.throw(
         dyn(
           Box.new(
@@ -1876,7 +1876,7 @@ evaluate_type_join_fields :: (
     result_expr := match(
       call_info.value(),
       .Some(Rc(.ExprVal(e_box))) => Rc.clone(e_box),
-      .Some(_) => {
+      .Some => {
         exn.throw(
           dyn(
             Box.new(

@@ -70,10 +70,10 @@ derive(CtfeComptimeFn, Clone);
 _to_comptime_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
-    Rc(.Int(_, _)) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
+    Rc(.Int) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
     Rc(.Usize) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
     Rc(.Isize) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
-    Rc(.Float(_)) => .Some(Rc.new(TypeValueNode.ComptimeFloat)),
+    Rc(.Float) => .Some(Rc.new(TypeValueNode.ComptimeFloat)),
     Rc(.ComptimeInt) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
     Rc(.ComptimeFloat) => .Some(Rc.new(TypeValueNode.ComptimeFloat)),
     Rc(.ComptimeString) => .Some(Rc.new(TypeValueNode.ComptimeString)),
@@ -170,7 +170,7 @@ _eval_body_for_ctfe :: (
     cn := match(cap_names.get_cloned(cap_i), .Some(n) => n, .None => String.from(""));
     ct := match(cap_tys.get_cloned(cap_i), .Some(t) => t, .None => t_unit());
     cv := match(cap_vals.get(cap_i), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
-    is_ct := match(cv.clone(), .Some(_) => true, .None => false);
+    is_ct := match(cv.clone(), .Some => true, .None => false);
     _add := add_variable_to_env(
       &ctfe_env,
       &cn,
@@ -270,7 +270,7 @@ _eval_body_for_ctfe :: (
   evaled_info_opt := expr_info_table_get(&ctx_p.expr_info_table, ast_expr_id(&evaled));
   match(
     evaled_info_opt,
-    .Some(info) => match(info.value(), .Some(_) => true, .None => false),
+    .Some(info) => match(info.value(), .Some => true, .None => false),
     .None => false
   )
 });
@@ -415,7 +415,7 @@ analyze_ctfe_capability :: (
   // Skip extern functions — they cannot be evaluated at compile time.
   is_extern_fn := match(
     func_type,
-    Rc(.Func({ meta : m })) => match(&m.is_extern, .Some(_) => true, .None => false),
+    Rc(.Func({ meta : m })) => match(&m.is_extern, .Some => true, .None => false),
     _ => false
   );
   // Skip generic functions — they need specialisation first.
@@ -432,7 +432,7 @@ analyze_ctfe_capability :: (
     });
     pti = (pti + usize(1));
   });
-  is_fn := match(func_value, Rc(.FuncVal(_, _)) => true, _ => false);
+  is_fn := match(func_value, Rc(.FuncVal) => true, _ => false);
   // Accumulated stepwise: a multi-line `:=` whose RHS chains `||` does not parse.
   (cannot : bool) = false;
   if(already_comptime, {

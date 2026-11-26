@@ -322,10 +322,10 @@ describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   match(
     Type.get_info(T),
     .I32 => "32-bit signed integer",
-    .Struct(_, _) => "struct type",
-    .Enum(_) => "enum type",
-    .Array(_, _) => "array type",
-    .Function(_) => "function type",
+    .Struct => "struct type",
+    .Enum => "enum type",
+    .Array => "array type",
+    .Function => "function type",
     _ => "other type"
   )
 );

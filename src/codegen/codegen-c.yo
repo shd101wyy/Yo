@@ -96,10 +96,10 @@ _on_demand_collect_and_declare :: (fn(t : &TypeValue, context : &mut CodeGenCont
       od_cn := od_e.c_name.clone();
       od_ty := Rc.clone(od_e.ty);
       od_is_struct := match(&od_ty, Rc(.Struct({ is_source_namespace : od_ns })) => !od_ns.*, _ => false);
-      od_is_enum := match(&od_ty, Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false);
-      od_is_tuple := match(&od_ty, Rc(.Tuple(_, _)) => true, _ => false);
-      od_is_union := match(&od_ty, Rc(.Union(_, _, _)) => true, _ => false);
-      od_is_future := match(&od_ty, Rc(.FutureTraitT(_, _, _, _, _)) => true, _ => false);
+      od_is_enum := match(&od_ty, Rc(.EnumT) => true, _ => false);
+      od_is_tuple := match(&od_ty, Rc(.Tuple) => true, _ => false);
+      od_is_union := match(&od_ty, Rc(.Union) => true, _ => false);
+      od_is_future := match(&od_ty, Rc(.FutureTraitT) => true, _ => false);
       od_need_fwd := cond(
         od_is_struct => !(
           is_newtype_type(&od_ty) && match(&od_ty, Rc(.Struct({ field_types : od_fts })) => (od_fts.len() == usize(1)), _ => false)

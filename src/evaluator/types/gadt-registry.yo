@@ -56,7 +56,7 @@ get_gadt_variant_args :: (
   (i : usize) = usize(0);
   n := g_gadt_entries.with(_c_len_1);
   (found : Option(ArrayList(ArrayList(TypeValue)))) = Option(ArrayList(ArrayList(TypeValue))).None;
-  while((i < n) && match(&found, .None => true, .Some(_) => false), {
+  while((i < n) && match(&found, .None => true, .Some => false), {
     eid := g_gadt_entries.with(xs => xs(i).enum_id.clone());
     if(eid == enum_id.*, {
       found = Option(ArrayList(ArrayList(TypeValue))).Some(g_gadt_entries.with(xs => xs(i).variant_args.clone()));
@@ -67,7 +67,7 @@ get_gadt_variant_args :: (
 });
 /// True if the enum id is registered as a GADT.
 is_gadt_enum :: (fn(enum_id : &String) -> bool)(
-  match(get_gadt_variant_args(enum_id), .Some(_) => true, .None => false)
+  match(get_gadt_variant_args(enum_id), .Some => true, .None => false)
 );
 // ---------------------------------------------------------------------------
 // Per-instantiation type-constructor args
@@ -93,7 +93,7 @@ get_gadt_type_constructor_args :: (
   (i : usize) = usize(0);
   n := g_gadt_tca_entries.with(_c_len_2);
   (found : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
-  while((i < n) && match(&found, .None => true, .Some(_) => false), {
+  while((i < n) && match(&found, .None => true, .Some => false), {
     eid := g_gadt_tca_entries.with(xs => xs(i).enum_id.clone());
     if(eid == enum_id.*, {
       found = Option(ArrayList(TypeValue)).Some(g_gadt_tca_entries.with(xs => xs(i).type_constructor_args.clone()));

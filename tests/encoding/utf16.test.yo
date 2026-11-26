@@ -38,7 +38,7 @@ _lone_low_surrogate_rejected :: (fn() -> bool)({
   mut(data) := ArrayList(u16).new();
   data.push(u16(0x0041));
   data.push(u16(0xDC00));
-  match(utf16.to_utf8(&data), .Ok(_) => false, .Err(_) => true)
+  match(utf16.to_utf8(&data), .Ok => false, .Err => true)
 });
 // ===== UTF-8 to UTF-16 =====
 test("utf16.from_utf8 empty string", {
@@ -180,7 +180,7 @@ test("utf16.to_utf8 names the unpaired surrogate and where it was", {
   assert(
     match(
       utf16.to_utf8(&data),
-      .Ok(_) => false,
+      .Ok => false,
       .Err(e) =>
         match(
           e,
@@ -198,7 +198,7 @@ test("utf16.to_utf8 names the unpaired surrogate and where it was", {
   assert(
     match(
       utf16.to_utf8(&d2),
-      .Ok(_) => false,
+      .Ok => false,
       .Err(e) =>
         match(
           e,
@@ -216,7 +216,7 @@ test("utf16.to_utf8 names the unpaired surrogate and where it was", {
   assert(
     match(
       utf16.to_utf8(&d3),
-      .Ok(_) => false,
+      .Ok => false,
       .Err(e) =>
         match(
           e,
@@ -229,7 +229,7 @@ test("utf16.to_utf8 names the unpaired surrogate and where it was", {
   // `pos()` reads it without matching. The index is in CODE UNITS, not bytes,
   // because that is what the input is.
   assert(
-    match(utf16.to_utf8(&d3), .Ok(_) => false, .Err(e) => (e.pos().unwrap() == usize(2))),
+    match(utf16.to_utf8(&d3), .Ok => false, .Err(e) => (e.pos().unwrap() == usize(2))),
     "pos() gives the code-unit index"
   );
   // And a valid pair still decodes, so the guard has not become too eager.

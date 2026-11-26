@@ -55,7 +55,7 @@ test("Test JoinHandle abort returns None", {
   h.abort();
   assert(h.state() == FutureState.Aborted, "abort should mark the task Aborted");
   r := h.await(io);
-  assert(match(r, .Some(_) => false, .None => true), "awaiting an aborted task should give .None");
+  assert(match(r, .Some => false, .None => true), "awaiting an aborted task should give .None");
   assert(!ran.with(cur => cur.*), "the aborted body must not resume past its suspension point");
 });
 // ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ test("Test aborted task pending completion is safe", {
   h := io.spawn(fut, io);
   h.abort();
   r := h.await(io);
-  assert(match(r, .Some(_) => false, .None => true), "aborted task should give .None");
+  assert(match(r, .Some => false, .None => true), "aborted task should give .None");
   // Outlive the aborted task's 10ms timer so its continuation fires into the
   // aborted state machine while the loop is still alive.
   io.await(sleep(u64(30)), io);
@@ -142,7 +142,7 @@ test("Test abort cancels the pending timer and releases the task", {
     assert(g_abort_capture_disposed == i32(0), "capture is alive while the task is");
     h.abort();
     r := h.await(io);
-    assert(match(r, .Some(_) => false, .None => true), "aborted task should give .None");
+    assert(match(r, .Some => false, .None => true), "aborted task should give .None");
   };
   // The local reference is gone and the handle is consumed, so the only thing
   // that could still hold the capture is a state machine kept alive for a

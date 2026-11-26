@@ -158,7 +158,7 @@ process_unquotes_in_expr :: (
               splice_inner := match(
                 Rc.clone(arg),
                 Rc(.FnCall(_, _, Rc(splice_args), _, _)) => match(splice_args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(arg)),
-                Rc(.Atom(_, _)) => Rc.clone(arg)
+                Rc(.Atom) => Rc.clone(arg)
               );
               eval_splice := evaluate_expression_raw(&splice_inner, env, ctx, exn);
               opt_splice_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_splice));
@@ -233,7 +233,7 @@ process_unquotes_in_expr :: (
       });
       Rc.new(AstExprNode.FnCall(id.*, new_func, Rc.new(new_args), is_infix.*, Rc.clone(tok.*)))
     },
-    Rc(.Atom(_, _)) => Rc.clone(expr.*)
+    Rc(.Atom) => Rc.clone(expr.*)
   )
 });
 evaluate_quote :: (

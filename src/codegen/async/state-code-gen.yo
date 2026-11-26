@@ -52,10 +52,10 @@ is_io_future_type :: (fn(ty : &TypeValue) -> bool)({
   rc_final := some_resolution(ty);
   match(
     rc_final,
-    .Some(Rc(.ExternOpaqueT(_, _))) => {
+    .Some(Rc(.ExternOpaqueT)) => {
       return(true);
     },
-    .Some(_) => (),
+    .Some => (),
     .None => ()
   );
   // Branch (2): any required trait is a `Concrete(...)` trait.
@@ -109,7 +109,7 @@ collect_branch_await_exprs :: (
   );
   match(
     expr,
-    Rc(.Atom(_, _)) => (),
+    Rc(.Atom) => (),
     Rc(.FnCall(_, f, Rc(args), _, _)) => {
       recur(&f.*, out);
       (i : usize) = usize(0);
@@ -128,14 +128,14 @@ _await_future_expr_is_borrowed_place :: (fn(e : &AstExpr) -> bool)({
   if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     return(false);
   });
-  e_args := match(e, Rc(.FnCall(_, _, Rc(__afp_a), _, _)) => __afp_a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  e_args := match(e, Rc(.FnCall(_, _, Rc(__afp_a), _, _)) => __afp_a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   field := match(e_args.get_cloned(usize(1)), .Some(x) => x, .None => return(false));
   if(!ast_expr_is_atom(&field), {
     return(false);
   });
   (root : AstExpr) = match(e_args.get_cloned(usize(0)), .Some(x) => x, .None => return(false));
   while(ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))), {
-    r_args := match(Rc.clone(root), Rc(.FnCall(_, _, Rc(__afp_ra), _, _)) => __afp_ra.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+    r_args := match(Rc.clone(root), Rc(.FnCall(_, _, Rc(__afp_ra), _, _)) => __afp_ra.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
     r_field := match(r_args.get_cloned(usize(1)), .Some(x) => x, .None => return(false));
     if(!ast_expr_is_atom(&r_field), {
       return(false);

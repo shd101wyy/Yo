@@ -35,7 +35,7 @@ emit_linux_common :: (fn() -> String)({
   t := match(
     parse_target(String.from("x86_64-unknown-linux-gnu")),
     .Ok(t) => t,
-    .Err(_) => host_target()
+    .Err => host_target()
   );
   assert(is_target_linux(&t), String.from("linux triple failed to parse as linux"));
   generate_async_runtime_io_common(&mut em, &t);
@@ -61,7 +61,7 @@ emit_macos_common :: (fn() -> String)({
   t := match(
     parse_target(String.from("aarch64-apple-darwin")),
     .Ok(t) => t,
-    .Err(_) => host_target()
+    .Err => host_target()
   );
   assert(is_target_macos(&t), String.from("darwin triple failed to parse as macos"));
   generate_async_runtime_io_common(&mut em, &t);
@@ -259,11 +259,11 @@ test("the read_dir stream list is per-thread on wasm and on macOS", {
   // issues/fixed/emscripten-concurrent-directory-iteration-intermittently-faults.md
   decl := String.from("static _Thread_local __yo_getdents_stream_t* __yo_getdents_streams = NULL;");
   mut(wem) := Emitter.new();
-  wt := match(parse_target(String.from("wasm32-unknown-emscripten")), .Ok(t) => t, .Err(_) => host_target());
+  wt := match(parse_target(String.from("wasm32-unknown-emscripten")), .Ok(t) => t, .Err => host_target());
   generate_async_runtime_io_wasm(&mut wem, &wt);
   assert(wem.print().contains(decl.clone()), String.from("the wasm read_dir stream list is shared by every thread"));
   mut(mem) := Emitter.new();
-  mt := match(parse_target(String.from("aarch64-apple-darwin")), .Ok(t) => t, .Err(_) => host_target());
+  mt := match(parse_target(String.from("aarch64-apple-darwin")), .Ok(t) => t, .Err => host_target());
   assert(is_target_macos(&mt), String.from("macos triple failed to parse as macos"));
   generate_async_runtime_io_common(&mut mem, &mt);
   assert(mem.print().contains(&decl), String.from("the macOS read_dir stream list is shared by every thread"));
@@ -275,7 +275,7 @@ emit_sys_runtime_linux :: (fn() -> String)({
   t := match(
     parse_target(String.from("x86_64-unknown-linux-gnu")),
     .Ok(t) => t,
-    .Err(_) => host_target()
+    .Err => host_target()
   );
   assert(is_target_linux(&t), String.from("linux triple failed to parse as linux"));
   generate_sys_runtime(&mut em, &t);
@@ -287,7 +287,7 @@ emit_sys_runtime_macos :: (fn() -> String)({
   t := match(
     parse_target(String.from("aarch64-apple-darwin")),
     .Ok(t) => t,
-    .Err(_) => host_target()
+    .Err => host_target()
   );
   assert(is_target_macos(&t), String.from("darwin triple failed to parse as macos"));
   generate_sys_runtime(&mut em, &t);
@@ -300,7 +300,7 @@ emit_sys_runtime_wasm :: (fn() -> String)({
   t := match(
     parse_target(String.from("wasm32-wasip1")),
     .Ok(t) => t,
-    .Err(_) => host_target()
+    .Err => host_target()
   );
   assert(is_target_wasm(&t), String.from("wasi triple failed to parse as wasm"));
   generate_sys_runtime(&mut em, &t);
@@ -313,7 +313,7 @@ emit_sys_runtime_windows :: (fn() -> String)({
   t := match(
     parse_target(String.from("x86_64-pc-windows-msvc")),
     .Ok(t) => t,
-    .Err(_) => host_target()
+    .Err => host_target()
   );
   assert(is_target_windows(&t), String.from("msvc triple failed to parse as windows"));
   generate_sys_runtime(&mut em, &t);
@@ -365,7 +365,7 @@ test("runtime: the *at() dirfd sentinel is the AT_FDCWD macro on every platform"
   assert(!w.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the WASM sys runtime"));
   assert(w.contains(String.from("dirfd == AT_FDCWD")), String.from("the WASM sys runtime does not test the AT_FDCWD macro"));
   mut(wa_em) := Emitter.new();
-  wa_t := match(parse_target(String.from("wasm32-wasip1")), .Ok(t) => t, .Err(_) => host_target());
+  wa_t := match(parse_target(String.from("wasm32-wasip1")), .Ok(t) => t, .Err => host_target());
   generate_async_runtime_io_wasm(&mut wa_em, &wa_t);
   wa := wa_em.print();
   assert(!wa.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the WASM async runtime"));
@@ -399,7 +399,7 @@ test("runtime: AT_REMOVEDIR and AT_SYMLINK_NOFOLLOW are macros, not per-platform
   assert(!w.contains(String.from("flags & 0x200")), String.from("the wasm AT_REMOVEDIR literal is back"));
   assert(w.contains(String.from("flags & AT_SYMLINK_NOFOLLOW")), String.from("the wasm fchownat does not test the AT_SYMLINK_NOFOLLOW macro"));
   mut(wa_em) := Emitter.new();
-  wa_t := match(parse_target(String.from("wasm32-wasip1")), .Ok(t) => t, .Err(_) => host_target());
+  wa_t := match(parse_target(String.from("wasm32-wasip1")), .Ok(t) => t, .Err => host_target());
   generate_async_runtime_io_wasm(&mut wa_em, &wa_t);
   wa := wa_em.print();
   assert(!wa.contains(String.from("flags & 0x100")), String.from("the wasm async AT_SYMLINK_NOFOLLOW literal is back"));

@@ -8,19 +8,19 @@ derive(Color, Copy, Clone);
 
 stmt_qualified :: (fn(b : bool, ensures(r == i32(1))) -> (r : i32))({
   (c : Color) = Color.Green(i32(7));
-  match(c, .Red => i32(0), .Green(_) => i32(1))
+  match(c, .Red => i32(0), .Green => i32(1))
 });
 stmt_short :: (fn(b : bool, ensures(r == i32(1))) -> (r : i32))({
   (c : Color) = .Green(i32(7));
-  match(c, .Red => i32(0), .Green(_) => i32(1))
+  match(c, .Red => i32(0), .Green => i32(1))
 });
 arm_qualified :: (fn(b : bool, ensures(r == cond(b => i32(1), true => i32(0)))) -> (r : i32))({
   (c : Color) = cond(b => Color.Green(i32(7)), true => Color.Red);
-  match(c, .Red => i32(0), .Green(_) => i32(1))
+  match(c, .Red => i32(0), .Green => i32(1))
 });
 arm_short :: (fn(b : bool, ensures(r == cond(b => i32(1), true => i32(0)))) -> (r : i32))({
   (c : Color) = cond(b => .Green(i32(7)), true => .Red);
-  match(c, .Red => i32(0), .Green(_) => i32(1))
+  match(c, .Red => i32(0), .Green => i32(1))
 });
 
 // The FINAL arm binds the payload (issues/fixed/verifier-a-final-match-arm-loses-its-pattern-bindings.md).

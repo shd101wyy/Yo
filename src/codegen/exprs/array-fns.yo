@@ -83,8 +83,8 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &mu
 /// with `value` via a C `for` loop.
 generate_yo_array_fill :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: __yo_array_fill has no evaluation info */")));
-  array_type_arg := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))), Rc(.Atom(_, _)) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
-  fill_value_arg := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))), Rc(.Atom(_, _)) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
+  array_type_arg := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))), Rc(.Atom) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
+  fill_value_arg := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))), Rc(.Atom) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
   // The ArrayType comes from the first argument's compile-time value.
   array_type := match(
     context.base.get_expr_info(&array_type_arg),

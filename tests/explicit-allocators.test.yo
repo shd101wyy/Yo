@@ -744,7 +744,7 @@ test("A placed Box(Dyn)'s owning downcast keeps the block: Ok drops it once into
         assert(Box.allocator(b).is_some(), "the retyped box still names its allocator");
         b.volume
       },
-      .Err(_) => i32(-1)
+      .Err => i32(-1)
     );
     assert(got == i32(5), "Ok carries the payload");
     assert(g_pd_drops == i32(1), "dropped once at the arm's end");
@@ -758,7 +758,7 @@ test("A placed Box(Dyn)'s failed owning downcast hands the box back, dropped onc
   heap := _counting(addr_of(counts));
   {
     (d : Box(Dyn(_Speak))) = dyn(Box.new(_PdDog(volume : i32(6)), alloc : .Some(heap)));
-    back := match(downcast(d, _Dog), .Ok(_) => i32(-1), .Err(e) => e.speak());
+    back := match(downcast(d, _Dog), .Ok => i32(-1), .Err(e) => e.speak());
     assert(back == i32(6), "Err hands the same box back");
   };
   assert(counts.live == usize(0), `freed into its allocator: ${counts.live}`);

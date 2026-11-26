@@ -269,7 +269,7 @@ test("an ArrayList of a unit-payload enum and of Option(unit) round-trips every 
   i = usize(0);
   while(i < n, {
     want_a := ((i % usize(2)) == usize(0));
-    got_a := match(es.get(i), .Some(e) => match(e, .A(_) => true, .B => false), .None => !want_a);
+    got_a := match(es.get(i), .Some(e) => match(e, .A => true, .B => false), .None => !want_a);
     if(got_a != want_a, {
       bad = (bad + usize(1));
     });
@@ -293,7 +293,7 @@ test("an ArrayList of a zero-sized element type grows to any length", {
   assert(xs.get(usize(999)).is_some(), "the last unit is readable");
   assert(xs.pop().is_some(), "pop returns a unit");
   assert(xs.len() == usize(999), "pop shrinks the length");
-  assert(match(xs.shrink_to_fit(), .Ok(_) => true, .Err(_) => false), "shrink_to_fit is a no-op, not a realloc(p, 0)");
+  assert(match(xs.shrink_to_fit(), .Ok => true, .Err => false), "shrink_to_fit is a no-op, not a realloc(p, 0)");
   assert(xs.len() == usize(999), "shrink_to_fit keeps the elements");
   mut(ys) := ArrayList(unit).with_capacity(usize(10));
   ys.push(());

@@ -95,7 +95,7 @@ evaluate_array_type :: (
   args := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
-    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+    Rc(.Atom) => ArrayList(AstExpr).new()
   );
   element_type_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   length_expr := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
@@ -277,7 +277,7 @@ evaluate_array_type :: (
         usize(0) // unreachable
       }
     ),
-    Rc(.UnknownVal(_, _)) => {
+    Rc(.UnknownVal) => {
       len_is_var = true;
       usize(0)
     },
@@ -350,7 +350,7 @@ evaluate_slice_type :: (
   element_type_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(x) => x, .None => make_err_expr()),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   evaluated_elem := evaluate_expression_raw(&element_type_expr, env, ctx, exn);
   elem_info := match(

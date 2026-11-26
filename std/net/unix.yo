@@ -106,7 +106,7 @@ impl(
       raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
       fd := NetError.check(raw_fd, e.exn);
       path_s := path_owned.to_string();
-      cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
+      cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
       addr_buf := match(
         addr.buf,
@@ -195,7 +195,7 @@ impl(
         true => ()
       );
       path_s := path_owned.to_string();
-      cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
+      cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
       addr_buf := match(
         addr.buf,

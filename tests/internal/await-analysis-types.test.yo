@@ -63,7 +63,7 @@ test("AwaitPoint base fields accessible", {
     target_is_reassign : false
   );
   assert(ap.base.index == usize(3), "base index");
-  has_ftype := match(&ap.future_type, .Some(_) => true, .None => false);
+  has_ftype := match(&ap.future_type, .Some => true, .None => false);
   assert(!has_ftype, "no future_type");
 });
 test("AwaitPoint future_type can be set", {
@@ -74,7 +74,7 @@ test("AwaitPoint future_type can be set", {
     future_variable_id : Option(String).Some(String.from("fv0")),
     target_is_reassign : false
   );
-  has_ftype := match(&ap.future_type, .Some(_) => true, .None => false);
+  has_ftype := match(&ap.future_type, .Some => true, .None => false);
   assert(has_ftype, "has future_type");
   fvar := match(&ap.future_variable_id, .Some(id) => id.clone(), .None => String.from(""));
   assert(fvar == "fv0", "future_variable_id");
@@ -168,7 +168,7 @@ test("CapturedVariable self-referential field (Option(Self))", {
     kind : CapturedVariableKind.Local,
     is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).Some(Rc.new(inner))
   );
-  has_alias := match(&outer.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
+  has_alias := match(&outer.is_owning_the_same_rc_value_as, .Some => true, .None => false);
   assert(has_alias, "outer has alias");
 });
 test("AwaitAnalysisResult can hold await points", {

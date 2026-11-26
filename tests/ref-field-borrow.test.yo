@@ -440,7 +440,7 @@ test("an element borrow beside a value that owns a list of the container's type"
 _VNode :: enum(Leaf(n : i32), Branch(kids : ArrayList(Self)));
 test("an element borrow beside a recursive value that owns lists of the container's type", {
   put_node :: (fn(dst : &mut _VNode, v : _VNode) -> i32)({
-    old := match(dst, .Leaf(n) => n.*, .Branch(_) => i32(-1));
+    old := match(dst, .Leaf(n) => n.*, .Branch => i32(-1));
     dst.* = v;
     old
   });

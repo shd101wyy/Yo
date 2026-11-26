@@ -110,18 +110,18 @@ evaluate_binding :: (
   (lhs_arg : AstExpr) = match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   rhs := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   // The annotation may not name the binding it declares as an origin (E0924;
   // decision 43, O1). The name is under any `comptime(...)` / `given(...)`.
   (decl_name : AstExpr) = lhs_arg.clone();
-  while(match(&decl_name, Rc(.FnCall(_, _, Rc(dargs), _, _)) => (dargs.len() == usize(1)), Rc(.Atom(_, _)) => false), {
-    decl_name = match(Rc.clone(decl_name), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+  while(match(&decl_name, Rc(.FnCall(_, _, Rc(dargs), _, _)) => (dargs.len() == usize(1)), Rc(.Atom) => false), {
+    decl_name = match(Rc.clone(decl_name), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom) => make_err_expr());
   });
   if(ast_expr_is_atom(&decl_name), {
     decl_text := ast_expr_text(&decl_name);
@@ -161,7 +161,7 @@ evaluate_binding :: (
   user_defined_type_spelled := match(
     rhs_info.value(),
     .Some(Rc(.TypeVal(bt))) => Rc.clone(bt),
-    .Some(_) => t_unit(),
+    .Some => t_unit(),
     .None => t_unit()
   );
   // Array types with inferred length are not allowed in type annotations.
@@ -204,7 +204,7 @@ evaluate_binding :: (
     n_comptime_args := match(
       Rc.clone(lhs),
       Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.len(),
-      Rc(.Atom(_, _)) => usize(0)
+      Rc(.Atom) => usize(0)
     );
     if(n_comptime_args != usize(1), {
       exn.throw(
@@ -221,7 +221,7 @@ evaluate_binding :: (
     lhs = match(
       lhs,
       Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(cargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      Rc(.Atom(_, _)) => make_err_expr()
+      Rc(.Atom) => make_err_expr()
     );
   });
   // Strip optional `given(...)` wrapper (implies implicit + comptime).
@@ -230,7 +230,7 @@ evaluate_binding :: (
     n_given_args := match(
       Rc.clone(lhs),
       Rc(.FnCall(_, _, Rc(gargs), _, _)) => gargs.len(),
-      Rc(.Atom(_, _)) => usize(0)
+      Rc(.Atom) => usize(0)
     );
     if(n_given_args != usize(1), {
       exn.throw(
@@ -249,7 +249,7 @@ evaluate_binding :: (
     lhs = match(
       lhs,
       Rc(.FnCall(_, _, Rc(gargs), _, _)) => match(gargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      Rc(.Atom(_, _)) => make_err_expr()
+      Rc(.Atom) => make_err_expr()
     );
   });
   // `name : T` and `(name : T) = rhs` declare a RUNTIME variable, so neither
@@ -395,7 +395,7 @@ evaluate_binding :: (
   // Reject mutable runtime vars inside impl blocks.
   is_inside_fn_body := match(
     &ctx.is_evaluating_function_body_or_async_block,
-    .Some(_) => true,
+    .Some => true,
     .None => false
   );
   if(!is_compile_time_only && (!is_inside_fn_body && ctx.is_inside_impl_block), {

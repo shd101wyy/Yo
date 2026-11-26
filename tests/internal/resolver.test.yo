@@ -247,7 +247,7 @@ test("choose_ref: an exact tag that is a version satisfies a range, or errors", 
   _want(&mut ok, "<root>", GitRequirement.Tag(String.from("v1.0.0")));
   _want(&mut ok, "utils", _ver("^1"));
   assert(_chosen_tag(&ok) == "v1.0.0", "the pin is inside the range");
-  match(_choose(&ok), .Ok(c) => assert(c.version_text() == "1.0.0", "version text of a tag"), .Err(_) => panic("ok"));
+  match(_choose(&ok), .Ok(c) => assert(c.version_text() == "1.0.0", "version text of a tag"), .Err => panic("ok"));
   mut(bad) := _reqs();
   _want(&mut bad, "<root>", GitRequirement.Tag(String.from("v0.1.0")));
   _want(&mut bad, "utils", _ver("^1"));
@@ -278,17 +278,17 @@ test("choose_ref: a non-semver exact tag, a branch and the default branch", {
   match(
     _choose(&t),
     .Ok(c) => match(c, .Exact(r) => assert(r == "release-2024", "exact"), _ => panic("Exact expected")),
-    .Err(_) => panic("ok")
+    .Err => panic("ok")
   );
   mut(b) := _reqs();
   _want(&mut b, "<root>", GitRequirement.Branch(String.from("dev")));
-  match(_choose(&b), .Ok(c) => assert(c.is_branch() && (c.ref_text() == "dev"), "branch"), .Err(_) => panic("ok"));
+  match(_choose(&b), .Ok(c) => assert(c.is_branch() && (c.ref_text() == "dev"), "branch"), .Err => panic("ok"));
   mut(d) := _reqs();
   _want(&mut d, "<root>", GitRequirement.DefaultBranch);
   match(
     _choose(&d),
     .Ok(c) => assert(c.is_branch() && (c.ref_text().len() == usize(0)), "default branch has no name yet"),
-    .Err(_) => panic("ok")
+    .Err => panic("ok")
   );
 });
 test("choose_ref: a bad range is reported with its requirer", {

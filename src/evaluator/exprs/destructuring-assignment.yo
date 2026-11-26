@@ -663,7 +663,7 @@ handle_member_destructuring :: (
               is_compile_time_only => Option(bool).None,
               true => match(&rhs_field_type, Rc(.Reference(_, re_mut, _)) => Option(bool).Some(re_mut.*), _ => Option(bool).None)
             );
-            bind_field_type := match(&ref_elem, .Some(_) => t_slot_pointee(&rhs_field_type), .None => Rc.clone(rhs_field_type));
+            bind_field_type := match(&ref_elem, .Some => t_slot_pointee(&rhs_field_type), .None => Rc.clone(rhs_field_type));
             added_var_opt := add_variable_to_env(
               env,
               var_name.clone(),
@@ -861,7 +861,7 @@ evaluate_destructuring_assignment :: (
           )
         );
       },
-      .Some(_) => ()
+      .Some => ()
     );
     svn := match(svn_opt, .Some(s) => s, .None => String.from(""));
     // Find the variant index.
@@ -882,7 +882,7 @@ evaluate_destructuring_assignment :: (
           )
         );
       },
-      .Some(_) => ()
+      .Some => ()
     );
     vi := match(vi_opt, .Some(idx) => idx, .None => usize(0));
     selected_fields := match(vfields.get(vi), .Some(vf) => vf, .None => no_types());

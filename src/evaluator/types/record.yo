@@ -115,7 +115,7 @@ evaluate_module_field :: (
       )
     );
   });
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   label_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   type_expr := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Validate label identifier
@@ -153,7 +153,7 @@ evaluate_module_field :: (
   field_type := match(
     te_info.value(),
     .Some(Rc(.TypeVal(inner))) => Rc.clone(inner),
-    .Some(_) => Rc.new(TypeValueNode.Unit),
+    .Some => Rc.new(TypeValueNode.Unit),
     .None => Rc.new(TypeValueNode.Unit)
   );
   // Set expr info on label_expr

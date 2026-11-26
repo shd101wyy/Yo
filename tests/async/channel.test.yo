@@ -17,19 +17,19 @@ test("Test channel try ops", {
   ch := Channel(i32).new(usize(2));
   assert(ch.len() == usize(0), "new channel should be empty");
   assert(
-    match(ch.try_recv(), .Ok(_) => false, .Err(e) => match(e, .Empty => true, _ => false)),
+    match(ch.try_recv(), .Ok => false, .Err(e) => match(e, .Empty => true, _ => false)),
     "try_recv on an OPEN empty channel is Empty, not Disconnected"
   );
   s1 := ch.try_send(i32(1));
   s2 := ch.try_send(i32(2));
-  assert(match(s1, .Ok(_) => true, .Err(_) => false), "first try_send should fit");
-  assert(match(s2, .Ok(_) => true, .Err(_) => false), "second try_send should fit");
+  assert(match(s1, .Ok => true, .Err => false), "first try_send should fit");
+  assert(match(s2, .Ok => true, .Err => false), "second try_send should fit");
   s3 := ch.try_send(i32(3));
-  assert(match(s3, .Ok(_) => false, .Err(v) => (v == i32(3))), "over-capacity try_send should hand the value back");
+  assert(match(s3, .Ok => false, .Err(v) => (v == i32(3))), "over-capacity try_send should hand the value back");
   r1 := ch.try_recv();
   r2 := ch.try_recv();
-  assert(match(r1, .Ok(v) => (v == i32(1)), .Err(_) => false), "FIFO: first out is 1");
-  assert(match(r2, .Ok(v) => (v == i32(2)), .Err(_) => false), "FIFO: second out is 2");
+  assert(match(r1, .Ok(v) => (v == i32(1)), .Err => false), "FIFO: first out is 1");
+  assert(match(r2, .Ok(v) => (v == i32(2)), .Err => false), "FIFO: second out is 2");
 });
 // A CLOSED channel is Disconnected only once it is also DRAINED — the two
 // answers `Option(T)` used to collapse into one `.None`, which is why this
@@ -39,15 +39,15 @@ test("async try_recv separates Empty from Disconnected", {
   _s := ch.try_send(i32(7));
   ch.close();
   buffered := ch.try_recv();
-  assert(match(buffered, .Ok(v) => (v == i32(7)), .Err(_) => false), "a closed channel still yields what it buffered");
+  assert(match(buffered, .Ok(v) => (v == i32(7)), .Err => false), "a closed channel still yields what it buffered");
   drained := ch.try_recv();
   assert(
-    match(drained, .Ok(_) => false, .Err(e) => match(e, .Disconnected => true, _ => false)),
+    match(drained, .Ok => false, .Err(e) => match(e, .Disconnected => true, _ => false)),
     "closed AND drained is Disconnected"
   );
   open_empty := Channel(i32).new(usize(1));
   assert(
-    match(open_empty.try_recv(), .Ok(_) => false, .Err(e) => match(e, .Empty => true, _ => false)),
+    match(open_empty.try_recv(), .Ok => false, .Err(e) => match(e, .Empty => true, _ => false)),
     "an open empty channel is Empty"
   );
 });
@@ -61,7 +61,7 @@ test("Test channel producer consumer", {
     (mut(going) : bool) = true;
     while(going, {
       s := io.await(ch.send(i, io), io);
-      assert(match(s, .Ok(_) => true, .Err(_) => false), "send should succeed while open");
+      assert(match(s, .Ok => true, .Err => false), "send should succeed while open");
       i = (i + i32(1));
       if(i >= i32(5), {
         going = false;
@@ -93,11 +93,11 @@ test("Test channel close semantics", {
   ch.close();
   assert(ch.is_closed(), "channel should report closed");
   s2 := ch.try_send(i32(7));
-  assert(match(s2, .Ok(_) => false, .Err(v) => (v == i32(7))), "send after close should fail with the value");
+  assert(match(s2, .Ok => false, .Err(v) => (v == i32(7))), "send after close should fail with the value");
   r1 := io.await(ch.recv(io), io);
   assert(match(r1, .Some(v) => (v == i32(42)), .None => false), "recv should drain the buffer after close");
   r2 := io.await(ch.recv(io), io);
-  assert(match(r2, .Some(_) => false, .None => true), "drained closed channel should recv .None");
+  assert(match(r2, .Some => false, .None => true), "drained closed channel should recv .None");
 });
 // ---------------------------------------------------------------------------
 // 4. a waiting recv wakes when a spawned task sends later
@@ -126,12 +126,12 @@ test("async Sender/Receiver deliver values in order", {
   tx := rx.sender();
   s1 := io.await(tx.send(i32(1), io), io);
   s2 := io.await(tx.send(i32(2), io), io);
-  assert(match(s1, .Ok(_) => true, .Err(_) => false), "first send");
-  assert(match(s2, .Ok(_) => true, .Err(_) => false), "second send");
+  assert(match(s1, .Ok => true, .Err => false), "first send");
+  assert(match(s2, .Ok => true, .Err => false), "second send");
   r1 := io.await(rx.recv(io), io);
   r2 := io.await(rx.recv(io), io);
-  assert(match(r1, .Ok(v) => (v == i32(1)), .Err(_) => false), "FIFO: 1 first");
-  assert(match(r2, .Ok(v) => (v == i32(2)), .Err(_) => false), "FIFO: then 2");
+  assert(match(r1, .Ok(v) => (v == i32(1)), .Err => false), "FIFO: 1 first");
+  assert(match(r2, .Ok(v) => (v == i32(2)), .Err => false), "FIFO: then 2");
   assert(!rx.is_closed(), "a live sender keeps the channel open");
 });
 test("async Channel.pair hands back both halves over one channel", {
@@ -141,9 +141,9 @@ test("async Channel.pair hands back both halves over one channel", {
     Channel(i32).pair(usize(2)),
     (tx, rx) => {
       s := io.await(tx.send(i32(11), io), io);
-      assert(match(s, .Ok(_) => true, .Err(_) => false), "the pair's sender sends");
+      assert(match(s, .Ok => true, .Err => false), "the pair's sender sends");
       r := io.await(rx.recv(io), io);
-      assert(match(r, .Ok(v) => (v == i32(11)), .Err(_) => false), "the pair's receiver receives it");
+      assert(match(r, .Ok(v) => (v == i32(11)), .Err => false), "the pair's receiver receives it");
       // Each half has its own lifetime: dropping the sender closes the channel.
       {
         _gone := tx;
@@ -170,7 +170,7 @@ test("async: dropping ONE of several Senders does NOT close the channel", {
   };
   assert(!rx.is_closed(), "one of two senders going away is not the end of the stream");
   s := io.await(tx.send(i32(2), io), io);
-  assert(match(s, .Ok(_) => true, .Err(_) => false), "the surviving sender still sends");
+  assert(match(s, .Ok => true, .Err => false), "the surviving sender still sends");
 });
 test("async: buffered values arrive before the disconnect", {
   rx := Channel(i32).receiver(usize(4));
@@ -183,10 +183,10 @@ test("async: buffered values arrive before the disconnect", {
   r1 := io.await(rx.recv(io), io);
   r2 := io.await(rx.recv(io), io);
   r3 := io.await(rx.recv(io), io);
-  assert(match(r1, .Ok(v) => (v == i32(7)), .Err(_) => false), "buffered 7 survives the close");
-  assert(match(r2, .Ok(v) => (v == i32(8)), .Err(_) => false), "buffered 8 survives the close");
+  assert(match(r1, .Ok(v) => (v == i32(7)), .Err => false), "buffered 7 survives the close");
+  assert(match(r2, .Ok(v) => (v == i32(8)), .Err => false), "buffered 8 survives the close");
   assert(
-    match(r3, .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(r3, .Ok => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "only THEN is it Disconnected"
   );
 });
@@ -195,14 +195,14 @@ test("async: try_recv is Empty while open and Disconnected once senders are gone
   {
     tx := rx.sender();
     assert(
-      match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Empty)),
+      match(rx.try_recv(), .Ok => false, .Err(e) => (e == TryRecvError.Empty)),
       "open and empty says Empty — the producer may still send"
     );
     _s := io.await(tx.send(i32(3), io), io);
   };
-  assert(match(rx.try_recv(), .Ok(v) => (v == i32(3)), .Err(_) => false), "the buffered value first");
+  assert(match(rx.try_recv(), .Ok(v) => (v == i32(3)), .Err => false), "the buffered value first");
   assert(
-    match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(rx.try_recv(), .Ok => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "closed AND drained says Disconnected"
   );
 });
@@ -215,11 +215,11 @@ test("async: send fails once the Receiver has been dropped", {
   };
   s := io.await(tx.send(i32(9), io), io);
   assert(
-    match(s, .Ok(_) => false, .Err(v) => (v == i32(9))),
+    match(s, .Ok => false, .Err(v) => (v == i32(9))),
     "a send with no receiver fails and hands the value back, rather than suspending"
   );
   assert(
-    match(tx.try_send(i32(10)), .Ok(_) => false, .Err(v) => (v == i32(10))),
+    match(tx.try_send(i32(10)), .Ok => false, .Err(v) => (v == i32(10))),
     "try_send fails the same way"
   );
 });
@@ -278,15 +278,15 @@ test("async: producer tasks with cloned Senders fan in, and the last one closes"
   (mut(total) : i32) = i32(0);
   (mut(count) : i32) = i32(0);
   mut(v) := rx.try_recv();
-  while(match(v, .Ok(_) => true, .Err(_) => false), {
-    total = (total + match(v, .Ok(x) => x, .Err(_) => i32(0)));
+  while(match(v, .Ok => true, .Err => false), {
+    total = (total + match(v, .Ok(x) => x, .Err => i32(0)));
     count = (count + i32(1));
     v = rx.try_recv();
   });
   assert(count == i32(4), "all four values from two cloned senders arrived");
   assert(total == i32(33), "and none was corrupted (1+2+10+20)");
   assert(
-    match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(rx.try_recv(), .Ok => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "the drained channel reports Disconnected"
   );
 });
@@ -296,7 +296,7 @@ test("async Channel copies share one channel; Sender and Receiver are move-only"
   ch := Channel(i32).new(usize(2));
   ch2 := ch.clone();
   _s := ch2.try_send(i32(4));
-  assert(match(ch.try_recv(), .Ok(v) => (v == i32(4)), .Err(_) => false), "a copy of the handle is the same channel");
+  assert(match(ch.try_recv(), .Ok(v) => (v == i32(4)), .Err => false), "a copy of the handle is the same channel");
   comptime_expect_error({
     rx := Channel(i32).receiver(usize(1));
     tx := rx.sender();
@@ -348,7 +348,7 @@ test("Test channel Stream combinators", {
   got := match(
     io.await(timeout(chain.collect(io), Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
-    .Err(_) => {
+    .Err => {
       assert(false, "collecting a closed channel must not hang");
       ArrayList(i32).new()
     }

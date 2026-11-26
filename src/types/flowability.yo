@@ -664,7 +664,7 @@ _place_root_atom :: (fn(expr_in : &AstExpr) -> Option(AstExpr))({
       cur = match(
         Rc.clone(cur),
         Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()),
-        Rc(.Atom(_, _)) => make_err_expr()
+        Rc(.Atom) => make_err_expr()
       );
     }, {
       walking = false;
@@ -727,7 +727,7 @@ require_ref_own_argument_exclusivity :: (
           root_atom_opt := match(
             _info(ctx, &arg),
             .Some(inf) => {
-              is_idx := match(expr_info_index_trait_ptr_type(&inf), .Some(_) => true, .None => false);
+              is_idx := match(expr_info_index_trait_ptr_type(&inf), .Some => true, .None => false);
               cond(
                 (is_idx && ast_expr_is_fn_call(&arg)) => match(
                   arg,
@@ -910,9 +910,9 @@ _type_may_reach_any_of :: (
       _ => recur(&p, via_ref, targets, seen)
     ),
     Rc(.Func({ result : _ })) => true,
-    Rc(.FnTraitT(base_name : _)) => true,
-    Rc(.FutureTraitT(base_name : _)) => true,
-    Rc(.DynT(required_trait_types : _)) => true,
+    Rc(.FnTraitT) => true,
+    Rc(.FutureTraitT) => true,
+    Rc(.DynT) => true,
     Rc(.SomeT({ resolution : resolved })) => match(
       resolved,
       .Some(concrete) => recur(&concrete, via_ref, targets, seen),
@@ -955,7 +955,7 @@ _is_fn_typed :: (fn(ty_in : &TypeValue) -> bool)({
   match(
     ty,
     Rc(.Func({ result : _ })) => true,
-    Rc(.FnTraitT(base_name : _)) => true,
+    Rc(.FnTraitT) => true,
     Rc(.SomeT({ name : sn, resolution : resolved })) => cond(
       (sn == `Impl`) => true,
       true => match(
@@ -982,7 +982,7 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
       (kind == "index") => Rc.clone(callee.*),
       true => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => return(.None))
     ),
-    Rc(.Atom(_, _)) => return(.None)
+    Rc(.Atom) => return(.None)
   );
   while(!ast_expr_is_atom(&cur), {
     match(
@@ -998,7 +998,7 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
     cur = match(
       Rc.clone(cur),
       Rc(.FnCall(_, _, Rc(pargs), _, _)) => match(pargs.get_cloned(usize(0)), .Some(b) => b, .None => return(.None)),
-      Rc(.Atom(_, _)) => return(.None)
+      Rc(.Atom) => return(.None)
     );
   });
   .Some(keys)
@@ -1228,14 +1228,14 @@ _reject_if_container_reachable :: (
             ity := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(&idx_info.ty())));
             match(
               ity,
-              Rc(.Array(element : _, length : _)) => return(()),
+              Rc(.Array) => return(()),
               _ => ()
             );
           },
           .None => ()
         );
       },
-      Rc(.Atom(_, _)) => ()
+      Rc(.Atom) => ()
     );
   });
   // (b) element-only: any OTHER argument that could hold a handle to the
@@ -1264,7 +1264,7 @@ _reject_if_container_reachable :: (
           // capture_type-is-set is the equivalent signal.
           is_closure := match(
             expr_info_closure_function_value(&oi),
-            .Some(_) => true,
+            .Some => true,
             .None => (
               match(expr_info_is_anonymous_function_definition(&oi), .Some(b) => b, .None => false) &&
                 expr_info_capture_type(&oi).is_some()
@@ -1357,14 +1357,14 @@ require_valid_ref_argument_places :: (
         // heap buffer; reject when the container is reachable.
         arg_is_index_place := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arg)),
-          .Some(ai_info) => match(expr_info_index_trait_ptr_type(&ai_info), .Some(_) => true, .None => false),
+          .Some(ai_info) => match(expr_info_index_trait_ptr_type(&ai_info), .Some => true, .None => false),
           .None => false
         );
         if(arg_is_index_place && ast_expr_is_fn_call(&arg), {
           container_atom := match(
             Rc.clone(arg),
             Rc(.FnCall(_, icallee, _, _, _)) => _place_root_atom(&icallee),
-            Rc(.Atom(_, _)) => Option(AstExpr).None
+            Rc(.Atom) => Option(AstExpr).None
           );
           match(
             container_atom,
@@ -1383,7 +1383,7 @@ require_valid_ref_argument_places :: (
                 cur = match(
                   Rc.clone(cur),
                   Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()),
-                  Rc(.Atom(_, _)) => make_err_expr()
+                  Rc(.Atom) => make_err_expr()
                 );
               }, {
                 walking = false;

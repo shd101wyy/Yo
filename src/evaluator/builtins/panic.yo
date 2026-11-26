@@ -99,7 +99,7 @@ evaluate_panic :: (
   args := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
-    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+    Rc(.Atom) => ArrayList(AstExpr).new()
   );
   (cur_env : Environment) = Rc.clone(env);
   // The message text when it is compile-time known (a `comptime_str`
@@ -138,7 +138,7 @@ evaluate_panic :: (
           .Some(Rc(.StrLit(raw))) => {
             ct_msg = .Some(_unquote_str_lit(&raw));
           },
-          .Some(_) => (),
+          .Some => (),
           .None => ()
         );
         // `str` is the fieldless `.Str` TypeValue variant (NOT a Struct named
@@ -156,9 +156,9 @@ evaluate_panic :: (
         // single largest propagated def-eval failure (96 std files).
         is_comptime_str := match(
           msg_value,
-          .Some(Rc(.StrLit(_))) => true,
+          .Some(Rc(.StrLit)) => true,
           .Some(Rc(.UnknownVal(uty, _))) => is_comptime_string_type(&uty),
-          .Some(_) => false,
+          .Some => false,
           .None => is_comptime_string_type(&msg_type)
         );
         // *(u8) — C string pointer (e.g. a String's to_cstr().ptr())

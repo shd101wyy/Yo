@@ -99,7 +99,7 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
             !is_prelude_enum_decl(decl) => full_key.clone(),
             true => match(
               g_enum_bare_claims.with({ bare : &bare.* }(m) => m.get_cloned(bare)),
-              .Some(_) => full_key.clone(),
+              .Some => full_key.clone(),
               .None => {
                 adopted := match(g_enum_bare_unclaimed.with({ bare : &bare.*, full_key : &full_key.* }(m) => m.get_cloned(bare)), .Some(k) => k.clone(), .None => full_key.clone());
                 bare_owned2 := bare.clone();
@@ -284,7 +284,7 @@ _tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
       sh_end := resolve_cell_chain(&t);
       match(&sh_end, Rc(.SomeT({ id : _ })) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(&sh_end, depth)}`)
     },
-    Rc(.OriginSet(_, _)) => String.from("origin"),
+    Rc(.OriginSet) => String.from("origin"),
     _ => type_to_string(&t)
   )
 });
@@ -790,7 +790,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     // An origin argument of a type constructor's instance (decision 43
     // step 3, N2a): origins are erased from every key, so `_View(x)` and
     // `_View(y)` are one C type.
-    Rc(.OriginSet(_, _)) => String.from("origin"),
+    Rc(.OriginSet) => String.from("origin"),
     // A reference: its mode and its pointee's key, the origin erased
     // (decision 43, N1f-2): `&(T, x)` and `&(T, y)` are one type here,
     // `&T`, `&mut T` and `T` three.

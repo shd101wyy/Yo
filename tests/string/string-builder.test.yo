@@ -48,14 +48,14 @@ test("lines basic", {
   match(l1, .Some(v) => assert(v == `foo`, "l1"), .None => assert(false, "l1 none"));
   match(l2, .Some(v) => assert(v == `bar`, "l2"), .None => assert(false, "l2 none"));
   match(l3, .Some(v) => assert(v == `baz`, "l3"), .None => assert(false, "l3 none"));
-  match(l4, .Some(_) => assert(false, "l4 should be none"), .None => ());
+  match(l4, .Some => assert(false, "l4 should be none"), .None => ());
 });
 test("lines single line no newline", {
   mut(iter) := `hello`.lines();
   l1 := iter.next();
   l2 := iter.next();
   match(l1, .Some(v) => assert(v == `hello`, "single"), .None => assert(false, "none"));
-  match(l2, .Some(_) => assert(false, "should be none"), .None => ());
+  match(l2, .Some => assert(false, "should be none"), .None => ());
 });
 test("lines trailing newline", {
   mut(iter) := `a\nb\n`.lines();
@@ -64,11 +64,11 @@ test("lines trailing newline", {
   l3 := iter.next();
   match(l1, .Some(v) => assert(v == `a`, "l1"), .None => assert(false, "l1 none"));
   match(l2, .Some(v) => assert(v == `b`, "l2"), .None => assert(false, "l2 none"));
-  match(l3, .Some(_) => assert(false, "l3 should be none"), .None => ());
+  match(l3, .Some => assert(false, "l3 should be none"), .None => ());
 });
 test("lines empty string", {
   mut(iter) := ``.lines();
-  match(iter.next(), .Some(_) => assert(false, "should be none"), .None => ());
+  match(iter.next(), .Some => assert(false, "should be none"), .None => ());
 });
 // ===== StringBuilder =====
 test("StringBuilder new is empty", {

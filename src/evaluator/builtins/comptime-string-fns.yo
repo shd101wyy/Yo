@@ -200,14 +200,14 @@ evaluate_yo_comptime_string_functions :: (
         match(
           arg_val,
           .Some(Rc(.StrLit(raw))) => Rc.new(EvalValueNode.StrLit(str_lit_quote(str_lit_unquote(&raw).to_uppercase()))),
-          .Some(_) => create_unknown_val(t_comptime_string()),
+          .Some => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1))) =>
         match(
           arg_val,
           .Some(Rc(.StrLit(raw))) => Rc.new(EvalValueNode.StrLit(str_lit_quote(str_lit_unquote(&raw).to_lowercase()))),
-          .Some(_) => create_unknown_val(t_comptime_string()),
+          .Some => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
       true => {

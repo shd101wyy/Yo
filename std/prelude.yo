@@ -8155,31 +8155,31 @@ impl(TypeInfo, Comptime());
 impl(
   TypeInfo,
   is_struct : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Struct(_, _) => true, _ => false)
+    match(self, .Struct => true, _ => false)
   ),
   is_enum : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Enum(_) => true, _ => false)
+    match(self, .Enum => true, _ => false)
   ),
   is_union : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Union(_) => true, _ => false)
+    match(self, .Union => true, _ => false)
   ),
   is_tuple : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Tuple(_) => true, _ => false)
+    match(self, .Tuple => true, _ => false)
   ),
   is_array : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Array(_, _) => true, _ => false)
+    match(self, .Array => true, _ => false)
   ),
   is_str : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self, .Str => true, _ => false)
   ),
   is_function : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Function(_) => true, _ => false)
+    match(self, .Function => true, _ => false)
   ),
   is_pointer : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Ptr(_) => true, _ => false)
+    match(self, .Ptr => true, _ => false)
   ),
   is_trait : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Trait(_, _) => true, _ => false)
+    match(self, .Trait => true, _ => false)
   ),
   is_void : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self, .Void => true, _ => false)
@@ -8254,7 +8254,7 @@ impl(
       .ComptimeInt => true,
       .ComptimeFloat => true,
       .ComptimeStr => true,
-      .ComptimeList(_) => true,
+      .ComptimeList => true,
       .Expr => true,
       _ => false
     )
@@ -8386,7 +8386,7 @@ impl(
   is_some : (fn(self : &Self) -> bool)(
     match(
       self,
-      .Some(_) => true,
+      .Some => true,
       .None => false
     )
   ),
@@ -8395,7 +8395,7 @@ impl(
     match(
       self,
       .None => true,
-      .Some(_) => false
+      .Some => false
     )
   )
 );
@@ -8461,7 +8461,7 @@ impl(
   and : (fn(generic(B : Type), self : &Self, optb : Option(B)) -> Option(B))(
     match(
       self,
-      .Some(_) => optb,
+      .Some => optb,
       .None => {
         drop(optb);
         Option(B).None
@@ -8595,7 +8595,7 @@ impl(
   comptime_is_some : (fn(comptime(self) : Self) -> comptime(bool))(
     match(
       self,
-      .Some(_) => true,
+      .Some => true,
       .None => false
     )
   ),
@@ -8603,7 +8603,7 @@ impl(
     match(
       self,
       .None => true,
-      .Some(_) => false
+      .Some => false
     )
   )
 );
@@ -9283,7 +9283,7 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => __yo_panic("Called unwrap on an Error value")
+      .Err => __yo_panic("Called unwrap on an Error value")
     )
   ),
   /// Extract the `Err` value, panicking if `Ok`.
@@ -9291,23 +9291,23 @@ impl(
     match(
       self,
       .Err(error) => error,
-      .Ok(_) => __yo_panic("Called unwrap_err on an Ok value")
+      .Ok => __yo_panic("Called unwrap_err on an Ok value")
     )
   ),
   /// Return `true` if the result is `Ok`.
   is_ok : (fn(self : &Self) -> bool)(
     match(
       self,
-      .Ok(_) => true,
-      .Err(_) => false
+      .Ok => true,
+      .Err => false
     )
   ),
   /// Return `true` if the result is `Err`.
   is_err : (fn(self : &Self) -> bool)(
     match(
       self,
-      .Err(_) => true,
-      .Ok(_) => false
+      .Err => true,
+      .Ok => false
     )
   )
 );
@@ -9351,7 +9351,7 @@ impl(
   and : (fn(generic(B : Type), self : Self, res : Result(B, ErrorType)) -> Result(B, ErrorType))(
     match(
       self,
-      .Ok(_) => res,
+      .Ok => res,
       .Err(error) => {
         drop(res);
         Result(B, ErrorType).Err(error)
@@ -9366,7 +9366,7 @@ impl(
         drop(res);
         Result(OkType, F).Ok(value)
       },
-      .Err(_) => res
+      .Err => res
     )
   ),
   /// Convert to `Option(OkType)`, discarding the error.
@@ -9374,14 +9374,14 @@ impl(
     match(
       self,
       .Ok(value) => Option(OkType).Some(value),
-      .Err(_) => Option(OkType).None
+      .Err => Option(OkType).None
     )
   ),
   /// Convert to `Option(ErrorType)`, discarding the success value.
   err : (fn(self : Self) -> Option(ErrorType))(
     match(
       self,
-      .Ok(_) => Option(ErrorType).None,
+      .Ok => Option(ErrorType).None,
       .Err(error) => Option(ErrorType).Some(error)
     )
   ),
@@ -9393,7 +9393,7 @@ impl(
         drop(default_val);
         f(&value.*)
       },
-      .Err(_) => default_val
+      .Err => default_val
     )
   ),
   /// Apply `f` if `Ok`, otherwise call `default_fn` with the error.
@@ -9417,7 +9417,7 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => or_value
+      .Err => or_value
     )
   ),
   /// Extract the `Ok` value, panicking with `msg` if `Err`.
@@ -9425,7 +9425,7 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => __yo_panic(msg)
+      .Err => __yo_panic(msg)
     )
   ),
   /// Extract the `Err` value, panicking with `msg` if `Ok`.
@@ -9433,7 +9433,7 @@ impl(
     match(
       self,
       .Err(error) => error,
-      .Ok(_) => __yo_panic(msg)
+      .Ok => __yo_panic(msg)
     )
   ),
   /// Call `f` with the `Ok` value (if any), then return the result.
@@ -9469,7 +9469,7 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => (OkType <: Default).default()
+      .Err => (OkType <: Default).default()
     )
   )
 );
@@ -9558,28 +9558,28 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => __yo_panic("Called comptime_unwrap on an Err value")
+      .Err => __yo_panic("Called comptime_unwrap on an Err value")
     )
   ),
   comptime_unwrap_err : (fn(comptime(self) : Self) -> comptime(ErrorType))(
     match(
       self,
       .Err(error) => error,
-      .Ok(_) => __yo_panic("Called comptime_unwrap_err on an Ok value")
+      .Ok => __yo_panic("Called comptime_unwrap_err on an Ok value")
     )
   ),
   comptime_is_ok : (fn(comptime(self) : Self) -> comptime(bool))(
     match(
       self,
-      .Ok(_) => true,
-      .Err(_) => false
+      .Ok => true,
+      .Err => false
     )
   ),
   comptime_is_err : (fn(comptime(self) : Self) -> comptime(bool))(
     match(
       self,
-      .Err(_) => true,
-      .Ok(_) => false
+      .Err => true,
+      .Ok => false
     )
   )
 );
@@ -9611,7 +9611,7 @@ impl(
       (lhs, rhs) ->
         match(
           lhs,
-          .None => match(rhs, .None => true, .Some(_) => false),
+          .None => match(rhs, .None => true, .Some => false),
           .Some(a) => match(
             rhs,
             .None => false,
@@ -9632,7 +9632,7 @@ impl(
       (lhs, rhs) ->
         match(
           lhs,
-          .None => match(rhs, .None => false, .Some(_) => true),
+          .None => match(rhs, .None => false, .Some => true),
           .Some(a) => match(
             rhs,
             .None => false,
@@ -9668,7 +9668,7 @@ impl(
       (lhs, rhs) ->
         match(
           lhs,
-          .None => match(rhs, .None => true, .Some(_) => false),
+          .None => match(rhs, .None => true, .Some => false),
           .Some(a) => match(
             rhs,
             .None => true,
@@ -9741,11 +9741,11 @@ impl(
           .Ok(a) => match(
             rhs,
             .Ok(b) => (a.* == b.*),
-            .Err(_) => false
+            .Err => false
           ),
           .Err(a) => match(
             rhs,
-            .Ok(_) => false,
+            .Ok => false,
             .Err(b) => (a.* == b.*)
           )
         )
@@ -9766,11 +9766,11 @@ impl(
           .Ok(a) => match(
             rhs,
             .Ok(b) => (a.* < b.*),
-            .Err(_) => true
+            .Err => true
           ),
           .Err(a) => match(
             rhs,
-            .Ok(_) => false,
+            .Ok => false,
             .Err(b) => (a.* < b.*)
           )
         )
@@ -9782,11 +9782,11 @@ impl(
           .Ok(a) => match(
             rhs,
             .Ok(b) => (a.* <= b.*),
-            .Err(_) => true
+            .Err => true
           ),
           .Err(a) => match(
             rhs,
-            .Ok(_) => false,
+            .Ok => false,
             .Err(b) => (a.* <= b.*)
           )
         )
@@ -9798,11 +9798,11 @@ impl(
           .Ok(a) => match(
             rhs,
             .Ok(b) => (a.* > b.*),
-            .Err(_) => false
+            .Err => false
           ),
           .Err(a) => match(
             rhs,
-            .Ok(_) => true,
+            .Ok => true,
             .Err(b) => (a.* > b.*)
           )
         )
@@ -9814,11 +9814,11 @@ impl(
           .Ok(a) => match(
             rhs,
             .Ok(b) => (a.* >= b.*),
-            .Err(_) => false
+            .Err => false
           ),
           .Err(a) => match(
             rhs,
-            .Ok(_) => true,
+            .Ok => true,
             .Err(b) => (a.* >= b.*)
           )
         )
@@ -11519,7 +11519,7 @@ impl(
             self._to_skip = usize(0);
             return(.None);
           },
-          .Some(_) => {
+          .Some => {
             self._to_skip = (self._to_skip - usize(1));
           }
         );
@@ -12953,7 +12953,7 @@ impl(
         .None => {
           break;
         },
-        .Some(_) => {
+        .Some => {
           n = (n + usize(1));
         }
       );

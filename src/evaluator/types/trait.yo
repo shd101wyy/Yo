@@ -90,7 +90,7 @@ _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
     Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
-    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+    Rc(.Atom) => ArrayList(AstExpr).new()
   )
 );
 // ---------------------------------------------------------------------------
@@ -1143,7 +1143,7 @@ evaluate_trait_type :: (
   );
   // Push a scoped env frame for trait evaluation
   env_mut.push_frame(false);
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   // Create "Self" SomeType for the trait
   top_frame := env_mut.frames_len();
   self_frame_level := if(top_frame > usize(0), top_frame - usize(1), usize(0));
@@ -1222,7 +1222,7 @@ evaluate_trait_type :: (
       &ctx.expected_type,
       .Some(et) => match(
         &et.ty,
-        Rc(.TraitT(_, _, _, _, _, _)) => Option(TypeValue).Some(Rc.clone(et.ty)),
+        Rc(.TraitT) => Option(TypeValue).Some(Rc.clone(et.ty)),
         _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -1432,7 +1432,7 @@ evaluate_trait_type :: (
     Rc(.FnCall(_, func_box, _, _, _)) => {
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_box.*), &out_info);
     },
-    Rc(.Atom(_, _)) => ()
+    Rc(.Atom) => ()
   );
   Rc.clone(expr.*)
 });

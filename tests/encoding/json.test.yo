@@ -68,19 +68,19 @@ test("json.parse unicode escape surrogate pair", {
 });
 test("json.parse lone high surrogate error", {
   assert(
-    match(json.parse("\"\\ud83d\""), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("\"\\ud83d\""), .Ok => false, .Err => true),
     "lone high surrogate should throw"
   );
 });
 test("json.parse lone low surrogate error", {
   assert(
-    match(json.parse("\"\\udc00 tail\""), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("\"\\udc00 tail\""), .Ok => false, .Err => true),
     "lone low surrogate should throw"
   );
 });
 test("json.parse invalid unicode escape hex error", {
   assert(
-    match(json.parse("\"\\uZZZZ\""), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("\"\\uZZZZ\""), .Ok => false, .Err => true),
     "non-hex \\u escape should throw"
   );
 });
@@ -147,13 +147,13 @@ test("json.parse with whitespace", {
 // ===== Parse Errors =====
 test("json.parse empty input", {
   assert(
-    match(json.parse(""), .Ok(_) => false, .Err(_) => true),
+    match(json.parse(""), .Ok => false, .Err => true),
     "empty input should throw"
   );
 });
 test("json.parse unclosed string error", {
   assert(
-    match(json.parse("\"hello"), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("\"hello"), .Ok => false, .Err => true),
     "unclosed string should throw"
   );
 });
@@ -169,7 +169,7 @@ test("json.parse unclosed string error", {
 // was declared, documented and formatted, but nothing ever produced it
 // (issues/fixed/json-number-parser-accepts-invalid-and-any-garbage.md).
 _rejects :: (fn(src : str) -> bool)(
-  match(json_parse_result(String.from(src)), .Err(_) => true, .Ok(_) => false)
+  match(json_parse_result(String.from(src)), .Err => true, .Ok => false)
 );
 test("json.parse rejects malformed numbers", {
   assert(_rejects("-"), "bare minus is not a number");
@@ -194,7 +194,7 @@ test("json.parse still accepts every valid number form", {
     match(
       json_parse_result(String.from(src)),
       .Ok(v) => v.as_number().unwrap(),
-      .Err(_) => {
+      .Err => {
         assert(false, `valid number rejected: ${src}`);
         f64(0)
       }
@@ -357,17 +357,17 @@ test("json.decode primitives", {
   match(
     json.decode(i32, `42`),
     .Ok(n) => assert(n == i32(42), "i32 decode value"),
-    .Err(_) => assert(false, "i32 decode should succeed")
+    .Err => assert(false, "i32 decode should succeed")
   );
   match(
     json.decode(bool, `true`),
     .Ok(b) => assert(b, "bool decode value"),
-    .Err(_) => assert(false, "bool decode should succeed")
+    .Err => assert(false, "bool decode should succeed")
   );
   match(
     json.decode(String, `"hello"`),
     .Ok(s) => assert(s == "hello", "String decode value"),
-    .Err(_) => assert(false, "String decode should succeed")
+    .Err => assert(false, "String decode should succeed")
   );
 });
 test("json.decode integer errors", {
@@ -384,7 +384,7 @@ test("json Option roundtrip", {
   match(
     json.decode(Option(i32), `null`),
     .Ok(o) => assert(o.is_none(), "null decodes to None"),
-    .Err(_) => assert(false, "null decode should succeed")
+    .Err => assert(false, "null decode should succeed")
   );
   match(
     json.decode(Option(i32), `7`),
@@ -393,7 +393,7 @@ test("json Option roundtrip", {
       .Some(n) => assert(n == i32(7), "Some payload value"),
       .None => assert(false, "expected Some")
     ),
-    .Err(_) => assert(false, "Some decode should succeed")
+    .Err => assert(false, "Some decode should succeed")
   );
 });
 test("json ArrayList roundtrip", {
@@ -409,7 +409,7 @@ test("json ArrayList roundtrip", {
       assert(back(usize(0)) == i32(1), "elem 0");
       assert(back(usize(2)) == i32(3), "elem 2");
     },
-    .Err(_) => assert(false, "list decode should succeed")
+    .Err => assert(false, "list decode should succeed")
   );
   assert(json.decode(ArrayList(i32), `[1,"x"]`).is_err(), "bad element must Err");
 });
@@ -423,7 +423,7 @@ test("json HashMap roundtrip", {
       assert(back.get(`a`).unwrap() == i32(1), "key a");
       assert(back.get(`b`).unwrap() == i32(2), "key b");
     },
-    .Err(_) => assert(false, "map decode should succeed")
+    .Err => assert(false, "map decode should succeed")
   );
   assert(json.decode(HashMap(String, i32), `{"a":"x"}`).is_err(), "bad value must Err");
 });
@@ -437,7 +437,7 @@ test("json custom struct roundtrip", {
       assert(back.x == i32(3), "x roundtrip");
       assert(back.y == i32(-4), "y roundtrip");
     },
-    .Err(_) => assert(false, "struct decode should succeed")
+    .Err => assert(false, "struct decode should succeed")
   );
   assert(json.decode(_TPoint, `{"x":1}`).is_err(), "missing field must Err");
 });
@@ -447,7 +447,7 @@ test("json.decode parse error is Err", {
   match(
     json_parse_result(`[1,2]`),
     .Ok(v) => assert(v.at(usize(1)).is_some(), "json_parse_result Ok tree"),
-    .Err(_) => assert(false, "valid JSON should parse")
+    .Err => assert(false, "valid JSON should parse")
   );
 });
 // ===== derive(ToJson) / derive(FromJson) =====
@@ -467,7 +467,7 @@ test("derived struct roundtrip", {
       assert(back.a == i32(7), "a roundtrip");
       assert(back.b == "seven", "b roundtrip");
     },
-    .Err(_) => assert(false, "derived decode should succeed")
+    .Err => assert(false, "derived decode should succeed")
   );
 });
 test("derived nested struct roundtrip", {
@@ -482,14 +482,14 @@ test("derived nested struct roundtrip", {
       assert(back.inner.b == "one", "nested b roundtrip");
       assert(back.flag, "flag roundtrip");
     },
-    .Err(_) => assert(false, "nested decode should succeed")
+    .Err => assert(false, "nested decode should succeed")
   );
 });
 test("derived decode missing field errors", {
   assert(json.decode(_DOuter, `{"name":"x","flag":true}`).is_err(), "missing inner must Err");
   match(
     json.decode(_DInner, `{"a":1}`),
-    .Ok(_) => assert(false, "missing b must Err"),
+    .Ok => assert(false, "missing b must Err"),
     .Err(e) => match(
       e,
       .Other(msg) => assert(msg.contains(String.from("missing field b")), "error names the field"),
@@ -522,7 +522,7 @@ test("derived roundtrip with Option and ArrayList fields", {
       assert(back.items.len() == usize(2), "ArrayList field roundtrips");
       assert(back.name == "g", "plain field still roundtrips");
     },
-    .Err(_) => assert(false, "decode of a generic-field struct should succeed")
+    .Err => assert(false, "decode of a generic-field struct should succeed")
   );
 });
 test("derived roundtrip with a None Option field", {
@@ -531,7 +531,7 @@ test("derived roundtrip with a None Option field", {
   match(
     json.decode(_DGeneric, json.encode(&v)),
     .Ok(back) => assert(back.tag.is_none(), "None roundtrips as None"),
-    .Err(_) => assert(false, "decode should succeed for a None field")
+    .Err => assert(false, "decode should succeed for a None field")
   );
 });
 // ===== RFC 8259 §2: a JSON text is ONE serialized value =====
@@ -549,20 +549,20 @@ test("json_parse_result rejects content after the top-level value", {
   while(i < cases.len(), {
     src := cases(i).clone();
     assert(
-      match(json_parse_result(src.clone()), .Ok(_) => false, .Err(_) => true),
+      match(json_parse_result(src.clone()), .Ok => false, .Err => true),
       `expected trailing content to be rejected: ${src}`
     );
     i = (i + usize(1));
   });
 });
 test("json_parse_result still accepts a lone value with surrounding whitespace", {
-  assert(match(json_parse_result(`  [1,2]  `.to_string()), .Ok(_) => true, .Err(_) => false), "whitespace around one value is fine");
-  assert(match(json_parse_result(`null`.to_string()), .Ok(_) => true, .Err(_) => false), "a bare null is one value");
-  assert(match(json_parse_result(`{"a":1}`.to_string()), .Ok(_) => true, .Err(_) => false), "a lone object is one value");
+  assert(match(json_parse_result(`  [1,2]  `.to_string()), .Ok => true, .Err => false), "whitespace around one value is fine");
+  assert(match(json_parse_result(`null`.to_string()), .Ok => true, .Err => false), "a bare null is one value");
+  assert(match(json_parse_result(`{"a":1}`.to_string()), .Ok => true, .Err => false), "a lone object is one value");
 });
 test("json.parse throws on content after the value, and names the position", {
   assert(
-    match(json.parse("[1,2][3,4]"), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("[1,2][3,4]"), .Ok => false, .Err => true),
     "json.parse must throw on trailing content"
   );
 });
@@ -663,13 +663,13 @@ test("JsonValue ToString is the compact JSON text", {
 // still pass, since the accessors deliberately keep working across both arms.
 test("an integer literal parses as Int, a fractional one as Number", {
   a := json.parse("42").unwrap();
-  assert(match(a, .Int(_) => true, _ => false), "42 must take the Int arm");
+  assert(match(a, .Int => true, _ => false), "42 must take the Int arm");
   f := json.parse("4.5").unwrap();
-  assert(match(f, .Number(_) => true, _ => false), "4.5 must stay a Number");
+  assert(match(f, .Number => true, _ => false), "4.5 must stay a Number");
   e := json.parse("1e3").unwrap();
-  assert(match(e, .Number(_) => true, _ => false), "an exponent literal stays a Number");
+  assert(match(e, .Number => true, _ => false), "an exponent literal stays a Number");
   n := json.parse("-7").unwrap();
-  assert(match(n, .Int(_) => true, _ => false), "a negative integer takes the Int arm");
+  assert(match(n, .Int => true, _ => false), "a negative integer takes the Int arm");
 });
 test("an Int renders in decimal, never through %g", {
   // %g would print 10000000 as "1e+07", which is not a round-trippable integer.
@@ -681,7 +681,7 @@ test("an Int renders in decimal, never through %g", {
 test("an integer beyond 2^53 survives exactly — the reason the arm exists", {
   // As an f64 this value is indistinguishable from 2^53; as an Int it is exact.
   v := json.parse("9007199254740993").unwrap();
-  assert(match(&v, .Int(_) => true, _ => false), "2^53+1 must take the Int arm");
+  assert(match(&v, .Int => true, _ => false), "2^53+1 must take the Int arm");
   assert(v.as_i64().unwrap() == i64(9007199254740993), "as_i64 must be exact above 2^53");
   assert(json.stringify(&v) == "9007199254740993", `must round-trip exactly, got ${json.stringify(&v)}`);
 });
@@ -693,11 +693,11 @@ test("both arms are numbers, and Int widens to f64", {
   assert(a.as_number().unwrap() == f64(42), "as_number widens an Int");
   assert(a.as_u64().unwrap() == u64(42), "as_u64 reads an Int exactly");
   neg := json.parse("-1").unwrap();
-  assert(match(neg.as_u64(), .Some(_) => false, .None => true), "a negative Int has no u64");
+  assert(match(neg.as_u64(), .Some => false, .None => true), "a negative Int has no u64");
 });
 test("integer ToJson emits Int, so a round trip is stable", {
   v := i32(7).to_json();
-  assert(match(&v, .Int(_) => true, _ => false), "i32.to_json must emit Int");
+  assert(match(&v, .Int => true, _ => false), "i32.to_json must emit Int");
   assert(json.stringify(&v) == "7", `must render as 7, got ${json.stringify(&v)}`);
   // FromJson still accepts both arms.
   back := i32.from_json(json.parse("7").unwrap()).unwrap();
@@ -706,7 +706,7 @@ test("integer ToJson emits Int, so a round trip is stable", {
   assert(back2 == i32(7), "i32 still decodes from a Number");
   // A float still emits Number.
   fv := f64(1.5).to_json();
-  assert(match(fv, .Number(_) => true, _ => false), "f64.to_json must stay Number");
+  assert(match(fv, .Number => true, _ => false), "f64.to_json must stay Number");
 });
 // RFC 8259 §7: every control byte U+0000-U+001F must be escaped inside a
 // string. Only `\n`, `\t` and `\r` were; the rest were written raw, so the

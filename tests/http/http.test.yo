@@ -381,7 +381,7 @@ test("fetch default response ceiling is 64 MiB and 0 lifts it", {
   d := FetchOptions.new();
   assert(d.max_response_bytes == usize(67108864), "default ceiling is 64 MiB");
   assert(d.max_redirects == usize(10), "default redirect cap is 10");
-  assert(match(d.timeout, .None => true, .Some(_) => false), "no deadline by default");
+  assert(match(d.timeout, .None => true, .Some => false), "no deadline by default");
   unlimited := FetchOptions.new().with_max_response_bytes(usize(0));
   assert(unlimited.max_response_bytes == usize(0), "0 = unlimited");
 });
@@ -946,7 +946,7 @@ test("parse_response keeps a repeated header and an absent reason phrase", {
   // response whose every class predicate answered false.
   match(
     parse_response(`HTTP/1.1 999 Nope\r\n\r\n`),
-    .Ok(_) => assert(false, "999 must be rejected"),
+    .Ok => assert(false, "999 must be rejected"),
     .Err(e) =>
       match(e, .InvalidStatusCode(text) => assert(text == `999`, "the error names the code"), _ => assert(false, "wrong variant"))
   );
@@ -1063,7 +1063,7 @@ _ka_conn :: (fn(stream : &TcpStream, mode : i32, stats : _KaStats, io : Io) -> I
         _wire.read_http_message_buffered(stream, usize(0), _wire.MessageKind.Request, &carry, e.io),
         e
       );
-      raw := match(framed, .Ok(x) => x, .Err(_) => String.new());
+      raw := match(framed, .Ok(x) => x, .Err => String.new());
       (mut(answer) : String) = String.new();
       cond(
         raw.is_empty() => {
@@ -1427,12 +1427,12 @@ test("HttpClient: dispose closes every idle connection", {
   // drop above, both of these report `Elapsed`.
   match(
     io.await(timeout(t1.join(io), Duration.from_secs(i64(10)), io), io),
-    .Ok(_) => (),
+    .Ok => (),
     .Err(err) => assert(false, `the first server never saw its connection close: ${err.to_string()}`)
   );
   match(
     io.await(timeout(t2.join(io), Duration.from_secs(i64(10)), io), io),
-    .Ok(_) => (),
+    .Ok => (),
     .Err(err) => assert(false, `the second server never saw its connection close: ${err.to_string()}`)
   );
 });
@@ -1690,7 +1690,7 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
   as_get := match(
     io.await(_wire.read_http_message_buffered(&r2, usize(0), _wire.MessageKind.Response, &carry2, io), e),
     .Ok(x) => x,
-    .Err(_) => String.new()
+    .Err => String.new()
   );
   assert(
     as_get.len() == (String.from(_PHEAD).len() + usize(3)),
@@ -1722,7 +1722,7 @@ _serve_until_hangup :: (fn(sink(listener) : TcpListener, io : Io) -> Impl(Future
       ),
       e.io
     );
-    match(r, .Ok(n) => cond((n == usize(0)) => i32(0), true => i32(2)), .Err(_) => i32(1))
+    match(r, .Ok(n) => cond((n == usize(0)) => i32(0), true => i32(2)), .Err => i32(1))
   })
 );
 test("an aborted HttpClient fetch takes its exchange down with it", {

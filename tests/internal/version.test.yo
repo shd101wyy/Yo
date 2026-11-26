@@ -51,7 +51,7 @@ test("parse_yo_version: pre-release suffix is accepted", {
       println(`unexpected Err: ${e}`);
       assert(false, "expected Ok for '1.0.0-alpha.1'");
     },
-    .Ok(_) => ()
+    .Ok => ()
   );
 });
 test("parse_yo_version: build metadata suffix is accepted", {
@@ -62,7 +62,7 @@ test("parse_yo_version: build metadata suffix is accepted", {
       println(`unexpected Err: ${e}`);
       assert(false, "expected Ok for '1.0.0+build.42'");
     },
-    .Ok(_) => ()
+    .Ok => ()
   );
 });
 test("parse_yo_version: empty string returns Err", {
@@ -73,7 +73,7 @@ test("parse_yo_version: empty string returns Err", {
       println(`unexpected Ok: ${v}`);
       assert(false, "expected Err for empty string");
     },
-    .Err(_) => ()
+    .Err => ()
   );
 });
 test("parse_yo_version: latest returns Err", {
@@ -84,7 +84,7 @@ test("parse_yo_version: latest returns Err", {
       println(`unexpected Ok: ${v}`);
       assert(false, "expected Err for 'latest'");
     },
-    .Err(_) => ()
+    .Err => ()
   );
 });
 test("parse_yo_version: LATEST (uppercase) returns Err", {
@@ -95,7 +95,7 @@ test("parse_yo_version: LATEST (uppercase) returns Err", {
       println(`unexpected Ok: ${v}`);
       assert(false, "expected Err for 'LATEST'");
     },
-    .Err(_) => ()
+    .Err => ()
   );
 });
 test("parse_yo_version: missing patch segment returns Err", {
@@ -106,7 +106,7 @@ test("parse_yo_version: missing patch segment returns Err", {
       println(`unexpected Ok: ${v}`);
       assert(false, "expected Err for '1.2'");
     },
-    .Err(_) => ()
+    .Err => ()
   );
 });
 test("parse_yo_version: non-numeric major returns Err", {
@@ -117,7 +117,7 @@ test("parse_yo_version: non-numeric major returns Err", {
       println(`unexpected Ok: ${v}`);
       assert(false, "expected Err for 'a.1.2'");
     },
-    .Err(_) => ()
+    .Err => ()
   );
 });
 test("parse_yo_version: whitespace/newline is trimmed", {
@@ -256,7 +256,7 @@ test("find_yo_version_file: returns None when no .yo-version exists", {
   base := path_join(temp_dir(), `yo_ver_none`);
   io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
   found := io.await(find_yo_version_file(Path.new(base.clone()), io), io);
-  assert(match(found, .None => true, .Some(_) => false), "no file anywhere up from the temp dir");
+  assert(match(found, .None => true, .Some => false), "no file anywhere up from the temp dir");
   io.await(fs_dir.remove_dir(Path.new(&base), io), ioexn);
 });
 test("read_yo_version: reads and parses .yo-version", {
@@ -297,7 +297,7 @@ test("read_yo_version: returns None when no file exists", {
   base := path_join(temp_dir(), `yo_ver_read_none`);
   io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
   got := io.await(read_yo_version(Path.new(base.clone()), io, exn), ioexn);
-  assert(match(got, .None => true, .Some(_) => false), "no file → None");
+  assert(match(got, .None => true, .Some => false), "no file → None");
   io.await(fs_dir.remove_dir(Path.new(&base), io), ioexn);
 });
 test("read_yo_version: throws on invalid content", {

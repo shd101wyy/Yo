@@ -384,7 +384,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
     // Struct fields (skip function-typed fields — emitted inline at call sites).
     match(
       &type,
-      Rc(.Struct({})) => {
+      Rc(.Struct) => {
         runtime_fields := get_runtime_struct_fields(&type);
         n := runtime_fields.len();
         (mut(i) : usize) = usize(0);
@@ -721,7 +721,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
         i = (i + usize(1));
       });
     },
-    Rc(.Atom(_, _)) => match(
+    Rc(.Atom) => match(
       ei_opt,
       .Some(ei) => if(is_type_value(&ei.value()), {
         match(ei.value(), .Some(v) => match(v, Rc(.TypeVal(t)) => collect_type(&t, context), _ => ()), .None => ());

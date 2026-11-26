@@ -169,7 +169,7 @@ impl(
     match(
       self._cell._result.try_recv(),
       .Ok(v) => v,
-      .Err(_) => __yo_panic("Thread.join: the thread body produced no value (it unwound)")
+      .Err => __yo_panic("Thread.join: the thread body produced no value (it unwound)")
     )
   }),
   /// True once `join` has returned.
@@ -483,7 +483,7 @@ _take_blocking_result :: (
   match(
     chan.try_recv(),
     .Ok(v) => v,
-    .Err(_) => __yo_panic("spawn_blocking: the worker thread produced no value (it unwound)")
+    .Err => __yo_panic("spawn_blocking: the worker thread produced no value (it unwound)")
   )
 );
 /// Exported since 2026-09-13. It was written and working long before that but

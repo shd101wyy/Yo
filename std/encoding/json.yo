@@ -253,7 +253,7 @@ _json_pointer_at :: (fn(v : &JsonValue, tokens : &ArrayList(String), ti : usize)
           (idx < items.len()) => _json_pointer_at(&items(idx), tokens, ti + usize(1)),
           true => Option(JsonValue).None
         ),
-        .Err(_) => Option(JsonValue).None
+        .Err => Option(JsonValue).None
       ),
       true => Option(JsonValue).None
     ),
@@ -291,23 +291,23 @@ impl(
   ),
   /// True for a JSON boolean.
   is_bool : (fn(self : &Self) -> bool)(
-    match(self, .Bool(_) => true, _ => false)
+    match(self, .Bool => true, _ => false)
   ),
   /// True for a JSON number.
   is_number : (fn(self : &Self) -> bool)(
-    match(self, .Number(_) => true, .Int(_) => true, _ => false)
+    match(self, .Number => true, .Int => true, _ => false)
   ),
   /// True for a JSON string.
   is_string : (fn(self : &Self) -> bool)(
-    match(self, .Str(_) => true, _ => false)
+    match(self, .Str => true, _ => false)
   ),
   /// True for a JSON array.
   is_array : (fn(self : &Self) -> bool)(
-    match(self, .Array(_) => true, _ => false)
+    match(self, .Array => true, _ => false)
   ),
   /// True for a JSON object.
   is_object : (fn(self : &Self) -> bool)(
-    match(self, .Object(_, _) => true, _ => false)
+    match(self, .Object => true, _ => false)
   ),
   /// The numeric value as an `f64` — Rust's name for what `as_number`
   /// already did. Both spellings are kept: `as_f64` sits beside `as_i64` /
@@ -1068,7 +1068,7 @@ _parse_value :: (fn(p : &mut _Parser) -> Result(JsonValue, JsonError))({
                   .Err(e) => {
                     return(.Err(e));
                   },
-                  .Ok(_) => ()
+                  .Ok => ()
                 );
                 match(
                   recur(p),
@@ -1190,7 +1190,7 @@ parse_bytes :: (fn(bytes : &ArrayList(u8)) -> Result(JsonValue, JsonError))({
   mut(p) := _Parser.new(bytes);
   match(
     _parse_value(&mut p),
-    .Ok(v) => match(_expect_eof(&mut p), .Ok(_) => .Ok(v), .Err(e) => .Err(e)),
+    .Ok(v) => match(_expect_eof(&mut p), .Ok => .Ok(v), .Err(e) => .Err(e)),
     .Err(e) => .Err(e)
   )
 });

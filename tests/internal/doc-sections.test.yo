@@ -71,7 +71,7 @@ test("parses multiple sections", {
 });
 test("lowercases section names", {
   result := parse_doc_comment(`Fn.\n\n## RETURNS\n\nA value.`);
-  has_returns := match(result.sections.get_cloned(`returns`), .Some(_) => true, .None => false);
+  has_returns := match(result.sections.get_cloned(`returns`), .Some => true, .None => false);
   assert(has_returns, "has returns key");
   returns_val := match(result.sections.get_cloned(`returns`), .Some(v) => v, .None => ``);
   assert(returns_val == `A value.`, "returns value");

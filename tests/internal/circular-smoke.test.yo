@@ -11,7 +11,7 @@ test("Circular type↔value: type_for_value(IntV) → IntT", {
     t,
     .IntT => assert(true, "expected IntT"),
     .BoolT => assert(false, "got BoolT, expected IntT"),
-    .FuncT(_) => assert(false, "got FuncT, expected IntT")
+    .FuncT => assert(false, "got FuncT, expected IntT")
   );
 });
 test("Circular type↔value: default_value(BoolT) → BoolV(false)", {
@@ -19,8 +19,8 @@ test("Circular type↔value: default_value(BoolT) → BoolV(false)", {
   match(
     v,
     .BoolV(b) => assert(b == false, "expected false"),
-    .IntV(_) => assert(false, "got IntV"),
-    .FnV(_) => assert(false, "got FnV")
+    .IntV => assert(false, "got IntV"),
+    .FnV => assert(false, "got FnV")
   );
 });
 test("Circular type↔value: round-trip through both directions", {
@@ -47,7 +47,7 @@ test("Circular type↔value: round-trip through both directions", {
         .BoolT => assert(false, "stored should be FuncT")
       );
     },
-    .IntV(_) => assert(false, "expected FnV"),
-    .BoolV(_) => assert(false, "expected FnV")
+    .IntV => assert(false, "expected FnV"),
+    .BoolV => assert(false, "expected FnV")
   );
 });

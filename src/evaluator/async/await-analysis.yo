@@ -82,16 +82,16 @@ derive(AwaitPointExtra, Clone);
 _is_dot_access :: (fn(expr : &AstExpr, obj_name : &(str, static), method_name : &(str, static)) -> bool)(
   match(
     expr,
-    Rc(.Atom(_, _)) => false,
+    Rc(.Atom) => false,
     Rc(.FnCall(_, outer_func_box, _, _, _)) => match(
       outer_func_box,
-      Rc(.Atom(_, _)) => false,
+      Rc(.Atom) => false,
       Rc(.FnCall(_, dot_func_box, Rc(dot_args), is_infix, _)) => cond(
         (is_infix.* == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
           dot_func_box,
-          Rc(.FnCall(_, _, _, _, _)) => false,
+          Rc(.FnCall) => false,
           Rc(.Atom(_, dot_tok)) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
             true => {
@@ -112,13 +112,13 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : &(str, static), method_name : 
                     (inner_args.len() != usize(2)) => false,
                     true => match(
                       inner_fb,
-                      Rc(.FnCall(_, _, _, _, _)) => false,
+                      Rc(.FnCall) => false,
                       Rc(.Atom(_, inner_tok)) => cond(
                         (inner_tok.kind != TokenKind.Dot) => false,
                         true => match(
                           inner_args.get_cloned(usize(1)),
                           .None => false,
-                          .Some(Rc(.FnCall(_, _, _, _, _))) => false,
+                          .Some(Rc(.FnCall)) => false,
                           .Some(Rc(.Atom(_, itok))) => (itok.value.* == obj_name)
                         )
                       )
@@ -132,7 +132,7 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : &(str, static), method_name : 
                 true => match(
                   dot_args.get_cloned(usize(1)),
                   .None => false,
-                  .Some(Rc(.FnCall(_, _, _, _, _))) => false,
+                  .Some(Rc(.FnCall)) => false,
                   .Some(Rc(.Atom(_, tok))) => (tok.value.* == method_name)
                 )
               )
@@ -191,22 +191,22 @@ is_join_handle_await_call :: (fn(expr : &AstExpr) -> bool)({
   // source and a suspected trigger for the intermittent RC freelist corruption.
   is_method_await := match(
     expr,
-    Rc(.Atom(_, _)) => false,
+    Rc(.Atom) => false,
     Rc(.FnCall(_, outer_func_box, _, _, _)) => match(
       outer_func_box,
-      Rc(.Atom(_, _)) => false,
+      Rc(.Atom) => false,
       Rc(.FnCall(_, dot_func_box, Rc(dot_args), is_infix, _)) => cond(
         (is_infix.* == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
           dot_func_box,
-          Rc(.FnCall(_, _, _, _, _)) => false,
+          Rc(.FnCall) => false,
           Rc(.Atom(_, dot_tok)) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
             true => match(
               dot_args.get_cloned(usize(1)),
               .None => false,
-              .Some(Rc(.FnCall(_, _, _, _, _))) => false,
+              .Some(Rc(.FnCall)) => false,
               .Some(Rc(.Atom(_, tok))) => (tok.value.* == "await")
             )
           )
@@ -234,7 +234,7 @@ get_future_variable_id_ :: (
   // Extract the token from the await_arg; must be an Identifier Atom
   await_tok := match(
     await_arg.clone(),
-    Rc(.FnCall(_, _, _, _, _)) => {
+    Rc(.FnCall) => {
       return(Option(String).None);
     },
     Rc(.Atom(_, tok)) => Rc.clone(tok)
@@ -294,7 +294,7 @@ detect_await_expr_ :: (
   expr_for_sp := expr.clone();
   match(
     expr,
-    Rc(.Atom(_, _)) => (),
+    Rc(.Atom) => (),
     // unreachable: is_io_await_call already confirmed FnCall
     Rc(.FnCall(_, _, _, _, tok)) => {
       // Get the first argument (the future being awaited), through its
@@ -481,7 +481,7 @@ analyze_await_points :: (
           }, {
             unwrapping = false;
           }),
-          Rc(.Atom(_, _)) => {
+          Rc(.Atom) => {
             unwrapping = false;
           }
         );
@@ -586,12 +586,12 @@ collect_variable_bindings_ :: (
 )(
   match(
     expr,
-    Rc(.Atom(_, _)) => (),
+    Rc(.Atom) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       // Check if this is a "let" or ":=" binding declaration
       func_is_binding := match(
         func_box,
-        Rc(.FnCall(_, _, _, _, _)) => false,
+        Rc(.FnCall) => false,
         Rc(.Atom(_, ftok)) => (
           (ftok.value.* == "let") || (ftok.value.* == ":=")
         )
@@ -605,7 +605,7 @@ collect_variable_bindings_ :: (
             // name_arg must be an Identifier Atom with expression info
             match(
               name_arg.clone(),
-              Rc(.FnCall(_, _, _, _, _)) => (),
+              Rc(.FnCall) => (),
               Rc(.Atom(_, name_tok)) => {
                 if(name_tok.kind == TokenKind.Identifier, {
                   var_name := name_tok.value.*.clone();
@@ -637,7 +637,7 @@ collect_variable_bindings_ :: (
                                   .Some(variable) => {
                                     match(
                                       variable.is_owning_the_same_rc_value_as(),
-                                      .Some(_) => (),
+                                      .Some => (),
                                       .None => {
                                         if(!variable.is_compile_time_only() &&
                                           !seen.contains_key(variable.id().to_string()), {

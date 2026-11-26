@@ -37,7 +37,7 @@ _find_enclosing_call :: (
 )({
   match(
     e,
-    Rc(.Atom(_, _)) => (),
+    Rc(.Atom) => (),
     Rc(.FnCall(_, func_box, Rc(args), is_infix, tok)) => {
       // Operator/infix calls are not signature-help material. EVERY
       // candidate is collected; the handler picks the innermost one whose
@@ -120,7 +120,7 @@ handle_signature_help :: (
     );
     is_fn := match(
       expr_info_table_get(info_table, ast_expr_id(&cand)),
-      .Some(cinfo) => match(&cinfo.ty(), Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false),
+      .Some(cinfo) => match(&cinfo.ty(), Rc(.Func) => true, _ => false),
       .None => false
     );
     if(is_fn, {

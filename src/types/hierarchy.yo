@@ -147,8 +147,8 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     Rc(.Unit) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     Rc(.BoolT) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     Rc(.Void) => Rc.new(TypeValueNode.TypeUni(usize(0))),
-    Rc(.Int(_, _)) => Rc.new(TypeValueNode.TypeUni(usize(0))),
-    Rc(.Float(_)) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Int) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Float) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     Rc(.Usize) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     Rc(.Isize) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     Rc(.Str) => Rc.new(TypeValueNode.TypeUni(usize(0))),
@@ -168,7 +168,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     // Type universes: TypeUni(n) → TypeUni(n+1) -----------------------------
     Rc(.TypeUni(lvl)) => Rc.new(TypeValueNode.TypeUni(lvl.* + usize(1))),
     // Pointer: raw pointers are level-0 types --------------------------------
-    Rc(.Pointer(_)) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Pointer) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     // Array: recurse into element type --------------------------------------
     Rc(.SliceT(elem_box)) => match(
       g_type_of_type_visited_fn,
@@ -250,9 +250,9 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
         }
       ),
     // Traits and modules are type-level-1 types ----------------------------
-    Rc(.TraitT(_, _, _, _, _, _)) => Rc.new(TypeValueNode.TypeUni(usize(1))),
-    Rc(.FnTraitT(base_name : _)) => Rc.new(TypeValueNode.TypeUni(usize(1))),
-    Rc(.FutureTraitT(base_name : _)) => Rc.new(TypeValueNode.TypeUni(usize(1))),
+    Rc(.TraitT) => Rc.new(TypeValueNode.TypeUni(usize(1))),
+    Rc(.FnTraitT) => Rc.new(TypeValueNode.TypeUni(usize(1))),
+    Rc(.FutureTraitT) => Rc.new(TypeValueNode.TypeUni(usize(1))),
     // SomeT: return its parent_type (meta-type) ----------------------------
     Rc(.SomeT(parent_type : pt)) => Rc.clone(pt),
     // Remaining Phase 2f variants that live at type level 0 ---------------

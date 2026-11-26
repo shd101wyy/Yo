@@ -198,14 +198,14 @@ C_TMP :: "/tmp/yo_self_out.c";
 extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
-    Rc(.Atom(_, _)) => Option(String).None,
+    Rc(.Atom) => Option(String).None,
     Rc(.FnCall(_, func_box, Rc(fn_imp_args), is_infix, _)) => cond(
       is_infix.* => Option(String).None,
       (fn_imp_args.len() != usize(1)) => Option(String).None,
       !match(
         func_box,
         Rc(.Atom(_, tok)) => (tok.value.* == BK_IMPORT),
-        Rc(.FnCall(_, _, _, _, _)) => false
+        Rc(.FnCall) => false
       )
       => Option(String).None,
       true => match(
@@ -213,7 +213,7 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
         .None => Option(String).None,
         .Some(path_arg) => match(
           path_arg,
-          Rc(.FnCall(_, _, _, _, _)) => Option(String).None,
+          Rc(.FnCall) => Option(String).None,
           Rc(.Atom(_, ptok)) => {
             raw := ptok.value.*.clone();
             n := raw.len();
@@ -234,12 +234,12 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
 extract_import_path :: (fn(expr : &AstExpr) -> Option(String))(
   match(
     expr,
-    Rc(.Atom(_, _)) => Option(String).None,
+    Rc(.Atom) => Option(String).None,
     Rc(.FnCall(_, func_box, Rc(fn_imp_args), is_infix, _)) => {
       fval := match(
         func_box,
         Rc(.Atom(_, tok)) => tok.value.*.clone(),
-        Rc(.FnCall(_, _, _, _, _)) => String.new()
+        Rc(.FnCall) => String.new()
       );
       cond(
         // Pattern: { Names } :: import("path") (infix ::)
@@ -280,7 +280,7 @@ collect_import_paths_recursive :: (
   );
   match(
     expr,
-    Rc(.Atom(_, _)) => (),
+    Rc(.Atom) => (),
     Rc(.FnCall(_, fb, Rc(walk_args), _, _)) => {
       recur(&fb.*, out);
       (i : usize) = usize(0);
@@ -351,14 +351,14 @@ try_populate_expr_info_table :: (
 extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
   match(
     expr,
-    Rc(.Atom(_, _)) => Option(String).None,
+    Rc(.Atom) => Option(String).None,
     Rc(.FnCall(_, func_box, Rc(fn_args), is_infix, _)) => cond(
       is_infix.* => Option(String).None,
       (fn_args.len() < usize(2)) => Option(String).None,
       !match(
         func_box,
         Rc(.Atom(_, ftok)) => (ftok.value.* == "test"),
-        Rc(.FnCall(_, _, _, _, _)) => false
+        Rc(.FnCall) => false
       )
       => Option(String).None,
       true => match(
@@ -366,7 +366,7 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
         .None => Option(String).None,
         .Some(name_expr) => match(
           name_expr,
-          Rc(.FnCall(_, _, _, _, _)) => Option(String).None,
+          Rc(.FnCall) => Option(String).None,
           Rc(.Atom(_, ntok)) => cond(
             (ntok.kind == TokenKind.StringLit) => {
               // The token value is the RAW quoted source: decode the escapes
@@ -392,7 +392,7 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
 extract_test_body :: (fn(expr : &AstExpr) -> Option(AstExpr))(
   match(
     expr,
-    Rc(.Atom(_, _)) => Option(AstExpr).None,
+    Rc(.Atom) => Option(AstExpr).None,
     Rc(.FnCall(_, _, Rc(fn_args), _, _)) => cond(
       (fn_args.len() < usize(2)) => Option(AstExpr).None,
       true => fn_args.get_cloned(usize(1))
@@ -548,7 +548,7 @@ collect_module_deps :: (
 /// Resolve a path for exclude comparison: make it absolute against the cwd,
 /// normalize separators to `/`, and fold `.`/`..` segments.
 _resolve_for_match :: (fn(p : &String) -> String)({
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
   (joined : String) = p.clone();
   is_abs := (p.starts_with("/") || ((p.len() > usize(1)) && (p.byte_at(usize(1)) == u8(58))));
   if(!is_abs, {
@@ -1237,7 +1237,7 @@ _mn_collect_literals :: (
 )({
   match(
     e,
-    Rc(.Atom(_, _)) => (),
+    Rc(.Atom) => (),
     Rc(.FnCall(_, func, Rc(args), _, _)) => {
       fname := match(func, Rc(.Atom(_, ft)) => ft.value.*.clone(), _ => String.new());
       if((fname == BK_IMPORT) && (args.len() == usize(1)), {
@@ -2481,7 +2481,7 @@ run_verify_cmd :: (
   });
   match(
     verify_mode_of_string(mode_str.clone()),
-    .Some(_) => (),
+    .Some => (),
     .None => {
       exn.throw(
         dyn(Box.new(`verify: --verify-mode expects 'runtime', 'verify', or 'verify+', got '${mode_str}'`))
@@ -2532,7 +2532,7 @@ run_verify_cmd :: (
     cond(
       (hri == usize(0)) => match(
         &r.verdict,
-        .Proved(_) => (),
+        .Proved => (),
         _ => {
           harness_ok = false;
         }
@@ -2801,10 +2801,10 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
     );
     verdict_str := match(
       &obl.verdict,
-      .Proved(_) => String.from("proved"),
-      .Refuted(_) => String.from("refuted"),
-      .Unproven(_) => String.from("unproven"),
-      .SolverError(_) => String.from("solver-error")
+      .Proved => String.from("proved"),
+      .Refuted => String.from("refuted"),
+      .Unproven => String.from("unproven"),
+      .SolverError => String.from("solver-error")
     );
     ks := ArrayList(String).new();
     ks.push(String.from("name"));
@@ -2879,7 +2879,7 @@ _verify_self_test_json :: (fn(results : &ArrayList(VerifyResult)) -> ArrayList(J
   for(&results, r => {
     verdict_json := match(
       &r.verdict,
-      .Proved(_) => JsonValue.Str(String.from("proved")),
+      .Proved => JsonValue.Str(String.from("proved")),
       .Refuted(ce) => _verify_json_strs(&ce.*),
       .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
       .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
@@ -2901,7 +2901,7 @@ _verify_proved_count :: (fn(rp : &VerifyFnReport) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < rp.obligations.len(), {
-    if(match(rp.obligations(i).verdict.clone(), .Proved(_) => true, _ => false), {
+    if(match(rp.obligations(i).verdict.clone(), .Proved => true, _ => false), {
       n = (n + usize(1));
     });
     i = (i + usize(1));
@@ -2955,13 +2955,13 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
       for(&rp.obligations, obl => {
         bad := match(
           &obl.verdict,
-          .Proved(_) => false,
+          .Proved => false,
           _ => true
         );
         if((bad && !obl.elision_only) || detailed, {
           detail := match(
             &obl.verdict,
-            .Proved(_) => String.from("PROVED"),
+            .Proved => String.from("PROVED"),
             // A folded refutation has no model to print (the verdict
             // came from constant folding, not a solver run) — the
             // empty list used to render "counter-example: " with
@@ -2978,7 +2978,7 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
           // was not asked again: say how to ask.
           cached_mark := cond(
             !(obl.cached) => String.new(),
-            match(&obl.verdict, .Unproven(_) => true, _ => false) => String.from(" (cached; --no-cache asks the solver again)"),
+            match(&obl.verdict, .Unproven => true, _ => false) => String.from(" (cached; --no-cache asks the solver again)"),
             true => String.from(" (cached)")
           );
           folded_mark := if(obl.folded, String.from(" (folded)"), String.new());
@@ -3033,7 +3033,7 @@ _verify_join_strs :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
 /// How far the arg cursor advances for a value option: 1 when the value was
 /// attached (`--flag=value`), 2 for the space form.
 _opt_step :: (fn(attached : &Option(String)) -> usize)(
-  match(attached, .Some(_) => usize(1), .None => usize(2))
+  match(attached, .Some => usize(1), .None => usize(2))
 );
 /// The value of a value option: the attached `=value` when present, else the
 /// (required) next argv entry.
@@ -6159,7 +6159,7 @@ export(run_compile, code_spill_path_for, _check_code_spill, _copy_code_spill_int
 _collect_workspace_test_files :: (
   fn(excludes : &ArrayList(String), io : Io, exn : Exception) -> ArrayList(String)
 )({
-  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
   root_path := match(
     find_manifest(cwd_str.clone()),
     .Some(p) => p,
@@ -6424,7 +6424,7 @@ _remove_dead_code_spills :: (fn(output : &String, io : Io) -> unit)({
                   _try_remove_once(`${dir}${name}`, io, &mut ok);
                 });
               },
-              .Err(_) => ()
+              .Err => ()
             );
           });
         });
@@ -7184,7 +7184,7 @@ run_test :: (
   match(
     mm_shared_expr_info_table(),
     .None => mm_set_shared_expr_info_table(expr_info_table_new()),
-    .Some(_) => ()
+    .Some => ()
   );
   // §4.6: `--workspace` runs every member's tests in ONE run, rather than one
   // summary per member. The members are resolved from the nearest `[workspace]`
@@ -7252,7 +7252,7 @@ run_test :: (
     true => match(
       parse_target(wasm_target_kind.clone()),
       .Ok(wt) => is_target_standalone_wasi(&wt),
-      .Err(_) => false
+      .Err => false
     )
   );
   run_is_emcc := ((wasm_target_kind != "") && !run_is_wasi);
@@ -7268,7 +7268,7 @@ run_test :: (
     true => String.from(".bin")
   );
   // Resolved once: wasmtime needs the cwd as an explicit --dir grant below.
-  run_cwd := match(cwd(), .Ok(dir) => dir.to_string(), .Err(_) => String.from("."));
+  run_cwd := match(cwd(), .Ok(dir) => dir.to_string(), .Err => String.from("."));
   if(wasm_target_kind != "", {
     wt_parsed := match(
       parse_target(wasm_target_kind.clone()),
@@ -7466,7 +7466,7 @@ run_test :: (
   _sv_exe := match(
     current_exe(),
     .Ok(exe) => proc_env.set(String.from("YO_EXE"), exe.to_string()),
-    .Err(_) => false
+    .Err => false
   );
   // YO_TEST_FORK state. `fork_warmed`: the first file has run in this
   // process, so later files fork. `fork_child`/`fork_base`: this process is
@@ -8649,7 +8649,7 @@ run_fmt :: (
   fmt_cwd := match(
     proc_env.get(`YO_ORIGINAL_CWD`),
     .Some(oc) => oc,
-    .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
+    .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err => String.from("."))
   );
   // Errors print the BARE message — no `yo: error:` prefix.
   fmt_exn := Exception(
@@ -9031,7 +9031,7 @@ _build_round_watch :: (fn(opts : &mut BuildOptions, io : Io) -> bool)({
   match(
     mm_shared_expr_info_table(),
     .None => mm_set_shared_expr_info_table(expr_info_table_new()),
-    .Some(_) => ()
+    .Some => ()
   );
   swallow := Exception(
     throw : (
@@ -9597,7 +9597,7 @@ run_version_cmd :: (
   version_cwd := match(
     proc_env.get(`YO_ORIGINAL_CWD`),
     .Some(oc) => oc,
-    .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
+    .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err => String.from("."))
   );
   if(action == "", {
     current := String.from(CURRENT_YO_VERSION);
@@ -11318,7 +11318,7 @@ main :: (fn(io : Io) -> unit)({
     dispatch_cwd := match(
       proc_env.get(`YO_ORIGINAL_CWD`),
       .Some(oc) => oc,
-      .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
+      .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err => String.from("."))
     );
     pin_exn := Exception(throw : (_pe -> unwind(())));
     pinned_opt := io.await(read_yo_version(Path.new(dispatch_cwd.clone()), io, pin_exn), IoExn(io : io, exn : pin_exn));

@@ -204,7 +204,7 @@ test("Arc.try_unwrap on the only handle moves the payload out", {
   match(
     Arc.try_unwrap(h),
     .Ok(p) => assert((p.a == i32(1)) && (p.b == i32(2)), "the payload came out"),
-    .Err(_) => assert(false, "the only handle unwraps")
+    .Err => assert(false, "the only handle unwraps")
   );
 });
 test("Arc.try_unwrap on a handle another thread holds returns it", {
@@ -216,7 +216,7 @@ test("Arc.try_unwrap on a handle another thread holds returns it", {
   c := Arc.clone(a);
   back := match(
     Arc.try_unwrap(c),
-    .Ok(_) => {
+    .Ok => {
       assert(false, "a still shares the cell");
       Arc.new(i32(0))
     },

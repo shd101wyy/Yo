@@ -489,7 +489,7 @@ _require_dyn_traits_implemented :: (
             continue;
           }
         );
-        req_is_nominal := match(&req, Rc(.TraitT(_, _, _, _, _, _)) => true, _ => false);
+        req_is_nominal := match(&req, Rc(.TraitT) => true, _ => false);
         req_judged := match(&req, Rc(.TraitT(name : rjn)) => _name_in(&fv_judged_names, &rjn.*), _ => false);
         if(req_is_nominal && !req_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
           // Prefer the trait's declared NAME; an anonymous trait has none, and
@@ -1247,7 +1247,7 @@ _reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), writte
     target,
     .Some(t) => match(
       &t.ty,
-      Rc(.DynT(_, _, _, _)) => match(extract_fn_trait_from_type(&t.ty), .Some(tf) => match(tf, Rc(.FnTraitT(base_name : tb)) => tb.clone(), _ => String.from("")), .None => String.from("")),
+      Rc(.DynT) => match(extract_fn_trait_from_type(&t.ty), .Some(tf) => match(tf, Rc(.FnTraitT(base_name : tb)) => tb.clone(), _ => String.from("")), .None => String.from("")),
       _ => String.from("")
     ),
     .None => String.from("")
@@ -1398,11 +1398,11 @@ _written_cell_new :: (fn(written : &AstExpr) -> bool)(
       match(
         w_callee,
         Rc(.FnCall(_, _, Rc(w_dot), _, _)) => (match(w_dot.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false) && match(w_dot.get_cloned(usize(0)), .Some(Rc(.Atom(_, r_tok))) => ((r_tok.value.* == "Box") || (r_tok.value.* == "Rc") || (r_tok.value.* == "Arc")), _ => false)),
-        Rc(.Atom(_, _)) => false
+        Rc(.Atom) => false
       ),
       false
     ),
-    Rc(.Atom(_, _)) => false
+    Rc(.Atom) => false
   )
 );
 /// The type of the value a written `Box.new(v)`, `Rc.new(v)` or `Arc.new(v)`
@@ -1416,7 +1416,7 @@ _written_cell_payload_type :: (fn(written : &AstExpr, ctx : &EvalContext) -> Opt
     match(
       written,
       Rc(.FnCall(_, _, Rc(w_args), _, _)) => match(w_args.get_cloned(usize(0)), .Some(w_a0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&w_a0)), .Some(w_ai) => Option(TypeValue).Some(Rc.clone(w_ai.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None),
-      Rc(.Atom(_, _)) => Option(TypeValue).None
+      Rc(.Atom) => Option(TypeValue).None
     )
   )
 );
@@ -1568,7 +1568,7 @@ _evaluate_dyn_erasure :: (
     ctx.expected_type.clone(),
     .Some(et) => match(
       &et.ty,
-      Rc(.DynT(_, _, _, _)) => {
+      Rc(.DynT) => {
         w_ty := match(t_dyn_payload_wrapper(&et.ty, env.frames_len()), .Some(w) => w, .None => Rc.clone(et.ty));
         (exp_ty : TypeValue) = Rc.clone(w_ty);
         // dyn(Rc.new(<closure>)) special case, also `Arc.new` and with an
@@ -1673,7 +1673,7 @@ _evaluate_dyn_erasure :: (
     // `t_unit()` fallback above is a STAND-IN, not the payload's type — checking
     // the trait bound against it would report "unit does not implement …" on top
     // of whatever really failed inside the inner.
-    ne_have_inner_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(_) => true, .None => false);
+    ne_have_inner_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some => true, .None => false);
     _reject_dyn_of_dyn(ne_value_type.clone(), &expr_tok, exn);
     _reject_dyn_of_named_handle(&ne_value_type, value_is_fresh_cell, &expr_tok, exn);
     if(ne_have_inner_ty, {

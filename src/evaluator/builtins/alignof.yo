@@ -57,7 +57,7 @@ evaluate_align_of :: (
         return(Rc.clone(expr.*));
       }
     ),
-    Rc(.Atom(_, _)) => {
+    Rc(.Atom) => {
       return(Rc.clone(expr.*));
     }
   );
@@ -85,7 +85,7 @@ evaluate_align_of :: (
   (type_to_check : TypeValue) = match(
     info.value(),
     .Some(Rc(.TypeVal(ty_box))) => Rc.clone(ty_box),
-    .Some(_) => Rc.clone(info.ty()),
+    .Some => Rc.clone(info.ty()),
     .None => Rc.clone(info.ty())
   );
   // An unsized type has no alignment of its own (decision 49, E0619);

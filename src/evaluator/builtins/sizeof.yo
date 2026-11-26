@@ -83,7 +83,7 @@ evaluate_size_of :: (
         return(Rc.clone(expr.*));
       }
     ),
-    Rc(.Atom(_, _)) => {
+    Rc(.Atom) => {
       return(Rc.clone(expr.*));
     }
   );
@@ -111,7 +111,7 @@ evaluate_size_of :: (
   (type_to_check : TypeValue) = match(
     info.value(),
     .Some(Rc(.TypeVal(ty_box))) => Rc.clone(ty_box),
-    .Some(_) => Rc.clone(info.ty()),
+    .Some => Rc.clone(info.ty()),
     .None => Rc.clone(info.ty())
   );
   // An unsized type has no size of its own (decision 49, E0619);
@@ -146,7 +146,7 @@ evaluate_size_of :: (
 /// the place (its origin the place's root, as a tuple's lend element), and a
 /// bare reference binding is the reference, not a whole-value read (E0926).
 _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : &(str, static), env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Tuple(AstExpr, ArrayList(ExprInfo)))({
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   if(args.len() != n, {
     exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), `Expected "${name}" with ${n.to_string()} argument(s)`))));
   });
@@ -184,7 +184,7 @@ _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : &(str, static), env
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&a), &lend_info);
       lend_args := ArrayList(AstExpr).new();
       lend_args.push(ev);
-      new_args.push(match(&a, Rc(.FnCall(l_id, l_func, _, l_infix, l_tok)) => Rc.new(AstExprNode.FnCall(l_id.*, l_func.clone(), Rc.new(lend_args), l_infix.*, l_tok.clone())), Rc(.Atom(_, _)) => a.clone()));
+      new_args.push(match(&a, Rc(.FnCall(l_id, l_func, _, l_infix, l_tok)) => Rc.new(AstExprNode.FnCall(l_id.*, l_func.clone(), Rc.new(lend_args), l_infix.*, l_tok.clone())), Rc(.Atom) => a.clone()));
       out.push(lend_info);
     }, {
       // A bare reference binding is the reference value it holds (the read
@@ -204,7 +204,7 @@ _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : &(str, static), env
       );
     });
   });
-  call := match(expr, Rc(.FnCall(c_id, c_func, _, c_infix, c_tok)) => Rc.new(AstExprNode.FnCall(c_id.*, c_func.clone(), Rc.new(new_args), c_infix.*, c_tok.clone())), Rc(.Atom(_, _)) => expr.clone());
+  call := match(expr, Rc(.FnCall(c_id, c_func, _, c_infix, c_tok)) => Rc.new(AstExprNode.FnCall(c_id.*, c_func.clone(), Rc.new(new_args), c_infix.*, c_tok.clone())), Rc(.Atom) => expr.clone());
   (call, out)
 });
 /// The pointee of a reference or raw pointer type, `.None` for any other.

@@ -213,7 +213,7 @@ _collect_anon_param_names :: (
                 Rc(.Atom(_, at)) => {
                   out.push(at.value.*.clone());
                 },
-                Rc(.FnCall(_, _, _, _, _)) => {
+                Rc(.FnCall) => {
                   // Best-effort: use the first atom of the call (e.g.
                   // `name : Type` → token "name") if present.
                   match(
@@ -223,10 +223,10 @@ _collect_anon_param_names :: (
                       .Some(Rc(.Atom(_, nt))) => {
                         out.push(nt.value.*.clone());
                       },
-                      .Some(Rc(.FnCall(_, _, _, _, _))) => (),
+                      .Some(Rc(.FnCall)) => (),
                       .None => ()
                     ),
-                    Rc(.Atom(_, _)) => ()
+                    Rc(.Atom) => ()
                   );
                 }
               ),
@@ -241,7 +241,7 @@ _collect_anon_param_names :: (
           out.push(ptok.value.*.clone());
         }
       ),
-      Rc(.FnCall(_, _, _, _, _)) => ()
+      Rc(.FnCall) => ()
     )
   )
 );
@@ -279,7 +279,7 @@ _is_unresolved_impl_fn_type :: (fn(ty : &TypeValue) -> bool)(
     ty,
     Rc(.SomeT(_, _, _, _, _, _, res)) => match(
       res,
-      .Some(_) => false,
+      .Some => false,
       .None => type_implements_fn(ty)
     ),
     _ => false
@@ -303,7 +303,7 @@ _get_anon_op :: (fn(expr : &AstExpr) -> String)(
     Rc(.FnCall(_, fb, _, _, _)) => match(
       fb,
       Rc(.Atom(_, t)) => t.value.*.clone(),
-      Rc(.FnCall(_, _, _, _, _)) => String.from("<unknown>")
+      Rc(.FnCall) => String.from("<unknown>")
     )
   )
 );
@@ -316,7 +316,7 @@ _get_arg :: (fn(expr : &AstExpr, i : usize) -> AstExpr)(
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   )
 );
 /// Helper: get the actual parameter name from a parameter expression.
@@ -328,7 +328,7 @@ _get_arg :: (fn(expr : &AstExpr, i : usize) -> AstExpr)(
 _reject_old_closure_param :: (fn(p : &AstExpr, exn : Exception) -> unit)({
   reject_old_mode_spelling(p, exn);
   if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), {
-    reject_old_mode_spelling(match(p, Rc(.FnCall(_, _, Rc(pa), _, _)) => match(pa.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(p.*)), Rc(.Atom(_, _)) => Rc.clone(p.*)), exn);
+    reject_old_mode_spelling(match(p, Rc(.FnCall(_, _, Rc(pa), _, _)) => match(pa.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(p.*)), Rc(.Atom) => Rc.clone(p.*)), exn);
   });
 });
 _reject_old_closure_param_list :: (fn(ps : &ArrayList(AstExpr), exn : Exception) -> unit)({
@@ -342,7 +342,7 @@ _reject_old_closure_params :: (fn(decl : &AstExpr, exn : Exception) -> unit)(
     ast_expr_is_fn_call_of(decl, BK_TUPLE, Option(usize).None) => match(
       decl,
       Rc(.FnCall(_, _, Rc(ps), _, _)) => _reject_old_closure_param_list(&ps.*, exn),
-      Rc(.Atom(_, _)) => ()
+      Rc(.Atom) => ()
     ),
     true => _reject_old_closure_param(decl, exn)
   )
@@ -364,7 +364,7 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
         ),
         true => fallback.clone()
       ),
-      Rc(.FnCall(_, _, _, _, _)) => fallback.clone()
+      Rc(.FnCall) => fallback.clone()
     )
   )
 );
@@ -482,7 +482,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
               ss_bound = Option(TypeValue).Some(Rc.clone(stv));
               ss_bi = usize(0);
             }),
-            .Some(_) => (),
+            .Some => (),
             .None => ()
           ),
           .None => ()
@@ -563,7 +563,7 @@ _anon_swallow_message :: (fn() -> String)(
 _collect_resume_args :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit)(
   match(
     e,
-    Rc(.Atom(_, _)) => (),
+    Rc(.Atom) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       if(ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))), {
         match(args.get_cloned(usize(0)), .Some(ra) => out.push(ra), .None => ());
@@ -587,7 +587,7 @@ _collect_resume_args :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit
                 j = (j + usize(1));
               });
             },
-            Rc(.Atom(_, _)) => ()
+            Rc(.Atom) => ()
           );
         }, recur(&arg, out));
         i = (i + usize(1));
@@ -735,7 +735,7 @@ _trial_eval_annotation_type :: (
       .Some(Rc(.TypeVal(ann_tv))) => if(!is_some_type(&ann_tv), {
         out.push(Rc.clone(ann_tv));
       }),
-      .Some(_) => (),
+      .Some => (),
       .None => ()
     ),
     .None => ()
@@ -942,7 +942,7 @@ _cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : 
 );
 /// The one argument of a prefix call `f(a)`.
 _only_arg :: (fn(e : &AstExpr) -> AstExpr)(
-  match(e, Rc(.FnCall(_, _, Rc(oa), _, _)) => match(oa.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr())
+  match(e, Rc(.FnCall(_, _, Rc(oa), _, _)) => match(oa.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom) => make_err_expr())
 );
 /// `e` is the borrow marker `&p` (`imm` entries) or `&mut p` (`mut`
 /// entries), a one-operand prefix call.
@@ -963,7 +963,7 @@ _cap_place_has_owner_deref :: (fn(e : &AstExpr) -> bool)({
     if(!ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
       return(false);
     });
-    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(oa), _, _)) => match(oa.get_cloned(usize(0)), .Some(b) => b, .None => return(false)), Rc(.Atom(_, _)) => return(false));
+    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(oa), _, _)) => match(oa.get_cloned(usize(0)), .Some(b) => b, .None => return(false)), Rc(.Atom) => return(false));
   });
   false
 });
@@ -973,8 +973,8 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
   (walking : bool) = true;
   while(walking, {
     if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-      recv := match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
-      fld := match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+      recv := match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom) => make_err_expr());
+      fld := match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom) => make_err_expr());
       if(!ast_expr_is_atom(&fld), {
         return(Option(AstExpr).None);
       });
@@ -1026,8 +1026,8 @@ _evaluate_capture_list :: (
         is_pun = true;
       },
       ast_expr_is_fn_call_of(&raw, ":", Option(usize).Some(usize(2))) => {
-        label_e = match(Rc.clone(raw), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => Rc.clone(raw));
-        init_e = match(Rc.clone(raw), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => Rc.clone(raw));
+        label_e = match(Rc.clone(raw), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom) => Rc.clone(raw));
+        init_e = match(Rc.clone(raw), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom) => Rc.clone(raw));
       },
       true => {
         _cap_list_error(ctx, exn, &raw_tok, `A closure's capture list holds entries \`x\`, \`x : e\`, \`y : &p\` or \`z : &mut p\` (and the puns \`&y\`, \`&mut z\`); got \`${ast_expr_to_string(&raw)}\`.`);
@@ -1401,7 +1401,7 @@ evaluate_anonymous_function_implementation :: (
   n_expr_args := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.len(),
-    Rc(.Atom(_, _)) => usize(0)
+    Rc(.Atom) => usize(0)
   );
   if(n_expr_args != usize(2), {
     exn.throw(
@@ -1425,10 +1425,10 @@ evaluate_anonymous_function_implementation :: (
     match(
       Rc.clone(param_decl),
       Rc(.FnCall(_, cl_callee, Rc(cl_params), _, _)) => {
-        cap_list_raw = Option(ArrayList(AstExpr)).Some(match(cl_callee, Rc(.FnCall(_, _, Rc(cl_entries), _, _)) => cl_entries.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new()));
+        cap_list_raw = Option(ArrayList(AstExpr)).Some(match(cl_callee, Rc(.FnCall(_, _, Rc(cl_entries), _, _)) => cl_entries.clone(), Rc(.Atom) => ArrayList(AstExpr).new()));
         cap_list_params = cl_params.clone();
       },
-      Rc(.Atom(_, _)) => ()
+      Rc(.Atom) => ()
     );
   });
   // `mut(n) => …`, `(imm(v) : String) => …`, `{ imm(y) }() => …`: the
@@ -1503,8 +1503,8 @@ evaluate_anonymous_function_implementation :: (
   function_type_opt := match(
     &expected_ty,
     Rc(.Func({ result : _ })) => Option(TypeValue).Some(Rc.clone(expected_ty)),
-    Rc(.FnTraitT(_, _, _, _, _, _)) => Option(TypeValue).Some(_func_from_fn_trait(&expected_ty)),
-    Rc(.SomeT(_, _, _, _, _, _, _)) => {
+    Rc(.FnTraitT) => Option(TypeValue).Some(_func_from_fn_trait(&expected_ty)),
+    Rc(.SomeT) => {
       fn_trait_opt := extract_fn_trait_from_type(&expected_ty);
       match(
         fn_trait_opt,
@@ -1525,7 +1525,7 @@ evaluate_anonymous_function_implementation :: (
   expected_fn_base := match(
     &expected_ty,
     Rc(.FnTraitT(base_name : efb)) => efb.clone(),
-    Rc(.SomeT(_, _, _, _, _, _, _)) => match(
+    Rc(.SomeT) => match(
       extract_fn_trait_from_type(&expected_ty),
       .Some(eft) => match(eft, Rc(.FnTraitT(base_name : efb2)) => efb2.clone(), _ => String.from("")),
       .None => String.from("")
@@ -1649,13 +1649,13 @@ evaluate_anonymous_function_implementation :: (
             single_list
           }
         ),
-        Rc(.FnCall(_, _, _, _, _)) => {
+        Rc(.FnCall) => {
           single_list2 := ArrayList(AstExpr).new();
           single_list2.push(Rc.clone(param_decl));
           single_list2
         }
       ),
-      Rc(.Atom(_, _)) => {
+      Rc(.Atom) => {
         single_list3 := ArrayList(AstExpr).new();
         single_list3.push(Rc.clone(param_decl));
         single_list3
@@ -1676,7 +1676,7 @@ evaluate_anonymous_function_implementation :: (
     is_using_call := ast_expr_is_fn_call_of(&pe, "using", .None);
     cond(
       is_forall_call => {
-        fa := match(pe, Rc(.FnCall(_, _, Rc(fa_args), _, _)) => fa_args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+        fa := match(pe, Rc(.FnCall(_, _, Rc(fa_args), _, _)) => fa_args.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
         (fi : usize) = usize(0);
         while(fi < fa.len(), {
           fpe := match(fa.get_cloned(fi), .Some(a) => a, .None => make_err_expr());
@@ -1685,7 +1685,7 @@ evaluate_anonymous_function_implementation :: (
         });
       },
       is_using_call => {
-        ua := match(pe, Rc(.FnCall(_, _, Rc(ua_args), _, _)) => ua_args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+        ua := match(pe, Rc(.FnCall(_, _, Rc(ua_args), _, _)) => ua_args.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
         (ui : usize) = usize(0);
         while(ui < ua.len(), {
           upe := match(ua.get_cloned(ui), .Some(a) => a, .None => make_err_expr());
@@ -1752,7 +1752,7 @@ evaluate_anonymous_function_implementation :: (
       match(
         ann_some_name,
         .Some(ann_nm) => {
-          ann_targs := match(Rc.clone(ann_pe), Rc(.FnCall(_, _, Rc(ata), _, _)) => ata.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+          ann_targs := match(Rc.clone(ann_pe), Rc(.FnCall(_, _, Rc(ata), _, _)) => ata.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
           ann_tex := match(ann_targs.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
           ann_out := ArrayList(TypeValue).new();
           ann_prev_flag := ctx.is_evaluating_function_type;
@@ -2075,7 +2075,7 @@ evaluate_anonymous_function_implementation :: (
                 _st_bound = Option(TypeValue).Some(Rc.clone(stv));
                 _st_bi = usize(0);
               }),
-              .Some(_) => (),
+              .Some => (),
               .None => ()
             ),
             .None => ()
@@ -2199,7 +2199,7 @@ evaluate_anonymous_function_implementation :: (
                   rpr_conc = true;
                   rpr_vi = usize(0);
                 }),
-                .Some(_) => (),
+                .Some => (),
                 .None => ()
               ),
               .None => ()
@@ -2436,7 +2436,7 @@ evaluate_anonymous_function_implementation :: (
     while((bcp_i < bcp_flags.len()) && !body_has_ct_param, {
       bcp_is_typeuni := match(
         slot_pointee_at(&param_types, bcp_i),
-        .Some(bcp_pt) => match(bcp_pt, Rc(.TypeUni(_)) => true, _ => false),
+        .Some(bcp_pt) => match(bcp_pt, Rc(.TypeUni) => true, _ => false),
         .None => false
       );
       match(
@@ -2849,7 +2849,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           rv_tail := match(
             Rc.clone(anon_eb),
             Rc(.FnCall(_, _, Rc(rv_targs), _, _)) => if(ast_expr_is_fn_call_of(&anon_eb, BK_BEGIN, .None), match(rv_targs.last_cloned(), .Some(t) => t, .None => Rc.clone(anon_eb)), Rc.clone(anon_eb)),
-            Rc(.Atom(_, _)) => Rc.clone(anon_eb)
+            Rc(.Atom) => Rc.clone(anon_eb)
           );
           if(!evaluated_body_contains_unwind(&rv_tail) && !ast_expr_is_fn_call_of(&rv_tail, BK_RETURN, .None), {
             rv_values.push(rv_tail);

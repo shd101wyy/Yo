@@ -386,7 +386,7 @@ _section_end :: (fn(kinds : &ArrayList(_Line), from : usize) -> usize)({
   while(i < kinds.len(), {
     match(
       &kinds(i).kind.clone(),
-      .Header(_, _) => {
+      .Header => {
         return(i);
       },
       _ => ()
@@ -506,7 +506,7 @@ set_entry :: (
   probe := `${toml_key(key.clone())} = ${value_text}\n`;
   match(
     parse(&probe),
-    .Ok(_) => (),
+    .Ok => (),
     .Err(err) => {
       return(Result(String, String).Err(`invalid value for "${key}": ${err.to_string()}`));
     }
@@ -599,7 +599,7 @@ set_entry :: (
           while(i < end, {
             match(
               &pruned_kinds(i).kind.clone(),
-              .Entry(_) => {
+              .Entry => {
                 insert_at = (pruned_kinds(i).end + usize(1));
               },
               _ => ()
@@ -688,7 +688,7 @@ remove_entry :: (
   result := _join_lines(_delete_ranges(&lines, &ranges));
   match(
     parse(result.clone()),
-    .Ok(_) => (),
+    .Ok => (),
     .Err(err) => {
       return(Result(Option(String), String).Err(`edit would produce invalid TOML (${err.to_string()}); the document was left unchanged`));
     }

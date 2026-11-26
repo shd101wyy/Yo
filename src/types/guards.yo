@@ -72,7 +72,7 @@ register_prelude_enum_decl :: (fn(decl : &String) -> unit)({
 });
 /// Whether declaration identity `decl` names an enum declared in std/prelude.yo.
 is_prelude_enum_decl :: (fn(decl : &String) -> bool)(
-  match(g_prelude_enum_decls.with({ decl : &decl.* }(m) => m.get(decl)), .Some(_) => true, .None => false)
+  match(g_prelude_enum_decls.with({ decl : &decl.* }(m) => m.get(decl)), .Some => true, .None => false)
 );
 /// The declaration identity recorded for enum id `enum_id` (a clone).
 enum_decl_identity :: (fn(enum_id : &String) -> Option(String))(
@@ -179,10 +179,10 @@ get_adopted_extern_c_type :: (fn(t : &TypeValue) -> Option(AdoptedExternCType))(
 // boolean test rather than a tag enum comparison.
 // ---------------------------------------------------------------------------
 is_int_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.Int(_, _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Int) => true, _ => false)
 );
 is_float_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.Float(_)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Float) => true, _ => false)
 );
 is_signed_int_type :: (fn(t : &TypeValue) -> bool)(
   match(
@@ -207,23 +207,23 @@ is_numeric_type :: (fn(t : &TypeValue) -> bool)(
   )
 );
 is_pointer_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.Pointer(_)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Pointer) => true, _ => false)
 );
 is_array_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.Array(_, _, _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Array) => true, _ => false)
 );
 is_function_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.Func({ result : _ })) => true, _ => false)
 );
 is_some_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.SomeT(name : _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.SomeT) => true, _ => false)
 );
 is_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
-    Rc(.TraitT(name : _)) => true,
-    Rc(.FnTraitT(base_name : _)) => true,
-    Rc(.FutureTraitT(base_name : _)) => true,
+    Rc(.TraitT) => true,
+    Rc(.FnTraitT) => true,
+    Rc(.FutureTraitT) => true,
     _ => false
   )
 );
@@ -239,7 +239,7 @@ is_struct_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.Struct({ is_source_namespace : sns })) => !sns, _ => false)
 );
 is_enum_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.EnumT) => true, _ => false)
 );
 is_unit_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.Unit) => true, _ => false)
@@ -257,8 +257,8 @@ is_primitive_type :: (fn(t : &TypeValue) -> bool)(
     Rc(.BoolT) => true,
     Rc(.Usize) => true,
     Rc(.Isize) => true,
-    Rc(.Int(_, _)) => true,
-    Rc(.Float(_)) => true,
+    Rc(.Int) => true,
+    Rc(.Float) => true,
     Rc(.CChar) => true,
     Rc(.CShort) => true,
     Rc(.CUShort) => true,
@@ -282,7 +282,7 @@ is_comptime_string_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.ComptimeString) => true, _ => false)
 );
 is_comptime_list_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.ComptimeListT(_)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.ComptimeListT) => true, _ => false)
 );
 is_expr_list_type :: (fn(t : &TypeValue) -> bool)(
   match(
@@ -334,10 +334,10 @@ is_expr_type :: (fn(t : &TypeValue) -> bool)(
 // Compound type guards
 // ---------------------------------------------------------------------------
 is_tuple_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.Tuple(_, _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Tuple) => true, _ => false)
 );
 is_union_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.Union(_, _, _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Union) => true, _ => false)
 );
 /// Reference-semantics struct: `ref(struct(...))`.
 is_reference_struct_type :: (fn(t : &TypeValue) -> bool)(
@@ -582,7 +582,7 @@ is_unique_box_type :: (fn(t : &TypeValue) -> bool)(unique_box_payload_type(t).is
 /// A pointer to `p` is fat: `p` is a `Dyn(...)` or a slice `[T]` (decision
 /// 49). A tail struct is fat too; no handle stores one yet.
 _is_fat_pointee :: (fn(p : &TypeValue) -> bool)(
-  match(t_refine_inner(p), Rc(.DynT(_, _, _, _)) => true, Rc(.SliceT(_)) => true, _ => false)
+  match(t_refine_inner(p), Rc(.DynT) => true, Rc(.SliceT) => true, _ => false)
 );
 /// True if `t` is one of the prelude's non-owning handles, `Weak(V)` or its
 /// atomic twin `ArcWeak(V)` (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3): a
@@ -619,7 +619,7 @@ is_cell_primitive_type :: (fn(t : &TypeValue) -> bool)(
 /// `{ data, vtable }` over the counted block `dyn(Rc.new(v))` built, so its
 /// count, retain and release go through the vtable.
 is_dyn_cell_type :: (fn(t : &TypeValue) -> bool)(
-  is_cell_primitive_type(t) && match(t_refine_inner(t), Rc(.Struct({ field_types : dc_fts })) => match(dc_fts.get(usize(0)), .Some(dp) => match(t_refine_inner(&dp), Rc(.DynT(_, _, _, _)) => true, _ => false), .None => false), _ => false)
+  is_cell_primitive_type(t) && match(t_refine_inner(t), Rc(.Struct({ field_types : dc_fts })) => match(dc_fts.get(usize(0)), .Some(dp) => match(t_refine_inner(&dp), Rc(.DynT) => true, _ => false), .None => false), _ => false)
 );
 /// A cell handle: what V5 makes `Rc` and `Arc` (plans/VALUES_BY_DEFAULT.md
 /// §3.5), a newtype whose one field `_cell` is a cell primitive
@@ -672,12 +672,12 @@ is_atomic_counted_handle_type :: (fn(t : &TypeValue) -> bool)(
   is_atomic_reference_struct_type(t) || match(cell_handle_view(t), .Some(v) => v.is_atomic, .None => false)
 );
 is_fn_trait_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.FnTraitT(base_name : _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.FnTraitT) => true, _ => false)
 );
 is_function_type_and_is_type_function :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.Func({ result : r })) => match(t_slot_pointee(&r.*), Rc(.TypeUni(_)) => true, _ => false),
+    Rc(.Func({ result : r })) => match(t_slot_pointee(&r.*), Rc(.TypeUni) => true, _ => false),
     _ => false
   )
 );
@@ -694,15 +694,15 @@ is_comptime_only_type_simple :: (fn(t : &TypeValue) -> bool)(
     Rc(.ComptimeInt) => true,
     Rc(.ComptimeFloat) => true,
     Rc(.ComptimeString) => true,
-    Rc(.TypeUni(_)) => true,
+    Rc(.TypeUni) => true,
     // Source-namespace structs (anonymous modules / imports) are
     // comptime-only; ordinary structs are not.
     Rc(.Struct({ is_source_namespace : sns2 })) => sns2.*,
-    Rc(.TraitT(name : _)) => true,
-    Rc(.FnTraitT(base_name : _)) => true,
-    Rc(.FutureTraitT(base_name : _)) => true,
+    Rc(.TraitT) => true,
+    Rc(.FnTraitT) => true,
+    Rc(.FutureTraitT) => true,
     Rc(.ExprT) => true,
-    Rc(.ComptimeListT(_)) => true,
+    Rc(.ComptimeListT) => true,
     _ => false
   )
 );
@@ -726,7 +726,7 @@ is_function_type_and_returns_comptime_value :: (fn(t : &TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// The `Type`, `Type(1)`, … universe.
 is_type_hierarchy_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.TypeUni(_)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.TypeUni) => true, _ => false)
 );
 is_type_0 :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.TypeUni(level)) => (level == usize(0)), _ => false)
@@ -741,7 +741,7 @@ is_type_kind :: (fn(t : &TypeValue) -> bool)(
 /// `Type(1)`, … universe or the `?Sized` kind (decision 49). `&T` written as
 /// its argument is a reference TYPE, never a lend.
 is_type_parameter_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.TypeUni(_)) => true, Rc(.MaybeSizedKind) => true, _ => false)
+  match(t_refine_inner(t), Rc(.TypeUni) => true, Rc(.MaybeSizedKind) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Pointer / reference / dyn guards
@@ -756,10 +756,10 @@ is_atomically_counted_rc_type :: (fn(t : &TypeValue) -> bool)(
   is_atomic_reference_struct_type(t) || is_atomic_reference_enum_type(t)
 );
 is_dyn_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.DynT(required_trait_types : _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.DynT) => true, _ => false)
 );
 is_type_application_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.TypeAppT(constructor : _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.TypeAppT) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Numeric type guards (extended versions)
@@ -828,7 +828,7 @@ is_never_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.Never) => true, _ => false)
 );
 is_future_trait_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), Rc(.FutureTraitT(base_name : _)) => true, _ => false)
+  match(t_refine_inner(t), Rc(.FutureTraitT) => true, _ => false)
 );
 /// `true` when `t` is a `Concrete(T)` trait type (its `is_concrete` marker is
 /// `.Some`). The `TraitT` variant carries `is_concrete :
@@ -869,7 +869,7 @@ is_rc_type :: (fn(t : &TypeValue) -> bool)(
       Rc(.EnumT({ is_reference_semantics : r_res })) => r_res,
       _ => is_ref.*
     ),
-    Rc(.DynT(required_trait_types : _)) => true,
+    Rc(.DynT) => true,
     Rc(.SomeT(bounds : req_traits_bnd)) => {
       req_traits := req_traits_bnd.required();
       // Check if any required trait is a Future trait
@@ -962,7 +962,7 @@ is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
               .Some(pt) => match(
                 &pt,
                 // Future-implementing SomeT params are exempt.
-                Rc(.SomeT(name : _)) => if(!_some_type_implements_future(&pt), {
+                Rc(.SomeT) => if(!_some_type_implements_future(&pt), {
                   found = true;
                 }),
                 _ => ()
@@ -1017,7 +1017,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
                 // be a runtime C parameter — the prototype renders
                 // `// Unknown type: Type K` ("invalid storage class
                 // specifier", the imm_map/imm_set family).
-                Rc(.TypeUni(_)) => {
+                Rc(.TypeUni) => {
                   found = true;
                 },
                 // An Array with an UNRESOLVED length variable
@@ -1157,7 +1157,7 @@ _nullable_shape_payload :: (fn(t : &TypeValue) -> Option(TypeValue))(
               _is_nullable_payload_type(&child) => {
                 match(
                   pointer_type.clone(),
-                  .Some(_) => {
+                  .Some => {
                     valid = false;
                   },
                   .None => {

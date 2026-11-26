@@ -643,7 +643,7 @@ impl(
         match(
           _validate_component(&h.*, `host`, `/?#@`),
           .Err(e) => .Err(e),
-          .Ok(_) =>
+          .Ok =>
             cond(
               h.is_empty() => .Err(UrlError.Other(`host may not be empty — use .None to remove it`)),
               // A bare V6 literal has colons that would read as a port.
@@ -673,7 +673,7 @@ impl(
     match(
       _validate_component(path, `path`, `?#`),
       .Err(e) => .Err(e),
-      .Ok(_) =>
+      .Ok =>
         cond(
           (self._host.is_some() && (!path.is_empty() && !path.starts_with(`/`))) =>
             .Err(UrlError.Other(`a path must start with '/' when a host is present`)),
@@ -698,7 +698,7 @@ impl(
         match(
           _validate_component(&q.*, `query`, `#`),
           .Err(e) => .Err(e),
-          .Ok(_) => {
+          .Ok => {
             self._query = Option(String).Some(q.clone());
             .Ok(())
           }
@@ -720,7 +720,7 @@ impl(
         match(
           _validate_component(&f.*, `fragment`, ``),
           .Err(e) => .Err(e),
-          .Ok(_) => {
+          .Ok => {
             self._fragment = Option(String).Some(f.clone());
             .Ok(())
           }
@@ -745,7 +745,7 @@ impl(
         match(
           _validate_component(&u.*, `userinfo`, `/?#@`),
           .Err(e) => .Err(e),
-          .Ok(_) => {
+          .Ok => {
             self._userinfo = Option(String).Some(u.clone());
             .Ok(())
           }
@@ -804,7 +804,7 @@ impl(
 /// equivalents are lossy for the same reason. The raw text is the honest
 /// fallback — it is what the URL actually contains.
 _decode_lossy :: (fn(s : &String) -> String)(
-  match(percent.decode(s), .Ok(v) => v, .Err(_) => s.clone())
+  match(percent.decode(s), .Ok(v) => v, .Err => s.clone())
 );
 /// `application/x-www-form-urlencoded` decoding: `+` is a SPACE, then the
 /// percent escapes. The order matters — decoding `%2B` first would turn an

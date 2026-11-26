@@ -11,13 +11,13 @@ import("std/string");
 test("get_trait_type_from_env: None when name not in env", {
   env := new_environment(Rc.new(`test`));
   r := get_trait_type_from_env(&env, `Comptime`);
-  assert(match(r, .None => true, .Some(_) => false), "absent name → None");
+  assert(match(r, .None => true, .Some => false), "absent name → None");
 });
 test("get_trait_type_from_env: None when variable has no value", {
   env := new_environment(Rc.new(`test`));
   _d := env.define(`Comptime`, t_trait_simple(`Comptime`), true);
   r := get_trait_type_from_env(&env, `Comptime`);
-  assert(match(r, .None => true, .Some(_) => false), "no value → None");
+  assert(match(r, .None => true, .Some => false), "no value → None");
 });
 test("get_trait_type_from_env: Some(TraitType) when trait is in env", {
   env := new_environment(Rc.new(`test`));
@@ -44,14 +44,14 @@ test("get_trait_type_from_env: None when value is not a TraitType", {
   );
   r := get_trait_type_from_env(&env, `x`);
   assert(
-    match(r, .None => true, .Some(_) => false),
+    match(r, .None => true, .Some => false),
     "non-trait type val → None"
   );
 });
 test("get_value_of_some_type_from_env: non-SomeT returned as-is", {
   env := new_environment(Rc.new(`test`));
   r := get_value_of_some_type_from_env(&env, t_i32());
-  assert(match(r, Rc(.Int(_, _)) => true, _ => false), "i32 passes through");
+  assert(match(r, Rc(.Int) => true, _ => false), "i32 passes through");
 });
 test("get_value_of_some_type_from_env: unbound SomeT stays SomeT", {
   env := new_environment(Rc.new(`test`));
@@ -84,6 +84,6 @@ test("get_value_of_some_type_from_env: a recorded binder resolves without a mark
   _d := env.define_val(`T`, t_i32(), true, .Some(Rc.new(EvalValueNode.TypeVal(t_i32()))));
   assert(is_some_type(get_value_of_some_type_from_env(&env, &slot)), "an unrecorded, unconfirmed binding is not the slot's");
   match(get_variables_from_env(&env, `T`).get_cloned(usize(0)), .Some(v) => variable_set_bound_some_id(&v, &slot_id), .None => panic("T was not defined"));
-  assert(match(get_value_of_some_type_from_env(&env, &slot), Rc(.Int(_, _)) => true, _ => false), "the recorded binder resolves");
+  assert(match(get_value_of_some_type_from_env(&env, &slot), Rc(.Int) => true, _ => false), "the recorded binder resolves");
   assert(is_some_type(get_value_of_some_type_from_env(&env, &sibling)), "a sibling binder named T does not read it");
 });

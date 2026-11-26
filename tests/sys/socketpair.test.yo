@@ -167,7 +167,7 @@ _aborted_recv_leaves_the_data :: (fn(io : Io) -> unit)({
   h := io.spawn(fut, io);
   io.await(yield(io), io);
   h.abort();
-  assert(match(h.await(io), .Some(_) => false, .None => true), "the recv task was aborted");
+  assert(match(h.await(io), .Some => false, .None => true), "the recv task was aborted");
   assert(io.await(tcp.send(fd1, (*u8)("X"), usize(1), i32(0)), io) == i32(1), "peer send");
   mut(rbuf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   rbuf := (*u8)(rbuf_uninit.as_ptr());
@@ -210,7 +210,7 @@ _aborted_recv_behind_a_live_one :: (fn(io : Io) -> unit)({
   h := io.spawn(fut, io);
   io.await(yield(io), io);
   h.abort();
-  assert(match(h.await(io), .Some(_) => false, .None => true), "the recv task was aborted");
+  assert(match(h.await(io), .Some => false, .None => true), "the recv task was aborted");
   mut(rbuf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   rbuf := (*u8)(rbuf_uninit.as_ptr());
   live := tcp.recv(fd0, rbuf, usize(16), i32(0));
@@ -444,7 +444,7 @@ _spawn_recvfrom_and_abort :: (fn(fd : i32, io : Io) -> unit)({
   h := io.spawn(fut, io);
   io.await(yield(io), io);
   h.abort();
-  assert(match(h.await(io), .Some(_) => false, .None => true), "the recvfrom task was aborted");
+  assert(match(h.await(io), .Some => false, .None => true), "the recvfrom task was aborted");
 });
 _aborted_recvfrom_frame_outlives_the_op :: (fn(io : Io) -> unit)({
   mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();

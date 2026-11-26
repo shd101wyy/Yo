@@ -918,7 +918,7 @@ stage1_cond_arm :: (fn(w : *AliasWrap, borrowed : &Rc(i32), go : bool) -> i32)({
 stage1_match_arm :: (fn(w : *AliasWrap, borrowed : &Rc(i32), o : Option(i32)) -> i32)({
   match(
     o,
-    .Some(_) => {
+    .Some => {
       w.*.b = Rc.new(i32(666));
       ()
     },
@@ -1469,11 +1469,11 @@ sc_step :: (fn(ok : bool) -> unit)({
 test("short-circuit RHS temp inside a bare match arm is dropped in the branch", {
   before := g_sc_disposed;
   r := Result(bool, String).Ok(true);
-  match(r, .Ok(c) => assert(c && (mk_sc(i32(1)).tag == i32(1)), "bare match arm"), .Err(_) => assert(false, "Ok expected"));
+  match(r, .Ok(c) => assert(c && (mk_sc(i32(1)).tag == i32(1)), "bare match arm"), .Err => assert(false, "Ok expected"));
   assert(g_sc_disposed == (before + i32(1)), "the RHS temp is disposed exactly once");
   // The LHS short-circuits: the RHS never runs, nothing is created, nothing is dropped.
   r2 := Result(bool, String).Ok(false);
-  match(r2, .Ok(c) => assert(!(c && (mk_sc(i32(1)).tag == i32(1))), "false LHS"), .Err(_) => assert(false, "Ok expected"));
+  match(r2, .Ok(c) => assert(!(c && (mk_sc(i32(1)).tag == i32(1))), "false LHS"), .Err => assert(false, "Ok expected"));
   assert(g_sc_disposed == (before + i32(1)), "a skipped RHS disposes nothing");
 });
 test("short-circuit RHS temp inside a bare cond arm is dropped in the branch", {
@@ -2290,7 +2290,7 @@ test("unique Box: a tree copied with clone and edited on one side", {
     .Node(l, _) => {
       l.*.* = UBoxTree.Leaf(i32(40));
     },
-    .Leaf(_) => ()
+    .Leaf => ()
   );
   assert(ubox_sum(&u) == i32(45), "the copy is edited");
   assert(ubox_sum(&t) == i32(6), "the original is not");
@@ -2396,8 +2396,8 @@ test("unique Box: a consuming match looks through the box, and drops it once", {
         keep := r;
         a.n
       },
-      .Node(_, _) => i32(0),
-      .Leaf(_) => i32(-1)
+      .Node => i32(0),
+      .Leaf => i32(-1)
     );
     assert(w == i32(1), "a look-through on the left, the box itself bound on the right");
   };
@@ -2411,7 +2411,7 @@ test("unique Box: Box(p) names the cell a pattern looks through", {
       t,
       .Node(Box(.Leaf(a)), Box(.Leaf(b))) => (a.* + b.*),
       .Node(Box(.Node(Box(.Leaf(a)), _)), _) => (a.* * i32(10)),
-      .Node(_, _) => i32(-1),
+      .Node => i32(-1),
       .Leaf(v) => v.*
     )
   );
@@ -2565,11 +2565,11 @@ test("Rc.try_unwrap on the only handle moves the payload out", {
     match(
       Rc.try_unwrap(h),
       .Ok(t) => assert(t.tag == i32(5), "the payload came out"),
-      .Err(_) => assert(false, "the only handle unwraps")
+      .Err => assert(false, "the only handle unwraps")
     );
   };
   assert(g_door_dropped == (before + i32(5)), `the payload is dropped once, got ${(g_door_dropped - before).to_string()}`);
-  s := match(Rc.try_unwrap(Rc.new(String.from("moved"))), .Ok(v) => v, .Err(_) => String.from("shared"));
+  s := match(Rc.try_unwrap(Rc.new(String.from("moved"))), .Ok(v) => v, .Err => String.from("shared"));
   assert(s == "moved", "a String payload moves out");
 });
 test("Rc.try_unwrap on a shared handle returns the handle", {
@@ -2579,7 +2579,7 @@ test("Rc.try_unwrap on a shared handle returns the handle", {
     b := Rc.clone(a);
     back := match(
       Rc.try_unwrap(b),
-      .Ok(_) => {
+      .Ok => {
         assert(false, "a still shares the cell");
         Rc.new(_DoorToken(tag : i32(0)))
       },
@@ -2901,7 +2901,7 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
     s.items.push(i32(1));
   });
   assert(cell.with(s => ((s.n == i32(9)) && (s.items.len() == usize(1)))), "a write through a RefCell door is seen through the other handle");
-  n := match(Rc.try_unwrap(Rc.new(i32(4))), .Ok(v) => v, .Err(_) => i32(0));
+  n := match(Rc.try_unwrap(Rc.new(i32(4))), .Ok(v) => v, .Err => i32(0));
   assert(n == i32(4), "try_unwrap moves the payload out of the only handle");
 });
 // --- The `alloc` parameter (plans/VALUES_BY_DEFAULT.md §3.2; `arc`'s twin in tests/arc.test.yo) ---
@@ -2930,7 +2930,7 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
     assert(holder.get_cloned(usize(0)).unwrap().* == i32(42), "the held handle reads the placed cell");
   };
   assert(counts.live == usize(0), "the last handle released the cell into the allocator");
-  n := match(Rc.try_unwrap(Rc.new(i32(4), alloc : .Some(heap))), .Ok(v) => v, .Err(_) => i32(0));
+  n := match(Rc.try_unwrap(Rc.new(i32(4), alloc : .Some(heap))), .Ok(v) => v, .Err => i32(0));
   assert(n == i32(4), "try_unwrap moves the payload out of a placed cell");
   assert(counts.live == usize(0), "and frees the cell into the allocator");
 });
@@ -4150,7 +4150,7 @@ test("Rc.try_unwrap succeeds with a Weak alive and leaves the Weak dangling", {
   heap := _counting(addr_of(counts));
   c := Rc.new(_WeakPair(a : i32(3), b : i32(4)), alloc : .Some(heap));
   wc := Rc.downgrade(&c);
-  n := match(Rc.try_unwrap(c), .Ok(p) => p.a, .Err(_) => i32(0));
+  n := match(Rc.try_unwrap(c), .Ok(p) => p.a, .Err => i32(0));
   assert(n == i32(3), "the only Rc unwraps with a Weak alive");
   assert(wc.upgrade().is_none(), "the Weak upgrades to .None afterwards");
   assert(counts.live == usize(1), "the Weak keeps the cell's bytes");

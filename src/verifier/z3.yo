@@ -154,7 +154,7 @@ _z3_read_file_sync :: (fn(path : &String) -> Option(String))({
   match(
     String.from_utf8(result),
     .Ok(s) => Option(String).Some(s),
-    .Err(_) => Option(String).None
+    .Err => Option(String).None
   )
 });
 /// Write a whole file synchronously (fopen "w": creates/truncates).
@@ -230,7 +230,7 @@ _z3_temp_path :: (fn(ext : &String) -> String)({
       t := Instant.now();
       g_z3_tmp_prefix = Option(i64).Some((t.secs * i64(1000000000)) + t.nanos);
     },
-    .Some(_) => ()
+    .Some => ()
   );
   prefix := g_z3_tmp_prefix;
   n := g_z3_tmp_counter;
@@ -584,7 +584,7 @@ _head_atom_text :: (fn(items : &ArrayList(Z3Sexpr)) -> Option(String))(
   match(
     items.get_cloned(usize(0)),
     .Some(.Atom(t)) => Option(String).Some(t.clone()),
-    .Some(_) => Option(String).None,
+    .Some => Option(String).None,
     .None => Option(String).None
   )
 );
@@ -681,7 +681,7 @@ z3_unsat_core_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
                   .Some(item) => {
                     match(
                       item,
-                      .Atom(_) => (),
+                      .Atom => (),
                       _ => {
                         all_atoms = false;
                       }
@@ -776,7 +776,7 @@ z3_value_pairs_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
                         n := match(
                           kv2.get_cloned(usize(0)),
                           .Some(.Atom(t)) => t.clone(),
-                          .Some(_) => String.from("?"),
+                          .Some => String.from("?"),
                           .None => String.from("?")
                         );
                         v := match(

@@ -166,7 +166,7 @@ evaluate_test :: (
   (arg_count : usize) = match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(),
-    Rc(.Atom(_, _)) => usize(0)
+    Rc(.Atom) => usize(0)
   );
   if(arg_count != usize(2), {
     exn.throw(
@@ -183,12 +183,12 @@ evaluate_test :: (
   test_name_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   test_body_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   // Evaluate test name to ensure it's a comptime_str.
   evaluated_test_name_expr := evaluate_expression_raw(&test_name_expr, &env, ctx, exn);
@@ -265,7 +265,7 @@ evaluate_test :: (
   io_module_type := match(
     io_module_var.value().get(usize(0)),
     .Some(Rc(.TypeVal(ty))) => Rc.clone(ty),
-    .Some(_) => variable_value_type(&io_module_var),
+    .Some => variable_value_type(&io_module_var),
     .None => variable_value_type(&io_module_var)
   );
   // Save frame count to restore after the (best-effort) trial evaluation,

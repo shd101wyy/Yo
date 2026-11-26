@@ -287,7 +287,7 @@ _mo_call_scrutinee_statement :: (fn(o : Option(i32)) -> i32)({
   bad := _MoFd(n : i32(1));
   match(
     _mo_id_opt(o),
-    .Some(_) => (),
+    .Some => (),
     .None => {
       return(_mo_take(bad) - i32(100));
     }
@@ -2257,7 +2257,7 @@ _mo_mb_option_break :: (fn(k : i32) -> i32)({
     f := _MoFd(n : i);
     match(
       _mo_some_unless(i, k),
-      .Some(_) => {
+      .Some => {
         total = (total + _mo_take(f));
       },
       .None => {
@@ -2314,7 +2314,7 @@ _mo_mb_option_return :: (fn(k : i32) -> i32)({
   f := _MoFd(n : k);
   match(
     _mo_some_unless(k, i32(0)),
-    .Some(_) => {
+    .Some => {
       total = (total + _mo_take(f));
     },
     .None => {
@@ -2327,7 +2327,7 @@ _mo_mb_option_value_return :: (fn(k : i32) -> i32)({
   f := _MoFd(n : k);
   x := match(
     _mo_some_unless(k, i32(0)),
-    .Some(_) => _mo_take(f),
+    .Some => _mo_take(f),
     .None => return(i32(-1))
   );
   x
@@ -2403,7 +2403,7 @@ _mo_nb_option_cond :: (fn(k : i32) -> i32)({
     f := _MoFd(n : i);
     match(
       _mo_some_unless(i, i32(0)),
-      .Some(_) => cond(
+      .Some => cond(
         (i != k) => {
           total = (total + _mo_take(f));
         },
@@ -2426,7 +2426,7 @@ _mo_nb_option_cond_exit_first :: (fn(k : i32) -> i32)({
     f := _MoFd(n : i);
     match(
       _mo_some_unless(i, i32(0)),
-      .Some(_) => cond(
+      .Some => cond(
         (i == k) => {
           continue;
         },
@@ -2743,7 +2743,7 @@ _mo_fold_return :: (fn(k : i32) -> i32)({
   f := _MoFd(n : k);
   match(
     _mo_some_unless(k, i32(0)),
-    .Some(_) => {
+    .Some => {
       cond(
         _MO_TAKE_FLAG => {
           total = (total + _mo_take(f));
@@ -2765,7 +2765,7 @@ _mo_fold_later_clause :: (fn(k : i32) -> i32)({
   f := _MoFd(n : k);
   match(
     _mo_some_unless(k, i32(0)),
-    .Some(_) => {
+    .Some => {
       cond(
         _MO_NO_FLAG => (),
         _MO_TAKE_FLAG => {
@@ -2837,7 +2837,7 @@ _mo_fold_impls :: (fn(comptime(T) : Type, k : i32) -> i32)({
   f := _MoFd(n : k);
   match(
     _mo_some_unless(k, i32(0)),
-    .Some(_) => {
+    .Some => {
       cond(
         Type.impls(T, Drop) => {
           total = (total + _mo_take(f));
@@ -3719,7 +3719,7 @@ test("move-only: an aborted task drops a consuming match's moved-out payload onc
 // payload on, and the payload is disposed once
 // (issues/fixed/2026-10-30-a-generic-functions-match-binding-cannot-move-out-of-a-compile-time-known-argument.md).
 _mo_err_map :: (fn(generic(B : Type), o : Result(i32, _MoFd), b : B) -> Result(B, _MoFd))(
-  match(o, .Ok(_) => Result(B, _MoFd).Ok(b), .Err(e) => Result(B, _MoFd).Err(e))
+  match(o, .Ok => Result(B, _MoFd).Ok(b), .Err(e) => Result(B, _MoFd).Err(e))
 );
 _mo_some_keep :: (fn(generic(B : Type), o : Option(_MoFd), b : B) -> Option(_MoFd))(
   match(o, .Some(e) => Option(_MoFd).Some(e), .None => Option(_MoFd).None)
@@ -3729,7 +3729,7 @@ test("move-only: a generic function moves a match binding out of a compile-time-
   sum_before := g_mo_sum;
   {
     r := _mo_err_map(Result(i32, _MoFd).Err(_MoFd(n : i32(5))), i64(1));
-    assert(match(&r, .Err(e) => (e.n == i32(5)), .Ok(_) => false), "the Err payload arrived");
+    assert(match(&r, .Err(e) => (e.n == i32(5)), .Ok => false), "the Err payload arrived");
     k := _mo_some_keep(Option(_MoFd).Some(_MoFd(n : i32(6))), u8(1));
     assert(match(&k, .Some(e) => (e.n == i32(6)), .None => false), "the Some payload arrived");
     assert(g_mo_disposed == before, "nothing disposed while the results hold the payloads");
@@ -3749,7 +3749,7 @@ _mo_res :: (fn(n : i32) -> Result(_MoFd, i32))(
 );
 _mo_fused_match :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(String.from("not positive")))));
+    fd := match(_mo_res(n), .Ok(b) => b, .Err => e.exn.throw(dyn(Box.new(String.from("not positive")))));
     e.io.await(yield(e.io), e.io);
     fd.n
   })
@@ -3774,7 +3774,7 @@ test("move-only: a wrapper's consuming match fused at two awaits of one task", {
 // the task died in is released by the dispose once.
 _mo_fused_exit :: (fn(n : i32, fail : bool, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(String.from("not positive")))));
+    fd := match(_mo_res(n), .Ok(b) => b, .Err => e.exn.throw(dyn(Box.new(String.from("not positive")))));
     e.io.await(yield(e.io), e.io);
     if(fail, {
       e.exn.throw(dyn(Box.new(String.from("inside the site"))));

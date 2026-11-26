@@ -132,7 +132,7 @@ _binding_atom_key :: (fn(pattern : &AstExpr, name : &String) -> ExprId)({
     cur := match(stack.pop(), .Some(x) => x, .None => Rc.clone(pattern.*));
     match(
       Rc.clone(cur),
-      Rc(.Atom(_, _)) => if(ast_expr_token(&cur).value.* == name.*, {
+      Rc(.Atom) => if(ast_expr_token(&cur).value.* == name.*, {
         return(ast_expr_id(&cur));
       }),
       Rc(.FnCall(_, _, Rc(args), _, _)) => {
@@ -262,7 +262,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   // bare name; `name := &place` its `__yo_imm(name)` / `__yo_mut(name)` form.
   name_expr := match(
     lhs,
-    Rc(.Atom(_, _)) => Rc.clone(lhs.*),
+    Rc(.Atom) => Rc.clone(lhs.*),
     Rc(.FnCall(_, _, Rc(lhs_args), _, _)) => match(lhs_args.get_cloned(usize(0)), .Some(x) => x, .None => return(Option(String).None))
   );
   name_ei := match(
@@ -406,10 +406,10 @@ _is_c_lvalue_chain :: (fn(code : &String) -> bool)({
 /// `evaluate_local_borrow_repoint` (evaluator/exprs/initialization-assignment.yo),
 /// which admits only places reached from `cur` that lower to a C lvalue chain.
 generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   lhs := match(args.get_cloned(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("re-point missing lhs"))));
   rhs := match(args.get_cloned(usize(1)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("re-point missing rhs"))));
-  name_expr := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(n) => n, .None => Rc.clone(lhs)), Rc(.Atom(_, _)) => Rc.clone(lhs));
+  name_expr := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(n) => n, .None => Rc.clone(lhs)), Rc(.Atom) => Rc.clone(lhs));
   // The step: take the new cell, release the previous one.
   match(
     context.base.get_expr_info(&lhs),
@@ -456,7 +456,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
 });
 generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   lhs := match(args.get_cloned(usize(0)), .Some(x) => x, .None => return(Option(String).None));
   rhs := match(args.get_cloned(usize(1)), .Some(x) => x, .None => return(Option(String).None));
   // Compile-time variable → no runtime code.
@@ -465,7 +465,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
   });
   if(ast_expr_is_local_borrow_mode_call(&lhs, Option(usize).Some(usize(1))), {
     // Keyed by the `inout(name)` name atom: its scope record holds the binding.
-    inout_key := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(n) => ast_expr_id(&n), .None => ast_expr_id(expr)), Rc(.Atom(_, _)) => ast_expr_id(expr));
+    inout_key := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(n) => ast_expr_id(&n), .None => ast_expr_id(expr)), Rc(.Atom) => ast_expr_id(expr));
     return(_generate_inout_local_binding(&lhs, &rhs, inout_key, Option(Environment).Some(ei.env()), indent.clone(), context));
   });
   // `r := t.index(i)`: a projection call's result binds as a local borrow
@@ -638,7 +638,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
           .Some(sd_ret) => (sd_ret == `void`),
           .None => false
         ),
-        Rc(.Atom(_, _)) => false
+        Rc(.Atom) => false
       );
       // Nothing is declared for a unit or `void` right side (the declaration
       // below carries the same guard).
@@ -718,7 +718,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
       // fresh copy after the declaration below (HashMap._find_bucket stole
       // the map's own key+value on every probe hit — the round-6
       // `s2 compile main.yo` UAF; see issues/fixed/yo-self-dyn-throw-double-drop.md).
-      rhs_is_deref := (ast_expr_is_fn_call_of(&rhs, BF_DOT, Option(usize).Some(usize(2))) && match(Rc.clone(rhs), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(pe) => ast_expr_is_atom_of(&pe, "*"), .None => false), Rc(.Atom(_, _)) => false));
+      rhs_is_deref := (ast_expr_is_fn_call_of(&rhs, BF_DOT, Option(usize).Some(usize(2))) && match(Rc.clone(rhs), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(pe) => ast_expr_is_atom_of(&pe, "*"), .None => false), Rc(.Atom) => false));
       rhs_has_dup := match(context.base.get_expr_info(&rhs), .Some(r2) => match(expr_info_deferred_dup_expressions(&r2), .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
       if(!is_unit_type(&lhs_type) && !rhs_is_void_call, {
         // get_variable_type_string (not get_type_string + manual name append)

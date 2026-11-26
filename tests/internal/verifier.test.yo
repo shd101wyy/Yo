@@ -285,14 +285,14 @@ test("verdict_of_response: sat ⇒ Refuted with counter-example", {
 test("verdict_of_response: unknown ⇒ Unproven; garbage ⇒ SolverError", {
   match(
     verdict_of_response(String.from("unknown\n")),
-    .Unproven(_) => (),
+    .Unproven => (),
     _ => {
       assert(false, "expected Unproven");
     }
   );
   match(
     verdict_of_response(String.new()),
-    .SolverError(_) => (),
+    .SolverError => (),
     _ => {
       assert(false, "expected SolverError on empty output");
     }
@@ -317,7 +317,7 @@ test("verdict_of_response: an error BEFORE the verdict is a SolverError, one aft
   // trailing `unsat core is not available` is still a proof.
   match(
     verdict_of_response(String.from("unsat\n(error \"line 11 column 15: unsat core is not available\")\n")),
-    .Proved(_) => (),
+    .Proved => (),
     _ => {
       assert(false, "expected Proved with a tolerated post-verdict error");
     }
@@ -469,7 +469,7 @@ test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)
       .Some(r1) => {
         match(
           &r1.verdict,
-          .Proved(_) => (),
+          .Proved => (),
           _ => {
             assert(false, "1+1==2 must prove");
           }
@@ -534,7 +534,7 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
         assert(r2.cached, "cached run must hit");
         match(
           &r2.verdict,
-          .Proved(_) => (),
+          .Proved => (),
           _ => {
             assert(false, "cached verdict must still be Proved");
           }
@@ -554,7 +554,7 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
 // prefix, so it reaches the query text and the verification cache key
 // (issues/fixed/verify-report-fn-id-carries-file-scheme-absolute-path.md).
 test("display_module_path: file:// and absolute spellings collapse to the relative one", {
-  here := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.new());
+  here := match(cwd(), .Ok(c) => c.to_string(), .Err => String.new());
   assert(here.len() > usize(0), "cwd must resolve for this test");
   typed := String.from("src/types/utils.yo");
   absolute := `${here}/src/types/utils.yo`;
@@ -739,7 +739,7 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
   r := run_vc_query(&q, &cfg, &binary);
   match(
     &r.verdict,
-    .Proved(_) => (),
+    .Proved => (),
     _ => {
       assert(false, "5 + 5 == 10 proves");
     }

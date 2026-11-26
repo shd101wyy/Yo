@@ -298,7 +298,7 @@ _is_control_flow_code :: (fn(code : &String) -> bool)(
 );
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new())
 );
 /// True if `expr` is an or-pattern `a | b`.
 _is_or_pattern :: (fn(expr : &AstExpr) -> bool)(
@@ -880,7 +880,7 @@ _case_executed :: (fn(case_value : &AstExpr, context : &FunctionGenerationContex
 );
 /// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
 _variant_name :: (fn(case_value : &AstExpr) -> String)(
-  match(case_value, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(v) => ast_expr_text(&v).*.clone(), .None => String.from("")), Rc(.Atom(_, _)) => String.from(""))
+  match(case_value, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(v) => ast_expr_text(&v).*.clone(), .None => String.from("")), Rc(.Atom) => String.from(""))
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Add a name to the function's local-shadowed-variables set (creating it if
@@ -1869,7 +1869,7 @@ _position_is_ptrish :: (fn(t : &TypeValue) -> bool)(
 _variant_test_code :: (fn(enum_ty : &TypeValue, vidx : usize, vname : &String, path : &String, ptrish : bool, is_raw_ptr : bool, context : &FunctionGenerationContext) -> String)({
   match(
     can_optimize_as_nullable_pointer(enum_ty),
-    .Some(_) => {
+    .Some => {
       // The enum IS the pointer: the fieldless variant is NULL.
       fields := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
       v := _enum_value_code(path, is_raw_ptr);
@@ -1906,7 +1906,7 @@ _variant_test_code :: (fn(enum_ty : &TypeValue, vidx : usize, vname : &String, p
 _variant_field_code :: (fn(enum_ty : &TypeValue, vname : &String, label : &String, path : &String, ptrish : bool, is_raw_ptr : bool) -> String)({
   match(
     can_optimize_as_nullable_pointer(enum_ty),
-    .Some(_) => {
+    .Some => {
       // The single payload IS the pointer value.
       return(_enum_value_code(path, is_raw_ptr));
     },
@@ -1948,8 +1948,8 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
       names.push(name.clone());
       types.push(Rc.clone(ty));
     },
-    .Const(_, _, _, _, _) => (),
-    .Range(_, _, _, _, _, _, _) => (),
+    .Const => (),
+    .Range => (),
     .Variant(_, vidx, field_idx, subs, enum_ty, _, _) => {
       ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx.*), .Some(f) => f, .None => no_types()), _ => no_types());
       (i : usize) = usize(0);
@@ -2397,7 +2397,7 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
   cell
 });
 /// A `_` or a plain binding.
-_pattern_is_binder_or_wild :: (fn(p : &Pattern) -> bool)(match(p, .Wildcard => true, .Bind(_, _, _) => true, _ => false));
+_pattern_is_binder_or_wild :: (fn(p : &Pattern) -> bool)(match(p, .Wildcard => true, .Bind => true, _ => false));
 _arms_all_classic :: (fn(arms : &ArrayList(Arm)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
@@ -2797,7 +2797,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   if(!is_enum_type(&enum_type), {
     return(codegen_fatal_expr(String.from("\"match\" expression requires an enum type")));
   });
-  match(context.base.get_type_c_name(type_key(&enum_type)), .None => return(codegen_fatal_expr(String.from("\"match\" expression enum type has no C name"))), .Some(_) => ());
+  match(context.base.get_type_c_name(type_key(&enum_type)), .None => return(codegen_fatal_expr(String.from("\"match\" expression enum type has no C name"))), .Some => ());
   deref_star := if(is_ptr, String.from("*"), String.from(""));
   // Nullable-pointer optimization.
   match(can_optimize_as_nullable_pointer(&enum_type), .Some(nullable_inner) => return(_gen_nullable_ptr_match(expr, indent.clone(), context, &matched_value_code, &enum_type, &nullable_inner, is_ptr, &temp_var_opt, is_unit)), .None => ());

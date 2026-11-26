@@ -932,7 +932,7 @@ pattern_param_is_literal :: (fn(e : &AstExpr) -> bool)(
         ),
         .None => false
       ),
-      Rc(.Atom(_, _)) => false
+      Rc(.Atom) => false
     ),
     true => false
   )
@@ -949,13 +949,13 @@ pattern_literal_param_code :: (fn(e : &AstExpr) -> String)({
       .Some(op) => op,
       .None => Rc.clone(e.*)
     ),
-    Rc(.Atom(_, _)) => Rc.clone(e.*)
+    Rc(.Atom) => Rc.clone(e.*)
   );
   txt := ast_expr_token(&neg).value.*.clone();
   negated := match(
     e,
-    Rc(.FnCall(_, _, _, _, _)) => true,
-    Rc(.Atom(_, _)) => false
+    Rc(.FnCall) => true,
+    Rc(.Atom) => false
   );
   cond(
     negated => `-${txt}`,
@@ -1161,11 +1161,11 @@ should_avoid_const :: (fn(t : &TypeValue) -> bool)(
 _fn_call_callee_name :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
-    Rc(.Atom(_, _)) => .None,
+    Rc(.Atom) => .None,
     Rc(.FnCall(_, func_box, _, _, _)) => match(
       func_box,
       Rc(.Atom(_, tok)) => .Some(tok.value.*.clone()),
-      Rc(.FnCall(_, _, _, _, _)) => .None
+      Rc(.FnCall) => .None
     )
   )
 );
@@ -1175,7 +1175,7 @@ _fn_call_callee_name :: (fn(e : &AstExpr) -> Option(String))(
 _unwrap_unsafe :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
-    Rc(.Atom(_, _)) => Rc.clone(e.*),
+    Rc(.Atom) => Rc.clone(e.*),
     Rc(.FnCall(_, _, Rc(args), _, _)) => if(
       ast_expr_is_fn_call_of(e, BF_UNSAFE, .None) && (args.len() == usize(1)),
       match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(e.*)),
@@ -1240,7 +1240,7 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
   inner := _unwrap_unsafe(e);
   match(
     Rc.clone(inner),
-    Rc(.Atom(_, _)) => Rc.clone(inner),
+    Rc(.Atom) => Rc.clone(inner),
     Rc(.FnCall(_, _, Rc(addr_args), _, _)) => if(
       ast_expr_is_address_of_call(&inner, .None) && (addr_args.len() == usize(1)),
       match(addr_args.get_cloned(usize(0)), .Some(a) => ast_rewritten_node(&a), .None => Rc.clone(inner)),
@@ -1249,7 +1249,7 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
   )
 });
 _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> bool)({
-  args := match(call, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(false));
+  args := match(call, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => return(false));
   params := match(fv, Rc(.FuncVal(__fvd2, _)) => __fvd2.params.clone(), _ => return(false));
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
@@ -1261,7 +1261,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     name := match(
       arg,
       Rc(.Atom(_, tok)) => tok.value.*.clone(),
-      Rc(.FnCall(_, _, _, _, _)) => return(false)
+      Rc(.FnCall) => return(false)
     );
     // Is this identifier one of the parameters at all?
     (mut(is_param) : bool) = false;
@@ -1305,7 +1305,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
   // `begin`/`unsafe` wrapper's.
   call_node := match(
     Rc.clone(body),
-    Rc(.Atom(_, _)) => Rc.clone(body),
+    Rc(.Atom) => Rc.clone(body),
     // NOTE the then-branch is NOT braced. A `{ ... }` holding a single
     // expression with no trailing semicolon parses as a STRUCT LITERAL, not a
     // block (`{ ... } without semicolons is parsed as a struct literal`).
@@ -1334,7 +1334,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(case_value : &AstExpr) -> Option(String))(
-  match(case_value, Rc(.FnCall(_, func, Rc(args), _, _)) => match(func, Rc(.Atom(_, tok)) => if((tok.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get_cloned(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None), Rc(.FnCall(_, ffunc, Rc(fargs), _, _)) => if(match(ffunc, Rc(.Atom(_, ft)) => (ft.value.* == BF_DOT), Rc(.FnCall(_, _, _, _, _)) => false) && (fargs.len() == usize(1)), match(fargs.get_cloned(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None)), Rc(.Atom(_, _)) => Option(String).None)
+  match(case_value, Rc(.FnCall(_, func, Rc(args), _, _)) => match(func, Rc(.Atom(_, tok)) => if((tok.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get_cloned(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None), Rc(.FnCall(_, ffunc, Rc(fargs), _, _)) => if(match(ffunc, Rc(.Atom(_, ft)) => (ft.value.* == BF_DOT), Rc(.FnCall) => false) && (fargs.len() == usize(1)), match(fargs.get_cloned(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None)), Rc(.Atom) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1343,7 +1343,7 @@ arm_params :: (fn(case_value : &AstExpr) -> ArrayList(AstExpr))(
     case_value,
     Rc(.FnCall(_, func, Rc(args), _, _)) => match(
       func,
-      Rc(.Atom(_, _)) => {
+      Rc(.Atom) => {
         mut(out) := ArrayList(AstExpr).new();
         n := args.len();
         (mut(i) : usize) = usize(1);
@@ -1359,9 +1359,9 @@ arm_params :: (fn(case_value : &AstExpr) -> ArrayList(AstExpr))(
         });
         out
       },
-      Rc(.FnCall(_, _, _, _, _)) => args.clone()
+      Rc(.FnCall) => args.clone()
     ),
-    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+    Rc(.Atom) => ArrayList(AstExpr).new()
   )
 );
 /// The two variants of a nullable-pointer enum (`can_optimize_as_nullable_pointer`):
@@ -1420,11 +1420,11 @@ nullable_arm_selects_payload :: (fn(enum_type : &TypeValue, case_value : &AstExp
 nullable_arm_payload_binder :: (fn(case_value : &AstExpr) -> Option(AstExpr))({
   params := arm_params(case_value);
   is_curly := ((params.len() == usize(1)) && match(params.get_cloned(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(&p0, "_", Option(usize).None), .None => false));
-  dparams := if(is_curly, match(params.get_cloned(usize(0)), .Some(p0) => match(p0, Rc(.FnCall(_, _, Rc(ca), _, _)) => ca.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
+  dparams := if(is_curly, match(params.get_cloned(usize(0)), .Some(p0) => match(p0, Rc(.FnCall(_, _, Rc(ca), _, _)) => ca.clone(), Rc(.Atom) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
   match(
     dparams.get_cloned(usize(0)),
     .Some(p) => {
-      var := if(ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), match(Rc.clone(p), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(1)), .Some(v) => v, .None => Rc.clone(p)), Rc(.Atom(_, _)) => Rc.clone(p)), p);
+      var := if(ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), match(Rc.clone(p), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(1)), .Some(v) => v, .None => Rc.clone(p)), Rc(.Atom) => Rc.clone(p)), p);
       if(ast_expr_is_atom(&var) && !(ast_expr_token(&var).value.* == "_") && !pattern_param_is_literal(&var), Option(AstExpr).Some(var), Option(AstExpr).None)
     },
     .None => Option(AstExpr).None
@@ -1528,10 +1528,10 @@ _some_t_requires_future :: (fn(t : &TypeValue) -> bool)(
       while((i < n) && !found, {
         match(
           rtts.get_cloned(i),
-          .Some(Rc(.FutureTraitT(_, _, _, _, _))) => {
+          .Some(Rc(.FutureTraitT)) => {
             found = true;
           },
-          .Some(_) => (),
+          .Some => (),
           .None => ()
         );
         i = (i + usize(1));
@@ -1559,7 +1559,7 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
           eft_rtts.get_cloned(eft_i),
           .Some(eft_rt) => match(
             &eft_rt,
-            Rc(.FutureTraitT(_, _, _, _, _)) => {
+            Rc(.FutureTraitT) => {
               eft_found = Option(TypeValue).Some(Rc.clone(eft_rt));
             },
             _ => ()
@@ -1608,7 +1608,7 @@ erased_future_result_type_string :: (fn(t : &TypeValue, context : &mut CodeGenCo
     _extract_future_trait_of_some_t(t),
     .Some(ftt) => match(
       some_resolution(t),
-      .Some(Rc(.ExternOpaqueT(_, _))) => Option(String).None,
+      .Some(Rc(.ExternOpaqueT)) => Option(String).None,
       _ => Option(String).Some(_future_interface_pointer(&ftt, context))
     ),
     .None => Option(String).None
@@ -1663,13 +1663,13 @@ is_unsized_pointee :: (fn(pointee : &TypeValue) -> bool)(!type_is_sized(pointee)
 pointer_c_type_string :: (fn(pointee : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     t_refine_inner(pointee),
-    Rc(.SliceT(_)) => String.from("__yo_slice_t"),
+    Rc(.SliceT) => String.from("__yo_slice_t"),
     // A pointer to the unsized `str` is `__yo_str` (decision 49 S2): the
     // bytes and the length, the C type the legacy value `str` had.
     Rc(.Str) => String.from("__yo_str"),
     // A pointer to a `Dyn` is its registered fat struct `{ data, vtable }`
     // (decision 49 S2); the data word is the payload's address.
-    Rc(.DynT({})) => get_type_string(pointee, context),
+    Rc(.DynT) => get_type_string(pointee, context),
     // A specialized type variable is its resolution (`r : &T` at `T = [E]`):
     // fat when the resolution is unsized, `T*` (spelled through the variable,
     // as `get_type_string` resolves it) otherwise.
@@ -1737,8 +1737,8 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     Rc(.CLongDouble) => String.from("long double"),
     // Builtin static string view — canonical fat-pointer typedef.
     Rc(.Str) => String.from("__yo_str"),
-    Rc(.Tuple(_, _)) => _lookup_named_c_type(t, context),
-    Rc(.Union(_, _, _)) => _lookup_named_c_type(t, context),
+    Rc(.Tuple) => _lookup_named_c_type(t, context),
+    Rc(.Union) => _lookup_named_c_type(t, context),
     // The cell of an `Rc(Dyn(T))`/`Arc(Dyn(T, ...))` is the fat pointer over
     // its counted block (decision 49 S2).
     (Rc(.Struct({ field_types : dc_fts })) && (is_dyn_cell_type(t))) => get_type_string(match(dc_fts.get(usize(0)), .Some(dp) => dp, .None => Rc.new(TypeValueNode.Unit)), context),
@@ -1770,7 +1770,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
       }
     ),
     // Function pointers use void* (resolved by the prototype generator).
-    Rc(.Func({})) => String.from("void*"),
+    Rc(.Func) => String.from("void*"),
     Rc(.Pointer(pointee)) => pointer_c_type_string(&pointee.*, context),
     // Concrete-length arrays lower to a generated struct wrapper so they are
     // returnable by value. (`length_var` non-empty = unresolved generic
@@ -1874,13 +1874,13 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
     // by value: return the registered fat-pointer C type name (keyed by
     // type_key).
-    Rc(.DynT({})) => match(
+    Rc(.DynT) => match(
       context.get_type_c_name(type_key(t)),
       .Some(cn) => cn,
       .None => __yo_panic("No C type name found for dynamic dispatch type")
     ),
-    Rc(.FnTraitT({})) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
-    Rc(.FutureTraitT({})) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
+    Rc(.FnTraitT) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
+    Rc(.FutureTraitT) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
     // A `&T` / `&mut T` REFERENCE IN VALUE STRUCTURE (decision 43 step 3,
     // N2b: a reference field of an inline composite, a reference element of
     // a tuple or array) lowers as the design's C row: `const T*` shared,
@@ -2225,7 +2225,7 @@ _element_dup_target :: (fn(e : &AstExpr) -> Option(String))(
       match(args.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0).*.clone()), Option(String).None), .None => Option(String).None),
       Option(String).None
     ),
-    Rc(.Atom(_, _)) => Option(String).None
+    Rc(.Atom) => Option(String).None
   )
 );
 /// The variable an ELEMENT-WISE dup retains, when `dup_expr` is one.
@@ -2245,7 +2245,7 @@ element_wise_dup_target :: (fn(dup_expr : &AstExpr) -> Option(String))(
     ast_expr_is_fn_call_of(dup_expr, BK_BEGIN, Option(usize).None) => match(
       dup_expr,
       Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a0) => _element_dup_target(&a0), .None => Option(String).None),
-      Rc(.Atom(_, _)) => Option(String).None
+      Rc(.Atom) => Option(String).None
     ),
     true => _element_dup_target(dup_expr)
   )
@@ -2272,7 +2272,7 @@ element_wise_dup_elements :: (fn(dup_expr : &AstExpr) -> ArrayList(AstExpr))({
       (whole : AstExpr) = Rc.clone(dup_expr.*);
       out.push(whole);
     }),
-    Rc(.Atom(_, _)) => ()
+    Rc(.Atom) => ()
   );
   out
 });
@@ -2282,7 +2282,7 @@ element_wise_dup_elements :: (fn(dup_expr : &AstExpr) -> ArrayList(AstExpr))({
 get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))(
   match(
     dup_expr,
-    Rc(.Atom(_, _)) => .None,
+    Rc(.Atom) => .None,
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       // Form 1: first arg is an atom.
       if(args.len() >= usize(1), {
@@ -2290,7 +2290,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
           args.get_cloned(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from(""))));
+              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall) => String.from(""))));
             });
           },
           .None => ()
@@ -2305,15 +2305,15 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
               first_ok := match(dot_args.get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               second_is_dup := match(
                 dot_args.get_cloned(usize(1)),
-                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DUP), Rc(.FnCall(_, _, _, _, _)) => false),
+                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DUP), Rc(.FnCall) => false),
                 .None => false
               );
               if(first_ok && second_is_dup, {
-                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall) => String.from("")), .None => String.from(""))));
               });
             });
           },
-          Rc(.Atom(_, _)) => ()
+          Rc(.Atom) => ()
         );
       });
       Option(String).None
@@ -2327,13 +2327,13 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
 get_deferred_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
   match(
     drop_expr,
-    Rc(.Atom(_, _)) => .None,
+    Rc(.Atom) => .None,
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       if(args.len() == usize(0), {
         match(
           func_box,
           Rc(.FnCall(_, _, Rc(dot_args), _, _)) => if(ast_expr_is_fn_call_of(&func_box.*, BF_DOT, .Some(usize(2))), {
-            second_is_drop := match(dot_args.get_cloned(usize(1)), .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DROP), Rc(.FnCall(_, _, _, _, _)) => false), .None => false);
+            second_is_drop := match(dot_args.get_cloned(usize(1)), .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DROP), Rc(.FnCall) => false), .None => false);
             if(second_is_drop, {
               match(
                 dot_args.get_cloned(usize(0)),
@@ -2344,7 +2344,7 @@ get_deferred_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
               );
             });
           }),
-          Rc(.Atom(_, _)) => ()
+          Rc(.Atom) => ()
         );
       });
       if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, .None) && (args.len() >= usize(1)), {
@@ -2376,7 +2376,7 @@ deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, base : &CodeGenContex
 get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String))(
   match(
     drop_expr,
-    Rc(.Atom(_, _)) => .None,
+    Rc(.Atom) => .None,
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       // Form A: (varName.___drop)() with zero args.
       if(args.len() == usize(0), {
@@ -2386,16 +2386,16 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
             if(ast_expr_is_fn_call_of(&func_box.*, BF_DOT, .Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get_cloned(usize(1)),
-                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DROP), Rc(.FnCall(_, _, _, _, _)) => false),
+                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.value.* == BF_DROP), Rc(.FnCall) => false),
                 .None => false
               );
               first_is_atom := match(dot_args.get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               if(second_is_drop && first_is_atom, {
-                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall) => String.from("")), .None => String.from(""))));
               });
             });
           },
-          Rc(.Atom(_, _)) => ()
+          Rc(.Atom) => ()
         );
       });
       // Form B: ___drop(varName).
@@ -2404,7 +2404,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
           args.get_cloned(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from(""))));
+              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall) => String.from(""))));
             });
           },
           .None => ()
@@ -2459,7 +2459,7 @@ find_returned_async_block :: (fn(expr : &Option(AstExpr)) -> Option(AstExpr))(
           while(ai < n, {
             match(
               found.clone(),
-              .Some(_) => (),
+              .Some => (),
               .None => {
                 match(
                   args.get_cloned(ai),
@@ -2474,7 +2474,7 @@ find_returned_async_block :: (fn(expr : &Option(AstExpr)) -> Option(AstExpr))(
           });
           found
         },
-        Rc(.Atom(_, _)) => Option(AstExpr).None
+        Rc(.Atom) => Option(AstExpr).None
       ),
       true => Option(AstExpr).None
     )
@@ -2594,7 +2594,7 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : &TypeVal
 is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
   // Read through an evaluator rewrite: `r.*` on a reference binding is the
   // name `r` itself (decision 43 step 2 N1e-1, `note_rewritten_node`).
-  match(ast_rewritten_node(expr), Rc(.Atom(_, sn_tok)) => (variable_name.* == sn_tok.value.*), Rc(.FnCall(_, _, _, _, _)) => false)
+  match(ast_rewritten_node(expr), Rc(.Atom(_, sn_tok)) => (variable_name.* == sn_tok.value.*), Rc(.FnCall) => false)
 );
 /// The `fn(...)` type a `dyn(...)` payload's concrete type is, through its
 /// `SomeT` resolutions (an `Impl(Fn(...))` parameter bound to a named `fn`),
@@ -2617,7 +2617,7 @@ dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
       }
     );
   });
-  match(&cur, Rc(.Func({})) => Option(TypeValue).Some(Rc.clone(cur)), _ => Option(TypeValue).None)
+  match(&cur, Rc(.Func) => Option(TypeValue).Some(Rc.clone(cur)), _ => Option(TypeValue).None)
 });
 /// The C name of a `dyn(...)` impl's CONCRETE type: its registered C type
 /// name, else, for a `fn(...)` payload (`dyn(f)` of a named function, which has

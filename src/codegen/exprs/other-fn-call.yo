@@ -382,7 +382,7 @@ _sm_lent_temp_slot :: (fn(code : &String, context : &FunctionGenerationContext) 
 _c_pointer_result_as_declared :: (fn(r : &TypeValue, call : String, context : &mut FunctionGenerationContext) -> String)({
   ptr := match(
     r,
-    Rc(.Pointer(_)) => Rc.clone(r),
+    Rc(.Pointer) => Rc.clone(r),
     _ => match(can_optimize_as_nullable_pointer(r), .Some(p) => p, .None => return(call))
   );
   pointee := match(&ptr, Rc(.Pointer(inner)) => Rc.clone(inner), _ => return(call));
@@ -834,7 +834,7 @@ _operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : 
         ftok := match(pargs.get_cloned(usize(1)), .Some(Rc(.Atom(_, t))) => Rc.clone(t), _ => return(false));
         base_is_type := match(
           context.base.get_expr_info(&base),
-          .Some(bei) => match(bei.value(), .Some(Rc(.TypeVal(_))) => true, _ => false),
+          .Some(bei) => match(bei.value(), .Some(Rc(.TypeVal)) => true, _ => false),
           .None => false
         );
         if(!base_is_type, {
@@ -970,7 +970,7 @@ _value_place_root :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> 
     ),
     Rc(.FnCall(_, _, Rc(pargs), _, _)) => if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
       base := match(pargs.get_cloned(usize(0)), .Some(b) => b, .None => return(Option(String).None));
-      field_ok := match(pargs.get_cloned(usize(1)), .Some(Rc(.Atom(_, ft))) => ((ft.kind == TokenKind.Identifier) || (ft.kind == TokenKind.Integer)), .Some(_) => false, .None => false);
+      field_ok := match(pargs.get_cloned(usize(1)), .Some(Rc(.Atom(_, ft))) => ((ft.kind == TokenKind.Identifier) || (ft.kind == TokenKind.Integer)), .Some => false, .None => false);
       base_is_value := match(context.base.get_expr_info(&base), .Some(bei) => ((is_struct_type(&bei.ty()) && !is_reference_struct_type(&bei.ty())) || is_tuple_type(&bei.ty())), .None => false);
       if(field_ok && base_is_value, recur(&base, context), Option(String).None)
     }, Option(String).None)
@@ -1022,7 +1022,7 @@ _is_primitive_operator_symbol :: (fn(op : &String) -> bool)(
 _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(
     ast_rewritten_node(e),
-    Rc(.Atom(_, _)) => false,
+    Rc(.Atom) => false,
     Rc(.FnCall(_, f, Rc(args), _, _)) => {
       match(
         lookup_macro_expansion(ast_expr_id(e)),
@@ -1038,9 +1038,9 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
         ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => recur(&a0, context),
         ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(1))) => false,
         true => {
-          op := match(f, Rc(.Atom(_, ft)) => ft.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.new());
+          op := match(f, Rc(.Atom(_, ft)) => ft.value.*.clone(), Rc(.FnCall) => String.new());
           is_label := ((op == ":") && (n == usize(2)) && ast_expr_is_atom(&a0));
-          is_ctor := match(context.base.get_expr_info(&f), .Some(fei) => match(fei.value(), .Some(Rc(.TypeVal(_))) => true, _ => false), .None => false);
+          is_ctor := match(context.base.get_expr_info(&f), .Some(fei) => match(fei.value(), .Some(Rc(.TypeVal)) => true, _ => false), .None => false);
           is_prim_op := (
             _is_primitive_operator_symbol(&op) && {
               (mut(all_prim) : bool) = true;
@@ -1420,7 +1420,7 @@ _ctor_args_from_labeled :: (fn(wrapped : &TypeValue, fncall_args : &ArrayList(As
       match(
         fncall_args.get_cloned(ai),
         .Some(arg) => if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), {
-          ca := match(arg, Rc(.FnCall(_, _, Rc(ca2), _, _)) => ca2.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+          ca := match(arg, Rc(.FnCall(_, _, Rc(ca2), _, _)) => ca2.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
           lbl := match(ca.get_cloned(usize(0)), .Some(l) => if(ast_expr_is_atom(&l), ast_expr_text(&l).*.clone(), String.from("")), .None => String.from(""));
           if(lbl == flabel, {
             found = match(ca.get_cloned(usize(1)), .Some(v) => Option(AstExpr).Some(v), .None => Option(AstExpr).None);
@@ -1458,8 +1458,8 @@ _no_cast_by_value_param :: (fn(t : &TypeValue) -> bool)(
     t,
     Rc(.Struct({ is_reference_semantics : s_ref })) => !s_ref.*,
     Rc(.EnumT({ is_reference_semantics : e_ref })) => !e_ref.*,
-    Rc(.Tuple(_, _)) => true,
-    Rc(.Union(_, _, _)) => true,
+    Rc(.Tuple) => true,
+    Rc(.Union) => true,
     Rc(.Str) => true,
     _ => false
   )
@@ -1957,7 +1957,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       .Some(ecfei) => match(ecfei.value(), .Some(ecfv) => match(ecfv, Rc(.TypeVal(ewb)) => is_enum_type(&ewb), _ => false), .None => false),
       .None => false
     ),
-    Rc(.Atom(_, _)) => false
+    Rc(.Atom) => false
   );
   if(is_enum_type(&ei.ty()) && oc_has_runtime_args && callee_is_enum_ctor, {
     // The variant name. Sources in order: the `EnumVal` shell on `ei.value`
@@ -1969,7 +1969,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     // leading `.`, which _generate_runtime_enum_construct strips.
     from_val := match(ei.value(), .Some(ev) => match(ev, Rc(.EnumVal(vr, _)) => vr.clone(), _ => String.new()), .None => String.new());
     from_ty := match(&ei.ty(), Rc(.EnumT({ selected_variant_name })) => match(selected_variant_name, .Some(v) => v.clone(), .None => String.new()), _ => String.new());
-    from_callee := match(expr, Rc(.FnCall(_, f, _, _, _)) => ast_expr_to_string(&f.*), Rc(.Atom(_, _)) => String.new());
+    from_callee := match(expr, Rc(.FnCall(_, f, _, _, _)) => ast_expr_to_string(&f.*), Rc(.Atom) => String.new());
     variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
     if(variant_raw.len() > usize(0), {
       rt_e := match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
@@ -1993,12 +1993,12 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   });
   // The callee as the evaluator rewrote it (`w.m` → `w.*.m`, a payload
   // method; `ast_rewritten_node`).
-  func_expr := match(expr, Rc(.FnCall(_, f, _, _, _)) => ast_rewritten_node(&f.*), Rc(.Atom(_, _)) => return(Option(String).None));
+  func_expr := match(expr, Rc(.FnCall(_, f, _, _, _)) => ast_rewritten_node(&f.*), Rc(.Atom) => return(Option(String).None));
   // `(T <: CloneInto).clone_into(src, dst)` at `T = Dyn(..., Clone)` (decision
   // 49 S2): the vtable's `clone_into` slot writes the payload's clone at the
   // destination's address.
   if(is_dyn_clone_into_witness(ast_expr_id(&func_expr)), {
-    ci_args := match(expr, Rc(.FnCall(_, _, Rc(cia), _, _)) => cia.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+    ci_args := match(expr, Rc(.FnCall(_, _, Rc(cia), _, _)) => cia.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
     ci_src := match(ci_args.get_cloned(usize(0)), .Some(a) => unsized_place_fat_code(&_call_generate_expr(&a, indent.clone(), context)), .None => return(Option(String).None));
     ci_dst := match(ci_args.get_cloned(usize(1)), .Some(a) => unsized_place_fat_code(&_call_generate_expr(&a, indent.clone(), context)), .None => return(Option(String).None));
     return(Option(String).Some(`(${ci_src}).vtable->__yo_clone_into((${ci_src}).data, (${ci_dst}).data)`));
@@ -2010,7 +2010,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // [receiver, ...explicit]; we lower to `(recv).vtable->method((recv).data,
   // explicit...)`.
   if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
-    dmethod_args := match(Rc.clone(func_expr), Rc(.FnCall(_, _, Rc(da), _, _)) => da.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+    dmethod_args := match(Rc.clone(func_expr), Rc(.FnCall(_, _, Rc(da), _, _)) => da.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
     dm_runtime := match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
     // `recv_is_dyn` = is the prepended runtime-arg[0] itself a Dyn? Used ONLY by
     // the concrete-dispatch branch below to exclude a `ctl`-FIELD effect call like
@@ -2375,7 +2375,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                   cm_arg_list.push({
                     cm_ptr := match(cm_abi_ptr.get(cmi), .Some(r) => r, .None => false);
                     mc := sequence_operand(&a, _dispatch_arg_code(&a, cm_ptr, expr, indent.clone(), context), &dm_runtime, cmi, cm_ptr, indent, context);
-                    hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
+                    hs := match(cm_ptypes.get(cmi), .Some => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
                 },
@@ -2404,7 +2404,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // release keeps the env of the DOT callee (its FuncVal installs),
             // not the call's: read the callee's env, as the plain-call path
             // does. A receiver call's dot has no info; its call env is kept.
-            cm_env_key := match(context.base.get_expr_info(&func_expr), .Some(_) => ast_expr_id(&func_expr), .None => ast_expr_id(expr));
+            cm_env_key := match(context.base.get_expr_info(&func_expr), .Some => ast_expr_id(&func_expr), .None => ast_expr_id(expr));
             cm_install_env := match(context.base.get_expr_info(&func_expr), .Some(cfi) => cfi.env(), .None => ei.env());
             cm_install_ei := new_expr_info(&cm_install_env, &cm_mft);
             cm_install_ei.set_value(method_fv);
@@ -2538,7 +2538,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                   rm_args.push({
                     rm_ptr := match(rm_abi_ptr.get(rmi), .Some(r) => r, .None => false);
                     mc := sequence_operand(&a, _dispatch_arg_code(&a, rm_ptr, expr, indent.clone(), context), &rm_runtime, rmi, rm_ptr, indent, context);
-                    hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
+                    hs := match(rm_ptypes.get(rmi), .Some => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
                 },
@@ -2700,7 +2700,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         wrapped := _constructed_struct_type(&wrapped_box, &ei.ty());
         if(is_reference_struct_type(&wrapped), {
           cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_obj"));
-          obj_fncall_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+          obj_fncall_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
           // Prefer the recorded runtime arg exprs; fall back to reconstructing
           // them from the FnCall's labeled args when empty (ctor inside a
           // specialized body — see _ctor_args_from_labeled).
@@ -2823,11 +2823,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         // union but never construct one (tests/basic.test.yo arm 14).
         if(is_union_type(&wrapped), {
           u_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_union"));
-          u_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+          u_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
           match(
             u_args.get_cloned(usize(0)),
             .Some(u_arg) => if(ast_expr_is_fn_call_of(&u_arg, ":", Option(usize).Some(usize(2))), {
-              u_pair := match(u_arg, Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+              u_pair := match(u_arg, Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
               u_label_e := match(u_pair.get_cloned(usize(0)), .Some(le) => le, .None => make_err_expr());
               u_field_e := match(u_pair.get_cloned(usize(1)), .Some(fe) => fe, .None => make_err_expr());
               if(ast_expr_is_atom(&u_label_e), {
@@ -2878,7 +2878,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // ("unexpected type name '__yo_tN'"). When the counts disagree, re-derive
           // the runtime-field values by matching the ctor call's labeled args to the
           // runtime fields by name (the same matcher as the empty-args fallback).
-          vs_fncall_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+          vs_fncall_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
           vs_args := if(vs_args_raw.len() == rt_fields.len(), vs_args_raw, _ctor_args_from_labeled(wrapped.clone(), &vs_fncall_args));
           vs_value := cond(
             (vs_is_newtype && (rt_fields.len() == usize(1)) && (vs_args.len() == usize(1))) => {
@@ -2993,7 +2993,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // generic Index trait.
   if(is_array_type(&function_type), {
     arr_code := _call_generate_expr(&func_expr, indent.clone(), context);
-    idx_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+    idx_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
     match(
       idx_args.get_cloned(usize(0)),
       .Some(idx_expr) => {
@@ -3036,7 +3036,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // ctor `_ctor_args_from_labeled` fallback above). Reconstruct from the
   // FnCall's own arg exprs so the closure call keeps its runtime arguments.
   if(cc_early_hit && (runtime_args.len() == usize(0)), {
-    cc_ast_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+    cc_ast_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
     if(cc_ast_args.len() > usize(0), {
       runtime_args = cc_ast_args;
     });
@@ -3088,7 +3088,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     // pass the dead byte rather than leaving `f(xs, )`. With NO matching
     // parameter slot — a reconstructed argument list — leave the slot empty,
     // which is today's behaviour.
-    has_slot := match(param_types.get(ai), .Some(_) => true, .None => false);
+    has_slot := match(param_types.get(ai), .Some => true, .None => false);
     match(
       runtime_args.get_cloned(ai),
       .Some(arg) => {

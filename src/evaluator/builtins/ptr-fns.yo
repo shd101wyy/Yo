@@ -74,7 +74,7 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
       });
       found
     },
-    Rc(.Atom(_, _)) => .None
+    Rc(.Atom) => .None
   )
 );
 /// A projection result's root error: the message and its code (E0912 for a
@@ -196,9 +196,9 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
             mut(n_idx) := ArrayList(usize).new();
             match(
               find_variable_in_env_at(env, &first, &mut p_idx),
-              .Some(_) => match(
+              .Some => match(
                 find_variable_in_env_at(env, name, &mut n_idx),
-                .Some(_) => match(p_idx.get(usize(0)), .Some(pi) => match(n_idx.get(usize(0)), .Some(ni) => (ni < pi), .None => false), .None => false),
+                .Some => match(p_idx.get(usize(0)), .Some(pi) => match(n_idx.get(usize(0)), .Some(ni) => (ni < pi), .None => false), .None => false),
                 .None => false
               ),
               .None => false
@@ -582,7 +582,7 @@ evaluate_address_call :: (
     pr_name := match(
       &arg_expr,
       Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.get_cloned(usize(0)), .Some(n) => n, .None => make_err_expr()),
-      Rc(.Atom(_, _)) => make_err_expr()
+      Rc(.Atom) => make_err_expr()
     );
     pr_var := get_variables_from_env(env, ast_expr_token(&pr_name).value.*.clone()).last_cloned();
     pr_ref := match(&pr_var, .Some(v) => variable_is_reference_binding(v), .None => false);
@@ -670,7 +670,7 @@ evaluate_address_call :: (
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
     &arg_info_opt,
-    .Some(_) => (),
+    .Some => (),
     .None => {
       exn.throw(
         dyn(
@@ -737,7 +737,7 @@ evaluate_address_call :: (
       .Some(bp) => {
         bp_place := ast_place_text(&arg_expr);
         bp_ty := type_to_string(&variable_value_type(&bp));
-        bp_what := if(match(Rc.clone(eval_arg), Rc(.Atom(_, _)) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
+        bp_what := if(match(Rc.clone(eval_arg), Rc(.Atom) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
         exn.throw(
           dyn(
             Box.new(
@@ -789,7 +789,7 @@ evaluate_address_call :: (
   // below keeps its order.
   ptr_place_val_opt := match(
     ptr_val_from_comptime_ref.clone(),
-    .Some(_) => ptr_val_from_comptime_ref.clone(),
+    .Some => ptr_val_from_comptime_ref.clone(),
     .None => match(
       arg_info.source_variable(),
       // Hand the variable's OWN value cell to the pointer
@@ -850,7 +850,7 @@ evaluate_address_call :: (
   // `is_index_trait_address_of`.
   match(
     ptr_place_val_opt.clone(),
-    .Some(_) => {
+    .Some => {
       out_info.set_value(ptr_place_val_opt);
     },
     .None => match(
@@ -884,7 +884,7 @@ evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, c
   operand := match(
     expr,
     Rc(.FnCall(_, _, Rc(l_args), _, _)) => match(l_args.get_cloned(usize(0)), .Some(a) => a, .None => return(Rc.clone(expr.*))),
-    Rc(.Atom(_, _)) => return(Rc.clone(expr.*))
+    Rc(.Atom) => return(Rc.clone(expr.*))
   );
   l_gout := ArrayList(AstExpr).new();
   l_gerr := evaluate_expression_guarded(&operand, env, ctx, &mut l_gout);

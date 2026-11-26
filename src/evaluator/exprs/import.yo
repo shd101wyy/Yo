@@ -320,13 +320,13 @@ resolve_module_path_ex :: (
     cwd_result := match(
       cwd(),
       .Ok(p) => p.to_string(),
-      .Err(_) => String.from(".")
+      .Err => String.from(".")
     );
     module_path_to_import = Path.new(&cwd_result).join(Path.new(module_path_to_import.clone())).to_string();
   });
   // Extension resolution.
   ext_opt := Path.new(module_path_to_import.clone()).extension();
-  has_ext := match(ext_opt, .Some(_) => true, .None => false);
+  has_ext := match(ext_opt, .Some => true, .None => false);
   if(has_ext, {
     return(ModuleResolveResult.Found(`file://${module_path_to_import}`));
   });
@@ -556,7 +556,7 @@ evaluate_import :: (
         Rc.clone(expr.*)
       }
     ),
-    Rc(.Atom(_, _)) => {
+    Rc(.Atom) => {
       exn.throw(
         dyn(
           Box.new(
@@ -597,7 +597,7 @@ evaluate_import :: (
   raw_with_quotes := match(
     arg_info.value(),
     .Some(Rc(.StrLit(s))) => s.clone(),
-    .Some(_) => {
+    .Some => {
       exn.throw(
         dyn(
           Box.new(

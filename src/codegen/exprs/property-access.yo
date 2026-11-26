@@ -84,7 +84,7 @@ _is_typevalue_enum :: (fn(object_value : &Option(EvalValue)) -> bool)(
 _enum_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_name : &String, context : &FunctionGenerationContext) -> String)(
   match(
     can_optimize_as_nullable_pointer(object_type),
-    .Some(_) => object_code.clone(),
+    .Some => object_code.clone(),
     .None => match(
       object_type,
       Rc(.EnumT({ variant_names : vnames, variant_field_labels : vlabels, name : ename })) => {
@@ -309,7 +309,7 @@ _field_reference_type :: (fn(object_type : &TypeValue, field_name : &String) -> 
   )
 });
 _reference_or_none :: (fn(t : Option(TypeValue)) -> Option(TypeValue))(
-  match(t, .Some(rt) => if(match(&rt, Rc(.Reference(_, _, _)) => true, _ => false), Option(TypeValue).Some(Rc.clone(rt)), Option(TypeValue).None), .None => Option(TypeValue).None)
+  match(t, .Some(rt) => if(match(&rt, Rc(.Reference) => true, _ => false), Option(TypeValue).Some(Rc.clone(rt)), Option(TypeValue).None), .None => Option(TypeValue).None)
 );
 /// A field access. A reference field (N1e-2) reads as the place it refers
 /// to: its C is the pointer's dereference, which a lend folds back to the
@@ -318,7 +318,7 @@ _reference_or_none :: (fn(t : Option(TypeValue)) -> Option(TypeValue))(
 /// fills the `T*` every `&T` slot and projection result lowers to.
 generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   code := _generate_field_access_raw(expr, indent, context);
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   ref_ty := match(
     args.get_cloned(usize(0)),
     .Some(obj) => match(
@@ -345,7 +345,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut F
 });
 _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   if(args.len() != usize(2), {
     return(String.from("/* ERROR: field access requires exactly 2 arguments */"));
   });
@@ -473,7 +473,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   if((field_name == "*") && match(&object_type, Rc(.Reference(dr_pointee, _, _)) => !type_is_sized(&dr_pointee.*), _ => false), {
     return(`(${object_code})`);
   });
-  if((field_name == "*") && match(&object_type, Rc(.Reference(_, _, _)) => true, _ => false), {
+  if((field_name == "*") && match(&object_type, Rc(.Reference) => true, _ => false), {
     out := String.from("(*");
     out.push_string(object_code.clone());
     out.push_str(")");

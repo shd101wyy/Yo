@@ -58,7 +58,7 @@ evaluate_subtype_of :: (
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   rhs_expr := match(
     expr,
@@ -67,7 +67,7 @@ evaluate_subtype_of :: (
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   // Evaluate the LHS (the type parameter or concrete type).
   evaluated_lhs := evaluate_expression_raw(&lhs_expr, &env, ctx, exn);
@@ -150,7 +150,7 @@ evaluate_subtype_of :: (
     rhs_args := match(
       Rc.clone(rhs_expr),
       Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
-      Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+      Rc(.Atom) => ArrayList(AstExpr).new()
     );
     (i : usize) = usize(0);
     while(i < rhs_args.len(), {
@@ -169,7 +169,7 @@ evaluate_subtype_of :: (
             .Some(a) => a,
             .None => make_err_expr()
           ),
-          Rc(.Atom(_, _)) => make_err_expr()
+          Rc(.Atom) => make_err_expr()
         ),
         trait_expr
       );
@@ -189,7 +189,7 @@ evaluate_subtype_of :: (
           .Some(a) => a,
           .None => make_err_expr()
         ),
-        Rc(.Atom(_, _)) => make_err_expr()
+        Rc(.Atom) => make_err_expr()
       ),
       Rc.clone(rhs_expr)
     );

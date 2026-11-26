@@ -346,7 +346,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
           skip_statement,
           (),
           if(ast_expr_is_fn_call(&expr) && ast_expr_is_fn_call_of(&expr, BK_EXPORT, .None), {
-            export_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+            export_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
             (j : usize) = usize(0);
             nj := export_args.len();
             while((j < nj) && !should_stop, {
@@ -402,7 +402,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       ext_mod_val_opt := match(
                         ext_info.value(),
                         .Some(Rc(.StructVal(sn, ns, vs))) => Option(EvalValue).Some(Rc.new(EvalValueNode.StructVal(sn.clone(), Rc.clone(ns), Rc.clone(vs)))),
-                        .Some(_) => Option(EvalValue).None,
+                        .Some => Option(EvalValue).None,
                         .None => Option(EvalValue).None
                       );
                       // Build excluded-labels list

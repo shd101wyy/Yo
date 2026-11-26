@@ -45,7 +45,7 @@ test("NonZero(i32) is a usable parameter type; check_non_zero is the runtime gat
   );
   match(
     check_non_zero(i32(0)),
-    .Some(_) => assert(false, "0 must NOT pass the NonZero gate"),
+    .Some => assert(false, "0 must NOT pass the NonZero gate"),
     .None => assert(true, "the gate rejects 0")
   );
 });
@@ -59,7 +59,7 @@ test("Bounded(T, lo, hi) gates both ends at runtime", {
   );
   match(
     check_bounded(i32(150), i32(0), i32(100)),
-    .Some(_) => assert(false, "150 must NOT pass the [0,100] gate"),
+    .Some => assert(false, "150 must NOT pass the [0,100] gate"),
     .None => assert(true, "the gate rejects 150")
   );
 });
@@ -85,7 +85,7 @@ test("Positive / Negative / NonNegative gates pass and reject correctly", {
   );
   match(
     check_positive(i32(0)),
-    .Some(_) => assert(false, "0 must NOT pass the Positive gate"),
+    .Some => assert(false, "0 must NOT pass the Positive gate"),
     .None => assert(true, "the gate rejects 0")
   );
 });
@@ -105,7 +105,7 @@ test("Even / Odd gates partition the integers", {
   );
   match(
     check_even(i32(3)),
-    .Some(_) => assert(false, "3 must NOT pass the Even gate"),
+    .Some => assert(false, "3 must NOT pass the Even gate"),
     .None => assert(true, "the gate rejects 3")
   );
 });

@@ -33,7 +33,7 @@ _is_fn_type_expr :: (fn(e : &AstExpr) -> bool)({
         },
         .None => ()
       ),
-      Rc(.Atom(_, _)) => ()
+      Rc(.Atom) => ()
     );
   });
   false
@@ -67,7 +67,7 @@ _symbol_kind_of :: (fn(value_expr : &AstExpr) -> usize)({
         return(usize(12));
       });
     },
-    Rc(.Atom(_, _)) => ()
+    Rc(.Atom) => ()
   );
   usize(14)
 });
@@ -112,12 +112,12 @@ _typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(Sy
             },
             .None => Option(SymbolEntry).None
           ),
-          Rc(.Atom(_, _)) => Option(SymbolEntry).None
+          Rc(.Atom) => Option(SymbolEntry).None
         )
       },
       .None => Option(SymbolEntry).None
     ),
-    Rc(.Atom(_, _)) => Option(SymbolEntry).None
+    Rc(.Atom) => Option(SymbolEntry).None
   )
 });
 
@@ -174,7 +174,7 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
           },
           .None => ()
         ),
-      Rc(.Atom(_, _)) => ()
+      Rc(.Atom) => ()
     );
   });
   // `(thread_local(name) : T) = init` — the typed thread-local form.
@@ -213,13 +213,13 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
                     },
                     .None => ()
                   ),
-                Rc(.Atom(_, _)) => ()
+                Rc(.Atom) => ()
               );
             });
           },
           .None => ()
         ),
-      Rc(.Atom(_, _)) => ()
+      Rc(.Atom) => ()
     );
   });
   Option(SymbolEntry).None
@@ -261,7 +261,7 @@ collect_document_symbols :: (
             );
           });
         },
-        Rc(.Atom(_, _)) => ()
+        Rc(.Atom) => ()
       );
     }, {
       match(
@@ -380,7 +380,7 @@ _impl_arg_is :: (fn(e : &AstExpr, name : &String) -> bool)(
     Rc(.FnCall(_, func_box, _, _, _)) => match(
       func_box,
       Rc(.Atom(_, ht)) => (ht.value.* == name.*),
-      Rc(.FnCall(_, _, _, _, _)) => false
+      Rc(.FnCall) => false
     )
   )
 );
@@ -469,7 +469,7 @@ handle_implementations :: (
                 );
               });
             },
-            Rc(.Atom(_, _)) => ()
+            Rc(.Atom) => ()
           );
         });
       },

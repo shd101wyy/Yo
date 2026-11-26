@@ -126,11 +126,11 @@ _close_short_circuit_if :: (
 /// (a temp declaration or call). Atoms / compile-time values are safe.
 _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)({
   ei_opt := context.base.get_expr_info(expr);
-  has_var := match(&ei_opt, .Some(ei) => match(&ei.variable_name(), .Some(_) => true, .None => false), .None => false);
+  has_var := match(&ei_opt, .Some(ei) => match(&ei.variable_name(), .Some => true, .None => false), .None => false);
   if(has_var, {
     return(true);
   });
-  has_value := match(ei_opt, .Some(ei) => match(ei.value(), .Some(_) => true, .None => false), .None => false);
+  has_value := match(ei_opt, .Some(ei) => match(ei.value(), .Some => true, .None => false), .None => false);
   if(has_value, {
     return(false);
   });
@@ -151,7 +151,7 @@ _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGeneratio
       });
       recur(&func.*, context)
     },
-    Rc(.Atom(_, _)) => false
+    Rc(.Atom) => false
   )
 });
 /// Collect the variable names newly CREATED by an expression tree (temps from
@@ -223,7 +223,7 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
         recur(&func.*, result, context);
       });
     },
-    Rc(.Atom(_, _)) => ()
+    Rc(.Atom) => ()
   )
 );
 /// Emit, from `list_owner`'s own deferred-drop list, the drops whose target is
@@ -342,7 +342,7 @@ _emit_drops_for_conditional_branch :: (
   if(var_names.len() > usize(0), {
     match(
       &context.short_circuit_handled_drop_var_names,
-      .Some(_) => (),
+      .Some => (),
       .None => {
         context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(HashSet(String).new());
       }
@@ -425,7 +425,7 @@ _emit_drops_for_conditional_branch :: (
 );
 /// `&&` operator with short-circuit evaluation.
 generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   if(args.len() == usize(1), {
     return(_call_generate_expr(match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*)), indent.clone(), context));
   });
@@ -504,7 +504,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   prev_sc_root := context.short_circuit_root_node.clone();
   match(
     prev_sc_root.clone(),
-    .Some(_) => (),
+    .Some => (),
     .None => {
       context.short_circuit_root_node = Option(AstExpr).Some(Rc.clone(expr.*));
     }
@@ -582,7 +582,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
 });
 /// `||` operator with short-circuit evaluation.
 generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   if(args.len() == usize(1), {
     return(_call_generate_expr(match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*)), indent.clone(), context));
   });
@@ -657,7 +657,7 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
   prev_sc_root := context.short_circuit_root_node.clone();
   match(
     prev_sc_root.clone(),
-    .Some(_) => (),
+    .Some => (),
     .None => {
       context.short_circuit_root_node = Option(AstExpr).Some(Rc.clone(expr.*));
     }

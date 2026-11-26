@@ -883,7 +883,7 @@ track_variable_usage_resolved :: (
                 HashMap(String, CapturedVarInfo).new()
               );
             },
-            .Some(_) => ()
+            .Some => ()
           );
           // Compute the promoted usage type.
           effective_usage := match(
@@ -1049,7 +1049,7 @@ lhs_binds_name :: (fn(lhs : &AstExpr, name : &String) -> bool)({
         .Some(inner) => inner,
         .None => Rc.clone(cur)
       ),
-      Rc(.Atom(_, _)) => Rc.clone(cur)
+      Rc(.Atom) => Rc.clone(cur)
     );
   });
   cond(
@@ -1070,7 +1070,7 @@ module_expr_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
           .Some(first) => (ast_expr_to_string(&first) == name.*),
           .None => false
         ),
-        Rc(.Atom(_, _)) => false
+        Rc(.Atom) => false
       ),
     // `X :: rhs` / `X : rhs` / `X = rhs` (module-level bindings).
     (ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_COLON, .Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_ASSIGN, .Some(usize(2)))) =>
@@ -1081,7 +1081,7 @@ module_expr_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
           .Some(lhs) => lhs_binds_name(&lhs, name),
           .None => false
         ),
-        Rc(.Atom(_, _)) => false
+        Rc(.Atom) => false
       ),
     // `comptime(X) := ...` at module level.
     ast_expr_is_fn_call_of(e, BK_COMPTIME, .None) =>
@@ -1092,7 +1092,7 @@ module_expr_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
           .Some(lhs) => lhs_binds_name(&lhs, name),
           .None => false
         ),
-        Rc(.Atom(_, _)) => false
+        Rc(.Atom) => false
       ),
     true => false
   )
@@ -1549,7 +1549,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
                   .Some(rhs) => ast_expr_is_fn_call_of(&rhs, BF_GHOST_FN, Option(usize).None),
                   .None => false
                 ),
-                Rc(.Atom(_, _)) => false
+                Rc(.Atom) => false
               )
             );
           },
@@ -1673,7 +1673,7 @@ walk_def_key :: (fn(walk : &ModuleWalk, def : &PendingDef) -> String)(
 record_def_dependency :: (fn(dependee : &String) -> unit)({
   match(
     current_forcing_def(),
-    .Some(_) => {
+    .Some => {
       (top : PendingDef) = match(
         g_forcing_stack.with(_vh_forcing_stack_last),
         .Some(d) => d,
@@ -1743,7 +1743,7 @@ record_module_member_read :: (fn(importer : &String, target_module : &String, fi
   match(
     current_forcing_def(),
     .None => record_module_ordered_read(importer, target_module, field),
-    .Some(_) => ()
+    .Some => ()
   );
 });
 // ---------------------------------------------------------------------------
@@ -1785,7 +1785,7 @@ def_key_index :: (fn(key : &String) -> Option(usize))(
         match(
           key.substring((h1 + usize(1)), h2).parse(usize),
           .Ok(v) => v,
-          .Err(_) => usize(0)
+          .Err => usize(0)
         )
       ),
       .None => Option(usize).None
@@ -2068,7 +2068,7 @@ fn_ctx_returns_comptime :: (fn(ctx : &EvalContext) -> bool)(
       .FunctionBody => match(
         &fc.func_type,
         .Some(Rc(.Func({ meta : fm }))) => fm.result_is_comptime_only,
-        .Some(_) => false,
+        .Some => false,
         .None => false
       ),
       _ => false
@@ -2158,7 +2158,7 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
     _is_reference_impl_receiver(recv) => match(
       recv,
       Rc(.FnCall(_, _, Rc(rargs), _, _)) => match(rargs.get_cloned(usize(0)), .Some(pointee) => recur(&pointee), .None => String.new()),
-      Rc(.Atom(_, _)) => String.new()
+      Rc(.Atom) => String.new()
     ),
     ast_expr_is_atom(recv) => ast_expr_token(recv).value.*.clone(),
     ast_expr_is_fn_call_of(recv, BF_DOT, .Some(usize(2))) =>
@@ -2169,7 +2169,7 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
           .Some(member) => cond(ast_expr_is_atom(&member) => ast_expr_token(&member).value.*.clone(), true => String.new()),
           .None => String.new()
         ),
-        Rc(.Atom(_, _)) => String.new()
+        Rc(.Atom) => String.new()
       ),
     ast_expr_is_fn_call(recv) =>
       match(
@@ -2178,7 +2178,7 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
           (ast_expr_is_atom(&callee.*) && !(ast_expr_is_atom_and_operator(&callee.*))) => ast_expr_token(&callee.*).value.*.clone(),
           true => String.new()
         ),
-        Rc(.Atom(_, _)) => String.new()
+        Rc(.Atom) => String.new()
       ),
     true => String.new()
   )
@@ -2338,7 +2338,7 @@ _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
             Rc(.FnCall(_, callee, _, _, _)) => if(ast_expr_is_atom(&callee) && is_drop_trait_name(&ast_expr_token(&callee).value.*), {
               return(true);
             }),
-            Rc(.Atom(_, _)) => ()
+            Rc(.Atom) => ()
           ),
           .None => ()
         );
@@ -2346,7 +2346,7 @@ _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
       });
       false
     },
-    Rc(.Atom(_, _)) => false
+    Rc(.Atom) => false
   )
 );
 /// Force the unforced pending impls of `type_name` that declare `Drop`
@@ -2387,7 +2387,7 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
               if(is_target, {
                 match(
                   force_pending_def(&walk, &def),
-                  .Some(_) => (),
+                  .Some => (),
                   .None => {
                     forced = true;
                   }
@@ -2435,7 +2435,7 @@ _extern_member_names :: (fn(e : &AstExpr) -> ArrayList(String))({
                 }),
                 .None => ()
               ),
-              Rc(.Atom(_, _)) => ()
+              Rc(.Atom) => ()
             );
           }),
           .None => ()
@@ -2443,7 +2443,7 @@ _extern_member_names :: (fn(e : &AstExpr) -> ArrayList(String))({
         i = (i + usize(1));
       });
     },
-    Rc(.Atom(_, _)) => ()
+    Rc(.Atom) => ()
   );
   names
 });
@@ -2467,7 +2467,7 @@ _is_extern_decl_destructure :: (fn(e : &AstExpr) -> bool)(
         ),
         .None => false
       ),
-      Rc(.Atom(_, _)) => false
+      Rc(.Atom) => false
     )
 );
 /// The names a `{ pattern } :: extern(...)` statement BINDS: every declared
@@ -2475,10 +2475,10 @@ _is_extern_decl_destructure :: (fn(e : &AstExpr) -> bool)(
 /// the new name for `(a : b)`. These are the statement's pending members.
 _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
   names := ArrayList(String).new();
-  dargs := match(e, Rc(.FnCall(_, _, a, _, _)) => Rc.clone(a).*.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  dargs := match(e, Rc(.FnCall(_, _, a, _, _)) => Rc.clone(a).*.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   lhs := match(dargs.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(e.*));
   rhs := match(dargs.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(e.*));
-  fields := match(lhs, Rc(.FnCall(_, _, fa, _, _)) => Rc.clone(fa).*.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  fields := match(lhs, Rc(.FnCall(_, _, fa, _, _)) => Rc.clone(fa).*.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
@@ -2511,7 +2511,7 @@ _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
               true => ()
             );
           },
-          Rc(.Atom(_, _)) => ()
+          Rc(.Atom) => ()
         ),
         true => ()
       ),
@@ -2595,7 +2595,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
           true => _make_pending_def(&lhs_name, e, index, false)
         )
       },
-      Rc(.Atom(_, _)) => Option(PendingDef).None
+      Rc(.Atom) => Option(PendingDef).None
     ),
     ast_expr_is_fn_call_of(e, BK_IMPL_LOWER, .None) => match(
       e,
@@ -2624,7 +2624,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
           }
         )
       },
-      Rc(.Atom(_, _)) => Option(PendingDef).None
+      Rc(.Atom) => Option(PendingDef).None
     ),
     true => Option(PendingDef).None
   )
@@ -2648,7 +2648,7 @@ _derive_target :: (fn(e : &AstExpr) -> Option(AstExpr))(
         true => Option(AstExpr).None
       )
     },
-    Rc(.Atom(_, _)) => Option(AstExpr).None
+    Rc(.Atom) => Option(AstExpr).None
   )
 );
 /// Keep `[A-Za-z0-9_]` of an anchor label; anything else becomes `_`.
@@ -3016,13 +3016,13 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &TypeVal
             ast_expr_is_fn_call_of(&r, BF_GHOST_FN, Option(usize).Some(usize(1))) => match(
               r,
               Rc(.FnCall(_, _, Rc(gargs), _, _)) => match(gargs.get_cloned(usize(0)), .Some(gl) => ast_expr_id(&gl), .None => usize(0)),
-              Rc(.Atom(_, _)) => usize(0)
+              Rc(.Atom) => usize(0)
             ),
             true => ast_expr_id(&r)
           ),
           .None => usize(0)
         ),
-        Rc(.Atom(_, _)) => usize(0)
+        Rc(.Atom) => usize(0)
       );
       if(def_rhs_id == rhs_id, {
         def.set_phase_a_value(Option(EvalValue).Some(Rc.clone(value.*)));
@@ -3067,7 +3067,7 @@ _def_lhs_token_is :: (fn(def : &PendingDef, tok : &Token) -> bool)(
       },
       .None => false
     ),
-    Rc(.Atom(_, _)) => false
+    Rc(.Atom) => false
   )
 );
 pending_prebound_variable :: (fn(name : &String, lhs_tok : &Token) -> Option(Variable))(
@@ -3339,7 +3339,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
               lhs_tok := match(
                 def.expr(),
                 Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(cargs.get_cloned(usize(0)), .Some(l) => ast_expr_token(&l), .None => ast_expr_token(&def.expr())),
-                Rc(.Atom(_, _)) => ast_expr_token(&def.expr())
+                Rc(.Atom) => ast_expr_token(&def.expr())
               );
               match(
                 add_variable_to_env(module_walk_force_env(&walk), def.name.clone(), &fty, Option(EvalValue).Some(fv), true, false, false, false, &lhs_tok),
@@ -3413,7 +3413,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
                       Rc(.FnCall(_, _, Rc(pair), _, _)) => if(ast_expr_is_fn_call_of(&m, BK_COLON, Option(usize).Some(usize(2))), {
                         found = match(pair.get_cloned(usize(0)), .Some(l) => (ast_expr_token(&l).value.* == label.*), .None => false);
                       }),
-                      Rc(.Atom(_, _)) => ()
+                      Rc(.Atom) => ()
                     ),
                     .None => ()
                   );
@@ -3421,7 +3421,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
                 });
               }
             ),
-            Rc(.Atom(_, _)) => ()
+            Rc(.Atom) => ()
           ),
           .None => ()
         );
@@ -3429,7 +3429,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
       });
       found
     },
-    Rc(.Atom(_, _)) => false
+    Rc(.Atom) => false
   )
 );
 /// Force every Unforced pending `impl` whose receiver head is `type_name`, plus
@@ -3515,7 +3515,7 @@ _impl_arg_trait_name :: (fn(arg : &AstExpr) -> String)(
     ast_expr_is_fn_call_of(arg, BF_DOT, .Some(usize(2))) => match(
       arg,
       Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(member) => recur(&member), .None => String.new()),
-      Rc(.Atom(_, _)) => String.new()
+      Rc(.Atom) => String.new()
     ),
     true => match(
       arg,
@@ -3523,7 +3523,7 @@ _impl_arg_trait_name :: (fn(arg : &AstExpr) -> String)(
         (ast_expr_is_atom(&callee.*) || ast_expr_is_fn_call_of(&callee.*, BF_DOT, .Some(usize(2)))) => recur(&callee.*),
         true => String.new()
       ),
-      Rc(.Atom(_, _)) => String.new()
+      Rc(.Atom) => String.new()
     )
   )
 );
@@ -3549,7 +3549,7 @@ _impl_expr_names_trait :: (fn(expr : &AstExpr, trait_name : &String) -> bool)(
       });
       found
     },
-    Rc(.Atom(_, _)) => false
+    Rc(.Atom) => false
   )
 );
 /// Force the Unforced pending impls and derives of `type_name` that name the
@@ -3663,7 +3663,7 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
     Rc(.Pointer(pointee)) => recur(&pointee.*),
     // `[T]` is `Slice(T)`, the head an `impl([T], …)` is pending under
     // (decision 49).
-    Rc(.SliceT(_)) => String.from("Slice"),
+    Rc(.SliceT) => String.from("Slice"),
     _ => String.new()
   );
   match(
@@ -4121,7 +4121,7 @@ create_function_body_evaluation_context :: (
       .FunctionBody => match(
         &block.func_type,
         .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box.*)),
-        .Some(_) => Option(TypeValue).None,
+        .Some => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
       _ => Option(TypeValue).Some(t_unit())

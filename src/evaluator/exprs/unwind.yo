@@ -105,7 +105,7 @@ evaluate_unwind :: (
         )
       );
     },
-    .Some(_) => ()
+    .Some => ()
   );
   enclosing_ret := match(
     &ctx.enclosing_function_return_type,
@@ -113,7 +113,7 @@ evaluate_unwind :: (
     .None => t_i32()
   );
   // `unwind` accepts at most one argument.
-  n_args := match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(), Rc(.Atom(_, _)) => usize(0));
+  n_args := match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(), Rc(.Atom) => usize(0));
   if(n_args > usize(1), {
     exn.throw(
       dyn(
@@ -153,7 +153,7 @@ evaluate_unwind :: (
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    Rc(.Atom(_, _)) => make_err_expr()
+    Rc(.Atom) => make_err_expr()
   );
   // Recursively evaluate the argument with the enclosing return type as the
   // expected type.
@@ -178,7 +178,7 @@ evaluate_unwind :: (
         )
       );
     },
-    .Some(_) => ()
+    .Some => ()
   );
   arg_info := match(
     info_opt,

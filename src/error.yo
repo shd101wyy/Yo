@@ -695,7 +695,7 @@ with_code :: (fn(err : &YoError, code : str) -> YoError)(_with_primary_code(err,
 /// generated body) carries that error's code over with this; `.None` leaves
 /// `err` as it is.
 with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
-  match(code, .Some(_) => _with_primary_code(err, code), .None => err.clone())
+  match(code, .Some => _with_primary_code(err, code), .None => err.clone())
 );
 /// `err` with a mechanical repair on its PRIMARY diagnostic: replace
 /// `token`'s own text with `replacement` (`yo fix` applies it,

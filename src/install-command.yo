@@ -91,7 +91,7 @@ _requirement_from_suffix :: (fn(suffix : &String) -> Result(GitRequirement, Stri
   });
   match(
     parse_version_req(suffix.clone()),
-    .Ok(_) => Result(GitRequirement, String).Ok(GitRequirement.Version(suffix.clone())),
+    .Ok => Result(GitRequirement, String).Ok(GitRequirement.Version(suffix.clone())),
     .Err(msg) => Result(GitRequirement, String).Err(`"${suffix}" is neither a tag (v1.2.3) nor a version requirement (^1.2, ~1, >=1, <2, *): ${msg}. Use --branch or --rev for other refs.`)
   )
 });
@@ -163,7 +163,7 @@ _user_cwd :: (fn() -> String)(
   match(
     env.get(String.from("YO_ORIGINAL_CWD")),
     .Some(d) => d,
-    .None => match(cwd(), .Ok(p) => p.to_string(), .Err(_) => String.from("."))
+    .None => match(cwd(), .Ok(p) => p.to_string(), .Err => String.from("."))
   )
 );
 /// The manifest governing the user's cwd (the nearest `yo.toml` at or above
@@ -561,7 +561,7 @@ _bump_ranges_to_latest :: (
           subdir = sd.clone();
           range_text = match(r, .Version(v) => v.clone(), _ => String.new());
         },
-        .Path(_) => ()
+        .Path => ()
       );
       (named : bool) = (owned_names.len() == usize(0));
       (ni : usize) = usize(0);

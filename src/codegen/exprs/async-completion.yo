@@ -107,10 +107,10 @@ _boundary_body :: (fn(e : &AstExpr) -> Option(AstExpr))(
     e,
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => match(
       func_box,
-      Rc(.Atom(_, _)) => if(args.len() > usize(0), args.last_cloned(), Option(AstExpr).None),
-      Rc(.FnCall(_, _, _, _, _)) => args.get_cloned(usize(0))
+      Rc(.Atom) => if(args.len() > usize(0), args.last_cloned(), Option(AstExpr).None),
+      Rc(.FnCall) => args.get_cloned(usize(0))
     ),
-    Rc(.Atom(_, _)) => Option(AstExpr).None
+    Rc(.Atom) => Option(AstExpr).None
   )
 );
 /// Visit the sub-expressions of `e` that belong to the same function: every
@@ -137,7 +137,7 @@ _same_frame_children :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
                   j = (j + usize(1));
                 });
               },
-              Rc(.Atom(_, _)) => ()
+              Rc(.Atom) => ()
             );
           }, out.push(a)),
           .None => ()
@@ -145,7 +145,7 @@ _same_frame_children :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
         i = (i + usize(1));
       });
     },
-    Rc(.Atom(_, _)) => ()
+    Rc(.Atom) => ()
   );
   out
 });

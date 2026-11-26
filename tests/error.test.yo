@@ -31,13 +31,13 @@ test("Test downcast AnyError to an error type this program never throws", {
   impl(NeverThrownError, ToString(to_string : (self -> `never thrown`)));
   impl(NeverThrownError, Error());
   is_never_thrown :: (fn(candidate : &AnyError) -> bool)(
-    match(downcast(candidate, NeverThrownError), .Some(_) => true, .None => false)
+    match(downcast(candidate, NeverThrownError), .Some => true, .None => false)
   );
   (err : AnyError) = dyn(Box.new(`plain message`));
   assert(!is_never_thrown(&err), "a never-thrown error type can never be inside an AnyError");
   match(
     downcast(&err.*, NeverThrownError),
-    .Some(_) => assert(false, "Expected None for a never-thrown error type"),
+    .Some => assert(false, "Expected None for a never-thrown error type"),
     .None => assert(true)
   );
   // Over-rejection canary: the value target this file DOES wrap must still be

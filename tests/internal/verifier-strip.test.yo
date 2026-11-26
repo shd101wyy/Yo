@@ -115,7 +115,7 @@ _count_labeled_asserts_in_body :: (fn(body : &AstExpr, label : &String, emitted_
   match(
     body,
     Rc(.FnCall(_, _, Rc(args), _, _)) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args.clone()), label.clone()), _count_labeled_asserts(&args.*, label.clone())),
-    Rc(.Atom(_, _)) => usize(0)
+    Rc(.Atom) => usize(0)
   )
 );
 _count_labeled_asserts :: (fn(args : &ArrayList(AstExpr), label : &String) -> usize)({
@@ -142,7 +142,7 @@ _arg1_atom_value :: (fn(a : &ArrayList(AstExpr)) -> String)(
     .Some(m_arg) => match(
       m_arg,
       Rc(.Atom(_, mt)) => mt.value.*.clone(),
-      Rc(.FnCall(_, _, _, _, _)) => String.new()
+      Rc(.FnCall) => String.new()
     ),
     .None => String.new()
   )

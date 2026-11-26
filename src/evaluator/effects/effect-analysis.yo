@@ -101,7 +101,7 @@ is_effect_call_ :: (
   });
   func_expr := match(
     expr,
-    Rc(.Atom(_, _)) => {
+    Rc(.Atom) => {
       return(false);
     },
     Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*)
@@ -115,7 +115,7 @@ is_effect_call_ :: (
       func_name := match(
         func_expr.clone(),
         Rc(.Atom(_, tok)) => tok.value.*.clone(),
-        Rc(.FnCall(_, _, _, _, _)) => {
+        Rc(.FnCall) => {
           return(false);
         }
       );
@@ -157,7 +157,7 @@ is_effect_call_ :: (
         func_name := match(
           func_expr.clone(),
           Rc(.Atom(_, tok)) => tok.value.*.clone(),
-          Rc(.FnCall(_, _, _, _, _)) => {
+          Rc(.FnCall) => {
             return(false);
           }
         );
@@ -206,7 +206,7 @@ is_effect_call_ :: (
         });
         match(
           Rc.clone(current),
-          Rc(.Atom(_, _)) => {
+          Rc(.Atom) => {
             go = false;
           },
           Rc(.FnCall(_, curr_func, Rc(curr_args), _, _)) => {
@@ -233,7 +233,7 @@ is_effect_call_ :: (
                 );
                 current = receiver_arg;
               },
-              Rc(.FnCall(_, _, _, _, _)) => {
+              Rc(.FnCall) => {
                 return(false);
               }
             );
@@ -244,7 +244,7 @@ is_effect_call_ :: (
       root_name := match(
         current,
         Rc(.Atom(_, tok)) => tok.value.*.clone(),
-        Rc(.FnCall(_, _, _, _, _)) => {
+        Rc(.FnCall) => {
           return(false);
         }
       );
@@ -333,7 +333,7 @@ is_transitive_effect_call_ :: (
   });
   func_expr := match(
     expr,
-    Rc(.Atom(_, _)) => {
+    Rc(.Atom) => {
       return(Option(bool).None);
     },
     Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*)
@@ -369,7 +369,7 @@ is_transitive_effect_call_ :: (
       },
       _ => Option(bool).None
     );
-    if(match(result.clone(), .Some(_) => true, .None => false), {
+    if(match(result.clone(), .Some => true, .None => false), {
       return(result);
     });
   });
@@ -437,7 +437,7 @@ detect_effect_expr_ :: (
     operation_arg_types := ArrayList(TypeValue).new();
     match(
       expr.clone(),
-      Rc(.Atom(_, _)) => (),
+      Rc(.Atom) => (),
       Rc(.FnCall(_, _, Rc(args), _, _)) => {
         n := args.len();
         ai := usize(0);
@@ -494,7 +494,7 @@ detect_effect_expr_ :: (
       .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
       .None => Option(TypeValue).None
     );
-    if(match(result_type_opt.clone(), .None => true, .Some(_) => false), {
+    if(match(result_type_opt.clone(), .None => true, .Some => false), {
       result_type_opt = match(
         effect_param_fn_type.clone(),
         .None => Option(TypeValue).None,

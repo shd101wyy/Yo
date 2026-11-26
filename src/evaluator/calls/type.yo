@@ -67,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
 _is_comptime_only_type_approx :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.TypeUni(_)) => true,
+    Rc(.TypeUni) => true,
     Rc(.ComptimeInt) => true,
     Rc(.ComptimeFloat) => true,
     Rc(.ComptimeString) => true,
@@ -279,7 +279,7 @@ try_to_call_type_with_arguments :: (
       );
     });
     // Check for duplicate labels.
-    if(match(checked_indices.get(&member_element_position_index), .Some(_) => true, .None => false), {
+    if(match(checked_indices.get(&member_element_position_index), .Some => true, .None => false), {
       exn.throw(
         dyn(
           Box.new(
@@ -343,7 +343,7 @@ try_to_call_type_with_arguments :: (
     // reference there (the read rule, decision 43 step 2 N1e-2b — the
     // expected type is the field's). `&r`/`&mut r` lends `r` itself, a
     // `&&T` (§7 P3); the referent is spelled `&r.*`.
-    t9_field_is_reference := match(&member_element.ty, Rc(.Reference(_, _, _)) => true, _ => false);
+    t9_field_is_reference := match(&member_element.ty, Rc(.Reference) => true, _ => false);
     evaluated_arg := evaluate_expression_raw(&actual_arg_expr, &env, ctx, exn);
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
@@ -375,7 +375,7 @@ try_to_call_type_with_arguments :: (
         // for a lend.
         // `&r` of a reference binding (§7 P3): a lend of `r`'s own storage,
         // whose place is typed as the reference itself.
-        Rc(.Reference(_, _, _)) => cond(
+        Rc(.Reference) => cond(
           is_reference_self_place(ast_expr_id(&evaluated_arg)) => {
             t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut.*, ctx);
           },
@@ -509,7 +509,7 @@ try_to_call_type_with_arguments :: (
   if(!is_union_type, {
     (ci : usize) = usize(0);
     while(ci < n_fields, {
-      already_checked := match(checked_indices.get(&ci), .Some(_) => true, .None => false);
+      already_checked := match(checked_indices.get(&ci), .Some => true, .None => false);
       if(!already_checked, {
         field_opt2 := type_fields.get_cloned(ci);
         match(

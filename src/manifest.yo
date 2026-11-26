@@ -213,7 +213,7 @@ impl(
     out := ArrayList(ManifestDependency).new();
     (i : usize) = usize(0);
     while(i < self.dependencies.len(), {
-      match(&self.dependencies(i).source, .Git(_, _, _) => out.push(self.dependencies(i).clone()), .Path(_) => ());
+      match(&self.dependencies(i).source, .Git => out.push(self.dependencies(i).clone()), .Path => ());
       i = (i + usize(1));
     });
     out
@@ -528,14 +528,14 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
   dependencies := ArrayList(ManifestDependency).new();
   match(
     _parse_dependency_table(&root, String.from("dependencies"), false, where_.clone(), &mut dependencies),
-    .Ok(_) => (),
+    .Ok => (),
     .Err(m) => {
       return(Result(Manifest, String).Err(m));
     }
   );
   match(
     _parse_dependency_table(&root, String.from("dev-dependencies"), true, where_.clone(), &mut dependencies),
-    .Ok(_) => (),
+    .Ok => (),
     .Err(m) => {
       return(Result(Manifest, String).Err(m));
     }
@@ -775,7 +775,7 @@ _register_package_roots :: (
         }, {
           match(
             _add_root(&mut out.roots, `${entry.name}/${m_entry.name}`, &root, via.clone()),
-            .Ok(_) => (),
+            .Ok => (),
             .Err(msg) => {
               return(Result(unit, String).Err(msg));
             }
@@ -825,7 +825,7 @@ resolve_import_roots :: (
   root_entry := _ClosureEntry(name : manifest.name.clone(), dir : manifest.dir.clone(), manifest : Option(Manifest).Some(manifest.clone()));
   match(
     _register_package_roots(&root_entry, true, &mut out, manifest.path.clone()),
-    .Ok(_) => (),
+    .Ok => (),
     .Err(msg) => {
       return(Result(ImportRoots, String).Err(msg));
     }
@@ -874,7 +874,7 @@ resolve_import_roots :: (
       entry := _ClosureEntry(name : dep.name.clone(), dir : dep_dir.clone(), manifest : dep_manifest);
       match(
         _register_package_roots(&entry, false, &mut out, `${current_manifest.path} → ${dep.name}`),
-        .Ok(_) => (),
+        .Ok => (),
         .Err(msg) => {
           return(Result(ImportRoots, String).Err(msg));
         }

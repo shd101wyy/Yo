@@ -105,7 +105,7 @@ evaluate_tuple_element_value :: (
   (env : Environment) = Rc.clone(env_in);
   // Reject labelled fields: `x: rhs`.
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
-    args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+    args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
     lhs_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*));
     exn.throw(
       dyn(
@@ -347,7 +347,7 @@ evaluate_tuple_value :: (
       )
     );
   });
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
   // Empty tuple → unit value.
   if(args.len() == usize(0), {
     info := new_expr_info(env, Rc.new(TypeValueNode.Unit));
