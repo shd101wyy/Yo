@@ -1248,7 +1248,7 @@ _binder_value_lend_mismatch :: (
 lend_needs_place_error :: (fn(marker : &AstExpr, p_label : &String, ctx : &EvalContext, exn : Exception) -> unit)({
   sig := if(ast_expr_is_fn_call_of(marker, BK_BORROW_MUT, .Some(usize(1))), "&mut ", "&");
   operand_expr := ast_expr_strip_borrow_marker(marker);
-  operand := ast_place_text(operand_expr);
+  operand := ast_place_text(&operand_expr);
   noun := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&operand_expr)),
     .Some(oi) => if(expr_info_index_trait_ptr_type(&oi).is_some(), "an element of a collection", "a temporary"),
