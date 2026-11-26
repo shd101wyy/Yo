@@ -151,9 +151,14 @@ test("float literal payload discriminates", {
 (mut(g_bn_drops) : i32) = i32(0);
 bn_drops :: (fn() -> i32)(g_bn_drops);
 _BnFd :: struct(n : i32);
-impl(_BnFd, Drop(drop : (fn(self : &mut Self) -> unit)({
-  g_bn_drops = (g_bn_drops + i32(1));
-})));
+impl(
+  _BnFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_bn_drops = (g_bn_drops + i32(1));
+    })
+  )
+);
 _BnPair :: enum(Two(a : _BnFd, b : _BnFd), One(a : _BnFd), Zero);
 test("a bare .V and .V(_, …) take the same arm and drop the same payload", {
   bare :: (fn(p : _BnPair) -> i32)(match(p, .Two => i32(2), .One => i32(1), .Zero => i32(0)));
