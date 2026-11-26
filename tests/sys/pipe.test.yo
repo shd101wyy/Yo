@@ -303,7 +303,7 @@ test("a read select aborted while queued does not write after select returns (ep
 // (issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md).
 _nap_long :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    e.await(sleep(u64(1000)), e);
+    e.await(sleep(u64(1000), e), e);
     i32(0)
   })
 );
@@ -358,8 +358,8 @@ _aborted_holder_read_does_not_write_after_its_join :: (fn(kind : i32, io : Io) -
     _d := unsafe(read(int(rfd), (*void)((*u8)(d_uninit.as_ptr())), usize(4096)));
   });
   assert(bad == i32(0), "the operand's read wrote nothing after the aborted holder was joined");
-  io.await(file.close(rfd), io);
-  io.await(file.close(wfd), io);
+  io.await(file.close(rfd, io), io);
+  io.await(file.close(wfd, io), io);
 });
 test("aborting a task that awaits select returns its join after the operand's read retired", {
   cond(
@@ -415,7 +415,7 @@ impl(
 _holds_counted :: (fn(hits : Rc(RefCell(i32)), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ hits }(e : Io) => {
     c := _Counted(hits : Rc.clone(hits));
-    e.await(sleep(u64(10000)), e);
+    e.await(sleep(u64(10000), e), e);
     c.hits.*.with(h => h.*)
   })
 );
@@ -442,7 +442,7 @@ _ticker :: (fn(ticks : Rc(RefCell(i32)), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ ticks }(e : Io) => {
     (mut(i) : i32) = i32(0);
     while(i < i32(50), i = (i + i32(1)), {
-      e.await(sleep(u64(2)), e);
+      e.await(sleep(u64(2), e), e);
       ticks.*.with_mut(t => {
         t.* = (t.* + i32(1));
       });
@@ -453,10 +453,10 @@ _ticker :: (fn(ticks : Rc(RefCell(i32)), io : Io) -> Impl(Future(i32, Io)))(
 _select_operands_stop_at_the_abort :: (fn(io : Io) -> unit)({
   ticks := Rc.new(RefCell(i32).new(i32(0)));
   h := io.spawn(select(_ticker(Rc.clone(ticks), io), _nap_long(io), io), io);
-  io.await(sleep(u64(5)), io);
+  io.await(sleep(u64(5), io), io);
   h.abort();
   at_abort := ticks.*.with(t => t.*);
-  io.await(sleep(u64(20)), io);
+  io.await(sleep(u64(20), io), io);
   assert(ticks.*.with(t => t.*) == at_abort, "no operand ran after the select task was aborted");
   _r := h.await(io);
 });

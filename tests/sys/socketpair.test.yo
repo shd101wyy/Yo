@@ -491,8 +491,8 @@ _spawn_named_recv_and_abort :: (fn(fd : i32, io : Io) -> unit)({
   fut := io.async((e : Io) => {
     mut(b_uninit) := MaybeUninit(Array(u8, usize(64))).new();
     b := (*u8)(b_uninit.as_ptr());
-    r := tcp.recv(fd, b, usize(64), i32(0));
-    e.await(sleep(u64(1000)), e);
+    r := tcp.recv(fd, b, usize(64), i32(0), e);
+    e.await(sleep(u64(1000), e), e);
     e.await(r, e) + i32(b.*)
   });
   h := io.spawn(fut, io);
@@ -508,11 +508,11 @@ _aborted_named_recv_does_not_write_into_the_released_frame :: (fn(io : Io) -> un
   fd1 := (sv.add(usize(1))).*;
   assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "nonblocking");
   _spawn_named_recv_and_abort(fd0, io);
-  assert(io.await(tcp.send(fd1, (*u8)("XXXXXXXX"), usize(8), i32(0)), io) == i32(8), "send");
+  assert(io.await(tcp.send(fd1, (*u8)("XXXXXXXX"), usize(8), i32(0), io), io) == i32(8), "send");
   io.await(yield(io), io);
   io.await(yield(io), io);
-  io.await(tcp.close(fd0), io);
-  io.await(tcp.close(fd1), io);
+  io.await(tcp.close(fd0, io), io);
+  io.await(tcp.close(fd1, io), io);
 });
 test("an aborted task's pending named recv does not write into its released frame", {
   if(platform != Platform.Windows, {
