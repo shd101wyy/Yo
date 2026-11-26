@@ -567,6 +567,11 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       // __yo_io_future_t), …)`, to `__yo_io_future_t*`
       // (issues/fixed/sizeof-of-a-resolved-impl-type-has-no-c-type-name.md).
       is_some_type(&t.*) => get_type_string(&t.*, context),
+      // Nor is a reference: its C name is structural (`X const *`, the fat
+      // pair over an unsized pointee), so `align_of(T)` at `T := &(X,
+      // static)` (`ArrayList`'s growth path) lowers to `_Alignof(X const *)`
+      // (issues/fixed/2026-11-24-an-arraylist-of-a-static-reference-emits-alignof-with-no-c-type-name.md).
+      match(t, Rc(.Reference(_, _, _)) => true, _ => false) => get_type_string(&t.*, context),
       // Nor is an extern opaque type (`atomic_int`, `FILE`): its C name is its
       // C spelling, so `sizeof(atomic_int)` lowers to `sizeof(atomic_int)`
       // (issues/fixed/2026-10-28-sizeof-of-an-extern-opaque-type-has-no-c-type-name.md).

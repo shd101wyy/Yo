@@ -1,0 +1,22 @@
+// expect: E0923
+// A generic Type binder bound by a static value and then a reference
+// parameter: the first argument's static type never wins (VERDICTS-74
+// rule 4); the spelled static slot the second argument's value reaches
+// rejects it.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+two :: (fn(generic(T : Type), a : T, b : T) -> T)(b);
+as_static :: (fn(r : &X) -> &(X, static))(unsafe(unsafe.cast(r, &(X, static))));
+use :: (fn(s : &(X, static), x : &X) -> unit)({
+  r := two(s, x);
+  (m : &(X, static)) = r;
+  println(`OUT: ${m.*.s.len().to_string()}`)
+});
+main :: (fn() -> unit)({
+  b := X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  use(as_static(&b), &b);
+  ()
+});
+export(main);

@@ -4,7 +4,7 @@ Yo 拥有 Dafny/SPARK 传统的编译期验证器：带契约注解的函数（�
 verify 模式下**未注解**的函数）会被符号执行，其证明义务由固定版本的
 [Z3](https://github.com/Z3Prover/z3) SMT 求解器判定。证明会替代运行期
 检查；被驳倒则是带着具体反例的编译错误。设计记录：
-[`plans/backlog/FORMAL_VERIFICATION.md`](../../plans/backlog/FORMAL_VERIFICATION.md)。
+`plans/backlog/FORMAL_VERIFICATION.md`。
 
 ```bash
 # 验证一个文件（或目录）—— 任何失败都以非零退出码结束

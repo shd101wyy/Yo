@@ -1,0 +1,23 @@
+{ println } :: import("std/fmt");
+{ Thread } :: import("std/thread");
+Holder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), Holder(T), Send());
+bump :: (fn(r : &Rc(i32), n : i32) -> unit)({
+  (mut(i) : i32) = i32(0);
+  while(i < n, i = (i + i32(1)), {
+    c := Rc.clone(r.*);
+    _x := c.*;
+  });
+});
+main :: (fn(io : Io) -> unit)({
+  r := Rc.new(i32(1));
+  mine := Holder(Rc(i32))(v : Rc.clone(r));
+  t := Thread(unit).spawn({ mine }(io : Io) => {
+    bump(&mine.v, i32(200000));
+  });
+  bump(&r, i32(200000));
+  t.join();
+  w := r.downgrade();
+  println(`strong_count after (expect 1): ${w.strong_count()}`);
+});
+export(main);
