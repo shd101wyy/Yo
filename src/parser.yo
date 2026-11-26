@@ -535,8 +535,8 @@ impl(
     (prop : AstExpr) = Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), Rc.clone(d_tok.*))), Rc.new(prop_args), true, Rc.clone(d_tok.*)));
     Rc.new(AstExprNode.FnCall(self.alloc_id(), prop, Rc.new(args), false, Rc.clone(outer_tok.*)))
   }),
-  /// `part.append_to(&mut <name_tok>)`: one interpolated part of a template
-  /// appended to the builder local (D10).
+  /// `part.fmt(&mut <name_tok>)`: one interpolated part of a template
+  /// written into the template's `Formatter` local.
   _template_append_call : (
     fn(self : &mut Self, part : &AstExpr, d_tok : &Token, append_tok : &Token, borrow_tok : &Token, name_tok : &Token, outer_tok : &Token) -> AstExpr
   )({
@@ -751,30 +751,30 @@ impl(
       )
     });
     num_parts := part_content.len();
-    // A template of two or more parts builds ONE `String` (lookahead D10,
-    // plans/handover/VBD_LOOKAHEAD_2026-10-23.md): a fresh local starts as the
-    // empty string (which allocates nothing), every part is appended to it in
-    // order (`b.push_str("lit")`, `e.append_to(&mut b)`,
-    // `e.format("spec").append_to(&mut b)`), and the block yields the local:
+    // A template of two or more parts builds ONE `String` through one
+    // `Formatter` (VERDICTS-78 Q3): a fresh local starts as the empty
+    // formatter (which allocates nothing), every part is written into it in
+    // order (`f.write_str("lit")`, `e.fmt(&mut f)`,
+    // `e.format("spec").fmt(&mut f)`), and the block yields its text:
     //
-    //   { mut(__yo_tpl_N) := "".to_string(); __yo_tpl_N.push_str("lit"); e.append_to(&mut __yo_tpl_N); __yo_tpl_N }
+    //   { mut(__yo_tpl_N) := "".formatter(); __yo_tpl_N.write_str("lit"); e.fmt(&mut __yo_tpl_N); __yo_tpl_N.finish() }
     //
-    // so an interpolated `String` part is appended by borrow instead of being
-    // copied out through `to_string()` and joined with `+`. The builder never
-    // starts as a part's `to_string()`: while `String` still shares its buffer
-    // on copy, that would append into the part's own bytes. The lowering names
-    // no type and no free function, only methods: a spliced fragment
-    // (`parse_expr_from_code`) resolves it without an import. `N` is a fresh
-    // expression id, so a template nested in an interpolation never shadows
-    // its parent's local. A one-part template stays `p.to_string()` (or
-    // `p.format("spec")`) itself.
+    // so every interpolated part writes its text straight into the result
+    // instead of being copied out through `to_string()` and joined with `+`.
+    // The lowering names no type and no free function, only methods: a
+    // spliced fragment (`parse_expr_from_code`) resolves it without an
+    // import. `N` is a fresh expression id, so a template nested in an
+    // interpolation never shadows its parent's local. A one-part template
+    // stays `p.to_string()` (or `p.format("spec")`) itself.
     single_part := (num_parts == usize(1));
     tpl_name_tok := _template_syn_tok(tok, TokenKind.Identifier, &`__yo_tpl_${self.alloc_id()}`);
     tpl_mut_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("mut"));
     tpl_bind_tok := _template_syn_tok(tok, TokenKind.Operator, &String.from(":="));
     tpl_borrow_tok := _template_syn_tok(tok, TokenKind.Operator, &String.from(BK_BORROW_MUT));
-    tpl_push_str_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("push_str"));
-    tpl_append_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("append_to"));
+    tpl_push_str_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("write_str"));
+    tpl_append_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("fmt"));
+    tpl_formatter_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("formatter"));
+    tpl_finish_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("finish"));
     tpl_stmts := ArrayList(AstExpr).new();
     (result_expr_opt : Option(AstExpr)) = .None;
     scan := _template_scan(tok);
@@ -885,7 +885,7 @@ impl(
           cond(
             single_part => make_ts_call(&lit_atom, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id()),
             true => {
-              // `__yo_tpl_N.push_str("content")`: a literal part is appended
+              // `__yo_tpl_N.write_str("content")`: a literal part is written
               // straight from its static bytes.
               lit_args := ArrayList(AstExpr).new();
               lit_args.push(lit_atom);
@@ -914,10 +914,10 @@ impl(
         }
       ),
       true => {
-        // `mut(__yo_tpl_N) := "".to_string()`
+        // `mut(__yo_tpl_N) := "".formatter()`
         empty_tok := _template_syn_tok(tok, TokenKind.StringLit, &String.from("\"\""));
         (empty_atom : AstExpr) = Rc.new(AstExprNode.Atom(self.alloc_id(), empty_tok));
-        empty_str := make_ts_call(&empty_atom, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id());
+        empty_str := make_ts_call(&empty_atom, &dot_tok, &tpl_formatter_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id());
         mut_args := ArrayList(AstExpr).new();
         mut_args.push(Rc.new(AstExprNode.Atom(self.alloc_id(), Rc.clone(tpl_name_tok))));
         bind_args := ArrayList(AstExpr).new();
@@ -930,10 +930,11 @@ impl(
           match(tpl_stmts.get_cloned(si), .Some(st) => block_args.push(st), .None => ());
           si = (si + usize(1));
         });
-        // The block's value, the read that moves the local out, sits at the
-        // closing backtick: every other `__yo_tpl_N` atom shares the opening
-        // one, and a move is recognized by its read's position, so a tail at
-        // that position made every `push_str`/`append_to` receiver a move too.
+        // The block's value, `__yo_tpl_N.finish()`, whose receiver read moves
+        // the local out, sits at the closing backtick: every other
+        // `__yo_tpl_N` atom shares the opening one, and a move is recognized
+        // by its read's position, so a tail at that position made every
+        // `write_str`/`fmt` receiver a move too.
         // In a task the receivers then lent a copy of the local's slot, and
         // the template evaluated to the empty string
         // (issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md).
@@ -953,7 +954,8 @@ impl(
           ),
           .None => tpl_name_tok.clone()
         );
-        block_args.push(Rc.new(AstExprNode.Atom(self.alloc_id(), tpl_tail_tok)));
+        (tail_atom : AstExpr) = Rc.new(AstExprNode.Atom(self.alloc_id(), Rc.clone(tpl_tail_tok)));
+        block_args.push(self._template_method_call(tail_atom, &dot_tok, &tpl_finish_tok, ArrayList(AstExpr).new(), &tpl_tail_tok));
         begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
         Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), Rc.clone(begin_tok))), Rc.new(block_args), false, begin_tok))
       }

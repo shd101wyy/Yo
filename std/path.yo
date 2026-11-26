@@ -627,61 +627,54 @@ impl(
 impl(
   Path,
   Display(
-    to_string : (
-      self -> {
+    fmt : (
+      (self, f) -> {
         segments := &self._segments;
-        mut(result) := String.new();
         // A relative path with no segments is the CURRENT DIRECTORY and must
         // render as "." — `stat("")` is ENOENT, which made `yo test .` /
         // `yo check .` fail with a bare "file or directory not found". This
         // is a RENDER-level rule (Node: path.normalize(".") === "." and
         // path.dirname("foo") === "."): the empty-segment representation is
         // untouched, so join/parent/relative_from keep their semantics.
-        if(!self._is_absolute && (segments.len() == usize(0)), {
-          return(String.from("."));
-        });
-        // A UNC path has no forward-slash spelling worth emitting — its root
-        // IS `\\server\share` — so it renders in the Windows spelling
-        // throughout. Every other path keeps the module's `/` rendering (the
-        // "Windows separator in to_string" audit item is unaffected).
-        has_prefix := !self._prefix.is_empty();
-        is_unc := self._prefix.starts_with(String.from("\\"));
-        sep := cond(
-          is_unc => String.from("\\"),
-          true => String.from("/")
-        );
-        // A drive / UNC root IS the prefix; a plain absolute path's root is a
-        // leading separator.
         cond(
-          has_prefix => {
-            result = result.concat(&self._prefix);
-          },
-          self._is_absolute => {
-            result = result.concat(&sep);
-          },
-          true => ()
-        );
-        mut(i) := usize(0);
-        segments_len := segments.len();
-        while(i < segments_len, i = (i + usize(1)), {
-          seg := segments.get_cloned(i);
-          match(
-            seg,
-            .Some(s) => {
-              // The plain-absolute root already emitted its separator; every
-              // other position needs one before the segment.
-              cond(
-                ((i > usize(0)) || has_prefix) => {
-                  result = result.concat(&sep);
+          (!self._is_absolute && (segments.len() == usize(0))) => f.write_str("."),
+          true => {
+            // A UNC path has no forward-slash spelling worth emitting — its root
+            // IS `\\server\share` — so it renders in the Windows spelling
+            // throughout. Every other path keeps the module's `/` rendering (the
+            // "Windows separator in to_string" audit item is unaffected).
+            has_prefix := !self._prefix.is_empty();
+            is_unc := self._prefix.starts_with(String.from("\\"));
+            sep := cond(
+              is_unc => "\\",
+              true => "/"
+            );
+            // A drive / UNC root IS the prefix; a plain absolute path's root is a
+            // leading separator.
+            cond(
+              has_prefix => f.write(&self._prefix),
+              self._is_absolute => f.write_str(sep),
+              true => ()
+            );
+            mut(i) := usize(0);
+            segments_len := segments.len();
+            while(i < segments_len, i = (i + usize(1)), {
+              match(
+                segments.get_cloned(i),
+                .Some(s) => {
+                  // The plain-absolute root already emitted its separator; every
+                  // other position needs one before the segment.
+                  cond(
+                    ((i > usize(0)) || has_prefix) => f.write_str(sep),
+                    true => ()
+                  );
+                  f.write(&s);
                 },
-                true => ()
+                .None => ()
               );
-              result = result.concat(&s);
-            },
-            .None => ()
-          );
-        });
-        return(result);
+            });
+          }
+        )
       }
     )
   )

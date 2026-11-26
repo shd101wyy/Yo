@@ -582,10 +582,10 @@ impl(
 impl(
   IpAddr,
   Display(
-    to_string : (
-      self -> {
-        return(
-          match(
+    fmt : (
+      (self, f) ->
+        f.write(
+          &match(
             self,
             .V4(a, b, c, d) => {
               buf := Array(u8, usize(16)).fill(u8(0));
@@ -659,8 +659,7 @@ impl(
               w.to_string()
             }
           )
-        );
-      }
+        )
     )
   )
 );
@@ -892,20 +891,22 @@ impl(
 impl(
   SocketAddr,
   Display(
-    to_string : (
-      self -> {
-        ip_str := self.ip.to_string();
-        buf := Array(u8, usize(8)).fill(u8(0));
-        unsafe(snprintf((*char)(addr_of(buf(usize(0)))), usize(8), "%d", i32(self.port)));
-        port_str := String.from_cstr(addr_of(buf(usize(0)))).unwrap();
-        return(
-          match(
-            self.ip,
-            .V4(_, _, _, _) => `${ip_str}:${port_str}`,
-            .V6(_) => `[${ip_str}]:${port_str}`
-          )
-        );
-      }
+    fmt : (
+      (self, f) ->
+        match(
+          self.ip,
+          .V4(_, _, _, _) => {
+            f.write(&self.ip);
+            f.write_str(":");
+            f.write(&self.port);
+          },
+          .V6(_) => {
+            f.write_str("[");
+            f.write(&self.ip);
+            f.write_str("]:");
+            f.write(&self.port);
+          }
+        )
     )
   )
 );
