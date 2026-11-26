@@ -317,6 +317,31 @@ std 中 `ArrayList` 的核心操作（`new`、`with_capacity`、`push`、`insert
 
 这是一个决定，而不是等待填补的缺口。证明这些函数体需要一个原始缓冲区模型（容量、已初始化前缀、元素所有权），对已有边界测试的代码而言，这意味着数周的验证器工作。在某个 std 缺陷被追溯到错误的 `assumed()` 子句之前，这些函数体保持受信（`issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`）。`yo verify --strict` 会把每个 `assumed` 结果报告为失败，所以必须证明一切的门禁会如实指出。
 
+### 证明依赖什么
+
+没有任何东西证明 `assumed()` 契约，而一个任何输入都无法满足的契约，会让调用它之后的每个义务都"得证"。因此验证器向求解器提出两类可满足性问题，并报告每个证明用到了什么：
+
+- **契约探测。** 对每个 `assumed()` 函数，一次查询询问：是否存在满足其 `requires` 与参数精化的输入，同时存在满足其 `ensures` 的结果。如果不存在，该函数的结果为 `contradictory`，在所有模式下都是失败。
+- **调用探测。** 每次调用 `assumed()` 函数之后，一次查询询问：加上被调方的 `ensures` 后，调用方的路径是否仍然可满足。如果不可满足、而调用之前可满足，说明该契约与调用方已知的事实矛盾。这条路径上证明的每个义务其实什么都没证明：它的判定为 `infeasible`，所在函数的结果为 `infeasible`，`verify+` 会保留其运行时断言。如果路径在调用之前就已不可满足，那是死代码，探测给出 `dead-path`，不导致任何失败。
+- **`ok` 依赖什么。** `ok` 行会列出其证明用到的 `assumed()` 契约：出现在已证明义务路径上的那些，以及（经由同一次运行中验证的每个被调方）该被调方的证明所用到的那些。
+
+```yo
+pragma(Pragma.Verify);
+
+oracle :: (fn(x : i32, ensures(r > x, r < x), assumed()) -> (r : i32))(x);
+
+bad :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))(oracle(x));
+```
+
+```text
+  contradictory  fn@main.yo:2 [verify] — the assumed() contract is unsatisfiable: …
+  infeasible  fn@main.yo:4 [verify]
+    fn@main.yo:4/ensures#0: INFEASIBLE  proved only because the assumed() contract of fn@main.yo:2 makes the path infeasible
+    fn@main.yo:4/feasible@5:58: INFEASIBLE after the call to fn@main.yo:2: …
+```
+
+若契约可满足（只有 `ensures(r > x)`），则一个返回 `oracle(x)` 且带 `ensures(r > x)` 的调用方报告为 `ok — 1 obligation(s) proved; rests on assumed: fn@main.yo:2`。
+
 ### 精化类型 —— `refine(T, p)`
 
 `refine(T, p)` 注解"满足谓词 `p` 的 `T`"。注解求值为 `T` —— 已擦除、
@@ -463,12 +488,12 @@ abs_doubles_nonneg :: law(
 `--strict` 把这些结果变成失败：
 
 ```bash
-yo verify ./spec --strict          # 等价于 --deny assumed,outside-subset,unproven
+yo verify ./spec --strict          # 等价于 --deny assumed,outside-subset,unproven,infeasible
 yo verify ./spec --deny assumed    # 也可以自己指定
 ```
 
-结果名的取值为 `ok`、`assumed`、`outside-subset`、`unproven`、`refuted`、
-`solver-error`、`subset-error`；`--deny` 中出现未知名称会报用法错误并列出
+结果名的取值为 `ok`、`assumed`、`outside-subset`、`unproven`、`infeasible`、
+`contradictory`、`refuted`、`solver-error`、`subset-error`；`--deny` 中出现未知名称会报用法错误并列出
 全部取值。被拒绝的结果在**所有**模式下都算失败，因此 `--strict` 下的
 `unproven` 即使在 `verify+` 中也会失败，而不会退回运行时断言。
 
@@ -478,6 +503,8 @@ yo verify ./spec --deny assumed    # 也可以自己指定
 | `assumed` | 声明了契约，函数体从未被走查 | 通过 |
 | `outside-subset` | 没有承诺任何东西，走查也进不了函数体 | 通过 |
 | `unproven` | 求解器回答 `unknown`：预算耗尽，或缺少目标所需的事实 | `verify` 下失败；`verify+` 下通过（运行时断言） |
+| `infeasible` | 某个证明之所以成立，只是因为某个 `assumed()` 契约与调用处的事实矛盾（§证明依赖什么） | `verify` 下失败；`verify+` 下通过（运行时断言） |
+| `contradictory` | 任何输入都无法满足的 `assumed()` 契约 | 失败 |
 | `refuted` | 求解器找到了反例 | 失败 |
 | `solver-error` | 求解器无法运行，或回答了错误 | 失败 |
 | `subset-error` | 函数体用到了子集之外的构造（`cannot verify: <构造>`） | 失败 |
@@ -488,12 +515,13 @@ yo verify ./spec --deny assumed    # 也可以自己指定
 `"vacuous": true`，而 `--strict` 和 `--deny` 都不会因它失败（`--deny vacuous`
 是用法错误）。请留意汇总行里的 `(N of the ok vacuous)` 计数。
 
-每次运行都会以一行汇总结尾 —— 七种结果的计数（包含 0，便于 grep）、其中
+每次运行都会以一行汇总结尾 —— 九种结果的计数（包含 0，便于 grep）、其中
 有多少 `ok` 是**空洞的**（完全没有讨还任何义务）、求解器查询数与缓存
-命中率、经常量折叠讨还（不经求解器）的义务数，以及墙上时间：
+命中率、经常量折叠讨还（不经求解器）的义务数、可满足性探测发出的查询数，
+以及墙上时间：
 
 ```
-verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 3 queries, 2 cached (66%), 1 folded, 46 ms
+verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 infeasible, 0 contradictory, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 3 queries, 2 cached (66%), 1 folded, 2 probe queries (1 cached), 46 ms
 ```
 
 `--format json` 在 `summary` 对象中给出同样的数字，另外还有 `strict` 和
@@ -501,18 +529,20 @@ verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error
 
 ```json
 "summary": { "total": 3, "ok": 2, "assumed": 1, "outside-subset": 0,
-             "unproven": 0, "refuted": 0, "solver-error": 0,
-             "subset-error": 0, "vacuous": 1, "queries": 3,
-             "cached": 2, "folded": 1, "elapsed_ms": 46,
+             "unproven": 0, "infeasible": 0, "contradictory": 0,
+             "refuted": 0, "solver-error": 0, "subset-error": 0,
+             "vacuous": 1, "queries": 3, "cached": 2, "folded": 1,
+             "probe_queries": 2, "probe_cached": 1, "elapsed_ms": 46,
              "strict": false, "denied": [] }
 ```
 
 每个函数条目（`functions[]`）携带 `fn_id`、`mode`、`outcome`、
 `vacuous`、`subset_construct`/`subset_source`，以及它的
 `obligations[]` —— 每个义务一个对象，含 `name`、`verdict`
-（`proved` / `refuted` / `unproven` / `solver-error`）、`cached`、
+（`proved` / `refuted` / `unproven` / `solver-error` / `infeasible`，最后一种带
+`infeasible_by`，给出那个 `assumed()` 函数）、`cached`、
 `folded`、`goal`（按 SMT-LIB 渲染的义务本体 —— 求解器被问的东西）
-与 `model`（反例绑定，仅 `refuted`），以及 `site`。对应运行期守卫（`divisor-nonzero`、`shift-in-width`、`index-in-bounds`）的义务会给出该守卫：`"site": {"module", "row", "column", "class"}`，与守卫自身的 `(at file:row:col)` 消息一样从 1 开始计数。契约、循环与 assert 义务为 `"site": null`。义务名在函数内唯一：守卫义务带上其位置（`…/divisor-nonzero@12:9`），仍然重复的名字（同一被调用方的 `requires#0` 被调用两次）按遍历顺序加上 `~2`、`~3`……加 `--elision` 时，报告还会列出溢出义务（`div-no-overflow`、`no-overflow`、`neg-no-overflow`），每条都带 `"elision_only": true`；它们从不改变函数的 `outcome` 或 `vacuous`。
+与 `model`（反例绑定，仅 `refuted`），以及 `site`。对应运行期守卫（`divisor-nonzero`、`shift-in-width`、`index-in-bounds`）的义务会给出该守卫：`"site": {"module", "row", "column", "class"}`，与守卫自身的 `(at file:row:col)` 消息一样从 1 开始计数。契约、循环与 assert 义务为 `"site": null`。义务名在函数内唯一：守卫义务带上其位置（`…/divisor-nonzero@12:9`），仍然重复的名字（同一被调用方的 `requires#0` 被调用两次）按遍历顺序加上 `~2`、`~3`……加 `--elision` 时，报告还会列出溢出义务（`div-no-overflow`、`no-overflow`、`neg-no-overflow`），每条都带 `"elision_only": true`；它们从不改变函数的 `outcome` 或 `vacuous`。另有两个字段说明证明依赖什么（§证明依赖什么）：`assumes` 是函数的证明所用到的 `assumed()` 函数 id（已排序）；`probes[]` 每个可满足性探测一个对象，含 `name`、`kind`（`contract-sat` / `call-feasible`）、`callee`、`result`（`sat` / `unsat` / `dead-path` / `unknown` / `solver-error` / `outside-subset`）、`detail`、`queries` 与 `cached`。
 
 `--explain <模式>` 把报告收窄到 id 匹配（id 的子串 —— id 形如
 `fn@<文件>:<行>` / `law@<文件>:<行>:<列>`，因此匹配文件路径或

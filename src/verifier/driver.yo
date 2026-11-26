@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { StringBuilder } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { env, home_dir } :: import("std/env");
 { Exception, IoExn } :: import("std/error");
 json :: import("std/encoding/json");
@@ -20,8 +21,8 @@ json :: import("std/encoding/json");
 { sha256_hex } :: import("std/crypto/sha256");
 { VcQuery, VcSort, VcSortNode, VcTerm, VcTermNode, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, encode_term, EncodeOptions, default_encode_options } :: import("./encode.yo");
-{ VerifyFnInput, verify_function_body, register_recursion_cliques, register_frame_tasks, GuardSite } :: import("./vc.yo");
-{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure, ProvedGuardSite, record_proved_guard_site } :: import("../evaluator/builtins/contracts.yo");
+{ VerifyFnInput, verify_function_body, probe_assumed_contract, VcObligation, register_recursion_cliques, register_frame_tasks, GuardSite } :: import("./vc.yo");
+{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure, ProvedGuardSite, record_proved_guard_site, assumed_fn_site, specialized_base_of } :: import("../evaluator/builtins/contracts.yo");
 { get_current_target } :: import("../target.yo");
 {
   ensure_z3,
@@ -93,7 +94,12 @@ VerifyVerdict :: enum(
   /// unknown / budget exhausted — nothing concluded.
   Unproven(reason : String),
   /// The solver could not be run at all (missing, crashed).
-  SolverError(message : String)
+  SolverError(message : String),
+  /// S2: unsat, but only because the path is infeasible: the `assumed()`
+  /// contract of `by` (a report id, `fn@<module>:<row>`) contradicts the
+  /// facts the path held before its call, so the proof says nothing.
+  /// Derived after solving (`verify_and_strip_tasks`), never cached.
+  Infeasible(by : String)
 );
 // B4-1b: the verdict payloads are plain lists/strings; derived so report
 // copies and b4-1a's deferred sites can spell `.clone()`.
@@ -192,6 +198,12 @@ _verdict_to_json :: (fn(v : &VerifyVerdict) -> JsonValue)(
       JsonValue.Str(String.from("solver-error")),
       String.from("message"),
       JsonValue.Str(msg.clone())
+    ),
+    .Infeasible(by) => _json_obj2(
+      String.from("verdict"),
+      JsonValue.Str(String.from("infeasible")),
+      String.from("by"),
+      JsonValue.Str(by.clone())
     )
   )
 );
@@ -230,6 +242,12 @@ _verdict_of_json :: (fn(v : &JsonValue) -> Option(VerifyVerdict))({
     (kind == "solver-error") => match(
       v.get(String.from("message")),
       .Some(.Str(m)) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())),
+      .Some(_) => Option(VerifyVerdict).None,
+      .None => Option(VerifyVerdict).None
+    ),
+    (kind == "infeasible") => match(
+      v.get(String.from("by")),
+      .Some(.Str(b)) => Option(VerifyVerdict).Some(VerifyVerdict.Infeasible(b.clone())),
       .Some(_) => Option(VerifyVerdict).None,
       .None => Option(VerifyVerdict).None
     ),
@@ -441,8 +459,10 @@ _solver_identity :: (fn(binary : &String) -> Option(String))({
 /// ~10⁸ rlimit / ~80 s and proves, while every small goal finishes far
 /// under the first stage). The final stage's answer caches when
 /// `solver_answer_of_response` calls it reproducible, under the key of the
-/// solver that ran.
-run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> VerifyResult)({
+/// solver that ran. A satisfiability probe (S2) passes `escalate : false`:
+/// its `unknown` only leaves a contract unchecked, which is not worth the
+/// 20× budget a written obligation gets.
+run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String, (escalate : bool) ?= true) -> VerifyResult)({
   solver_id := if(cfg.no_cache, Option(String).None, _solver_identity(binary));
   match(
     solver_id.clone(),
@@ -458,7 +478,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
   answer := _solve(q, cfg.encode_opts, binary);
   match(
     &answer.verdict,
-    .Unproven(_) => {
+    .Unproven(_) => if(escalate, {
       retry_opts := EncodeOptions(
         rlimit : (cfg.encode_opts.rlimit * usize(20)),
         random_seed : cfg.encode_opts.random_seed,
@@ -467,7 +487,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
         want_counterexample : cfg.encode_opts.want_counterexample
       );
       answer = _solve(q, retry_opts, binary);
-    },
+    }),
     _ => ()
   );
   match(
@@ -575,9 +595,41 @@ VerifyFnObligation :: struct(
   (elidable : bool) ?= false,
   /// Decides a guard only; never counts toward the outcome
   /// (`VcObligation.elision_only`).
-  (elision_only : bool) ?= false
+  (elision_only : bool) ?= false,
+  /// S2: the FuncVal ids of the contracted callees whose `ensures` were on
+  /// this obligation's path (`VcObligation.uses`).
+  uses : ArrayList(String)
 );
 derive(VerifyFnObligation, Clone);
+/// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md: one satisfiability probe
+/// of a function's report. A probe never changes a proof verdict by itself;
+/// what an `unsat` answer does to the report is `verify_and_strip_tasks`'s.
+VerifyProbeReport :: struct(
+  /// `<fn_id>/contract-sat` or `<fn_id>/feasible@<row>:<col>` (the call).
+  name : String,
+  /// `contract-sat`: the `assumed()` function's own contract — its
+  /// `requires`, parameter refinements and `ensures` together.
+  /// `call-feasible`: the caller's path after a call to an `assumed()`
+  /// callee, the callee's `ensures` included.
+  kind : String,
+  /// The report id of the `assumed()` function the probe is about.
+  callee : String,
+  /// `sat`; `unsat` (a contradiction: the finding); `dead-path`
+  /// (`call-feasible` only: the path was already unsatisfiable before the
+  /// call, so the call is not the cause); `unknown`; `solver-error`;
+  /// `outside-subset` (`contract-sat` only: the contract cannot be
+  /// expressed, so it was not probed).
+  result : String,
+  /// The solver's reason (`unknown`, `solver-error`) or the construct
+  /// (`outside-subset`); empty otherwise.
+  detail : String,
+  /// The solver queries the probe sent (the path before the call and the
+  /// re-check of each obligation an `unsat` voids included), and how many
+  /// of them the cache answered.
+  queries : usize,
+  cached : usize
+);
+derive(VerifyProbeReport, Clone);
 /// The verification report for one function.
 VerifyFnReport :: struct(
   fn_id : String,
@@ -588,7 +640,17 @@ VerifyFnReport :: struct(
   obligations : ArrayList(VerifyFnObligation),
   /// Populated only for `outcome == "subset-error"`.
   subset_construct : String,
-  subset_source : String
+  subset_source : String,
+  /// The FuncVal id: the `assumes` closure follows calls by it.
+  func_id : String,
+  /// S2: the report ids of the `assumed()` contracts this function's proofs
+  /// rest on, sorted: the callee contracts on a proved obligation's path,
+  /// and transitively those of the callees verified in the same run. By
+  /// syntactic reachability: a listed contract may be on the path without
+  /// the proof needing it.
+  assumes : ArrayList(String),
+  /// S2: the satisfiability probes this function ran (`VerifyProbeReport`).
+  probes : ArrayList(VerifyProbeReport)
 );
 derive(VerifyFnReport, Clone);
 /// True when a report passed WITHOUT proving anything: outcome `ok` and an
@@ -624,6 +686,8 @@ verify_outcome_names :: (fn() -> ArrayList(String))({
   out.push(String.from("assumed"));
   out.push(String.from("outside-subset"));
   out.push(String.from("unproven"));
+  out.push(String.from("infeasible"));
+  out.push(String.from("contradictory"));
   out.push(String.from("refuted"));
   out.push(String.from("solver-error"));
   out.push(String.from("subset-error"));
@@ -657,9 +721,10 @@ _verify_outcome_passes_by_default :: (fn(outcome : &String) -> bool)(
 );
 /// Does this report FAIL the run, given the `--deny` set?
 ///
-/// With an empty deny set this is exactly the historical rule: refuted always
-/// fails, the other findings fail in `verify` and degrade to a runtime assert
-/// in `verify+`, and the three outcomes above pass. `--deny` (and its alias
+/// With an empty deny set: `refuted` and `contradictory` (an `assumed()`
+/// contract no input satisfies, never intentional) fail in every mode, the
+/// other findings fail in `verify` and degrade to a runtime assert in
+/// `verify+`, and the three outcomes above pass. `--deny` (and its alias
 /// `--strict`) turns named outcomes into hard failures in EVERY mode — which
 /// is the point of a laws gate: a run must not go green because every contract
 /// was `assumed()` away
@@ -671,7 +736,7 @@ verify_report_is_failure :: (fn(rp : &VerifyFnReport, denied : &ArrayList(String
   if(_verify_outcome_passes_by_default(rp.outcome.clone()), {
     return(false);
   });
-  (rp.outcome == "refuted") || (rp.mode == "verify")
+  (rp.outcome == "refuted") || (rp.outcome == "contradictory") || (rp.mode == "verify")
 });
 /// True when the report is a finding that `verify+` degraded to a runtime
 /// assert rather than a failure — the case that prints the fallback note.
@@ -696,7 +761,12 @@ VerifySummary :: struct(
   /// (`VcObligation.pre`) — never sent to the pipeline, so they are
   /// counted separately from `queries`: a fold-heavy run must not read
   /// as solver load.
-  folded : usize
+  folded : usize,
+  /// S2: the solver queries the satisfiability probes sent, and how many
+  /// the cache answered. Not part of `queries` (which counts obligations),
+  /// so the probes' cost reads on its own.
+  (probe_queries : usize) ?= usize(0),
+  (probe_cached : usize) ?= usize(0)
 );
 summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifySummary)({
   names := verify_outcome_names();
@@ -710,7 +780,13 @@ summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyS
   (queries : usize) = usize(0);
   (cached : usize) = usize(0);
   (folded : usize) = usize(0);
+  (probe_queries : usize) = usize(0);
+  (probe_cached : usize) = usize(0);
   for(&reports, rp => {
+    for(&rp.probes, pr => {
+      probe_queries = (probe_queries + pr.queries);
+      probe_cached = (probe_cached + pr.cached);
+    });
     (ci : usize) = usize(0);
     while(ci < names.len(), {
       match(
@@ -744,7 +820,9 @@ summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyS
     vacuous : vacuous,
     queries : queries,
     cached : cached,
-    folded : folded
+    folded : folded,
+    probe_queries : probe_queries,
+    probe_cached : probe_cached
   )
 });
 /// The count recorded for `outcome` in a summary ("" / unknown name -> 0).
@@ -862,26 +940,56 @@ verify_and_strip_tasks :: (
   register_recursion_cliques(tasks);
   // The call-site frame classifies a verify-mode callee by its task's body.
   register_frame_tasks(tasks);
+  // S2: a callee's report id, for the probes and `assumes` to name it.
+  task_ids := HashMap(String, String).new();
+  for(tasks, t => {
+    _ := task_ids.insert(t.func_id.clone(), t.fn_id.clone());
+  });
   (ti : usize) = usize(0);
   while(ti < tasks.len(), {
     match(
       tasks.get_cloned(ti),
       .Some(t) => {
+        input := VerifyFnInput(
+          fn_name : t.fn_id.clone(),
+          func_id : t.func_id.clone(),
+          body : t.body.clone(),
+          param_names : t.param_names.clone(),
+          param_types : t.param_types.clone(),
+          result_type : t.result_type.clone(),
+          requires_exprs : t.requires_exprs.clone(),
+          ensures_exprs : t.ensures_exprs.clone(),
+          decreases_expr : t.decreases_expr.clone(),
+          return_label : t.return_label.clone(),
+          table : t.table.clone(),
+          requires_enforced : t.requires_enforced.clone(),
+          elision_obligations : cfg.elision_obligations,
+          body_abstract : t.body_abstract
+        );
         // V6 task 5: an `assumed()` fn — its contracts gate callers, its
         // body is outside the verifiable subset (raw pointers, allocator
         // calls). No walk: report the honest outcome and move on. This
         // fires BEFORE the def-eval-failure check on purpose — an assumed
         // DEFERRED (generic) body has no ExprInfo and no recorded trial
         // failure; that is expected, not a swallowed error.
+        // S2: its contract is probed for satisfiability; one no input
+        // satisfies is the `contradictory` outcome.
         if(t.body_assumed, {
+          probe := _probe_assumed_contract(&input, cfg, binary, &t.fn_id);
+          outcome := if(probe.result == "unsat", String.from("contradictory"), String.from("assumed"));
+          probes := ArrayList(VerifyProbeReport).new();
+          probes.push(probe);
           reports.push(
             VerifyFnReport(
               fn_id : t.fn_id.clone(),
               mode : t.mode.clone(),
-              outcome : String.from("assumed"),
+              outcome : outcome,
               obligations : ArrayList(VerifyFnObligation).new(),
               subset_construct : String.from("contracts assumed — body outside the verifiable subset (assumed())"),
-              subset_source : String.new()
+              subset_source : String.new(),
+              func_id : t.func_id.clone(),
+              assumes : ArrayList(String).new(),
+              probes : probes
             )
           );
           ti = (ti + usize(1));
@@ -914,29 +1022,16 @@ verify_and_strip_tasks :: (
                 outcome : degrade_outcome.clone(),
                 obligations : ArrayList(VerifyFnObligation).new(),
                 subset_construct : `body's definition-time evaluation failed (swallowed at load): ${msg}`,
-                subset_source : String.new()
+                subset_source : String.new(),
+                func_id : t.func_id.clone(),
+                assumes : ArrayList(String).new(),
+                probes : ArrayList(VerifyProbeReport).new()
               )
             );
             ti = (ti + usize(1));
             continue;
           },
           .None => ()
-        );
-        input := VerifyFnInput(
-          fn_name : t.fn_id.clone(),
-          func_id : t.func_id.clone(),
-          body : t.body.clone(),
-          param_names : t.param_names.clone(),
-          param_types : t.param_types.clone(),
-          result_type : t.result_type.clone(),
-          requires_exprs : t.requires_exprs.clone(),
-          ensures_exprs : t.ensures_exprs.clone(),
-          decreases_expr : t.decreases_expr.clone(),
-          return_label : t.return_label.clone(),
-          table : t.table.clone(),
-          requires_enforced : t.requires_enforced.clone(),
-          elision_obligations : cfg.elision_obligations,
-          body_abstract : t.body_abstract
         );
         body_res := verify_function_body(&input);
         match(
@@ -949,103 +1044,56 @@ verify_and_strip_tasks :: (
                 outcome : degrade_outcome.clone(),
                 obligations : ArrayList(VerifyFnObligation).new(),
                 subset_construct : err.construct.clone(),
-                subset_source : err.source.clone()
+                subset_source : err.source.clone(),
+                func_id : t.func_id.clone(),
+                assumes : ArrayList(String).new(),
+                probes : ArrayList(VerifyProbeReport).new()
               )
             );
           },
           .None => {
             obligations := ArrayList(VerifyFnObligation).new();
-            (worst : usize) = usize(0);
-            for(&body_res.obligations, obl => {
-              // Literal-construction CTFE folding: a pre-resolved
-              // obligation skips the solver entirely (the verdict came
-              // from constant folding, which is a proof).
-              (pre_done : bool) = false;
-              (pre_is_proved : bool) = false;
-              match(
-                obl.pre,
-                .Some(pv) => {
-                  pre_done = true;
-                  match(
-                    pv,
-                    .PreProved => {
-                      pre_is_proved = true;
-                    },
-                    .PreRefuted => ()
-                  );
-                },
-                .None => ()
-              );
-              if(pre_done, {
-                pre_verdict := if(
-                  pre_is_proved,
-                  VerifyVerdict.Proved(ArrayList(String).new()),
-                  VerifyVerdict.Refuted(ArrayList(String).new())
-                );
-                obligations.push(
-                  VerifyFnObligation(
-                    name : obl.name.clone(),
-                    verdict : pre_verdict,
-                    cached : false,
-                    folded : true,
-                    goal : encode_term(&obl.query.goal),
-                    site : obl.site.clone(),
-                    elidable : obl.elidable,
-                    elision_only : obl.elision_only
-                  )
-                );
-                rank := if(pre_is_proved, usize(0), usize(3));
-                if((rank > worst) && !obl.elision_only, {
-                  worst = rank;
-                });
+            // S2: per entry of `obligations`, its index in
+            // `body_res.obligations` (the probes are not obligations).
+            source_index := ArrayList(usize).new();
+            (bi : usize) = usize(0);
+            while(bi < body_res.obligations.len(), {
+              obl := &body_res.obligations(bi);
+              if(obl.probe.is_none(), {
+                source_index.push(bi);
+                obligations.push(_discharge(obl, cfg, binary, &t.fn_id));
               });
-              if(!pre_done, {
-                r := run_vc_query(&obl.query, cfg, binary.clone());
-                // Counter-examples carry source names: unmangle the
-                // model's `__yo_v<fn>_<name> = value` pairs against
-                // this function's id at report-construction time, so
-                // every consumer (text, JSON, tests) sees `x = ...`.
-                clean_verdict := match(
-                  &r.verdict,
-                  .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce.*)),
-                  .Proved(core) => VerifyVerdict.Proved(core.clone()),
-                  .Unproven(reason) => VerifyVerdict.Unproven(reason.clone()),
-                  .SolverError(msg) => VerifyVerdict.SolverError(msg.clone())
-                );
-                obligations.push(
-                  VerifyFnObligation(
-                    name : r.query_name.clone(),
-                    verdict : clean_verdict,
-                    cached : r.cached,
-                    goal : encode_term(&obl.query.goal),
-                    site : obl.site.clone(),
-                    elidable : obl.elidable,
-                    elision_only : obl.elision_only
-                  )
-                );
-                // 0 ok < 1 unproven < 2 solver-error < 3 refuted
-                rank := match(
-                  &r.verdict,
-                  .Proved(_) => usize(0),
-                  .Unproven(_) => usize(1),
-                  .SolverError(_) => usize(2),
-                  .Refuted(_) => usize(3)
-                );
-                if((rank > worst) && !obl.elision_only, {
-                  worst = rank;
-                });
+              bi = (bi + usize(1));
+            });
+            probes := _run_call_probes(&body_res.obligations, &source_index, &mut obligations, cfg, binary, &task_ids);
+            // 0 ok < 1 unproven < 2 infeasible < 3 solver-error < 4 refuted.
+            // A call probe answered `unsat` makes the function infeasible
+            // even when no obligation follows the call: the code after it
+            // is dead under the callee's assumed contract.
+            (worst : usize) = usize(0);
+            for(&obligations, obl => {
+              rank := _verdict_rank(&obl.verdict);
+              if((rank > worst) && !obl.elision_only, {
+                worst = rank;
+              });
+            });
+            for(&probes, pr => {
+              if((pr.result == "unsat") && (worst < usize(2)), {
+                worst = usize(2);
               });
             });
             outcome := cond(
-              (worst == usize(3)) => String.from("refuted"),
-              (worst == usize(2)) => String.from("solver-error"),
+              (worst == usize(4)) => String.from("refuted"),
+              (worst == usize(3)) => String.from("solver-error"),
+              (worst == usize(2)) => String.from("infeasible"),
               (worst == usize(1)) => String.from("unproven"),
               true => String.from("ok")
             );
             // verify+ strip pass: `ensures#N` obligations that PROVED have
             // their spliced asserts removed from the function body. A
             // REFUTED function never reaches here (it is a compile error at
-            // the caller); unproven ones keep their asserts (the fallback).
+            // the caller); unproven and infeasible ones keep their asserts
+            // (the fallback).
             if(t.mode == "verify+", {
               strip_proved_ensures_asserts(&t.func_val, _proved_ensures(&obligations));
               ()
@@ -1057,7 +1105,10 @@ verify_and_strip_tasks :: (
                 outcome : outcome,
                 obligations : obligations,
                 subset_construct : String.new(),
-                subset_source : String.new()
+                subset_source : String.new(),
+                func_id : t.func_id.clone(),
+                assumes : ArrayList(String).new(),
+                probes : probes
               )
             );
           }
@@ -1067,7 +1118,350 @@ verify_and_strip_tasks :: (
     );
     ti = (ti + usize(1));
   });
+  _fill_assumes(&mut reports, &task_ids);
   reports
+});
+/// One obligation through the pipeline. A pre-resolved (constant-folded)
+/// one skips the solver: the verdict came from folding, which is a proof.
+_discharge :: (
+  fn(obl : &VcObligation, cfg : &VerifyRunConfig, binary : &String, fn_id : &String) -> VerifyFnObligation
+)(
+  match(
+    obl.pre,
+    .Some(pv) => VerifyFnObligation(
+      name : obl.name.clone(),
+      verdict : match(
+        pv,
+        .PreProved => VerifyVerdict.Proved(ArrayList(String).new()),
+        .PreRefuted => VerifyVerdict.Refuted(ArrayList(String).new())
+      ),
+      cached : false,
+      folded : true,
+      goal : encode_term(&obl.query.goal),
+      site : obl.site.clone(),
+      elidable : obl.elidable,
+      elision_only : obl.elision_only,
+      uses : obl.uses.clone()
+    ),
+    .None => {
+      r := run_vc_query(&obl.query, cfg, binary.clone());
+      // Counter-examples carry source names: unmangle the model's
+      // `__yo_v<fn>_<name> = value` pairs against this function's id at
+      // report-construction time, so every consumer (text, JSON, tests)
+      // sees `x = ...`.
+      clean_verdict := match(
+        &r.verdict,
+        .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(fn_id.clone(), &ce.*)),
+        _ => r.verdict.clone()
+      );
+      VerifyFnObligation(
+        name : r.query_name.clone(),
+        verdict : clean_verdict,
+        cached : r.cached,
+        goal : encode_term(&obl.query.goal),
+        site : obl.site.clone(),
+        elidable : obl.elidable,
+        elision_only : obl.elision_only,
+        uses : obl.uses.clone()
+      )
+    }
+  )
+);
+/// The outcome rank of one verdict (see the outcome `cond` of
+/// `verify_and_strip_tasks`).
+_verdict_rank :: (fn(v : &VerifyVerdict) -> usize)(
+  match(
+    v,
+    .Proved(_) => usize(0),
+    .Unproven(_) => usize(1),
+    .Infeasible(_) => usize(2),
+    .SolverError(_) => usize(3),
+    .Refuted(_) => usize(4)
+  )
+);
+/// A callee's report id: the `assumed()` site table, then the batch's
+/// tasks, each under the id as called and under its unspecialized base;
+/// the FuncVal id itself when neither knows it.
+_callee_report_id :: (fn(fid : &String, task_ids : &HashMap(String, String)) -> String)({
+  base := match(specialized_base_of(fid.clone()), .Some(b) => b, .None => fid.clone());
+  match(assumed_fn_site(fid.clone()), .Some(site) => {
+    return(site);
+  }, .None => ());
+  match(assumed_fn_site(base.clone()), .Some(site) => {
+    return(site);
+  }, .None => ());
+  match(task_ids.get_cloned(fid.clone()), .Some(id) => {
+    return(id);
+  }, .None => ());
+  match(task_ids.get_cloned(base.clone()), .Some(id) => id, .None => fid.clone())
+});
+/// Is `fid` (or its unspecialized base) an `assumed()` function?
+_is_assumed_callee :: (fn(fid : &String) -> bool)({
+  base := match(specialized_base_of(fid.clone()), .Some(b) => b, .None => fid.clone());
+  assumed_fn_site(fid.clone()).is_some() || assumed_fn_site(base).is_some()
+});
+/// A probe's verdict as its `result` word (`VerifyProbeReport.result`):
+/// the goal `false` proved means the assumptions are unsatisfiable.
+_probe_result_of :: (fn(v : &VerifyVerdict) -> String)(
+  match(
+    v,
+    .Proved(_) => String.from("unsat"),
+    .Refuted(_) => String.from("sat"),
+    .Unproven(_) => String.from("unknown"),
+    .SolverError(_) => String.from("solver-error"),
+    .Infeasible(_) => String.from("unsat")
+  )
+);
+/// The solver's reason behind an `unknown` or `solver-error` probe result.
+_probe_detail_of :: (fn(v : &VerifyVerdict) -> String)(
+  match(
+    v,
+    .Unproven(reason) => reason.clone(),
+    .SolverError(msg) => msg.clone(),
+    _ => String.new()
+  )
+);
+/// `q` asking whether its assumptions are satisfiable at all: the goal
+/// `false` holds (unsat) exactly when they contradict each other.
+_with_goal_false :: (fn(q : &VcQuery, name : &String) -> VcQuery)({
+  out := q.clone();
+  out.name = name.clone();
+  out.goal = Rc.new(VcTermNode.BoolLit(false));
+  out
+});
+/// The probe of an `assumed()` function's own contract (`contract-sat`).
+_probe_assumed_contract :: (
+  fn(input : &VerifyFnInput, cfg : &VerifyRunConfig, binary : &String, fn_id : &String) -> VerifyProbeReport
+)({
+  res := probe_assumed_contract(input);
+  name := `${fn_id}/contract-sat`;
+  match(
+    &res.error,
+    .Some(err) => {
+      return(
+        VerifyProbeReport(
+          name : name,
+          kind : String.from("contract-sat"),
+          callee : fn_id.clone(),
+          result : String.from("outside-subset"),
+          detail : err.construct.clone(),
+          queries : usize(0),
+          cached : usize(0)
+        )
+      );
+    },
+    .None => ()
+  );
+  (result : String) = String.from("outside-subset");
+  (detail : String) = String.from("the contract generated no probe");
+  (queries : usize) = usize(0);
+  (cached : usize) = usize(0);
+  (oi : usize) = usize(0);
+  while(oi < res.obligations.len(), {
+    if(res.obligations(oi).probe.is_some(), {
+      r := run_vc_query(&res.obligations(oi).query, cfg, binary.clone(), false);
+      queries = (queries + usize(1));
+      if(r.cached, {
+        cached = (cached + usize(1));
+      });
+      result = _probe_result_of(&r.verdict);
+      detail = _probe_detail_of(&r.verdict);
+    });
+    oi = (oi + usize(1));
+  });
+  VerifyProbeReport(
+    name : name,
+    kind : String.from("contract-sat"),
+    callee : fn_id.clone(),
+    result : result,
+    detail : detail,
+    queries : queries,
+    cached : cached
+  )
+});
+/// The `call-feasible` probes of one walked function (S2). Each asks
+/// whether the path after a call to an `assumed()` callee is satisfiable.
+/// When it is not, a second query asks about the path before the call: if
+/// that is unsatisfiable too, the path was dead already (`dead-path`, not
+/// the call's doing); otherwise the callee's contract made it infeasible
+/// (`unsat`), and every proved obligation whose path carries that call's
+/// facts is re-asked as "is my own path satisfiable?" — an `unsat` there
+/// turns its `Proved` into `Infeasible`, so neither the outcome nor the
+/// `verify+` strip pass counts it.
+_run_call_probes :: (
+  fn(
+    all : &ArrayList(VcObligation),
+    source_index : &ArrayList(usize),
+    obligations : &mut ArrayList(VerifyFnObligation),
+    cfg : &VerifyRunConfig,
+    binary : &String,
+    task_ids : &HashMap(String, String)
+  ) -> ArrayList(VerifyProbeReport)
+)({
+  out := ArrayList(VerifyProbeReport).new();
+  (pi : usize) = usize(0);
+  while(pi < all.len(), {
+    p_obl := &all(pi);
+    match(
+      &p_obl.probe,
+      .Some(pk) => {
+        callee_id := _callee_report_id(&pk.callee, task_ids);
+        (queries : usize) = usize(1);
+        (cached : usize) = usize(0);
+        post := run_vc_query(&p_obl.query, cfg, binary.clone(), false);
+        if(post.cached, {
+          cached = (cached + usize(1));
+        });
+        (result : String) = _probe_result_of(&post.verdict);
+        detail := _probe_detail_of(&post.verdict);
+        if(result == "unsat", {
+          pre_q := p_obl.query.clone();
+          pre_q.name = `${p_obl.name}/pre`;
+          (drop_n : usize) = pk.pre_drop;
+          while((drop_n > usize(0)) && (pre_q.assumptions.len() > usize(0)), {
+            _ := pre_q.assumptions.pop();
+            drop_n = (drop_n - usize(1));
+          });
+          pre := run_vc_query(&pre_q, cfg, binary.clone(), false);
+          queries = (queries + usize(1));
+          if(pre.cached, {
+            cached = (cached + usize(1));
+          });
+          if(match(&pre.verdict, .Proved(_) => true, _ => false), {
+            result = String.from("dead-path");
+          });
+        });
+        if(result == "unsat", {
+          (oi : usize) = usize(0);
+          while(oi < obligations.len(), {
+            src := &all(source_index(oi));
+            rests := src.after_probes.contains(p_obl.name.clone());
+            proved := match(&obligations(oi).verdict, .Proved(_) => true, _ => false);
+            if(rests && proved && !obligations(oi).folded, {
+              recheck := run_vc_query(&_with_goal_false(&src.query, &`${src.name}/feasible`), cfg, binary.clone(), false);
+              queries = (queries + usize(1));
+              if(recheck.cached, {
+                cached = (cached + usize(1));
+              });
+              if(match(&recheck.verdict, .Proved(_) => true, _ => false), {
+                obligations(oi).verdict = VerifyVerdict.Infeasible(callee_id.clone());
+              });
+            });
+            oi = (oi + usize(1));
+          });
+        });
+        out.push(
+          VerifyProbeReport(
+            name : p_obl.name.clone(),
+            kind : pk.kind.clone(),
+            callee : callee_id,
+            result : result,
+            detail : detail,
+            queries : queries,
+            cached : cached
+          )
+        );
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  out
+});
+/// S2: fill each report's `assumes` — the `assumed()` contracts its proofs
+/// rest on. Directly: the `assumed()` callees on a proved (or infeasible)
+/// obligation's path. Transitively: the `assumes` of every other callee on
+/// such a path that this run verified, to a fixpoint (recursion closes
+/// cycles).
+_fill_assumes :: (fn(reports : &mut ArrayList(VerifyFnReport), task_ids : &HashMap(String, String)) -> unit)({
+  // The report index of each FuncVal id this run verified.
+  index_of := HashMap(String, usize).new();
+  (ri : usize) = usize(0);
+  while(ri < reports.len(), {
+    _ := index_of.insert(reports(ri).func_id.clone(), ri);
+    ri = (ri + usize(1));
+  });
+  direct := ArrayList(ArrayList(String)).new();
+  edges := ArrayList(ArrayList(usize)).new();
+  (rj : usize) = usize(0);
+  while(rj < reports.len(), {
+    d := ArrayList(String).new();
+    es := ArrayList(usize).new();
+    for(&reports(rj).obligations, obl => {
+      used := match(&obl.verdict, .Proved(_) => true, .Infeasible(_) => true, _ => false);
+      if(used, {
+        for(&obl.uses, u => {
+          if(_is_assumed_callee(u), {
+            uid := _callee_report_id(u, task_ids);
+            if(!d.contains(uid.clone()), {
+              d.push(uid);
+            });
+          }, {
+            base := match(specialized_base_of(u.clone()), .Some(b) => b, .None => u.clone());
+            target := match(index_of.get_cloned(u.clone()), .Some(k) => Option(usize).Some(k), .None => index_of.get_cloned(base));
+            match(
+              target,
+              .Some(k) => if((k != rj) && !es.contains(k), {
+                es.push(k);
+              }),
+              .None => ()
+            );
+          });
+        });
+      });
+    });
+    direct.push(d);
+    edges.push(es);
+    rj = (rj + usize(1));
+  });
+  (changed : bool) = true;
+  while(changed, {
+    changed = false;
+    (rk : usize) = usize(0);
+    while(rk < direct.len(), {
+      mine := direct.get_cloned(rk).unwrap();
+      added := ArrayList(String).new();
+      for(&edges(rk), k => {
+        for(&direct(k.*), cid => {
+          if(!mine.contains(cid.clone()) && !added.contains(cid.clone()), {
+            added.push(cid.clone());
+          });
+        });
+      });
+      if(added.len() > usize(0), {
+        for(&added, a => {
+          direct(rk).push(a.clone());
+        });
+        changed = true;
+      });
+      rk = (rk + usize(1));
+    });
+  });
+  (rm : usize) = usize(0);
+  while(rm < reports.len(), {
+    reports(rm).assumes = _sorted_strs(&direct(rm));
+    rm = (rm + usize(1));
+  });
+  ()
+});
+/// Ascending copy of a string list (insertion sort: the lists are short).
+_sorted_strs :: (fn(xs : &ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    x := xs.get_cloned(i).unwrap();
+    (at : usize) = out.len();
+    (k : usize) = usize(0);
+    while(k < out.len(), {
+      if((at == out.len()) && (x < out.get_cloned(k).unwrap()), {
+        at = k;
+      });
+      k = (k + usize(1));
+    });
+    out.insert(at, x);
+    i = (i + usize(1));
+  });
+  out
 });
 /// Render a mangled SMT variable name back toward its source spelling for
 /// display: `__yo_v<fn>_<name>` → `<name>` when the prefix matches this
@@ -1148,6 +1542,7 @@ export(
   verifier_harness_self_test,
   VerifyFnObligation,
   VerifyFnReport,
+  VerifyProbeReport,
   verify_report_is_vacuous,
   verify_correctness_obligation_count,
   verify_outcome_names,

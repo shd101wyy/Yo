@@ -91,7 +91,7 @@ The two modes differ in one case only:
 - **A proving mode is the less safe mode when an assumption is wrong.** It erases
   runtime checks on the strength of proofs that rest on `assumed()` contracts nothing
   validates
-  (`issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`:
+  (`issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`:
   the same program aborts in `runtime` mode and silently returns the wrong value in
   `verify` mode). Most std bodies are `assumed()`.
 - **Memory at scale.** `yo verify ./src` peaked at 9.33 GB and 195 s (2026-09-18)
@@ -287,7 +287,7 @@ In order. S0, S2 and SD need nothing else and start at v0.2.80. S1 follows S0 (D
 | **S0** | Fix `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`, and add the both-modes sweep: every fixture of `tests/spec/fixtures/valid/` runs under `Pragma.Verify` and under `Pragma.VerifyOrAssert` and must prove the same set of functions | S to M: the root cause is not known | nothing |
 | **S1** | `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` in the source modules it generates, and the scaffolded `AGENTS.md` says so. `src/init.yo` already scaffolds a verified `spec/` | S: `src/init.yo` plus a cli-case golden | S0 |
 | **SD** | Solver distribution (D9): a static build of the pinned Z3 for each release target, published with the release, and an install that keeps only that binary; the installer and `yo version install` fetch it with the compiler, and `yo build` fetches it on first need; a missing solver and one that cannot execute are probed once and reported in one line for the build; `--require-solver` / `YO_REQUIRE_SOLVER=1` for CI; solver presence in the artifact's input stamp (§5 items 8 and 9) | M | nothing |
-| **S2** | A proved result is capped by what it rests on: the satisfiability probe per `assumed()` contract, the feasibility probe after a call, and `ok` naming the assumed contracts it used | about a week, with the vacuity probes of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) | nothing |
+| **S2** | **Done.** A proved result is capped by what it rests on: the satisfiability probe per `assumed()` contract (`contradictory`, a failure in every mode), the feasibility probe after a call to an `assumed()` callee (`infeasible`: the proofs on that path are voided, a failure in `verify`, the assert kept in `verify+`), and `ok` naming the assumed contracts it used (`assumes`, transitively through the run's verified callees). Cost and design: §3.1. Not in it: the entry-premise and conclusion probes of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)'s vacuity gate | about a week | nothing |
 | **S3** | std bodies the verifier walks instead of `assumed()` | weeks; it is the shared bottleneck of [`POST_VBD_PLAN.md`](POST_VBD_PLAN.md) phase 4, item 1 | the raw-buffer model ([`THEOREM_PROVING_DIRECTION.md`](THEOREM_PROVING_DIRECTION.md) R1) |
 | **S4** | Incremental verification: an edit re-proves only the functions it changed, and a default-on `yo check` does not hold every function's state at once. Its three parts by §2.2: a solver pool, a per-function cache key, and a small budget for automatic obligations (§5 items 5 to 7) | L (SELF_VERIFICATION lever L8) | nothing |
 | **S5** | Subset growth until the coverage gate holds: strings, exceptions as exit paths, trees as datatypes, collections through contracts | L (SELF_VERIFICATION levers L1–L4) | S3 for L4 |
@@ -335,7 +335,7 @@ Each is a number or a verdict a CI job re-derives. None is asserted in prose.
 | Gate | Holds when |
 | --- | --- |
 | **G1** std is proved | the std modules a default-on program reaches report no `assumed` outcome outside the published FFI and raw-pointer list (S3) |
-| **G2** assumptions are checked | the issue of S2 is in `issues/fixed/`, with its fixtures |
+| **G2** assumptions are checked | the issue of S2 is in `issues/fixed/`, with its fixtures. **Holds** (S2) |
 | **G3** the overhead is bounded | on the compiler's front-end modules, a warm default-on `yo check` after a one-function edit is within a stated factor of the unverified time and a stated RSS; both numbers are set from the first S4 measurement, not before |
 | **G4** the subset covers real code | a stated share of the functions in `tests/` and `std/` is inside the subset; the share is set from the first measurement after S5's first lever |
 | **G5** no flaky builds | over the language suite, no obligation's verdict differs between two cold runs on two machines (the pinned Z3 and `rlimit` budgets make this checkable) |

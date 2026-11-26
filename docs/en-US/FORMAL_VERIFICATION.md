@@ -398,6 +398,47 @@ clause (`issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`).
 `yo verify --strict` reports every `assumed` outcome as a failure, so a
 gate that must prove everything says so.
 
+### What a proof rests on
+
+Nothing proves an `assumed()` contract, and a contract no input can meet
+would prove every obligation after a call to it. So the verifier asks the
+solver two satisfiability questions, and reports what each proof used:
+
+- **The contract probe.** For every `assumed()` function, one query asks
+  whether some input meets its `requires` and parameter refinements while
+  some result meets its `ensures`. If none can, the function's outcome is
+  `contradictory`, a failure in every mode.
+- **The call probe.** After each call to an `assumed()` function, one query
+  asks whether the caller's path is still satisfiable with the callee's
+  `ensures` added. If it is not, but was before the call, the contract
+  contradicts what the caller knows. Every obligation proved on that path
+  proved nothing: its verdict is `infeasible`, its function's outcome is
+  `infeasible`, and `verify+` keeps its runtime assert. A path that was
+  already unsatisfiable before the call is dead code, and the probe says
+  `dead-path` without failing anything.
+- **What `ok` rests on.** An `ok` line names the `assumed()` contracts its
+  proofs used: those on a proved obligation's path, and, through each callee
+  verified in the same run, the ones that callee's proofs used.
+
+```yo
+pragma(Pragma.Verify);
+
+oracle :: (fn(x : i32, ensures(r > x, r < x), assumed()) -> (r : i32))(x);
+
+bad :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))(oracle(x));
+```
+
+```text
+  contradictory  fn@main.yo:2 [verify] — the assumed() contract is unsatisfiable: …
+  infeasible  fn@main.yo:4 [verify]
+    fn@main.yo:4/ensures#0: INFEASIBLE  proved only because the assumed() contract of fn@main.yo:2 makes the path infeasible
+    fn@main.yo:4/feasible@5:58: INFEASIBLE after the call to fn@main.yo:2: …
+```
+
+With a satisfiable contract (`ensures(r > x)` alone) the caller of a
+function that returns `oracle(x)` with `ensures(r > x)` is
+`ok — 1 obligation(s) proved; rests on assumed: fn@main.yo:2`.
+
 ### Refinement types — `refine(T, p)`
 
 `refine(T, p)` annotates "a `T` that satisfies the predicate `p`". The
@@ -565,12 +606,13 @@ the subset, and the run stays green with no signal.
 `--strict` turns those outcomes into failures:
 
 ```bash
-yo verify ./spec --strict          # = --deny assumed,outside-subset,unproven
+yo verify ./spec --strict          # = --deny assumed,outside-subset,unproven,infeasible
 yo verify ./spec --deny assumed    # or name the outcomes yourself
 ```
 
 The outcome vocabulary is `ok`, `assumed`, `outside-subset`, `unproven`,
-`refuted`, `solver-error`, `subset-error`; an unknown name in `--deny` is
+`infeasible`, `contradictory`, `refuted`, `solver-error`, `subset-error`;
+an unknown name in `--deny` is
 a usage error that lists the set. A denied outcome fails in **every**
 mode, so `unproven` under `--strict` fails even in `verify+`, where it
 would otherwise fall back to a runtime assert.
@@ -581,6 +623,8 @@ would otherwise fall back to a runtime assert.
 | `assumed` | contracts declared, body never walked | passes |
 | `outside-subset` | promised nothing, and the walk could not enter the body | passes |
 | `unproven` | the solver answered `unknown`: the budget ran out, or a fact the goal needs is missing | fails in `verify`; passes in `verify+` (runtime assert) |
+| `infeasible` | a proof holds only because an `assumed()` contract contradicts the facts at its call (§What a proof rests on) | fails in `verify`; passes in `verify+` (runtime assert) |
+| `contradictory` | an `assumed()` contract that no input satisfies | fails |
 | `refuted` | the solver found a counter-example | fails |
 | `solver-error` | the solver could not run or answered with an error | fails |
 | `subset-error` | the body uses a construct outside the subset (`cannot verify: <construct>`) | fails |
@@ -592,14 +636,15 @@ guard. Nothing was proved because nothing was asked. The report line reads
 neither `--strict` nor `--deny` fails on it (`--deny vacuous` is a usage
 error). Watch the summary's `(N of the ok vacuous)` count instead.
 
-Every run ends with a summary line — counts for all seven outcomes (zeros
+Every run ends with a summary line — counts for all nine outcomes (zeros
 included, so it is greppable), how many of the `ok` results were
 *vacuous* (they discharged no obligation at all), the number of solver
 queries with the cache hit rate, how many obligations were discharged by
-constant folding (no solver), and the wall time:
+constant folding (no solver), the queries the satisfiability probes sent,
+and the wall time:
 
 ```
-verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 3 queries, 2 cached (66%), 1 folded, 46 ms
+verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 infeasible, 0 contradictory, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 3 queries, 2 cached (66%), 1 folded, 2 probe queries (1 cached), 46 ms
 ```
 
 `--format json` carries the same numbers under a `summary` object, plus
@@ -607,16 +652,18 @@ verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error
 
 ```json
 "summary": { "total": 3, "ok": 2, "assumed": 1, "outside-subset": 0,
-             "unproven": 0, "refuted": 0, "solver-error": 0,
-             "subset-error": 0, "vacuous": 1, "queries": 3,
-             "cached": 2, "folded": 1, "elapsed_ms": 46,
+             "unproven": 0, "infeasible": 0, "contradictory": 0,
+             "refuted": 0, "solver-error": 0, "subset-error": 0,
+             "vacuous": 1, "queries": 3, "cached": 2, "folded": 1,
+             "probe_queries": 2, "probe_cached": 1, "elapsed_ms": 46,
              "strict": false, "denied": [] }
 ```
 
 Each function entry (`functions[]`) carries `fn_id`, `mode`, `outcome`,
 `vacuous`, `subset_construct`/`subset_source`, and its `obligations[]` —
 one object per obligation with `name`, `verdict` (`proved` / `refuted` /
-`unproven` / `solver-error`), `cached`, `folded`, `goal` (the obligation
+`unproven` / `solver-error` / `infeasible`, the last with an
+`infeasible_by` naming the `assumed()` function), `cached`, `folded`, `goal` (the obligation
 rendered as SMT-LIB — what the solver was asked), and `model` (the
 counter-example bindings, `refuted` only), and `site`. An obligation that
 discharges a runtime guard (`divisor-nonzero`, `shift-in-width`,
@@ -628,6 +675,12 @@ that repeats anyway (two calls of one callee's `requires#0`) gets `~2`, `~3`,
 … in walk order. Under `--elision` the report also lists the overflow
 obligations (`div-no-overflow`, `no-overflow`, `neg-no-overflow`), each with
 `"elision_only": true`; they never change a function's `outcome` or `vacuous`.
+Two more fields say what the proofs rest on (§What a proof rests on):
+`assumes`, the sorted ids of the `assumed()` functions whose contracts the
+function's proofs used, and `probes[]`, one object per satisfiability probe
+with `name`, `kind` (`contract-sat` / `call-feasible`), `callee`, `result`
+(`sat` / `unsat` / `dead-path` / `unknown` / `solver-error` /
+`outside-subset`), `detail`, `queries` and `cached`.
 
 `--explain <pattern>` narrows the report to functions whose id matches
 (a substring of the id — ids are `fn@<file>:<row>` / `law@<file>:<row>:<col>`,

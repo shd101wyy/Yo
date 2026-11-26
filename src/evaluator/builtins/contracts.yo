@@ -1953,6 +1953,21 @@ register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)(
 specialized_base_of :: (fn(id : &String) -> Option(String))(
   g_specialized_base.with({ id : &id.* }(m) => m.get_cloned(id))
 );
+/// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md: an `assumed()` FuncVal id
+/// → its report id (`fn@<module>:<row>`, the `VerifyTask.fn_id` spelling).
+/// Written for every `assumed()` definition in every module, so a caller's
+/// report can name the assumed contracts its proofs rest on even when the
+/// callee's module is not a verification target (std's, under `yo verify`
+/// of a user file).
+(g_assumed_fn_sites : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+record_assumed_fn_site :: (fn(func_id : &String, site : &String) -> unit)({
+  func_id_owned := func_id.clone();
+  site_owned := site.clone();
+  _ := g_assumed_fn_sites.with_mut({ func_id_owned, site_owned }(m) => m.insert(func_id_owned.clone(), site_owned));
+});
+assumed_fn_site :: (fn(func_id : &String) -> Option(String))(
+  g_assumed_fn_sites.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id))
+);
 /// Task-registration hook: stash contract instances for every contracted
 /// callee call in the task body (see the CallsiteContracts doc).
 prepare_callsite_contracts :: (
@@ -3484,6 +3499,8 @@ export(
   callsite_contracts_for,
   register_specialized_base,
   specialized_base_of,
+  record_assumed_fn_site,
+  assumed_fn_site,
   register_impl_variance_task,
   record_verify_task_def_eval_failure,
   verify_task_def_eval_failure,

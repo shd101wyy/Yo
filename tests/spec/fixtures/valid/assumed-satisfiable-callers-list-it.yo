@@ -1,0 +1,30 @@
+// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md, the valid twin of
+// negative/assumed-contradictory.yo. `bump`'s assumed() contract is
+// satisfiable, so it reports `assumed` and its callers stay `ok`; each `ok`
+// names the assumed contracts its proofs rest on. `above_zero` uses `bump`
+// directly; `at_least_one` uses `above_zero`'s ensures, which rests on
+// `bump`, so it lists `bump` too. `guarded` calls `bump` only on a path its
+// own `requires` rules out: the path is dead before the call, which is not
+// the call's doing, so the function stays `ok`.
+pragma(Pragma.Verify);
+
+bump :: (fn(x : i32, requires(x < i32(100)), ensures(r > x), assumed()) -> (r : i32))(x + i32(1));
+
+above_zero :: (
+  fn(x : i32, requires((x >= i32(0)) && (x < i32(100))), ensures(r > i32(0))) -> (r : i32)
+)(
+  bump(x)
+);
+
+at_least_one :: (
+  fn(x : i32, requires((x >= i32(0)) && (x < i32(100))), ensures(r >= i32(1))) -> (r : i32)
+)(
+  above_zero(x)
+);
+
+guarded :: (fn(x : i32, requires(x > i32(0)), ensures(r >= i32(0))) -> (r : i32))(
+  cond(
+    (x < i32(0)) => bump(x),
+    true => x
+  )
+);
