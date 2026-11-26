@@ -9,8 +9,8 @@ CTFE 允许编译器在所有输入在编译期已知的情况下，于编译期
 ```yo
 // comptime 参数 + comptime 返回值：在编译期求值
 factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result :: i32(1);
-  i :: i32(1);
+  mut(result) :: i32(1);
+  mut(i) :: i32(1);
   while(comptime(i <= n), {
     result = (result * i);
     i = (i + i32(1));
@@ -21,6 +21,9 @@ factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
 // 编译器在编译期求值 factorial(10)
 // 生成的代码中直接包含常量 3628800
 value :: factorial(10);
+comptime_assert(value == i32(3628800), "10! is 3628800");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ## 主要特性
@@ -34,8 +37,8 @@ value :: factorial(10);
 ```yo
 // comptime(n) + comptime 返回值：在编译过程中运行
 sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result :: i32(0);
-  i :: i32(1);
+  mut(result) :: i32(0);
+  mut(i) :: i32(1);
   while(comptime(i <= n), {
     result = (result + (i * i));
     i = (i + i32(1));
@@ -45,6 +48,9 @@ sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
 
 // 编译期求值: 1 + 4 + 9 + 16 + 25 = 55
 total :: sum_squares(5);
+comptime_assert(total == i32(55), "1 + 4 + 9 + 16 + 25");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ### 2. 完整的控制流支持
@@ -61,8 +67,8 @@ Yo 的 CTFE 支持所有控制流结构：
 ```yo
 // 示例: 使用 continue 只对奇数求和
 sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
-  result :: i32(0);
-  i :: i32(0);
+  mut(result) :: i32(0);
+  mut(i) :: i32(0);
   while(comptime(i < max), {
     i = (i + i32(1));
     cond(
@@ -78,6 +84,9 @@ sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
 
 // 编译期求值: 1 + 3 + 5 + 7 + 9 = 25
 odd_sum :: sum_odd(10);
+comptime_assert(odd_sum == i32(25), "1 + 3 + 5 + 7 + 9");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ### 3. 一等类型
@@ -241,12 +250,12 @@ Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：
    详见 `yo explain E1104`，`yo fix` 会把 `:=` 改写为 `::`、把 `x` 改写为
    `comptime(x)`。嵌套在这种函数体内的运行时函数字面量可以保留运行时局部变量，
    在编译期求值的运行时函数（`comptime_fn(f)`）也一样
-   （[`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md)）。
+   （`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`）。
    反方向是错误 E0918：程序运行时执行的代码不能给编译期绑定赋值。运行时函数体
    写入模块级 `::`（或外层函数的 `::`），或把运行时值写入自己的 `::` 局部绑定，
    都会被拒绝，因为对该绑定的每次使用都已被折叠为它的值。这样的绑定请用 `:=`
    声明（模块级写作 `mut(G) := v`：被写入的全局变量需要 `mut`）；函数体自身以编译期值写的 `mut(a) :: 1; a = 2;` 可用（被写入的编译期绑定要声明为 `mut(a) ::` 或 `comptime(mut(a)) :=`，未标记的是 E0917）
-   （[`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`](../../issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md)）。
+   （`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`）。
 2. 保留函数参数值用于编译期求值
 3. 将参数标记为仅编译期使用
 
@@ -287,8 +296,8 @@ is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(
     (n < 2) => false,
     true => {
-      i :: i32(2);
-      result :: true;
+      mut(i) :: i32(2);
+      mut(result) :: true;
       while(comptime((i * i) <= n), {
         cond(
           ((n % i) == 0) => {
@@ -308,6 +317,8 @@ is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
 comptime_assert(is_prime(2) == true, "2 是素数");
 comptime_assert(is_prime(17) == true, "17 是素数");
 comptime_assert(is_prime(18) == false, "18 不是素数");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ## 元编程

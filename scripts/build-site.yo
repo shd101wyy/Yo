@@ -251,7 +251,7 @@ _rewrite_url :: (fn(url : String, github_blob : String, is_src : bool) -> String
     true => {
       rel := if(_starts_with_at(url.clone(), "./", usize(0)), url.substring(usize(2), url.len()), url.clone());
       cond(
-        ((rel == "Yo_logo.png") || (rel == "path_uniqueness.png")) => rel,
+        (rel == "Yo_logo.png") => rel,
         is_src => `${github_blob}/${rel}?raw=true`,
         true => `${github_blob}/${rel}`
       )
@@ -714,12 +714,6 @@ main :: (fn(io : Io) -> unit)({
   if(logo_exists, {
     _copy_file(logo.clone(), `${output_dir}/Yo_logo.png`, ie);
     println(String.from("  ✓ Yo_logo.png"));
-  });
-  pu := `${root}/path_uniqueness.png`;
-  pu_exists := io.await(exists(Path.new(pu.clone()), io), io);
-  if(pu_exists, {
-    _copy_file(pu.clone(), `${output_dir}/path_uniqueness.png`, ie);
-    println(String.from("  ✓ path_uniqueness.png"));
   });
   // Installers at the site ROOT — FAIL LOUDLY if missing: a silently absent
   // installer turns the documented one-liner into curl piping a 404 into sh.

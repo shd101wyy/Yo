@@ -35,6 +35,7 @@
   BF_OLD,
   BF_FORALL,
   BF_EXISTS,
+  BF_IMPLIES,
   BK_BEGIN,
   BK_TUPLE,
   BK_FN,
@@ -2873,7 +2874,8 @@ _guard_body_is :: (fn(body : &AstExpr, prefix : &String) -> bool)(
   )
 );
 /// Can `pred` be evaluated at runtime? Not when it mentions a verification-only
-/// construct: `old(...)`, a quantifier, `ghost(...)`, or a call to a `ghost_fn`.
+/// construct: `old(...)`, `ghost(...)`, a ghost-only builtin
+/// (`_is_ghost_only_builtin`), or a call to a `ghost_fn`.
 /// A `ghost_fn` has no runtime body. The side-table predicate nodes carry no
 /// ExprInfo (it lands on evaluated clones), so a callee is recognized as ghost
 /// by its module-level `name :: ghost_fn(...)` definition
@@ -2887,6 +2889,11 @@ requires_is_runtime_checkable :: (fn(pred : &AstExpr, table : &ExprInfoTable) ->
 /// proof-only: splicing it would put a ghost-only builtin into runtime code.
 ensures_is_runtime_checkable :: (fn(pred : &AstExpr, table : &ExprInfoTable) -> bool)(
   _contract_clause_runs(pred, table, true)
+);
+/// The ghost-only builtins (FORMAL_VERIFICATION.md §6): each one's evaluator
+/// rejects a use outside ghost context (`_reject_not_ghost_context`).
+_is_ghost_only_builtin :: (fn(name : &String) -> bool)(
+  (name.* == BF_FORALL) || (name.* == BF_EXISTS) || (name.* == BF_IMPLIES) || (name.* == BF_SEQ_UNIT) || (name.* == BF_SEQ_APPEND) || (name.* == BF_SEQ_LEN) || (name.* == BF_SEQ_NTH) || (name.* == BF_SEQ_OF) || (name.* == BF_PRODUCED) || (name.* == BF_DISTINCT) || (name.* == BF_STR_BYTES) || (name.* == BF_MS_SINGLE) || (name.* == BF_MS_ADD) || (name.* == BF_MS_COUNT) || (name.* == BF_MS_OF) || (name.* == BF_SET_SINGLE) || (name.* == BF_SET_ADD) || (name.* == BF_SET_CONTAINS)
 );
 _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old : bool) -> bool)(
   match(
@@ -2903,7 +2910,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
     Rc(.FnCall(_, head, Rc(args), _, _)) => {
       if(ast_expr_is_atom(&head.*), {
         hn := ast_expr_text(&head.*).*.clone();
-        if(((hn == BF_OLD) && !allow_old) || (hn == BF_FORALL) || (hn == BF_EXISTS) || (hn == BF_GHOST) || (hn == BF_DISTINCT), {
+        if(((hn == BF_OLD) && !allow_old) || (hn == BF_GHOST) || _is_ghost_only_builtin(&hn), {
           return(false);
         });
         // A ghost fn defined anywhere in this module, forced yet or not.
@@ -2930,16 +2937,15 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
   )
 );
 /// `VerifyTask.requires_enforced` for a task's requires, mirroring what
-/// `wrap_function_body_with_contracts` splices: `verify+` asserts every
-/// requires; `verify` asserts only a runtime-checkable one, and nothing in a
+/// `wrap_function_body_with_contracts` splices: in every mode a
+/// runtime-checkable requires is asserted at entry, and nothing in a
 /// `ghost_fn`.
-requires_enforced_flags :: (fn(reqs : &ArrayList(AstExpr), mode : &String, in_ghost_fn : bool, table : &ExprInfoTable) -> ArrayList(bool))({
+requires_enforced_flags :: (fn(reqs : &ArrayList(AstExpr), in_ghost_fn : bool, table : &ExprInfoTable) -> ArrayList(bool))({
   out := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     out.push(
       cond(
-        (mode.* == "verify+") => true,
         in_ghost_fn => false,
         true => match(reqs.get_cloned(i), .Some(p) => requires_is_runtime_checkable(&p, table), .None => false)
       )
@@ -2956,11 +2962,11 @@ wrap_function_body_with_contracts :: (
     return_label : &Option(String),
     is_comptime_fn : bool,
     returns_unit : bool,
-    /// The literal is a `ghost_fn`'s: it never runs, so `verify` mode splices
-    /// nothing into it.
+    /// The literal is a `ghost_fn`'s: it never runs, so no mode splices
+    /// anything into it.
     in_ghost_fn : bool,
     /// Per `requires_exprs` entry: whether its predicate can run
-    /// (`requires_is_runtime_checkable`). `verify` mode splices only those.
+    /// (`requires_is_runtime_checkable`). Only those are ever spliced.
     requires_checkable : &ArrayList(bool),
     /// Per `ensures_exprs` entry: whether its predicate can run
     /// (`ensures_is_runtime_checkable`). Only those are ever spliced: a
@@ -2971,9 +2977,16 @@ wrap_function_body_with_contracts :: (
   if((requires_exprs.len() == usize(0)) && (ensures_exprs.len() == usize(0)), {
     return(Rc.clone(body.*));
   });
+  // A `ghost_fn` never runs: there is nothing to assert in it, in any mode.
+  if(in_ghost_fn, {
+    return(Rc.clone(body.*));
+  });
   body_tok := ast_expr_token(body);
-  // The ensures clauses that get runtime asserts: all of them, except in
-  // `verify` mode (below).
+  // Only a clause that can run is spliced, in every mode. One that
+  // quantifies, uses a ghost-only builtin or calls a `ghost_fn` is
+  // proof-only: splicing it would put ghost-only code into the runtime body.
+  // A proof-only `requires` is then unchecked for a caller the verifier
+  // never walks, the same as a `refine`.
   (splice_ensures : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   (sei : usize) = usize(0);
   while(sei < ensures_exprs.len(), {
@@ -2982,11 +2995,20 @@ wrap_function_body_with_contracts :: (
     });
     sei = (sei + usize(1));
   });
-  (splice_requires : ArrayList(AstExpr)) = requires_exprs.clone();
+  (splice_requires : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (sri : usize) = usize(0);
+  while(sri < requires_exprs.len(), {
+    if(match(requires_checkable.get(sri), .Some(c) => c, .None => false), {
+      splice_requires.push(Rc.clone(requires_exprs(sri)));
+    });
+    sri = (sri + usize(1));
+  });
   // Whether the requires-only splice may flatten a block body into its own
-  // begin. Not in `verify` mode: the verifier walks the task's UNWRAPPED body
-  // node and needs its ExprInfo, which a flattened body never gets (its
-  // statements are evaluated under the new begin instead).
+  // begin. Not in `verify` or `verify+` mode: there the function is a
+  // VerifyTask whose UNWRAPPED body node the verifier walks, and the walk
+  // needs that node's ExprInfo, which a flattened body never gets (its
+  // statements are evaluated under the new begin instead, so the walk finds
+  // an untyped root and reports `subset`).
   (flatten_body : bool) = true;
   // V3 mode dispatch (plans/backlog/FORMAL_VERIFICATION.md §"The
   // assert-splice interaction"). Effects apply only when this module is a
@@ -3001,6 +3023,9 @@ wrap_function_body_with_contracts :: (
     if(mode == "ignore", {
       return(Rc.clone(body.*));
     });
+    if((mode == "verify") || (mode == "verify+"), {
+      flatten_body = false;
+    });
     // `verify` — suppress the ENSURES asserts: the verifier proves each one
     // against this body, so the proof replaces the check. The REQUIRES entry
     // asserts stay, exactly as in `verify+`. A requires is proved at call
@@ -3011,26 +3036,11 @@ wrap_function_body_with_contracts :: (
     // The predicates were still type-checked at signature evaluation, so
     // malformed ones error either way.
     if(mode == "verify", {
-      // Only a runtime-checkable requires can be asserted. One that calls a
-      // `ghost_fn` or quantifies stays proof-only, which leaves it unchecked
-      // for a caller the verifier never walks, the same as a `refine`.
-      kept_requires := ArrayList(AstExpr).new();
-      if(!in_ghost_fn, {
-        (kri : usize) = usize(0);
-        while(kri < requires_exprs.len(), {
-          if(match(requires_checkable.get(kri), .Some(c) => c, .None => false), {
-            match(requires_exprs.get_cloned(kri), .Some(rp) => kept_requires.push(rp), .None => ());
-          });
-          kri = (kri + usize(1));
-        });
-      });
-      if(kept_requires.len() == usize(0), {
-        return(Rc.clone(body.*));
-      });
-      splice_requires = kept_requires;
       splice_ensures = ArrayList(AstExpr).new();
-      flatten_body = false;
     });
+  });
+  if((splice_requires.len() == usize(0)) && (splice_ensures.len() == usize(0)), {
+    return(Rc.clone(body.*));
   });
   bind_op := cond(is_comptime_fn => String.from("::"), true => String.from(":="));
   // Phase V1 (decision D3): the binding the wrapper threads the return value

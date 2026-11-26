@@ -477,3 +477,23 @@ test("Rc(Box(Dyn(T))) shares a box", {
   assert(s.*.*.speak() == i32(2), "through the shared box");
   assert(r.*.*.speak() == i32(2), "both handles");
 });
+// A generic `x : &T` parameter at `T := Box(Dyn(S))`, where `Box(T)` has a
+// blanket impl of `S`: the specialization's prototype takes a pointer to the
+// box's pair, and the body reads `x` through it, so the receiver of the
+// blanket's method is `x` itself, not its address
+// (issues/fixed/2026-11-23-a-generic-reference-parameter-at-box-dyn-is-lent-again-and-emits-invalid-c.md).
+Tally :: trait(tally : (fn(self : &Self) -> i32));
+impl(Cat, Tally(tally : ((self : &Self) -> self.n)));
+impl(generic(T : ?Sized), where(T <: Tally), Box(T), Tally(tally : (fn(self : &Self) -> i32)(self.as_ref().tally())));
+_tally_via :: (fn(generic(T : ?Sized), x : &T, where(T <: Tally)) -> i32)(x.tally());
+_tally_sized :: (fn(generic(T : Type), x : &T, where(T <: Tally)) -> i32)(x.tally());
+test("a generic &T binder at T := Box(Dyn(S)) calls the Box blanket's method on the box", {
+  (d : Box(Dyn(Tally))) = dyn(Box.new(Cat(n : i32(7))));
+  assert(_tally_via(&d) == i32(7), "T is Box(Dyn(Tally))");
+  assert(_tally_sized(&d) == i32(7), "a sized binder at Box(Dyn(Tally))");
+  b := Box.new(Cat(n : i32(8)));
+  assert(_tally_via(&b) == i32(8), "T is Box(Cat)");
+  assert(_tally_sized(&b) == i32(8), "a sized binder at Box(Cat)");
+  c := Cat(n : i32(9));
+  assert(_tally_via(&c) == i32(9), "T is Cat");
+});

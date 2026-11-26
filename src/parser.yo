@@ -37,6 +37,7 @@ pragma(Pragma.AllowUnsafe);
   BK_FN_MUT_TRAIT,
   make_err_expr,
   ast_expr_to_string,
+  ast_expr_first_token,
   ast_expr_is_atom,
   ast_expr_is_fn_call,
   ast_expr_is_old_mode_spelling,
@@ -140,6 +141,11 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
     ),
     Rc(.Atom(_, _)) => String.new()
   )
+);
+/// The ten operators a compound assignment would pair with `=` (`x += 1`,
+/// `x <<= 1`): the arithmetic and bitwise binary operators.
+_is_compound_assignment_op :: (fn(v : &String) -> bool)(
+  (v.* == "+") || (v.* == "-") || (v.* == "*") || (v.* == "/") || (v.* == "%") || (v.* == "&") || (v.* == "|") || (v.* == "^") || (v.* == "<<") || (v.* == ">>")
 );
 /// A capture-list borrow pun in decision 42's spelling: `&y` or `&mut z`, a
 /// prefix sigil on one identifier (plans/VALUES_BY_DEFAULT.md decision 35).
@@ -1900,7 +1906,8 @@ impl(
         recur(self, &cur_expr, cur_idx, exn)
       },
       // Infix operator
-      ((tok.*.kind == TokenKind.Operator) || ((tok.*.kind == TokenKind.Dot) && (has_ws_fwd == false))) => {
+      ((tok.*.kind == TokenKind.Operator) || ((tok.kind == TokenKind.Dot) && (has_ws_fwd == false))) => {
+        self.reject_compound_assignment(primary_expr, &tok, idx, exn);
         rhs_start := self.skip_ws_fwd(idx + usize(1));
         rhs_pr := self.parse_expression(rhs_start, exn);
         rhs := Rc.clone(rhs_pr.expr);
@@ -1996,7 +2003,10 @@ impl(
   /// spanning lines (a multi-line literal), a literal ending the token list
   /// (an interpolation span, whose end no next token gives), or a result over
   /// 72 bytes yields "": pasted back, none would be the operand on one line.
-  _rhs_source_snippet : (fn(self : &Self, start : usize, end : usize) -> String)({
+  _rhs_source_snippet : (fn(self : &Self, start : usize, end : usize) -> String)(self._source_snippet(start, end, usize(72))),
+  /// `_rhs_source_snippet` with the length cap as a parameter: a hint shows
+  /// at most 72 bytes, a repair pastes the operand back whatever its length.
+  _source_snippet : (fn(self : &Self, start : usize, end : usize, max_len : usize) -> String)({
     // `end` is past the trivia after the operand (`a - b // note`): stop at
     // its last real token.
     stop := end;
@@ -2056,9 +2066,175 @@ impl(
       i = (i + usize(1));
     });
     cond(
-      (ok && (sb.len() > usize(0)) && (sb.len() <= usize(72))) => sb.to_string(),
+      (ok && (sb.len() > usize(0)) && (sb.len() <= max_len)) => sb.to_string(),
       true => String.new()
     )
+  }),
+  /// `x += 1`, `x |= m`, `x <<= 1` (E0010): Yo has no compound assignment.
+  /// The lexer splits `+=` into `+` and `=`, so the operator's right operand
+  /// would start at `=` and the error used to be a paren-less call at the
+  /// next token. The check keys on an `=` ADJACENT to one of the ten
+  /// arithmetic and bitwise operators, so `a |- 1` (`|` and a prefix minus)
+  /// and `a <= b` (one token) stay what they are. The repair writes
+  /// `x = (x + 1)` when the target and the right operand each read back from
+  /// the source and the edit stays on one line.
+  reject_compound_assignment : (fn(self : &mut Self, target : &AstExpr, op : &Token, op_idx : usize, exn : Exception) -> unit)({
+    opv := op.value.*.clone();
+    if(!_is_compound_assignment_op(&opv), {
+      return(());
+    });
+    adjacent_eq := match(
+      self.tokens.get_cloned(op_idx + usize(1)),
+      .Some(t) => ((t.kind == TokenKind.Operator) && (t.value.* == "=")),
+      .None => false
+    );
+    if(!adjacent_eq, {
+      return(());
+    });
+    target_text := self._compound_target_snippet(target, op_idx);
+    rhs_start := self.skip_ws_fwd(op_idx + usize(2));
+    (rhs_text : String) = String.new();
+    (rhs_end_byte : usize) = usize(0);
+    match(
+      self._try_parse_expression(rhs_start),
+      .Some(pr) => {
+        text := self._source_snippet(rhs_start, pr.index, usize(4096));
+        needs_parens := match(
+          Rc.clone(pr.expr),
+          Rc(.FnCall(_, rfb, _, ris_infix, _)) => (
+            ris_infix && match(
+              rfb,
+              Rc(.Atom(_, ft)) => (ft.kind != TokenKind.Dot),
+              Rc(.FnCall(_, _, _, _, _)) => false
+            )
+          ),
+          Rc(.Atom(_, _)) => false
+        );
+        rhs_text = cond(
+          ((text.len() > usize(0)) && needs_parens && !self.is_parenthesized_expr(rhs_start, pr.index - usize(1))) => `(${text})`,
+          true => text
+        );
+        rhs_end_byte = self._operand_end_byte(rhs_start, pr.index);
+      },
+      .None => ()
+    );
+    shown_target := cond((target_text.len() > usize(0)) => target_text.clone(), true => String.from("x"));
+    shown_rhs := cond((rhs_text.len() > usize(0)) => rhs_text.clone(), true => String.from("y"));
+    written := `${shown_target} = (${shown_target} ${opv} ${shown_rhs})`;
+    msg := `Yo has no compound assignment: \`${opv}=\` is an operator followed by \`=\`. Write the assignment out: \`${written}\`.`;
+    op_byte := usize(op.byte_offset);
+    one_line := (
+      (target_text.len() > usize(0)) && (rhs_text.len() > usize(0)) && (rhs_end_byte > op_byte) && (rhs_end_byte <= self.input_string.len()) && {
+        edited := self.input_string.substring(op_byte, rhs_end_byte);
+        !(edited.contains("\n") || edited.contains("\r"))
+      }
+    );
+    if(one_line, {
+      edited := self.input_string.substring(op_byte, rhs_end_byte);
+      (edited_runes : usize) = usize(0);
+      (bi : usize) = usize(0);
+      while(bi < edited.len(), bi = (bi + usize(1)), {
+        if((edited.byte_at(bi) & u8(192)) != u8(128), {
+          edited_runes = (edited_runes + usize(1));
+        });
+      });
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message_with_repair_at(
+              op,
+              &msg,
+              Option(String).None,
+              Span(path : op.module_path.*.clone(), row : usize(op.row), col : usize(op.column), len : edited_runes),
+              `= (${target_text} ${opv} ${rhs_text})`,
+              `write \`${written}\``
+            )
+          )
+        )
+      );
+    });
+    exn.throw(dyn(Box.new(make_parse_error(op, &msg))));
+  }),
+  /// `parse_expression` at `start`, or `.None` when it does not parse.
+  _try_parse_expression : (fn(self : &mut Self, start : usize) -> Option(ParseResult))({
+    local_exn := Exception(throw : (_err -> unwind(Option(ParseResult).None)));
+    Option(ParseResult).Some(self.parse_expression(start, local_exn))
+  }),
+  /// The byte just past the last real token of [start, end), or 0 when it
+  /// cannot be read (a literal ending the input).
+  _operand_end_byte : (fn(self : &Self, start : usize, end : usize) -> usize)({
+    stop := end;
+    while(stop > start, {
+      is_trivia := match(
+        self.tokens.get_cloned(stop - usize(1)),
+        .Some(lt) => ((lt.kind == TokenKind.Whitespace) || (lt.kind == TokenKind.SingleLineComment) || (lt.kind == TokenKind.MultiLineComment) || (lt.kind == TokenKind.DocLineComment) || (lt.kind == TokenKind.InnerDocLineComment) || (lt.kind == TokenKind.DocBlockComment) || (lt.kind == TokenKind.InnerDocBlockComment)),
+        .None => false
+      );
+      if(!is_trivia, {
+        break;
+      });
+      stop = (stop - usize(1));
+    });
+    cond(
+      (stop == start) => usize(0),
+      true => match(
+        self.tokens.get_cloned(stop),
+        .Some(nx) => usize(nx.byte_offset),
+        .None => usize(0)
+      )
+    )
+  }),
+  /// The source text of a compound assignment's target, the operand left of
+  /// `op_idx`, or "" when it does not read back on one line. The AST drops
+  /// parentheses, so `(p).*` is found at `p`; each unmatched `)` in the text
+  /// takes in the `(` before it.
+  _compound_target_snippet : (fn(self : &mut Self, target : &AstExpr, op_idx : usize) -> String)({
+    first := ast_expr_first_token(target);
+    (si : usize) = op_idx;
+    (found : bool) = false;
+    while((si > usize(0)) && !found, {
+      si = (si - usize(1));
+      found = match(self.tokens.get_cloned(si), .Some(t) => (t.byte_offset == first.byte_offset), .None => false);
+    });
+    if(!found, {
+      return(String.new());
+    });
+    (text : String) = self._source_snippet(si, op_idx, usize(4096));
+    if(text.contains("\"") || text.contains("`") || text.contains("'"), {
+      return(String.new());
+    });
+    (depth : i64) = i64(0);
+    (ci : usize) = usize(0);
+    while(ci < text.len(), ci = (ci + usize(1)), {
+      b := text.byte_at(ci);
+      if(b == u8(40), {
+        depth = (depth + i64(1));
+      });
+      if(b == u8(41), {
+        depth = (depth - i64(1));
+      });
+    });
+    while(depth < i64(0), {
+      (pi : usize) = si;
+      (open_found : bool) = false;
+      while((pi > usize(0)) && !open_found, {
+        pi = (pi - usize(1));
+        k := match(self.tokens.get_cloned(pi), .Some(t) => t.kind, .None => TokenKind.Whitespace);
+        if(k == TokenKind.LParen, {
+          open_found = true;
+        }, {
+          if(k != TokenKind.Whitespace, {
+            return(String.new());
+          });
+        });
+      });
+      if(!open_found, {
+        return(String.new());
+      });
+      si = pi;
+      depth = (depth + i64(1));
+    });
+    cond((depth == i64(0)) => self._source_snippet(si, op_idx, usize(4096)), true => String.new())
   }),
   /// E0003's canonical-grouping hint. No precedence means the unparenthesized
   /// mix is a parse error, but where the adjacent operators have exactly ONE
@@ -2140,6 +2316,18 @@ impl(
         `Parenthesize the function type: (${outer_fn_head}(...) -> T) ${rhs_op} value.`,
       ((outer_tier == u8(4)) && rhs_is_arm) =>
         `Parenthesize the whole condition: (condition) => value.`,
+      // Rust's `T: A + B`: several bounds on one type are a tuple.
+      ((outer == "<:") && (rhs_op.* == "+")) => {
+        snippet := self._rhs_source_snippet(rhs_start, rhs_end);
+        shown := cond((snippet.len() > usize(0)) => snippet.replace(String.from(" + "), String.from(", ")), true => String.from("A, B"));
+        `Several bounds on one type are a tuple: ${ast_expr_to_string(lhs)} <: (${shown}).`
+      },
+      // `F <: Fn(x : A) -> B`: the function trait is one operand of `<:`.
+      ((outer == "<:") && (rhs_fn_head.len() > usize(0))) => {
+        snippet := self._rhs_source_snippet(rhs_start, rhs_end);
+        shown := cond((snippet.len() > usize(0)) => snippet, true => `${rhs_fn_head}(...) -> R`);
+        `Group the function trait: ${ast_expr_to_string(lhs)} <: (${shown}).`
+      },
       true => String.new()
     )
   }),

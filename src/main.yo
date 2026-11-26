@@ -2085,11 +2085,18 @@ run_fix :: (
           mm_invalidate_document(
             mm_resolve_entry_abs(file.clone(), std_path.clone()).replace(String.from("file://"), String.new())
           );
-          fmt_argv := ArrayList(String).new();
-          fmt_argv.push(String.from("yo"));
-          fmt_argv.push(String.from("fmt"));
-          fmt_argv.push(file.clone());
-          run_fmt(&fmt_argv, io, exn);
+          // A parse-error repair can leave the file failing to parse at
+          // the next one (two compound assignments, E0010), and `fmt` exits
+          // the process on a file it cannot parse: the pass whose repair
+          // makes the file parse formats it.
+          fixed_src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+          if(_parse_or_none(&fixed_src, &file).is_some(), {
+            fmt_argv := ArrayList(String).new();
+            fmt_argv.push(String.from("yo"));
+            fmt_argv.push(String.from("fmt"));
+            fmt_argv.push(file.clone());
+            run_fmt(&fmt_argv, io, exn);
+          });
         });
       });
     });

@@ -532,70 +532,71 @@ ComptimeDiv :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Tra
   )
 );
 export(ComptimeDiv);
-/// Mod trait — enables `lhs % rhs` operator.
-Mod :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+/// Rem trait — enables `lhs % rhs` operator: the remainder, with the sign of
+/// the dividend (`-7 % 3` is `-1`); `rem_euclid` gives the non-negative one.
+Rem :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
     (%) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
-export(Mod);
-ComptimeMod :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
+export(Rem);
+ComptimeRem :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
     (%) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export(ComptimeMod);
-/// BitLeftShift trait — enables `lhs << rhs` operator.
-BitLeftShift :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+export(ComptimeRem);
+/// Shl trait — enables `lhs << rhs` operator.
+Shl :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
     (<<) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
-export(BitLeftShift);
-ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
+export(Shl);
+ComptimeShl :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
     (<<) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export(ComptimeBitLeftShift);
-/// BitRightShift trait — enables `lhs >> rhs` operator.
-BitRightShift :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+export(ComptimeShl);
+/// Shr trait — enables `lhs >> rhs` operator.
+Shr :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
     (>>) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
-export(BitRightShift);
-ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
+export(Shr);
+ComptimeShr :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
     (>>) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export(ComptimeBitRightShift);
+export(ComptimeShr);
 // `Exponentiation`/`ComptimeExponentiation` were DELETED here (std S1,
 // plans/archive/STD_API_AUDIT.md §4 prelude row): the `**` operator token was
 // already removed 2026-08-21 (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md), and
 // the traits had zero impls and zero call sites — dead surface.
-/// Negate trait — enables unary `-value` operator.
-Negate :: trait(
+/// Neg trait — enables unary `-value` operator.
+Neg :: trait(
   Output : Type,
   neg : (fn(self : Self) -> Self.Output)
 );
-export(Negate);
-ComptimeNegate :: trait(
+export(Neg);
+ComptimeNeg :: trait(
   Output : Type,
   neg : (fn(comptime(self) : Self) -> comptime(Self.Output)),
   where(Self <: Comptime, Self.Output <: Comptime)
 );
-export(ComptimeNegate);
+export(ComptimeNeg);
 /// LogicalNot trait — enables `!value` boolean negation.
 LogicalNot :: trait((!) : (fn(self : Self) -> bool));
 export(LogicalNot);
@@ -708,7 +709,7 @@ export(~);
     fn(
       generic(_Self : Type),
       self : _Self,
-      where(_Self <: Negate)
+      where(_Self <: Neg)
     ) -> _Self
   )({
     return(self.neg());
@@ -717,7 +718,7 @@ export(~);
     fn(
       generic(_Self : Type),
       comptime(self) : _Self,
-      where(_Self <: (Comptime, ComptimeNegate))
+      where(_Self <: (Comptime, ComptimeNeg))
     ) -> comptime(_Self)
   )({
     return(self.neg());
@@ -1194,7 +1195,7 @@ impl(
 );
 impl(
   comptime_int,
-  ComptimeMod(comptime_int)(
+  ComptimeRem(comptime_int)(
     Output : comptime_int,
     (%) : (
       (lhs, rhs) ->
@@ -1204,7 +1205,7 @@ impl(
 );
 impl(
   comptime_int,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : comptime_int,
     neg : (
       self ->
@@ -1313,7 +1314,7 @@ impl(
 );
 impl(
   comptime_float,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : comptime_float,
     neg : (
       self ->
@@ -1529,28 +1530,28 @@ impl(
 );
 impl(
   i8,
-  Mod(i8)(
+  Rem(i8)(
     Output : i8,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   i8,
-  Negate(
+  Neg(
     Output : i8,
     neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   i8,
-  BitLeftShift(i8)(
+  Shl(i8)(
     Output : i8,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   i8,
-  BitRightShift(i8)(
+  Shr(i8)(
     Output : i8,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -1660,7 +1661,7 @@ impl(
 );
 impl(
   i8,
-  ComptimeMod(i8)(
+  ComptimeRem(i8)(
     Output : i8,
     (%) : (
       (lhs, rhs) ->
@@ -1670,7 +1671,7 @@ impl(
 );
 impl(
   i8,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : i8,
     neg : (
       self ->
@@ -1744,7 +1745,7 @@ impl(
 );
 impl(
   i8,
-  ComptimeBitLeftShift(i8)(
+  ComptimeShl(i8)(
     Output : i8,
     (<<) : (
       (lhs, rhs) ->
@@ -1754,7 +1755,7 @@ impl(
 );
 impl(
   i8,
-  ComptimeBitRightShift(i8)(
+  ComptimeShr(i8)(
     Output : i8,
     (>>) : (
       (lhs, rhs) ->
@@ -1824,28 +1825,28 @@ impl(
 );
 impl(
   i16,
-  Mod(i16)(
+  Rem(i16)(
     Output : i16,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   i16,
-  Negate(
+  Neg(
     Output : i16,
     neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   i16,
-  BitLeftShift(i16)(
+  Shl(i16)(
     Output : i16,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   i16,
-  BitRightShift(i16)(
+  Shr(i16)(
     Output : i16,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -1955,7 +1956,7 @@ impl(
 );
 impl(
   i16,
-  ComptimeMod(i16)(
+  ComptimeRem(i16)(
     Output : i16,
     (%) : (
       (lhs, rhs) ->
@@ -1965,7 +1966,7 @@ impl(
 );
 impl(
   i16,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : i16,
     neg : (
       self ->
@@ -2039,7 +2040,7 @@ impl(
 );
 impl(
   i16,
-  ComptimeBitLeftShift(i16)(
+  ComptimeShl(i16)(
     Output : i16,
     (<<) : (
       (lhs, rhs) ->
@@ -2049,7 +2050,7 @@ impl(
 );
 impl(
   i16,
-  ComptimeBitRightShift(i16)(
+  ComptimeShr(i16)(
     Output : i16,
     (>>) : (
       (lhs, rhs) ->
@@ -2119,28 +2120,28 @@ impl(
 );
 impl(
   i32,
-  Mod(i32)(
+  Rem(i32)(
     Output : i32,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   i32,
-  Negate(
+  Neg(
     Output : i32,
     neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   i32,
-  BitLeftShift(i32)(
+  Shl(i32)(
     Output : i32,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   i32,
-  BitRightShift(i32)(
+  Shr(i32)(
     Output : i32,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -2211,7 +2212,7 @@ impl(
 );
 impl(
   i32,
-  ComptimeBitLeftShift(i32)(
+  ComptimeShl(i32)(
     Output : i32,
     (<<) : (
       (lhs, rhs) ->
@@ -2221,7 +2222,7 @@ impl(
 );
 impl(
   i32,
-  ComptimeBitRightShift(i32)(
+  ComptimeShr(i32)(
     Output : i32,
     (>>) : (
       (lhs, rhs) ->
@@ -2312,7 +2313,7 @@ impl(
 );
 impl(
   i32,
-  ComptimeMod(i32)(
+  ComptimeRem(i32)(
     Output : i32,
     (%) : (
       (lhs, rhs) ->
@@ -2322,7 +2323,7 @@ impl(
 );
 impl(
   i32,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : i32,
     neg : (
       self ->
@@ -2416,28 +2417,28 @@ impl(
 );
 impl(
   i64,
-  Mod(i64)(
+  Rem(i64)(
     Output : i64,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   i64,
-  Negate(
+  Neg(
     Output : i64,
     neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   i64,
-  BitLeftShift(i64)(
+  Shl(i64)(
     Output : i64,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   i64,
-  BitRightShift(i64)(
+  Shr(i64)(
     Output : i64,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -2547,7 +2548,7 @@ impl(
 );
 impl(
   i64,
-  ComptimeMod(i64)(
+  ComptimeRem(i64)(
     Output : i64,
     (%) : (
       (lhs, rhs) ->
@@ -2557,7 +2558,7 @@ impl(
 );
 impl(
   i64,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : i64,
     neg : (
       self ->
@@ -2631,7 +2632,7 @@ impl(
 );
 impl(
   i64,
-  ComptimeBitLeftShift(i64)(
+  ComptimeShl(i64)(
     Output : i64,
     (<<) : (
       (lhs, rhs) ->
@@ -2641,7 +2642,7 @@ impl(
 );
 impl(
   i64,
-  ComptimeBitRightShift(i64)(
+  ComptimeShr(i64)(
     Output : i64,
     (>>) : (
       (lhs, rhs) ->
@@ -2711,21 +2712,21 @@ impl(
 );
 impl(
   u8,
-  Mod(u8)(
+  Rem(u8)(
     Output : u8,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   u8,
-  BitLeftShift(u8)(
+  Shl(u8)(
     Output : u8,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   u8,
-  BitRightShift(u8)(
+  Shr(u8)(
     Output : u8,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -2835,7 +2836,7 @@ impl(
 );
 impl(
   u8,
-  ComptimeMod(u8)(
+  ComptimeRem(u8)(
     Output : u8,
     (%) : (
       (lhs, rhs) ->
@@ -2909,7 +2910,7 @@ impl(
 );
 impl(
   u8,
-  ComptimeBitLeftShift(u8)(
+  ComptimeShl(u8)(
     Output : u8,
     (<<) : (
       (lhs, rhs) ->
@@ -2919,7 +2920,7 @@ impl(
 );
 impl(
   u8,
-  ComptimeBitRightShift(u8)(
+  ComptimeShr(u8)(
     Output : u8,
     (>>) : (
       (lhs, rhs) ->
@@ -2989,21 +2990,21 @@ impl(
 );
 impl(
   u16,
-  Mod(u16)(
+  Rem(u16)(
     Output : u16,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   u16,
-  BitLeftShift(u16)(
+  Shl(u16)(
     Output : u16,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   u16,
-  BitRightShift(u16)(
+  Shr(u16)(
     Output : u16,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -3113,7 +3114,7 @@ impl(
 );
 impl(
   u16,
-  ComptimeMod(u16)(
+  ComptimeRem(u16)(
     Output : u16,
     (%) : (
       (lhs, rhs) ->
@@ -3187,7 +3188,7 @@ impl(
 );
 impl(
   u16,
-  ComptimeBitLeftShift(u16)(
+  ComptimeShl(u16)(
     Output : u16,
     (<<) : (
       (lhs, rhs) ->
@@ -3197,7 +3198,7 @@ impl(
 );
 impl(
   u16,
-  ComptimeBitRightShift(u16)(
+  ComptimeShr(u16)(
     Output : u16,
     (>>) : (
       (lhs, rhs) ->
@@ -3267,21 +3268,21 @@ impl(
 );
 impl(
   u32,
-  Mod(u32)(
+  Rem(u32)(
     Output : u32,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   u32,
-  BitLeftShift(u32)(
+  Shl(u32)(
     Output : u32,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   u32,
-  BitRightShift(u32)(
+  Shr(u32)(
     Output : u32,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -3391,7 +3392,7 @@ impl(
 );
 impl(
   u32,
-  ComptimeMod(u32)(
+  ComptimeRem(u32)(
     Output : u32,
     (%) : (
       (lhs, rhs) ->
@@ -3465,7 +3466,7 @@ impl(
 );
 impl(
   u32,
-  ComptimeBitLeftShift(u32)(
+  ComptimeShl(u32)(
     Output : u32,
     (<<) : (
       (lhs, rhs) ->
@@ -3475,7 +3476,7 @@ impl(
 );
 impl(
   u32,
-  ComptimeBitRightShift(u32)(
+  ComptimeShr(u32)(
     Output : u32,
     (>>) : (
       (lhs, rhs) ->
@@ -3545,21 +3546,21 @@ impl(
 );
 impl(
   u64,
-  Mod(u64)(
+  Rem(u64)(
     Output : u64,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   u64,
-  BitLeftShift(u64)(
+  Shl(u64)(
     Output : u64,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   u64,
-  BitRightShift(u64)(
+  Shr(u64)(
     Output : u64,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -3669,7 +3670,7 @@ impl(
 );
 impl(
   u64,
-  ComptimeMod(u64)(
+  ComptimeRem(u64)(
     Output : u64,
     (%) : (
       (lhs, rhs) ->
@@ -3743,7 +3744,7 @@ impl(
 );
 impl(
   u64,
-  ComptimeBitLeftShift(u64)(
+  ComptimeShl(u64)(
     Output : u64,
     (<<) : (
       (lhs, rhs) ->
@@ -3753,7 +3754,7 @@ impl(
 );
 impl(
   u64,
-  ComptimeBitRightShift(u64)(
+  ComptimeShr(u64)(
     Output : u64,
     (>>) : (
       (lhs, rhs) ->
@@ -3813,14 +3814,14 @@ impl(
 );
 impl(
   f32,
-  Mod(f32)(
+  Rem(f32)(
     Output : f32,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   f32,
-  Negate(
+  Neg(
     Output : f32,
     neg : (self -> __yo_op_neg(self))
   )
@@ -3921,7 +3922,7 @@ impl(
 );
 impl(
   f32,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : f32,
     neg : (
       self ->
@@ -4006,14 +4007,14 @@ impl(
 );
 impl(
   f64,
-  Mod(f64)(
+  Rem(f64)(
     Output : f64,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   f64,
-  Negate(
+  Neg(
     Output : f64,
     neg : (self -> __yo_op_neg(self))
   )
@@ -4106,7 +4107,7 @@ impl(
 );
 impl(
   f64,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : f64,
     neg : (
       self ->
@@ -4202,28 +4203,28 @@ impl(
 );
 impl(
   isize,
-  Mod(isize)(
+  Rem(isize)(
     Output : isize,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   isize,
-  Negate(
+  Neg(
     Output : isize,
     neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   isize,
-  BitLeftShift(isize)(
+  Shl(isize)(
     Output : isize,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   isize,
-  BitRightShift(isize)(
+  Shr(isize)(
     Output : isize,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -4333,7 +4334,7 @@ impl(
 );
 impl(
   isize,
-  ComptimeMod(isize)(
+  ComptimeRem(isize)(
     Output : isize,
     (%) : (
       (lhs, rhs) ->
@@ -4343,7 +4344,7 @@ impl(
 );
 impl(
   isize,
-  ComptimeNegate(
+  ComptimeNeg(
     Output : isize,
     neg : (
       self ->
@@ -4417,7 +4418,7 @@ impl(
 );
 impl(
   isize,
-  ComptimeBitLeftShift(isize)(
+  ComptimeShl(isize)(
     Output : isize,
     (<<) : (
       (lhs, rhs) ->
@@ -4427,7 +4428,7 @@ impl(
 );
 impl(
   isize,
-  ComptimeBitRightShift(isize)(
+  ComptimeShr(isize)(
     Output : isize,
     (>>) : (
       (lhs, rhs) ->
@@ -4496,21 +4497,21 @@ impl(
 );
 impl(
   usize,
-  Mod(usize)(
+  Rem(usize)(
     Output : usize,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   usize,
-  BitLeftShift(usize)(
+  Shl(usize)(
     Output : usize,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   usize,
-  BitRightShift(usize)(
+  Shr(usize)(
     Output : usize,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
@@ -4757,7 +4758,7 @@ impl(
 );
 impl(
   usize,
-  ComptimeMod(usize)(
+  ComptimeRem(usize)(
     Output : usize,
     (%) : (
       (lhs, rhs) ->
@@ -4831,7 +4832,7 @@ impl(
 );
 impl(
   usize,
-  ComptimeBitLeftShift(usize)(
+  ComptimeShl(usize)(
     Output : usize,
     (<<) : (
       (lhs, rhs) ->
@@ -4841,7 +4842,7 @@ impl(
 );
 impl(
   usize,
-  ComptimeBitRightShift(usize)(
+  ComptimeShr(usize)(
     Output : usize,
     (>>) : (
       (lhs, rhs) ->
@@ -5911,14 +5912,14 @@ impl(
 );
 impl(
   char,
-  Mod(char)(
+  Rem(char)(
     Output : char,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   char,
-  Negate(
+  Neg(
     Output : char,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6022,14 +6023,14 @@ impl(
 );
 impl(
   int,
-  Mod(int)(
+  Rem(int)(
     Output : int,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   int,
-  Negate(
+  Neg(
     Output : int,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6133,14 +6134,14 @@ impl(
 );
 impl(
   uint,
-  Mod(uint)(
+  Rem(uint)(
     Output : uint,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   uint,
-  Negate(
+  Neg(
     Output : uint,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6244,14 +6245,14 @@ impl(
 );
 impl(
   short,
-  Mod(short)(
+  Rem(short)(
     Output : short,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   short,
-  Negate(
+  Neg(
     Output : short,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6355,14 +6356,14 @@ impl(
 );
 impl(
   ushort,
-  Mod(ushort)(
+  Rem(ushort)(
     Output : ushort,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   ushort,
-  Negate(
+  Neg(
     Output : ushort,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6466,14 +6467,14 @@ impl(
 );
 impl(
   long,
-  Mod(long)(
+  Rem(long)(
     Output : long,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   long,
-  Negate(
+  Neg(
     Output : long,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6577,14 +6578,14 @@ impl(
 );
 impl(
   ulong,
-  Mod(ulong)(
+  Rem(ulong)(
     Output : ulong,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   ulong,
-  Negate(
+  Neg(
     Output : ulong,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6688,14 +6689,14 @@ impl(
 );
 impl(
   longlong,
-  Mod(longlong)(
+  Rem(longlong)(
     Output : longlong,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   longlong,
-  Negate(
+  Neg(
     Output : longlong,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6799,14 +6800,14 @@ impl(
 );
 impl(
   ulonglong,
-  Mod(ulonglong)(
+  Rem(ulonglong)(
     Output : ulonglong,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   ulonglong,
-  Negate(
+  Neg(
     Output : ulonglong,
     neg : (self -> __yo_op_neg(self))
   )
@@ -6910,14 +6911,14 @@ impl(
 );
 impl(
   longdouble,
-  Mod(longdouble)(
+  Rem(longdouble)(
     Output : longdouble,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   longdouble,
-  Negate(
+  Neg(
     Output : longdouble,
     neg : (self -> __yo_op_neg(self))
   )
