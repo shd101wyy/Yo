@@ -40,7 +40,10 @@ HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH, OPTIONS);
 derive(HttpMethod, Copy, Clone);
 impl(
   HttpMethod,
-  Display(fmt : ((self, f) -> f.write(&match(
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
           self,
           .GET => `GET`,
           .POST => `POST`,
@@ -49,7 +52,10 @@ impl(
           .HEAD => `HEAD`,
           .PATCH => `PATCH`,
           .OPTIONS => `OPTIONS`
-        ))))
+        )
+      )
+    )
+  )
 );
 impl(
   HttpMethod,
@@ -189,18 +195,24 @@ impl(
 );
 impl(
   HeaderMap,
-  Display(/// The header section in wire format — each line `Name: value\r\n`,
+  Display(
+    /// The header section in wire format — each line `Name: value\r\n`,
     /// WITHOUT the blank line that terminates the section (the message
     /// serializers add that, since they also append `Content-Length`).
-    fmt : ((self, f) -> f.write(&{
-      mut(out) := String.new();
-      (mut(i) : usize) = usize(0);
-      while(i < self._entries.len(), i = (i + usize(1)), {
-        h := self._entries.get_cloned(i).unwrap();
-        out = `${out}${h.name}: ${h.value}\r\n`;
-      });
-      out
-    })))
+    fmt : (
+      (self, f) -> f.write(
+        & {
+          mut(out) := String.new();
+          (mut(i) : usize) = usize(0);
+          while(i < self._entries.len(), i = (i + usize(1)), {
+            h := self._entries.get_cloned(i).unwrap();
+            out = `${out}${h.name}: ${h.value}\r\n`;
+          });
+          out
+        }
+      )
+    )
+  )
 );
 /// An HTTP request with method, path, headers, and optional body.
 HttpRequest :: struct(
@@ -255,18 +267,24 @@ impl(
 /// `HttpMethod` and `HttpError` already use.
 impl(
   HttpRequest,
-  Display(/// Serialize the request to an HTTP/1.1 wire-format string.
-    fmt : ((self, f) -> f.write(&{
-      mut(result) := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n${self.headers.to_string()}`;
-      result = `${result}\r\n`;
-      cond(
-        !self.body.is_empty() => {
-          result = `${result}${self.body}`;
-        },
-        true => ()
-      );
-      result
-    })))
+  Display(
+    /// Serialize the request to an HTTP/1.1 wire-format string.
+    fmt : (
+      (self, f) -> f.write(
+        & {
+          mut(result) := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n${self.headers.to_string()}`;
+          result = `${result}\r\n`;
+          cond(
+            !self.body.is_empty() => {
+              result = `${result}${self.body}`;
+            },
+            true => ()
+          );
+          result
+        }
+      )
+    )
+  )
 );
 /// An HTTP status code — Rust's `http::StatusCode`.
 ///
@@ -498,20 +516,26 @@ impl(
 );
 impl(
   HttpResponse,
-  Display(/// Serialize to wire format, on the status line's own `version` (so a
+  Display(
+    /// Serialize to wire format, on the status line's own `version` (so a
     /// parsed response round-trips). A `Content-Length` header is added
     /// when none is present (the byte length of `body`), so the peer can
     /// delimit the message without waiting for close.
-    fmt : ((self, f) -> f.write(&{
-      mut(result) := `${self.version} ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
-      cond(
-        self.get_header(`Content-Length`).is_none() => {
-          result = `${result}Content-Length: ${self.body.len().to_string()}\r\n`;
-        },
-        true => ()
-      );
-      `${result}\r\n${self.body}`
-    })))
+    fmt : (
+      (self, f) -> f.write(
+        & {
+          mut(result) := `${self.version} ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
+          cond(
+            self.get_header(`Content-Length`).is_none() => {
+              result = `${result}Content-Length: ${self.body.len().to_string()}\r\n`;
+            },
+            true => ()
+          );
+          `${result}\r\n${self.body}`
+        }
+      )
+    )
+  )
 );
 /// Why a raw HTTP message did not parse — the error of `parse_request` and
 /// `parse_response`, which are pure decoders and so return `Result` (D13).

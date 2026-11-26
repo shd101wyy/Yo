@@ -325,7 +325,7 @@ When `derive(Type, Trait)` is called:
 Every derivable trait in `std` uses the same `derive_rule` mechanism, and each rule lives beside the trait it derives:
 
 - **Eq, Clone, Hash, Ord, Default** — `std/prelude.yo`
-- **Debug** — `std/fmt/to_string.yo`. `__derive_debug_body(T)` builds the `debug_fmt` body: one `f.write_str` per literal part and one `f.write_debug` per field.
+- **Debug** — `std/fmt/to_string.yo`. `__derive_debug_body(T)` builds the `debug_fmt` body: one `f.write_str` per literal part and one `debug_fmt(f)` call per field.
 - **Error** — `std/error.yo`. The only rule that emits TWO trait bodies from one call, because `Error` requires `Self <: Display`; it therefore builds the `impl(T, Display(…), Error())` expression itself rather than going through `DeriveContext.make_impl`, which wraps exactly one.
 - **ToJson, FromJson** — `std/encoding/json.yo`
 

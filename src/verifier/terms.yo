@@ -62,16 +62,22 @@ derive(VcSortNode, Clone, Eq(VcSortNode));
 // 21's trees).
 impl(
   VcSort,
-  Display(fmt : ((self, f) -> f.write(&match(
-        self,
-        Rc(.BoolS) => String.from("bool"),
-        Rc(.BvS(w)) => `bv${w.to_string()}`,
-        Rc(.DataS(name)) => name.clone(),
-        Rc(.SeqS(_)) => String.from("seq"),
-        Rc(.FunS(_, _)) => String.from("array"),
-        Rc(.ArrS(_, _)) => String.from("array"),
-        Rc(.Uninterpreted(name)) => name.clone()
-      ))))
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
+          self,
+          Rc(.BoolS) => String.from("bool"),
+          Rc(.BvS(w)) => `bv${w.to_string()}`,
+          Rc(.DataS(name)) => name.clone(),
+          Rc(.SeqS(_)) => String.from("seq"),
+          Rc(.FunS(_, _)) => String.from("array"),
+          Rc(.ArrS(_, _)) => String.from("array"),
+          Rc(.Uninterpreted(name)) => name.clone()
+        )
+      )
+    )
+  )
 );
 // ============================================================================
 // Operators

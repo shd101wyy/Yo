@@ -307,14 +307,18 @@ YoError :: struct(
 );
 impl(
   YoError,
-  Display(fmt : ((self, f) -> 
-// MODE-AWARE, not human-only: `--error-format json` worked for parse
-      // and lexer errors but not evaluator ones, because every path that
-      // stringifies a YoError through `to_string()` landed here and rendered
-      // human regardless of the mode (measured on the released v0.2.35 seed,
-      // so the defect predates this branch). `render_diagnostics_for_mode`
-      // returns human when no mode is set, so the default is unchanged.
-      f.write(&render_diagnostics_for_mode(&self.diagnostics))))
+  Display(
+    fmt : (
+      (self, f) ->
+        // MODE-AWARE, not human-only: `--error-format json` worked for parse
+        // and lexer errors but not evaluator ones, because every path that
+        // stringifies a YoError through `to_string()` landed here and rendered
+        // human regardless of the mode (measured on the released v0.2.35 seed,
+        // so the defect predates this branch). `render_diagnostics_for_mode`
+        // returns human when no mode is set, so the default is unchanged.
+        f.write(&render_diagnostics_for_mode(&self.diagnostics))
+    )
+  )
 );
 impl(YoError, Error());
 /// A copy of the diagnostics: an `AnyError` lists `Clone`, so keeping a
@@ -339,7 +343,7 @@ ExitWith :: struct(
 );
 impl(
   ExitWith,
-  Display(fmt : ((self, f) -> f.write(&self.message.clone())))
+  Display(fmt : ((self, f) -> f.write(&self.message)))
 );
 impl(ExitWith, Error());
 impl(

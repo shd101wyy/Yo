@@ -60,11 +60,17 @@ FsEventKind :: enum(
 derive(FsEventKind, Copy, Clone);
 impl(
   FsEventKind,
-  Display(fmt : ((self, f) -> f.write(&match(
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
           self,
           .Rename => String.from("rename"),
           .Change => String.from("change")
-        ))))
+        )
+      )
+    )
+  )
 );
 /// One notification.
 FsEvent :: struct(

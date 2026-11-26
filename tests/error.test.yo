@@ -89,11 +89,17 @@ test("Test Exception with custom MathError enum", {
   derive(MathError, Copy, Clone);
   impl(
     MathError,
-    Display(fmt : ((self, f) -> f.write(&match(
-          self,
-          .DivisionByZero => `Division by zero`,
-          .NegativeSqrt => `Square root of a negative number`
-        ))))
+    Display(
+      fmt : (
+        (self, f) -> f.write(
+          &match(
+            self,
+            .DivisionByZero => `Division by zero`,
+            .NegativeSqrt => `Square root of a negative number`
+          )
+        )
+      )
+    )
   );
   impl(MathError, Error());
   safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
@@ -158,11 +164,17 @@ test("Test ResumableException with custom MathError enum", {
   derive(MathError, Copy, Clone);
   impl(
     MathError,
-    Display(fmt : ((self, f) -> f.write(&match(
-          self,
-          .DivisionByZero => `Division by zero`,
-          .NegativeSqrt => `Square root of a negative number`
-        ))))
+    Display(
+      fmt : (
+        (self, f) -> f.write(
+          &match(
+            self,
+            .DivisionByZero => `Division by zero`,
+            .NegativeSqrt => `Square root of a negative number`
+          )
+        )
+      )
+    )
   );
   impl(MathError, Error());
   safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
@@ -269,7 +281,7 @@ impl(
   )
 );
 ThrownErr :: struct(detail : String, r : Rc(ThrownRes));
-impl(ThrownErr, Display(fmt : ((self, f) -> f.write(&self.detail.clone()))));
+impl(ThrownErr, Display(fmt : ((self, f) -> f.write(&self.detail))));
 impl(ThrownErr, Error());
 impl(
   ThrownErr,

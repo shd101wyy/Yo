@@ -138,12 +138,18 @@ impl(
 );
 impl(
   Duration,
-  Display(fmt : ((self, f) -> f.write(&{
-      buf := Array(u8, usize(64)).fill(u8(0));
-      buf_ptr := addr_of(buf(usize(0)));
-      unsafe(snprintf((*char)(buf_ptr), usize(64), "%llds %lldns", self.secs, self.nanos));
-      String.from_cstr(buf_ptr).unwrap()
-    })))
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        & {
+          buf := Array(u8, usize(64)).fill(u8(0));
+          buf_ptr := addr_of(buf(usize(0)));
+          unsafe(snprintf((*char)(buf_ptr), usize(64), "%llds %lldns", self.secs, self.nanos));
+          String.from_cstr(buf_ptr).unwrap()
+        }
+      )
+    )
+  )
 );
 
 // ============================================================================

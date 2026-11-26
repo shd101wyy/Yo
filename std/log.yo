@@ -80,15 +80,21 @@ _level_value :: (fn(l : Level) -> i32)(
 );
 impl(
   Level,
-  Display(fmt : ((self, f) -> f.write(&match(
-        self,
-        .Trace => String.from("TRACE"),
-        .Debug => String.from("DEBUG"),
-        .Info => String.from("INFO "),
-        .Warn => String.from("WARN "),
-        .Error => String.from("ERROR"),
-        .Off => String.from("OFF  ")
-      ))))
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
+          self,
+          .Trace => String.from("TRACE"),
+          .Debug => String.from("DEBUG"),
+          .Info => String.from("INFO "),
+          .Warn => String.from("WARN "),
+          .Error => String.from("ERROR"),
+          .Off => String.from("OFF  ")
+        )
+      )
+    )
+  )
 );
 impl(
   Level,

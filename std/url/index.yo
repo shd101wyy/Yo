@@ -1213,46 +1213,52 @@ impl(
 // Reconstruct the URL as a String
 impl(
   Url,
-  Display(fmt : ((self, f) -> f.write(&{
-        mut(result) := `${self._scheme}:`;
-        match(
-          &self._host,
-          .Some(h) => {
-            result = result.concat(`//`);
-            match(
-              &self._userinfo,
-              .Some(ui) => {
-                result = result.concat(&ui.*).concat(`@`);
-              },
-              .None => ()
-            );
-            result = result.concat(&h.*);
-            match(
-              self._port,
-              .Some(p) => {
-                result = result.concat(`:${p}`);
-              },
-              .None => ()
-            );
-          },
-          .None => ()
-        );
-        result = result.concat(&self._path);
-        match(
-          &self._query,
-          .Some(q) => {
-            result = result.concat(`?`).concat(&q.*);
-          },
-          .None => ()
-        );
-        match(
-          &self._fragment,
-          .Some(f) => {
-            result = result.concat(`#`).concat(&f.*);
-          },
-          .None => ()
-        );
-        result
-      })))
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        & {
+          mut(result) := `${self._scheme}:`;
+          match(
+            &self._host,
+            .Some(h) => {
+              result = result.concat(`//`);
+              match(
+                &self._userinfo,
+                .Some(ui) => {
+                  result = result.concat(&ui.*).concat(`@`);
+                },
+                .None => ()
+              );
+              result = result.concat(&h.*);
+              match(
+                self._port,
+                .Some(p) => {
+                  result = result.concat(`:${p}`);
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          result = result.concat(&self._path);
+          match(
+            &self._query,
+            .Some(q) => {
+              result = result.concat(`?`).concat(&q.*);
+            },
+            .None => ()
+          );
+          match(
+            &self._fragment,
+            .Some(f) => {
+              result = result.concat(`#`).concat(&f.*);
+            },
+            .None => ()
+          );
+          result
+        }
+      )
+    )
+  )
 );
 export(Url, UrlError);

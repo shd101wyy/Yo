@@ -128,11 +128,17 @@ derive(TryRecvError, Copy, Clone);
 export(TryRecvError);
 impl(
   TryRecvError,
-  Display(fmt : ((self, f) -> f.write(&match(
-        self,
-        .Empty => String.from("channel empty"),
-        .Disconnected => String.from("channel disconnected")
-      ))))
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
+          self,
+          .Empty => String.from("channel empty"),
+          .Disconnected => String.from("channel disconnected")
+        )
+      )
+    )
+  )
 );
 impl(
   TryRecvError,

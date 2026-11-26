@@ -146,7 +146,7 @@ import("std/string");
 test("Test downcast success", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   Animal :: Box(Dyn(Display, Clone));
   (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   maybe_cat := downcast(&animal.*, Cat);
@@ -163,10 +163,10 @@ test("Test downcast success", {
 test("Test downcast failure", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   Dog :: struct(name : String);
   derive(Dog, Clone);
-  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name))));
   Animal :: Box(Dyn(Display, Clone));
   (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   maybe_dog := downcast(&animal.*, Dog);
@@ -183,10 +183,10 @@ test("Test downcast failure", {
 test("Test downcast type check via is_some", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   Dog :: struct(name : String);
   derive(Dog, Clone);
-  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name))));
   Animal :: Box(Dyn(Display, Clone));
   (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   assert(downcast(&animal.*, Cat).is_some(), "Expected animal to be a Cat");
@@ -204,7 +204,7 @@ test("Test downcast type check via is_some", {
 test("Test downcast to a value type that no dyn() in the program wraps", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   // A PAYLOAD variant matters: a fieldless enum lowers to a C integer, and the
   // old object-cast fallback then compiled (as a pointer-to-int cast) instead of
   // failing loudly. The struct-shaped variants are what the C compiler rejects.
@@ -234,7 +234,7 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
 test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   Animal :: Box(Dyn(Display, Clone));
   comptime_expect_error(downcast(dyn(Box.new(Cat(`shadow`))), Cat), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
@@ -247,10 +247,10 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
 test("Test downcast with multiple concrete types", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   Dog :: struct(name : String);
   derive(Dog, Clone);
-  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name.clone()))));
+  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name))));
   Animal :: Box(Dyn(Display, Clone));
   (cat_animal : Animal) = dyn(Box.new(Cat(`kitty`)));
   (dog_animal : Animal) = dyn(Box.new(Dog(`buddy`)));

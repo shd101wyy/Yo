@@ -10,7 +10,8 @@ Rewrites, per .yo file:
   2. every `Debug(debug_string : V)` of the same two shapes to
      `Debug(debug_fmt : ((self, f) -> f.write(&E)))`;
   3. every remaining `ToString` word (imports, bounds, `Dyn(...)`, comments) to
-     `Display`; `ComptimeToString` and longer identifiers are untouched.
+     `Display`; `ComptimeToString` and longer identifiers are untouched;
+  4. `f.write(&x.clone())` / `f.write(&x.to_string())` to `f.write(&x)`.
 Sites it cannot rewrite (an `append_to` entry, a body with `return(`, another
 receiver shape, `derive(..., ToString)`) are listed on stderr for a hand edit.
 """
@@ -173,6 +174,8 @@ def sweep_file(path, report):
     for m in re.finditer(r'derive\([^;]*?(?<![A-Za-z0-9_])ToString(?![A-Za-z0-9_])', s):
         report.append('%s:%d: derive(..., ToString) left for a hand edit' % (path, s.count('\n', 0, m.start()) + 1))
     s = re.sub(r'(?<![A-Za-z0-9_])ToString(?![A-Za-z0-9_])', 'Display', s)
+    # `f.write(&x.clone())` / `f.write(&x.to_string())` renders the same text as `f.write(&x)`.
+    s = re.sub(r'f\.write\(&([A-Za-z_][A-Za-z0-9_.]*)\.(?:clone|to_string)\(\)\)', r'f.write(&\1)', s)
     if s != orig:
         open(path, 'w', encoding='utf-8').write(s)
         return True

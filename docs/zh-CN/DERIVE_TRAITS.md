@@ -325,7 +325,7 @@ derive(generic(T1, T2), Pair(T1, T2), where(T1 <: MyEq(T1), T2 <: MyEq(T2)), MyE
 `std` 中每个可派生特征都使用相同的 `derive_rule` 机制，并且规则都与它所派生的特征放在一起：
 
 - **Eq、Clone、Hash、Ord、Default** — `std/prelude.yo`
-- **Debug** — `std/fmt/to_string.yo`。`__derive_debug_body(T)` 构造 `debug_fmt` 的函数体：每个字面部分一次 `f.write_str`，每个字段一次 `f.write_debug`。
+- **Debug** — `std/fmt/to_string.yo`。`__derive_debug_body(T)` 构造 `debug_fmt` 的函数体：每个字面部分一次 `f.write_str`，每个字段一次 `debug_fmt(f)` 调用。
 - **Error** — `std/error.yo`。唯一一个一次调用生成**两个**特征体的规则，因为 `Error` 要求 `Self <: Display`；也正因此它自己构造 `impl(T, Display(…), Error())` 表达式，而不走只包一个特征体的 `DeriveContext.make_impl`。
 - **ToJson、FromJson** — `std/encoding/json.yo`
 

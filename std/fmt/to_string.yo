@@ -422,7 +422,7 @@ impl(
         self,
         .Some(value) => {
           f.write_str("Some(");
-          f.write(value);
+          T.fmt(value, f);
           f.write_str(")");
         },
         .None => f.write_str("None")
@@ -441,12 +441,12 @@ impl(
         self,
         .Ok(value) => {
           f.write_str("Ok(");
-          f.write(value);
+          T.fmt(value, f);
           f.write_str(")");
         },
         .Err(error) => {
           f.write_str("Err(");
-          f.write(error);
+          E.fmt(error, f);
           f.write_str(")");
         }
       )
@@ -471,7 +471,7 @@ impl(
           },
           true => ()
         );
-        f.write(&self(i));
+        T.fmt(&self(i), f);
         i = (i + usize(1));
       });
       f.write_str("]");
@@ -494,7 +494,7 @@ impl(
           },
           true => ()
         );
-        f.write(&self(i));
+        T.fmt(&self(i), f);
         i = (i + usize(1));
       });
       f.write_str("]");
@@ -660,8 +660,8 @@ __ts_fold_range :: (
 /// INVARIANT — the emitted source must contain NO free identifier.
 /// The caller splices it through `.to_expr()`, which re-parses it, so every
 /// name in it resolves in the DERIVING file's scope, not in this module's.
-/// The body therefore calls only methods (`f.write_str`, `f.write_debug`) on
-/// the formatter parameter `f`, with `str` literals, all resolved by type,
+/// The body therefore calls only methods (`f.write_str`, each field's own
+/// `debug_fmt(f)`), with `str` literals, all resolved by type,
 /// never by scope (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md).
 /// `self`, `f`, the `__v_*` arm bindings and the `.`-prefixed variant tags are
 /// the only other names, and all are bound at the splice site.
@@ -684,7 +684,7 @@ __derive_debug_body :: (fn(comptime(T) : Type) -> comptime(comptime_str))({
                 (fi == 0) => a,
                 true => __ts_s2(a, " f.write_str(\", \");")
               );
-              __ts_s4(with_sep, " f.write_debug(&self.", fname, ");")
+              __ts_s4(with_sep, " self.", fname, ".debug_fmt(f);")
             })
           );
           __ts_s2(body, " f.write_str(\")\") }")
@@ -723,7 +723,7 @@ __derive_debug_body :: (fn(comptime(T) : Type) -> comptime(comptime_str))({
                     (fi == 0) => a,
                     true => __ts_s2(a, " f.write_str(\", \");")
                   );
-                  __ts_s4(with_sep, " f.write_debug(__v_", fname, ");")
+                  __ts_s4(with_sep, " __v_", fname, ".debug_fmt(f);")
                 })
               );
               full_body :: __ts_s2(body, " f.write_str(\")\") }");

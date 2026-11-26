@@ -786,11 +786,17 @@ _D15Err :: enum(NotFound(path : String), Denied);
 derive(_D15Err, Debug);
 impl(
   _D15Err,
-  Display(fmt : ((self, f) -> f.write(&match(
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
           self,
           .NotFound(path) => `no such file: ${path}`,
           .Denied => `permission denied`
-        ))))
+        )
+      )
+    )
+  )
 );
 _D15Point :: struct(x : i32, y : i32);
 derive(_D15Point, Debug);
