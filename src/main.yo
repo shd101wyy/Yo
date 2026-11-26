@@ -2171,11 +2171,11 @@ run_check :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(Box.new(`check: missing input file. Usage: yo check <input.yo | dir>`)));
+    exn.throw(dyn(Box.new(`check: missing input file. Usage: yo check <input.yo | dir>...`)));
   });
-  // Positional + `--exclude <path>` (repeatable) in any order; unknown
-  // options are errors (strict parsing).
-  (target_path : String) = String.new();
+  // Positionals (each a file or a directory) + `--exclude <path>`
+  // (repeatable) in any order; unknown options are errors (strict parsing).
+  target_paths := ArrayList(String).new();
   excludes := ArrayList(String).new();
   (watch : bool) = false;
   (watch_once : bool) = false;
@@ -2212,18 +2212,36 @@ run_check :: (
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(Box.new(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH] [--test-bodies] [--watch | --watch-once] [--poll-ms N]`)));
+        exn.throw(dyn(Box.new(`check: unknown option '${a}'. Usage: yo check <input.yo | dir>... [--exclude PATH] [--test-bodies] [--watch | --watch-once] [--poll-ms N]`)));
       },
       true => {
-        target_path = a.clone();
+        target_paths.push(a.clone());
         ai = (ai + usize(1));
       }
     );
   });
-  if(target_path.len() == usize(0), {
-    exn.throw(dyn(Box.new(`check: missing input file. Usage: yo check <input.yo | dir>`)));
+  if(target_paths.len() == usize(0), {
+    exn.throw(dyn(Box.new(`check: missing input file. Usage: yo check <input.yo | dir>...`)));
   });
-  files := collect_check_files(target_path.clone(), &excludes, io, exn);
+  // Every path is checked, in argument order, each file once
+  // (issues/fixed/2026-11-26-yo-check-with-several-file-arguments-checks-only-the-last-and-exits-0.md).
+  files := ArrayList(String).new();
+  seen_files := HashSet(String).new();
+  (target_path : String) = String.new();
+  (tpi : usize) = usize(0);
+  while(tpi < target_paths.len(), tpi = (tpi + usize(1)), {
+    if(tpi > usize(0), {
+      target_path.push_str(" ");
+    });
+    target_path.push_string(&target_paths(tpi));
+    found := collect_check_files(&target_paths(tpi), &excludes, io, exn);
+    (fdi : usize) = usize(0);
+    while(fdi < found.len(), fdi = (fdi + usize(1)), {
+      if(seen_files.insert(_resolve_for_match(&found(fdi))), {
+        files.push(found(fdi).clone());
+      });
+    });
+  });
   if(files.len() == usize(0), {
     exn.throw(dyn(Box.new(`check: no .yo files found at ${target_path}`)));
   });
@@ -5023,6 +5041,9 @@ run_compile :: (
         // `--sanitizer address` typo compiled unsanitized with rc=0.
         exn.throw(dyn(Box.new(`compile: unknown option '${a}'`)));
         ai = (ai + usize(1));
+      },
+      (input_path.len() > usize(0)) => {
+        exn.throw(dyn(Box.new(`compile: one input file per run, got '${input_path}' and '${a}'`)));
       },
       true => {
         input_path = a;
@@ -8271,6 +8292,9 @@ run_effects :: (
       a.starts_with(String.from("-")) => {
         exn.throw(dyn(Box.new(`effects: unknown option '${a}'. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]`)));
       },
+      (target_path.len() > usize(0)) => {
+        exn.throw(dyn(Box.new(`effects: one path per run, got '${target_path}' and '${a}'. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]`)));
+      },
       true => {
         target_path = a.clone();
         ai = (ai + usize(1));
@@ -9328,6 +9352,7 @@ run_unsafe_report_cmd :: (
   ) -> unit
 )({
   (target : String) = String.from(".");
+  (target_seen : bool) = false;
   (as_json : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
@@ -9336,8 +9361,12 @@ run_unsafe_report_cmd :: (
       (arg == "--json") => {
         as_json = true;
       },
+      target_seen => {
+        exn.throw(dyn(Box.new(`unsafe-report: one path per run, got '${target}' and '${arg}'. Usage: yo unsafe-report [path] [--json]`)));
+      },
       true => {
         target = arg.clone();
+        target_seen = true;
       }
     );
     ai = (ai + usize(1));
@@ -9366,6 +9395,7 @@ run_public_safe_report_cmd :: (
   ) -> unit
 )({
   (target : String) = String.from("./std");
+  (target_seen : bool) = false;
   (as_json : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
@@ -9374,8 +9404,12 @@ run_public_safe_report_cmd :: (
       (arg == "--json") => {
         as_json = true;
       },
+      target_seen => {
+        exn.throw(dyn(Box.new(`public-safe-report: one path per run, got '${target}' and '${arg}'. Usage: yo public-safe-report [path] [--json]`)));
+      },
       true => {
         target = arg.clone();
+        target_seen = true;
       }
     );
     ai = (ai + usize(1));
@@ -9551,9 +9585,12 @@ run_version_cmd :: (
         action = a.clone();
         vi = (vi + usize(1));
       },
-      true => {
+      (value == "") => {
         value = a.clone();
         vi = (vi + usize(1));
+      },
+      true => {
+        exn.throw(dyn(Box.new(`version: unexpected extra argument '${a}'. Usage: yo version [action] [version] (see yo version --help)`)));
       }
     );
   });
@@ -9736,7 +9773,7 @@ Example:
   $ yo test ./tests --list       List the tests without running them
   $ yo test ./tests --json       One JSON line per test, plus a summary line
 
-yo check <path> [options]        Type-check without generating C
+yo check <path>... [options]     Type-check without generating C
 Examples:
   $ yo check ./src               Check every .yo file under ./src
   $ yo check main.yo --error-format json
@@ -9834,7 +9871,7 @@ yo test [path] [options]         运行测试
   $ yo test ./tests --list       只列出测试，不运行
   $ yo test ./tests --json       每个测试一行 JSON，最后一行摘要
 
-yo check <path> [options]        只做类型检查，不生成 C
+yo check <path>... [options]     只做类型检查，不生成 C
 示例：
   $ yo check ./src               检查 ./src 下的每个 .yo 文件
   $ yo check main.yo --error-format json
@@ -9916,7 +9953,7 @@ run_explain :: (
   // (src/cli-lang.yo); explain keeps no private language handling.
   lang := cli_lang();
   (target : String) = String.new();
-  (ai : usize) = usize(1);
+  (ai : usize) = usize(2); // skip program name + "explain"
   while(ai < argv.len(), {
     a := argv(ai).clone();
     if(a == "--list", {
@@ -9931,6 +9968,9 @@ run_explain :: (
           as_json = (a.substring(usize(9), a.len()) == "json");
           ai = (ai + usize(1));
         }, {
+          if(target.len() > usize(0), {
+            exn.throw(dyn(Box.new(`explain: one error code per run, got '${target}' and '${a}'. Usage: yo explain <CODE> | yo explain --list`)));
+          });
           target = a.clone();
           ai = (ai + usize(1));
         });
@@ -10363,9 +10403,10 @@ Examples:
     ),
     "check" => Option(String).Some(
       tr(
-        `Usage: yo check <file-or-dir> [options]
+        `Usage: yo check <file-or-dir>... [options]
 
-Type-check .yo files with the evaluator only (no C generation). Note the
+Type-check .yo files with the evaluator only (no C generation). Every path
+is checked; the run fails when any file fails. Note the
 async state-machine restrictions are enforced in codegen, so check passes
 over them — use 'yo compile --skip-c-compiler' to catch that class.
 
@@ -10378,10 +10419,12 @@ Options:
 
 Examples:
   $ yo check ./src
+  $ yo check a.yo b.yo
   $ yo check ./std --exclude std/libc`,
-        `用法：yo check <file-or-dir> [options]
+        `用法：yo check <file-or-dir>... [options]
 
-只用求值器对 .yo 文件做类型检查（不生成 C）。注意异步状态机的限制
+只用求值器对 .yo 文件做类型检查（不生成 C）。每个路径都会检查，任一
+文件失败则整次运行失败。注意异步状态机的限制
 是在代码生成阶段检查的，check 会放过它们——这类问题请用
 'yo compile --skip-c-compiler' 来捕捉。
 
@@ -10394,6 +10437,7 @@ Examples:
 
 示例：
   $ yo check ./src
+  $ yo check a.yo b.yo
   $ yo check ./std --exclude std/libc`
       )
     ),

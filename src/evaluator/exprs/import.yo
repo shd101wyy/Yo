@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr-info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { register_sns_module, EvalContext, LoadModuleResult } :: import("../context.yo");
-{ Diagnostic } :: import("../../diagnostics.yo");
+{ Diagnostic, lookup_std_modules_under } :: import("../../diagnostics.yo");
 { EvalValue, EvalValueNode, type_of_eval_value, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -407,6 +407,10 @@ _throw_module_not_found :: (
   arg_raw := ast_expr_token(module_arg).*.value.*.clone();
   is_literal := (ast_expr_is_atom(module_arg) && arg_raw.starts_with("\"") && !arg_raw.contains("\\"));
   cands := renamed_module_candidates(&module_path_to_import, current_dir, std_path);
+  // `import("std/collections")` names a directory without an `index.yo`: the
+  // std modules under it are the candidates (the std export index, empty when
+  // nothing filled it).
+  std_dir_modules := lookup_std_modules_under(&module_path_to_import);
   cond(
     ((cands.len() == usize(1)) && is_literal) => exn.throw(
       dyn(
@@ -439,6 +443,17 @@ _throw_module_not_found :: (
             ast_expr_token(module_arg),
             msg,
             &Option(String).Some(String.from("module file and directory names are kebab-case, and no module matches this path's kebab-case spelling either"))
+          )
+        )
+      )
+    ),
+    (std_dir_modules.len() > usize(0)) => exn.throw(
+      dyn(
+        Box.new(
+          format_error_message_with_help(
+            ast_expr_token(module_arg),
+            msg,
+            &Option(String).Some(`"${module_path_to_import}" is a directory of modules, not a module; import one of them: ${String.from(", ").join(&std_dir_modules)}`)
           )
         )
       )

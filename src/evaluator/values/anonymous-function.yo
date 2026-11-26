@@ -157,7 +157,7 @@ pragma(Pragma.AllowUnsafe);
 { attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled, future_view_error } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
-{ type_carries_origin, is_dyn_fn_slot } :: import("../../types/utils.yo");
+{ type_carries_origin, is_dyn_fn_slot, is_future_value_type } :: import("../../types/utils.yo");
 { with_code } :: import("../../error.yo");
 { E_USE_OF_MOVED_VALUE, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
@@ -282,6 +282,15 @@ _is_unresolved_impl_fn_type :: (fn(ty : &TypeValue) -> bool)(
       .Some(_) => false,
       .None => type_implements_fn(ty)
     ),
+    _ => false
+  )
+);
+/// True for an `Impl(Future(...))` type the closure's body has not resolved
+/// yet (a SomeT with no resolution whose bounds name a `Future`).
+_is_unresolved_impl_future_type :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    Rc(.SomeT(_, _, _, _, _, _, res)) => (res.is_none() && is_future_value_type(ty)),
     _ => false
   )
 );
@@ -3553,10 +3562,17 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   // type. Without it the binding lowered to `void*` and
                   // received the capture struct by value — invalid C
                   // (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
+                  // An `Impl(Future(T, E))` RESULT counts too, for the same
+                  // reason: the body's `io.async` (or the future it returns)
+                  // fixed the concrete future. Without it a closure behind a
+                  // `Dyn(Fn(...) -> Impl(Future(...)))` kept its bare function
+                  // type, the payload resolved to no capture struct, and the
+                  // vtable's call slot returned NULL
+                  // (issues/fixed/2026-11-25-a-closure-returning-a-future-behind-a-box-dyn-fn-is-called-through-a-zeroed-stub.md).
                   match(
                     w_rt,
                     Rc(.FnTraitT({ call_result : w_cr })) => if(!is_some_type(&w_cr) || (
-                      match(w_cr, Rc(.SomeT({ name : w_cr_nm })) => (w_cr_nm == "Impl"), _ => false) && _is_unresolved_impl_fn_type(&w_cr)
+                      match(w_cr, Rc(.SomeT({ name : w_cr_nm })) => (w_cr_nm == "Impl"), _ => false) && (_is_unresolved_impl_fn_type(&w_cr) || _is_unresolved_impl_future_type(&w_cr))
                     ), {
                       w_has_concrete_fn = true;
                     }),

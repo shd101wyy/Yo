@@ -66,7 +66,9 @@ value moves when it is `Send`.
 Writing `impl(MyType, Send())` or `impl(MyType, Sync())` requires `pragma(Pragma.AllowUnsafe)`
 and a `// SAFETY:` comment explaining why the type is safe to move or share across threads. This
 is how a type holding a raw pointer opts in (std's `Channel`, `Waker`), and it keeps
-every such claim auditable.
+every such claim auditable. The rule covers every impl form: a generic impl
+(`impl(generic(T : Type), Holder(T), Send())`) and an impl through another name for the trait
+(`S :: Send; impl(MyType, S())`) need the pragma too.
 
 ## Atomic Objects vs Regular Cells
 

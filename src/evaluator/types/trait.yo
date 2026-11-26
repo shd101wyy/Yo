@@ -52,7 +52,7 @@ import("std/fmt");
 { find_some_type_missing_comptime_constraint } :: import("../trait-checking.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ is_valid_variable_name } :: import("../utils.yo");
+{ is_valid_variable_name, check_where_clause_form } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { _add_where_clause_constraint, _trait_has_receiver, get_func_requires_exprs, get_func_ensures_exprs, get_func_return_label } :: import("./function.yo");
@@ -1167,6 +1167,7 @@ evaluate_trait_type :: (
           )
         );
       });
+      check_where_clause_form(&last_arg, exn);
       where_clause_exprs_opt = .Some(w_args);
     });
   });

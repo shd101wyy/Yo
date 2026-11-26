@@ -90,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
 { E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_valid_variable_name } :: import("../utils.yo");
+{ is_valid_variable_name, check_where_clause_form } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
 { type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target, is_escapable_trait } :: import("../trait-checking.yo");
 { Exception } :: import("std/error");
@@ -4558,6 +4558,7 @@ evaluate_function_parameters :: (
           )
         );
       });
+      check_where_clause_form(&where_param, exn);
       (wai : usize) = usize(0);
       while(wai < where_args.len(), wai = (wai + usize(1)), {
         match(where_args.get_cloned(wai), .Some(we) => where_clause_exprs.push(we), .None => ());

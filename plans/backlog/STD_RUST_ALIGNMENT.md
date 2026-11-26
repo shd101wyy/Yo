@@ -138,7 +138,7 @@ One table in the compiler, read by E0401, E0610 and the module-not-found path, a
 | `rune` | `char` | `char` is C's 8-bit type and FFI needs it |
 | `Path` (one owned, parsed type) with `AsPath` | `Path`/`PathBuf`/`AsRef<Path>` | No unsized path view; `Path` is what Rust calls `PathBuf` |
 | `Eq(T)`, `Ord(T)` | `PartialEq`/`Eq`, `PartialOrd`/`Ord` | D3.3: floats carry a total `cmp`; no split |
-| `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot`, `BitNot` | `Neg`, `Rem`, `Shl`, `Shr`, `Not` | The compiler finds them by name, so a rename is a seed split for a trait a model seldom implements. Keep; the table of §3.6 maps them |
+| `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot`, `BitNot` | `Neg`, `Rem`, `Shl`, `Shr`, `Not` | Yo's own names today. VERDICTS-82's reason here ("the compiler finds them by name, so a rename is a seed split") was false and is retracted: `src/` keys on no operator trait name, and the released v0.2.79 `yo` checks `./std` and `src/main.yo` against a std that binds `Rem`, `Neg`, `Shl`, `Shr` (VERDICTS-87 §2). `Mod`, `Negate`, `BitLeftShift`, `BitRightShift` become `Rem`, `Neg`, `Shl`, `Shr` in v0.2.81 (§9); `LogicalNot` and `BitNot` stay and `Not` stays unbound |
 | `it.collect(ArrayList(i32))`, `s.parse(i32)`, `x.into(i64)` | turbofish or inference from the result | The type is an argument: Yo does not infer from the result type |
 | `s.as_str()`, `&xs.*`, `h.*.field` | deref coercion, auto-deref | VERDICTS-73/74 |
 | `m.with_lock(v => …)`, `rw.with_read`/`with_write`, `cell.with`/`with_mut` | `lock()` guards, `borrow()`/`borrow_mut()` | Decisions 38 A and 41; a guard cannot have `g.*` outside the prelude (E0622). No poisoning, so no `.unwrap()` on a lock |
@@ -201,3 +201,25 @@ Why S-1 to S-4 go into v0.2.81 and not later: they are small (under 100 `src` si
     (PR S-6, v0.2.81); `std/process/index.yo` already re-exports `Command`; `yo-design`'s "no catch-all `index.yo`" rule is
     amended in that PR;
   - Q3: keep explicit imports, no extended prelude. The Rust-name hints (§3.6) name the import.
+
+## 9. Operator-trait names and `Ord.cmp` in std (VERDICTS-87, adopted 2026-11-26)
+
+**Status: adopted by the coordinator; the maintainer approved Fable's recommendation in advance (2026-11-26).** Source: VERDICTS-87 (Fable 5.2), measured against origin/develop `1f8482b1f`. It retracts the reason §4 gave for the operator-trait row ("the compiler finds them by name, so a rename is a seed split"): `src/` keys on no operator trait name, and the released v0.2.79 `yo` checks `./std` and `src/main.yo` against a std that binds `Rem`, `Neg`, `Shl`, `Shr`.
+
+Decisions:
+
+- **Q1.** `Mod` → `Rem`, `Negate` → `Neg`, `BitLeftShift` → `Shl`, `BitRightShift` → `Shr`, and the four `Comptime*` twins; members unchanged (`(%)`, `neg`, `(<<)`, `(>>)`, `Output`). `LogicalNot` and `BitNot` keep their names; `Not` stays unbound and its hint row is reworded.
+- **Q2.** `Eq(Rhs)` and `Ord(Rhs)` stay: no rename, no `PartialEq`/`PartialOrd` split. std's `Ord`-bounded algorithms must call `cmp` (today none does).
+- **Q3.** No other prelude trait is renamed. Optional rider on S-1: `FromIterator.Elem` → `Item`.
+- **Q4.** No seed split, no `yo fix`, no hint rows for the old names (a stale name gets E0401 and a did-you-mean).
+
+| PR | Release | Content | Extra gates |
+| --- | --- | --- | --- |
+| V87-A | **v0.2.81, first PR after the v0.2.80 cut** | The scripted rename (`rename.sh` in VERDICTS-87's probes, regenerated on the tip; read each `Mod` hit outside `std/`) over `std/`, `tests/`, `docs/`, `pack/`, `.github/instructions/`, `plans/reference/` and §4 of this plan. `src/diagnostics.yo`: delete the `Neg`, `Rem`, `Shl`, `Shr` hint rows and reword `Not` to "`!` is `LogicalNot` and yields `bool`; Rust's `!` on an integer is `~`, `BitNot`". `Rem`'s doc comment says "remainder, sign of the dividend; `rem_euclid` for the non-negative one". Comments in three `src/` files; AGENTS.md's historical-names table gains the row | `yo build` (`src/` changed); the `prelude`, `parameter-modes` and operator tests; `scripts/cli-diff-test.sh` with `a-rust-operator-trait-name-...` moved to `Not` and `lsp-analysis-resilience` re-recorded |
+| V87-B | v0.2.81 | std only: every `Ord`-bounded algorithm calls `cmp` (`sort`, `sort_unstable`, `sort_by_key`, `binary_search`, `BTreeMap`, `PriorityQueue`, `Iterator.min`/`max`); NaN rows in their tests; the `Ord` doc comment states the rule "code that needs a total order calls `cmp`; the operators are the type's own and are partial on floats". Fixes `issues/2026-11-26-std-ord-bounded-algorithms-never-call-cmp.md` | the collection tests; `yo verify ./std/collections` |
+| V87-C | v0.2.81, with S-0's follow-ups | Diagnostics: `derive` consults the Rust-name table; a bare `Eq`/`Ord` in a derive or a bound says "write `Eq(P)`"; `!` at an integer slot names `~`; a moved operand of a unary operator is E0901. Fixes `issues/2026-11-26-rust-shaped-trait-spellings-get-no-useful-help.md` | cli-cases; `diagnostics-registry` |
+| V87-D | v0.2.81 | Prelude: the `(-)` and `(~)` dispatchers return `_Self.Output`, comptime twins included; `BitNot` leaves `longdouble`; and, if the maintainer keeps the recommendation in `issues/questions/2026-11-26-should-bang-on-a-number-be-deleted.md`, the 22 numeric `LogicalNot` impls are deleted. Fixes the `Negate.Output`/`BitNot.Output` and `~longdouble` issues of 2026-11-26 | `prelude`; a test with `Output` different from `Self`; a `~longdouble` rejection test |
+
+Order against the rest of v0.2.81: A is a script, so it goes first and S-1 and VERDICTS-78's PR 1 (all three edit the prelude) rebase over it. The example repositories get a grep and, if anything matches, a companion commit.
+
+Filed with it: `issues/2026-11-26-std-ord-bounded-algorithms-never-call-cmp.md`, `issues/2026-11-26-bitnot-on-a-longdouble-passes-check-and-emits-invalid-c.md`, `issues/2026-11-26-negate-and-bitnot-output-are-ignored-by-the-unary-dispatchers.md`, `issues/2026-11-26-a-supertrait-clause-applying-a-parametric-trait-to-self-is-unsatisfiable.md`, `issues/2026-11-26-rust-shaped-trait-spellings-get-no-useful-help.md`, and the question `issues/questions/2026-11-26-should-bang-on-a-number-be-deleted.md`. If the maintainer later prefers Rust's four comparison traits (VERDICTS-87 §4, option S), the supertrait issue is generation A of that route.
