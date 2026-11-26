@@ -56,7 +56,7 @@ parentheses.
 | wildcard | `_ => …` | matches anything, binds nothing |
 | binding | `other => (other + 1)` | matches anything, binds the value |
 | constant | `0`, `-1`, `true`, `'a'`, `"lit"`, `i32(5)`, `TEN`, `Color.Red` | compared with `==`; a `::` constant in scope holding a literal or enum value is a constant pattern, any other identifier is a binding |
-| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | sub-patterns may be any pattern, at any depth |
+| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | `.V` matches the variant whatever its payload; `.V(p, q)` has one sub-pattern per field; the labeled and curly forms name only the fields they need; sub-patterns may be any pattern, at any depth |
 | or | `(.Red \| .Green)`, `(1 \| 2 \| 3)` | alternatives must bind the same names |
 | range | `(0..10)`, `(10..=19)` | half-open / inclusive, compile-time bounds |
 | whole-value binding | `(whole := .Some(v))` | binds the whole value and matches the sub-pattern |
@@ -90,6 +90,23 @@ bucket :: (fn(n : i32) -> str)(
 
 command :: (fn(s : String) -> i32)(
   match(s, "compile" => i32(1), ("check" | "fmt") => i32(2), _ => i32(0))
+);
+```
+
+A variant pattern without parentheses, `.V`, matches every value of that
+variant and binds nothing, whatever its payload: write `.Rect`, not
+`.Rect(_, _)`. Yo has no rest pattern: `..` in a pattern is an error (E0609).
+`.Rect(..)` is written `.Rect` (`yo fix` applies it), a labeled variant or a
+struct pattern names only the fields it needs, and a positional list writes
+`_` for each element it skips.
+
+```yo
+Shape :: enum(Circle(r : i32), Rect(w : i32, h : i32), Empty);
+is_round :: (fn(s : &Shape) -> bool)(
+  match(s, .Circle => true, .Rect => false, .Empty => false)
+);
+width :: (fn(s : &Shape) -> i32)(
+  match(s, .Rect(w : w) => w.*, _ => i32(0)) // names only the field it needs
 );
 ```
 
@@ -165,7 +182,7 @@ earlier arm alone matches everything it matches (a second `.Red`, anything
 after `_`, `(5..=7)` after `(0..10)`), when an earlier alternative of its own
 or-pattern does (`(1 | 1)`), or when no value of the scrutinee's type matches
 it (the empty range `(5..5)`, a GADT variant the type excludes). An arm that
-the earlier arms match only together, such as `.Some(_)` after `.Some(true)`
+the earlier arms match only together, such as `.Some` after `.Some(true)`
 and `.Some(false)`, is a warning. A trailing `_` or binding arm is always
 accepted. How the bindings hold the matched value is the next section's.
 

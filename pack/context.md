@@ -294,6 +294,9 @@ export(main);
 - Forms: literals, `_`, bindings, nested variants, or-patterns `(a | b)`,
   ranges `(0 .. 10)` / `(0 ..= 9)`, guards `(p && (cond))`, `(whole := p)`,
   tuples, struct patterns, `Rc(p)`, `Box(p)`.
+- A bare `.V` matches the variant whatever its payload (`.Rect`, not
+  `.Rect(_, _)`). There is no rest pattern: `..` is E0609; a labeled
+  `.V(label : p)` or struct pattern names only the fields it needs.
 - Exhaustiveness is checked (E0607 names the missing case); an arm that can
   never run is E0608. A bare name binds unless it is a `::` constant in scope.
 

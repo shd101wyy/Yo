@@ -115,7 +115,7 @@ _throw_rest_pattern :: (fn(dots : &AstExpr, help : String, repair : Option(Repai
     .Some(rp) => format_error_message_with_repair_at(&tok, &msg, &hlp, &rp.span, &rp.replacement, &rp.description),
     .None => format_error_message_with_help(&tok, &msg, &hlp)
   );
-  exn.throw(dyn(Box.new(with_code(err, E_INVALID_PATTERN))));
+  exn.throw(dyn(Box.new(with_code(&err, E_INVALID_PATTERN))));
 });
 /// Is byte `i` of `src` a blank (space or tab)?
 _is_blank_byte :: (fn(src : &String, i : usize) -> bool)(
@@ -195,7 +195,7 @@ _rest_drop_repair :: (fn(dots : &AstExpr) -> Option(Repair))({
   match(
     _rest_with_comma_span(&tok),
     .Some(sp) => {
-      return(Option(Repair).Some(Repair(span : sp, replacement : String.new(), description : desc)));
+      return(Option(Repair).Some(Repair(span : sp, replacement : String.new(), description : desc.clone())));
     },
     .None => ()
   );

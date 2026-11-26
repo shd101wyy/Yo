@@ -650,7 +650,7 @@ infix pattern needs its own parentheses.
 | `_` | `_ => …` | wildcard |
 | identifier | `other => (other + 1)` | binds — unless it names a `::` constant holding a literal or enum value, which is COMPARED (`TEN => …`) |
 | constant | `0`, `-1`, `true`, `'a'`, `"lit"`, `i32(5)`, `Color.Red` | compared with `==`; a `str` literal matches a `String` or `str` |
-| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | sub-patterns at any depth: `.Ok(.Some(v))`, `.Of((48..=57))` |
+| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | `.V` matches any payload; sub-patterns at any depth: `.Ok(.Some(v))`, `.Of((48..=57))` |
 | or | `(.Red \| .Green) => …`, `.Some((.A \| .B))` | alternatives bind the same names |
 | range | `(0..10) => …`, `(10..=19) => …` | compile-time bounds |
 | whole-value binding | `(whole := .Some(v)) => …` | binds the value AND matches |
@@ -678,8 +678,11 @@ area :: (fn(s : Shape) -> i32)(
 
 - **Prefer the curly form** `.Variant({ field1, field2 : alias })`: adding a field never shifts positions.
   `{ a }` binds `a`; `{ a : x }` renames; `{ a : _ }` asserts the field and ignores it; partial lists are
-  fine; `.Variant({})` and bare `.Variant` match without binding (even with fields); a bare `{ _ }` is
-  rejected (`tests/match-curly.test.yo`, `tests/match-bind-nothing.test.yo`).
+  fine; a bare `{ _ }` is rejected (`tests/match-curly.test.yo`).
+- **A bare `.Variant` matches any payload and binds nothing**: write `.Rect`, never `.Rect(_, _)`.
+  There is no rest pattern: `..` in a pattern is E0609 (`.V(..)` → `.V`, which `yo fix` applies; beside
+  labels or in a struct pattern delete it; in a positional list write one `_` per skipped element)
+  (`tests/match-bind-nothing.test.yo`).
 - In a VARIANT payload, a nested struct sub-pattern uses the NAMED form: `.Holding(Outer(inner : { a, b }, tag))`;
   `.Holding({ inner : { a, b } })` is E0406 (its labels are read against the variant). Otherwise nesting is
   free: `.Foo({ a : .Some(x) })`, `.V((0, y))`, `.V(Point(x : 0, y))`.
