@@ -1,0 +1,31 @@
+// expect: E0923
+// A generic container's method result typed by the wrong instance: the static
+// instance looks `get` up first, the method cache keyed the lookup by
+// `type_key` (which leaves out the static bit), so the elided instance's
+// `b.get()` was typed `Option(&(X, static))`, a static value, and a static
+// field kept a block-local's reference past the block.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Box1 :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : Option(T))
+);
+impl(
+  generic(T : Type),
+  Box1(T),
+  get : (fn(self : &Self) -> Option(T))(self.v)
+);
+G := X(s : String.from("g"));
+Keep :: struct(r : Option(&(X, static)));
+main :: (fn() -> unit)({
+  a := Box1(&(X, static))(v : .Some(&G));
+  _s := a.get();
+  mut(k) := Keep(r : .None);
+  {
+    x := X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    b := Box1(&X)(v : .Some(&x));
+    k.r = b.get();
+  };
+  match(k.r, .Some(r) => println(`OUT: ${r.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);
