@@ -107,6 +107,9 @@ test("a type with a user Drop is not destructured by value", {
     f := _DcFd(n : i32(1));
     { n } := f;
   }, "implements `Drop`");
+  comptime_expect_error({
+    { n } := _DcFd(n : i32(1));
+  }, "bind it first");
 });
 // A lending destructuring: `{ a, b } := &x` is `a := &x.a; b := &x.b`, each
 // name a local borrow of its field, read with `a.*`; `&mut x` lends `&mut`
@@ -125,8 +128,10 @@ test("a destructuring of a borrow lends its fields, and the source stays usable"
   assert((name.* == String.from("ann")) && (balance.* == i64(7)), "the names read through");
   assert(acc.balance == i64(7), "acc is still usable");
   assert(_dc_total(&acc) == i64(10), "through a `&` parameter");
-  (x, y) := &(i32(1), i32(2));
-  assert((x.* + y.*) == i32(3), "a tuple's elements are lent too");
+  t := (i32(1), String.from("t"));
+  (x, y) := &t;
+  assert((x.* + i32(y.*.len())) == i32(2), "a tuple's elements are lent too");
+  assert(t.1 == String.from("t"), "t is still usable");
 });
 test("a destructuring of a `&mut` borrow writes through its names", {
   mut(acc) := _DcAccount(name : String.from("ann"), balance : i64(7));
@@ -138,6 +143,11 @@ test("a destructuring of a `&mut` borrow writes through its names", {
   assert((acc.balance == i64(9)) && (acc.name == String.from("anne")), "written through the names");
   _dc_bump(&mut acc);
   assert(acc.balance == i64(10), "through a `&mut` parameter");
+});
+test("a borrow of a temporary is not destructured: bind it first", {
+  comptime_expect_error({
+    { a, b } := &_dc_pair(i32(1), i32(2));
+  }, "needs a place");
 });
 test("a destructuring of a dereference by value is E0901: destructure the reference", {
   comptime_expect_error({

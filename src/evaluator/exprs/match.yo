@@ -757,7 +757,7 @@ _decide_match_mode :: (
 // How a destructuring takes its source (VERDICTS-76 Q2): `match`'s table
 // ---------------------------------------------------------------------------
 /// E0901 for a destructuring source that would have to move but cannot.
-_throw_unmovable_destructure_source :: (fn(src : &AstExpr, ty : &TypeValue, why : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+_throw_unmovable_destructure_source :: (fn(src : &AstExpr, ty : &TypeValue, why : &String, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   text := ast_expr_to_string(src);
   if(text.starts_with("(") && text.ends_with(")"), {
     text = text.substring(usize(1), text.len() - usize(1));
@@ -769,7 +769,9 @@ _throw_unmovable_destructure_source :: (fn(src : &AstExpr, ty : &TypeValue, why 
   });
   help := cond(
     is_reference_deref => `destructure through the reference: \`{ … } := ${ast_expr_token(&rd).value.*}\` binds each name as a borrow of its field`,
-    true => `destructure a borrow: \`{ … } := &${text}\` (\`&mut ${text}\` to write through the names), or a copy, \`{ … } := ${text}.clone()\``
+    // `&` lends a place: a call's or a literal's value is bound first.
+    is_place_expression(src, env) => `destructure a borrow: \`{ … } := &${text}\` (\`&mut ${text}\` to write through the names), or a copy, \`{ … } := ${text}.clone()\``,
+    true => `bind it first and destructure a borrow of the binding: \`t := ${text};\` then \`{ … } := &t\`, or a copy, \`{ … } := ${text}.clone()\``
   );
   raise_flow_violation(
     with_code(
@@ -814,8 +816,8 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info 
     match(
       &root,
       .Some(rv) => cond(
-        rv.is_module_level() => _throw_unmovable_destructure_source(src, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn),
-        match_scrutinee_is_capture(&rv.*, env, ctx) => _throw_unmovable_destructure_source(src, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn),
+        rv.is_module_level() => _throw_unmovable_destructure_source(src, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), env, ctx, exn),
+        match_scrutinee_is_capture(&rv.*, env, ctx) => _throw_unmovable_destructure_source(src, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), env, ctx, exn),
         rv.is_compile_time_only() => (),
         true => {
           note_consuming_destructure_source(&dyn_tok);
@@ -829,7 +831,7 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info 
     return(false);
   });
   if(type_implements_dispose(&ty, env), {
-    _throw_unmovable_destructure_source(src, &ty, `\`${type_to_string(&ty)}\` implements \`Drop\`: moving its fields out would skip its destructor.`, ctx, exn);
+    _throw_unmovable_destructure_source(src, &ty, `\`${type_to_string(&ty)}\` implements \`Drop\`: moving its fields out would skip its destructor.`, env, ctx, exn);
     return(false);
   });
   stok := ast_expr_token(src);
@@ -838,11 +840,11 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info 
       root,
       .Some(rv) => cond(
         rv.is_module_level() => {
-          _throw_unmovable_destructure_source(src, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn);
+          _throw_unmovable_destructure_source(src, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), env, ctx, exn);
           return(false);
         },
         match_scrutinee_is_capture(&rv, env, ctx) => {
-          _throw_unmovable_destructure_source(src, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn);
+          _throw_unmovable_destructure_source(src, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), env, ctx, exn);
           return(false);
         },
         rv.is_compile_time_only() => {
@@ -866,7 +868,7 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info 
       ast_expr_is_fn_call_of(src, BF_DOT, Option(usize).Some(usize(2))) => String.from("it is a part of another value (a field or a dereference), and moving it out would leave that value partly moved (Yo has no partial moves)."),
       true => String.from("it is an element of a collection, which still owns it.")
     );
-    _throw_unmovable_destructure_source(src, &ty, &why, ctx, exn);
+    _throw_unmovable_destructure_source(src, &ty, &why, env, ctx, exn);
     return(false);
   });
   // A temporary: an owned one transfers to the names.
@@ -880,7 +882,7 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info 
             tv.set_consumed_at_token(Option(Token).Some(stok));
           });
         }, {
-          _throw_unmovable_destructure_source(src, &ty, String.from("it is borrowed from the value that holds it (an element, or a binding into another value)."), ctx, exn);
+          _throw_unmovable_destructure_source(src, &ty, String.from("it is borrowed from the value that holds it (an element, or a binding into another value)."), env, ctx, exn);
           return(false);
         });
       }),
