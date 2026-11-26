@@ -18,6 +18,7 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
+{ reject_reserved_yo_binder } :: import("../memory-safety.yo");
 { ArrayList } :: import("std/collections/array-list");
 { HashMap } :: import("std/collections/hash-map");
 {
@@ -368,6 +369,20 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
     )
   )
 );
+/// E0407 for a closure parameter named in the `__yo_` namespace: the name is
+/// `x` itself, or the `x` of `x : T` / `x : &T` / `x : &mut T` (the borrow
+/// marker wraps the name by now, `_get_param_name_from_expr`). A parameter that
+/// spells no name takes the expected label and has no token a person wrote.
+_reject_reserved_param_name :: (fn(param_expr : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  name_expr := cond(
+    ast_expr_is_fn_call_of(param_expr, ":", Option(usize).Some(usize(2))) => {
+      a0 := _get_arg(param_expr, usize(0));
+      cond(ast_expr_is_capture_mode_entry(&a0) => _only_arg(&a0), true => a0)
+    },
+    true => Rc.clone(param_expr.*)
+  );
+  reject_reserved_yo_binder(ast_expr_token(&name_expr), ctx, exn);
+});
 /// Helper: build a Func TypeValue from a FnTraitT TypeValue.
 /// Extracts `call_param_labels`, `call_param_types`, `call_result` from FnTraitT
 /// and wraps them in a no-generic, no-implicit Func.
@@ -1891,6 +1906,7 @@ evaluate_anonymous_function_implementation :: (
           // the body drops the rest when the call ends.
           // An `FnMut` body's by-value entries are writable: its call borrows
           // the record exclusively, so a write persists (VERDICTS-15 Q1).
+          reject_reserved_yo_binder(&ce.label_tok, ctx, exn);
           ce_owned := (closure_owns_captures && !ce.is_borrow);
           ce_fnmut_state := (closure_is_fnmut && !ce.is_borrow);
           ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, (ce.is_borrow && ce.is_mut) || ce_fnmut_state, ce_owned, false, ce.label_tok.clone());
@@ -2087,6 +2103,7 @@ evaluate_anonymous_function_implementation :: (
     );
     // Derive the actual parameter name from the user's expression.
     param_name := _get_param_name_from_expr(&rpe, exp_label.clone());
+    _reject_reserved_param_name(&rpe, ctx, exn);
     // param_type_name for generic param binding at call time
     ptn := match(
       rp_ty_raw,

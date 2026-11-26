@@ -61,6 +61,18 @@ comptime_expect_error({
   (__yo_decr_rc : i32) = i32(4);
   __yo_decr_rc
 }, _RESERVED);
+// A closure literal's parameters: bare, typed, in a tuple, and a capture
+// entry; and a labeled return.
+_apply :: (fn(g : Impl(Fn(a : i32) -> i32)) -> i32)(g(i32(1)));
+_apply2 :: (fn(g : Impl(Fn(a : i32, b : i32) -> i32)) -> i32)(g(i32(1), i32(2)));
+comptime_expect_error(_apply(__yo_a => __yo_a), _RESERVED);
+comptime_expect_error(_apply((__yo_a : i32) => __yo_a), _RESERVED);
+comptime_expect_error(_apply2((a, __yo_b) => a), _RESERVED);
+comptime_expect_error({
+  c := i32(2);
+  _apply({ __yo_c : c }(a) => a)
+}, _RESERVED);
+comptime_expect_error((fn(x : i32) -> (__yo_r : i32))(x), _RESERVED);
 // A pattern binding, in a variant payload and as an `(x := p)` name.
 comptime_expect_error(match(Option(i32).Some(i32(1)), .Some(__yo_x) => __yo_x, .None => i32(0)), _RESERVED);
 comptime_expect_error(match(i32(1), (__yo_n := _) => __yo_n), _RESERVED);
