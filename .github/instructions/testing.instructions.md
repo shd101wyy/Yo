@@ -26,6 +26,8 @@ Every command here is the self-hosted compiler `yo` (a release bundle on `PATH`,
   harness inputs, one of which MUST fail. std's own tests: `yo test ./std --bail`.
 - Large files are batch-compiled 100 tests per batch (`--test-batch-size N`); a slow file
   (`tests/string/string.test.yo`, ~300 tests) is faster to iterate with `--test-name-pattern`.
+- `scripts/test-name-shard.sh <yo> <file> <i> <n>` prints a `--test-name-pattern` for stripe `i` of `n` of one
+  file's tests (escaped, anchored, checked against `--list`); CI splits `verifier-list-len.test.yo` with it.
 - Tests run under AddressSanitizer by default (leak detection on Linux).
 - **The test binaries are compiled by whichever `yo` runs `yo test`.** Under the installed seed a test
   gets the SEED's codegen, and LeakSanitizer reports leaks the tree already fixed. Judge a leak or a
@@ -508,7 +510,8 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
 - `tests/origins/unsound/` (G-B, `plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §6): each program has a
   `// expect: E09xx` or `// expect: accept` header, and a negative's positive twin is `<id>-pos.yo`. Gate:
   `YO=<binary> bash scripts/origins-unsound.sh` inside the nix shell (clang on `PATH`). A negative that
-  passes `check` is compiled under ASan and run; every positive twin must run ASan-clean.
+  passes `check` is compiled under ASan and run; every positive twin must run ASan-clean. `SHARD=i/n` runs
+  one stripe of the byte-sorted program list (CI runs four).
 - G-D, the generator: `YO=<binary> python3 -I scripts/origins-gen.py` renders borrow programs (families
   `slot`, `args`, `valpos`, `join`) plus rustc twins and minimizes each use-after-free or rustc
   disagreement into `tests/origins/gen-findings/`. `YO_GEN_SEED=<n>` replays, `--sig <signature>` runs

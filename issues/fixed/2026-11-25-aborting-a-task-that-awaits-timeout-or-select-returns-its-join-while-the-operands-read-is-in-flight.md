@@ -4,13 +4,13 @@
 
 - Filed: 2026-11-25 (lane q6-abort-uring, v0.2.80; the case `fix/abort-inflight-frame-linger` does not cover).
 - Amended: 2026-11-25 by VERDICTS-83 (the safe reproducer, the join window, the reach, the design).
-- Status: open. Known open in v0.2.80; the fix is VERDICTS-83 §3, the first v0.2.81 PR. `YO_IO_BACKEND=epoll` avoids it.
+- Status: FIXED by the abort walk (VERDICTS-83 §3), the first v0.2.81 PR (`wip/v0281-abort-walk`). Known open in v0.2.80, where `YO_IO_BACKEND=epoll` avoids it.
 
 ## Reach
 
 Safe code reaches it on Linux's default backend: `auto` picks io_uring first and falls back to epoll only when the ring cannot be created (`src/codegen/async/runtime-io-linux.yo`). It needs three things:
 
-- **The backend:** io_uring (reproduced) or IOCP. IOCP is by reading, not reproduced: since #2077 `__yo_win_sock_cancel` issues `CancelIoEx` and answers false, so an aborted socket operand lingers exactly like a ring read, and nothing above it waits. epoll and kqueue cancel synchronously and transfer only after readiness, so no byte is written (but see `issues/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md`: the operands keep running).
+- **The backend:** io_uring (reproduced) or IOCP. IOCP is by reading, not reproduced: since #2077 `__yo_win_sock_cancel` issues `CancelIoEx` and answers false, so an aborted socket operand lingers exactly like a ring read, and nothing above it waits. epoll and kqueue cancel synchronously and transfer only after readiness, so no byte is written (but see `issues/fixed/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md`: the operands keep running).
 - **An operand that writes into memory borrowed from above the combinator:** a `BufReader`, a `&mut` buffer. Operands that own their buffer (`recv_bytes`) linger by themselves and are safe.
 - **An abort of the task around the combinator while that operation is still queued or cannot be taken back:** `JoinHandle.abort()` or, more commonly, an enclosing `select` or `timeout` (`select(timeout(read…), shutdown)`, `timeout(fetch(…))`). A poll-armed socket read that was already submitted is safe in practice under `DEFER_TASKRUN`.
 
@@ -219,11 +219,11 @@ bytes overwritten after the join returned: 6400
 
 `_Scoped`'s documentation promised "the task that runs one must never outlive the combinator's own future". On this path the operand's operation outlives it.
 
-VERDICTS-83 adds the cause underneath: **an abort does not drop the task's frame**, on any backend. An aborted task's locals are dropped when its last handle is released (`<block>_state_dispose_locals` runs at the last release), not at the abort. `_Scoped.drop` is the only thing that aborts a combinator's operands, so it runs after the abort's observer has moved on. io_uring turns that into a write into freed memory; on epoll the operands just keep running (`issues/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md`).
+VERDICTS-83 adds the cause underneath: **an abort does not drop the task's frame**, on any backend. An aborted task's locals are dropped when its last handle is released (`<block>_state_dispose_locals` runs at the last release), not at the abort. `_Scoped.drop` is the only thing that aborts a combinator's operands, so it runs after the abort's observer has moved on. io_uring turns that into a write into freed memory; on epoll the operands just keep running (`issues/fixed/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md`).
 
-## Fix (VERDICTS-83 §3: the abort walk)
+## Fix: the abort walk (VERDICTS-83 §3)
 
-The invariant #2077 established for the await chain is: when an abort's observer sees the task terminal, nothing the task started can touch memory any more. Scoped operands are outside the await chain and are reachable only through the frame's `_Scoped` locals, so the frame is walked during the abort. Compiler-only, no new extern, no std change:
+The invariant #2077 established for the await chain is: when an abort's observer sees the task terminal, nothing the task started can touch memory any more. Scoped operands are outside the await chain and are reachable only through the frame's `_Scoped` locals, so the frame is walked during the abort. Compiler-only (`src/codegen/async/runtime-core.yo`, `state-machine.yo`, `src/codegen/exprs/async.yo`), no new extern, no std change:
 
 1. **The walk.** Once an aborted task's await slot has retired (in its abort hook, or later in its aborted-entry guard), the task drops its live locals, newest first, before it wakes its waiters.
 2. **The linger.** If a drop in the walk aborts a future that does not retire (`__yo_future_abort` answers false), the walk stops there, the task stays Aborting (`-4`), and it continues the walk when that future retires.
@@ -233,6 +233,18 @@ The invariant #2077 established for the await chain is: when an abort's observer
 
 A model of the rule (a rewrite of the emitted C of nine programs, not a compiler change) closes every reproducer: `p1` 1,536 → 0, `q6h` 6,400 → 0, `p5` 6,400 → 0, `p4` 6,400 → 0; ASan and LeakSanitizer stay clean.
 
-Not chosen: a scoped wait (a new extern that `timeout` and `select` would suspend on). It needs the seed to carry the symbol before std calls it (two releases, because `src/` imports `std/http/client`), it is correct only by convention (every wait must list every live scoped child, and `p4` is the window it leaves open), and it is not where the allocation-free plan goes. It stays the fallback if the walk's battery goes red. Also not chosen: removing `unsafe` from the three spawns (a wall on borrowing operands), turning a queued SQE into a NOP (leaves io-wq and buffered file reads), defaulting `auto` to epoll (leaves IOCP).
+How it is built:
+
+- `<block>_state_dispose_locals` is the walk. It drops one local at a time, newest first (a shared slot where its newest member is), counts them in the task's `__yo_walk`, and returns false right after a drop that lingered, so the walk resumes where it stopped and the dispose's later call drops nothing twice.
+- While a walk runs, every `__yo_future_abort` that answers false adds the walk's gate (`__yo_abort_gate_t`, whose first field is a future header in state `-2`, so the thread-exit drain resumes it like any queue node) as a waiter of the future it could not retire. The task is Aborting (`-4`) until the gate's count reaches zero, then the gate resumes it and its aborted-entry guard continues the walk.
+- The abort hook walks once the slot has retired, before it wakes the waiters; the aborted-entry guard walks when the operation the hook could not take back has completed. When the hook's path leaves a resume of the task on its way (the retired child's wake, or the queue), that resume counts on the gate too, so the walk continues only after both.
+- A task released at its last reference drops what the walk has not (`__yo_sm_drop_locals`, outside any walk).
+
+Tests, each on the default backend and on the epoll fallback, failing before the fix on io_uring:
+
+- `tests/sys/pipe.test.yo`: the holder aborted while it awaits `select` (`q6h`), while `select` joins its aborted loser (`p4`), and while it awaits `timeout` (`p5`). 20 rounds each; the buffer is live, so they fail with or without a sanitizer.
+- `tests/sys/socketpair.test.yo`: the safe `select(timeout(read_line), ready)` (`p1`). It fails before the fix in an unsanitized run (`--disable-sanitize`), like #2077's frame case.
+
+Not chosen: a scoped wait (a new extern that `timeout` and `select` would suspend on). It needs the seed to carry the symbol before std calls it (two releases, because `src/` imports `std/http/client`), it is correct only by convention (every wait must list every live scoped child, and `p4` is the window it leaves open), and it is not where the allocation-free plan goes. Also not chosen: removing `unsafe` from the three spawns (a wall on borrowing operands), turning a queued SQE into a NOP (leaves io-wq and buffered file reads), defaulting `auto` to epoll (leaves IOCP).
 
 In `plans/backlog/ALLOCATION_FREE_ASYNC.md`, `io.spawn_scoped` children replace `_Scoped` (AFA-4/6); the walk then aborts each one and the block lingers. `p1`, `p4`, `p5` and `q6h` are AFA-4's acceptance.
