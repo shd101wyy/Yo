@@ -1,0 +1,17 @@
+// expect: accept
+// VERDICTS-76 Q2: `{ a, b } := p` consumes the owned `p`; each name owns its field and drops it once, the
+// part no name binds drops at the binding, and `p` itself is not dropped (ASan: no double free, no leak).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Fd :: struct(s : String);
+Pair :: struct(a : Fd, b : Fd, c : Fd);
+take :: (fn(f : Fd) -> String)(f.s);
+main :: (fn() -> unit)({
+  p := Pair(a : Fd(s : String.from("a")), b : Fd(s : String.from("b")), c : Fd(s : String.from("c")));
+  { a, b : _ } := p;
+  s := take(a);
+  println(`OUT: ${s}`);
+  { a : x, ... } := Pair(a : Fd(s : String.from("x")), b : Fd(s : String.from("y")), c : Fd(s : String.from("z")));
+  println(`OUT: ${x.s} ${b.s} ${c.s}`);
+});
+export(main);

@@ -1,0 +1,23 @@
+// expect: accept
+// VERDICTS-76 Q2: `{ a, b } := &p` lends each field (`a := &p.a`); `&mut p` lends them `&mut`; a reference
+// binding read bare lends through itself; `p` stays usable after the names' last use.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Pair :: struct(a : String, b : i32);
+bump :: (fn(r : &mut Pair) -> unit)({
+  { b } := r;
+  b.* = (b.* + i32(1));
+});
+main :: (fn() -> unit)({
+  mut(p) := Pair(a : String.from("a"), b : i32(1));
+  { a, b } := &p;
+  println(`OUT: ${a.*} ${b.*.to_string()}`);
+  {
+    { a : s, b : n } := &mut p;
+    s.*.push_str("!");
+    n.* = i32(5);
+  };
+  bump(&mut p);
+  println(`OUT: ${p.a} ${p.b.to_string()}`);
+});
+export(main);
