@@ -218,7 +218,7 @@ _only_report :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -> 
     _count_outcome(reports, outcome) == usize(1),
     `exactly one ${outcome} report expected, got: [${_reports_dump(reports)}]`
   );
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     rp := reports.get_cloned(i).unwrap();
     if(rp.outcome == outcome.*, {
@@ -230,8 +230,8 @@ _only_report :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -> 
 });
 /// The result of the report's only probe of `kind`; "" when it has none.
 _probe_result :: (fn(rp : &VerifyFnReport, kind : &String) -> String)({
-  (out : String) = String.new();
-  (i : usize) = usize(0);
+  (mut(out) : String) = String.new();
+  (mut(i) : usize) = usize(0);
   while(i < rp.probes.len(), {
     pr := rp.probes.get_cloned(i).unwrap();
     if(pr.kind == kind.*, {
@@ -346,8 +346,8 @@ test("a contradictory assumed contract is reported, and a proof through it is in
     `oracle's contract probe must answer unsat, got: [${_reports_dump(&reports)}]`
   );
   bad := _only_report(&reports, String.from("infeasible"));
-  (by : String) = String.new();
-  (i : usize) = usize(0);
+  (mut(by) : String) = String.new();
+  (mut(i) : usize) = usize(0);
   while(i < bad.obligations.len(), {
     obl := bad.obligations.get_cloned(i).unwrap();
     if(obl.name.contains(String.from("ensures#0")), {
@@ -365,9 +365,9 @@ test("a contradictory assumed contract is reported, and a proof through it is in
   assert(verify_report_is_failure(&bad, &denied), "an infeasible proof fails a verify-mode run");
   // verify+: a contradictory contract still fails; an infeasible proof
   // degrades to its runtime assert like any proof that did not hold.
-  oracle_plus := oracle.clone();
+  mut(oracle_plus) := oracle.clone();
   oracle_plus.mode = String.from("verify+");
-  bad_plus := bad.clone();
+  mut(bad_plus) := bad.clone();
   bad_plus.mode = String.from("verify+");
   assert(verify_report_is_failure(&oracle_plus, &denied), "a contradictory contract fails in verify+ too");
   assert(
@@ -407,9 +407,9 @@ test("a satisfiable assumed contract keeps its callers ok, and each ok names it"
     _count_outcome(&reports, String.from("ok")) == usize(3),
     `above_zero, at_least_one and guarded must stay ok, got: [${_reports_dump(&reports)}]`
   );
-  (listing : usize) = usize(0);
-  (dead : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(listing) : usize) = usize(0);
+  (mut(dead) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     rp := reports.get_cloned(i).unwrap();
     if(rp.outcome == "ok", {

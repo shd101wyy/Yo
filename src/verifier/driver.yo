@@ -1197,7 +1197,7 @@ _callee_report_id :: (fn(fid : &String, task_ids : &HashMap(String, String)) -> 
 /// Is `fid` (or its unspecialized base) an `assumed()` function?
 _is_assumed_callee :: (fn(fid : &String) -> bool)({
   base := match(specialized_base_of(fid.clone()), .Some(b) => b, .None => fid.clone());
-  assumed_fn_site(fid.clone()).is_some() || assumed_fn_site(base).is_some()
+  assumed_fn_site(fid.clone()).is_some() || assumed_fn_site(&base).is_some()
 });
 /// A probe's verdict as its `result` word (`VerifyProbeReport.result`):
 /// the goal `false` proved means the assumptions are unsatisfiable.
@@ -1386,7 +1386,8 @@ _fill_assumes :: (fn(reports : &mut ArrayList(VerifyFnReport), task_ids : &HashM
   while(rj < reports.len(), {
     d := ArrayList(String).new();
     es := ArrayList(usize).new();
-    for(&reports(rj).obligations, obl => {
+    rp_j := reports.get_cloned(rj).unwrap();
+    for(&rp_j.obligations, obl => {
       used := match(&obl.verdict, .Proved(_) => true, .Infeasible(_) => true, _ => false);
       if(used, {
         for(&obl.uses, u => {
@@ -1397,7 +1398,7 @@ _fill_assumes :: (fn(reports : &mut ArrayList(VerifyFnReport), task_ids : &HashM
             });
           }, {
             base := match(specialized_base_of(u.clone()), .Some(b) => b, .None => u.clone());
-            target := match(index_of.get_cloned(u.clone()), .Some(k) => Option(usize).Some(k), .None => index_of.get_cloned(base));
+            target := match(index_of.get_cloned(u.clone()), .Some(k) => Option(usize).Some(k), .None => index_of.get_cloned(&base));
             match(
               target,
               .Some(k) => if((k != rj) && !es.contains(&k), {
@@ -1419,9 +1420,11 @@ _fill_assumes :: (fn(reports : &mut ArrayList(VerifyFnReport), task_ids : &HashM
     (rk : usize) = usize(0);
     while(rk < direct.len(), {
       mine := direct.get_cloned(rk).unwrap();
+      mine_edges := edges.get_cloned(rk).unwrap();
       added := ArrayList(String).new();
-      for(&edges(rk), k => {
-        for(&direct(k.*), cid => {
+      for(&mine_edges, k => {
+        theirs := direct.get_cloned(k.*).unwrap();
+        for(&theirs, cid => {
           if(!mine.contains(cid.clone()) && !added.contains(cid.clone()), {
             added.push(cid.clone());
           });
