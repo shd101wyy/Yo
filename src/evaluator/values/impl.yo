@@ -31,6 +31,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
+  ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
   BK_BEGIN,
@@ -151,7 +152,7 @@ pragma(Pragma.AllowUnsafe);
 { check_where_clause_form } :: import("../utils.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous-module.yo");
 { format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help, with_code_carried } :: import("../../error.yo");
-{ E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
+{ E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET, E_TRAIT_BOUND_FORM } :: import("../../diagnostics.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env-lookup.yo");
@@ -5361,6 +5362,23 @@ force_in_flight_field :: (
 /// to `out_some_types` / `out_traits`. Single-trait constraints only — a
 /// `(Trait1, Trait2)` RHS or an unknown trait is skipped (conservative: no
 /// constraint captured ⇒ no exclusion, same as before).
+/// E0624 at an impl `where(...)` entry whose left side is not one of the
+/// impl's `generic(...)` binders: an impl reads a bound on a binder only.
+_impl_bound_not_on_a_binder_error :: (fn(lhs : &AstExpr, forall_names : &ArrayList(String)) -> YoError)({
+  lhs_text := ast_expr_to_string(lhs);
+  shown := cond(
+    (forall_names.len() == usize(0)) => String.from("this impl declares no `generic(...)` binder"),
+    true => `its binders are \`${String.from("`, `").join(forall_names)}\``
+  );
+  example := match(forall_names.get_cloned(usize(0)), .Some(n) => n, .None => String.from("T"));
+  with_code(
+    format_error_message(
+      ast_expr_token(lhs),
+      `An impl's \`where(...)\` bounds the impl's own \`generic(...)\` binders, and \`${lhs_text}\` is not one of them (${shown}). Bound a binder, as in \`where(${example} <: Trait)\`.`
+    ),
+    E_TRAIT_BOUND_FORM
+  )
+});
 _collect_impl_where_constraints :: (
   fn(
     where_expr : &AstExpr,
@@ -5394,7 +5412,7 @@ _collect_impl_where_constraints :: (
       lhs_name := ast_expr_token(&lhs).value.*.clone();
       (fa_idx : Option(usize)) = Option(usize).None;
       (fni : usize) = usize(0);
-      while((fni < forall_names.len()) && fa_idx.is_none(), {
+      while(ast_expr_is_atom(&lhs) && (fni < forall_names.len()) && fa_idx.is_none(), {
         match(
           forall_names.get_cloned(fni),
           .Some(fn0) => if(fn0 == lhs_name, {
@@ -5455,7 +5473,12 @@ _collect_impl_where_constraints :: (
             );
           });
         },
-        .None => ()
+        // The bound names none of the impl's binders (`W(T) <: Tr`,
+        // `Self <: Tr`, `T.Item <: Tr`): the impl would hold with the bound
+        // unread (VERDICTS-84 §4, E0624; issues/fixed/2026-11-26-an-impl-where-bound-whose-left-side-is-not-a-binder-is-silently-dropped.md).
+        .None => {
+          exn.throw(dyn(Box.new(_impl_bound_not_on_a_binder_error(&lhs, forall_names))));
+        }
       );
     });
   });
