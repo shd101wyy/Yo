@@ -1,0 +1,11 @@
+// expect: E0911
+// VERDICTS-76 row 12: `a := &mut s.r.*` borrows `x` through `s.r`; writing `x` while `a` lives would be a second `&mut` to `x`.
+S :: struct(r : &mut i32, n : i32);
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  s := S(r : &mut x, n : i32(0));
+  a := &mut s.r.*;
+  x = i32(9);
+  a.* = i32(2);
+});
+export(main);

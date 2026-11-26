@@ -75,6 +75,7 @@
   make_err_variable,
   env_adopt,
   variable_value_type,
+  variable_slot_type,
   variable_set_value_type,
   variable_set_is_ref,
   variable_set_reference_mut
@@ -110,7 +111,7 @@
 { is_unit_type, is_comptime_int_type, is_counted_handle_type, is_struct_type, is_tuple_type, is_enum_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH, E_BORROW_OF_NON_PLACE } :: import("../../diagnostics.yo");
+{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH, E_BORROW_OF_NON_PLACE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { _type_origin_names_into } :: import("../types/function.yo");
 { Token, TokenKind, TokenData, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -175,7 +176,8 @@
   _origin_through_match_bindings,
   OriginRootPlace,
   LocalBorrowElidedOrigin,
-  bind_join_roots_for
+  bind_join_roots_for,
+  variable_holder_roots
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -482,6 +484,9 @@ _evaluate_inout_local_binding :: (
   // lives, and the payload is never written through a handle (a `&mut`
   // borrow through it is E0919 below). Any other dereference has no owner
   // the borrow could keep alive.
+  // The reference fields a `*` hop reads through (row 12): the binding also
+  // borrows the places they refer to.
+  field_deref_recvs := ArrayList(AstExpr).new();
   if(!rhs_is_privileged, {
     (dk : usize) = usize(0);
     while(dk < hops.len(), {
@@ -493,7 +498,30 @@ _evaluate_inout_local_binding :: (
           // `&r.*…` through the reference binding `r` itself (N1e-1) names
           // the referent: the place `r` already borrows, not a pointer.
           d_is_reference_deref := (root_is_reference && ((dk + usize(1)) == hops.len()));
-          if(!d_is_reference_deref && !handle_payload_is_read_only(&d_recv_ty), {
+          // `&mut s.r.*` through a reference FIELD (VERDICTS-76 row 12)
+          // reborrows what the field refers to: the holder owns the field,
+          // and the reborrow freezes it and the field's places.
+          d_is_reference_field_deref := (((dk + usize(1)) < hops.len()) && t_slot_is_borrow(&d_recv_ty));
+          if(d_is_reference_field_deref && is_mut && !t_slot_is_mut_ref(&d_recv_ty), {
+            exn.throw(
+              dyn(
+                Box.new(
+                  with_code(
+                    format_error_message_with_help(
+                      ast_expr_token(&dhop.field),
+                      `Cannot borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\`: \`${ast_expr_to_string(&d_recv)}\` is a \`&\` reference (\`${type_to_string(&d_recv_ty)}\`), which is read-only.`,
+                      Option(String).Some(`borrow it read-only: \`&${local_borrow_place_text(rhs)}\``)
+                    ),
+                    E_WRITE_THROUGH_BORROW
+                  )
+                )
+              )
+            );
+          });
+          if(d_is_reference_field_deref, {
+            field_deref_recvs.push(Rc.clone(&d_recv));
+          });
+          if(!d_is_reference_deref && !d_is_reference_field_deref && !handle_payload_is_read_only(&d_recv_ty), {
             exn.throw(
               dyn(
                 Box.new(
@@ -726,6 +754,19 @@ _evaluate_inout_local_binding :: (
     },
     .None => ()
   );
+  // A reborrow through a reference field (`&mut s.r.*`, row 12) borrows the
+  // holder's field (the place above) and what the field refers to: those
+  // places stay frozen while the binding lives, as a reborrow `&mut m.*` of
+  // a reference binding keeps `m`'s.
+  if(field_deref_recvs.len() > usize(0), {
+    match(
+      &bound_opt,
+      .Some(fd_bound) => for(&field_deref_recvs, fd_recv => {
+        bind_join_roots_for(&fd_bound.*, &origin_of(fd_recv, env, ctx), &name_tok, env, ctx, exn, kill : false, holder_may_drop : false);
+      }),
+      .None => ()
+    );
+  });
   // ExprInfos: the name atom (typed as the place), the `inout(name)` node
   // (the pin channel), and the `:=` node (unit).
   name_info := new_expr_info(env, &place_type);
@@ -1573,6 +1614,136 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   expr_info := new_expr_info(&env, t_unit());
   expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
+  Rc.clone(expr.*)
+});
+/// `a = m` with `a` a local borrow and `m` a reference binding, both read
+/// bare in user code: a re-point of `a` to the reference `m` holds
+/// (VERDICTS-76 row 10), not a write of `a`'s referent (E0926).
+is_reference_repoint_by_move :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(false));
+  lhs := match(args.get_cloned(usize(0)), .Some(a) => a, .None => return(false));
+  rhs := match(args.get_cloned(usize(1)), .Some(a) => a, .None => return(false));
+  if(!(ast_expr_is_atom(&lhs) && ast_expr_is_atom(&rhs)), {
+    return(false);
+  });
+  if(!(deref_rule_applies(ast_expr_token(&lhs), ctx) && deref_rule_applies(ast_expr_token(&rhs), ctx)), {
+    return(false);
+  });
+  lhs_ok := match(
+    get_variables_from_env(env, ast_expr_token(&lhs).value.*.clone()).last_cloned(),
+    .Some(lv) => (variable_is_reference_binding(&lv) && local_borrow_info_of_variable(&lv).is_some()),
+    .None => false
+  );
+  lhs_ok && match(
+    get_variables_from_env(env, ast_expr_token(&rhs).value.*.clone()).last_cloned(),
+    .Some(rv) => variable_is_reference_binding(&rv),
+    .None => false
+  )
+});
+/// `a = m`, a re-point by move (VERDICTS-76 row 10): `a`'s old loan ends and
+/// `a` takes over the places `m` borrows (no new loan is minted, as for
+/// `a := m`); a `&mut` `m` is consumed (a later use is E0901), a `&` one is
+/// copied. Codegen emits the re-point `a = m` (the recorded
+/// `__yo_mut(a) = m`), a pointer copy.
+evaluate_reference_repoint_by_move :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  (env : Environment) = Rc.clone(env_in);
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  lhs := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  rhs := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
+  lhs_tok := ast_expr_token(&lhs);
+  rhs_tok := ast_expr_token(&rhs);
+  name := lhs_tok.value.*.clone();
+  src := rhs_tok.value.*.clone();
+  cur_var := match(get_variables_from_env(&env, name.clone()).last_cloned(), .Some(v) => v, .None => make_err_variable(&env));
+  src_var := match(get_variables_from_env(&env, src.clone()).last_cloned(), .Some(v) => v, .None => make_err_variable(&env));
+  info := match(local_borrow_info_of_variable(&cur_var), .Some(i) => i, .None => local_borrow_info_placeholder(name.clone(), &lhs_tok));
+  src_is_mut := t_slot_is_mut_ref(&variable_slot_type(&src_var));
+  if(info.is_mut != src_is_mut, {
+    exn.throw(
+      dyn(
+        Box.new(
+          with_code(
+            format_error_message_with_help(
+              &rhs_tok,
+              `\`${name}\` is a \`${cond(info.is_mut => "&mut", true => "&")}\` borrow, and \`${src}\` is a \`${cond(src_is_mut => "&mut", true => "&")}\` reference (\`${type_to_string(&variable_slot_type(&src_var))}\`): a re-point keeps \`${name}\`'s mode.`,
+              cond(
+                info.is_mut => Option(String).None,
+                true => Option(String).Some(`re-point \`${name}\` to a shared reborrow: \`${name} = &${src}.*\``)
+              )
+            ),
+            E_ORIGIN_MISMATCH
+          )
+        )
+      )
+    );
+  });
+  if(!are_types_compatible(&variable_value_type(&src_var), &variable_value_type(&cur_var)), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            &rhs_tok,
+            `Cannot re-point \`${name}\` to \`${src}\`: \`${name}\` borrows a place of type ${type_to_string(&variable_value_type(&cur_var))}, and \`${src}\` refers to ${type_to_string(&variable_value_type(&src_var))}.`
+          )
+        )
+      )
+    );
+  });
+  // A re-point of a moved reference gives it a new value, as any assignment
+  // of a moved `mut` local does (the `a = &place` re-point's rule).
+  match(
+    cur_var.consumed_at_token(),
+    .Some(rp_moved_at) => {
+      record_branch_init(cur_var.id(), &variable_value_type(&cur_var), &Option(TypeValue).None, &lhs_tok, &cur_var.initialized_at_token(), &Option(Token).Some(rp_moved_at));
+      cur_var.set_consumed_at_token(Option(Token).None);
+    },
+    .None => ()
+  );
+  // The re-point writes the binding: its name is evaluated as the
+  // `a = &place` re-point's is (codegen reads the pointer from it).
+  deref_exempt_mark(&lhs);
+  local_borrow_mark_receiver(&lhs);
+  evaluated_lhs := evaluate_expression_raw(&lhs, &env, ctx, exn);
+  local_borrow_clear_receiver();
+  deref_exempt_clear();
+  // `m` is read as the reference itself (the move of `a := m`).
+  chain_ref_leaf_register(&rhs_tok);
+  evaluated_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
+  chain_ref_leaf_forget(&rhs_tok);
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)), .Some(ri) => env_adopt(&env, &ri.env()), .None => ());
+  // No borrow derived from `a`'s current target may be live (decision 38 A).
+  local_borrow_require_no_live_derived(&info, &lhs_tok, &Option(Variable).None, &rhs_tok, ctx, exn);
+  roots := variable_holder_roots(&src_var);
+  if(info.is_mut, {
+    set_expr_as_consumed(&evaluated_rhs, &env, false, ctx, exn);
+  });
+  // The join: `a`'s loans become `m`'s places (KILL the old target's).
+  bind_join_roots_for(&cur_var, &roots, &rhs_tok, &env, ctx, exn, kill : true, holder_may_drop : false);
+  // The re-point codegen emits: `__yo_mut(a) = m`.
+  mode_args := ArrayList(AstExpr).new();
+  mode_args.push(Rc.clone(evaluated_lhs));
+  mode_head := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(String.from(cond(info.is_mut => BK_MUT, true => BK_IMM))), row : lhs_tok.row, column : lhs_tok.column, character : lhs_tok.character, byte_offset : lhs_tok.byte_offset, module_path : Rc.clone(lhs_tok.module_path), input : Rc.clone(lhs_tok.input)))));
+  mode_call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), mode_head, Rc.new(mode_args), false, Rc.clone(lhs_tok)));
+  rp_args := ArrayList(AstExpr).new();
+  rp_args.push(Rc.clone(mode_call));
+  rp_args.push(Rc.clone(evaluated_rhs));
+  rp := match(
+    expr,
+    Rc(.FnCall(_, ef, _, e_infix, etok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(ast_expr_token(&ef.*)))), Rc.new(rp_args), e_infix.*, Rc.clone(etok.*))),
+    Rc(.Atom(_, _)) => Rc.clone(expr.*)
+  );
+  mode_info := new_expr_info(&env, t_unit());
+  mode_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&mode_call), &mode_info);
+  rp_info := new_expr_info(&env, t_unit());
+  rp_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
+  expr_info_set_is_compile_time_only_assignment(&rp_info, Option(bool).Some(false));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&rp), &rp_info);
+  expr_info := new_expr_info(&env, t_unit());
+  expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
+  expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
+  expr_info_set_macro_expansion(&expr_info, &Option(AstExpr).Some(rp));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   Rc.clone(expr.*)
 });
@@ -2771,4 +2942,4 @@ Use \`::\` for compile-time definitions inside impl.`
     Rc.clone(expr.*)
   })
 });
-export(evaluate_initialization_assignment, evaluate_local_borrow_repoint);
+export(evaluate_initialization_assignment, evaluate_local_borrow_repoint, is_reference_repoint_by_move, evaluate_reference_repoint_by_move);

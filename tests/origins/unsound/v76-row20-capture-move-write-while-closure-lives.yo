@@ -1,0 +1,12 @@
+// expect: E0911
+// VERDICTS-76 row 20: the closure holds `m`'s loan of `x`; writing `x` while the closure lives is a conflict.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  m := &mut x;
+  (f : Impl(FnOnce() -> unit)) = ({ m }() => {
+    m.* = i32(2);
+  });
+  x = i32(3);
+  f();
+});
+export(main);

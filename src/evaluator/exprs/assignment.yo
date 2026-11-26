@@ -70,7 +70,7 @@ pragma(Pragma.AllowUnsafe);
   shared_values
 } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ TypeValue, t_refine_inner, no_labels, t_reference, t_reference_with_origin, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner, no_labels, t_reference, t_reference_with_origin, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_pointee } :: import("../../types/definitions.yo");
 { are_types_compatible, impl_dispatch_hint } :: import("../../types/compatibility.yo");
 {
   is_comptime_int_type,
@@ -2972,13 +2972,23 @@ comptime(${variable_name}) : ${dgc_ty_str}
   if(!are_types_compatible(&rhs_type, &variable_value_type(&variable)), {
     var_ty_str := type_to_string(&variable_value_type(&variable));
     rhs_ty_str := type_to_string(&rhs_type);
+    // A `&mut` reference where a `&` one is declared (VERDICTS-76 row 6): a
+    // reference moves or copies as itself, and the read-only reborrow is
+    // spelled `&m.*`.
+    shared_reborrow_help := cond(
+      (ast_expr_is_atom(&rhs) && t_slot_is_borrow(&variable_value_type(&variable)) && !t_slot_is_mut_ref(&variable_value_type(&variable)) && t_slot_is_mut_ref(&rhs_type) && are_types_compatible(&t_slot_pointee(&rhs_type), &t_slot_pointee(&variable_value_type(&variable)))) => Option(String).Some(
+        `\`${ast_expr_to_string(&rhs)}\` is a \`&mut\` reference, and a reference is bound as itself: reborrow it read-only, \`&${ast_expr_to_string(&rhs)}.*\``
+      ),
+      true => Option(String).None
+    );
     exn.throw(
       dyn(
         Box.new(
           mark_generic_independent(
-            format_error_message(
+            format_error_message_with_help(
               ast_expr_token(&lhs_resolved),
-              `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(&variable_value_type(&variable), &rhs_type)}`
+              `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(&variable_value_type(&variable), &rhs_type)}`,
+              shared_reborrow_help
             ),
             &variable_value_type(&variable),
             &rhs_type

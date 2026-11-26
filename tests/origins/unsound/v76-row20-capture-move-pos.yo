@@ -1,0 +1,15 @@
+// expect: accept
+// VERDICTS-76 row 20: the capture-list entry `{ m }` moves the `&mut` reference into the closure, which writes through it.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  {
+    m := &mut x;
+    (f : Impl(FnOnce() -> unit)) = ({ m }() => {
+      m.* = i32(2);
+    });
+    f();
+  };
+  println(`OUT: ${x.to_string()}`);
+});
+export(main);

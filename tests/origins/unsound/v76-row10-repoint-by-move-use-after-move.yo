@@ -1,0 +1,12 @@
+// expect: E0901
+// VERDICTS-76 row 10: after `a = m` moves `m`, a write through `m` while `a` lives would be a second `&mut` to `x`.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  mut(y) := i32(1);
+  m := &mut x;
+  mut(a) := &mut y;
+  a = m;
+  m.* = i32(2);
+  a.* = i32(3);
+});
+export(main);

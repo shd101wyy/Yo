@@ -244,7 +244,7 @@ import("std/fmt");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
 { register_rerun_pending_def_evals } :: import("../calls/function-type.yo");
-{ evaluate_initialization_assignment, evaluate_local_borrow_repoint } :: import("./initialization-assignment.yo");
+{ evaluate_initialization_assignment, evaluate_local_borrow_repoint, is_reference_repoint_by_move, evaluate_reference_repoint_by_move } :: import("./initialization-assignment.yo");
 { evaluate_assignment } :: import("./assignment.yo");
 { evaluate_recur } :: import("./recur.yo");
 { evaluate_runtime } :: import("./runtime.yo");
@@ -691,6 +691,8 @@ _evaluate_expression :: (
           },
           // `cur = &place` / `cur = &mut place`: a re-point (decision 25).
           ast_expr_is_local_borrow_mode_call(ast_expr_get_arg0(expr), .Some(usize(1))) => evaluate_local_borrow_repoint(expr, env, ctx, exn),
+          // `a = m`, `m` a reference binding: a re-point by move (VERDICTS-76 row 10).
+          is_reference_repoint_by_move(expr, env, ctx) => evaluate_reference_repoint_by_move(expr, env, ctx, exn),
           true => evaluate_assignment(expr, env, ctx, exn)
         ),
         ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, "->", .Some(usize(2)))) => {

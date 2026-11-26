@@ -1,0 +1,11 @@
+// expect: E0911
+// VERDICTS-76 row 12: `a := &mut s.r.*` freezes the field `s.r` while `a` lives; writing through `s.r` meanwhile is a conflict.
+S :: struct(r : &mut i32, n : i32);
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  s := S(r : &mut x, n : i32(0));
+  a := &mut s.r.*;
+  s.r.* = i32(5);
+  a.* = i32(2);
+});
+export(main);

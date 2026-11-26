@@ -1,0 +1,15 @@
+// expect: accept
+// VERDICTS-76 row 12: `a := &mut s.r.*` reborrows what the `&mut` field refers to; after `a`'s last use, `s.r` and `x` are usable again.
+{ println } :: import("std/fmt");
+S :: struct(r : &mut i32, n : i32);
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  {
+    s := S(r : &mut x, n : i32(0));
+    a := &mut s.r.*;
+    a.* = i32(2);
+    s.r.* = (s.r.* + i32(1));
+  };
+  println(`OUT: ${x.to_string()}`);
+});
+export(main);

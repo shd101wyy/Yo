@@ -1246,21 +1246,20 @@ _evaluate_capture_list :: (
       // entry's is, and the closure's capture borrows are the places `y`'s
       // origin names (R-CAP-2), so the closure outlives `y` the binding but
       // not what `y` refers to.
+      // A `&mut` reference is move-only (VERDICTS-76 row 20): the entry
+      // moves it into the closure, which writes through it, and a later use
+      // of the binding is E0901; `{ m : &mut m.* }` reborrows instead.
       rv := match(&ref_copy_var, .Some(v) => Rc.clone(v), .None => return(out));
-      if(match(&reference_binding_read_type(&rv), Rc(.Reference(_, rc_m, _)) => rc_m.*, _ => false), {
-        _cap_list_error(
-          ctx,
-          exn,
-          ast_expr_token(&init_e),
-          `\`${rv.name}\` is a \`&mut\` reference, and the by-value entry \`${label}\` would move it into the closure, which cannot take it. Reborrow it for the closure's life with \`{ ${label} : &mut ${rv.name}.* }\`.`
-        );
-      });
+      ref_is_mut := match(&reference_binding_read_type(&rv), Rc(.Reference(_, rc_m, _)) => rc_m.*, _ => false);
       saved_rexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
       binder_read_mark(&init_e);
       ev_ref := evaluate_expression_raw(&init_e, env, ctx, exn);
       binder_read_clear();
       ctx.expected_type = saved_rexp;
       require_expr_not_consumed(&ev_ref, env, ctx, exn);
+      if(ref_is_mut, {
+        set_expr_as_consumed(&ev_ref, env, false, ctx, exn);
+      });
       ref_borrows := ArrayList(CaptureBorrow).new();
       _capture_origin_borrows(&label, &origin_of(&ev_ref, env, ctx), &name_tok, env, &mut ref_borrows);
       out.push(
@@ -1268,7 +1267,7 @@ _evaluate_capture_list :: (
           label : label,
           label_tok : name_tok,
           is_borrow : true,
-          is_mut : false,
+          is_mut : ref_is_mut,
           value_ty : variable_value_type(&rv),
           init : ev_ref.clone(),
           root_id : rv.id(),

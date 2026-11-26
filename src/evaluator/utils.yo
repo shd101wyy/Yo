@@ -7187,6 +7187,24 @@ reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref
     },
     .None => ()
   );
+  // A `&mut` field read whole would move the reference out of its holder, a
+  // partial move (decision 19; VERDICTS-76 row 12): the reborrow keeps it
+  // there.
+  if(t_slot_is_mut_ref(ref_ty), {
+    raise_flow_violation(
+      &with_code(
+        format_error_message_with_help(
+          tok,
+          `use of moved value: \`${text}\` is a \`&mut\` reference (\`${shown}\`) held by its holder, and reading it whole would move it out, leaving the holder partly moved (Yo has no partial moves)`,
+          Option(String).Some(`reborrow it: \`&mut ${text}.*\` (\`a := &mut ${text}.*\`, or the argument of a \`&mut\` parameter); \`${text}.*\` reads the value it refers to`)
+        ),
+        E_USE_OF_MOVED_VALUE
+      ),
+      ctx,
+      exn
+    );
+    return(());
+  });
   raise_flow_violation(
     &with_code(
       format_error_message_with_help(
