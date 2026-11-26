@@ -442,7 +442,9 @@ test("z3_unsat_core_of: the get-info answers are not an unsat core", {
 test("probe_solver_at: a dangling path, a binary that cannot answer, one that can", {
   // plans/backlog/DEFAULT_ON_VERIFICATION.md §5 item 8: a solver that cannot
   // run is the missing-solver case (one line), not a SOLVER-ERROR block per
-  // function. `/bin/echo --version` prints a line, so the probe calls it usable.
+  // function. `/bin/echo --version` prints a line and exits 0 (GNU and uutils
+  // print their version, BSD echoes the argument), so the probe calls it
+  // usable; `false` exits 1 whatever it prints.
   match(
     probe_solver_at(String.from("/nonexistent/yo-probe-z3")),
     .NotFound(p) => assert(p == "/nonexistent/yo-probe-z3", "the path is reported"),
@@ -458,7 +460,7 @@ test("probe_solver_at: a dangling path, a binary that cannot answer, one that ca
   );
   match(
     probe_solver_at(String.from("/bin/echo")),
-    .Usable(_, identity) => assert(identity == "--version", "the identity is the --version output"),
+    .Usable(_, identity) => assert(identity.len() > usize(0), "the identity is the --version output"),
     _ => assert(false, "a binary that answers --version is Usable")
   );
 });
