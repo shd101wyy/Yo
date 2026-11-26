@@ -53,6 +53,7 @@
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
+  expr_info_deferred_dup_expressions,
   expr_info_set_capture_type,
   expr_info_set_capture_field_inits,
   expr_info_set_macro_expansion,
@@ -99,7 +100,7 @@
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_copy_trait_enabled, audit_record_copy_trait, dyn_copy_rule_applies, check_dyn_capture, _rc_clone_spelling } :: import("../utils.yo");
+{ audit_copy_trait_enabled, audit_record_copy_trait, _rc_clone_spelling } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1457,16 +1458,13 @@ CapturedVarDupResult :: struct(
   /// nothing, so its value gets no owning temp and no drop.
   borrowed : bool
 );
-/// Generate `___dup()` expressions for captured ARC variables — one evaluated
-/// `___dup(name)` per captured variable whose type contains an RC-managed
-/// type. Codegen (generate_closure_construction) emits these as the capture
+/// Generate `___dup()` expressions for captured ARC variables — the evaluated
+/// `___dup(name)` the dup funnel (`set_expr_as_needs_to_call_dup`) records
+/// for each captured variable whose type contains an RC-managed type.
+/// Codegen (generate_closure_construction) emits these as the capture
 /// struct's field initializers, so the capture holds its OWN reference; the
 /// constructing scope's local can then be dropped without freeing the value
 /// under the closure (the Command.status spawn-storage UAF).
-///
-/// The env is mutated in place, so the updated env needs no threading
-/// through the evaluated exprs — same as the `___drop` builder in
-/// exprs/begin.yo.
 generate_captured_variable_dup_expressions :: (
   fn(
     captured_vars_with_values : &Option(HashMap(String, FuncCapturedVarInfo)),
@@ -1519,16 +1517,27 @@ generate_captured_variable_dup_expressions :: (
                   .None => ()
                 );
               },
+              // Any other value that holds a count: the capture is a store
+              // into the capture struct's field, decided by the one dup
+              // funnel (`set_expr_as_needs_to_call_dup`); the dup it records
+              // initializes the field.
               type_contains_rc_type(&ci.ty) => {
-                // The unique `Dyn` (`check_dyn_capture`): the capture of a
-                // variable holding a `Dyn` moves it.
-                if(!borrow_captures && dyn_copy_rule_applies(&ci.ty), {
-                  match(get_variables_from_env(env, var_name.clone()).last_cloned(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
-                });
-                dup_code := `___dup(${var_name})`;
-                dup_expr := generate_expr_from_code(&dup_code, exn);
-                evaluated := evaluate_expression_raw(&dup_expr, env, ctx, exn);
-                dup_exprs.push(evaluated);
+                cap_read := evaluate_expression_raw(&generate_expr_from_code(var_name.clone(), exn), env, ctx, exn);
+                set_expr_as_needs_to_call_dup(&cap_read, ctx, exn, "capture");
+                match(
+                  expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cap_read)),
+                  .Some(cap_ei) => match(
+                    expr_info_deferred_dup_expressions(&cap_ei),
+                    .Some(cap_dups) => {
+                      (cdi : usize) = usize(0);
+                      while(cdi < cap_dups.len(), cdi = (cdi + usize(1)), {
+                        dup_exprs.push(Rc.clone(cap_dups(cdi)));
+                      });
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
               },
               // YO_AUDIT_COPY_TRAIT: a plain-data capture is a copy too.
               audit_copy_trait_enabled() => audit_record_copy_trait(closure_tok, &ci.ty, "capture", env, generate_expr_from_code(var_name.clone(), exn), ctx, false),
