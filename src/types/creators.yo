@@ -896,6 +896,10 @@ patch_self_shell_reporting :: (
 /// The ids of the enums whose declaration names `Self` (one of whose
 /// payloads holds the self-shell). Every enum registers a final; only these
 /// can occur inside themselves, so only they need the `type_key` cycle guard.
+/// The type arguments stamped on enum `id`'s final, keyed by the final's
+/// own id (first stamp wins, as in `g_enum_finals`): `type_key` reads them
+/// for every enum node, so the lookup builds no key string.
+(g_enum_final_args : RefCell(HashMap(String, SharedList(TypeValue)))) = RefCell(HashMap(String, SharedList(TypeValue))).new(HashMap(String, SharedList(TypeValue)).new());
 (g_recursive_enum_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 mark_enum_recursive :: (fn(enum_id : &String) -> unit)({
   rk := enum_id.clone();
@@ -945,14 +949,9 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
 /// unrolled level the final's own payloads hold) shares the final's id and
 /// records no arguments of its own; it is the same instance, so it reads
 /// these (VERDICTS-77).
-enum_final_recorded_args :: (fn(eid : &String) -> SharedList(TypeValue))({
-  shell_key := `${eid}__self_shell`;
-  match(
-    g_enum_finals.with({ &shell_key }(m) => m.get_cloned(shell_key)),
-    .Some(Rc(.EnumT({ type_arguments : rtas }))) => Rc.clone(rtas),
-    _ => no_types()
-  )
-});
+enum_final_recorded_args :: (fn(eid : &String) -> SharedList(TypeValue))(
+  match(g_enum_final_args.with({ eid : &eid.* }(m) => m.get_cloned(eid)), .Some(rtas) => rtas, .None => no_types())
+);
 // Type-constructor phantom positions: `constructor func id -> one flag per
 // collected argument` (forall arguments, then parameters, the order of the
 // comptime-fn call site's `inst_type_args`), true where the enum the
@@ -1048,6 +1047,8 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
         efvfl := Rc.clone(fvfl);
         efdis := Rc.clone(fdis);
         _ := g_enum_finals.with_mut({ ef_key, ef_fid, efnm, efsvn, efvns : Rc.clone(efvns), efvfs : Rc.clone(efvfs), efvfl : Rc.clone(efvfl), efdis : Rc.clone(efdis), firs, fiar, args : Rc.clone(args) }(m) => m.insert(ef_key, Rc.new(TypeValueNode.EnumT(ef_fid, efnm, efvns, efvfs, efsvn, efvfl, efdis, firs, fiar, Rc.clone(args)))));
+        fa_key := enum_id.clone();
+        _ := g_enum_final_args.with_mut({ fa_key, args : Rc.clone(args) }(m) => m.insert(fa_key, Rc.clone(args)));
         bump_type_key_epoch();
       }),
       _ => ()
