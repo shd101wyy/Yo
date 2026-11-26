@@ -145,14 +145,14 @@ pragma(Pragma.AllowUnsafe);
   format_error_message_with_repair_at
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH, E_TRAIT_BOUND_FORM } :: import("../diagnostics.yo");
+{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH, E_TRAIT_BOUND_FORM, E_TRAIT_AS_VALUE_TYPE, E_ARGUMENT_COUNT_MISMATCH } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, EvalValueNode, is_unknown_val, is_type_value, is_var_ref, is_func_val, lookup_type_ctor_value, lookup_enum_cfid } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, fn_result_spells_static, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided, is_static_origin, origin_names_contain } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
 { are_types_compatible, are_types_compatible_exact, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation, impl_dispatch_hint } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message, type_key_epoch } :: import("../types/string.yo");
@@ -575,6 +575,257 @@ check_where_clause_form :: (fn(where_expr : &AstExpr, exn : Exception) -> unit)(
       );
     });
   });
+});
+// ---------------------------------------------------------------------------
+// Bound forms outside `where(...)` (VERDICTS-84 §4, VERDICTS-85 §6)
+// ---------------------------------------------------------------------------
+/// A trait with no receiver: the bare `Tr` read where a type or a kind is.
+/// `Impl(Tr)` carries its receiver, and `Dyn(Tr)` is not a `TraitT`.
+is_bare_trait_type :: (fn(t : &TypeValue) -> bool)(
+  match(t_refine_inner(t), Rc(.TraitT(_, _, _, bt_concrete, _, _)) => bt_concrete.is_none(), _ => false)
+);
+/// The parameter names of a trait constructor (`Eq` gives `[Rhs]`), or
+/// `.None` when `value` is something else. A trait constructor is a
+/// compile-time function whose result is the `Trait` kind, `-> comptime(Trait)`.
+trait_constructor_params_of :: (fn(value : &Option(EvalValue), ty : &TypeValue) -> Option(ArrayList(String)))(
+  match(
+    value,
+    .Some(Rc(.FuncVal(tc_fvd, _))) => match(
+      t_refine_inner(ty),
+      Rc(.Func({ result : tc_r })) => match(
+        t_refine_inner(&t_slot_pointee(&tc_r)),
+        Rc(.TypeUni(tc_level)) => if(tc_level == usize(1), Option(ArrayList(String)).Some(tc_fvd.*.params.clone()), Option(ArrayList(String)).None),
+        _ => Option(ArrayList(String)).None
+      ),
+      _ => Option(ArrayList(String)).None
+    ),
+    _ => Option(ArrayList(String)).None
+  )
+);
+/// `Eq(Rhs)` for the trait constructor `name` with parameters `params`.
+trait_constructor_spelling :: (fn(name : &String, params : &ArrayList(String)) -> String)(
+  `${name}(${String.from(", ").join(params)})`
+);
+/// E0603 at a bound whose right side is a trait constructor given no
+/// arguments: `T <: Eq` is `T <: Eq(T)` (VERDICTS-84 §4). The example
+/// passes the bounded type for every parameter, the common `Eq(T)`,
+/// `Ord(T)` reading; the argument stays the author's, so no repair.
+bare_trait_constructor_bound_error :: (fn(tok : &Token, lhs : &String, name : &String, params : &ArrayList(String)) -> YoError)({
+  n := params.len();
+  args := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    args.push(lhs.clone());
+  });
+  count := cond((n == usize(1)) => String.from("one type argument"), true => `${n} type arguments`);
+  with_code(
+    format_error_message(
+      tok,
+      `\`${name}\` takes ${count}, \`${trait_constructor_spelling(name, params)}\`, and none was given: a bound names the trait applied, as in \`${lhs} <: ${name}(${String.from(", ").join(&args)})\`.`
+    ),
+    E_ARGUMENT_COUNT_MISMATCH
+  )
+});
+/// E0624 at a bound whose right side is not a trait (VERDICTS-85 §6): Yo
+/// has no subtyping, so `T <: Circle` and `i32 <: i64` bound nothing. A
+/// trait on the LEFT is a supertrait written where the trait is declared.
+non_trait_bound_error :: (fn(tok : &Token, lhs_text : &String, rhs_ty : &TypeValue, lhs_is_trait : bool) -> YoError)({
+  rhs := type_to_string(rhs_ty);
+  msg := cond(
+    lhs_is_trait =>
+      `\`${lhs_text}\` is a trait, and \`<:\` says a TYPE implements a trait. A supertrait is declared in the trait itself: \`${lhs_text} :: trait(..., where(Self <: ${rhs}))\`.`,
+    true =>
+      `\`<:\` says a type implements a trait, and \`${rhs}\` is not a trait. Yo has no subtyping between types: to take a \`${rhs}\`, write \`x : &${rhs}\`.`
+  );
+  with_code(format_error_message(tok, &msg), E_TRAIT_BOUND_FORM)
+});
+/// E0625: a trait where a value's type is read (VERDICTS-84 §4). `what`
+/// names the slot ("the parameter `a`", "the field `v`"). A value has one
+/// type: `Impl(Tr)` when one implementing type is chosen at compile time,
+/// `&Dyn(Tr)` or `Box(Dyn(Tr))` when it is chosen at run time. Three
+/// candidates, so no repair.
+trait_as_value_type_error :: (fn(tok : &Token, trait_text : &String, what : &String) -> YoError)(
+  with_code(
+    format_error_message(
+      tok,
+      `\`${trait_text}\` is a trait, not a type, so it cannot be the type of ${what}. A value of one implementing type is \`Impl(${trait_text})\`; a value whose type is chosen at run time is \`&Dyn(${trait_text})\` or \`Box(Dyn(${trait_text}))\`.`
+    ),
+    E_TRAIT_AS_VALUE_TYPE
+  )
+);
+/// The coded diagnostics for a bound's right side that never becomes a
+/// trait (VERDICTS-84 §4, VERDICTS-85 §6): a trait constructor given no
+/// arguments is E0603 naming the applied form, a type that is not a trait is
+/// E0624. Returns for anything else, so the caller keeps its own handling of
+/// a trait, of a right side still pending and of a type variable (a
+/// `Trait`-kinded binder is not a trait either, and is no subtyping mistake).
+throw_if_bound_rhs_is_not_a_trait :: (fn(rhs_expr : &AstExpr, value : &Option(EvalValue), ty : &TypeValue, lhs_text : &String, exn : Exception) -> unit)({
+  match(
+    trait_constructor_params_of(value, ty),
+    .Some(ps) => {
+      exn.throw(dyn(Box.new(bare_trait_constructor_bound_error(ast_expr_token(rhs_expr), lhs_text, &ast_expr_to_string(rhs_expr), &ps))));
+    },
+    .None => ()
+  );
+  match(
+    value,
+    .Some(Rc(.TypeVal(nt))) => if(!is_trait_type(nt) && !is_some_type(nt), {
+      exn.throw(dyn(Box.new(non_trait_bound_error(ast_expr_token(rhs_expr), lhs_text, nt, false))));
+    }),
+    _ => ()
+  );
+});
+/// The note for a witness `(T <: Tr)` read where a `bool` is
+/// (VERDICTS-85 §6): the expression names the impl of `Tr` for `T`, and
+/// `Type.impls(T, Tr)` is the test. "" unless `expr` is a `<:` call.
+witness_as_bool_note :: (fn(expr : &AstExpr) -> String)({
+  if(!ast_expr_is_fn_call_of(expr, "<:", .Some(usize(2))), {
+    return(String.new());
+  });
+  sides := match(expr, Rc(.FnCall(_, _, Rc(wa), _, _)) => wa.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  l := match(sides.get_cloned(usize(0)), .Some(e) => ast_expr_to_string(&e), .None => String.from("T"));
+  r := match(sides.get_cloned(usize(1)), .Some(e) => ast_expr_to_string(&e), .None => String.from("Tr"));
+  `\n\`${l} <: ${r}\` names the impl of \`${r}\` for \`${l}\`, a value that is not a \`bool\`. The compile-time test is \`Type.impls(${l}, ${r})\`.`
+});
+/// ASCII space, tab, carriage return or newline.
+_is_ascii_space :: (fn(b : u8) -> bool)((b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13)));
+/// The byte just past the expression that starts at byte `start` of
+/// `input`: the first `,` or `;` or unmatched closer at depth 0, trailing
+/// whitespace dropped. `.None` when a comment or a template literal is in the
+/// way: a repair spliced around one would not be the expression.
+source_expr_end_byte :: (fn(input : &String, start : usize) -> Option(usize))({
+  n := input.len();
+  (i : usize) = start;
+  (depth : usize) = usize(0);
+  while(i < n, {
+    b := input.byte_at(i);
+    is_open := ((b == u8(40)) || (b == u8(91)) || (b == u8(123)));
+    is_close := ((b == u8(41)) || (b == u8(93)) || (b == u8(125)));
+    if(is_close && (depth == usize(0)), {
+      break;
+    });
+    if(((b == u8(44)) || (b == u8(59))) && (depth == usize(0)), {
+      break;
+    });
+    if(b == u8(96), {
+      return(Option(usize).None);
+    });
+    if((b == u8(47)) && ((i + usize(1)) < n) && ((input.byte_at(i + usize(1)) == u8(47)) || (input.byte_at(i + usize(1)) == u8(42))), {
+      return(Option(usize).None);
+    });
+    if(is_open, {
+      depth = (depth + usize(1));
+    });
+    if(is_close, {
+      depth = (depth - usize(1));
+    });
+    if(b == u8(34), {
+      i = (i + usize(1));
+      while((i < n) && (input.byte_at(i) != u8(34)), {
+        if(input.byte_at(i) == u8(92), {
+          i = (i + usize(1));
+        });
+        i = (i + usize(1));
+      });
+    });
+    i = (i + usize(1));
+  });
+  (e : usize) = cond((i > n) => n, true => i);
+  while((e > start) && _is_ascii_space(input.byte_at(e - usize(1))), {
+    e = (e - usize(1));
+  });
+  Option(usize).Some(e)
+});
+/// The byte of the `)` matching the `(` at byte `open`, or `.None` when a
+/// template literal or the end of input comes first. A line comment is
+/// skipped.
+source_matching_paren_byte :: (fn(input : &String, open : usize) -> Option(usize))({
+  n := input.len();
+  (i : usize) = (open + usize(1));
+  (depth : usize) = usize(0);
+  while(i < n, {
+    b := input.byte_at(i);
+    if(b == u8(96), {
+      return(Option(usize).None);
+    });
+    if((b == u8(47)) && ((i + usize(1)) < n) && (input.byte_at(i + usize(1)) == u8(47)), {
+      while((i < n) && (input.byte_at(i) != u8(10)), {
+        i = (i + usize(1));
+      });
+      continue;
+    });
+    if(b == u8(34), {
+      i = (i + usize(1));
+      while((i < n) && (input.byte_at(i) != u8(34)), {
+        if(input.byte_at(i) == u8(92), {
+          i = (i + usize(1));
+        });
+        i = (i + usize(1));
+      });
+    });
+    if((b == u8(40)) || (b == u8(91)) || (b == u8(123)), {
+      depth = (depth + usize(1));
+    });
+    if((b == u8(41)) || (b == u8(93)) || (b == u8(125)), {
+      if(depth == usize(0), {
+        return(Option(usize).Some(i));
+      });
+      depth = (depth - usize(1));
+    });
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// The span of `anchor.input[start, end)`, located from `anchor` (a token at
+/// or before `start`, whose row and column fix the coordinates), or `.None`
+/// when the range is out of order or crosses a line: a repair edits one line.
+source_span_from_anchor :: (fn(anchor : &Token, start : usize, end : usize) -> Option(Span))({
+  input := anchor.input.*.clone();
+  a := usize(anchor.byte_offset);
+  if((start < a) || (end < start) || (end > input.len()), {
+    return(Option(Span).None);
+  });
+  (row : usize) = usize(anchor.row);
+  (col : usize) = usize(anchor.column);
+  (i : usize) = a;
+  while(i < start, i = (i + usize(1)), {
+    b := input.byte_at(i);
+    if(b == u8(10), {
+      row = (row + usize(1));
+      col = usize(0);
+    }, {
+      if((b & u8(192)) != u8(128), {
+        col = (col + usize(1));
+      });
+    });
+  });
+  (len : usize) = usize(0);
+  (j : usize) = start;
+  while(j < end, j = (j + usize(1)), {
+    b := input.byte_at(j);
+    if((b == u8(10)) || (b == u8(13)), {
+      return(Option(Span).None);
+    });
+    if((b & u8(192)) != u8(128), {
+      len = (len + usize(1));
+    });
+  });
+  Option(Span).Some(Span(path : anchor.module_path.*.clone(), row : row, col : col, len : len))
+});
+/// The text after the infix operator `op` up to the end of its right
+/// operand (`: (A, B)` gives `(A, B)`, the parentheses the AST drops kept), with
+/// its byte range; `.None` when it does not read back from the source.
+source_operand_after :: (fn(op : &Token) -> Option(Tuple(String, usize, usize)))({
+  input := op.input.*.clone();
+  (s : usize) = (usize(op.byte_offset) + op.value.*.len());
+  while((s < input.len()) && _is_ascii_space(input.byte_at(s)), {
+    s = (s + usize(1));
+  });
+  match(
+    source_expr_end_byte(&input, s),
+    .Some(e) => if(e > s, Option(Tuple(String, usize, usize)).Some((input.substring(s, e), s, e)), Option(Tuple(String, usize, usize)).None),
+    .None => Option(Tuple(String, usize, usize)).None
+  )
 });
 // ---------------------------------------------------------------------------
 // find_rc_value_owner_relationship
@@ -6621,7 +6872,7 @@ legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &Ast
 });
 export(reject_dyn_place_by_value, legacy_box_dyn_lend);
 export(in_compile_time_fn_body);
-export(check_where_clause_form);
+export(check_where_clause_form, witness_as_bool_note, throw_if_bound_rhs_is_not_a_trait, is_bare_trait_type, trait_constructor_params_of, trait_constructor_spelling, bare_trait_constructor_bound_error, non_trait_bound_error, trait_as_value_type_error, source_expr_end_byte, source_matching_paren_byte, source_span_from_anchor, source_operand_after);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(move_only_help, move_only_type_help, use_of_moved_value_error, moved_value_type, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);

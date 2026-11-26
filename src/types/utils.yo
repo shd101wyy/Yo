@@ -5318,17 +5318,24 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 /// `?Sized` variable is decided per specialization, where it is bound; the
 /// generic definition's slot keeps the thin ABI its sized instances use.
 _pointee_is_fat :: (fn(t : &TypeValue) -> bool)(!type_is_sized(t) && !type_contains_some_type(t));
-/// Is the borrow slot `s` over a Box whose payload is UNSIZED (decision 49:
-/// `&Box(Dyn(T))`, `&AnyError`)? The box's C value is the fat pair and the
-/// by-ref read convention derefs (`(*self)` is the pair), so the parameter
-/// is POINTER-passed (a pointer to the pair).
-_dyn_box_pointee :: (fn(s : &TypeValue) -> bool)(
+/// Is `t` a Box whose payload is UNSIZED (decision 49: `Box(Dyn(T))`,
+/// `AnyError`)? The box's C value is the fat pair and the by-ref read
+/// convention derefs (`(*self)` is the pair), so a `&t` parameter is
+/// POINTER-passed (a pointer to the pair), whatever the rest of its
+/// signature. A binder decides it at the type the parameter binds
+/// (`bind_parameter`): a `generic(...)` body's `x : &T` at
+/// `T := Box(Dyn(S))` is pointer-passed by its specialization's prototype,
+/// though the generic slot `&T` is not.
+pointee_is_unsized_box :: (fn(t : &TypeValue) -> bool)(
   match(
-    unique_box_payload_type(&t_slot_pointee(s)),
+    unique_box_payload_type(t),
     .Some(p) => !type_is_sized(&p),
     .None => false
   )
 );
+/// Is the borrow slot `s` over a Box whose payload is unsized
+/// (`pointee_is_unsized_box`)?
+_dyn_box_pointee :: (fn(s : &TypeValue) -> bool)(pointee_is_unsized_box(&t_slot_pointee(s)));
 /// Is the borrow slot `s` over a `Dyn` pointee (decision 49)? Such a
 /// parameter takes the fat pair BY VALUE — the pointer-argument ABI never
 /// applies to it (a slice's `&[T]` keeps the pointer ABI).
@@ -5392,7 +5399,7 @@ fn_abi_param_is_ptr :: (fn(fn_ty : &TypeValue) -> ArrayList(bool))({
   );
   out
 });
-export(fn_param_is_ptr_borrow, fn_abi_param_is_ptr);
+export(fn_param_is_ptr_borrow, fn_abi_param_is_ptr, pointee_is_unsized_box);
 /// The `Fn(...)` trait a closure-typed value carries: the trait itself, the
 /// `Fn` a `Dyn` lists (also through a `Box(Dyn(...))`, which is called
 /// through its payload, decision 49 S2), or a type variable's `Fn` bound,

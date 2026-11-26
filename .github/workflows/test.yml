@@ -128,7 +128,7 @@ env:
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
   # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
-  SEED_VERSION: v0.2.79
+  SEED_VERSION: v0.2.80
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -209,8 +209,6 @@ jobs:
       # the tier-1 gates being the two stacked jobs that ever caught a bug —
       # stay in the git history and in that branch).
       full: ${{ steps.scope.outputs.full }}
-      # The `test` matrix. REDUCED only on the unreachable guard branch.
-      test_os: ${{ steps.scope.outputs.test_os }}
     steps:
       # SEED_VERSION consistency guard (plans/backlog/SEED_VERSION_AUTOMATION.md):
       # the pin is hand-duplicated in FOUR workflows, and divergence silently
@@ -227,11 +225,9 @@ jobs:
           # queue entry — always gets the full battery.
           if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.base_ref }}" = "develop" ]; then
             echo "full=true" >> "$GITHUB_OUTPUT"
-            echo 'test_os=["ubuntu-latest","ubuntu-24.04-arm"]' >> "$GITHUB_OUTPUT"
             echo "battery: FULL (base=${{ github.base_ref || github.ref_name }})"
           else
             echo "full=false" >> "$GITHUB_OUTPUT"
-            echo 'test_os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
             echo "battery: REDUCED — non-develop base=${{ github.base_ref }}."
             echo "UNREACHABLE since 2026-09-22 (the pull_request trigger is"
             echo "develop-base-only); kept as a guard. If you are reading this"
@@ -252,14 +248,15 @@ jobs:
             .github/workflows/release.yml \
             .github/workflows/fixpoint-arm64.yml \
             .github/workflows/ubsan.yml \
-            .github/workflows/leak-verdict.yml | awk '{print $2}')
+            .github/workflows/leak-verdict.yml \
+            .github/workflows/native.yml | awk '{print $2}')
           count=$(printf '%s\n' "$pins" | wc -l)
           uniq_count=$(printf '%s\n' "$pins" | sort -u | wc -l)
-          if [ "$count" -ne 5 ] || [ "$uniq_count" -ne 1 ]; then
-            echo "::error::SEED_VERSION pins diverge or are missing (found: $(printf '%s ' $pins)) — the five workflows must carry the SAME pin. See test.yml's SEED_VERSION comment and plans/backlog/SEED_VERSION_AUTOMATION.md."
+          if [ "$count" -ne 6 ] || [ "$uniq_count" -ne 1 ]; then
+            echo "::error::SEED_VERSION pins diverge or are missing (found: $(printf '%s ' $pins)) — the six workflows must carry the SAME pin. See test.yml's SEED_VERSION comment and plans/backlog/SEED_VERSION_AUTOMATION.md."
             exit 1
           fi
-          echo "SEED_VERSION consistent across the five workflows: $(printf '%s' "$pins" | head -1)"
+          echo "SEED_VERSION consistent across the six workflows: $(printf '%s' "$pins" | head -1)"
       - id: classify
         env:
           GH_TOKEN: ${{ github.token }}
@@ -599,17 +596,29 @@ jobs:
   # required check until V3 lands (the plan's CI section); a red job here
   # is a solver-harness regression, not a language regression.
   verify:
-    name: Formal verification (pinned Z3, ${{ matrix.part }})
+    name: Formal verification (pinned Z3, ${{ matrix.part }}${{ matrix.shards && format(' {0}/{1}', matrix.shard, matrix.shards) || '' }})
     needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    # Two legs on two runners: `list-model` runs verifier_list_len alone (the
-    # longest file, 67-108 min); `harness` runs the other four tests/internal
-    # verifier files and the `yo verify` steps.
+    # Six legs on six runners (plans/CI_ONE_HOUR.md phase 1). Until 2026-11-26
+    # there were two: `harness` ran four verifier files back to back (5 + 33 +
+    # 20 + 24 min) and `list-model` ran verifier-list-len alone (85-128 min,
+    # the battery's slowest job). Now `harness` keeps the unit tests, the
+    # assumed-contract tests and the `yo verify` steps; `negative` and
+    # `refine` run one file each; and verifier-list-len's 39 tests (each one
+    # 1-4 min of in-process evaluation after a ~10 min batch compile) are
+    # striped three ways by scripts/test-name-shard.sh, which checks that its
+    # pattern selects exactly its stripe. Same files, same tests, same flags.
     strategy:
       fail-fast: false
       matrix:
-        part: [harness, list-model]
+        include:
+          - part: harness
+          - part: negative
+          - part: refine
+          - { part: list-model, shard: 0, shards: 3 }
+          - { part: list-model, shard: 1, shards: 3 }
+          - { part: list-model, shard: 2, shards: 3 }
     # Five tests/internal files, each compiling the compiler. The "~45 min
     # nominal" this note used to give is stale: MEASURED 2026-10-08, the last
     # three green develop runs took 85, 83 and 84 min, and run 37732698461 was
@@ -721,7 +730,7 @@ jobs:
       # issues/self-hosted-emit-leaks-remaining-classes.md); ASan crash
       # detection stays armed.
       - name: Verifier negative-path tests (subset + refutations)
-        if: matrix.part == 'harness'
+        if: matrix.part == 'negative'
         env:
           YO_TEST_LEAK_VERDICT: "0"
         run: /tmp/yo-stage1 test ./tests/internal/verifier-negative.test.yo --bail -v --compile-timeout-ms 1200000
@@ -739,19 +748,23 @@ jobs:
       # refine(T, p) refinement annotations — modular VCs (callee assumes,
       # call sites prove).
       - name: Verifier refinement tests
-        if: matrix.part == 'harness'
+        if: matrix.part == 'refine'
         env:
           YO_TEST_LEAK_VERDICT: "0"
         run: /tmp/yo-stage1 test ./tests/internal/verifier-refine.test.yo --bail -v --compile-timeout-ms 1200000
 
       # The ArrayList list model (R1 slice 1 of ATS_STYLE_INDEXED_TYPES.md):
       # len/is_empty/index reads over a runtime collection, modular length
-      # contracts.
-      - name: Verifier list-model tests
+      # contracts. One stripe of the file's tests per leg (see the matrix).
+      - name: Verifier list-model tests (stripe ${{ matrix.shard }}/${{ matrix.shards }})
         if: matrix.part == 'list-model'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier-list-len.test.yo --bail -v --compile-timeout-ms 1200000
+        run: |
+          f=./tests/internal/verifier-list-len.test.yo
+          # No pipe and no `|| true`: a failing selection must fail the step.
+          pattern=$(bash scripts/test-name-shard.sh /tmp/yo-stage1 "$f" ${{ matrix.shard }} ${{ matrix.shards }})
+          /tmp/yo-stage1 test "$f" --test-name-pattern "$pattern" --bail -v --compile-timeout-ms 1200000
 
       - name: yo verify harness report (JSON)
         if: matrix.part == 'harness'
@@ -964,59 +977,26 @@ jobs:
             yo-out/verify-sweep/report.json
           retention-days: 7
 
+  # The ubuntu-latest checks that need the tree-built STAGE 2 but not a build
+  # of their own: fmt, the doc-import spelling and the build-system smoke. Until
+  # phase 2 of plans/CI_ONE_HOUR.md this job built stage 1 and stage 2 itself,
+  # the same two binaries `stage1` and `suite-candidate` build (~40 duplicate
+  # runner-min); it now downloads the candidate. Its arm64 twin moved to
+  # native.yml with the other native legs (D2).
   test:
-    needs: [changes, tree-hygiene]
+    name: test (ubuntu-latest)
+    needs: [changes, tree-hygiene, suite-candidate]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 360
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
-      # Every self-hosted job sets this; the `test` job set it NOWHERE while it
-      # ran under node. The compiler's deep comptime recursion needs more than
-      # the 1 GiB default main-thread stack (AGENTS.md "Common Pitfalls").
       YO_MAIN_STACK_MB: "4096"
-      # Same STAGING RATCHET as the tier-1 gates, hollow-sweep and differential
-      # jobs: the runner's LeakSanitizer verdicts fail a leaking child, and the
-      # self-hosted emit carries pre-existing tracked leak debt
-      # (issues/self-hosted-emit-leaks-remaining-classes.md). ASan's crash
-      # detection stays fully armed — only detect_leaks is off.
       YO_TEST_LEAK_VERDICT: "0"
-    strategy:
-      fail-fast: false
-      # The two LINUX release-bundle targets (musl bundles — Linux is
-      # musl-only). These are the only runners that host the stage-1
-      # self-build (an 8 GB swapfile as a safety net; ~5 GB peak on the v0.2.43 seed). The other four release targets —
-      # macos-arm64, macos-x64, windows-x64, windows-arm64 — run the SAME
-      # suite in the `test-native` job below, under a tree-built compiler
-      # delivered by cross-emit (suite-candidate -> suite-cross-emit).
-      matrix:
-        # Both legs (the ASan leg alone only on the changes job's unreachable
-        # REDUCED guard branch; see its `full` output).
-        os: ${{ fromJSON(needs.changes.outputs.test_os) }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      # CONFIRMED root cause of the stage-1 failures (run 31856743929, via the
-      # sampler below): memory. On ubuntu-latest the build climbed to
-      # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before
-      # dying; dmesg showed NO oom-kill, so it was the process's own allocation
-      # failing, not the kernel reaping it. yo-out/*/bin was empty — it died
-      # inside the Yo->C stage, before the .c was ever written.
-      # Every other self-building job in this file already provisions swap
-      # (bootstrap-fixpoint, the hollow sweep); these legs provisioned nothing,
-      # which is the regression P2.5 step 18 introduced by moving a full
-      # self-build onto the suite runners. Locally the same build succeeds on
-      # 16 GB *because ~10 GB of swap is available*; the runner has 3 GB.
-      - name: Add swap space
-        run: |
-          sudo fallocate -l 8G /mnt/swapfile
-          sudo chmod 600 /mnt/swapfile
-          sudo mkswap /mnt/swapfile
-          sudo swapon /mnt/swapfile
-          free -h
 
       - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
@@ -1025,267 +1005,42 @@ jobs:
           { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
-      # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
-      # release (the bootstrap seed) builds stage-1 from THIS checkout, and
-      # stage-1 — the compiler these sources describe — does every remaining
-      # job: fmt, the build-system smoke, and the language corpus. That is the
-      # same trust chain the other self-hosted jobs use ("previous release
-      # builds current compiler").
-      - name: Install the seed compiler (previous release)
-        uses: ./.github/actions/install-seed
+      - name: Download the stage-2 candidate
+        uses: actions/download-artifact@v8
         with:
-          version: ${{ env.SEED_VERSION }}
+          name: suite-candidate
+          path: /tmp/yo-candidate-dir
 
-      - name: Fetch the project's Yo dependencies
-        uses: ./.github/actions/install-deps
-
-      # --std-path ./std is LOAD-BEARING: without it the seed compiles against
-      # its OWN bundled std instead of this checkout's (same note as the
-      # fixpoint job). This step replaces the former node-driven native probe:
-      # it still proves the compiler's whole closure builds natively on every
-      # release target, which is what caught the Windows POSIX-isms at v0.2.0
-      # (issues/fixed/windows-native-selfhosted-build-fails.md).
-      # P2.5 step 24b (user directive): `yo build` is the canonical yo-self
-      # builder. VERIFIED equivalent to the raw `compile --optimize 2 --allocator
-      # mimalloc` it replaces — build.yo carries the same flags (ReleaseSafe +
-      # Mimalloc, the plain -O2 mapping it held via ReleaseSmall until
-      # release-small became the -Os size mode it always claimed to be) and the
-      # two routes land 16 bytes apart on an 8.8 MB binary;
-      # the residual ~0.77% byte delta also appears between two SAME-route
-      # builds to different output paths (the emitted .c is named after -o), so
-      # it is path noise, not a route difference.
-      # `--std-path ./std` stays load-bearing and IS forwarded to the child
-      # compile (build-runner.yo:426-432).
-      # WHY THE SELF-BUILD IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
-      # The self-build peaks above 15 GB: on ubuntu-latest it climbed to
-      # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before its
-      # own allocation failed (dmesg showed NO oom-kill), dying inside the
-      # Yo->C stage before the 142 MB .c was written. Linux survives that with
-      # the swapfile added above. macOS runners cannot: macos-latest has
-      # ~7 GB and offers no equivalent knob.
-      #
-      # Making the heavy build Linux-only is not a concession, it is this
-      # repo's existing architecture. EVERY other self-building job here is
-      # ubuntu-latest — bootstrap-fixpoint, -stage3, bootstrap-self-test, the
-      # self-hosted differential, the musl leg, tsan and the hollow sweep.
-      # macOS/Windows get a tree-built compiler anyway, via cross-emit — see
-      # `suite-candidate` / `suite-cross-emit` / `test-native` below.
-      - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
-        shell: bash
+      - name: Install the stage-2 binary
         run: |
-          echo "::group::pre-build environment"
-          case "$RUNNER_OS" in
-            Linux) free -m || true; nproc || true; df -h . || true ;;
-            macOS) vm_stat | head -5 || true; sysctl -n hw.memsize hw.ncpu || true; df -h . || true ;;
-            Windows) systeminfo | grep -i "memory" || true ;;
-          esac
-          (command -v clang && clang --version | head -1) || true
-          (command -v gcc && gcc --version | head -1) || true
-          echo "::endgroup::"
-
-          # A memory sampler writing to a FILE, because run 31854687362 proved
-          # an in-step post-mortem cannot work here: the whole step shell dies
-          # with `yo build`, so nothing after it executes — the log went
-          # straight from "Building yo" to the runner's own "exit code 2" with
-          # none of the post-mortem echoes. The sampler's file survives, and
-          # the `if: always()` step below reads it.
-          ( while true; do
-              date -u +%H:%M:%S >> /tmp/yo-mem.log
-              case "$RUNNER_OS" in
-                Linux) free -m | sed -n '2p' >> /tmp/yo-mem.log ;;
-                # vm.swapusage, not `vm_stat | Pages free`: the question on
-                # macOS is whether the box SWAPPED or hit a hard ceiling, and
-                # free-pages alone cannot distinguish those. The first run
-                # showed 57 MB free with no way to tell which.
-                macOS) sysctl -n vm.swapusage >> /tmp/yo-mem.log ;;
-                Windows) : ;;
-              esac
-              sleep 20
-            done ) > /dev/null 2>&1 &
-          echo $! > /tmp/yo-sampler.pid
-
-          # MemoryHigh forces the kernel to RECLAIM (i.e. actually use the
-          # swapfile) instead of letting the process balloon until its own
-          # allocation fails. Run 31862196401 proved swap alone is not enough:
-          # 35,839 MB of swap was provisioned and only 44 MB was ever used
-          # while RAM sat at 15,540/15,989 — nothing applied the pressure that
-          # makes Linux page anything out. bootstrap-fixpoint has used exactly
-          # this wrapper for the same reason.
-          #
-          # It also has to survive TWO overlapping peaks: that run emitted the
-          # 140 MB .c successfully at 03:47 and then died at 03:50, because the
-          # parent still holds its ~15 GB evaluator/codegen arena while clang
-          # starts needing its own GBs. (Locally clang -O2 on this file peaks
-          # at only 3.17 GB — the problem is the sum, not clang.) Fixed in
-          # v0.2.43: cc runs in a fresh image
-          # (issues/fixed/compiler-holds-emit-memory-during-cc.md).
-          echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null || true
-          # Resolve `yo` to an ABSOLUTE path before sudo. sudo resets PATH via
-          # secure_path, so the $GITHUB_PATH entry install-seed added is gone
-          # inside the scope and a bare `yo` exits 127 instantly (run
-          # 31863256060, with memory still at 1.2 GB — nothing to do with the
-          # OOM this wrapper exists for). bootstrap-fixpoint never hit this
-          # because it invokes /tmp/yo-stage1 by absolute path.
-          YO_BIN="$(command -v yo)"
-          if [ -z "$YO_BIN" ]; then
-            echo "::error::the seed compiler is not on PATH"
-            exit 1
-          fi
-          # SPLIT AT THE C BOUNDARY, in two processes.
-          #
-          # `yo build` cannot work here with today's seed. It shells out to
-          # `yo compile`, and that ONE child does evaluate+emit AND then runs
-          # clang while still holding its whole evaluator arena — the two peaks
-          # overlap inside a process this workflow cannot reach into. Run
-          # 31864299243 is the proof: the 140 MB .c was written at 04:36 and the
-          # process was still holding ~12 GB at 04:40:59 when it died.
-          #
-          # yo-self now releases that arena before spawning the C compiler, but
-          # the SEED is a released binary that predates the fix, so stage 1 has
-          # to do the split itself: phase 1 emits C and EXITS (returning every
-          # byte to the OS), phase 2 compiles that C in a fresh process. Same
-          # design the musl leg already proves, and it is seed-independent.
-          #
-          # Build-system coverage is NOT lost: the "Build system smoke test"
-          # step below still runs `$S1 build run` on a scratch project, where
-          # the memory involved is trivial.
-          # SEED-ERA FLAGS ONLY. `--emit-c-to` is new in THIS tree and the seed
-          # is a PREVIOUS RELEASE, so passing it here made the seed treat it as
-          # a positional and try to compile /tmp/stage1.c, which does not exist:
-          # "yo-self: error: file or directory not found", 4 seconds in, with
-          # memory at 1.3 GB (run 31869066863) — nothing to do with the OOM this
-          # step is about.
-          #
-          # This is byte-for-byte the flag set the musl leg already proves works
-          # against the seed (`--emit-c --skip-c-compiler -o <base>`, writing the
-          # `<base>.c` sidecar), rather than a spelling reasoned to be
-          # equivalent. stdout is discarded because `--emit-c` PRINTS the C, and
-          # 140 MB of it would drown the job log; the sidecar is the artifact we
-          # actually want, and stderr is kept so failures still surface.
-          set +e
-          # HOME is forwarded ON PURPOSE. `sudo` resets it to /root, so the Yo cache
-          # root moves with it and the memory-capped compile looks for the dependency
-          # store under /root/.cache/yo — while the unprivileged install-deps step
-          # populated /home/runner/.cache/yo. That mismatch fails the compile with
-          # `git dependency "markdown-yo" is not in the store (/root/.cache/…)`,
-          # which reads like a missing install-deps step and is not one.
-          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
-              --optimize 2 --allocator mimalloc --std-path ./std \
-              --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
-          EMIT_RC=$?
-          set -e
-          kill "$(cat /tmp/yo-sampler.pid)" 2>/dev/null || true
-          if [ "$EMIT_RC" -ne 0 ]; then
-            echo "::error::seed failed to emit C for src/main.yo (exit ${EMIT_RC})"
-            exit "$EMIT_RC"
-          fi
-          ls -la /tmp/stage1.c
-
-          # Phase 2 — fresh process, so the emit arena is already gone.
-          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
-          # into stage1.c — libssl-dev is installed above, and
-          # the flags resolve via pkg-config.
-          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-            /tmp/stage1.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -DMI_BUILD_RELEASE -lpthread -lm \
-            $(pkg-config --cflags --libs openssl) \
-            -o /tmp/yo-stage1
-
-          # The binary no longer lives under yo-out/<triple>/bin/, so the
-          # exe-relative walk-up finds no std — and `./std` stops resolving the
-          # moment a later step cd's into a scratch project. Pin YO_STD to the
-          # checkout, exactly as the macOS/Windows leg does.
-          echo "S1=/tmp/yo-stage1" >> "$GITHUB_ENV"
+          chmod +x /tmp/yo-candidate-dir/yo-candidate
+          echo "S1=/tmp/yo-candidate-dir/yo-candidate" >> "$GITHUB_ENV"
           echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
-          # Fail fast if the built binary cannot run at all (evaluator, module
-          # loading, std discovery).
-          YO_STD="$PWD/std" /tmp/yo-stage1 check std/assert.yo
+          YO_STD="$PWD/std" /tmp/yo-candidate-dir/yo-candidate check std/assert.yo
 
-      - name: "Stage 2: the tree-built compiler builds itself (self-application)"
-        # A codegen fix in THIS tree only reaches a compiler's OWN compiled-in
-        # async machinery one generation later: stage-1's C text was EMITTED by
-        # the seed's older codegen. The smoke step below runs the compiler's
-        # own build runner (self-application), so it must run stage-2 — the
-        # generation whose C the tree's codegen emitted (the 2026-09-01
-        # missing-tail-completion hang was invisible at stage-1 and dead at
-        # stage-2; issues/fixed/build-smoke-hangs-registry-perturbation.md). The
-        # corpus gains the same correctness. Stage-1 carries the
-        # arena-release fix, so no memory cage is needed here.
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: |
-          YO_STD="$PWD/std" /tmp/yo-stage1 compile src/main.yo \
-            --optimize 2 --allocator mimalloc --std-path ./std \
-            --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
-          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
-          # into the emitted C — flags via pkg-config (libssl-dev installed
-          # with the packages above).
-          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-            /tmp/stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -DMI_BUILD_RELEASE -lpthread -lm \
-            $(pkg-config --cflags --libs openssl) \
-            -o /tmp/yo-stage2
-          # mimalloc compiles in debug mode (MI_DEBUG=2, MI_STAT=2) unless
-          # MI_BUILD_RELEASE or NDEBUG is defined; that build ran `check ./src`
-          # 292 s against 202 s. Only the debug build carries its assertion
-          # message (issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md).
-          if strings /tmp/yo-stage2 | grep -q 'mimalloc: assertion'; then
-            echo "::error::the stage-2 binary links mimalloc in debug mode: a compile line that links vendor/mimalloc/src/static.c lacks -DMI_BUILD_RELEASE"
-            exit 1
-          fi
-          echo "S1=/tmp/yo-stage2" >> "$GITHUB_ENV"
-          # Same fail-fast as stage-1.
-          YO_STD="$PWD/std" /tmp/yo-stage2 check std/assert.yo
-
-      # MUST be `if: always()`. The stage-1 shell dies together with `yo build`
-      # (proven in run 31854687362), so this is the only place the forensics
-      # can be printed at all.
-      - name: "Stage 1 post-mortem (always runs)"
-        if: always()
-        shell: bash
-        run: |
-          echo "--- memory samples during the build (last 15) ---"
-          tail -30 /tmp/yo-mem.log 2>/dev/null || echo "(no samples)"
-          echo "--- memory now ---"
-          case "$RUNNER_OS" in
-            Linux)
-              free -m || true
-              echo "--- OOM killer? ---"
-              sudo dmesg 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -20 \
-                || echo "(no OOM lines in dmesg)"
-              ;;
-            macOS) vm_stat | head -5 || true ;;
-          esac
-          echo "--- disk ---"
-          df -h . || true
-          echo "--- partial yo-out tree: was the 142 MB .c emitted before the failure? ---"
-          ls -lR yo-out 2>/dev/null | head -40 || echo "(no yo-out)"
-
-      # ubuntu-latest ONLY: formatting is platform- and arch-independent, so
-      # one tree-built-formatter verdict settles it for every leg. The docs
-      # paths check the ```yo blocks in Markdown (a .yo file's doc-comment
-      # blocks are checked with the file); ```yo ignore opts a fragment out.
-      # issues/ contributes its Markdown only: a repro under issues/repros/
-      # may be unformatted on purpose (a formatter bug's input), so the
-      # tracked issues/**/*.md files are listed instead of the directory.
+      # Formatting is platform- and arch-independent, so one tree-built-formatter
+      # verdict settles it for every leg. The docs paths check the ```yo blocks
+      # in Markdown (a .yo file's doc-comment blocks are checked with the file);
+      # ```yo ignore opts a fragment out. issues/ contributes its Markdown only:
+      # a repro under issues/repros/ may be unformatted on purpose (a formatter
+      # bug's input), so the tracked issues/**/*.md files are listed instead of
+      # the directory.
       - name: Check the formatted code
-        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           "$S1" fmt --check ./std ./tests ./src ./docs ./plans ./.github ./README.md $(git ls-files 'issues/*.md')
 
-      # Also ubuntu-only and also plain text: doc examples must not teach the
-      # paren-less `:: import "path"` spelling — the parser rejects it (E0008),
-      # so every reader's first line fails. Swept in #696/#881; this gate keeps
-      # the idiom from re-rotting
-      # (issues/fixed/std-doc-examples-use-parenless-import-which-does-not-parse.md).
+      # Plain text: doc examples must not teach the paren-less `:: import "path"`
+      # spelling — the parser rejects it (E0008), so every reader's first line
+      # fails (issues/fixed/std-doc-examples-use-parenless-import-which-does-not-parse.md).
       - name: Check doc examples' import spelling
-        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           bash scripts/check-doc-imports.sh
 
+      # The compiler's own build runner (self-application) on a scratch
+      # project: stage 2 is the generation whose C the tree's codegen emitted
+      # (issues/fixed/build-smoke-hangs-registry-perturbation.md).
       - name: Build system smoke test
         shell: bash
         run: |
@@ -1293,56 +1048,22 @@ jobs:
           cd tmp/hello-world
           "$S1" build run
 
-      # `tests/internal` (the compiler's own tests — they import src/ evaluator
-      # and codegen internals) is excluded here and runs as its own job below.
-      # Without the exclude this step would pull in files that each cost minutes
-      # and gigabytes to compile, and the ~30 min fast suite would become ~70.
-      #
-      # P2.5 step 19 — the 5-platform ground truth now runs under the SELF-HOSTED
-      # binary. `--parallel` is accepted and ignored by that runner (v1 is
-      # sequential), so this is serial: MEASURED at 17.5 min for all 188 files on
-      # an M4 (2742 passed / 2742, no `Failed to transpile` markers), i.e. ~20x
-      # inside this job's 360-min timeout — no directory sharding needed.
-      # The suite MUST run under a compiler built from THIS checkout — it
-      # contains REGRESSION TESTS for compiler bugs, so the seed fails it by
-      # construction on every test newer than the seed (run 31861036285 died
-      # on "standalone await as the async body's own result",
-      # tests/async-await.test.yo:3974 — a fix the seed does not have). Any
-      # allowlist would need editing on every compiler fix and would invert
-      # the meaning of the suite. The four macOS/Windows targets run this
-      # same invocation in `test-native` below, under the cross-emitted
-      # tree-built compiler.
-      # The language suite runs in `test-suite`, sharded 4-way per leg, on this
-      # job's stage-2 binary (measured 2026-10-08: the suite step alone took 51
-      # min on ubuntu-latest and 70 min on ubuntu-24.04-arm, after 33-44 min of
-      # stage-1 + stage-2 builds). The builds stay here, once per leg.
-      - name: Upload stage 2 for the sharded suite
-        uses: actions/upload-artifact@v4
-        with:
-          name: yo-test-stage2-${{ matrix.os }}
-          path: /tmp/yo-stage2
-          retention-days: 1
-          if-no-files-found: error
-
-  # The Linux language suite, sharded: each leg's suite runs on the stage-2
-  # binary its `test` leg built, as 4 shards (`--shard i/n` stripes the sorted
-  # file list). Before, one `test` leg ran the whole suite after its builds:
-  # 51 min (ubuntu-latest) and 70 min (ubuntu-24.04-arm) of a 84-115 min job.
+  # The Linux language suite, sharded 4 ways (`--shard i/n` stripes the sorted
+  # file list) on the stage-2 candidate. The arm64 shards moved to native.yml
+  # (D2 of plans/CI_ONE_HOUR.md).
   test-suite:
-    name: test suite (${{ matrix.os }}) shard ${{ matrix.shard }}/4
-    needs: [changes, tree-hygiene, test]
+    name: test suite (ubuntu-latest) shard ${{ matrix.shard }}/4
+    needs: [changes, tree-hygiene, suite-candidate]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     # ~13-18 min of tests per shard; 90 still bounds a hang.
     timeout-minutes: 90
     env:
-      # Same as the `test` job.
       YO_MAIN_STACK_MB: "4096"
       YO_TEST_LEAK_VERDICT: "0"
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(needs.changes.outputs.test_os) }}
         shard: [0, 1, 2, 3]
     steps:
       - name: Checkout repository
@@ -1357,17 +1078,17 @@ jobs:
           { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
-      - name: Download this leg's stage 2
+      - name: Download the stage-2 candidate
         uses: actions/download-artifact@v8
         with:
-          name: yo-test-stage2-${{ matrix.os }}
+          name: suite-candidate
           path: /tmp/yo-test-stage2
 
       - name: Run tests
         shell: bash
         run: |
-          chmod +x /tmp/yo-test-stage2/yo-stage2
-          S1=/tmp/yo-test-stage2/yo-stage2
+          chmod +x /tmp/yo-test-stage2/yo-candidate
+          S1=/tmp/yo-test-stage2/yo-candidate
           # The binary is not under yo-out/<triple>/bin/, so pin std to the
           # checkout (the `test` job does the same).
           export YO_STD="$PWD/std"
@@ -1380,41 +1101,46 @@ jobs:
             "$S1" test ./std --bail --verbose --c-compiler clang
           fi
 
-  # ---------------------------------------------------------------------
-  # The four NON-LINUX release targets: full language suite per PR, under a
-  # TREE-BUILT compiler, via cross-emit (promoted 2026-08-21 from the weekly
-  # suite-cross-targets.yml, which this chain replaced — three consecutive
-  # all-green runs, having first surfaced the exe-lock cleanup bug #195 and
-  # the x64-clang-under-WoA default-triple bug #196).
-  #
-  # Why cross-emit: the suite contains regression tests coupled to THIS
-  # tree's compiler, so the seed cannot run it — and the macOS runners
-  # (~7 GB) cannot host the ~15 GB self-build that would produce a
-  # tree-built compiler natively. So Linux (with the swapfile) builds the
-  # CANDIDATE once, four Linux legs cross-emit per-target C with it, and
-  # each target runner compiles that C natively and runs the FULL suite
-  # against this checkout's std. This exercises the per-platform async
-  # runtimes (~5,900 lines of macOS/Windows io backends) at suite depth.
-  #
-  # The CANDIDATE does the cross-emit, not the seed — same rule and reason
-  # as release.yml's seed-cross-emit (a pre-f7b5cc460 seed would bake the
-  # HOST's platform constants into the target's C), and it means the C that
-  # reaches the native runners was emitted by the PR's OWN codegen.
+  # The STAGE-2 candidate: the tree-built stage 1 (the `stage1` job) compiles
+  # the tree again, so this binary's own C was emitted by the tree's codegen.
+  # Self-application paths need that generation (the 2026-09-01
+  # missing-tail-completion hang was invisible at stage 1 and dead at stage 2;
+  # issues/fixed/build-smoke-hangs-registry-perturbation.md). Consumers: the
+  # `test` job (fmt, smoke), the ubuntu suite shards, the wasm smoke and
+  # verify-src. It no longer feeds the cross-emits (native.yml, D1) or the
+  # chunked gate (D1), and it no longer builds its own stage 1. The binary is
+  # cached on the compiler's inputs (.github/actions/compiler-cache-key).
   suite-candidate:
-    name: Build the suite candidate (Linux, shared by the cross-emits)
-    needs: [changes, tree-hygiene]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
+    name: Build the stage-2 candidate (Linux, cached)
+    needs: [changes, tree-hygiene, stage1]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      - id: key
+        uses: ./.github/actions/compiler-cache-key
+        with:
+          kind: stage2
+          recipe: .github/workflows/test.yml
+          seed-version: ${{ env.SEED_VERSION }}
+          disable: ${{ vars.YO_CI_NO_BUILD_CACHE }}
+
+      - id: restore
+        if: steps.key.outputs.enabled == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: yo-candidate
+          key: ${{ steps.key.outputs.key }}
+
       # Same memory treatment as every self-emitting job (see release.yml's
       # seed-cross-emit for the 16 min vs 159 min zswap measurement).
       - name: Add swap space
+        if: steps.restore.outputs.cache-hit != 'true'
         run: |
           sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
@@ -1422,6 +1148,7 @@ jobs:
           sudo swapon /mnt/swapfile
 
       - name: Tune the kernel for a swap-heavy self-emit
+        if: steps.restore.outputs.cache-hit != 'true'
         run: |
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
@@ -1434,46 +1161,54 @@ jobs:
           { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
-      - name: Install the seed compiler (previous release)
-        uses: ./.github/actions/install-seed
+      - name: Download stage 1
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/download-artifact@v8
         with:
-          version: ${{ env.SEED_VERSION }}
+          name: yo-stage1
 
       - name: Fetch the project's Yo dependencies
-        uses: ./.github/actions/install-deps
+        if: steps.restore.outputs.cache-hit != 'true'
+        run: |
+          chmod +x yo-stage1
+          ./yo-stage1 install --locked --verbose
 
-      - name: Build the candidate compiler (previous seed, native)
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o yo-candidate
-
-      - name: "Stage 2: the candidate compiles the tree (self-application)"
-        # A codegen fix in THIS tree only reaches a compiler's OWN compiled-in
-        # async machinery one generation later: the stage-1 candidate's C text
-        # was EMITTED by the seed's older codegen. Every cross-emitted suite
-        # compiler below runs its own build runner in the smoke step
-        # (self-application), so the shared candidate must be stage-2 — the
-        # generation whose C the tree's codegen emitted (the 2026-09-01
-        # missing-tail-completion hang was invisible at stage-1 and dead at
-        # stage-2; issues/fixed/build-smoke-hangs-registry-perturbation.md).
+      - name: "Stage 2: stage 1 compiles the tree (self-application)"
+        if: steps.restore.outputs.cache-hit != 'true'
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          YO_STD="$PWD/std" ./yo-candidate compile src/main.yo \
+          YO_STD="$PWD/std" ./yo-stage1 compile src/main.yo \
             --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
           # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
-          # into the emitted C — flags via pkg-config (libssl-dev installed
-          # with the packages above).
+          # into the emitted C — flags via pkg-config.
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -DMI_BUILD_RELEASE -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o yo-candidate
+          # mimalloc compiles in debug mode (MI_DEBUG=2, MI_STAT=2) unless
+          # MI_BUILD_RELEASE or NDEBUG is defined; only the debug build carries
+          # its assertion message
+          # (issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md).
+          if strings yo-candidate | grep -q 'mimalloc: assertion'; then
+            echo "::error::the stage-2 binary links mimalloc in debug mode: a compile line that links vendor/mimalloc/src/static.c lacks -DMI_BUILD_RELEASE"
+            exit 1
+          fi
 
-      # Built ONCE and shared: the retired weekly workflow rebuilt the
-      # candidate inside each of its four cross-emit legs — at per-PR
-      # frequency that is three redundant ~50-minute self-builds.
+      - name: Save the candidate to the build cache
+        if: steps.restore.outputs.cache-hit != 'true' && steps.key.outputs.enabled == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: yo-candidate
+          key: ${{ steps.key.outputs.key }}
+
+      - name: The candidate runs
+        run: |
+          chmod +x yo-candidate
+          YO_STD="$PWD/std" ./yo-candidate check std/assert.yo
+
       - name: Upload the candidate
         uses: actions/upload-artifact@v4
         with:
@@ -1487,12 +1222,26 @@ jobs:
   # a DEFAULT for something and the behavioural fixpoint gate runs on every
   # code PR — a chunked-built and a single-file-built compiler must emit
   # byte-identical C.
+  #
+  # Two legs plus a scorer (plans/CI_ONE_HOUR.md phase 1): the gate is four
+  # full compiles of src/main.yo (build single ~20 min, build chunked ~19,
+  # then each binary self-emits, ~27 each), which ran back to back as one
+  # 93-115 min job. Each leg now builds ONE compiler and emits its C
+  # (chunked_gate.sh SIDE=single / SIDE=chunked, the same commands), and
+  # `chunked-gate-compare` runs the unchanged hollow count and byte
+  # comparison on the two uploaded emissions. Same checkout path, same
+  # S1, same flags on both runners, as the bootstrap-fixpoint-stage3 job's
+  # cross-runner comparison already relies on.
   chunked-gate:
-    name: Chunked-emission behavioural fixpoint (chunked vs single)
-    needs: [changes, tree-hygiene, suite-candidate]
+    name: Chunked-emission behavioural fixpoint (${{ matrix.side }} side)
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        side: [single, chunked]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1521,13 +1270,17 @@ jobs:
           { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
-      - name: Download the candidate
+      # D1 (plans/CI_ONE_HOUR.md §7, adopted 2026-11-26): the seed-built
+      # stage 1 builds the two compilers, ~25 min sooner than the stage-2
+      # candidate it used until then. Both built compilers are
+      # tree-codegen generations either way; the gate compares them.
+      - name: Download stage 1
         uses: actions/download-artifact@v8
         with:
-          name: suite-candidate
+          name: yo-stage1
 
-      - name: Make the candidate executable
-        run: chmod +x yo-candidate
+      - name: Make stage 1 executable
+        run: chmod +x yo-stage1
 
       # chunked_gate.sh runs `compile src/main.yo` four times, and
       # src/doc/render-html.yo — in that closure — imports the `markdown-yo`
@@ -1536,368 +1289,49 @@ jobs:
       - name: Fetch the project's Yo dependencies
         uses: ./.github/actions/install-deps
         with:
-          yo: ./yo-candidate
+          yo: ./yo-stage1
 
-      - name: Run the chunked behavioural fixpoint gate
+      - name: Build the ${{ matrix.side }} compiler and emit its C
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
-
-  suite-cross-emit:
-    name: Cross-emit suite compiler (${{ matrix.target }})
-    needs: [changes, tree-hygiene, suite-candidate]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: macos-arm64
-            yo_target: aarch64-apple-darwin
-            # macOS legs stay system-flavored: mimalloc measured slower AND
-            # fatter there (plans/reference/WINDOWS_ALLOCATOR_DECISION.md).
-            allocator: system
-          - target: macos-x64
-            yo_target: x86_64-apple-darwin
-            allocator: system
-          # The Windows legs are system-flavored too, since 2026-10-27: the
-          # shipped Windows bundles are system builds on both triples
-          # (plans/reference/WINDOWS_ALLOCATOR_DECISION.md), and a suite leg
-          # should test the configuration that ships. Until then they built a
-          # mimalloc suite compiler, so no battery ever ran the shipped
-          # Windows heap, and v0.2.71's first release run was the first place
-          # a system-allocator Windows binary met the allocator assertion
-          # (run 40462960329, #1637/#1638). mimalloc on Windows stays
-          # CI-exercised for USER programs: test-native's "--allocator
-          # mimalloc on Windows" step compiles and runs a test file with it
-          # (plain-C11 v3.5.1 under clang, on windows-x64 AND windows-11-arm,
-          # whose clang 22 treats the incompatible-pointer-types class that
-          # killed v3.5.0 as a hard ERROR; issues/fixed/
-          # windows-arm64-mimalloc-msvc-arm-intrinsics.md).
-          - target: windows-x64
-            yo_target: x86_64-pc-windows-msvc
-            allocator: system
-          - target: windows-arm64
-            yo_target: aarch64-pc-windows-msvc
-            allocator: system
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # The cross-emit itself is a full-tree emit (~12-15 GB peak) — same
-      # memory treatment as the candidate build above.
-      - name: Add swap space
-        run: |
-          sudo fallocate -l 8G /mnt/swapfile
-          sudo chmod 600 /mnt/swapfile
-          sudo mkswap /mnt/swapfile
-          sudo swapon /mnt/swapfile
-
-      - name: Tune the kernel for a swap-heavy self-emit
-        run: |
-          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
-          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
-          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
-
-      - name: Download the candidate
-        uses: actions/download-artifact@v8
-        with:
-          name: suite-candidate
-
-      - name: Make the candidate executable
-        run: chmod +x yo-candidate
-
-      - name: Fetch the project's Yo dependencies
-        uses: ./.github/actions/install-deps
-        with:
-          yo: ./yo-candidate
-
-      # The allocator travels with the matrix row (see the matrix comment):
-      # system on every leg, the allocator the macOS and Windows bundles ship.
-      - name: "Cross-emit the suite compiler C (${{ matrix.yo_target }})"
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: |
-          chmod +x yo-candidate
-          mkdir -p cross
-          ./yo-candidate compile src/main.yo --optimize 2 --allocator ${{ matrix.allocator }} \
-            --std-path ./std --target ${{ matrix.yo_target }} \
-            --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
-          ( cd cross && sha256sum "yo-${{ matrix.target }}.c" > "yo-${{ matrix.target }}.c.sha256" )
-          ls -la "cross/yo-${{ matrix.target }}.c"
+        run: SIDE=${{ matrix.side }} S1="$PWD/yo-stage1" N=4 bash scripts/bootstrap/chunked_gate.sh
 
       - name: Upload the emitted C
         uses: actions/upload-artifact@v4
         with:
-          name: suite-c-${{ matrix.target }}
-          path: |
-            cross/yo-${{ matrix.target }}.c
-            cross/yo-${{ matrix.target }}.c.sha256
+          name: chunked-gate-emit-${{ matrix.side }}
+          path: /tmp/chgate_emit_${{ matrix.side }}.c
           retention-days: 1
           if-no-files-found: error
 
-  # Job NAME is `test (<os>)`, the name the `test` matrix carried before it
-  # went Linux-only. Since 2026-10-06 the ruleset's only required check is
-  # `merge-gate` ("Merge gate (all checks)"), which `needs` this job, so a
-  # leg's name (and its shard suffix) can change freely.
-  #
-  # `!cancelled()` is LOAD-BEARING: with a plain `if`, an upstream cross-emit
-  # failure would SKIP these legs, and a skipped required check SATISFIES the
-  # ruleset — a red emit would become a mergeable PR. Instead the legs always
-  # run (for code PRs) and fail fast in the artifact download when their C
-  # never arrived.
-  test-native:
-    # The shard suffix appears ONLY on sharded legs (all of them today). No
-    # leg is a required context any more: merge-gate needs the whole job.
-    name: test (${{ matrix.os }})${{ matrix.shards && format(' shard {0}/{1}', matrix.shard, matrix.shards) || '' }}
-    needs: [changes, tree-hygiene, suite-cross-emit]
-    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
-    runs-on: ${{ matrix.os }}
-    # A per-leg budget well under the 4-hour default turns a hang into a FAILED
-    # job with a downloadable log; the 4-hour cancellation left no blob at all,
-    # which is what made #413 undiagnosable
-    # (issues/fixed/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
-    # The other legs keep the old budget (macos-26-intel regularly needs >1h).
-    #
-    # MEASURED 2026-09-16, because the note here said "Windows legs finish in
-    # ~26 min when healthy" and that is stale by ~2.5x. Across recent runs:
-    # windows-11-arm 65/67/68 min and windows-latest 54/55/58 min, against a 75
-    # min cap — a 1.11x margin on arm64, 1.30x on x64. That is the same shape as
-    # test-wasm32_emscripten in this file, which sat at 1.04x and duly started
-    # cancelling on variance alone. 120 restores real headroom on both while
-    # still catching a hang in a bounded time.
-    #
-    # windows-11-arm is ALSO sharded by this PR, so its per-shard cost drops far
-    # below the cap.
-    #
-    # MEASURED 2026-10-05: windows-latest runs the suite under AddressSanitizer
-    # again (armed through the choco LLVM clang,
-    # issues/fixed/windows-images-lost-libasan.md), and that more than doubled
-    # its cost: run 37292720878 needed 86 min to reach file 206 of 310, and
-    # run 37338817036 was cancelled at the 120 min cap at ~file 256 — about
-    # 145 min for the whole leg against the 54-58 min uninstrumented runs above.
-    # windows-latest therefore took the 240 min budget the non-Windows legs
-    # have.
-    #
-    # MEASURED 2026-10-08: the unsharded windows-latest leg took 105, 107, 131
-    # and 137 min on the last four develop batteries, the longest job in the
-    # battery, while the four windows-11-arm shards took 27-33 min each. It is
-    # now sharded 4-way like windows-11-arm (~35 min of tests per shard), and
-    # both Windows legs take 120: a ~3x margin per shard that still bounds a
-    # hang.
-    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 120 || 240 }}
-    env:
-      YO_MAIN_STACK_MB: "4096"
-      # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
-      # crash detection stays armed.
-      YO_TEST_LEAK_VERDICT: "0"
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # SHARDED 2-way: macos-latest took 37-60 min unsharded (measured
-          # 2026-10-08). Two, not four: GitHub runs a limited number of macOS
-          # jobs at once per account, and macos-26-intel's four shards already
-          # take most of them.
-          - { os: macos-latest, target: macos-arm64, shard: 0, shards: 2 }
-          - { os: macos-latest, target: macos-arm64, shard: 1, shards: 2 }
-          # SHARDED 4-way: under AddressSanitizer the whole corpus took
-          # 105-137 min on one runner (see timeout-minutes above).
-          - { os: windows-latest, target: windows-x64, shard: 0, shards: 4 }
-          - { os: windows-latest, target: windows-x64, shard: 1, shards: 4 }
-          - { os: windows-latest, target: windows-x64, shard: 2, shards: 4 }
-          - { os: windows-latest, target: windows-x64, shard: 3, shards: 4 }
-          # SHARDED 4-way. These two are the long legs (macos-26-intel ~80 min,
-          # windows-11-arm ~66 min) and windows-11-arm is the critical path:
-          # suite-candidate 36m -> cross-emit 15m -> this 66m = 118m wall clock
-          # (measured, run 34932915472). They CONSUME a cross-emitted
-          # artifact and rebuild nothing, so shards are cheap — the same
-          # argument that justified sharding compiler-internal-tests.
-          - { os: macos-26-intel, target: macos-x64, shard: 0, shards: 4 }
-          - { os: macos-26-intel, target: macos-x64, shard: 1, shards: 4 }
-          - { os: macos-26-intel, target: macos-x64, shard: 2, shards: 4 }
-          - { os: macos-26-intel, target: macos-x64, shard: 3, shards: 4 }
-          # windows-11-arm doubles as the strictest C-conformance runner: it
-          # installs clang 22 (no pre-installed LLVM, unlike windows-latest's
-          # 20), where -Wincompatible-pointer-types is a default ERROR.
-          - { os: windows-11-arm, target: windows-arm64, shard: 0, shards: 4 }
-          - { os: windows-11-arm, target: windows-arm64, shard: 1, shards: 4 }
-          - { os: windows-11-arm, target: windows-arm64, shard: 2, shards: 4 }
-          - { os: windows-11-arm, target: windows-arm64, shard: 3, shards: 4 }
+  chunked-gate-compare:
+    name: Chunked-emission behavioural fixpoint (chunked vs single)
+    needs: [changes, tree-hygiene, chunked-gate]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Download the cross-emitted C
+      - name: Download both emissions
         uses: actions/download-artifact@v8
         with:
-          name: suite-c-${{ matrix.target }}
-          path: cross
+          pattern: chunked-gate-emit-*
+          path: /tmp
+          merge-multiple: true
 
-      # The C crosses a job boundary as an artifact. A download that
-      # extracted a truncated file once reported success, and the next step
-      # failed in clang at a line cut off mid-identifier (release run
-      # 37183400572; issues/fixed/a-truncated-artifact-download-reached-clang-as-a-syntax-error.md).
-      # The producer records the file's sha256; check it before compiling.
-      - name: Verify the cross-emitted C arrived intact
-        shell: bash
-        run: |
-          cd cross
-          if command -v sha256sum > /dev/null; then sha256sum -c "yo-${{ matrix.target }}.c.sha256"; else shasum -a 256 -c "yo-${{ matrix.target }}.c.sha256"; fi
-
-      - name: Install LLVM/Clang
-        if: runner.os == 'Windows'
-        run: |
-          choco install llvm -y
-          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      # Same flag set as release.yml's native legs. `--target=` is explicit on
-      # Windows for the same reason it is there: chocolatey's clang default
-      # target is not guaranteed to be this runner's (windows-11-arm installs
-      # an x86_64 LLVM build that runs under WoA emulation and defaults to
-      # x86_64-pc-windows-msvc — issues/fixed/
-      # native-windows-compile-trusts-clang-default-triple.md).
-      - name: Compile the suite compiler natively
-        shell: bash
-        run: |
-          # The macOS Intel runner is lost mid-job about 5% of the time and a lost
-          # runner's log never lands (issues/2026-11-05-the-macos-26-intel-test-
-          # runner-repeatedly-loses-communication.md): sample the VM every 30 s
-          # into the streamed log, stopped when this step ends.
-          if [ "${{ matrix.os }}" = "macos-26-intel" ]; then
-            source scripts/ci-vm-sampler.sh
-            vm_sampler_start "Compile the suite compiler natively"
-          fi
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            case "${{ matrix.target }}" in
-              windows-x64)   CT=x86_64-pc-windows-msvc ;;
-              windows-arm64) CT=aarch64-pc-windows-msvc ;;
-            esac
-            # Windows C arrives system-flavored, like the shipped bundles (see
-            # the suite-cross-emit matrix), so nothing from vendor/mimalloc
-            # joins the link line.
-            clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-              --target=$CT \
-              "cross/yo-${{ matrix.target }}.c" \
-              -lws2_32 -lbcrypt -ladvapi32 -lsecur32 -lcrypt32 \
-              -o yo-suite.exe
-            ./yo-suite.exe --version
-            # The same allocator proof release.yml runs on the shipped bundles,
-            # on the same (system) arm; the ratchet job covers mimalloc.
-            bash scripts/assert-binary-allocator.sh yo-suite.exe system
-          else
-            # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
-            # and symbols into the macOS cross C; the runner's brew openssl@3
-            # keg is not on the default search path. Hard link is fine for a
-            # test binary (release.yml weak-links the SHIPPED bundle instead).
-            SSL_PREFIX="$(brew --prefix openssl@3)"
-            clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-              "cross/yo-${{ matrix.target }}.c" \
-              -I"$SSL_PREFIX/include" -L"$SSL_PREFIX/lib" -lssl -lcrypto \
-              -o yo-suite
-            ./yo-suite --version
-          fi
-          # YO_STD pins this checkout's std for every later step (the binary
-          # sits in the repo root, so its walk-up would find ./std anyway; the
-          # pin makes it explicit and survives cd).
-          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
-
-      # Under the TREE-BUILT compiler — strictly stronger than the seed-based
-      # smoke these legs ran before 2026-08-21: it exercises the PR's build
-      # runner and codegen natively, including the child compiles `build run`
-      # spawns.
-      - name: Build system smoke test
-        shell: bash
-        run: |
-          if [ -f yo-suite.exe ]; then YO="$PWD/yo-suite.exe"; else YO="$PWD/yo-suite"; fi
-          "$YO" init ./tmp/hello-world --name hello-world
-          cd tmp/hello-world
-          "$YO" build run
-
-      # The full language corpus, natively, under the TREE-BUILT compiler —
-      # the same invocation as the Linux "Run tests" step.
-      - name: Run tests
-        shell: bash
-        run: |
-          # The macOS Intel runner is lost mid-job about 5% of the time and a lost
-          # runner's log never lands (issues/2026-11-05-the-macos-26-intel-test-
-          # runner-repeatedly-loses-communication.md): sample the VM every 30 s
-          # into the streamed log, stopped when this step ends.
-          if [ "${{ matrix.os }}" = "macos-26-intel" ]; then
-            source scripts/ci-vm-sampler.sh
-            vm_sampler_start "Run tests"
-          fi
-          if [ -f yo-suite.exe ]; then YO=./yo-suite.exe; else YO=./yo-suite; fi
-          # The 2026-09-03 mingw64-lost-libasan workaround
-          # (issues/fixed/windows-images-lost-libasan.md) is lifted on
-          # windows-x64: this job's driver is the choco LLVM clang the
-          # "Install LLVM/Clang" step puts first on PATH (MSVC target, the
-          # triple pinned by the compiler itself), whose ASan runtime ships
-          # inside the LLVM distribution — no `-lasan` anywhere — and whose
-          # runtime DLL the compiler discovers for both its ASan probe and
-          # the test children. windows-arm64 KEEPS the flag: choco installs
-          # the x86_64 LLVM build there, whose resource dir carries no
-          # clang_rt.asan-aarch64
-          # (issues/windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md).
-          case "${{ matrix.target }}" in
-            windows-arm64) TEST_SAN_FLAG="--disable-sanitize" ;;
-            *) TEST_SAN_FLAG="" ;;
-          esac
-          # `--shard i/n` stripes the SORTED file list, so the shards partition
-          # the corpus with no file dropped and no hardcoded map to rot. Every
-          # test-native leg is sharded now; the empty case stays for a future
-          # unsharded leg.
-          SHARD_FLAG=""
-          if [ -n "${{ matrix.shards }}" ]; then
-            SHARD_FLAG="--shard ${{ matrix.shard }}/${{ matrix.shards }}"
-          fi
-          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG $SHARD_FLAG
-          # std/'s sibling and in-file tests are small: run them once per leg
-          # (shard 0 of a sharded leg, or the whole unsharded leg).
-          if [ -z "${{ matrix.shards }}" ] || [ "${{ matrix.shard }}" = "0" ]; then
-            "$YO" test ./std --bail --verbose --c-compiler clang $TEST_SAN_FLAG
-            # `--allocator debug` on this OS: the suite above runs the file
-            # under the default allocator, where its fault checks are inert.
-            # Its children judge their own leaks whatever
-            # YO_TEST_LEAK_VERDICT says (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11).
-            "$YO" test ./std/allocator.test.yo --allocator debug --bail --verbose --c-compiler clang $TEST_SAN_FLAG
-          fi
-
-      # The suite compiler above is a system-allocator build, like the shipped
-      # Windows bundles, so the corpus never links mimalloc on Windows. A
-      # user's `--allocator mimalloc` still has to work there: this compiles
-      # and runs one allocation-heavy test file with it (the vendored v3.5.1
-      # static.c, found as `<std>/../vendor/mimalloc`, which is this
-      # checkout's submodule because YO_STD points at ./std). Once per leg
-      # (shard 0, like the std tests above). It replaces the coverage the
-      # mimalloc-flavored suite compilers gave before 2026-10-27
-      # (plans/reference/WINDOWS_ALLOCATOR_DECISION.md). When allocator
-      # placement's step C deletes `--allocator`, this becomes a test root
-      # declaring `global_allocator :: heap.Mimalloc;`
-      # (plans/backlog/ZIG_STYLE_ALLOCATORS.md, phase C0).
-      - name: "--allocator mimalloc on Windows (a user program)"
-        if: ${{ runner.os == 'Windows' && (!matrix.shards || matrix.shard == 0) }}
-        shell: bash
-        run: |
-          # Sanitizer off on both arches: this step proves a user program
-          # builds and runs on the vendored mimalloc. ASan coverage is "Run
-          # tests"' job, and ASan + static mimalloc on windows-x64 has never
-          # been exercised (a second malloc interposer under ASan's).
-          ./yo-suite.exe test ./tests/collections/hash-map.test.yo --allocator mimalloc --bail --verbose --c-compiler clang --disable-sanitize
+      - name: Compare the two emissions (hollow count + byte identity)
+        run: SIDE=compare bash scripts/bootstrap/chunked_gate.sh
 
   # Stage 1 built ONCE per battery and shared. Before this job, five Linux jobs
   # (bootstrap-fixpoint, bootstrap-self-test, compiler-internal-tests-selfhosted,
   # test-tsan, hollow-sweep) each ran their own ~12-minute `yo build` of the
   # identical seed-built binary: ~50 redundant runner-minutes per battery, and
-  # on a runner-constrained queue that is wall-clock too. The `test` job keeps
-  # its own build: it is the multi-OS matrix and its stage 1 IS the thing under
-  # test there. `suite-candidate` stays separate as well: that artifact is a
-  # STAGE-2 binary (the candidate compiles the tree) for the cross-emit legs.
+  # on a runner-constrained queue that is wall-clock too. Since phase 2 of
+  # plans/CI_ONE_HOUR.md it is the ONLY seed build of stage 1 in this
+  # workflow: `suite-candidate` (stage 2), the wasm/wasi jobs and the chunked
+  # gate download it too.
   stage1:
     name: Build stage 1 once (seed `yo build`, shared by the self-hosted jobs)
     needs: [changes, tree-hygiene]
@@ -1921,26 +1355,22 @@ jobs:
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
-      - name: Install the seed compiler (previous release)
-        uses: ./.github/actions/install-seed
+      # --std-path ./std is LOAD-BEARING (the action passes it). Without it the
+      # seed self-locates its OWN bundled std (the walk-up from its bin/ dir),
+      # so stage-1 would be "current yo-self sources + the PREVIOUS RELEASE's
+      # std" — a hybrid that never ships, which both masks std regressions and
+      # can manufacture failures. Measured 2026-08-11: a seed-compiled program
+      # picked up the seed's std/env.yo (3 mi_free errors from the
+      # already-fixed cross-allocator free) and 0 with --std-path ./std.
+      # Cached on the compiler's inputs (phase 2 of plans/CI_ONE_HOUR.md): a
+      # battery whose src/, std/, build.yo, yo.toml, yo.lock, vendor/, seed and
+      # runner image match a cached build restores the binary instead of
+      # spending ~30 min rebuilding it. native.yml shares the entry.
+      - name: Stage 1 (seed `yo build`, cached on the compiler's inputs)
+        uses: ./.github/actions/stage1-cached
         with:
-          version: ${{ env.SEED_VERSION }}
-      - name: Fetch the project's Yo dependencies
-        uses: ./.github/actions/install-deps
-      - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
-        run: |
-          # --std-path ./std is LOAD-BEARING. Without it the seed self-locates
-          # its OWN bundled std (the walk-up from its bin/ dir), so stage-1
-          # would be "current yo-self sources + the PREVIOUS RELEASE's std" —
-          # a hybrid that never ships, which both masks std regressions and
-          # can manufacture failures. Measured 2026-08-11: a seed-compiled
-          # program picked up the seed's std/env.yo (3 mi_free errors from the
-          # already-fixed cross-allocator free) and 0 with --std-path ./std.
-          # P2.5 step 24b: canonical builder is `yo build` (equivalence
-          # measured — see the `test` job's note). --std-path IS forwarded to
-          # the child compile.
-          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
-          cp "$(ls yo-out/*/bin/yo | head -1)" yo-stage1
+          seed-version: ${{ env.SEED_VERSION }}
+          disable-cache: ${{ vars.YO_CI_NO_BUILD_CACHE }}
       - name: Upload stage 1
         uses: actions/upload-artifact@v4
         with:
@@ -2003,10 +1433,24 @@ jobs:
     # run clean under ASan) and G-E (the sink grep gate, and the totality
     # audit `YO_AUDIT_ORIGIN_TOTALITY`, whose count is 0). The corpus `target`
     # set is printed for the record: its open rows are the parity items.
-    name: Origins corpus, unsound programs, origin totality (G-A, G-B, G-E)
+    name: Origins corpus, unsound programs, origin totality (G-A, G-B, G-E)${{ matrix.shards && format(' G-B {0}/{1}', matrix.shard, matrix.shards) || '' }}
     needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    # Five legs (plans/CI_ONE_HOUR.md phase 1): `gates` runs G-E, G-A and the
+    # informational target set; G-B, 77 of the job's 107 min on battery
+    # 45674049929 and growing with every corpus program, is striped four ways
+    # (scripts/origins-unsound.sh SHARD=i/n keeps every program whose sorted
+    # index is i mod n, so the four legs cover the directory exactly once).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: gates
+          - { part: unsound, shard: 0, shards: 4 }
+          - { part: unsound, shard: 1, shards: 4 }
+          - { part: unsound, shard: 2, shards: 4 }
+          - { part: unsound, shard: 3, shards: 4 }
     # G-A today ~9 min, G-B ~28 min, G-E totality ~15 min since it checks
     # ./src (#1918): 52 min of gates before the informational target set, so
     # the old 60-minute cap cancelled the job in that last step (battery
@@ -2038,14 +1482,19 @@ jobs:
         with:
           yo: /tmp/yo-stage1
       - name: G-E sink grep gate
+        if: matrix.part == 'gates'
         run: bash scripts/check-origin-sinks.sh
       - name: G-A corpus (today)
+        if: matrix.part == 'gates'
         run: YO=/tmp/yo-stage1 bash scripts/origins-corpus.sh today
-      - name: G-B unsound programs (ASan)
-        run: YO=/tmp/yo-stage1 YO_CC=clang bash scripts/origins-unsound.sh
+      - name: G-B unsound programs (ASan, stripe ${{ matrix.shard }}/${{ matrix.shards }})
+        if: matrix.part == 'unsound'
+        run: SHARD=${{ matrix.shard }}/${{ matrix.shards }} YO=/tmp/yo-stage1 YO_CC=clang bash scripts/origins-unsound.sh
       - name: G-E origin totality (count 0)
+        if: matrix.part == 'gates'
         run: YO=/tmp/yo-stage1 bash scripts/check-origin-sinks.sh --totality
       - name: G-A corpus target set (informational)
+        if: matrix.part == 'gates'
         continue-on-error: true
         timeout-minutes: 20
         run: YO=/tmp/yo-stage1 bash scripts/origins-corpus.sh target | tail -1
@@ -2411,11 +1860,18 @@ jobs:
   # 2026-10-16: 2996136722 -> 1799052684 (-40%): identity front caches over
   # the type_key-keyed memos build no key string on a hit (memory-ratchet.tsv).
   memory-ratchet:
-    name: Evaluator memory ratchet
+    name: Evaluator memory ratchet (${{ matrix.part }})
     needs: [changes, tree-hygiene, bootstrap-fixpoint]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # Two legs since 2026-11-26 (phase 2 of plans/CI_ONE_HOUR.md): `rss` runs
+    # the check-RSS ratchet (~10 min), `work` the libc rebuild, the allocator
+    # proof and the allocation-count ratchet (~40). They ran back to back.
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [rss, work]
 
     steps:
       - name: Checkout repository
@@ -2444,11 +1900,11 @@ jobs:
           yo: /tmp/stage2/yo-stage2-bin
 
       - name: Measure `check src/main.yo` against the ratchet
+        if: matrix.part == 'rss'
         run: bash scripts/bootstrap/memory_ratchet.sh /tmp/stage2/yo-stage2-bin
 
       - name: "Work ratchet: rebuild the stage-2 C on the C library's malloc"
-        # Not skipped by a red RSS step above: the allocator proof below needs it.
-        if: ${{ !cancelled() }}
+        if: matrix.part == 'work'
         run: |
           # The stage-2 C is mimalloc-flavored, and a missing <mimalloc.h> is an
           # #error: the stand-in header maps the mi_* calls onto malloc/free.
@@ -2464,12 +1920,13 @@ jobs:
       # Before it, a compiler string containing "mimalloc: " (#1600) failed
       # only the release (v0.2.71's run 40462960329).
       - name: "Allocator proof: the release assertion tells the two arms apart"
-        if: ${{ !cancelled() }}
+        if: matrix.part == 'work'
         run: |
           bash scripts/assert-binary-allocator.sh /tmp/stage2/yo-stage2-bin mimalloc
           bash scripts/assert-binary-allocator.sh /tmp/yo-stage2-libc system
 
       - name: Measure the allocation count of `check src/main.yo` against the ratchet
+        if: matrix.part == 'work'
         run: REPEAT=2 bash scripts/bootstrap/eval_work_ratchet.sh /tmp/yo-stage2-libc /tmp/alloc_count.so
   # The 8 GB build claim (plans/archive/BUILD_ON_8GB_MACHINES.md Phase 4):
   # `compile src/main.yo`, C compiler included, by the STAGE-2 compiler inside
@@ -2624,6 +2081,9 @@ jobs:
           # still RUN and REPORT here; only the leak-alone failure is staged
           # off. DELETE this line when the leak campaign closes the debt.
           YO_TEST_LEAK_VERDICT: "0"
+          # GATE 7 (the CLI cases, 46 of this job's ~70 min) runs in the
+          # `cli-cases` job's three stripes (phase 2 of plans/CI_ONE_HOUR.md).
+          T1_SKIP_CLI: "1"
         run: S1=/tmp/yo-stage1 P=ci bash scripts/bootstrap/gates_fast.sh
 
       - name: Upload gate logs
@@ -2634,6 +2094,78 @@ jobs:
           path: /tmp/ci_*.log
           retention-days: 7
           if-no-files-found: warn
+
+  # GATE 7 of gates_fast.sh (the CLI cases, golden scoring in sandboxes),
+  # striped three ways (`cli-diff-test.sh --shard i/3` keeps every third case
+  # of the byte-sorted list). The self-test job skips it (T1_SKIP_CLI=1). Same
+  # harness, binary and environment as GATE 7, including its defence in depth:
+  # the scorecard line must read GOLDEN-DIFF 0 and NO-GOLDEN 0.
+  cli-cases:
+    name: CLI cases (gates_fast GATE 7, stripe ${{ matrix.shard }}/3)
+    needs: [changes, tree-hygiene, stage1]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 8G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
+
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Download stage 1
+        uses: actions/download-artifact@v8
+        with:
+          name: yo-stage1
+      - name: Install the stage-1 binary
+        run: |
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
+
+      - name: Score the CLI cases (stripe ${{ matrix.shard }}/3)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+          YO_TEST_LEAK_VERDICT: "0"
+        run: |
+          set +e
+          YO_SELF_BIN=/tmp/yo-stage1 bash scripts/cli-diff-test.sh --shard ${{ matrix.shard }}/3 > /tmp/clidiff.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/clidiff.log
+          tail_line=$(tail -1 /tmp/clidiff.log)
+          echo "CLIDIFF_RC=$rc  $tail_line"
+          case "$tail_line" in
+            *"GOLDEN-DIFF 0"*"NO-GOLDEN 0"*) ;;
+            *) echo "::error::CLI golden scorecard is not clean: $tail_line"; exit 1 ;;
+          esac
+          if [ "$rc" != "0" ]; then
+            echo "::error::CLI golden scoring failed (re-record with scripts/cli-diff-test.sh --record if the change is intended)"
+            exit "$rc"
+          fi
 
   # The compiler's own tests (`tests/internal`, formerly `yo-self/tests`): 58 files
   # that import src/ evaluator + codegen internals, so each one pays a full
@@ -2718,11 +2250,14 @@ jobs:
     # the six shards ran 100-141 min of 150 on three develop batteries
     # (the table's 90.8 predicted, real runs about 30% over). Eight predict
     # ~68 per shard, about 90 real at today's drift. The cap stays 150.
+    # 12-way since 2026-11-26 (phase 2 of plans/CI_ONE_HOUR.md): eight shards
+    # ran 63-105 min and two of them ended the PR battery's Linux side
+    # (93 min on run 45751366852); twelve predict ~45 per shard, ~60 real.
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
     steps:
       - name: Checkout repository
@@ -2810,14 +2345,14 @@ jobs:
           # to get it WITHOUT waiting for CI, with each shard's predicted
           # minutes:
           #
-          #   scripts/bootstrap/differential_shard.sh --table 8
+          #   scripts/bootstrap/differential_shard.sh --table 12
           #
           # Do NOT hardcode the resulting map: adding ONE file to
           # tests/internal/ (or re-measuring one) can move others.
           shard=${{ matrix.shard }}
           # No pipe here: `bash -e` without pipefail would let a failing
           # selection through as an empty, green shard.
-          files=$(scripts/bootstrap/differential_shard.sh "$shard" 8)
+          files=$(scripts/bootstrap/differential_shard.sh "$shard" 12)
           if [ -z "$files" ]; then
             echo "::error::shard $shard selected no files"
             exit 1
@@ -3077,8 +2612,8 @@ jobs:
         run: bash scripts/tsan-thread-corpus.sh
 
   test-wasm32_emscripten:
-    name: test-wasm32_emscripten ${{ matrix.shard == 'smoke' && 'build-system smoke' || format('shard {0}/2', matrix.shard) }}
-    needs: [changes, tree-hygiene]
+    name: test-wasm32_emscripten shard ${{ matrix.shard }}/2
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # MEASURED 2026-09-16: this leg now takes 86-87 min (develop runs
@@ -3091,22 +2626,21 @@ jobs:
     # (issues/fixed/wasi-thread-pool-submit-deadlock.md).
     #
     # The 32 -> 87 min growth is unexplained; this PR measured the symptom, not
-    # a cause. Sharding this leg the way test-native is sharded here would cut
+    # a cause. Sharding this leg the way test-native (native.yml) is sharded would cut
     # it and remove the cliff rather than move it.
     #
     # SHARDED 2-way (issues/fixed/2026-11-11-the-wasm-legs-and-the-differential-shards-run-at-their-timeouts.md):
     # the unsharded leg ran 149, 91 and 147 min of its 150 on three develop
     # batteries. `--shard i/n` stripes the sorted file list, so the shards
-    # partition the suite. Each leg repeats the stage-1 build (needed by the
-    # tests); the stage-2 build and the build-system smoke run once, in their
-    # own `smoke` leg. On shard 0 they took 24 of its 123 min (battery
-    # 42865362929: stage-1 53, stage-2 24, tests 43; shard 1 93), past three
-    # quarters of the cap; alone they are ~77 min and each test shard ~96.
+    # partition the suite. Since phase 2 of plans/CI_ONE_HOUR.md the legs
+    # download the `stage1` job's binary instead of each repeating the seed
+    # build, and the build-system smoke is its own job
+    # (`test-wasm32_emscripten-smoke`, on the stage-2 candidate).
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, smoke]
+        shard: [0, 1]
 
     steps:
       - name: Checkout repository
@@ -3149,10 +2683,82 @@ jobs:
       # Node stays: `emcc` is itself a node program, so this leg can never be
       # node-free. What changes is only WHICH Yo compiler drives it. Bun and the
       # TS build are gone.
-      - name: Build stage-1 with the seed
-        uses: ./.github/actions/build-stage1
+      # Phase 2 of plans/CI_ONE_HOUR.md: the `stage1` job's binary, not a
+      # fifth seed build of the same compiler (~25 min and ~125 runner-min per
+      # battery across the wasm/wasi legs).
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
+
+      - name: Download stage 1
+        uses: actions/download-artifact@v8
         with:
-          seed-version: ${{ env.SEED_VERSION }}
+          name: yo-stage1
+          path: /tmp/yo-stage1-dir
+
+      - name: Install the stage-1 binary
+        run: |
+          chmod +x /tmp/yo-stage1-dir/yo-stage1
+          echo "S1=/tmp/yo-stage1-dir/yo-stage1" >> "$GITHUB_ENV"
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+          /tmp/yo-stage1-dir/yo-stage1 install --locked --verbose
+          YO_STD="$PWD/std" /tmp/yo-stage1-dir/yo-stage1 check std/assert.yo
+
+      - name: Run WASM tests
+        run: |
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
+            --parallel 2 --bail --verbose --c-compiler emcc --profile \
+            --shard ${{ matrix.shard }}/2
+
+  # The WASM build-system smoke, split out of the emscripten matrix so the
+  # test shards start on stage 1 while this leg waits for the stage-2
+  # candidate (phase 2 of plans/CI_ONE_HOUR.md).
+  test-wasm32_emscripten-smoke:
+    name: test-wasm32_emscripten build-system smoke
+    needs: [changes, tree-hygiene, suite-candidate]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Free runner disk space
+        # The hosted runner died three times with "No space left on device" while
+        # writing its own _diag log, within a minute of starting and right
+        # after the emsdk download (runs 41873995899, 41945982719 twice;
+        # issues/fixed/2026-11-05-the-wasi-leg-runner-runs-out-of-disk-after-the-emsdk-download.md).
+        # Removing toolchains this job never uses frees ~25 GB.
+        run: |
+          df -h / || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / || true
+
+      - name: Setup Emscripten
+        # Pin the version, for the same reason wasmtime is pinned below: the
+        # "latest" alias is resolved at run time and fetches a bundled Node
+        # tarball from storage.googleapis.com, which returned HTTP 403 on run
+        # 31238532553 and left the job with no toolchain. 6.0.6 is what
+        # "latest" resolved to on the green runs.
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: "6.0.6"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # Same rule as the ubuntu test job and the shared suite candidate: the
       # smoke step runs the compiler's own build runner (self-application), so
@@ -3164,25 +2770,20 @@ jobs:
       # issues/fixed/build-smoke-hangs-registry-perturbation.md). The wasm TEST
       # suite below stays on stage-1: its children are cross-compiled by the
       # tree's codegen either way.
-      - name: Build stage-2 for the smoke
-        if: ${{ matrix.shard == 'smoke' }}
-        env:
-          YO_MAIN_STACK_MB: "4096"
+      - name: Download the stage-2 candidate (the same stage 2 this job built until phase 2)
+        uses: actions/download-artifact@v8
+        with:
+          name: suite-candidate
+          path: /tmp/yo-candidate-dir
+
+      - name: Install the stage-2 binary
         run: |
-          YO_STD="$PWD/std" "$S1" compile src/main.yo \
-            --optimize 2 --allocator mimalloc --std-path ./std \
-            --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
-          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
-          # into the emitted C — flags via pkg-config (libssl-dev installed
-          # with the packages above).
-          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-            /tmp/stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -DMI_BUILD_RELEASE -lpthread -lm \
-            $(pkg-config --cflags --libs openssl) \
-            -o /tmp/yo-stage2
+          cp /tmp/yo-candidate-dir/yo-candidate /tmp/yo-stage2
+          chmod +x /tmp/yo-stage2
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+          /tmp/yo-stage2 install --locked --verbose
 
       - name: Build system smoke test (WASM)
-        if: ${{ matrix.shard == 'smoke' }}
         run: |
           /tmp/yo-stage2 init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
@@ -3204,16 +2805,10 @@ jobs:
 
       # tests/internal is host-toolchain-only (it compiles the compiler); excluded
       # from the cross-target jobs for the same runtime/memory reason as above.
-      - name: Run WASM tests
-        if: ${{ matrix.shard != 'smoke' }}
-        run: |
-          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
-            --parallel 2 --bail --verbose --c-compiler emcc --profile \
-            --shard ${{ matrix.shard }}/2
 
   test-wasm32_wasi:
     name: test-wasm32_wasi shard ${{ matrix.shard }}/2
-    needs: [changes, tree-hygiene]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
@@ -3287,10 +2882,28 @@ jobs:
       # Node stays: `emcc` is itself a node program, so this leg can never be
       # node-free. What changes is only WHICH Yo compiler drives it. Bun and the
       # TS build are gone.
-      - name: Build stage-1 with the seed
-        uses: ./.github/actions/build-stage1
+      # Phase 2 of plans/CI_ONE_HOUR.md: the `stage1` job's binary, not a
+      # fifth seed build of the same compiler (~25 min and ~125 runner-min per
+      # battery across the wasm/wasi legs).
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
+
+      - name: Download stage 1
+        uses: actions/download-artifact@v8
         with:
-          seed-version: ${{ env.SEED_VERSION }}
+          name: yo-stage1
+          path: /tmp/yo-stage1-dir
+
+      - name: Install the stage-1 binary
+        run: |
+          chmod +x /tmp/yo-stage1-dir/yo-stage1
+          echo "S1=/tmp/yo-stage1-dir/yo-stage1" >> "$GITHUB_ENV"
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+          /tmp/yo-stage1-dir/yo-stage1 install --locked --verbose
+          YO_STD="$PWD/std" /tmp/yo-stage1-dir/yo-stage1 check std/assert.yo
 
       # See the WASM job: tests/internal is host-toolchain-only.
       - name: Run WASI tests
@@ -3324,11 +2937,18 @@ jobs:
   # yo-self that had never been visible, since neither file is in the 23-file
   # battery. They are allowlisted with that note.
   hollow-sweep:
-    name: Full-corpus hollow sweep (all 188 language files, self-hosted)
+    name: Full-corpus hollow sweep (language files, self-hosted, stripe ${{ matrix.shard }}/2)
     needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    # Two stripes since 2026-11-26 (phase 2 of plans/CI_ONE_HOUR.md): one leg
+    # took 40-68 min for every language file. SHARD=i/2 sweeps every other
+    # file of the sorted list and gates the allowlist rows of its own files.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
 
     steps:
       - name: Checkout repository
@@ -3387,7 +3007,7 @@ jobs:
           YO_MAIN_STACK_MB: "4096"
           # Same staging ratchet as the tier-1 job — see that job's comment.
           YO_TEST_LEAK_VERDICT: "0"
-        run: BIN=/tmp/yo-stage1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
+        run: SHARD=${{ matrix.shard }}/2 BIN=/tmp/yo-stage1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
 
       # results.txt alone is a scorecard, not a diagnosis — the first CI run of
       # this job reported two RED files with no way to see WHY. Upload the
@@ -3396,7 +3016,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hollow-sweep-results
+          name: hollow-sweep-results-${{ matrix.shard }}
           path: |
             /tmp/hsweep/results.txt
             /tmp/hsweep/*.log
@@ -3435,8 +3055,7 @@ jobs:
       - test-suite
       - suite-candidate
       - chunked-gate
-      - suite-cross-emit
-      - test-native
+      - chunked-gate-compare
       - stage1
       - io-budgets
       - origins-corpus
@@ -3447,10 +3066,12 @@ jobs:
       - memory-ratchet
       - build-memory-8gb
       - bootstrap-self-test
+      - cli-cases
       - compiler-internal-tests-selfhosted
       - build-linux-musl-static
       - test-tsan
       - test-wasm32_emscripten
+      - test-wasm32_emscripten-smoke
       - test-wasm32_wasi
       - tree-hygiene
       - hollow-sweep

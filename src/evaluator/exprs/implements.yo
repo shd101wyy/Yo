@@ -1,4 +1,7 @@
-//! evaluate_subtype_of — handles the `T <: Trait` expression.
+//! evaluate_implements — the bound operator `T <: Trait`, read "`T` implements
+//! `Trait`": a bound in `where(...)`, and as an expression the impl it names
+//! (`(T <: Tr).m(a)`). Yo has no subtyping; `<:` is never a relation between
+//! two types.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
@@ -9,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   ast_expr_is_fn_call_of,
   BK_TUPLE,
-  BK_SUBTYPE_OF
+  BK_IMPLEMENTS
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr-info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
@@ -19,16 +22,18 @@ pragma(Pragma.AllowUnsafe);
 { t_unit } :: import("../../types/creators.yo");
 { is_type_val } :: import("../../value.yo");
 { is_trait_type, is_some_type } :: import("../../types/guards.yo");
+{ throw_if_bound_rhs_is_not_a_trait, is_bare_trait_type, non_trait_bound_error } :: import("../utils.yo");
+{ ast_expr_to_string } :: import("../../expr.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
 { _add_where_clause_constraint, _trait_has_receiver } :: import("../types/function.yo");
 { type_implements_trait_bool } :: import("../trait-checking.yo");
-/// Evaluate the `T <: Trait` constraint operator.
+/// Evaluate the bound operator `T <: Trait`.
 ///
 ///
-evaluate_subtype_of :: (
+evaluate_implements :: (
   fn(
     expr : &AstExpr,
     env_in : &Environment,
@@ -38,7 +43,7 @@ evaluate_subtype_of :: (
 )({
   (env : Environment) = Rc.clone(env_in);
   // Validate: `<:` with exactly 2 arguments.
-  if(!ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .Some(usize(2))), {
+  if(!ast_expr_is_fn_call_of(expr, BK_IMPLEMENTS, .Some(usize(2))), {
     exn.throw(
       dyn(
         Box.new(
@@ -227,6 +232,7 @@ evaluate_subtype_of :: (
       }
     );
     env_adopt(&env, &te_info.env());
+    throw_if_bound_rhs_is_not_a_trait(&te, &te_info.value(), &te_info.ty(), &ast_expr_to_string(&lhs_expr), exn);
     // RHS must be a TypeValue that is a TraitType.
     trait_ty_val := match(
       te_info.value(),
@@ -352,6 +358,11 @@ evaluate_subtype_of :: (
         t_unit()
       }
     );
+    // A trait on the left is a supertrait spelled as a bound: a trait does
+    // not implement a trait (VERDICTS-85 §6).
+    if(is_bare_trait_type(&lhs_ty), {
+      exn.throw(dyn(Box.new(non_trait_bound_error(ast_expr_token(&lhs_expr), &ast_expr_to_string(&lhs_expr), &trait_ty, true))));
+    });
     // Verify LHS implements the trait (skip for SomeType — checked at instantiation).
     if(!is_some_type(&lhs_ty), {
       (lhs_implements : bool) = type_implements_trait_bool(&lhs_ty, &trait_ty, &env);
@@ -404,4 +415,4 @@ evaluate_subtype_of :: (
     Rc.clone(expr.*)
   })
 });
-export(evaluate_subtype_of);
+export(evaluate_implements);

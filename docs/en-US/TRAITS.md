@@ -64,7 +64,23 @@ notify2 :: (fn(generic(T : Type), item : &mut T, where(T <: Display)) -> unit)({
 });
 ```
 
-A bound is written `T <: Trait`, read "`T` implements `Trait`"; several bounds on one type are a tuple, `T <: (Clone, Hash)`. The same form is used in every `where(...)`: a function's, a type constructor's, a trait's, an impl's and a derive's. `where(T : Trait)` is error E0624, raised where the clause is defined (`:` gives a name its type or kind), and `yo fix` rewrites it to `<:`.
+### Bounds
+
+`<:` is the bound operator: `T <: Trait` reads "`T` implements `Trait`". Several bounds on one type are a tuple, `T <: (Clone, Hash)`, and a function trait is grouped, `F <: (Fn(x : i32) -> i32)`. The form is the same in every `where(...)`: a function's, a type constructor's, a trait's, an impl's and a derive's. In a trait, `where(Self <: Shape)` declares a supertrait and `where(Self.Item <: Clone)` bounds an associated type; an impl's `where(...)` bounds the impl's own `generic(...)` binders.
+
+A name's `:` gives it a type or a kind, never a trait. A binder's kind is `Type`, `?Sized`, `Type.Struct`, `Origin`, `Trait` or a type constructor's kind, and its bounds go in `where(...)`: Rust's `T: Clone + Hash` is `generic(T : Type), where(T <: (Clone, Hash))`. A value's type names one type, so a trait reaches it through `Impl(...)` or `Dyn(...)`:
+
+| To | Write |
+| --- | --- |
+| require that a type implements a trait | `where(T <: Trait)` |
+| ask whether it does (a compile-time `bool`) | `Type.impls(T, Trait)` |
+| call the impl a type has for a trait | `(T <: Trait).m(a)` |
+| take a value of one implementing type | `x : Impl(Trait)` |
+| erase a value's type to the trait | `dyn(&x)`, a `&Dyn(Trait)`; `dyn(Box.new(x))`, a `Box(Dyn(Trait))` |
+
+Yo has no subtyping. A bound never lets a `T` stand where a `Dyn(Trait)` is expected: `dyn(&x)` writes the conversion. `<:` never relates two types or two traits.
+
+The wrong spellings are errors where they are written. A bound in a kind slot is E0624: `where(T : Trait)`, `generic(T : Trait)`, `generic(T : (A, B))`, `generic(T <: Trait)`, `trait(Item : Trait, ...)`, and a right side that is not a trait (`T <: Circle`, with `Circle` a struct). `yo fix` rewrites `where(T : Trait)` to `<:`, and moves a bound out of a binder's kind slot in two passes: the bound into the signature's `where(...)`, then the kind `Type`. A trait as a value's type is E0625: `a : Trait`, `a : &Trait`, `-> Trait`, `(x : Trait) = v`, `struct(v : Trait)`. A trait constructor names its argument, `where(T <: Eq(T))`; `where(T <: Eq)` is E0603.
 
 ### Static trait methods
 
@@ -136,7 +152,7 @@ A type implements a trait at most once, in the whole program
 - a second `impl(P, Summary(...))`, in the same module or another one;
 - an impl of a trait that an imported module or the prelude already implements for that type,
   such as `impl(i32, ToString(...))`;
-- a blanket impl (`impl(generic(T), where(T <: Bound), T, Summary(...))`) together with a
+- a blanket impl (`impl(generic(T : Type), where(T <: Bound), T, Summary(...))`) together with a
   concrete impl of `Summary` for a type that satisfies `Bound`, in either order.
 
 Yo has no specialization, so a more specific impl does not override a general one; before this
