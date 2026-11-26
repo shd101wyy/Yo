@@ -89,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { reject_dyn_place_by_value, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type, legacy_str_type_arg, future_view_error } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation-summary.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_is_binder_slot, t_value_slot, fn_result_slot } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, t_reference, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_is_binder_slot, t_value_slot, fn_result_slot } :: import("../../types/definitions.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash-map");
 { t_unit, t_type, t_ptr, t_usize, t_str, clone_some_fresh } :: import("../../types/creators.yo");
@@ -851,6 +851,28 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
 /// against the slot the call solved (`judge_lend_at_solved_slot`). Keyed by
 /// node id; idempotent across the candidate trials, which peel the same nodes.
 (g_peeled_lend_ids : RefCell(HashMap(usize, AstExpr))) = RefCell(HashMap(usize, AstExpr)).new(HashMap(usize, AstExpr).new());
+/// The binders lends solved, keyed by the lent place's node id: the note an
+/// error at the solved binder carries (VERDICTS-90 §5), "`T` is `&X` here
+/// because the argument `&x` is a lend …". Written where a lend solves a
+/// binder nothing had solved (both call arms and static-argument
+/// inference), read by `lend_solved_binder_note`.
+(g_lend_solved_binders : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
+/// Record that the lend `marker` solved `binder` to `solved`.
+note_lend_solved_binder :: (fn(marker : &AstExpr, binder : &String, solved : &TypeValue) -> unit)({
+  place := ast_expr_strip_borrow_marker(marker);
+  sig := if(ast_expr_is_fn_call_of(marker, BK_BORROW_MUT, .Some(usize(1))), "&mut ", "&");
+  pt := ast_place_text(&place);
+  ls_text := `\`${binder}\` is \`${type_to_string(solved)}\` here because the argument \`${sig}${pt}\` is a lend. To pass the value, write \`${pt}\` (it moves) or \`${pt}.clone()\`.`;
+  _ls := g_lend_solved_binders.with_mut({ id : ast_expr_id(&place), ls_text }(m) => m.insert(id, ls_text));
+});
+/// The note recorded for the lent place `place_id`, if a lend there solved a
+/// binder (`note_lend_solved_binder`).
+lend_solved_binder_note :: (fn(place_id : usize) -> Option(String))(
+  cond(
+    (g_lend_solved_binders.with(m => m.len()) == usize(0)) => Option(String).None,
+    true => g_lend_solved_binders.with({ place_id }(m) => m.get_cloned(&place_id))
+  )
+);
 /// The marker (`&x` / `&mut x`) a peeled argument's place was written with,
 /// or `.None` when the argument was not peeled.
 peeled_lend_marker :: (fn(place_id : usize) -> Option(AstExpr))(
@@ -1192,19 +1214,85 @@ _by_value_lend_mismatch :: (fn(is_mut_marker : bool, p_label : &String, bare : &
     )
   );
 });
-/// VERDICTS-90 R3: a lend `marker` peeled at a by-value parameter is judged
-/// against the slot the call solved, `solved`, not the declared one: a
-/// parameter typed by a bare binder (`v : T`) is a reference once a written
-/// `generic(...)`, the expected type or a receiver's type arguments make `T`
-/// one. A reference of the marker's mode takes the lend (T9); one of the
-/// other mode is the T9 mismatch; any other slot, an unsolved binder
-/// included, takes its argument by value (E0914).
-judge_lend_at_solved_slot :: (fn(marker : &AstExpr, p_label : &String, solved : &TypeValue, exn : Exception) -> unit)({
+/// Where the binder a by-value parameter is typed by got the type a lend is
+/// judged against (VERDICTS-90 §5): the binder's name and what solved it
+/// ("argument 1", "the written `generic(...)`").
+LendSlotSource :: struct(binder : String, from : String);
+/// E0914 at a lend whose parameter is typed by a binder the call solved to the
+/// non-reference `solved` (VERDICTS-90 R3, §5): the text names the solved type
+/// and where it came from.
+_binder_value_lend_mismatch :: (
+  fn(is_mut_marker : bool, p_label : &String, bare : &AstExpr, place_text : &String, solved : &TypeValue, source : &LendSlotSource, exn : Exception) -> unit
+)({
+  sig := if(is_mut_marker, "&mut ", "&");
+  what := if(is_mut_marker, "an exclusive borrow", "a borrow");
+  st := type_to_string(solved);
+  exn.throw(
+    dyn(
+      Box.new(
+        with_code(
+          format_error_message(
+            ast_expr_token(bare),
+            `\`${sig}${place_text}\` lends ${what}, but parameter "${p_label}" takes \`${st}\` by value (\`${source.binder}\` is \`${st}\` from ${source.from}): pass \`${place_text}\` (it moves, or is copied when it is \`Copy\`), or \`${place_text}.clone()\` to keep \`${place_text}\`; to lend \`${place_text}\`, make \`${source.binder}\` \`${sig}${st}\` at ${source.from}.`
+          ),
+          E_BORROW_MARKER_MISMATCH
+        )
+      )
+    )
+  );
+});
+/// E0914 at a lend of something that is no variable or field path (`&mk()`,
+/// `&xs(i)`) to a by-value parameter whose type is a reference (VERDICTS-90
+/// R4): the parameter would hold the reference by value, past a temporary
+/// that ends with the statement or into storage no name roots.
+lend_needs_place_error :: (fn(marker : &AstExpr, p_label : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  sig := if(ast_expr_is_fn_call_of(marker, BK_BORROW_MUT, .Some(usize(1))), "&mut ", "&");
+  operand_expr := ast_expr_strip_borrow_marker(marker);
+  operand := ast_place_text(operand_expr);
+  noun := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&operand_expr)),
+    .Some(oi) => if(expr_info_index_trait_ptr_type(&oi).is_some(), "an element of a collection", "a temporary"),
+    .None => "a temporary"
+  );
+  exn.throw(
+    dyn(
+      Box.new(
+        with_code(
+          format_error_message(
+            ast_expr_token(marker),
+            `\`${sig}${operand}\` lends ${noun}, and parameter "${p_label}" would hold that reference by value: bind the value to a local and lend the local, or pass \`${operand}\` itself.`
+          ),
+          E_BORROW_MARKER_MISMATCH
+        )
+      )
+    )
+  );
+});
+/// VERDICTS-90 R2/R3: the slot a lend `marker` peeled at a by-value parameter
+/// is typed against. `solved` is the parameter's type as the call has solved
+/// it. A binder nothing has solved yet (a bare `T`, an `Impl(Tr)`) is solved
+/// by the lend itself: `&x` is `&X` and `&mut x` is `&mut X` over the place's
+/// type `place_ty` (R1), and the binder's bounds judge that type as they
+/// judge any other. Any other slot judges the marker: a reference of the
+/// marker's mode takes the lend (T9); one of the other mode is the T9
+/// mismatch; a non-reference takes its argument by value (E0914), named with
+/// the binder and its source when the declared slot was a binder (`source`).
+judge_lend_at_solved_slot :: (
+  fn(marker : &AstExpr, p_label : &String, solved : &TypeValue, place_ty : &TypeValue, source : &Option(LendSlotSource), exn : Exception) -> TypeValue
+)({
   is_mut_marker := ast_expr_is_fn_call_of(marker, BK_BORROW_MUT, .Some(usize(1)));
+  if(is_some_type(solved), {
+    return(t_reference(place_ty, is_mut_marker));
+  });
   place_text := ast_place_text(ast_expr_strip_borrow_marker(marker));
   if(!_t9_reference_param_takes_lend(solved, is_mut_marker, p_label, marker, &place_text, exn), {
-    _by_value_lend_mismatch(is_mut_marker, p_label, marker, &place_text, exn);
+    match(
+      source,
+      .Some(src) => _binder_value_lend_mismatch(is_mut_marker, p_label, marker, &place_text, solved, src, exn),
+      .None => _by_value_lend_mismatch(is_mut_marker, p_label, marker, &place_text, exn)
+    );
   });
+  Rc.clone(solved)
 });
 /// N2b (decision 43 step 3, T9): the parameter's type is a by-value
 /// reference (an inline composite's `&`/`&mut` field) and the marker's mode
@@ -2091,14 +2179,21 @@ check_if_function_parameter_matches_argument :: (
   // the binder is bound to by now (a receiver's type arguments, an earlier
   // argument).
   (t9_slot : TypeValue) = Rc.clone(resolved_pt);
+  (t9_marker : Option(AstExpr)) = Option(AstExpr).None;
   if(param_is_owning && !param_is_ref && !is_ct_only, {
+    t9_marker = peeled_lend_marker(ast_expr_id(&actual_arg));
     match(
-      peeled_lend_marker(ast_expr_id(&actual_arg)),
-      .Some(t9_marker) => {
-        if(is_some_type(&resolved_pt), {
-          t9_slot = get_value_of_some_type_from_env(&callee_env_r, &resolved_pt);
+      &t9_marker,
+      .Some(t9_m) => {
+        t9_binder := match(&resolved_pt, Rc(.SomeT({ name : t9_bn })) => Option(String).Some(t9_bn.clone()), _ => Option(String).None);
+        t9_solved := match(&t9_binder, .Some(_) => get_value_of_some_type_from_env(&callee_env_r, &resolved_pt), .None => Rc.clone(resolved_pt));
+        t9_source := match(t9_binder, .Some(t9_b) => Option(LendSlotSource).Some(LendSlotSource(binder : t9_b, from : String.from("an earlier argument or the receiver"))), .None => Option(LendSlotSource).None);
+        t9_slot = judge_lend_at_solved_slot(t9_m, param_label, &t9_solved, &arg_info.ty(), &t9_source, exn);
+        // The lend solved the binder: a bound or a wall that then fails
+        // explains it (VERDICTS-90 §5).
+        if(is_some_type(&t9_solved), {
+          note_lend_solved_binder(t9_m, &match(&resolved_pt, Rc(.SomeT({ name : t9_nn })) => t9_nn.clone(), _ => String.new()), &t9_slot);
         });
-        judge_lend_at_solved_slot(&t9_marker, param_label, &t9_slot, exn);
       },
       .None => ()
     );
@@ -2111,6 +2206,14 @@ check_if_function_parameter_matches_argument :: (
   (t9_lend_ty : Option(TypeValue)) = cond(
     (!param_is_ref && !is_ct_only && !slot_of_reference && !is_comptime_string_type(&arg_info.ty())) => t9_lend_type(&t9_slot, &evaled_arg, &actual_arg, &arg_info, ctx),
     true => Option(TypeValue).None
+  );
+  // R4: what a by-value reference slot takes is a lend of a place.
+  match(
+    &t9_marker,
+    .Some(t9_np) => if(t9_lend_ty.is_none() && t_slot_is_borrow(&t9_slot) && !t_slot_is_borrow(&arg_info.ty()) && !is_comptime_string_type(&arg_info.ty()), {
+      lend_needs_place_error(t9_np, param_label, ctx, exn);
+    }),
+    .None => ()
   );
   // A reference VALUE passed by value (the read rule, decision 43 step 2
   // N1e-2b: a reference binding's read, a projection's result, at a `&T`
@@ -10583,7 +10686,7 @@ export(_try_call_fn_with_args_trapped);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))(_forall_binding_now(env, label));
 export(closure_argument_owned_type);
-export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, peeled_lend_marker, judge_lend_at_solved_slot, t9_lend_type, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
+export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, peeled_lend_marker, judge_lend_at_solved_slot, t9_lend_type, LendSlotSource, lend_needs_place_error, note_lend_solved_binder, lend_solved_binder_note, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);

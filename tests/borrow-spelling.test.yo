@@ -13,6 +13,7 @@
 //
 // `&&T` is a parse error, so it is pinned by tests/internal/parser.test.yo.
 { assert } :: import("std/assert");
+{ ToString } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { HashMap } :: import("std/collections/hash-map");
@@ -566,7 +567,7 @@ comptime_expect_error(
     x := BsLent(n : i32(1));
     _q := bs_id(generic(BsLent), &x);
   }),
-  "takes its argument by value"
+  "takes `BsLent` by value (`T` is `BsLent` from the written `generic(...)`)"
 );
 comptime_expect_error(
   bs_solved_static_lend :: (fn() -> unit)({
@@ -575,6 +576,222 @@ comptime_expect_error(
     _o := Option(&(BsLent, static)).replace(&mut s, &x);
   }),
   "empty origin `static`"
+);
+// A lend at a parameter typed by a binder nothing solved before it solves the
+// binder itself (VERDICTS-90 R1, R2): `&x` is `&X`, so `bs_id(&x)` is
+// `T := &BsLent`, lends `x` and returns a reference that borrows it, exactly
+// as the named form `{ r := &x; bs_id(r) }` does.
+BsTagger :: struct(k : i32);
+impl(BsTagger, tag : (fn(generic(U : Type), self : &Self, v : U) -> U)(v));
+bs_show :: (fn(v : Impl(ToString)) -> usize)(v.to_string().len());
+bs_mx :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> T)(cond((a >= b) => a, true => b));
+bs_apply :: (fn(generic(T : Type, U : Type), f : Impl(Fn(v : T) -> U), v : T) -> U)(f(v));
+bs_pair :: (fn(generic(T : Type), a : T, b : T) -> unit)(());
+bs_two :: (fn(generic(T : Type, U : Type), a : T, b : U) -> unit)(());
+bs_eq2 :: (fn(generic(T : Type), a : &T, b : T) -> unit)(());
+bs_mk :: (fn() -> BsLent)(BsLent(n : i32(3)));
+BsPair2 :: struct(f : BsLent, g : BsLent);
+BS_G := BsLent(n : i32(9));
+test("a lend at a parameter typed by a binder makes the binder a reference", {
+  x := BsLent(n : i32(4));
+  q := bs_id(&x);
+  assert(q.*.n == i32(4), "`T := &BsLent`; the result reads `x`");
+  rx := &x;
+  q2 := bs_id(rx);
+  assert(q2.*.n == i32(4), "the named form");
+  mut(m) := BsLent(n : i32(5));
+  mq := bs_id(&mut m);
+  mq.*.n = i32(6);
+  assert(m.n == i32(6), "`T := &mut BsLent` writes `m` through the result");
+  x2 := BsLent(n : i32(7));
+  mut(slot) := Option(&BsLent).None;
+  bs_keep(&mut slot, &x2);
+  assert(match(slot, .Some(r) => (r.*.n == i32(7)), .None => false), "the slot holds the lend");
+  assert(x2.n == i32(7), "a move-only `x2` was lent, not moved");
+  w := BsW.make(&x);
+  comptime_assert(Type.eq(type_of(w), BsW(&BsLent)), "an impl binder: `BsW.make(&x)` is `BsW(&BsLent)`");
+  assert(w.v.*.n == i32(4), "the payload reads `x`");
+  w2 := BsW.make(rx);
+  assert(w2.v.*.n == i32(4), "the named form binds `T := &BsLent` too");
+  h := BsTagger(k : i32(0));
+  t := h.tag(&x);
+  assert(t.*.n == i32(4), "a method's own binder");
+  t2 := h.tag(rx);
+  assert(t2.*.n == i32(4), "the named form");
+  i := i32(12);
+  assert(bs_show(&i) == usize(2), "`Impl(ToString)` at `&i32`, through the blanket `ToString(&T)`");
+  a := i32(1);
+  b := i32(2);
+  mxr := bs_mx(&a, &b);
+  assert(mxr.* == i32(2), "`where(T <: Ord(T))` at `T := &i32`, through the blanket `Ord(&T)`");
+  assert(bs_apply((p) => p.*.n, &x) == i32(4), "a closure sees `T := &BsLent`");
+  rr := bs_id(&rx);
+  assert(rr.*.*.n == i32(4), "`&rx` lends `rx` itself: `T := & &BsLent`");
+  rb := bs_id(&rx.*);
+  assert(rb.*.n == i32(4), "`&rx.*` reborrows what `rx` refers to");
+  mut(pp) := BsPair2(f : BsLent(n : i32(1)), g : BsLent(n : i32(2)));
+  pf := bs_id(&pp.f);
+  pp.g = BsLent(n : i32(8));
+  assert((pf.*.n == i32(1)) && (pp.g.n == i32(8)), "a field lend leaves its sibling free");
+  mut(gs) := Option(&(BsLent, static)).None;
+  bs_keep(&mut gs, &BS_G);
+  assert(match(gs, .Some(r) => (r.*.n == i32(9)), .None => false), "`&G` of an immutable module-level binding is static");
+});
+comptime_expect_error(
+  bs_binder_lend_freezes_move :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    q := bs_id(&x);
+    _m := x;
+    _ := q.*.n;
+  }),
+  "Cannot move `x` here"
+);
+comptime_expect_error(
+  bs_binder_lend_freezes_write :: (fn() -> unit)({
+    mut(x) := BsLent(n : i32(1));
+    q := bs_id(&x);
+    x = BsLent(n : i32(2));
+    _ := q.*.n;
+  }),
+  "`q` borrows `x`"
+);
+comptime_expect_error(
+  bs_binder_lend_block_local :: (fn() -> unit)({
+    mut(slot) := Option(&BsLent).None;
+    {
+      x2 := BsLent(n : i32(2));
+      bs_keep(&mut slot, &x2);
+    };
+    _ := slot.is_some();
+  }),
+  "`x2`"
+);
+comptime_expect_error(
+  bs_binder_lend_returns_local :: (fn() -> &BsLent)({
+    x := BsLent(n : i32(1));
+    q := bs_id(&x);
+    q
+  }),
+  "E0912"
+);
+comptime_expect_error(
+  bs_binder_lend_through_holder :: (fn(slot : &mut Option(&BsLent)) -> unit)({
+    x := BsLent(n : i32(1));
+    bs_keep(slot, &x);
+  }),
+  "Cannot store a reference to the local"
+);
+comptime_expect_error(
+  bs_binder_lend_static_holder :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    mut(gs) := Option(&(BsLent, static)).None;
+    bs_keep(&mut gs, &x);
+  }),
+  "empty origin `static`"
+);
+comptime_expect_error(
+  bs_binder_lend_then_move :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    bs_two(&x, x);
+  }),
+  "E0910"
+);
+comptime_expect_error(
+  bs_binder_move_then_lend :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    bs_two(x, &x);
+  }),
+  "E0901"
+);
+comptime_expect_error(
+  bs_binder_lend_mut_and_shared :: (fn() -> unit)({
+    mut(x) := BsLent(n : i32(1));
+    bs_two(&mut x, &x);
+  }),
+  "E0910"
+);
+comptime_expect_error(
+  bs_binder_lend_mut_needs_mut :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    _q := bs_id(&mut x);
+  }),
+  "mut"
+);
+// The blame rule (VERDICTS-90 §2): two arguments disagree on a binder and one
+// of them is a lend that solved it, so the error is E0914 at the lend,
+// whichever came first.
+comptime_expect_error(
+  bs_blame_ref_slot_first :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    y := BsLent(n : i32(2));
+    bs_eq2(&x, &y);
+  }),
+  "parameter \"b\" takes `BsLent` by value (`T` is `BsLent` from argument 1)"
+);
+comptime_expect_error(
+  bs_blame_lend_first :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    y := BsLent(n : i32(2));
+    bs_pair(&x, y);
+  }),
+  "parameter \"a\" takes `BsLent` by value (`T` is `BsLent` from argument 2)"
+);
+comptime_expect_error(
+  bs_blame_lend_second :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    y := BsLent(n : i32(2));
+    bs_pair(y, &x);
+  }),
+  "parameter \"b\" takes `BsLent` by value (`T` is `BsLent` from argument 1)"
+);
+comptime_expect_error(
+  bs_blame_value_slot :: (fn() -> unit)({
+    mut(slot) := Option(BsLent).None;
+    x2 := BsLent(n : i32(2));
+    bs_keep(&mut slot, &x2);
+  }),
+  "parameter \"v\" takes `BsLent` by value (`T` is `BsLent` from argument 1)"
+);
+comptime_expect_error(
+  bs_two_lends_disagree :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    mut(y) := BsLent(n : i32(2));
+    bs_pair(&x, &mut y);
+  }),
+  "Incompatible types for generic parameter"
+);
+// R4: what a by-value reference slot takes is a lend of a place.
+comptime_expect_error(
+  bs_binder_lend_temporary :: (fn() -> unit)({
+    _q := bs_id(&bs_mk());
+  }),
+  "`&bs_mk()` lends a temporary, and parameter \"v\" would hold that reference by value"
+);
+comptime_expect_error(
+  bs_t9_lend_temporary :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    mut(slot) := Option(&BsLent).Some(&x);
+    _o := slot.replace(&bs_mk());
+  }),
+  "lends a temporary"
+);
+// A bound or a wall that fails at a binder a lend solved says so (§5).
+BsDefaulted :: struct(n : i32);
+bs_nd :: (fn(generic(T : Type), v : T, where(T <: Default)) -> unit)(());
+impl(BsDefaulted, Default(default : (fn() -> Self)(Self(n : i32(0)))));
+comptime_expect_error(
+  bs_binder_lend_bound :: (fn() -> unit)({
+    x := BsDefaulted(n : i32(1));
+    bs_nd(&x);
+  }),
+  "because the argument `&x` is a lend. To pass the value, write `x` (it moves) or `x.clone()`"
+);
+comptime_expect_error(
+  bs_binder_lend_wall :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    _b := Rc.new(&x);
+  }),
+  "because the argument `&x` is a lend"
 );
 comptime_expect_error(
   bs_field_undeclared_origin :: (fn() -> unit)({

@@ -194,7 +194,9 @@ export(main);
 - **Parameters**: `x : T` by value (copy or move), `x : &T` read-only,
   `x : &mut T` exclusive. The call site repeats the sigil, `f(&x)`,
   `f(&mut x)` (a mismatch is E0914); receivers, temporaries and a reference
-  passed whole take none.
+  passed whole take none. At a by-value parameter typed by a type binder,
+  `&x` is a `&X` argument: `id(&x)` makes `T` `&X` and lends `x`, as
+  `r := &x; id(r)` does.
 - **`.*` names the referent**: `r.*` reads, `r.* = v` writes. Operators do not
   look through references (`n + 1` with `n : &i32` is E0926); fields, methods
   and indexing do (`r.x`, `r.len()`, `r(i)`).

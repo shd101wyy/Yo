@@ -173,7 +173,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer-type.yo");
 { CtorMethodImpl, instance_constructor_fid, impls_of_constructor_method, synthesize_impl_binders, first_failed_impl_where } :: import("../values/impl.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, peeled_lend_marker, judge_lend_at_solved_slot, t9_lend_type, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr, reference_argument_as_referent, _try_call_fn_with_args_trapped } :: import("./helper.yo");
+{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, peeled_lend_marker, judge_lend_at_solved_slot, t9_lend_type, LendSlotSource, lend_needs_place_error, note_lend_solved_binder, lend_solved_binder_note, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr, reference_argument_as_referent, _try_call_fn_with_args_trapped } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function-value.yo");
 { structural_clone_expansion } :: import("../utils/closure.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
@@ -201,7 +201,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), &env.module_path().*);
   create_runtime_unknown_val_with_name(ty, &nm)
 });
-{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help, _with_primary_subject } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_notes_at, with_code, _with_primary_help, _with_primary_subject } :: import("../../error.yo");
 { E_EXPLICIT_DESTRUCTOR_CALL, E_WRITE_THROUGH_BORROW, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, float_method_import_hint, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_ORIGIN_MISMATCH, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
@@ -2527,8 +2527,8 @@ _sai_try_candidate :: (
         if(_sai_mentions_binder(&pt, &c.binder_names), {
           match(
             _sai_arg_type(args, ai, nodes, tys, env, ctx, exn),
-            .Some(arg_ty) => match(
-              synthesize_impl_binders(&c.binder_names, &c.binder_types, &pt, &arg_ty, env),
+            .Some(arg_ty0) => match(
+              synthesize_impl_binders(&c.binder_names, &c.binder_types, &pt, &_sai_binder_arg_type(args, ai, &pt_raw, &pt, &arg_ty0, nodes, ctx), env),
               .Some(got) => {
                 (gi : usize) = usize(0);
                 while(gi < got.len(), gi = (gi + usize(1)), {
@@ -2564,7 +2564,7 @@ _sai_try_candidate :: (
                 });
               },
               .None => {
-                return(_SaiOutcome.NoFit(arg : ai, arg_ty : arg_ty, param_ty : pt));
+                return(_SaiOutcome.NoFit(arg : ai, arg_ty : arg_ty0, param_ty : pt));
               }
             ),
             .None => ()
@@ -2609,6 +2609,47 @@ _sai_try_candidate :: (
     .Some(r) => _SaiOutcome.Bound(receiver : r, site : c.site.clone()),
     .None => _SaiOutcome.Unbound(binder : match(c.binder_names.get_cloned(usize(0)), .Some(n) => n, .None => String.new()))
   )
+});
+/// The type argument `ai` gives a by-value parameter typed by a bare binder
+/// (`value : T`) of a static call's candidate, `arg_ty` being the type it was
+/// evaluated at with no expected type. A lend `&x` / `&mut x` there is `&X` /
+/// `&mut X` (VERDICTS-90 R1, R2): `W.make(&x)` is `W(&X)`. A reference
+/// binding passed bare, which evaluated as its referent, is the reference
+/// it holds, as `id(r)` binds `T := &X`; its node is evaluated again by the
+/// argument matching, against the slot the binding made a reference
+/// (issues/fixed/2026-11-27-a-static-call-with-inferred-type-arguments-reads-a-reference-binding-as-its-referent.md).
+/// Any other argument and slot keep `arg_ty`.
+_sai_binder_arg_type :: (
+  fn(args : &ArrayList(AstExpr), ai : usize, slot : &TypeValue, pt : &TypeValue, arg_ty : &TypeValue, nodes : &mut ArrayList(Option(AstExpr)), ctx : &EvalContext) -> TypeValue
+)({
+  if(t_slot_is_borrow(slot) || !is_some_type(pt) || extract_fn_trait_from_type(pt).is_some(), {
+    return(Rc.clone(arg_ty));
+  });
+  written := match(args.get_cloned(ai), .Some(a) => _unlabeled_argument(&a), .None => return(Rc.clone(arg_ty)));
+  is_mut_marker := ast_expr_is_fn_call_of(&written, BK_BORROW_MUT, .Some(usize(1)));
+  if(is_mut_marker || ast_expr_is_fn_call_of(&written, BF_ADDRESS_OF, .Some(usize(1))), {
+    lt := t_reference(arg_ty, is_mut_marker);
+    note_lend_solved_binder(&written, &match(pt, Rc(.SomeT({ name : sb_n })) => sb_n.clone(), _ => String.new()), &lt);
+    return(lt);
+  });
+  if(!ast_expr_is_atom(&written) || t_slot_is_borrow(arg_ty), {
+    return(Rc.clone(arg_ty));
+  });
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&written)),
+    .Some(ni) => match(
+      ni.source_variable(),
+      .Some(sv) => if(variable_is_reference_binding(&sv), {
+        if(ai < nodes.len(), {
+          nodes(ai) = Option(AstExpr).None;
+        });
+        return(variable_slot_type(&sv));
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  Rc.clone(arg_ty)
 });
 _sai_is_literal_type :: (fn(t : &TypeValue) -> bool)(is_comptime_int_type(t) || is_comptime_float_type(t));
 /// `G(A…)`: the candidate's receiver pattern with its binders bound. A
@@ -7267,6 +7308,71 @@ _forall_len_conflict_message :: (fn(label : &String, first : &String, first_from
 );
 /// "argument N" (1-based) for a conflict message.
 _forall_arg_phrase :: (fn(i : usize) -> String)(`argument ${(i + usize(1)).to_string()}`);
+/// VERDICTS-90 §2's blame rule. Two arguments bound one binder to types that
+/// disagree (`later` is the second); when exactly one of them is a lend that
+/// solved the binder (`binder_lends`), the error is R3's E0914 at that lend,
+/// judged against the other argument's type, whichever came first:
+/// `pair(&x, y)` and `pair(y, &x)` both report `&x`. Two lends that disagree
+/// (`pair(&x, &mut y)`), and a conflict no lend made, keep the conflict's
+/// E0601, which the caller raises when this returns.
+_fv_blame_binder_lend :: (
+  fn(
+    later : usize,
+    binder_lends : &ArrayList(usize),
+    param_type_names : &ArrayList(String),
+    args : &ArrayList(AstExpr),
+    infos : &ArrayList(ExprInfo),
+    bound_names : &ArrayList(String),
+    bound_types : &ArrayList(TypeValue),
+    labels : &SharedList(String),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  binder := match(param_type_names.get_cloned(later), .Some(n) => n, .None => return(()));
+  (first : Option(usize)) = Option(usize).None;
+  (k : usize) = usize(0);
+  while((k < param_type_names.len()) && first.is_none(), k = (k + usize(1)), {
+    if((k != later) && match(param_type_names.get_cloned(k), .Some(n) => (n == binder), .None => false), {
+      first = Option(usize).Some(k);
+    });
+  });
+  first_i := match(first, .Some(f) => f, .None => return(()));
+  later_lends := binder_lends.contains(&later);
+  if(later_lends == binder_lends.contains(&first_i), {
+    return(());
+  });
+  lend_i := if(later_lends, later, first_i);
+  other_i := if(later_lends, first_i, later);
+  // The type the other argument gives the binder: the first binding as
+  // inference recorded it, or the later argument's own (a literal at its
+  // runtime type).
+  (other_ty : TypeValue) = cond(
+    !later_lends => convert_comptime_type_to_runtime_type(&match(infos.get_cloned(other_i), .Some(oi) => Rc.clone(oi.ty()), .None => return(())), env),
+    true => {
+      (bt : Option(TypeValue)) = Option(TypeValue).None;
+      (bk : usize) = usize(0);
+      while((bk < bound_names.len()) && bt.is_none(), bk = (bk + usize(1)), {
+        if(match(bound_names.get_cloned(bk), .Some(n) => (n == binder), .None => false), {
+          bt = bound_types.get_cloned(bk);
+        });
+      });
+      match(bt, .Some(t) => t, .None => return(()))
+    }
+  );
+  place := _unlabeled_argument(match(args.get_cloned(lend_i), .Some(a) => a, .None => return(())));
+  marker := match(peeled_lend_marker(ast_expr_id(&place)), .Some(m) => m, .None => return(()));
+  place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&place)), .Some(pi) => Rc.clone(pi.ty()), .None => return(()));
+  _j := judge_lend_at_solved_slot(
+    &marker,
+    &match(labels.get_cloned(lend_i), .Some(l) => l, .None => String.new()),
+    &other_ty,
+    &place_ty,
+    &Option(LendSlotSource).Some(LendSlotSource(binder : binder, from : _forall_arg_phrase(other_i))),
+    exn
+  );
+});
 /// A VALUE binder's concrete binding in a structural-inference scratch env
 /// (the synthesizer's Array-length arm binds `generic(N : usize)` to an
 /// `IntLit`), or `.None` while it is unbound or a type binder.
@@ -7359,25 +7465,42 @@ _scratch_concrete_binding :: (fn(se : &Environment, name : &String) -> Option(Ty
 /// argument keeps source order: its default may read the earlier arguments'
 /// evaluated infos by position.
 /// The `ai`-th parameter's value type as the inline `FuncVal` arm has it
-/// solved before its arguments are read: the declared type, or the expected
-/// type's resolution (`resolved_param_types`), and for a bare binder the type
-/// a written `generic(...)` gave it (`pre_names`/`pre_vals`). An unsolved
-/// binder stays the binder.
-_fv_solved_slot :: (fn(resolved_param_types : &SharedList(TypeValue), ai : usize, pre_names : &ArrayList(String), pre_vals : &ArrayList(EvalValue)) -> TypeValue)({
+/// solved before its arguments are read (`slot`): the declared type, the
+/// expected type's resolution (`resolved_param_types`), and for a bare binder
+/// the type a written `generic(...)` gave it. An unsolved binder stays the
+/// binder. `source` names the binder and what solved it, for the E0914 a
+/// lend there gets when the binder is no reference (VERDICTS-90 §5).
+_FvSolvedSlot :: struct(slot : TypeValue, source : Option(LendSlotSource));
+_fv_solved_slot :: (
+  fn(resolved_param_types : &SharedList(TypeValue), declared_param_types : &SharedList(TypeValue), ai : usize, pre_names : &ArrayList(String), pre_vals : &ArrayList(EvalValue), from_expected : bool) -> _FvSolvedSlot
+)({
   slot := match(slot_pointee_at(resolved_param_types, ai), .Some(t) => t, .None => t_unit());
-  binder := match(&slot, Rc(.SomeT({ name : sn })) => Option(String).Some(sn.clone()), _ => Option(String).None);
+  declared := match(slot_pointee_at(declared_param_types, ai), .Some(t) => t, .None => t_unit());
+  binder := match(&declared, Rc(.SomeT({ name : sn })) => Option(String).Some(sn.clone()), _ => Option(String).None);
   match(
     binder,
     .Some(b) => {
       (k : usize) = usize(0);
       while(k < pre_names.len(), k = (k + usize(1)), {
         if(match(pre_names.get_cloned(k), .Some(n) => (n == b), .None => false), {
-          return(match(pre_vals.get_cloned(k), .Some(Rc(.TypeVal(t))) => t, _ => slot));
+          match(
+            pre_vals.get_cloned(k),
+            .Some(Rc(.TypeVal(t))) => {
+              return(_FvSolvedSlot(slot : t, source : Option(LendSlotSource).Some(LendSlotSource(binder : b, from : String.from("the written `generic(...)`")))));
+            },
+            _ => ()
+          );
         });
       });
-      slot
+      _FvSolvedSlot(
+        slot : Rc.clone(slot),
+        source : cond(
+          (from_expected && !is_some_type(&slot)) => Option(LendSlotSource).Some(LendSlotSource(binder : b, from : String.from("the expected type"))),
+          true => Option(LendSlotSource).None
+        )
+      )
     },
-    .None => slot
+    .None => _FvSolvedSlot(slot : slot, source : Option(LendSlotSource).None)
   )
 });
 _fv_argument_eval_order :: (fn(args : &ArrayList(AstExpr), n_p : usize, param_types : &ArrayList(TypeValue), forall_names : &ArrayList(String)) -> ArrayList(usize))({
@@ -10366,15 +10489,43 @@ _replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), 
 /// (a user struct, a tuple, `Option(&T)`) is N2b's: the result freezes the
 /// origins it spells (T9). A call returning a TYPE (`Option(&i32)`) is typed
 /// `Type` and passes.
-_reject_origin_carrying_value :: (fn(r : &AstExpr, call_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+_reject_origin_carrying_value :: (fn(r : &AstExpr, call : &AstExpr, call_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)),
     .Some(ri) => if(origin_beyond_n2b(&ri.ty()), {
-      exn.throw(dyn(Box.new(origin_beyond_n2b_error(&ri.ty(), call_tok))));
+      exn.throw(_with_lend_binder_notes(dyn(Box.new(origin_beyond_n2b_error(&ri.ty(), call_tok))), call));
     }),
     .None => ()
   )
 );
+/// VERDICTS-90 §5: an E0602 (a failed bound) or an E0909 (a wall) at a call
+/// one of whose lends solved a binder (`note_lend_solved_binder`) carries a
+/// note at each such lend: the binder is a reference because of it, and the
+/// value is passed by writing the place or its clone. Only the list of
+/// binders lends solved is read; the call is never re-run at the value type.
+_with_lend_binder_notes :: (fn(err : AnyError, call : &AstExpr) -> AnyError)({
+  code := match(primary_diagnostic_code(&err), .Some(c) => c, .None => return(err));
+  if(!((code == E_TRAIT_NOT_IMPLEMENTED) || (code == E_BORROW_ESCAPES)), {
+    return(err);
+  });
+  notes := ArrayList(Tuple(Token, String)).new();
+  args := match(call, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(err));
+  (i : usize) = usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    bare := _unlabeled_argument(match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr()));
+    if(ast_expr_is_fn_call_of(&bare, BK_BORROW_MUT, .Some(usize(1))) || ast_expr_is_fn_call_of(&bare, BF_ADDRESS_OF, .Some(usize(1))), {
+      match(
+        lend_solved_binder_note(ast_expr_id(&ast_expr_strip_borrow_marker(&bare))),
+        .Some(t) => notes.push((ast_expr_token(&bare), t)),
+        .None => ()
+      );
+    });
+  });
+  if(notes.len() == usize(0), {
+    return(err);
+  });
+  match(downcast(&err.*, YoError), .Some(ye) => dyn(Box.new(with_notes_at(ye, &notes))), .None => err)
+});
 /// The origin positions `p` and `a` share, walked in parallel: each pair
 /// of origins at a reference (`&(T, o)`) or at an origin argument of a type
 /// constructor (`_View(o)`), the parameter's first, the argument's second.
@@ -11487,7 +11638,7 @@ evaluate_function_call :: (
     // holding a reference is reached only through a user call, whose result
     // the wall names (`ArrayList(&i32)`, not the body's `?*(&i32)`).
     if(!is_std_module_path(&call_mp, ctx.std_path.clone()), {
-      _reject_origin_carrying_value(&std_r, &call_tok, ctx, exn);
+      _reject_origin_carrying_value(&std_r, expr, &call_tok, ctx, exn);
     });
     _stamp_projection_call(&std_r, ctx);
     _attach_fnonce_callee_release(expr, &std_r, ctx);
@@ -11510,12 +11661,12 @@ evaluate_function_call :: (
   match(
     _evaluate_function_call_trapped(expr, env, given_type, given_value, ctx, &mut out),
     .Some(err) => {
-      exn.throw(_reported_at_user_call(err, expr, &call_tok, env, ctx));
+      exn.throw(_with_lend_binder_notes(_reported_at_user_call(err, expr, &call_tok, env, ctx), expr));
       Rc.clone(expr.*)
     },
     .None => {
       r := match(out.get_cloned(usize(0)), .Some(e) => e, .None => Rc.clone(expr.*));
-      _reject_origin_carrying_value(&r, &call_tok, ctx, exn);
+      _reject_origin_carrying_value(&r, expr, &call_tok, ctx, exn);
       _stamp_projection_call(&r, ctx);
       _attach_fnonce_callee_release(expr, &r, ctx);
       _note_future_producing_call(expr, &r, env, ctx, exn);
@@ -13988,6 +14139,10 @@ Fix: wrap the call:
         fv_keeps_source_order := _fv_has_undefined_arg(&fv_args);
         fv_eai_idx := ArrayList(usize).new();
         fv_rt_idx := ArrayList(usize).new();
+        // The arguments that are lends at a binder nothing solved before them
+        // (VERDICTS-90 R2): each solved its binder, which the blame rule
+        // below reads.
+        fv_binder_lends := ArrayList(usize).new();
         (fv_ord_k : usize) = usize(0);
         (ai : usize) = usize(0);
         while(fv_ord_k < n_a, {
@@ -14437,13 +14592,27 @@ Fix: wrap the call:
             // and the specialization read that type, while the place keeps its
             // own.
             (fv_t9_ty : Option(TypeValue)) = Option(TypeValue).None;
+            (fv_t9_solved_binder : bool) = false;
             if((ai < n_p) && !du_frame_pushed && match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false) && !match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false) && !match(fv_param_ct.get(ai), .Some(c) => c, .None => false), {
               match(
                 peeled_lend_marker(ast_expr_id(&_unlabeled_argument(&arg_expr_eff))),
                 .Some(fv_t9_marker) => {
-                  fv_t9_slot := _fv_solved_slot(&resolved_param_types, ai, &fv_pre_forall_names, &fv_pre_forall_vals);
-                  judge_lend_at_solved_slot(&fv_t9_marker, &match(fv_param_labels.get_cloned(ai), .Some(l) => l, .None => String.new()), &fv_t9_slot, exn);
+                  fv_t9_label := match(fv_param_labels.get_cloned(ai), .Some(l) => l, .None => String.new());
+                  fv_t9_solved := _fv_solved_slot(&resolved_param_types, &fv_param_types, ai, &fv_pre_forall_names, &fv_pre_forall_vals, rpt_from_expected);
+                  // A binder nothing solved before the arguments is solved by
+                  // the lend itself (R2): `T := &X`.
+                  fv_t9_solved_binder = is_some_type(&fv_t9_solved.slot);
+                  fv_t9_slot := judge_lend_at_solved_slot(&fv_t9_marker, &fv_t9_label, &fv_t9_solved.slot, &arg_info.ty(), &fv_t9_solved.source, exn);
                   fv_t9_ty = t9_lend_type(&fv_t9_slot, &evaled_arg, &_unlabeled_argument(&arg_expr_eff), &arg_info, ctx);
+                  // R4: what a by-value reference slot takes is a lend of a
+                  // place.
+                  if(fv_t9_ty.is_none() && !t_slot_is_borrow(&arg_info.ty()) && !is_comptime_string_type(&arg_info.ty()), {
+                    lend_needs_place_error(&fv_t9_marker, &fv_t9_label, ctx, exn);
+                  });
+                  if(fv_t9_solved_binder, {
+                    fv_binder_lends.push(ai);
+                    note_lend_solved_binder(&fv_t9_marker, &match(slot_pointee_at(&fv_param_types, ai), .Some(Rc(.SomeT({ name : fv_bn }))) => fv_bn.clone(), _ => String.new()), &fv_t9_slot);
+                  });
                   note_mut_lend_value(ast_expr_id(&evaled_arg), fv_t9_ty.is_some() && t_slot_is_mut_ref(&fv_t9_slot));
                 },
                 .None => ()
@@ -14888,6 +15057,7 @@ Fix: wrap the call:
         );
         if(fv_forall_conflicts.len() > usize(0), {
           fc_arg := match(fv_forall_conflict_args.get(usize(0)), .Some(i) => i, .None => usize(0));
+          _fv_blame_binder_lend(fc_arg, &fv_binder_lends, &param_type_names, &fv_args, &evaled_arg_infos, &fa_bound_names, &fa_bound_types, &fv_param_labels, env, ctx, exn);
           fc_tok := match(fv_args.get_cloned(fc_arg), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
           exn.throw(dyn(Box.new(format_error_message(&fc_tok, match(fv_forall_conflicts.get_cloned(usize(0)), .Some(m) => m, .None => String.new())))));
         });

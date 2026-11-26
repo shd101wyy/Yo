@@ -297,6 +297,11 @@ export(main);
 - A mismatch is an error, never a conversion (E0914): a bare `x` to a `&T`
   parameter, `&x` to a by-value one, `&x` to a `&mut T` one. The rule holds
   for `Copy` types too, so the marker always tells the truth.
+- A by-value parameter whose type is a reference takes the lend: a field
+  `r : &X` of a constructor, and a parameter typed by a type binder
+  (`v : T`, `Impl(Tr)`). There `&x` is an argument of type `&X`, so it makes
+  `T` `&X`: `id(&x)` lends `x`, and its result borrows `x` as long as it
+  lives. When another argument already made `T` a value type, `&x` is E0914.
 - No marker is written for a method receiver, a temporary, a literal, a
   closure literal, an operator operand, or a reference passed whole (`f(r)`
   with `r : &T`).

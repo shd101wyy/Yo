@@ -912,6 +912,23 @@ reanchor_primary_at :: (fn(err : &YoError, tok : &Token, note : &String) -> YoEr
   });
   YoError(diagnostics : entries)
 });
+/// `err` with a note at each of `notes` (token, text) after its primary
+/// diagnostic: context that sits at a different place than the error, such
+/// as the lend that solved the binder a failed bound names (VERDICTS-90 §5).
+with_notes_at :: (fn(err : &YoError, notes : &ArrayList(Tuple(Token, String))) -> YoError)({
+  entries := ArrayList(Diagnostic).new();
+  (ni : usize) = usize(0);
+  while(ni < err.diagnostics.len(), ni = (ni + usize(1)), {
+    match(err.diagnostics.get_cloned(ni), .Some(d) => entries.push(d), .None => ());
+    if(ni == usize(0), {
+      (nk : usize) = usize(0);
+      while(nk < notes.len(), nk = (nk + usize(1)), {
+        match(notes.get_cloned(nk), .Some(n) => entries.push(note_diagnostic_of_token(&n.0, &n.1)), .None => ());
+      });
+    });
+  });
+  YoError(diagnostics : entries)
+});
 /// A Warning-severity diagnostic anchored at a token, with an optional help
 /// line, for `emit_warning`. Warnings carry no code: the classifier's codes
 /// name errors.
@@ -988,7 +1005,7 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError, ExitWith);
-export(yo_error_from_diagnostics, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, with_code_carried, _with_primary_help, _with_primary_subject);
+export(yo_error_from_diagnostics, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_notes_at, with_code, with_code_carried, _with_primary_help, _with_primary_subject);
 export(format_error_message_with_repair, format_error_message_with_repair_at, with_primary_repair_at_token);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the

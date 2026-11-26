@@ -44,6 +44,10 @@ and `Dyn(Trait, p)` (`evaluator/types/dyn.yo:212`).
 | T9 | A struct constructor's parameter for a `&`/`&mut` field is the field's `Reference` slot, so `S(at : &x)` is an ordinary lend (decision 33) and the constructor call is a call whose RESULT carries the origin: the caller freezes what the result's origin names, exactly as N1c narrows a projection's roots, generalized from a `Reference` result to any origin-carrying result. | O3 step 1 (application = substitution), O4 row 2 |
 | T10 | Elided field origins (O2's table: "a fresh anonymous origin parameter per field") are implicit origin parameters of the type, appended after the declared ones in `type_arguments`, named by the field label (`'next`), never spelled. Q1's verdict adds to O2: a BY-VALUE parameter whose type carries origins gets a fresh one per occurrence in parameter position and the union in a result. | O2; step-2 consultation Q1 follow-up for N2 |
 
+T9 amendment (2026-11-27, VERDICTS-90): a lend at a by-value parameter is judged at the slot the call solved, and a
+binder nothing solved before the argument is solved by the lend (`v : T` with `&x` gives `T := &X`), so
+`id(&x)` lends `x` as `r := &x; id(r)` does.
+
 ## 2. Inventory (measured on `3a7c3e3cf`)
 
 ### 2.1 The corpus: 37 N2 rows, by piece and by outside prerequisite

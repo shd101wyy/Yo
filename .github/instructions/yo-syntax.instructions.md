@@ -348,7 +348,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 | `x : &T`, `self : &Self` | read-only borrow | writing it is E0908 |
 | `x : &mut T`, `self : &mut Self` | exclusive borrow | |
 | `comptime(x) : &T`, `comptime(x) : &mut T` | compile-time borrow | the binding time wraps the name, the mode prefixes the type; erased at run time |
-| `f(&x)` | lends `x` to a `&T` param, a generic one included | to a by-value param: E0914 naming `x` / `x.clone()`; to `*(T)`: naming `addr_of(x)`; to `&mut T`: naming `&mut x` |
+| `f(&x)` | lends `x` to a `&T` param, a generic one included, and to a by-value param whose type is a reference: a `&X` field, a binder the call solved to `&X`, or a binder nothing solved yet, which the lend makes `&X` (`id(&x)` is `T := &X`, VERDICTS-90) | to a by-value param of a value type (a binder another argument made `X` included): E0914 naming `x` / `x.clone()`; a temporary (`&mk()`) at a reference slot: E0914; to `*(T)`: naming `addr_of(x)`; to `&mut T`: naming `&mut x` |
 | `f(&mut x)`, `f(&mut s.items)` | lends the place to a `&mut T` param | `&mut` is one prefix token; to any other param it is an error |
 | `f(x)`, `x` a named place, param `&T`/`&mut T` | E0914 naming `&x` / `&mut x` | required for every type, `Copy` too. Exempt: receivers, temporaries/literals/closures, operator operands, a reference binding passed whole (`f(r)`), `::` constants and function names, ghost code |
 | `addr_of(x)` | raw-pointer address-of → `*(T)` | unsafe-capable files only (see "unsafe") |
