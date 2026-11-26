@@ -130,6 +130,6 @@ Tests, each on the default backend and on the epoll fallback:
 
 ## Not covered (filed separately)
 
-- `issues/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`: a combinator's scoped operands are not in the await chain. Aborting the task around a `select` or `timeout` retires it at once and aborts the operands only at the combinator's dispose, so their operations outlive the join (io_uring; reproduced with and without this fix).
+- `issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`: a combinator's scoped operands are not in the await chain. Aborting the task around a `select` or `timeout` retires it at once and aborts the operands only at the combinator's dispose, so their operations outlive the join (io_uring; reproduced with and without this fix).
 - `issues/2026-11-25-a-pending-io-future-dropped-with-its-task-keeps-writing-into-the-released-buffer.md`: a started, un-awaited named `IoFuture` is not cancelled when its task is released, on every backend (an epoll ASan heap-use-after-free).
 - A raw `IoFuture` spawned and aborted directly: waiters registered before the abort now wait for its completion, but a join started after the abort reads the `-2` at once. Its buffer comes from a raw pointer, which is the caller's to keep alive. Making the join wait would need an Aborting state on I/O futures and every backend's completion path to keep it, which this fix does not take on.
