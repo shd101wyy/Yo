@@ -40,7 +40,7 @@ _network_required :: (fn() -> bool)(env.get("CI").is_some());
 _is_dns_failure :: (fn(err : &AnyError) -> bool)(
   match(
     downcast(&err.*, NetError),
-    .Some(ne) => match(ne, .DNSFailed => true, _ => false),
+    .Some(ne) => match(ne, .DNSFailed(..) => true, _ => false),
     .None => false
   )
 );

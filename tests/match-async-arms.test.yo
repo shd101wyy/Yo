@@ -148,9 +148,9 @@ test("a wildcard arm on a nullable-pointer Option with awaits", {
   assert(result.with(cur => cur.*) == (n - i32(5)), ".Some binds the payload and .None takes the wildcard, inside async");
 });
 // The await-carrying twin: a nullable-pointer user enum matched with labeled,
-// curly and bare-variant arms inside an async body.
+// curly and whole-payload (`.V(..)`) arms inside an async body.
 Tote :: enum(Bare, Holding(parcel : Rc(Parcel)));
-test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
+test("nullable-pointer user enum arms with awaits: labeled, curly, whole-payload", {
   n := runtime_int();
   holding := Tote.Holding(parcel : Rc.new(Parcel(v : (n + i32(2)))));
   bare := cond((n == i32(-1)) => Tote.Holding(parcel : Rc.new(Parcel(v : i32(0)))), true => Tote.Bare);
@@ -174,7 +174,7 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
     );
     c := match(
       &bare,
-      .Holding => {
+      .Holding(..) => {
         io.await(yield(io), io);
         i32(-100)
       },
@@ -185,7 +185,7 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur.*) == (((n + i32(2)) * i32(2)) + i32(1)), "labeled and curly bind the payload, a bare arm selects by variant name");
+  assert(result.with(cur => cur.*) == (((n + i32(2)) * i32(2)) + i32(1)), "labeled and curly bind the payload, a `(..)` arm selects by variant name");
 });
 // ---------------------------------------------------------------------------
 // The GENERAL pattern forms in awaiting arms (plans/reference/MATCH_PATTERN_MATCHING.md
