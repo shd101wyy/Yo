@@ -68,7 +68,7 @@ Option 1 (VERDICTS-87 item 6): delete the 22 numeric `LogicalNot` impls in the v
 
 VERDICTS-87 PR D, last commit:
 
-- The 22 numeric `LogicalNot` impls are deleted (`i8` … `u64`, `isize`, `usize`, `char`, `int`, `uint`, `short`, `ushort`, `long`, `ulong`, `longlong`, `ulonglong`, `f32`, `f64`, `longdouble`). `bool`'s `LogicalNot` and `ComptimeLogicalNot` stay; no comptime number had a `ComptimeLogicalNot`. `!x` at a numeric operand is E0610; the help naming `x == 0` and `~` is VERDICTS-87 PR C (`issues/2026-11-26-rust-shaped-trait-spellings-get-no-useful-help.md`).
+- The 22 numeric `LogicalNot` impls are deleted (`i8` … `u64`, `isize`, `usize`, `char`, `int`, `uint`, `short`, `ushort`, `long`, `ulong`, `longlong`, `ulonglong`, `f32`, `f64`, `longdouble`). `bool`'s `LogicalNot` and `ComptimeLogicalNot` stay; no comptime number had a `ComptimeLogicalNot`. `!x` at a numeric operand is E0610; the help naming `x == 0` and `~` is VERDICTS-87 PR C (`issues/fixed/2026-11-26-rust-shaped-trait-spellings-get-no-useful-help.md`).
 - The secondary asymmetry: the `Neg` impls of `uint`, `ushort`, `ulong` and `ulonglong` are deleted, as `u8` … `usize` lost theirs. `char` keeps `Neg`: its signedness is C's, implementation-defined, and the type exists for FFI.
 - The class-D rows (`docs/*/DATA_TYPES.md`, `yo-design`) say `!` is on `bool` only and `x == 0` tests a number.
 - Tests: `tests/prelude.test.yo`, "! on a number is a compile error" and four rows added to "unsigned integer negation is a compile error".
