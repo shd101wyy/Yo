@@ -482,7 +482,7 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
 | `char` | `rune` | `char` is C's 8-bit type and FFI needs it |
 | `Path` + `PathBuf` | one owned `Path` | no unsized path view |
 | `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` | floats carry a total `cmp`; no split |
-| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Neg`, `Rem`, `Shl`, `Shr`, `LogicalNot`/`BitNot` | Yo's own names; `!` is `LogicalNot` (yields `bool`), `~` is `BitNot` |
+| `Not` | `LogicalNot`/`BitNot` | two operators where Rust has one; `!` is `LogicalNot` (yields `bool`), `~` is `BitNot` |
 | `collect::<T>()`, `parse::<T>()`, `into()` | `collect(T)`, `parse(T)`, `into(T)` | the type is an argument: Yo does not infer from the result type |
 | `lock()`, `borrow()`/`borrow_mut()`, `Cell` | `with_lock(v => ..)`, `with_read`/`with_write`, `with`/`with_mut` | closure-scoped access; a guard cannot have `g.*` outside the prelude (E0622); no poisoning |
 | `io::Result<T>`, blocking calls, `thread::spawn`, `JoinHandle<T>` | `exn : Exception`, `io : Io`, `-> Impl(Future(T, IoExn))`, `Thread(T).spawn((io : Io) => ..)`, `join() -> T` | effects and the `Io` interface |

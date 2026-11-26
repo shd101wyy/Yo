@@ -29,6 +29,7 @@ Detailed instructions live in `.github/instructions/`. Read the relevant file be
 | `imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self)`, `-> imm(T)`, `for(xs, inout(x) => …)`           | `x : &T`, `x : &mut T`, `self : &Self`, `-> &T`, `for(&mut xs, x => …)` (decision 42; a mode word is now E0009) |
 | a bare `{ a, b }` / `{ k : v }` VALUE; a value `{}`                                                      | the record `.{ a, b }` / `.{ k : v }`; `.{}` (`{}` is the unit block). Binders are unchanged (`plans/reference/BRACE_BLOCKS.md`) |
 | `escape`                                                                                                 | `unwind`                                                                                                |
+| the operator traits `Mod`, `Negate`, `BitLeftShift`, `BitRightShift` and their `Comptime*` twins           | `Rem`, `Neg`, `Shl`, `Shr` (`ComptimeRem`, …); members unchanged (`plans/backlog/STD_RUST_ALIGNMENT.md` §9) |
 | `plans/backlog/NON_ESCAPABLE_TYPES.md`, `FUTURE_ORIGINS.md`                                              | `plans/backlog/REFERENCES_AND_ORIGINS.md` (decision 43; "non-escapable" is O10's `Escapable` bound)     |
 | `phase6*` tests; `macro_expansion`, `macro_registry`, `macro_def_*`, `try_macro_assign` tests            | `quote-macro-eval`, `ast-reflection`, `macro-helpers`; the rest were deleted with the user-macro fixtures |
 
