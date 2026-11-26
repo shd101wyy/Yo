@@ -52,7 +52,7 @@ evaluate_comptime_print :: (
         );
       });
     },
-    Rc(.Atom) => {
+    Rc(.Atom(_, _)) => {
       exn.throw(
         dyn(
           Box.new(
@@ -70,7 +70,7 @@ evaluate_comptime_print :: (
   args := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
-    Rc(.Atom) => ArrayList(AstExpr).new()
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);
   (cur_env : Environment) = Rc.clone(env);

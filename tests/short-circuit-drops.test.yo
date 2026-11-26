@@ -79,7 +79,7 @@ _mixed :: (fn(c : &Rc(Counter)) -> bool)(
 _in_match :: (fn(c : &Rc(Counter)) -> bool)(
   match(
     Option(i32).Some(i32(1)),
-    .Some => ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9))),
+    .Some(_) => ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9))),
     .None => false
   )
 );
@@ -194,7 +194,7 @@ _nested_moves :: (fn(c : &Rc(Counter), a : bool, b : bool) -> bool)({
 // false.
 _match_in_rhs_moves :: (fn(c : &Rc(Counter), a : bool, b : bool) -> bool)({
   t := _mk(c, i32(1));
-  a && match(if(b, Option(i32).Some(i32(1)), Option(i32).None), .Some => _eat(t), .None => false)
+  a && match(if(b, Option(i32).Some(i32(1)), Option(i32).None), .Some(_) => _eat(t), .None => false)
 });
 // Statement position, then read the result.
 _stmt_and_moves :: (fn(c : &Rc(Counter), a : bool, _b : bool) -> bool)({

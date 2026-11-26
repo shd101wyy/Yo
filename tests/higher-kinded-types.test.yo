@@ -60,7 +60,7 @@ test("Functor map on Option None", {
   result := x.fmap(generic(i32), (fn(a : &i32) -> i32)(a.* + i32(1)));
   match(
     result,
-    .Some => assert(false, "expected None"),
+    .Some(_) => assert(false, "expected None"),
     .None => ()
   );
   println(`  passed`);
@@ -111,7 +111,7 @@ test("Partial application Result(_, i32)", {
   match(
     r,
     .Ok(v) => assert(v, "expected true"),
-    .Err => assert(false, "expected Ok")
+    .Err(_) => assert(false, "expected Ok")
   );
   println(`  passed`);
 });
@@ -120,7 +120,7 @@ test("Partial application Result(str, _)", {
   (r : StrOkResult(i32)) = .Err(i32(404));
   match(
     r,
-    .Ok => assert(false, "expected Err"),
+    .Ok(_) => assert(false, "expected Err"),
     .Err(e) => assert(e == i32(404), "expected 404")
   );
   println(`  passed`);
@@ -175,7 +175,7 @@ impl(
     contains_value : (fn(generic(A : Type), self : &Option(A)) -> bool)(
       match(
         self,
-        .Some => true,
+        .Some(_) => true,
         .None => false
       )
     )
@@ -212,7 +212,7 @@ test("do_map on None preserves None", {
   result := do_map(generic(Option, i32, bool), &x, (fn(a : &i32) -> bool)(a.* > i32(0)));
   match(
     result,
-    .Some => assert(false, "expected None"),
+    .Some(_) => assert(false, "expected None"),
     .None => ()
   );
   println(`  passed`);
@@ -228,7 +228,7 @@ test("Partial application as HKT generic arg", {
     .Ok(v) => {
       assert(v, "expected true from IntResult(bool).Ok");
     },
-    .Err => assert(false, "expected Ok")
+    .Err(_) => assert(false, "expected Ok")
   );
   // Partial apply on second arg
   BoolResult :: Result(bool, _);
@@ -236,7 +236,7 @@ test("Partial application as HKT generic arg", {
   match(
     r2,
     .Ok(v) => assert(!v, "expected false"),
-    .Err => assert(false, "expected Ok")
+    .Err(_) => assert(false, "expected Ok")
   );
   println(`  passed`);
 });
@@ -274,11 +274,11 @@ test("Partial application leaves one placeholder", {
   match(
     a,
     .Ok(v) => assert(v == i32(1), "expected 1"),
-    .Err => assert(false, "expected Ok")
+    .Err(_) => assert(false, "expected Ok")
   );
   match(
     b,
-    .Ok => assert(false, "expected Err"),
+    .Ok(_) => assert(false, "expected Err"),
     .Err(e) => assert(!e, "expected false")
   );
   println(`  passed`);
@@ -356,7 +356,7 @@ test("Mappable transform on None", {
   assert(!result.contains_value(), "transformed None should not contain value");
   match(
     result,
-    .Some => assert(false, "expected None"),
+    .Some(_) => assert(false, "expected None"),
     .None => ()
   );
   println(`  passed`);

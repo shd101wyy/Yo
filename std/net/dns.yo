@@ -76,7 +76,7 @@ _dns_error_of :: (fn(code : i32) -> DnsError)(
 lookup_host :: (fn(host : &String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))({
   host_owned := host.clone();
   io.async(e => {
-    host_cstr_bytes := match(host_owned.to_cstr_checked(), .Ok(b) => b, .Err => e.exn.throw(dyn(Box.new(NetError.DNSFailed(host : host_owned.clone(), reason : DnsError.NotFound)))));
+    host_cstr_bytes := match(host_owned.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(NetError.DNSFailed(host : host_owned.clone(), reason : DnsError.NotFound)))));
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
     ret := e.io.await(IO_dns.getaddrinfo(host_cstr, .None, .None, result_ptr), e.io);

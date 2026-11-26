@@ -354,7 +354,7 @@ type_implements_runtime_builtin :: (fn(ty : &TypeValue) -> Option(bool))({
   // and decide from the base type's tag.
   (rb_base : TypeValue) = Rc.clone(ty);
   (rb_hops : usize) = usize(0);
-  while(match(&rb_base, Rc(.Pointer) => (rb_hops < usize(8)), _ => false), {
+  while(match(&rb_base, Rc(.Pointer(_)) => (rb_hops < usize(8)), _ => false), {
     rb_base = match(&rb_base, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(rb_base));
     rb_hops = (rb_hops + usize(1));
   });
@@ -976,9 +976,9 @@ _type_is_sized_d :: (fn(ty : &TypeValue, depth : u32) -> bool)(
     (depth > u32(32)) => true,
     true => match(
       t_refine_inner(ty),
-      Rc(.SliceT) => false,
+      Rc(.SliceT(_)) => false,
       Rc(.Str) => false,
-      Rc(.DynT) => false,
+      Rc(.DynT(_, _, _, _)) => false,
       // A `?Sized` variable is unsized unless a `where(T <: Sized)` bound
       // re-tightens it (one method of a `?Sized` impl).
       Rc(.SomeT({ parent_type : st_kind, bounds : st_bounds, resolution : st_res })) => match(
@@ -1103,7 +1103,7 @@ _spelled_origin_names_into :: (fn(ty : &TypeValue, out : &mut ArrayList(String),
       _push_spelled_names(&sn_o.*, out);
       _spelled_origin_names_into(&sn_p.*, out, depth + u32(1));
     },
-    Rc(.OriginSet) => _push_spelled_names(ty, out),
+    Rc(.OriginSet(_, _)) => _push_spelled_names(ty, out),
     // An origin parameter of a generic impl or signature still unbound
     // (`impl(generic(p : Origin), Slot(p), …)`'s `p`): its name.
     Rc(.SomeT({ name : sn_n, parent_type : sn_k, resolution : sn_r })) => match(
@@ -1243,14 +1243,14 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     // A `static` reference borrows nothing: only its pointee can carry one.
     Rc(.Reference(co_pointee, _, co_origin)) => (!is_static_origin(&co_origin.*) || _carries_origin_inner(&co_pointee.*, seen, depth + u32(1))),
     Rc(.ValueSlot(co_vs)) => _carries_origin_inner(&co_vs.*, seen, depth + u32(1)),
-    Rc(.OriginSet) => !is_static_origin(ty),
+    Rc(.OriginSet(_, _)) => !is_static_origin(ty),
     Rc(.Pointer(inner)) => _carries_origin_inner(&inner.*, seen, depth + u32(1)),
     Rc(.SliceT(elem)) => _carries_origin_inner(&elem.*, seen, depth + u32(1)),
     Rc(.Array(element : elem)) => _carries_origin_inner(&elem.*, seen, depth + u32(1)),
     Rc(.RefineT(inner, _)) => _carries_origin_inner(&inner.*, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_carries_origin(&fields.*, seen, depth),
     // A borrowing future (decision 43 step 4, N3-1): `Future(T, E, p)`.
-    Rc(.FutureTraitT) => future_origin_names(ty).is_some(),
+    Rc(.FutureTraitT(base_name : _)) => future_origin_names(ty).is_some(),
     Rc(.SomeT({ resolution : res })) => cond(
       is_future_value_type(ty) => future_origin_names(ty).is_some(),
       true => match(res, .Some(r) => _carries_origin_inner(&r.*, seen, depth + u32(1)), .None => false)
@@ -1310,7 +1310,7 @@ _static_origin_marks :: (fn(ty : &TypeValue, out : &mut String, seen : &mut Arra
       _static_origin_marks(&som_p.*, out, seen, (depth + u32(1)));
     },
     Rc(.ValueSlot(som_vs)) => _static_origin_marks(&som_vs.*, out, seen, (depth + u32(1))),
-    Rc(.OriginSet) => out.push_str(if(is_static_origin(ty), "s", "n")),
+    Rc(.OriginSet(_, _)) => out.push_str(if(is_static_origin(ty), "s", "n")),
     Rc(.Pointer(som_inner)) => _static_origin_marks(&som_inner.*, out, seen, (depth + u32(1))),
     Rc(.SliceT(som_elem)) => _static_origin_marks(&som_elem.*, out, seen, (depth + u32(1))),
     Rc(.Array(element : som_elem)) => _static_origin_marks(&som_elem.*, out, seen, (depth + u32(1))),
@@ -1401,7 +1401,7 @@ _checked_static_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     // An origin argument of an instantiated holder (`H(static)`'s
     // `comptime(p) : Origin` filled with the empty origin): the instance's
     // fields keep the RIGID `p`, so the argument itself decides.
-    Rc(.OriginSet) => is_static_origin(ty),
+    Rc(.OriginSet(_, _)) => is_static_origin(ty),
     // `Impl(Future(T, E, p))` is the reserved SomeT name "Impl" whose
     // required bounds hold the future: the future's origin decides.
     Rc(.SomeT({ resolution : tcs_res, bounds : tcs_bnd })) => cond(
@@ -1486,7 +1486,7 @@ join_static_bit :: (fn(a : &TypeValue, b : &TypeValue, depth : u32) -> TypeValue
       },
       _ => a.clone()
     ),
-    Rc(.OriginSet) => if(is_static_origin(a) && match(b, Rc(.OriginSet) => !is_static_origin(b), _ => true), t_origin_elided(), a.clone()),
+    Rc(.OriginSet(_, _)) => if(is_static_origin(a) && match(b, Rc(.OriginSet(_, _)) => !is_static_origin(b), _ => true), t_origin_elided(), a.clone()),
     Rc(.Pointer(jsb_inner)) => match(
       b,
       Rc(.Pointer(jsb_bi)) => {
@@ -1703,8 +1703,8 @@ _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), 
     // A reference or an origin argument is an INLINE position: whether it
     // walls is decided by the enclosing composite, never by itself (a bare
     // reference value is N1e's, reported at its own read wall).
-    Rc(.Reference) => false,
-    Rc(.OriginSet) => false,
+    Rc(.Reference(_, _, _)) => false,
+    Rc(.OriginSet(_, _)) => false,
     // A pointee is storage OUTSIDE the composite: a container's element
     // buffer (`ArrayList`'s `_ptr : ?*T` once collections are value
     // structs) or a cell. An origin behind a pointer is N2c's or N2d's, not
@@ -2017,7 +2017,7 @@ _holds_dyn_by_value_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
     ty,
-    Rc(.DynT) => true,
+    Rc(.DynT(required_trait_types : _)) => true,
     Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref && _any_holds_dyn_by_value(&fields.items, depth + u32(1))),
     Rc(.EnumT({ variant_fields : all_fields, is_reference_semantics : e_is_ref })) => {
       if(e_is_ref, {
@@ -2371,7 +2371,7 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
   !g_flip_report && match(
     ty,
     Rc(.Struct({ id : _ })) => match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false),
-    Rc(.EnumT) => match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false),
     _ => false
   )
 );
@@ -2849,7 +2849,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, de
     ),
     Rc(.SliceT(elem)) => recur(&elem.*, w, depth + u32(1)),
     Rc(.Array(element : elem, length : _)) => recur(&elem.*, w, depth + u32(1)),
-    Rc(.DynT) => true,
+    Rc(.DynT(required_trait_types : _)) => true,
     Rc(.SomeT({ resolution : resolved })) => match(
       resolved,
       .Some(concrete) => recur(&concrete.*, w, depth + u32(1)),
@@ -3012,7 +3012,7 @@ buffer_element_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
                 .Some(Rc(.Pointer(pointee))) => {
                   result = Option(TypeValue).Some(Rc.clone(pointee));
                 },
-                .Some => (),
+                .Some(_) => (),
                 .None => ()
               );
               fi = (fi + usize(1));
@@ -3098,13 +3098,13 @@ type_contains_some_type :: (fn(ty : &TypeValue) -> bool)(
           while(cst_i < cst_rtt.len(), {
             match(
               cst_rtt.get_cloned(cst_i),
-              .Some(Rc(.FnTraitT)) => {
+              .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
                 cst_has_fn_or_fut = true;
               },
-              .Some(Rc(.FutureTraitT)) => {
+              .Some(Rc(.FutureTraitT(_, _, _, _, _))) => {
                 cst_has_fn_or_fut = true;
               },
-              .Some => (),
+              .Some(_) => (),
               .None => ()
             );
             cst_i = (cst_i + usize(1));
@@ -3113,7 +3113,7 @@ type_contains_some_type :: (fn(ty : &TypeValue) -> bool)(
         }
       )
     },
-    Rc(.TypeAppT) => true,
+    Rc(.TypeAppT(constructor : _)) => true,
     _ => false
   )
 );
@@ -3143,7 +3143,7 @@ _collect_some_types_into :: (
   ty = t_refine_inner(&ty);
   match(
     &ty,
-    Rc(.SomeT) => {
+    Rc(.SomeT(_, _, _, _, _, _, _)) => {
       acc.push(Rc.clone(ty));
     },
     Rc(.TypeAppT(constructor : con, args : args_list)) => {
@@ -3459,7 +3459,7 @@ fields_have_incompatible_contexts :: (fn(fts : &ArrayList(TypeValue)) -> bool)({
     // both-context; `*(Rc(i32))` is runtime-only — tests/basic arm 10's
     // SelfRecursive structs). Unwrap before classifying.
     (fo_hops : usize) = usize(0);
-    while(match(&ft, Rc(.Pointer) => (fo_hops < usize(8)), _ => false), {
+    while(match(&ft, Rc(.Pointer(_)) => (fo_hops < usize(8)), _ => false), {
       ft = match(&ft, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(ft));
       fo_hops = (fo_hops + usize(1));
     });
@@ -3763,10 +3763,10 @@ type_mentions_impl_fn_or_future :: (fn(ty : &TypeValue) -> bool)({
         while(j < rtt.len(), {
           match(
             rtt.get_cloned(j),
-            .Some(Rc(.FnTraitT)) => {
+            .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
               return(true);
             },
-            .Some(Rc(.FutureTraitT)) => {
+            .Some(Rc(.FutureTraitT(_, _, _, _, _))) => {
               return(true);
             },
             _ => ()
@@ -3832,7 +3832,7 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
               return(Option(TypeValue).Some(Rc.clone(fu_t)));
             })
           },
-          Rc(.Func) => match(
+          Rc(.Func(_, _, _, _, _, _, _)) => match(
             recur(&fu_t),
             .Some(fu_inner) => {
               return(Option(TypeValue).Some(fu_inner));
@@ -4022,7 +4022,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     Rc(.ComptimeFloat) => .Some(usize(1)),
     Rc(.ComptimeString) => .Some(usize(1)),
     Rc(.Void) => .Some(usize(1)),
-    Rc(.TypeUni) => .Some(usize(1)),
+    Rc(.TypeUni(_)) => .Some(usize(1)),
     // Bool: 1 byte aligned
     Rc(.BoolT) => .Some(usize(1)),
     // Platform-sized integers: pointer-aligned
@@ -4044,14 +4044,14 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     Rc(.CULongLong) => .None,
     Rc(.CLongDouble) => .None,
     // Pointer and function types: pointer-aligned
-    Rc(.Pointer) => .Some(usize(get_target_pointer_size_bytes())),
+    Rc(.Pointer(_)) => .Some(usize(get_target_pointer_size_bytes())),
     Rc(.Func({ result : _ })) => .Some(usize(get_target_pointer_size_bytes())),
     // Array: element alignment
     Rc(.Array({ element : el })) => recur(&el.*),
     // str: pointer-aligned (fat pointer {ptr,len})
     Rc(.Str) => .Some(usize(get_target_pointer_size_bytes())),
     // Dyn: pointer-aligned (fat pointer {data, vtable}; see get_size_of_type).
-    Rc(.DynT) => .Some(usize(get_target_pointer_size_bytes())),
+    Rc(.DynT({})) => .Some(usize(get_target_pointer_size_bytes())),
     // Struct: reference-semantics (object) → pointer-aligned; newtype →
     // inner field's alignment; otherwise the max field alignment.
     Rc(.Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt })) =>
@@ -4217,7 +4217,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // legal home, where C `void` is correct and no object is laid out. So the
     // one-byte placeholder rule cannot apply to it and 0 stands.
     Rc(.Void) => .Some(usize(0)),
-    Rc(.TypeUni) => .Some(usize(0)),
+    Rc(.TypeUni(_)) => .Some(usize(0)),
     // Bool: 1 byte = 8 bits
     Rc(.BoolT) => .Some(usize(8)),
     // Platform-sized integers
@@ -4275,7 +4275,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // `size_would_overflow(Dyn(Error), n)` emitted a reference to an
     // undeclared `x` / `type_size`
     // (issues/fixed/sizeof-of-a-dyn-type-is-not-a-compile-time-constant.md).
-    Rc(.DynT) => .Some(usize(u32(2) * get_target_pointer_size_bits())),
+    Rc(.DynT({})) => .Some(usize(u32(2) * get_target_pointer_size_bits())),
     // Struct: reference-semantics (object) → pointer-sized; newtype → inner
     // field's size; otherwise the C-laid-out aggregate size. Value structs get
     // the same cycle backstop as value enums (see `g_size_walk_stack`).
@@ -4468,7 +4468,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
     ),
     true => match(
       ty,
-      Rc(.Pointer) => true,
+      Rc(.Pointer(_)) => true,
       // str is the builtin view of STATIC string bytes (immortal backing) —
       // it carries a pointer, but never a dangling one.
       Rc(.Str) => false,
@@ -4600,7 +4600,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
     is_dyn_type(ty) => true,
     true => match(
       ty,
-      Rc(.Pointer) => true,
+      Rc(.Pointer(_)) => true,
       Rc(.Struct({ id : sid, field_types : fts })) => {
         key := `slice:struct:${sid}`;
         match(
@@ -4840,7 +4840,7 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
         i = (i + usize(1));
         hit := match(
           tt,
-          Rc(.FnTraitT) => (name.* == "call"),
+          Rc(.FnTraitT(_, _, _, _, _, _)) => (name.* == "call"),
           Rc(.TraitT({ body : fls_body })) => {
             fls := fls_body.field_labels();
             fts := fls_body.field_types();
@@ -5039,7 +5039,7 @@ is_dyn_fn_slot :: (fn(t : &TypeValue) -> bool)(
     Rc(.DynT({ required_trait_types : dct_rtt })) => {
       (i : usize) = usize(0);
       while(i < dct_rtt.len(), i = (i + usize(1)), {
-        if(match(dct_rtt.get(i), .Some(dct_t) => match(dct_t, Rc(.FnTraitT) => true, _ => false), .None => false), {
+        if(match(dct_rtt.get(i), .Some(dct_t) => match(dct_t, Rc(.FnTraitT(base_name : _)) => true, _ => false), .None => false), {
           return(true);
         });
       });
@@ -5063,7 +5063,7 @@ _is_unerased_callable :: (fn(t : &TypeValue) -> bool)(
       uc_rtt := uc_rtt_bnd.required();
       (i : usize) = usize(0);
       while(i < uc_rtt.len(), i = (i + usize(1)), {
-        if(match(uc_rtt.get_cloned(i), .Some(uc_t) => match(uc_t, Rc(.FnTraitT) => true, _ => false), .None => false), {
+        if(match(uc_rtt.get_cloned(i), .Some(uc_t) => match(uc_t, Rc(.FnTraitT(base_name : _)) => true, _ => false), .None => false), {
           return(true);
         });
       });
@@ -5335,7 +5335,7 @@ _dyn_box_pointee :: (fn(s : &TypeValue) -> bool)(
 _dyn_pointee :: (fn(s : &TypeValue) -> bool)(
   match(
     t_refine_inner(&t_slot_pointee(s)),
-    Rc(.DynT) => true,
+    Rc(.DynT(_, _, _, _)) => true,
     _ => false
   )
 );
@@ -5403,7 +5403,7 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
   while(true, {
     match(
       Rc.clone(cur),
-      Rc(.FnTraitT) => return(Option(TypeValue).Some(Rc.clone(cur))),
+      Rc(.FnTraitT(base_name : _)) => return(Option(TypeValue).Some(Rc.clone(cur))),
       Rc(.DynT({ required_trait_types : cft_drtt })) => return(_first_fn_trait(&cft_drtt.items)),
       (cft_box := Rc(.Struct({ id : _ }))) => match(
         unique_box_payload_type(&cft_box),

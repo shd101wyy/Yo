@@ -806,8 +806,8 @@ _count_obligations :: (fn(reports : &ArrayList(VerifyFnReport), want_proved : bo
         .Some(obl) => {
           hit := match(
             &obl.verdict,
-            .Proved => want_proved,
-            .Refuted => !(want_proved),
+            .Proved(_) => want_proved,
+            .Refuted(_) => !(want_proved),
             _ => false
           );
           if(hit, {

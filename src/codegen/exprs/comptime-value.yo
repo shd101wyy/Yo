@@ -179,7 +179,7 @@ _is_io_builtin_fn_type :: (fn(t : &TypeValue) -> bool)(
 comptime_value_allocates_rc_object :: (fn(value : &EvalValue, ty : &TypeValue) -> bool)(
   match(
     value,
-    Rc(.EnumVal) => cond(
+    Rc(.EnumVal(_, _)) => cond(
       !is_reference_enum_type(ty) => false,
       can_optimize_as_nullable_pointer(ty).is_some() => false,
       can_optimize_as_simple_enum(ty) => false,
@@ -571,11 +571,11 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       // pair over an unsized pointee), so `align_of(T)` at `T := &(X,
       // static)` (`ArrayList`'s growth path) lowers to `_Alignof(X const *)`
       // (issues/fixed/2026-11-24-an-arraylist-of-a-static-reference-emits-alignof-with-no-c-type-name.md).
-      match(t, Rc(.Reference) => true, _ => false) => get_type_string(&t.*, context),
+      match(t, Rc(.Reference(_, _, _)) => true, _ => false) => get_type_string(&t.*, context),
       // Nor is an extern opaque type (`atomic_int`, `FILE`): its C name is its
       // C spelling, so `sizeof(atomic_int)` lowers to `sizeof(atomic_int)`
       // (issues/fixed/2026-10-28-sizeof-of-an-extern-opaque-type-has-no-c-type-name.md).
-      match(t, Rc(.ExternOpaqueT) => true, _ => false) => get_type_string(&t.*, context),
+      match(t, Rc(.ExternOpaqueT(_, _)) => true, _ => false) => get_type_string(&t.*, context),
       true => match(
         context.get_type_c_name(type_key(&t.*)),
         .Some(cn) => cn,
@@ -629,7 +629,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
           // A whole value. An element list with no recorded aggregate type
           // cannot be told apart from its siblings: keep the placeholder.
           .None => cond(
-            (match(Rc.clone(target), Rc(.ArrayVal) => true, Rc(.ComptimeListVal) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
+            (match(Rc.clone(target), Rc(.ArrayVal(_)) => true, Rc(.ComptimeListVal(_)) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
             true => _static_address(&target, &pointee.*, String.new(), context)
           ),
           .Some(agg_ty) => {
@@ -644,7 +644,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
                   .Some(label) => _static_address(Rc.new(EvalValueNode.StructVal(String.new(), Rc.clone(labels), Rc.clone(elems))), &agg_ty.*, `.${c_field_name(&agg_ty.*, &label)}`, context),
                   .None => String.from("/* skip generating value */")
                 ),
-                Rc(.Tuple) => _static_address(Rc.new(EvalValueNode.TupleVal(Rc.clone(elems))), &agg_ty.*, `._${index}`, context),
+                Rc(.Tuple(_, _)) => _static_address(Rc.new(EvalValueNode.TupleVal(Rc.clone(elems))), &agg_ty.*, `._${index}`, context),
                 _ => cond(
                   is_array_type(&agg_ty.*) => _static_address(Rc.new(EvalValueNode.ArrayVal(Rc.clone(elems))), &agg_ty.*, `.data[${index}]`, context),
                   true => String.from("/* skip generating value */")

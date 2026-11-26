@@ -56,24 +56,24 @@ test("empty fields and trailing delimiters are preserved", {
 });
 test("typed errors with byte positions", {
   e1 := csv.parse(String.from("\"ab\"c,d\n"));
-  assert(match(e1, .Err(e) => match(e, .UnexpectedAfterQuote({ pos, byte }) => ((pos == usize(4)) && (byte == u8(99))), _ => false), .Ok => false), "byte after closing quote");
+  assert(match(e1, .Err(e) => match(e, .UnexpectedAfterQuote({ pos, byte }) => ((pos == usize(4)) && (byte == u8(99))), _ => false), .Ok(_) => false), "byte after closing quote");
   e2 := csv.parse(String.from("a,\"unterminated\n"));
-  assert(match(e2, .Err(e) => match(e, .UnterminatedQuote({ start }) => (start == usize(2)), _ => false), .Ok => false), "unterminated quote");
+  assert(match(e2, .Err(e) => match(e, .UnterminatedQuote({ start }) => (start == usize(2)), _ => false), .Ok(_) => false), "unterminated quote");
   e3 := csv.parse(String.from("a\rb\n"));
-  assert(match(&e3, .Err(e) => match(e, .BareCarriageReturn({ pos }) => (pos.* == usize(1)), _ => false), .Ok => false), "bare CR");
-  msg := match(e3, .Err(e) => e.to_string(), .Ok => String.new());
+  assert(match(&e3, .Err(e) => match(e, .BareCarriageReturn({ pos }) => (pos.* == usize(1)), _ => false), .Ok(_) => false), "bare CR");
+  msg := match(e3, .Err(e) => e.to_string(), .Ok(_) => String.new());
   assert(msg == "bare carriage return at byte 1", "ToString");
 });
 test("strict parsing rejects uneven records", {
   ok := csv.parse_strict(String.from("a,b\n1,2\n"), CsvOptions.default());
-  assert(match(ok, .Ok(r) => (r.len() == usize(2)), .Err => false), "even records pass");
+  assert(match(ok, .Ok(r) => (r.len() == usize(2)), .Err(_) => false), "even records pass");
   bad := csv.parse_strict(String.from("a,b\n1\n"), CsvOptions.default());
-  assert(match(bad, .Err(e) => match(e, .UnevenRecord({ record, expected, found }) => ((record == usize(1)) && (expected == usize(2)) && (found == usize(1))), _ => false), .Ok => false), "uneven record reported with its index");
+  assert(match(bad, .Err(e) => match(e, .UnevenRecord({ record, expected, found }) => ((record == usize(1)) && (expected == usize(2)) && (found == usize(1))), _ => false), .Ok(_) => false), "uneven record reported with its index");
 });
 test("other delimiters (TSV, semicolon)", {
-  t := match(csv.parse_with(String.from("a\tb\n1\t2\n"), CsvOptions.with_delimiter(u8(9))), .Ok(r) => r, .Err => ArrayList(ArrayList(String)).new());
+  t := match(csv.parse_with(String.from("a\tb\n1\t2\n"), CsvOptions.with_delimiter(u8(9))), .Ok(r) => r, .Err(_) => ArrayList(ArrayList(String)).new());
   assert(_field(&t, usize(1), usize(1)) == "2", "tab delimiter");
-  s := match(csv.parse_with(String.from("a;b,c\n"), CsvOptions.with_delimiter(u8(59))), .Ok(r) => r, .Err => ArrayList(ArrayList(String)).new());
+  s := match(csv.parse_with(String.from("a;b,c\n"), CsvOptions.with_delimiter(u8(59))), .Ok(r) => r, .Err(_) => ArrayList(ArrayList(String)).new());
   assert(s(usize(0)).len() == usize(2), "semicolon delimiter keeps the comma in the field");
   assert(_field(&s, usize(0), usize(1)) == "b,c", "comma is data here");
 });

@@ -43,7 +43,7 @@ evaluate_concrete_type :: (
   args := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
-    Rc(.Atom) => ArrayList(AstExpr).new()
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   if(!(args.len() == usize(1)), {
     exn.throw(
@@ -79,7 +79,7 @@ evaluate_concrete_type :: (
         )
       );
     },
-    .Some => ()
+    .Some(_) => ()
   );
   inner_info := match(
     info_opt,

@@ -281,7 +281,7 @@ main :: (fn() -> unit)({
   s := Shape.Rect(w : i32(2), h : i32(3));
   assert(area(&s) == i32(6), "rect");
   o := Option(Shape).Some(Shape.Circle(r : i32(1)));
-  k := match(&o, .Some(.Circle | .Empty) => i32(1), _ => i32(2)); // borrows o
+  k := match(&o, .Some(.Circle(_) | .Empty) => i32(1), _ => i32(2)); // borrows o
   m := match(o, .Some(sh) => area(&sh), .None => i32(0)); // consumes o
   assert((k == i32(1)) && (m == i32(3)), "nested or-pattern");
 });
@@ -371,8 +371,8 @@ first_digit :: (fn(s : &str) -> Result(u8, ParseError))({
 });
 
 main :: (fn() -> unit)({
-  v := match(first_digit("7"), .Ok(n) => n, .Err => u8(0));
-  e := match(first_digit("x"), .Ok => `ok`, .Err(err) => err.to_string());
+  v := match(first_digit("7"), .Ok(n) => n, .Err(_) => u8(0));
+  e := match(first_digit("x"), .Ok(_) => `ok`, .Err(err) => err.to_string());
   assert((v == u8(7)) && (e == `bad digit at 0`), "parsed, rendered");
 });
 export(main);

@@ -577,7 +577,7 @@ match(
     .None => printf("Inserted new key\n"),
     .Some(old_val) => printf("Updated, old value: %d\n", old_val)
   ),
-  .Error => printf("Insert failed\n")
+  .Error(_) => printf("Insert failed\n")
 );
 
 // 获取值
@@ -631,7 +631,7 @@ match(
     was_new => printf("Inserted new element\n"),
     true => printf("Element already exists\n")
   ),
-  .Error => printf("Insert failed\n")
+  .Error(_) => printf("Insert failed\n")
 );
 
 // 检查是否包含
@@ -664,7 +664,7 @@ union_result := set1.union(set2);
 match(
   union_result,
   .Ok(union_set) => printf("Union size: %zu\n", union_set.length()),
-  .Error => printf("Union failed\n")
+  .Error(_) => printf("Union failed\n")
 );
 
 // 交集
@@ -672,7 +672,7 @@ inter_result := set1.intersection(set2);
 match(
   inter_result,
   .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.length()),
-  .Error => printf("Intersection failed\n")
+  .Error(_) => printf("Intersection failed\n")
 );
 
 // 子集检查

@@ -229,7 +229,7 @@ _lex_abs_path :: (fn(p : &String) -> String)({
   match(
     cwd(),
     .Ok(d) => d.join(&path).to_string(),
-    .Err => path.to_string()
+    .Err(_) => path.to_string()
   )
 });
 /// Is `mp` a module under the standard library root? Module paths reach here
@@ -429,7 +429,7 @@ is_class1_panic_method_name :: (fn(name : &String) -> bool)(
 is_class1_panic_receiver_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
-    Rc(.EnumT) => {
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => {
       s := type_to_string(t);
       s.starts_with(String.from("Option(")) || s.starts_with(String.from("Result(")) || (s == "Option") || (s == "Result")
     },

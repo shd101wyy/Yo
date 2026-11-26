@@ -514,10 +514,10 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   (re : AnyError) = dyn(Box.new(RefErr(`ref-err`)));
   assert(`${re}` == `ref-err`, "Dyn(Error) from a ref struct");
   assert(`e: ${re}!` == `e: ref-err!`, "a Dyn(Error) as a later template part (ToString's append_to)");
-  match(re.source(), .Some => assert(false, "default source must be None"), .None => ());
+  match(re.source(), .Some(_) => assert(false, "default source must be None"), .None => ());
   (ve : AnyError) = dyn(Box.new(ValErr.Bust));
   assert(`${ve}` == `bust`, "Dyn(Error) from a value enum (auto-box)");
-  match(ve.source(), .Some => assert(false, "default source must be None (enum)"), .None => ());
+  match(ve.source(), .Some(_) => assert(false, "default source must be None (enum)"), .None => ());
 });
 _use_to_string_dyn :: (fn(v : Box(Dyn(ToString))) -> String)(v.to_string());
 _generic_show :: (fn(generic(T : Type), v : &T, where(T <: ToString)) -> String)(_use_to_string_dyn(dyn(Box.new(v.*))));
@@ -1257,7 +1257,7 @@ impl(_DcFd, Error());
 test("an owning downcast moves the box, its payload dropped once", {
   {
     (err : AnyError) = dyn(Box.new(_DcFd(n : i32(3))));
-    n := match(downcast(err, _DcFd), .Ok(f) => f.n, .Err => i32(0));
+    n := match(downcast(err, _DcFd), .Ok(f) => f.n, .Err(_) => i32(0));
     assert(n == i32(3), "the downcast reads the payload");
     assert(g_dc_clones == i32(0), "nothing is cloned");
   };
@@ -1265,7 +1265,7 @@ test("an owning downcast moves the box, its payload dropped once", {
   assert(drops == i32(1), `the payload dropped once, got ${drops.to_string()}`);
   {
     (other : AnyError) = dyn(Box.new(_UpErr.Bad));
-    back := match(downcast(other, _DcFd), .Ok => i32(-1), .Err(e) => if(downcast(&e.*, _UpErr).is_some(), i32(1), i32(0)));
+    back := match(downcast(other, _DcFd), .Ok(_) => i32(-1), .Err(e) => if(downcast(&e.*, _UpErr).is_some(), i32(1), i32(0)));
     assert(back == i32(1), "a mismatch hands the box back");
   };
   assert(g_dc_drops == i32(1), "a mismatch drops no _DcFd");

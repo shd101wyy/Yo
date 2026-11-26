@@ -348,7 +348,7 @@ evaluate_type_field :: (
       // A runtime field spelled `str` is the legacy value `str`, `&(str,
       // static)` (decision 49, `unsized_legacy_spellings`).
       .Some(Rc(.TypeVal(inner))) => Option(TypeValue).Some(if(is_comptime, Rc.clone(inner), legacy_value_str(&inner))),
-      .Some => Option(TypeValue).None,
+      .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
     );
     // A runtime field of a bare function TYPE mentioning an opaque

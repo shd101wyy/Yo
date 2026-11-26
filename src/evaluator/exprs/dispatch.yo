@@ -421,7 +421,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 ast_expr_get_arg0 :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
-    Rc(.Atom) => make_err_expr(),
+    Rc(.Atom(_, _)) => make_err_expr(),
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr())
   )
 );
@@ -429,7 +429,7 @@ ast_expr_get_arg0 :: (fn(e : &AstExpr) -> AstExpr)(
 is_comptime_numeric_fn_call :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    Rc(.Atom) => false,
+    Rc(.Atom(_, _)) => false,
     Rc(.FnCall(_, func_box, _, _, _)) => match(
       func_box,
       Rc(.Atom(_, ftok)) => {
@@ -449,7 +449,7 @@ is_comptime_numeric_fn_call :: (fn(e : &AstExpr) -> bool)(
                                 v.starts_with(`__yo_comptime_int_`) ||
                                   v.starts_with(`__yo_comptime_float_`)
                                 },
-      Rc(.FnCall) => false
+      Rc(.FnCall(_, _, _, _, _)) => false
     )
   )
 );
@@ -601,7 +601,7 @@ _origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx :
   match(
     e,
     Rc(.FnCall(_, _, Rc(oa_args), _, _)) => match(oa_args.get_cloned(usize(0)), .Some(a0) => _borrow_operand_is_type(&a0, env, ctx), .None => false),
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 /// `&T` / `&mut T` whose operand is a TYPE: decision 42's "a borrow mode,
@@ -781,7 +781,7 @@ _evaluate_expression :: (
               // Patch D: an expected FUNC type reroutes too — `is_even =
               // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->
               // bool)` is a function DEFINITION call (fn arm 14).
-              Rc(.Func) => true,
+              Rc(.Func(_, _, _, _, _, _, _)) => true,
               _ => false
             );
             // NOTE (fn.test.yo arm 14, measured 2026-08-03): widening this
@@ -1277,7 +1277,7 @@ _evaluate_expression :: (
           build_call_args := match(
             expr,
             Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
-            Rc(.Atom) => ArrayList(AstExpr).new()
+            Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
           );
           (bca_i : usize) = usize(0);
           while(bca_i < build_call_args.len(), {
@@ -1336,7 +1336,7 @@ _bridge_expr_info :: (fn(orig : &AstExpr, result : &AstExpr, ctx : &EvalContext)
   if(!(oid == rid), {
     match(
       expr_info_table_get(&ctx.expr_info_table, oid),
-      .Some => (),
+      .Some(_) => (),
       .None => match(
         expr_info_table_get(&ctx.expr_info_table, rid),
         .Some(rinfo) => {
@@ -1391,7 +1391,7 @@ _evaluate_expression_wrapper :: (
   if(!(oid == rid), {
     match(
       expr_info_table_get(&ctx.expr_info_table, oid),
-      .Some => (),
+      .Some(_) => (),
       .None => match(
         expr_info_table_get(&ctx.expr_info_table, rid),
         .Some(rinfo) => {
@@ -1468,7 +1468,7 @@ _is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
     ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(
       e,
       Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.last_cloned(), .Some(t) => _is_projection_result_value(&t, ctx), .None => false),
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     ),
     (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => match(
       e,
@@ -1480,7 +1480,7 @@ _is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
           a := Rc.clone(pr_args(k));
           if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).Some(usize(2))), {
             any_arm = true;
-            arm_body := match(Rc.clone(a), Rc(.FnCall(_, _, Rc(ab_args), _, _)) => match(ab_args.get_cloned(usize(1)), .Some(b) => b, .None => Rc.clone(a)), Rc(.Atom) => Rc.clone(a));
+            arm_body := match(Rc.clone(a), Rc(.FnCall(_, _, Rc(ab_args), _, _)) => match(ab_args.get_cloned(usize(1)), .Some(b) => b, .None => Rc.clone(a)), Rc(.Atom(_, _)) => Rc.clone(a));
             arm_never := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arm_body)), .Some(ai) => is_never_type(&ai.ty()), .None => false);
             if(!arm_never && !_is_projection_result_value(&arm_body, ctx), {
               all_arms = false;
@@ -1490,7 +1490,7 @@ _is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
         });
         any_arm && all_arms
       },
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     ),
     true => false
   )

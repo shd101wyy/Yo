@@ -28,12 +28,12 @@ test("a whole-value binding inside a payload", {
   inner_r :: (fn(b : &Boxed) -> i32)(
     match(
       b,
-      .Holds(inner := .Circle) => match(
+      .Holds(inner := .Circle(_)) => match(
         inner,
         .Circle(r) => r.*,
         _ => i32(-1)
       ),
-      .Holds => i32(-2),
+      .Holds(_) => i32(-2),
       .Nothing => i32(-3)
     )
   );

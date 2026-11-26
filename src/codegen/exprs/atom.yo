@@ -460,7 +460,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
                     line.push_str(";");
                     context.base.emitter.emit_string_line(&line);
                   });
-                  match(&guard_flag, .Some => context.base.emitter.emit_string_line(`${indent.clone()}}`), .None => ());
+                  match(&guard_flag, .Some(_) => context.base.emitter.emit_string_line(`${indent.clone()}}`), .None => ());
                 });
               });
             },
@@ -653,7 +653,7 @@ _generate_atom_read :: (fn(expr : &AstExpr, context : &mut FunctionGenerationCon
     );
     match(
       &context.base.current_loop_label,
-      .Some => {
+      .Some(_) => {
         _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
         generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
         return(String.from("continue"));
@@ -748,7 +748,7 @@ _generate_atom_read :: (fn(expr : &AstExpr, context : &mut FunctionGenerationCon
                 if((pc.len() > usize(0)) && pc.contains("sm->"), {
                   context.base.emitter.emit_string_line(`${indent.clone()}${pc.clone()};`);
                 });
-                match(&guard_flag, .Some => context.base.emitter.emit_string_line(`${indent.clone()}}`), .None => ());
+                match(&guard_flag, .Some(_) => context.base.emitter.emit_string_line(`${indent.clone()}}`), .None => ());
               }),
               .None => ()
             );

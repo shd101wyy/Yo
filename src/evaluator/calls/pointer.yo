@@ -49,7 +49,7 @@ evaluate_raw_pointer_call :: (
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    Rc(.Atom) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // If expectedType is a pointer type, the inner type would be passed as expected.
   // Phase 2am: expectedType modification skipped — simplified port.
@@ -71,7 +71,7 @@ evaluate_raw_pointer_call :: (
         )
       );
     },
-    .Some => ()
+    .Some(_) => ()
   );
   arg_info := match(
     info_opt,

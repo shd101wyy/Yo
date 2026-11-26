@@ -532,8 +532,8 @@ _frame_status :: (fn(data : &ArrayList(u8), kind : MessageKind) -> _FrameStatus)
             // CRLF are in.
             is_chunked(data, header_end) => match(
               dechunk(data, body_start),
-              .Done => _FrameStatus.Complete,
-              .Malformed => _FrameStatus.Complete,
+              .Done(_, _) => _FrameStatus.Complete,
+              .Malformed(_) => _FrameStatus.Complete,
               .Incomplete => _FrameStatus.NeedMore
             ),
             true => match(

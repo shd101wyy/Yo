@@ -314,7 +314,7 @@ impl(
                 }
               );
             },
-            .V6 => ()
+            .V6(_) => ()
           );
           acc = u16(0);
           acc_digits = usize(0);
@@ -458,16 +458,16 @@ impl(
   is_v4 : (fn(self : Self) -> bool)(
     match(
       self,
-      .V4 => true,
-      .V6 => false
+      .V4(_, _, _, _) => true,
+      .V6(_) => false
     )
   ),
   /// Return `true` if this is an IPv6 address.
   is_v6 : (fn(self : Self) -> bool)(
     match(
       self,
-      .V4 => false,
-      .V6 => true
+      .V4(_, _, _, _) => false,
+      .V6(_) => true
     )
   ),
   /// The IPv6 unspecified address (`::`) — the counterpart of `any_v4`, and
@@ -506,7 +506,7 @@ impl(
   segments : (fn(self : Self) -> Option(Array(u16, usize(8))))(
     match(
       self,
-      .V4 => .None,
+      .V4(_, _, _, _) => .None,
       .V6(segs) => .Some(segs)
     )
   ),
@@ -557,7 +557,7 @@ impl(
           (a == u8(192)) => (b == u8(168)),
           true => false
         ),
-      .V6 => false
+      .V6(_) => false
     )
   ),
   /// A V6 unique-local address (`fc00::/7`, RFC 4193) — the V6 analogue of
@@ -565,7 +565,7 @@ impl(
   is_unique_local : (fn(self : Self) -> bool)(
     match(
       self,
-      .V4 => false,
+      .V4(_, _, _, _) => false,
       .V6(segs) => (((segs(usize(0)) >> u16(9)) & u16(0x7f)) == u16(0x7e))
     )
   ),
@@ -707,7 +707,7 @@ _ip_cmp :: (fn(lhs : IpAddr, rhs : IpAddr) -> Ordering)(
     ),
     .V6(s1) => match(
       rhs,
-      .V4 => Ordering.Greater,
+      .V4(_, _, _, _) => Ordering.Greater,
       .V6(s2) => _v6_cmp(s1, s2)
     )
   )
@@ -901,8 +901,8 @@ impl(
         return(
           match(
             self.ip,
-            .V4 => `${ip_str}:${port_str}`,
-            .V6 => `[${ip_str}]:${port_str}`
+            .V4(_, _, _, _) => `${ip_str}:${port_str}`,
+            .V6(_) => `[${ip_str}]:${port_str}`
           )
         );
       }

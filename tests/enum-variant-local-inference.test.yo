@@ -15,7 +15,7 @@ test("a bare variant local returned later infers from the function result", {
     r := .Ok(x);
     return(r);
   });
-  assert(match(f(3), .Ok(v) => (v == i32(3)), .Err => false));
+  assert(match(f(3), .Ok(v) => (v == i32(3)), .Err(_) => false));
 });
 test("a fieldless variant local infers too", {
   g :: (fn(flag : bool) -> Color)({
@@ -33,7 +33,7 @@ test("the tail expression of the body counts as a use", {
     e := .Err(.Worse(code));
     e
   });
-  assert(match(h(7), .Ok => false, .Err(err) => match(err, .Worse(c) => (c == i32(7)), .Bad => false)));
+  assert(match(h(7), .Ok(_) => false, .Err(err) => match(err, .Worse(c) => (c == i32(7)), .Bad => false)));
 });
 test("a return nested inside a branch counts as a use", {
   k :: (fn(n : i32) -> Option(i32))({
@@ -44,16 +44,16 @@ test("a return nested inside a branch counts as a use", {
     Option(i32).None
   });
   assert(match(k(5), .Some(v) => (v == i32(5)), .None => false));
-  assert(match(k(-1), .Some => false, .None => true));
+  assert(match(k(-1), .Some(_) => false, .None => true));
 });
 test("the inferred local is usable before the return", {
   m :: (fn(n : i32) -> Result(i32, E))({
     r := .Ok(n * i32(2));
-    doubled := match(r, .Ok(v) => v, .Err => i32(0));
+    doubled := match(r, .Ok(v) => v, .Err(_) => i32(0));
     assert(doubled == (n * i32(2)));
     return(r);
   });
-  assert(match(m(4), .Ok(v) => (v == i32(8)), .Err => false));
+  assert(match(m(4), .Ok(v) => (v == i32(8)), .Err(_) => false));
 });
 test("an io.async local returned later infers the closure's variant from the function result", {
   my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, E), Io)))({
@@ -64,7 +64,7 @@ test("an io.async local returned later infers the closure's variant from the fun
     return(task);
   });
   r := io.await(my_fn(io), io);
-  assert(match(r, .Ok(v) => (v == i32(42)), .Err => false));
+  assert(match(r, .Ok(v) => (v == i32(42)), .Err(_) => false));
 });
 test("an io.async local as the body tail infers too", {
   my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, E), Io)))({
@@ -72,5 +72,5 @@ test("an io.async local as the body tail infers too", {
     task
   });
   r := io.await(my_fn(io), io);
-  assert(match(r, .Ok => false, .Err(e) => match(e, .Bad => true, .Worse => false)));
+  assert(match(r, .Ok(_) => false, .Err(e) => match(e, .Bad => true, .Worse(_) => false)));
 });

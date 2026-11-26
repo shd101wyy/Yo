@@ -190,11 +190,11 @@ test("FetchOptions builders set the new fields", {
   o := FetchOptions.new().with_timeout(Duration.from_secs(i64(5))).with_max_redirects(usize(3)).with_max_response_bytes(usize(1024));
   assert(o.max_redirects == usize(3), "max_redirects set");
   assert(o.max_response_bytes == usize(1024), "max_response_bytes set");
-  assert(match(o.timeout, .Some => true, .None => false), "timeout set");
+  assert(match(o.timeout, .Some(_) => true, .None => false), "timeout set");
   d := FetchOptions.new();
   assert(d.max_redirects == usize(10), "default cap 10");
   assert(d.max_response_bytes == usize(67108864), "default 64 MiB ceiling");
-  assert(match(d.timeout, .Some => false, .None => true), "no default timeout");
+  assert(match(d.timeout, .Some(_) => false, .None => true), "no default timeout");
 });
 /// `Location` resolution is RFC 3986 §5.3 (`Url.join`) rather than the
 /// origin-plus-directory paste it used to be. The three shapes that paste got

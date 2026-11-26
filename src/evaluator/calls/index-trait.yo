@@ -1199,7 +1199,7 @@ _specialize_index_method :: (
   // unwinds out of `_specialize_index_method_trial` (the handler's fn), so
   // this restore runs on both paths.
   saved_trial_recv := ctx.index_specialization_trial_recv_id;
-  trial_recv := match(expr, Rc(.FnCall(_, func, _, _, _)) => Rc.clone(func.*), Rc(.Atom) => Rc.clone(expr.*));
+  trial_recv := match(expr, Rc(.FnCall(_, func, _, _, _)) => Rc.clone(func.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   ctx.index_specialization_trial_recv_id = Option(ExprId).Some(ast_expr_id(&trial_recv));
   _specialize_index_method_trial(mv, mty, expr, caller_env, ctx, idx_expr, out);
   ctx.index_specialization_trial_recv_id = saved_trial_recv;
@@ -1236,7 +1236,7 @@ _specialize_index_method :: (
 _specialize_index_method_trial :: (
   fn(mv : &Option(EvalValue), mty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &mut EvalContext, idx_expr : &AstExpr, out : &mut ArrayList(EvalValue)) -> unit
 )({
-  recv := match(expr, Rc(.FnCall(_, func, _, _, _)) => Rc.clone(func.*), Rc(.Atom) => Rc.clone(expr.*));
+  recv := match(expr, Rc(.FnCall(_, func, _, _, _)) => Rc.clone(func.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   margs := ArrayList(AstExpr).new();
   margs.push(Rc.clone(recv));
   margs.push(Rc.clone(idx_expr.*));
@@ -1325,7 +1325,7 @@ _find_comptime_index_method :: (
                         ci_flags := match(
                           m.method_value.clone(),
                           .Some(Rc(.FuncVal(__cifvd1, _))) => get_func_param_comptime(__cifvd1.*.func_id.clone()),
-                          .Some => ArrayList(bool).new(),
+                          .Some(_) => ArrayList(bool).new(),
                           .None => ArrayList(bool).new()
                         );
                         self_is_ct := match(ci_flags.get(usize(0)), .Some(b) => b, .None => false);
@@ -1479,7 +1479,7 @@ _try_comptime_custom_type_index :: (
     ct_cn := fv_source_name(&ct_cap_src, ct_ci);
     ct_cty := fv_source_ty(&ct_cap_src, ct_ci);
     ct_cv := match(ct_cap_vals.get(ct_ci), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
-    ct_cv_is_ct := match(ct_cv.clone(), .Some => true, .None => false);
+    ct_cv_is_ct := match(ct_cv.clone(), .Some(_) => true, .None => false);
     _ct_add_cap := add_variable_to_env(
       &ct_callee_env,
       ct_cn.clone(),
@@ -1495,7 +1495,7 @@ _try_comptime_custom_type_index :: (
   });
   _ct_frame := ct_callee_env.push_frame(false);
   ct_param_token := ast_expr_token(
-    match(expr, Rc(.FnCall(_, ct_func_slot, _, _, _)) => Rc.clone(ct_func_slot.*), Rc(.Atom) => Rc.clone(expr.*))
+    match(expr, Rc(.FnCall(_, ct_func_slot, _, _, _)) => Rc.clone(ct_func_slot.*), Rc(.Atom(_, _)) => Rc.clone(expr.*))
   );
   _ct_add_self := add_variable_to_env(
     &ct_callee_env,
@@ -1545,7 +1545,7 @@ _try_comptime_custom_type_index :: (
   ct_saved_validating := ctx.is_validating_function_definition;
   ctx.is_validating_function_definition = false;
   ct_result := evaluate_comptime_fn_call(
-    Option(AstExpr).Some(match(expr, Rc(.FnCall(_, ct_func_slot2, _, _, _)) => Rc.clone(ct_func_slot2.*), Rc(.Atom) => Rc.clone(expr.*))),
+    Option(AstExpr).Some(match(expr, Rc(.FnCall(_, ct_func_slot2, _, _, _)) => Rc.clone(ct_func_slot2.*), Rc(.Atom(_, _)) => Rc.clone(expr.*))),
     &ct_fn_type,
     &ct_fn_value,
     &mut ct_arg_values,
@@ -1688,7 +1688,7 @@ try_to_call_with_index_trait :: (
   string_raw_opt := match(
     self_value,
     .Some(Rc(.StrLit(r))) => Option(String).Some(r.clone()),
-    .Some => Option(String).None,
+    .Some(_) => Option(String).None,
     .None => Option(String).None
   );
   has_array_or_slice := array_val.is_some();
@@ -1874,7 +1874,7 @@ try_to_call_with_index_trait :: (
   saved_idx_exp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   match(
     method.method_value.clone(),
-    .Some => _specialize_index_method(&method.method_value, &method.method_type, expr, caller_env, ctx, &arg_expr, &mut spec_out),
+    .Some(_) => _specialize_index_method(&method.method_value, &method.method_type, expr, caller_env, ctx, &arg_expr, &mut spec_out),
     .None => ()
   );
   _record_index_unchecked_twin(value_type, &arg_type, &output_ty, expr, caller_env, ctx, &arg_expr);
@@ -2037,8 +2037,8 @@ _is_index_call :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
 _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception, is_addr_of : bool) -> unit)({
   info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
   read_ty := match(expr_info_index_method_type(&info), .Some(t) => t, .None => return(()));
-  (recv : AstExpr) = match(call, Rc(.FnCall(_, pc_callee, _, _, _)) => Rc.clone(pc_callee.*), Rc(.Atom) => return(()));
-  (idx : AstExpr) = match(call, Rc(.FnCall(_, _, Rc(pc_args), _, _)) => match(pc_args.get_cloned(usize(0)), .Some(a) => a, .None => return(())), Rc(.Atom) => return(()));
+  (recv : AstExpr) = match(call, Rc(.FnCall(_, pc_callee, _, _, _)) => Rc.clone(pc_callee.*), Rc(.Atom(_, _)) => return(()));
+  (idx : AstExpr) = match(call, Rc(.FnCall(_, _, Rc(pc_args), _, _)) => match(pc_args.get_cloned(usize(0)), .Some(a) => a, .None => return(())), Rc(.Atom(_, _)) => return(()));
   recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty()), .None => return(()));
   arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx)), .Some(ai) => Rc.clone(ai.ty()), .None => return(()));
   read_shape := match(_index_shape_of(&read_ty, &arg_ty), .Some(sh) => sh, .None => return(()));
@@ -2113,7 +2113,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
   saved_exp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   match(
     mut_m.method_value.clone(),
-    .Some => _specialize_index_method(&mut_m.method_value, &mut_m.method_type, call, env, ctx, &idx, &mut spec_out),
+    .Some(_) => _specialize_index_method(&mut_m.method_value, &mut_m.method_type, call, env, ctx, &idx, &mut spec_out),
     .None => ()
   );
   // The write's bounds-check-free twin is `IndexUncheckedMut`'s; the read
@@ -2248,7 +2248,7 @@ promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx 
         },
         true => Option(AstExpr).None
       ),
-      Rc(.Atom) => Option(AstExpr).None
+      Rc(.Atom(_, _)) => Option(AstExpr).None
     );
     match(
       next,
@@ -2432,14 +2432,14 @@ _is_reference_binding_atom :: (fn(e : &AstExpr, env : &Environment) -> bool)(
   match(
     e,
     Rc(.Atom(_, rb_tok)) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last_cloned(), .Some(rb_v) => variable_is_reference_binding(&rb_v), .None => false),
-    Rc(.FnCall) => false
+    Rc(.FnCall(_, _, _, _, _)) => false
   )
 );
 /// `e`, a projection chain, has a non-`.` call step (an element access).
 _chain_has_index_step :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    Rc(.Atom) => false,
+    Rc(.Atom(_, _)) => false,
     Rc(.FnCall(_, ch_callee, Rc(ch_args), _, _)) => cond(
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => recur(&ch_args(usize(0))),
       true => true

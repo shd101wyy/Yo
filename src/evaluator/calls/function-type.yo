@@ -141,7 +141,7 @@ _evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &m
             mci = (mci + usize(1));
           });
         },
-        Rc(.Atom) => ()
+        Rc(.Atom(_, _)) => ()
       );
       Rc.clone(dm.*)
     },
@@ -560,7 +560,7 @@ _record_ctor_phantom_positions :: (
   );
   match(
     &body_ty,
-    Rc(.EnumT) => (),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => (),
     _ => {
       return(());
     }
@@ -698,23 +698,23 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
 /// The tokens are the AST's own handles, so nothing is minted per binding.
 _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
   out := ArrayList(Token).new();
-  ft := match(fn_literal, Rc(.FnCall(_, ft_box, _, _, _)) => Rc.clone(ft_box.*), Rc(.Atom) => return(out));
+  ft := match(fn_literal, Rc(.FnCall(_, ft_box, _, _, _)) => Rc.clone(ft_box.*), Rc(.Atom(_, _)) => return(out));
   if(!ast_expr_is_fn_call_of(&ft, "->", Option(usize).Some(usize(2))), {
     return(out);
   });
   decls := match(
     ft,
     Rc(.FnCall(_, _, Rc(ft_args), _, _)) => match(ft_args.get_cloned(usize(0)), .Some(Rc(.FnCall(_, _, Rc(head_args), _, _))) => head_args.clone(), _ => return(out)),
-    Rc(.Atom) => return(out)
+    Rc(.Atom(_, _)) => return(out)
   );
   (di : usize) = usize(0);
   while(di < decls.len(), di = (di + usize(1)), {
     (d : AstExpr) = Rc.clone(decls(di));
     if(ast_expr_is_fn_call_of(&d, "=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&d, "?=", Option(usize).Some(usize(2))), {
-      d = match(Rc.clone(d), Rc(.FnCall(_, _, Rc(dv_args), _, _)) => Rc.clone(dv_args(usize(0))), Rc(.Atom) => Rc.clone(d));
+      d = match(Rc.clone(d), Rc(.FnCall(_, _, Rc(dv_args), _, _)) => Rc.clone(dv_args(usize(0))), Rc(.Atom(_, _)) => Rc.clone(d));
     });
     if(ast_expr_is_fn_call_of(&d, ":", Option(usize).Some(usize(2))), {
-      d = match(Rc.clone(d), Rc(.FnCall(_, _, Rc(lab_args), _, _)) => Rc.clone(lab_args(usize(0))), Rc(.Atom) => Rc.clone(d));
+      d = match(Rc.clone(d), Rc(.FnCall(_, _, Rc(lab_args), _, _)) => Rc.clone(lab_args(usize(0))), Rc(.Atom(_, _)) => Rc.clone(d));
       (peeling : bool) = true;
       while(peeling, {
         match(
@@ -727,7 +727,7 @@ _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
               peeling = false;
             }
           ),
-          Rc(.Atom) => {
+          Rc(.Atom(_, _)) => {
             peeling = false;
           }
         );
@@ -737,7 +737,7 @@ _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
         Rc(.Atom(_, label_tok)) => if(label_tok.kind == TokenKind.Identifier, {
           out.push(Rc.clone(label_tok));
         }),
-        Rc(.FnCall) => ()
+        Rc(.FnCall(_, _, _, _, _)) => ()
       );
     });
   });
@@ -889,7 +889,7 @@ _build_def_time_body_env :: (
                 },
                 .None => match(
                   &rv_bty,
-                  .Some => {
+                  .Some(_) => {
                     rk_names.push(rv.name.clone());
                     rk_tys.push(rv_bty.clone());
                     rk_reassign.push(rv.is_reassignable());
@@ -1319,7 +1319,7 @@ Result type: ${type_to_string(&result_box)}`
       body_arg_len := match(
         expr,
         Rc(.FnCall(_, _, Rc(a), _, _)) => a.len(),
-        Rc(.Atom) => usize(0)
+        Rc(.Atom(_, _)) => usize(0)
       );
       if(body_arg_len != usize(1), {
         exn.throw(
@@ -1336,7 +1336,7 @@ Result type: ${type_to_string(&result_box)}`
       body_expr_unprojected := match(
         expr,
         Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()),
-        Rc(.Atom) => make_err_expr()
+        Rc(.Atom(_, _)) => make_err_expr()
       );
       // Decision 24: a projection's body yields a place with the sigil of its
       // result's mode; each result position becomes the marked
@@ -1380,7 +1380,7 @@ Result type: ${type_to_string(&result_box)}`
       contract_key := match(
         expr,
         Rc(.FnCall(_, ck_ft_box, _, _, _)) => ast_expr_id(&ck_ft_box.*).to_string(),
-        Rc(.Atom) => String.from("")
+        Rc(.Atom(_, _)) => String.from("")
       );
       ck_requires := get_func_requires_exprs(contract_key.clone());
       ck_requires_checkable := ArrayList(bool).new();
@@ -1416,7 +1416,7 @@ Result type: ${type_to_string(&result_box)}`
         pt_name := match(
           slot_pointee_at(&param_types.*, pti),
           .Some(Rc(.SomeT(_, name, _, _, _, _, _))) => name.clone(),
-          .Some => String.from(""),
+          .Some(_) => String.from(""),
           .None => String.from("")
         );
         param_type_names.push(pt_name);
@@ -1577,7 +1577,7 @@ Result type: ${type_to_string(&result_box)}`
           while((ct_fi < ct_flags_ft.len()) && !ft_has_ct_param, {
             ct_is_typeuni := match(
               slot_pointee_at(&param_types.*, ct_fi),
-              .Some(ct_pt) => match(ct_pt, Rc(.TypeUni) => true, _ => false),
+              .Some(ct_pt) => match(ct_pt, Rc(.TypeUni(_)) => true, _ => false),
               .None => false
             );
             match(
@@ -1590,7 +1590,7 @@ Result type: ${type_to_string(&result_box)}`
             ct_fi = (ct_fi + usize(1));
           });
         },
-        Rc(.Atom) => ()
+        Rc(.Atom(_, _)) => ()
       );
       should_defer_ft := ((forall_labels.len() > usize(0)) || any_some_param_ft || self_has_some_ft || ft_has_ct_param);
       (flow_body : Option(AstExpr)) = if(
@@ -1647,7 +1647,7 @@ Result type: ${type_to_string(&result_box)}`
           copy_func_where_constraints(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
           copy_func_contract_exprs(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
         },
-        Rc(.Atom) => ()
+        Rc(.Atom(_, _)) => ()
       );
       // V3 (plans/backlog/FORMAL_VERIFICATION.md §Architecture): RECORD a
       // pending verification task when this module is a verification target
@@ -1896,13 +1896,13 @@ Result type: ${type_to_string(&result_box)}`
             expr,
             Rc(.FnCall(_, dwe_ft_box, _, _, _)) =>
               get_func_where_constraints(ast_expr_id(&dwe_ft_box.*).to_string()),
-            Rc(.Atom) => ArrayList(WhereConstraintEntry).new()
+            Rc(.Atom(_, _)) => ArrayList(WhereConstraintEntry).new()
           );
           def_ct_flags := match(
             expr,
             Rc(.FnCall(_, ctf_ft_box, _, _, _)) =>
               get_func_param_comptime(ast_expr_id(&ctf_ft_box.*).to_string()),
-            Rc(.Atom) => ArrayList(bool).new()
+            Rc(.Atom(_, _)) => ArrayList(bool).new()
           );
           def_param_toks := _fn_literal_param_tokens(expr);
           flow_env := _build_def_time_body_env(
@@ -1939,7 +1939,7 @@ Result type: ${type_to_string(&result_box)}`
               },
               .None => ()
             ),
-            Rc(.Atom) => ()
+            Rc(.Atom(_, _)) => ()
           );
           flow_fv := Rc.new(
             EvalValueNode.FuncVal(
@@ -2403,12 +2403,12 @@ Result type: ${type_to_string(&result_box)}`
             dg_where := match(
               expr,
               Rc(.FnCall(_, dg_ft_box, _, _, _)) => get_func_where_constraints(ast_expr_id(&dg_ft_box.*).to_string()),
-              Rc(.Atom) => ArrayList(WhereConstraintEntry).new()
+              Rc(.Atom(_, _)) => ArrayList(WhereConstraintEntry).new()
             );
             dg_ct_flags := match(
               expr,
               Rc(.FnCall(_, dgc_ft_box, _, _, _)) => get_func_param_comptime(ast_expr_id(&dgc_ft_box.*).to_string()),
-              Rc(.Atom) => ArrayList(bool).new()
+              Rc(.Atom(_, _)) => ArrayList(bool).new()
             );
             dg_param_toks := _fn_literal_param_tokens(expr);
             dg_env := _build_def_time_body_env(
@@ -2531,7 +2531,7 @@ Result type: ${type_to_string(&result_box)}`
             {
               (dgcv_i : usize) = usize(0);
               while(dgcv_i < dg_ct_flags.len(), {
-                dgcv_typeuni := match(slot_pointee_at(&param_types.*, dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, Rc(.TypeUni) => true, _ => false), .None => false);
+                dgcv_typeuni := match(slot_pointee_at(&param_types.*, dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, Rc(.TypeUni(_)) => true, _ => false), .None => false);
                 if(match(dg_ct_flags.get(dgcv_i), .Some(b) => b, .None => false) && !dgcv_typeuni, {
                   dg_has_ct_value = true;
                 });

@@ -808,11 +808,11 @@ _dd_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
           a1_is_drop := match(fargs.get_cloned(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
           if(a1_is_drop, match(fargs.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
-        Rc(.Atom) => Option(AstExpr).None
+        Rc(.Atom(_, _)) => Option(AstExpr).None
       ),
       if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
     ),
-    Rc(.Atom) => Option(AstExpr).None
+    Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
 /// True when a deferred `___drop` targets a function PARAMETER (the target
@@ -1272,7 +1272,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
         needs_materialize := match(
           &dup_result_name,
           .None => (ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))) && dup_target.is_some() && (fallback_code_2 != t_name)),
-          .Some => false
+          .Some(_) => false
         );
         cond(
           needs_materialize => {
@@ -1392,7 +1392,7 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &mu
   if(!dup_named, {
     match(
       &bei.variable_name(),
-      .Some => {
+      .Some(_) => {
         fdline := indent.clone();
         fdline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty(), context));
         fdline.push_str(";");

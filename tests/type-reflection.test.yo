@@ -113,8 +113,8 @@ test("TypeInfo match dispatch", {
   info_i32 :: Type.get_info(i32);
   result :: match(
     info_i32,
-    .Struct => "struct",
-    .Enum => "enum",
+    .Struct(_, _) => "struct",
+    .Enum(_) => "enum",
     .I32 => "i32",
     _ => "other"
   );
@@ -122,8 +122,8 @@ test("TypeInfo match dispatch", {
   info_point :: Type.get_info(TIPoint);
   result2 :: match(
     info_point,
-    .Struct => "struct",
-    .Enum => "enum",
+    .Struct(_, _) => "struct",
+    .Enum(_) => "enum",
     .I32 => "i32",
     _ => "other"
   );
@@ -131,7 +131,7 @@ test("TypeInfo match dispatch", {
   info_color :: Type.get_info(TIColor);
   result3 :: match(
     info_color,
-    .Enum => "enum",
+    .Enum(_) => "enum",
     _ => "other"
   );
   comptime_assert(result3 == "enum", "TKColor should match Enum");

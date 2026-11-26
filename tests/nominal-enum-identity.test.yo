@@ -47,10 +47,10 @@ test("same-shaped enums stay distinct through a generic instantiation", {
   cb := Carrier(BErr)(inner : Result(unit, BErr).Err(BErr.Boom(code : i32(2))));
   ra := ca.pass_through();
   rb := cb.pass_through();
-  assert(match(ra, .Err(e) => match(e, .Boom({ code }) => (code == i32(1)), .Quiet => false), .Ok => false), "AErr carried");
-  assert(match(rb, .Err(e) => match(e, .Boom({ code }) => (code == i32(2)), .Quiet => false), .Ok => false), "BErr carried");
-  assert(match(fa(false), .Ok(v) => (v == i32(10)), .Err => false), "fa ok");
-  assert(match(fb(true), .Err(e) => match(e, .Boom({ code }) => (code == i32(2)), .Quiet => false), .Ok => false), "fb err");
+  assert(match(ra, .Err(e) => match(e, .Boom({ code }) => (code == i32(1)), .Quiet => false), .Ok(_) => false), "AErr carried");
+  assert(match(rb, .Err(e) => match(e, .Boom({ code }) => (code == i32(2)), .Quiet => false), .Ok(_) => false), "BErr carried");
+  assert(match(fa(false), .Ok(v) => (v == i32(10)), .Err(_) => false), "fa ok");
+  assert(match(fb(true), .Err(e) => match(e, .Boom({ code }) => (code == i32(2)), .Quiet => false), .Ok(_) => false), "fb err");
 });
 test("a value of one enum is not accepted where the other is expected", {
   comptime_expect_error({
@@ -70,10 +70,10 @@ test("HashMap and HashSet in one closure — error enums of the same shape", {
   // `try_insert`, which still carries the two same-shaped error enums that
   // gave the test its name.
   r := m.try_insert(i32(7), i32(42));
-  assert(match(r, .Ok => true, .Err => false), "insert must succeed");
+  assert(match(r, .Ok(_) => true, .Err(_) => false), "insert must succeed");
   mut(s) := HashSet(i32).new();
   sr := s.try_insert(i32(9));
-  assert(match(sr, .Ok => true, .Err => false), "set insert must succeed");
+  assert(match(sr, .Ok(_) => true, .Err(_) => false), "set insert must succeed");
   assert(m.get(i32(7)).is_some(), "key 7 present");
   assert(s.contains(i32(9)), "elem 9 present");
   // Grow both past their initial capacity so `_resize` (the `.Err(err) =>

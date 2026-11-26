@@ -591,7 +591,7 @@ match(
     .None => printf("Inserted new key\n"),
     .Some(old_val) => printf("Updated, old value: %d\n", old_val)
   ),
-  .Error => printf("Insert failed\n")
+  .Error(_) => printf("Insert failed\n")
 );
 
 // Get a value
@@ -645,7 +645,7 @@ match(
     was_new => printf("Inserted new element\n"),
     true => printf("Element already exists\n")
   ),
-  .Error => printf("Insert failed\n")
+  .Error(_) => printf("Insert failed\n")
 );
 
 // Check if has
@@ -678,7 +678,7 @@ union_result := set1.union(set2);
 match(
   union_result,
   .Ok(union_set) => printf("Union size: %zu\n", union_set.len()),
-  .Error => printf("Union failed\n")
+  .Error(_) => printf("Union failed\n")
 );
 
 // Intersection
@@ -686,7 +686,7 @@ inter_result := set1.intersection(set2);
 match(
   inter_result,
   .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.len()),
-  .Error => printf("Intersection failed\n")
+  .Error(_) => printf("Intersection failed\n")
 );
 
 // Subset check

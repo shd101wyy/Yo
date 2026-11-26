@@ -1299,7 +1299,7 @@ single_inner_group_not_atom_like :: (
                 trailing := next_meaningful_token_index(tokens, inner_right, right_index);
                 match(
                   trailing,
-                  .Some => false,
+                  .Some(_) => false,
                   .None => !classify_group_content(tokens, fi, inner_right).atom_like
                 )
               }
@@ -1512,7 +1512,7 @@ is_redundant_grouping_paren :: (
       next := next_meaningful_token(tokens, right_index, tokens.len());
       first_inner := next_meaningful_token(tokens, left_index, right_index);
       cond(
-        match(first_inner.clone(), .None => true, .Some => false) => false,
+        match(first_inner.clone(), .None => true, .Some(_) => false) => false,
         token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
         paren_is_call_delimiter(&previous) => false,
         true => {
@@ -2625,7 +2625,7 @@ _format_yo_source_impl :: (
                             result.push_str("{");
                             indent_level = (indent_level + usize(1));
                             next_is_rcurly := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
-                            if(!next_is_rcurly && match(next, .None => false, .Some => true), {
+                            if(!next_is_rcurly && match(next, .None => false, .Some(_) => true), {
                               if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
@@ -2644,7 +2644,7 @@ _format_yo_source_impl :: (
                             });
                             result.push_str("{");
                             next_is_rcurly := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
-                            if(!next_is_rcurly && match(next, .None => false, .Some => true) && (!at_line_start && !result.ends_with(String.from(" "))), {
+                            if(!next_is_rcurly && match(next, .None => false, .Some(_) => true) && (!at_line_start && !result.ends_with(String.from(" "))), {
                               result.push_str(" ");
                             });
                           }
@@ -2781,7 +2781,7 @@ _format_yo_source_impl :: (
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
                       next_is_rparen := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RParen));
-                      if(!next_is_rparen && match(next, .None => false, .Some => true), {
+                      if(!next_is_rparen && match(next, .None => false, .Some(_) => true), {
                         if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
                         });
@@ -2808,7 +2808,7 @@ _format_yo_source_impl :: (
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
                       next_is_rbracket := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RBracket));
-                      if(!next_is_rbracket && match(next, .None => false, .Some => true), {
+                      if(!next_is_rbracket && match(next, .None => false, .Some(_) => true), {
                         if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
                         });
@@ -3006,7 +3006,7 @@ _format_yo_source_impl :: (
                       .None => false,
                       .Some(nx) => (is_line_comment_token(nx.kind) && (nx.row == token.row))
                     );
-                    if(!next_is_closer && (!next_is_trailing_comment && match(next, .None => false, .Some => true)), {
+                    if(!next_is_closer && (!next_is_trailing_comment && match(next, .None => false, .Some(_) => true)), {
                       cur_bracket_ml := cond(
                         (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.last(), .Some(x) => x, .None => false),
                         true => false

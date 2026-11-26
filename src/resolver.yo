@@ -726,7 +726,7 @@ impl(
   /// True when the ref names a branch (its commit moves; `yo update`
   /// re-resolves it).
   is_branch : (fn(self : &Self) -> bool)(
-    match(self, .Branch => true, .DefaultBranch => true, _ => false)
+    match(self, .Branch(_) => true, .DefaultBranch => true, _ => false)
   )
 );
 _requirement_text :: (fn(r : &GitRequirement) -> String)(
@@ -789,7 +789,7 @@ choose_ref :: (
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     r := reqs(i).requirement.clone();
-    is_range := match(&r, .Version => true, _ => false);
+    is_range := match(&r, .Version(_) => true, _ => false);
     if(is_range, {
       has_range = true;
     }, {
@@ -805,7 +805,7 @@ choose_ref :: (
             .Rev(a) => match(r, .Rev(b) => (a.* == b), _ => false),
             .Branch(a) => match(r, .Branch(b) => (a.* == b), _ => false),
             .DefaultBranch => match(r, .DefaultBranch => true, _ => false),
-            .Version => false
+            .Version(_) => false
           );
           if(!same, {
             return(Result(ChosenRef, String).Err(`dependency "${name}" (${url}) is pinned two different ways:${_requirements_text(reqs)}`));
@@ -824,7 +824,7 @@ choose_ref :: (
         .Rev(sha) => ChosenRef.Exact(sha.clone()),
         .Branch(b) => ChosenRef.Branch(b.clone()),
         .DefaultBranch => ChosenRef.DefaultBranch,
-        .Version => ChosenRef.DefaultBranch
+        .Version(_) => ChosenRef.DefaultBranch
       );
       if(has_range, {
         // A range can only be reconciled with an exact TAG that is a version.
@@ -875,7 +875,7 @@ locked_entry_satisfies :: (fn(entry : &LockEntry, url : &String, reqs : &ArrayLi
       .Version(text) => match(
         parse_version_req(text.clone()),
         .Ok(req) => match(parse_semver(ref.clone()), .Some(sv) => version_req_matches(&req, &sv), .None => false),
-        .Err => false
+        .Err(_) => false
       ),
       .Tag(t) => (t.* == ref),
       .Rev(sha) => (sha.* == ref),
@@ -1224,7 +1224,7 @@ _resolve_package :: (
     while(ri < pkg.requirements.len(), {
       match(
         &pkg.requirements(ri).requirement.clone(),
-        .Version => {
+        .Version(_) => {
           needs_tags = true;
         },
         .DefaultBranch => {

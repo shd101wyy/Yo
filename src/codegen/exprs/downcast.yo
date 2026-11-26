@@ -42,7 +42,7 @@ generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
 /// The `Option(T)` value of a downcast, as one C expression.
 _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: downcast not evaluated */")));
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   // A written lend (`downcast(&b.*, V)`) is read through to its place.
   dyn_arg := match(args.get_cloned(usize(0)), .Some(x) => ast_expr_strip_borrow_marker(&x), .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   type_arg := match(args.get_cloned(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
@@ -60,7 +60,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       // A reference binding's code may ALREADY be the deref'd read (`(*self)`,
       // the pair itself under decision 49) — do not deref twice.
       box_code := if(
-        (match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference) => true, _ => false) || _arg_is_reference_binding(&dyn_arg, context)) && !(arg_code.starts_with("(*") && arg_code.ends_with(")")),
+        (match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(_, _, _)) => true, _ => false) || _arg_is_reference_binding(&dyn_arg, context)) && !(arg_code.starts_with("(*") && arg_code.ends_with(")")),
         `(*${arg_code})`,
         arg_code.clone()
       );
@@ -291,7 +291,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     none_out.push_string(
       match(
         can_optimize_as_nullable_pointer(&option_type),
-        .Some => String.from("NULL"),
+        .Some(_) => String.from("NULL"),
         .None => {
           o := String.from("(");
           o.push_string(get_type_string(&option_type, &mut context.base));
@@ -307,7 +307,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   });
   match(
     can_optimize_as_nullable_pointer(&option_type),
-    .Some => {
+    .Some(_) => {
       out := String.from("((");
       out.push_string(cond_expr.clone());
       out.push_str(") ? ");
@@ -382,7 +382,7 @@ generate_upcast :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
 /// The target Dyn of an upcast, as one C expression.
 _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: upcast not evaluated */")));
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get_cloned(usize(0)), .Some(x) => ast_expr_strip_borrow_marker(&x), .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
   dyn_code := unsized_place_fat_code(&_call_generate_expr(&dyn_arg, indent.clone(), context));

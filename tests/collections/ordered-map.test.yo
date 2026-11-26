@@ -23,9 +23,9 @@ test("OrderedMap set and get", {
 });
 test("try_insert is the allocator-aware form (D9)", {
   mut(m) := OrderedMap(String, i32).new();
-  assert(match(m.try_insert(`k`, i32(1)), .Ok(prev) => prev.is_none(), .Err => false), "new key");
+  assert(match(m.try_insert(`k`, i32(1)), .Ok(prev) => prev.is_none(), .Err(_) => false), "new key");
   assert(
-    match(m.try_insert(`k`, i32(2)), .Ok(prev) => (prev.unwrap() == i32(1)), .Err => false),
+    match(m.try_insert(`k`, i32(2)), .Ok(prev) => (prev.unwrap() == i32(1)), .Err(_) => false),
     "existing key returns the old value"
   );
   assert(m.len() == usize(1), "still one key");

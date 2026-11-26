@@ -54,7 +54,7 @@ test("derive Clone for struct with Option field (Some)", {
 test("derive Clone for struct with Option field (None)", {
   orig := WithOption(maybe : .None, required : false);
   c := orig.clone();
-  match(c.maybe, .Some => assert(false, "should be None"), .None => ());
+  match(c.maybe, .Some(_) => assert(false, "should be None"), .None => ());
   assert(!c.required, "bool cloned");
 });
 // ===== 5. Struct with Rc(T) field =====
@@ -88,7 +88,7 @@ test("derive Clone for enum with data variants (Just)", {
 test("derive Clone for enum with data variants (Nothing)", {
   orig := MaybeInt.Nothing;
   c := orig.clone();
-  match(c, .Nothing => (), .Just => assert(false, "wrong variant"));
+  match(c, .Nothing => (), .Just(_) => assert(false, "wrong variant"));
 });
 // ===== 8. Enum with Rc/String/ArrayList variant fields =====
 RichVariant :: enum(
@@ -149,15 +149,15 @@ test("derive Clone for recursive enum with Rc(Self)", {
       match(
         &left.*,
         .Leaf(v) => assert(v.* == i32(1), "left leaf"),
-        .Branch => assert(false, "unexpected branch")
+        .Branch(_, _) => assert(false, "unexpected branch")
       );
       match(
         &right.*,
         .Leaf(v) => assert(v.* == i32(2), "right leaf"),
-        .Branch => assert(false, "unexpected branch")
+        .Branch(_, _) => assert(false, "unexpected branch")
       );
     },
-    .Leaf => assert(false, "expected branch")
+    .Leaf(_) => assert(false, "expected branch")
   );
 });
 // ===== 9b. Recursive STRUCT with Option(Rc(Self)) =====
@@ -262,7 +262,7 @@ test("derive Clone for a nullable-pointer recursive enum over ArrayList(Self)", 
 test("Option of a nullable-pointer recursive enum, read out of its ArrayList", {
   mut(xs) := ArrayList(FoldTree).new();
   xs.push(FoldTree.Leaf);
-  r := match(xs.get_cloned(usize(0)), .Some => i32(1), .None => i32(-1));
+  r := match(xs.get_cloned(usize(0)), .Some(_) => i32(1), .None => i32(-1));
   assert(r == i32(1), "get found the element");
   assert(xs.get_cloned(usize(1)).is_none(), "past the end is None");
 });
@@ -275,7 +275,7 @@ test("derive Clone for a nullable-pointer recursive enum over HashMap(String, Se
   c := orig.clone();
   r := match(
     c,
-    .Obj(mm) => match(mm.get_cloned(`a`), .Some => i32(1), .None => i32(-1)),
+    .Obj(mm) => match(mm.get_cloned(`a`), .Some(_) => i32(1), .None => i32(-1)),
     .Null => i32(0)
   );
   assert(r == i32(1), "the clone's map holds the key");

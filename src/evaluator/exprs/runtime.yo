@@ -73,7 +73,7 @@ evaluate_runtime :: (
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    Rc(.Atom) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // Recursively evaluate the argument.
   evaluated := evaluate_expression_raw(&arg_expr, env, ctx, exn);
@@ -93,7 +93,7 @@ evaluate_runtime :: (
         )
       );
     },
-    .Some => ()
+    .Some(_) => ()
   );
   arg_info := match(
     info_opt,

@@ -77,7 +77,7 @@ is_convertible_numeric_type :: (fn(type_val : &TypeValue) -> bool)(
     // `i32(unsafe(getpid()))` took the non-numeric soft fallback (UnknownVal,
     // no __yo_as rewrite) and codegen FTT'd the call — the sys/signal red
     // (issues/fixed/yo-self-sys-signal-i32-extern-cast-ftt.md).
-    match(type_val, Rc(.ExternOpaqueT) => true, _ => false) => true,
+    match(type_val, Rc(.ExternOpaqueT(_, _)) => true, _ => false) => true,
     true => false
   )
 );
@@ -309,7 +309,7 @@ try_to_convert_to_numeric_type :: (
   // applies to a slot of that type, so the explicit conversion and the
   // implicit one agree (issues/fixed/atomic-bool-conversion-rejects-a-bool.md).
   // A NUMERIC target still rejects a `bool` (`usize(flag)` stays an error).
-  bool_to_opaque := (is_bool_type(&arg_type) && match(target_type, Rc(.ExternOpaqueT) => true, _ => false));
+  bool_to_opaque := (is_bool_type(&arg_type) && match(target_type, Rc(.ExternOpaqueT(_, _)) => true, _ => false));
   if(!is_convertible_numeric_type(&arg_type) &&
     !is_comptime_int_type(&arg_type) &&
       !is_comptime_float_type(&arg_type) &&
@@ -439,7 +439,7 @@ try_to_convert_to_numeric_type :: (
     type_expr := match(
       expr,
       Rc(.FnCall(_, func_box, _, _, _)) => Rc.clone(func_box.*),
-      Rc(.Atom) => make_err_expr()
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     // Lower the runtime cast to a `__yo_as` node, then attach it to the ORIGINAL
     // expr's ExprInfo as a `macro_expansion`. Codegen walks the original parsed

@@ -103,14 +103,14 @@ test("set_entry: an entry with a trailing comment is replaced whole", {
 test("set_entry: an invalid value is refused before touching the document", {
   match(
     set_entry(String.from(_BASE), String.from("dependencies"), String.from("foo"), String.from("{ unterminated")),
-    .Ok => panic("expected an error"),
+    .Ok(_) => panic("expected an error"),
     .Err(msg) => assert(msg.contains("invalid value"), &msg)
   );
 });
 test("set_entry: a document that does not parse is an error", {
   match(
     set_entry(String.from("[dependencies\nfoo = 1\n"), String.from("dependencies"), String.from("foo"), String.from("2")),
-    .Ok => panic("expected an error"),
+    .Ok(_) => panic("expected an error"),
     .Err(msg) => assert(msg.len() > usize(0), "has a message")
   );
 });

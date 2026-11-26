@@ -106,7 +106,7 @@ _lookup_starts :: (fn() -> ArrayList(Path))({
   starts := ArrayList(Path).new();
   match(
     current_exe(),
-    .Err => (),
+    .Err(_) => (),
     .Ok(exe_path) => {
       starts.push(exe_path);
     }
@@ -116,7 +116,7 @@ _lookup_starts :: (fn() -> ArrayList(Path))({
     .Ok(p) => {
       starts.push(Path.new(p.to_string()));
     },
-    .Err => ()
+    .Err(_) => ()
   );
   starts
 });
@@ -404,7 +404,7 @@ _user_cwd :: (fn() -> String)(
     .None => match(
       cwd(),
       .Ok(c) => c.to_string(),
-      .Err => String.from(".")
+      .Err(_) => String.from(".")
     )
   )
 );

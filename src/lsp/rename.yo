@@ -61,11 +61,11 @@ _parses_as_binding :: (fn(new_name : &String) -> bool)({
             // an infix `::` call whose left side is a literal atom, and
             // `true`/`"s"` lex as Bool/StringLit — none of those are names.
             Rc(.Atom(_, t)) => ((t.kind == TokenKind.Identifier) && (t.value.* == new_name.*)),
-            Rc(.FnCall) => false
+            Rc(.FnCall(_, _, _, _, _)) => false
           ),
           .None => false
         ),
-        Rc(.Atom) => false
+        Rc(.Atom(_, _)) => false
       ),
       true => false
     ),

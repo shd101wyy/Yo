@@ -172,7 +172,7 @@ is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
     e,
     Rc(.FnCall(_, _, Rc(eargs), _, _)) =>
       match(eargs.get_cloned(usize(1)), .Some(a1) => ast_expr_is_atom(&a1), .None => false),
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   );
   if(!(ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) && outer_field_is_atom), {
     return(false);
@@ -181,7 +181,7 @@ is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   (root : AstExpr) = match(
     e,
     Rc(.FnCall(_, _, Rc(eargs0), _, _)) => match(eargs0.get_cloned(usize(0)), .Some(a0) => a0, .None => Rc.clone(e.*)),
-    Rc(.Atom) => Rc.clone(e.*)
+    Rc(.Atom(_, _)) => Rc.clone(e.*)
   );
   walking := true;
   while(walking, {
@@ -194,7 +194,7 @@ is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
           rargs.get_cloned(usize(0)),
           Option(AstExpr).None
         ),
-      Rc(.Atom) => Option(AstExpr).None
+      Rc(.Atom(_, _)) => Option(AstExpr).None
     );
     match(
       nxt,
@@ -241,10 +241,10 @@ is_matchable_primitive_type :: (fn(ty : &TypeValue) -> bool)(
 _is_literal_val :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
-    Rc(.IntLit) => true,
-    Rc(.FloatLit) => true,
-    Rc(.BoolVal) => true,
-    Rc(.StrLit) => true,
+    Rc(.IntLit(_)) => true,
+    Rc(.FloatLit(_)) => true,
+    Rc(.BoolVal(_)) => true,
+    Rc(.StrLit(_)) => true,
     Rc(.TupleVal(fields)) => _all_literal_vals(&fields.*),
     Rc(.StructVal(_, _, field_values)) => _all_literal_vals(&field_values.*),
     _ => false
@@ -285,7 +285,7 @@ _variant_pattern_has_literal_sub :: (fn(p : &Pattern) -> bool)(
     _ => false
   )
 );
-_pattern_is_const :: (fn(p : &Pattern) -> bool)(match(p, .Const => true, _ => false));
+_pattern_is_const :: (fn(p : &Pattern) -> bool)(match(p, .Const(_, _, _, _, _) => true, _ => false));
 /// Compute the GADT-refined expected type for a match branch. If the expected type is the
 /// SAME SomeT as one of the enum's type-constructor args, the branch
 /// refines it to the variant's `-> recur(...)` arg at that position
@@ -454,8 +454,8 @@ _GUARD_HELP :: "an arm with a guard (`p && (guard)`) does not count toward exhau
 _scrutinee_crosses_raw_pointer :: (fn(scr : &AstExpr, ctx : &EvalContext) -> bool)({
   (cur : AstExpr) = Rc.clone(scr.*);
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-    (base : AstExpr) = match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom) => Rc.clone(cur));
-    is_deref := match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false), Rc(.Atom) => false);
+    (base : AstExpr) = match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => Rc.clone(cur));
+    is_deref := match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false), Rc(.Atom(_, _)) => false);
     if(is_deref && deref_operand_is_raw_pointer(&base, ctx), {
       return(true);
     });
@@ -471,7 +471,7 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
   while(walking, {
     cond(
       ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
-        cur = match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom) => Rc.clone(cur));
+        cur = match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => Rc.clone(cur));
       },
       true => {
         walking = false;
@@ -500,7 +500,7 @@ _scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
           .None => false
         )
       ),
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     )
   )
 );
@@ -821,7 +821,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       });
       p.clone()
     },
-    .Const => cond(
+    .Const(_, _, _, _, _) => cond(
       (own.add_hidden && !in_cell && _part_has_drop(ty)) => {
         b := _ownership_hidden_bind(own, ty, env);
         pat := Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : Rc.clone(b.atom), sub : Box.new(p.clone()));
@@ -830,7 +830,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       },
       true => p.clone()
     ),
-    .Range => p.clone(),
+    .Range(_, _, _, _, _, _, _) => p.clone(),
     .Variant(vname, vidx, field_idx, subs, enum_ty, through_ptr, arity) => {
       cell := (in_cell || through_ptr.* || pattern_position_is_cell(ty));
       ftys := variant_field_types(resolve_enum_shell(&enum_ty.*), vidx.*);
@@ -1105,7 +1105,7 @@ evaluate_match :: (
   all_args := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
-    Rc(.Atom) => ArrayList(AstExpr).new()
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   if(all_args.len() < usize(2), {
     exn.throw(
@@ -1132,7 +1132,7 @@ evaluate_match :: (
       all_args.get_cloned(mk_i),
       .Some(mk_arm) => if(ast_expr_is_fn_call_of(&mk_arm, "=>", Option(usize).Some(usize(2))), {
         reject_malformed_mut_marker(&mk_arm, usize(0), exn);
-        match(mk_arm, Rc(.FnCall(_, _, Rc(mk_args), _, _)) => match(mk_args.get_cloned(usize(0)), .Some(mk_pat) => reject_malformed_pattern_mut_markers(&mk_pat, exn), .None => ()), Rc(.Atom) => ());
+        match(mk_arm, Rc(.FnCall(_, _, Rc(mk_args), _, _)) => match(mk_args.get_cloned(usize(0)), .Some(mk_pat) => reject_malformed_pattern_mut_markers(&mk_pat, exn), .None => ()), Rc(.Atom(_, _)) => ());
       }),
       .None => ()
     );
@@ -1449,12 +1449,12 @@ evaluate_match :: (
     (pattern_ast : AstExpr) = match(
       Rc.clone(arm_expr),
       Rc(.FnCall(_, _, Rc(pargs), _, _)) => match(pargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      Rc(.Atom) => make_err_expr()
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     body_ast := match(
       Rc.clone(arm_expr),
       Rc(.FnCall(_, _, Rc(pargs), _, _)) => match(pargs.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),
-      Rc(.Atom) => make_err_expr()
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     // `{ x, y } => …` is a record pattern; `{ … }(params) => …` is a closure
     // with a capture list, which only a closure position accepts (decision
@@ -1474,7 +1474,7 @@ evaluate_match :: (
     // `(p && (g)) => body`: a guard.
     (guard_ast : Option(AstExpr)) = Option(AstExpr).None;
     if(ast_expr_is_fn_call_of(&pattern_ast, "&&", .Some(usize(2))), {
-      gargs := match(Rc.clone(pattern_ast), Rc(.FnCall(_, _, Rc(ga), _, _)) => ga.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+      gargs := match(Rc.clone(pattern_ast), Rc(.FnCall(_, _, Rc(ga), _, _)) => ga.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
       guard_ast = gargs.get_cloned(usize(1));
       pattern_ast = match(gargs.get_cloned(usize(0)), .Some(a) => a, .None => pattern_ast);
     });
@@ -1556,7 +1556,7 @@ evaluate_match :: (
         (b_ct_known || (mut_places || p_view)) => Option(bool).None,
         true => match(&b.ty, Rc(.Reference(_, rp_mut, _)) => Option(bool).Some(rp_mut.*), _ => Option(bool).None)
       );
-      bind_ty := match(&ref_payload, .Some => t_slot_pointee(&b.ty), .None => Rc.clone(b.ty));
+      bind_ty := match(&ref_payload, .Some(_) => t_slot_pointee(&b.ty), .None => Rc.clone(b.ty));
       _added := add_variable_to_env(
         &env,
         b.name.clone(),
@@ -1846,7 +1846,7 @@ evaluate_match :: (
               .Some(Rc(.BoolVal(b))) => {
                 guard_val = Option(bool).Some(b);
               },
-              .Some => (),
+              .Some(_) => (),
               .None => ()
             );
           },
@@ -1942,7 +1942,7 @@ evaluate_match :: (
       is_arm_executing := (
         ct_known && match(mv, .Some(b) => b, .None => false) && match(
           guard_ast.clone(),
-          .Some => match(guard_val, .Some(b) => b, .None => false),
+          .Some(_) => match(guard_val, .Some(b) => b, .None => false),
           .None => true
         )
       );
@@ -2140,7 +2140,7 @@ evaluate_match :: (
             .None => {
               matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
             },
-            .Some => match(
+            .Some(_) => match(
               guard_val,
               .Some(gb) => {
                 if(gb, {

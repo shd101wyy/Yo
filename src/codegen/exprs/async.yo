@@ -622,13 +622,13 @@ is_any_identifier_atom :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     Rc(.Atom(_, tok)) => (tok.kind == TokenKind.Identifier),
-    Rc(.FnCall) => false
+    Rc(.FnCall(_, _, _, _, _)) => false
   )
 );
 _collect_operand_holds_walk :: (fn(expr : &AstExpr, out : &mut ArrayList(OperandHold), seen : &mut HashSet(usize), context : &FunctionGenerationContext) -> unit)(
   match(
     expr,
-    Rc(.Atom) => (),
+    Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, fn_box, Rc(args), _, _)) => {
       match(
         lookup_macro_expansion(ast_expr_id(expr)),
@@ -643,7 +643,7 @@ _collect_operand_holds_walk :: (fn(expr : &AstExpr, out : &mut ArrayList(Operand
                 .Some(a) => if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).None), {
                   match(
                     a,
-                    Rc(.Atom) => (),
+                    Rc(.Atom(_, _)) => (),
                     Rc(.FnCall(_, _, Rc(branch_args), _, _)) => {
                       (mut(bj) : usize) = usize(0);
                       while(bj < branch_args.len(), {
@@ -895,24 +895,24 @@ emit_async_block_struct_definition :: (
 _dep_named_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     context.base.get_type_c_name(type_key(t)),
-    .Some => Option(String).Some(get_type_string(t, &mut context.base)),
+    .Some(_) => Option(String).Some(get_type_string(t, &mut context.base)),
     .None => Option(String).None
   )
 );
 _dep_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     t,
-    Rc(.FnTraitT) => Option(String).None,
-    Rc(.FutureTraitT) => Option(String).None,
-    Rc(.Tuple) => _dep_named_type_string(t, context),
-    Rc(.Union) => _dep_named_type_string(t, context),
-    Rc(.Struct) => _dep_named_type_string(t, context),
-    Rc(.EnumT) => match(
+    Rc(.FnTraitT({})) => Option(String).None,
+    Rc(.FutureTraitT({})) => Option(String).None,
+    Rc(.Tuple(_, _)) => _dep_named_type_string(t, context),
+    Rc(.Union(_, _, _)) => _dep_named_type_string(t, context),
+    Rc(.Struct({})) => _dep_named_type_string(t, context),
+    Rc(.EnumT({})) => match(
       can_optimize_as_nullable_pointer(t),
-      .Some => Option(String).Some(get_type_string(t, &mut context.base)),
+      .Some(_) => Option(String).Some(get_type_string(t, &mut context.base)),
       .None => _dep_named_type_string(t, context)
     ),
-    Rc(.DynT) => _dep_named_type_string(t, context),
+    Rc(.DynT({})) => _dep_named_type_string(t, context),
     _ => Option(String).Some(get_type_string(t, &mut context.base))
   )
 );
@@ -971,10 +971,10 @@ _build_deferred_deps :: (
       aps.get_cloned(j),
       .Some(ap) => match(
         &ap.future_variable_id,
-        .Some => (),
+        .Some(_) => (),
         .None => {
           await_expr := Rc.clone(ap.base.expr);
-          is_fn_call := match(Rc.clone(await_expr), Rc(.FnCall) => true, _ => false);
+          is_fn_call := match(Rc.clone(await_expr), Rc(.FnCall(_, _, _, _, _)) => true, _ => false);
           if(is_fn_call, {
             args := ast_call_args_unmarked(&await_expr);
             match(
@@ -1324,7 +1324,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &mu
             });
           }
         );
-        match(move_flag, .Some => context.base.emitter.emit_line("  }"), .None => ());
+        match(move_flag, .Some(_) => context.base.emitter.emit_line("  }"), .None => ());
       }),
       .None => ()
     );
@@ -1374,7 +1374,7 @@ _lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeFi
   while(i < fields.len(), i = (i + usize(1)), {
     match(
       fields.get_cloned(i),
-      .Some(f) => if(match(&f.ty, Rc(.Pointer) => true, _ => false), {
+      .Some(f) => if(match(&f.ty, Rc(.Pointer(_)) => true, _ => false), {
         (mut(lent) : bool) = false;
         (mut(bi) : usize) = usize(0);
         while(bi < borrows.len(), bi = (bi + usize(1)), {
@@ -1789,7 +1789,7 @@ _build_async_capture_struct_literal :: (
     (field_inits : &Option(ArrayList(CaptureFieldInit))) ?= Option(ArrayList(CaptureFieldInit)).None
   ) -> String
 )({
-  in_special_context := (match(&context.current_closure_captures, .Some => true, .None => false) || match(&context.in_async_state_machine, .Some => true, .None => false));
+  in_special_context := (match(&context.current_closure_captures, .Some(_) => true, .None => false) || match(&context.in_async_state_machine, .Some(_) => true, .None => false));
   // Each field's type from the instantiated capture type, not the registry:
   // a closure in a generic body shares one capture struct id across its
   // instantiations, so the registry's field types are another
@@ -2041,7 +2041,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   if(!_async_fusion_enabled(), {
     return(Option(FusedAwaitSite).None);
   });
-  await_args := match(await_expr, Rc(.FnCall) => ast_call_args_unmarked(await_expr), _ => return(Option(FusedAwaitSite).None));
+  await_args := match(await_expr, Rc(.FnCall(_, _, _, _, _)) => ast_call_args_unmarked(await_expr), _ => return(Option(FusedAwaitSite).None));
   future_arg := match(await_args.get_cloned(usize(0)), .Some(f) => f, .None => return(Option(FusedAwaitSite).None));
   cand := match(await_fusion_candidate(&future_arg), .Some(c) => c, .None => return(Option(FusedAwaitSite).None));
   if(cand.verdict.len() > usize(0), {
@@ -2609,7 +2609,7 @@ _back_to_caller_scope :: (fn(sink(scope) : _CallerScope, context : &mut Function
 emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   site := match(fused_await_site(await_expr, true, context), .Some(s) => s, .None => return(Option(String).None));
   low_analysis := match(sm_lowering_analysis(context), .Some(a) => a, .None => return(Option(String).None));
-  await_args := match(await_expr, Rc(.FnCall) => ast_call_args_unmarked(await_expr), _ => ArrayList(AstExpr).new());
+  await_args := match(await_expr, Rc(.FnCall(_, _, _, _, _)) => ast_call_args_unmarked(await_expr), _ => ArrayList(AstExpr).new());
   effects_arg := match(await_args.get_cloned(usize(1)), .Some(ea) => ea, .None => return(Option(String).None));
   if(debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
     tok := ast_expr_token(await_expr);
@@ -2639,7 +2639,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   (mut(outer_local) : String) = String.from("");
   match(
     &outer_field,
-    .Some => (),
+    .Some(_) => (),
     .None => match(
       inline_await_local_result_type(await_expr, &low_analysis, context),
       .Some(rty) => {
@@ -2950,8 +2950,8 @@ _report_hollow_async_body :: (fn(body_expr : &AstExpr, via_fsm : bool) -> unit)(
 /// The declaration site (`module:row:col`) of parameter `name` in the closure
 /// literal an `io.async(...)` call passes, or "" when it is not found.
 _closure_param_decl_site :: (fn(io_async_call : &AstExpr, name : &String) -> String)({
-  closure := match(io_async_call, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(c) => c, .None => return(String.from(""))), Rc(.Atom) => return(String.from("")));
-  params := match(closure, Rc(.FnCall(_, _, Rc(ca), _, _)) => match(ca.get_cloned(usize(0)), .Some(p) => p, .None => return(String.from(""))), Rc(.Atom) => return(String.from("")));
+  closure := match(io_async_call, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(c) => c, .None => return(String.from(""))), Rc(.Atom(_, _)) => return(String.from("")));
+  params := match(closure, Rc(.FnCall(_, _, Rc(ca), _, _)) => match(ca.get_cloned(usize(0)), .Some(p) => p, .None => return(String.from(""))), Rc(.Atom(_, _)) => return(String.from("")));
   _first_atom_site(&params, name)
 });
 /// The declaration sites of parameter `name` in a closure's parameter list:
@@ -3011,7 +3011,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     match(
       context.base.get_expr_info(&body_expr),
       .None => _report_hollow_async_body(&body_expr, true),
-      .Some => ()
+      .Some(_) => ()
     );
   });
   future_type := Rc.clone(ei.ty());
@@ -3741,7 +3741,7 @@ _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext
 /// Recursively search `expr` for async blocks and pre-register their state-machine
 /// types (forward-declared struct typedefs), and flag uses_async / uses_parallelism.
 preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> unit)({
-  is_fn_call := match(expr, Rc(.FnCall) => true, _ => false);
+  is_fn_call := match(expr, Rc(.FnCall(_, _, _, _, _)) => true, _ => false);
   if(!is_fn_call, return());
   ei_opt := context.base.get_expr_info(expr);
   // Async-block path (struct name always _state_t).
@@ -3751,7 +3751,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
       .Some(ei) => if(type_implements_future(&ei.ty()), {
         match(
           extract_future_trait_from_type(&ei.ty()),
-          .Some => {
+          .Some(_) => {
             async_block_id := match(
               &ei.variable_name(),
               .Some(n) => n.clone(),
@@ -3783,7 +3783,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
       .Some(ei) => if(type_implements_future(&ei.ty()), {
         match(
           extract_future_trait_from_type(&ei.ty()),
-          .Some => {
+          .Some(_) => {
             async_block_id := match(
               &ei.variable_name(),
               .Some(n) => n.clone(),
@@ -4043,7 +4043,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
       Rc(.FuncVal(__fvdh, _)) => match(
         context.base.get_expr_info(&__fvdh.*.body),
         .None => _report_hollow_async_body(&__fvdh.*.body, false),
-        .Some => ()
+        .Some(_) => ()
       ),
       _ => ()
     ),
@@ -4201,7 +4201,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // buffer — capture the side lines through a temp emitter and re-emit them.
   (result_inline_side : String) = String.from("");
   (result_inline_stmt : String) = String.from("");
-  if(match(&result_drop_fn, .Some => false, .None => true) && (!is_unit_type(&result_type) && type_contains_rc_cell_or_move_only(&result_type)), {
+  if(match(&result_drop_fn, .Some(_) => false, .None => true) && (!is_unit_type(&result_type) && type_contains_rc_cell_or_move_only(&result_type)), {
     saved_em := replace(&mut context.base.emitter, Emitter.new());
     result_inline_stmt = generate_drop_code_for_value(String.from("sm->result"), &result_type, context);
     mut(temp_em) := replace(&mut context.base.emitter, saved_em);
@@ -4214,7 +4214,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // (the closure's dup'd capture temp is installed below), so this runs in
   // every state (issues/fixed/io-async-closure-captures-never-released.md).
   (capture_inline_lines : ArrayList(String)) = ArrayList(String).new();
-  if(match(&capture_drop_fn, .Some => false, .None => true), {
+  if(match(&capture_drop_fn, .Some(_) => false, .None => true), {
     match(
       &eff_capture_type,
       .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(&cap_ty.*), {
@@ -4254,14 +4254,14 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // Its last reference is gone: an effect-unwind abort nobody observed is
   // reported now (gc-runtime.yo, emit_task_abort_registry).
   context.base.emitter.emit_declaration_line("  __yo_task_abort_released(ptr);");
-  has_drop := (match(&capture_drop_fn, .Some => true, .None => false) || match(&result_drop_fn, .Some => true, .None => false) || has_result_inline || has_capture_inline);
+  has_drop := (match(&capture_drop_fn, .Some(_) => true, .None => false) || match(&result_drop_fn, .Some(_) => true, .None => false) || has_result_inline || has_capture_inline);
   if(has_drop, {
     context.base.emitter.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
     // A capture list the closure owns (decision 37): once the body has run it
     // dropped or moved every capture itself (a sync future's body runs to its
     // end in one resume), so the future drops them only while still cold.
     owns_caps := match(&eff_capture_type, .Some(oct) => (_owned_capture_fields(&oct.*).len() > usize(0)), .None => false);
-    if(owns_caps && (match(&capture_drop_fn, .Some => true, .None => false) || has_capture_inline), {
+    if(owns_caps && (match(&capture_drop_fn, .Some(_) => true, .None => false) || has_capture_inline), {
       context.base.emitter.emit_declaration_line("  if (sm->state == 0) {  // never ran: its body did not take the capture list");
     });
     match(
@@ -4279,7 +4279,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         });
       })
     );
-    if(owns_caps && (match(capture_drop_fn, .Some => true, .None => false) || has_capture_inline), {
+    if(owns_caps && (match(capture_drop_fn, .Some(_) => true, .None => false) || has_capture_inline), {
       context.base.emitter.emit_declaration_line("  }");
     });
     match(

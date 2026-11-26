@@ -169,7 +169,7 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
     name := match(
       String.from_cstr(path),
       .Ok(s) => s,
-      .Err => String.new()
+      .Err(_) => String.new()
     );
     if((mask & events.FS_EVENT_RENAME) != i32(0), {
       unsafe(w.*._queue.push(FsEvent(name : name.clone(), kind : FsEventKind.Rename)));
@@ -185,7 +185,7 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
 watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   // Checked before the watcher exists: a path with an interior NUL would
   // watch its prefix (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
-  cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err => exn.throw(dyn(Box.new(IoError.InvalidInput))));
+  cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => exn.throw(dyn(Box.new(IoError.InvalidInput))));
   w := Watcher(
     _cell : Box.new(
       _WatcherState(

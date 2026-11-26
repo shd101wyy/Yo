@@ -880,9 +880,9 @@ t_slice :: (fn(element : &TypeValue) -> TypeValue)(Rc.new(TypeValueNode.SliceT(R
 t_value_slot :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
-    Rc(.Reference) => Rc.new(TypeValueNode.ValueSlot(Rc.clone(ty))),
+    Rc(.Reference(_, _, _)) => Rc.new(TypeValueNode.ValueSlot(Rc.clone(ty))),
     // Still a binder (another binder renamed it): the slot stays one.
-    Rc(.SomeT) => Rc.new(TypeValueNode.ValueSlot(Rc.clone(ty))),
+    Rc(.SomeT(_, _, _, _, _, _, _)) => Rc.new(TypeValueNode.ValueSlot(Rc.clone(ty))),
     _ => ty.clone()
   )
 );
@@ -891,9 +891,9 @@ t_value_slot :: (fn(ty : &TypeValue) -> TypeValue)(
 /// specializing `T` to a reference keeps the by-value mode (R3).
 t_binder_slot :: (fn(ty : &TypeValue) -> TypeValue)(Rc.new(TypeValueNode.ValueSlot(Rc.clone(ty))));
 /// The slot is a by-value reference type (`ValueSlot` over a `Reference`, R3).
-t_slot_is_value_ref :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.ValueSlot(vs_i)) => match(vs_i, Rc(.Reference) => true, _ => false), _ => false));
+t_slot_is_value_ref :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.ValueSlot(vs_i)) => match(vs_i, Rc(.Reference(_, _, _)) => true, _ => false), _ => false));
 /// The slot is a binder-typed by-value slot (`ValueSlot`), specialized or not.
-t_slot_is_binder_slot :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.ValueSlot) => true, _ => false));
+t_slot_is_binder_slot :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.ValueSlot(_)) => true, _ => false));
 /// The slot of a parameter with the given mode: `&mut T` when `is_mut_ref`,
 /// else `T` when `is_by_value`, else `&T`.
 t_slot :: (fn(pointee : &TypeValue, is_mut_ref : bool, is_by_value : bool) -> TypeValue)(
@@ -915,7 +915,7 @@ t_slot_pointee :: (fn(t : &TypeValue) -> TypeValue)(
 /// The slot is `&mut T`.
 t_slot_is_mut_ref :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Reference(_, mutable, _)) => mutable.*, _ => false));
 /// The slot borrows (`&T` or `&mut T`).
-t_slot_is_borrow :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Reference) => true, _ => false));
+t_slot_is_borrow :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Reference(_, _, _)) => true, _ => false));
 /// The slot takes its argument by value.
 t_slot_is_by_value :: (fn(t : &TypeValue) -> bool)(!t_slot_is_borrow(t));
 /// `slot` with its pointee replaced by `pointee`: the mode and the origin
@@ -924,7 +924,7 @@ t_slot_with_pointee :: (fn(slot : &TypeValue, pointee : &TypeValue) -> TypeValue
   match(
     slot,
     Rc(.Reference(_, mutable, origin)) => Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable.*, origin : Rc.clone(origin))),
-    Rc(.ValueSlot) => t_value_slot(pointee),
+    Rc(.ValueSlot(_)) => t_value_slot(pointee),
     _ => pointee.clone()
   )
 );

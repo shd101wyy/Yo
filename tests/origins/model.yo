@@ -104,7 +104,7 @@ orig :: (fn(t : &Ty, mode : usize) -> u64)(
   match(
     &t.*.*,
     .Int => u64(0),
-    .TParam => u64(0),
+    .TParam(_) => u64(0),
     .Ref(m, p, o) => {
       own := cond((mode == usize(0)) => o.*, (mode == usize(1)) => cond(m.* => u64(0), true => o.*), true => cond(m.* => o.*, true => u64(0)));
       own | recur(&p.*, mode)
@@ -1171,7 +1171,7 @@ eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node
   if((def.type_params > usize(0)) && ok(ck), {
     match(
       &def.body,
-      .Some => {
+      .Some(_) => {
         ck.spec_depth = (ck.spec_depth + usize(1));
         check_fn_body(ck, f, &sb);
         ck.spec_depth = (ck.spec_depth - usize(1));
@@ -1217,7 +1217,7 @@ unify :: (fn(ck : &mut Ck, sb : &mut Subst, pt : &Ty, at : &Ty, inv : bool) -> u
     // Nothing coerces a reference to its referent: a `&&T` given where a
     // `&T` is expected stops here (no deref coercion,
     // plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
-    .Int => match(&at.*.*, .Ref => fail(ck, "TYPE", "a reference where a value is expected (no deref coercion)"), _ => ()),
+    .Int => match(&at.*.*, .Ref(_, _, _) => fail(ck, "TYPE", "a reference where a value is expected (no deref coercion)"), _ => ()),
     .TParam(id) => {
       if((sb.tbound & bit(id.*)) == u64(0), {
         sb.types(id.*) = Rc.clone(at);

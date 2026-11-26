@@ -57,14 +57,14 @@ test("eval_context_new: default fields", {
 });
 test("eval_context_new: all optional fields are None", {
   ctx := eval_context_new(String.from("/usr/yo"), String.from("main.yo"));
-  match(&ctx.load_module, .Some => assert(false, "should be None"), .None => ());
-  match(&ctx.is_evaluating_function_body_or_async_block, .Some => assert(false, "should be None"), .None => ());
-  match(&ctx.is_evaluating_loop_body, .Some => assert(false, "should be None"), .None => ());
-  match(&ctx.expected_type, .Some => assert(false, "should be None"), .None => ());
-  match(&ctx.captured_variables, .Some => assert(false, "should be None"), .None => ());
-  match(&ctx.function_return_impl_concrete_type, .Some => assert(false, "should be None"), .None => ());
-  match(&ctx.currently_specializing_function, .Some => assert(false, "should be None"), .None => ());
-  match(&ctx.doc_comment_lookup, .Some => assert(false, "should be None"), .None => ());
+  match(&ctx.load_module, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.is_evaluating_function_body_or_async_block, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.is_evaluating_loop_body, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.expected_type, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.captured_variables, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.function_return_impl_concrete_type, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.currently_specializing_function, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.doc_comment_lookup, .Some(_) => assert(false, "should be None"), .None => ());
 });
 test("eval_context_new: boolean flags default to false", {
   ctx := eval_context_new(String.from("/std"), String.from("x.yo"));
@@ -108,7 +108,7 @@ test("track_variable_usage: no function body context → no-op", {
   // captured_variables should remain None
   match(
     &ctx.captured_variables,
-    .Some => assert(false, "map should remain None"),
+    .Some(_) => assert(false, "map should remain None"),
     .None => ()
   );
 });
@@ -185,7 +185,7 @@ test("get_function_call_result: returns None for TypeResult", {
   match(
     get_function_call_result(&f),
     .None => (),
-    .Some => assert(false, "expected None for TypeResult")
+    .Some(_) => assert(false, "expected None for TypeResult")
   );
 });
 test("get_type_call_result: returns None for FunctionTypeResult", {
@@ -199,7 +199,7 @@ test("get_type_call_result: returns None for FunctionTypeResult", {
   match(
     get_type_call_result(&f),
     .None => (),
-    .Some => assert(false, "expected None for FunctionTypeResult")
+    .Some(_) => assert(false, "expected None for FunctionTypeResult")
   );
 });
 // ---------------------------------------------------------------------------
@@ -248,13 +248,13 @@ test("create_function_body_evaluation_context: function body context embedded", 
   match(
     &body_ctx.captured_variables,
     .None => assert(false, "captured_variables should be Some"),
-    .Some => ()
+    .Some(_) => ()
   );
   // function_return_impl_concrete_type is a fresh empty list
   match(
     &body_ctx.function_return_impl_concrete_type,
     .None => assert(false, "function_return_impl_concrete_type should be Some"),
-    .Some => ()
+    .Some(_) => ()
   );
 });
 test("create_function_body_evaluation_context: expected_type set to return(type)", {

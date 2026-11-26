@@ -174,11 +174,11 @@ test("binary_search finds and reports insertion points", {
   list.push(i32(20));
   list.push(i32(30));
   list.push(i32(40));
-  assert(match(list.binary_search(i32(30)), .Ok(at) => (at == usize(2)), .Err => false), "found 30 at 2");
-  assert(match(list.binary_search(i32(10)), .Ok(at) => (at == usize(0)), .Err => false), "found head");
-  assert(match(list.binary_search(i32(25)), .Ok => false, .Err(at) => (at == usize(2))), "25 inserts at 2");
-  assert(match(list.binary_search(i32(5)), .Ok => false, .Err(at) => (at == usize(0))), "5 inserts at 0");
-  assert(match(list.binary_search(i32(99)), .Ok => false, .Err(at) => (at == usize(4))), "99 inserts at end");
+  assert(match(list.binary_search(i32(30)), .Ok(at) => (at == usize(2)), .Err(_) => false), "found 30 at 2");
+  assert(match(list.binary_search(i32(10)), .Ok(at) => (at == usize(0)), .Err(_) => false), "found head");
+  assert(match(list.binary_search(i32(25)), .Ok(_) => false, .Err(at) => (at == usize(2))), "25 inserts at 2");
+  assert(match(list.binary_search(i32(5)), .Ok(_) => false, .Err(at) => (at == usize(0))), "5 inserts at 0");
+  assert(match(list.binary_search(i32(99)), .Ok(_) => false, .Err(at) => (at == usize(4))), "99 inserts at end");
 });
 test("retain keeps order and drops rejects", {
   mut(list) := ArrayList(i32).new();

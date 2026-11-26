@@ -129,7 +129,7 @@ _timer_order :: (fn(io : Io) -> unit)({
   h30.abort();
   _a := h60.await(io);
   _b := h20.await(io);
-  assert(match(h30.await(io), .Some => false, .None => true), "the aborted sleeper never finished");
+  assert(match(h30.await(io), .Some(_) => false, .None => true), "the aborted sleeper never finished");
   _d := h40.await(io);
   assert(order.with(xs => xs.len()) == usize(3), "three sleepers finished");
   assert(order.with(xs => xs(usize(0))) == i32(20), "20 ms first");

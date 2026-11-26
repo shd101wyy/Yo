@@ -177,7 +177,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
               return(Option(String).Some(ast_expr_text(&a0).*.clone()));
             });
           },
-          Rc(.Atom) => ()
+          Rc(.Atom(_, _)) => ()
         );
       });
       if(ast_expr_is_fn_call_of(e, BF_DUP, Option(usize).Some(usize(1))), {
@@ -191,7 +191,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
       });
       Option(String).None
     },
-    Rc(.Atom) => Option(String).None
+    Rc(.Atom(_, _)) => Option(String).None
   )
 );
 // ---------------------------------------------------------------------------
@@ -340,7 +340,7 @@ _m3_max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Tok
       });
       acc
     },
-    Rc(.Atom) => best2
+    Rc(.Atom(_, _)) => best2
   )
 });
 _m3_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) -> Token)({
@@ -369,7 +369,7 @@ _m3_min_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Tok
       });
       acc
     },
-    Rc(.Atom) => best2
+    Rc(.Atom(_, _)) => best2
   )
 });
 /// Whether the token `t` lies within the source span of `node`'s tree. False
@@ -414,7 +414,7 @@ _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &V
             }),
             .None => ()
           ),
-          Rc(.Atom) => ()
+          Rc(.Atom(_, _)) => ()
         );
       }),
       .None => ()
@@ -468,7 +468,7 @@ _m3_arg_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token, c
   _m3_operand_moves_variable(a, variable, ct, ctx) || match(
     a,
     Rc(.FnCall(_, _, Rc(la), _, _)) => (ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) && match(la.get_cloned(usize(1)), .Some(v) => _m3_operand_moves_variable(&v, variable, ct, ctx), .None => false)),
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 _m3_operand_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token, ctx : &EvalContext) -> bool)({
@@ -527,10 +527,10 @@ _m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), var
       ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))) && match(
         func,
         Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(r) => _m3_arg_moves_variable(&r, variable, ct, ctx), .None => false),
-        Rc(.Atom) => false
+        Rc(.Atom(_, _)) => false
       )
     ),
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   );
   if(receiver_moves, {
     return(Option(usize).Some(usize(0)));
@@ -558,7 +558,7 @@ _m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), var
 _m3_note_arg_move_region :: (fn(expr : &AstExpr, variable : &Variable, ct : &Token, ctx : &EvalContext) -> bool)(
   match(
     expr,
-    Rc(.Atom) => false,
+    Rc(.Atom(_, _)) => false,
     Rc(.FnCall(_, func, Rc(args), _, _)) => {
       if(_is_function_boundary_for_early_drop(expr, ctx), {
         return(false);
@@ -631,7 +631,7 @@ _m3_is_binding_statement_at :: (fn(stmt : &AstExpr, init_tok : &Token) -> bool)(
       (ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(stmt, BK_ASSIGN, Option(usize).Some(usize(2))))
       && match(sargs.get_cloned(usize(0)), .Some(lhs) => _m3_has_token_at(&lhs, init_tok), .None => false)
     ),
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 _m3_has_token_at :: (fn(node : &AstExpr, t : &Token) -> bool)({
@@ -654,7 +654,7 @@ _m3_has_token_at :: (fn(node : &AstExpr, t : &Token) -> bool)({
       });
       false
     },
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   )
 });
 /// `stmt` is an assignment statement, so its value, the old value it replaced,
@@ -741,7 +741,7 @@ _is_function_boundary_for_early_drop :: (fn(expr : &AstExpr, _ctx : &EvalContext
       return(true),
       ()
     ),
-    Rc(.Atom) => ()
+    Rc(.Atom(_, _)) => ()
   );
   false
 });
@@ -760,7 +760,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, va
         return(());
       });
       latest := match(vars.last_cloned(), .Some(v) => v, .None => return(()));
-      match(latest.initialized_at_token(), .None => return(()), .Some => ());
+      match(latest.initialized_at_token(), .None => return(()), .Some(_) => ());
       // A parameter is initialized at the function's entry, before every
       // statement of its body; its binding token is synthetic and spells the
       // module path the other way (`file://…`), so it cannot be ordered
@@ -840,7 +840,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
                     bj = (bj + usize(1));
                   });
                 },
-                Rc(.Atom) => ()
+                Rc(.Atom(_, _)) => ()
               );
             }, {
               recur(&arg, variable, drop_expr, consumed, ctx);
@@ -862,7 +862,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
         ai = (ai + usize(1));
       });
     },
-    Rc(.Atom) => ()
+    Rc(.Atom(_, _)) => ()
   )
 });
 /// The loop-exit counterpart of `_attach_early_return_only_drop_to_returns`:
@@ -925,7 +925,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
                     bj = (bj + usize(1));
                   });
                 },
-                Rc(.Atom) => ()
+                Rc(.Atom(_, _)) => ()
               );
             }, {
               recur(&arg, variable, drop_expr, consumed, ctx);
@@ -944,7 +944,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
         ai = (ai + usize(1));
       });
     },
-    Rc(.Atom) => ()
+    Rc(.Atom(_, _)) => ()
   )
 });
 /// Does `e` (following `macro_expansion`) contain an assignment `name = …`?
@@ -1012,7 +1012,12 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
       });
       found
     },
-    Rc(.Atom) => false
+    Rc(
+      .Atom(
+        _,
+        _
+      )
+    ) => false
   )
 );
 /// Whether the call `e` (callee `f`, arguments `fargs`) is a method call whose
@@ -1037,10 +1042,10 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
   if(!receiver_is_mut, {
     return(false);
   });
-  recv := match(f, Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(r) => r, .None => return(false)), Rc(.Atom) => return(false));
+  recv := match(f, Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(r) => r, .None => return(false)), Rc(.Atom(_, _)) => return(false));
   recv_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
-    .Some(ri) => match(ri.value(), .Some(Rc(.TypeVal)) => true, .Some(Rc(.FuncVal)) => true, _ => false),
+    .Some(ri) => match(ri.value(), .Some(Rc(.TypeVal(_))) => true, .Some(Rc(.FuncVal(_, _))) => true, _ => false),
     .None => false
   );
   self_arg := if(recv_is_type, match(fargs.get_cloned(usize(0)), .Some(a0) => ast_expr_strip_borrow_marker(&a0), .None => return(false)), recv);
@@ -1150,7 +1155,7 @@ _ic_jump_kind :: (fn(e : &AstExpr) -> Option(bool))(
 _ic_while_runs_body :: (fn(args : &ArrayList(AstExpr)) -> bool)(
   match(
     args.get_cloned(usize(0)),
-    .Some(c) => (ast_expr_is_atom_of(&c, "true") || (ast_expr_is_fn_call_of(&c, "runtime", Option(usize).Some(usize(1))) && match(c, Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(cargs.get_cloned(usize(0)), .Some(c0) => ast_expr_is_atom_of(&c0, "true"), .None => false), Rc(.Atom) => false))),
+    .Some(c) => (ast_expr_is_atom_of(&c, "true") || (ast_expr_is_fn_call_of(&c, "runtime", Option(usize).Some(usize(1))) && match(c, Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(cargs.get_cloned(usize(0)), .Some(c0) => ast_expr_is_atom_of(&c0, "true"), .None => false), Rc(.Atom(_, _)) => false))),
     .None => false
   )
 );
@@ -1315,7 +1320,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
                   });
                 });
               },
-              Rc(.Atom) => ()
+              Rc(.Atom(_, _)) => ()
             );
           }, {
             recur(&arm, v, site, acc, ctx);
@@ -1654,7 +1659,7 @@ _is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
     ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
       h,
       Rc(.FnCall(_, _, Rc(hargs), _, _)) => match(hargs.get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     )
   );
   cond(
@@ -1662,7 +1667,7 @@ _is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
     true => match(
       e,
       Rc(.FnCall(_, func, _, _, _)) => head_ok(&func.*),
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     )
   )
 });
@@ -1676,7 +1681,7 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
         .Some(a) => (ast_expr_is_atom(&a) && (ast_expr_token(&a).value.* == name.*)),
         .None => false
       ),
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     );
     if(is_it, {
       return(true);
@@ -1703,7 +1708,7 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
       });
       false
     },
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   )
 });
 /// The evaluated result expression `e` has a second-class type (a borrow).
@@ -1736,7 +1741,7 @@ _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
       .FunctionBody => match(
         &fb_ctx.func_type,
         .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box.*)),
-        .Some => Option(TypeValue).None,
+        .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
       _ => Option(TypeValue).None
@@ -1769,7 +1774,7 @@ _variant_local_hint :: (
   if(!ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))), {
     return(Option(ExpectedTypeCtx).None);
   });
-  sargs := match(stmt, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+  sargs := match(stmt, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   lhs := match(sargs.get_cloned(usize(0)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs := match(sargs.get_cloned(usize(1)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs_is_async := is_io_async_call(&rhs);
@@ -1833,7 +1838,7 @@ _stmt_always_exits :: (fn(e : &AstExpr) -> bool)(
         // `{ a; return(x); }` parses with a trailing `tuple()` after the last
         // `;`: the block's last STATEMENT is what decides.
         (k : usize) = args.len();
-        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(&args(k - usize(1)), Rc(.Atom(_, ut)) => (ut.value.* == "()"), Rc(.FnCall) => false)), {
+        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(&args(k - usize(1)), Rc(.Atom(_, ut)) => (ut.value.* == "()"), Rc(.FnCall(_, _, _, _, _)) => false)), {
           k = (k - usize(1));
         });
         (k > usize(0)) && _stmt_always_exits(&args(k - usize(1)))
@@ -1852,7 +1857,7 @@ _stmt_always_exits :: (fn(e : &AstExpr) -> bool)(
               Rc(.FnCall(_, _, Rc(aargs), _, _)) => if(!_stmt_always_exits(&aargs(usize(1))), {
                 all_exit = false;
               }),
-              Rc(.Atom) => ()
+              Rc(.Atom(_, _)) => ()
             );
           });
           i = (i + usize(1));
@@ -1991,7 +1996,7 @@ _evaluate_begin_expression_impl :: (
   begin_args := if(is_begin_call, match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
-    Rc(.Atom) => ArrayList(AstExpr).new()
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   ), {
     single := ArrayList(AstExpr).new();
     single.push(Rc.clone(expr.*));
@@ -2101,7 +2106,7 @@ _evaluate_begin_expression_impl :: (
         is_return_call && match(
           Rc.clone(expr_to_eval),
           Rc(.FnCall(_, _, Rc(ret_call_args), _, _)) => (ret_call_args.len() == usize(0)),
-          Rc(.Atom) => false
+          Rc(.Atom(_, _)) => false
         )
       )
     );
@@ -2143,7 +2148,7 @@ _evaluate_begin_expression_impl :: (
           ret_arg := match(
             Rc.clone(expr_to_eval),
             Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-            Rc(.Atom) => make_err_expr()
+            Rc(.Atom(_, _)) => make_err_expr()
           );
           // Decision 18 rule 1 (decision 38 A): a local borrow is
           // second-class and never crosses the function boundary.
@@ -2181,7 +2186,7 @@ _evaluate_begin_expression_impl :: (
                 &fb_ctx.func_type,
                 // A projection returns its place's address (decision 24).
                 .Some(Rc(.Func({ result : ret_slot }))) => Option(TypeValue).Some(if(t_slot_is_borrow(&ret_slot.*), t_ptr(&t_slot_pointee(&ret_slot.*)), Rc.clone(t_slot_pointee(&ret_slot.*)))),
-                .Some => Option(TypeValue).None,
+                .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
               _ => Option(TypeValue).None
@@ -2326,7 +2331,7 @@ _evaluate_begin_expression_impl :: (
               .FunctionBody => match(
                 &ir_fb.func_type,
                 .Some(Rc(.Func({ result : ir_ret }))) => is_some_type(&t_slot_pointee(&ir_ret.*)),
-                .Some => false,
+                .Some(_) => false,
                 .None => false
               ),
               _ => false
@@ -2478,7 +2483,7 @@ _evaluate_begin_expression_impl :: (
         esc_n_args := match(
           Rc.clone(expr_to_eval),
           Rc(.FnCall(_, _, Rc(esc_args0), _, _)) => esc_args0.len(),
-          Rc(.Atom) => usize(0)
+          Rc(.Atom(_, _)) => usize(0)
         );
         // At most one argument.
         if(esc_n_args > usize(1), {
@@ -2520,7 +2525,7 @@ _evaluate_begin_expression_impl :: (
           esc_arg := match(
             Rc.clone(expr_to_eval),
             Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-            Rc(.Atom) => make_err_expr()
+            Rc(.Atom(_, _)) => make_err_expr()
           );
           // Propagate the enclosing function's return type as the expected type.
           old_expected := ctx.expected_type.clone();
@@ -2742,7 +2747,7 @@ _evaluate_begin_expression_impl :: (
             &ev_info_opt,
             .Some(ei) => match(
               ei.value(),
-              .Some(v) => match(v, Rc(.UnknownVal) => true, _ => false),
+              .Some(v) => match(v, Rc(.UnknownVal(_, _)) => true, _ => false),
               .None => false
             ),
             .None => false
@@ -2830,7 +2835,7 @@ _evaluate_begin_expression_impl :: (
                       match(
                         Rc.clone(last_expr),
                         Rc(.FnCall(_, _, Rc(rv_args), _, _)) => match(rv_args.get_cloned(usize(0)), .Some(rv_value) => reject_bare_callable_into_dyn_fn(&expected_ret, &return_type, &rv_value, String.from("the result"), ctx, exn), .None => ()),
-                        Rc(.Atom) => ()
+                        Rc(.Atom(_, _)) => ()
                       );
                     });
                     synth_ok := _try_synthesize_return_type(&expected_ret, &return_type, &env);
@@ -2901,7 +2906,7 @@ _evaluate_begin_expression_impl :: (
     is_return_with_arg => match(
       Rc.clone(re_base),
       Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(re_base)),
-      Rc(.Atom) => Rc.clone(re_base)
+      Rc(.Atom(_, _)) => Rc.clone(re_base)
     ),
     true => re_base
   );
@@ -3346,7 +3351,7 @@ _evaluate_begin_expression_impl :: (
                 .None => {
                   skip = true;
                 },
-                .Some => ()
+                .Some(_) => ()
               );
               if(!skip, {
                 wspan := Span(

@@ -69,7 +69,7 @@ make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       unsafe(snprintf((*char)(addr_of(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
       IO_tcp.make_sockaddr_in(addr_of(buf(usize(0))), addr.port)
     },
-    .V6 => {
+    .V6(_) => {
       // Render the real address text. `to_string` emits the RFC 5952 canonical
       // form (with `::` compression) as of 2026-09-14, and `inet_pton` accepts
       // that identically to the uncompressed form — measured both ways, see

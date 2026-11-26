@@ -498,7 +498,7 @@ test("dropping a Child closes the pipe ends it still holds", {
     ),
     io
   );
-  assert(match(got, .Ok(s) => s.is_empty(), .Err => false), "cat saw EOF on its stdin once the Child dropped");
+  assert(match(got, .Ok(s) => s.is_empty(), .Err(_) => false), "cat saw EOF on its stdin once the Child dropped");
 });
 test("taking a stream moves the fd out of the Child", {
   if(platform == Platform.Windows, {

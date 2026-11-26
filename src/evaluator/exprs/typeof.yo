@@ -59,7 +59,7 @@ evaluate_typeof :: (
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    Rc(.Atom) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // Recursively evaluate the argument.
   evaluated := evaluate_expression_raw(&type_expr, env, ctx, exn);
@@ -79,7 +79,7 @@ evaluate_typeof :: (
         )
       );
     },
-    .Some => ()
+    .Some(_) => ()
   );
   info := match(
     info_opt,

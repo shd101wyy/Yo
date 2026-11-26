@@ -74,7 +74,7 @@ test("Channel try_recv returns value when available", {
 test("Channel try_recv on an OPEN empty channel is Empty, not Disconnected", {
   ch := Channel(i32).new(usize(5));
   assert(
-    match(ch.try_recv(), .Ok => false, .Err(e) => (e == TryRecvError.Empty)),
+    match(ch.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Empty)),
     "an open channel with nothing buffered says Empty — retry later"
   );
 });
@@ -82,7 +82,7 @@ test("Channel try_recv on a CLOSED drained channel is Disconnected", {
   ch := Channel(i32).new(usize(5));
   ch.close();
   assert(
-    match(ch.try_recv(), .Ok => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(ch.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "a closed, drained channel says Disconnected — stop polling"
   );
 });
@@ -95,9 +95,9 @@ test("TryRecvError distinguishes the two cases a poller must act on", {
   second := ch.try_recv();
   ch.close();
   third := ch.try_recv();
-  assert(match(first, .Err(e) => (e == TryRecvError.Empty), .Ok => false), "before any send: Empty");
-  assert(match(second, .Ok(v) => (v == i32(5)), .Err => false), "after a send: the value");
-  assert(match(third, .Err(e) => (e == TryRecvError.Disconnected), .Ok => false), "after close: Disconnected");
+  assert(match(first, .Err(e) => (e == TryRecvError.Empty), .Ok(_) => false), "before any send: Empty");
+  assert(match(second, .Ok(v) => (v == i32(5)), .Err(_) => false), "after a send: the value");
+  assert(match(third, .Err(e) => (e == TryRecvError.Disconnected), .Ok(_) => false), "after close: Disconnected");
   assert(TryRecvError.Empty != TryRecvError.Disconnected, "and the two are distinguishable");
 });
 // ============================================================================
@@ -130,7 +130,7 @@ test("Channel send to closed channel returns the value back", {
   match(
     r,
     .Err(v) => assert(v == i32(7), "the unsent value comes back in Err"),
-    .Ok => assert(false, "send to closed channel must fail")
+    .Ok(_) => assert(false, "send to closed channel must fail")
   );
 });
 test("Channel try_send to full channel returns the value back", {
@@ -140,7 +140,7 @@ test("Channel try_send to full channel returns the value back", {
   match(
     r,
     .Err(v) => assert(v == i32(2), "the unsent value comes back in Err"),
-    .Ok => assert(false, "try_send to full channel must fail")
+    .Ok(_) => assert(false, "try_send to full channel must fail")
   );
   assert(ch.recv().unwrap() == i32(1), "buffered value is untouched");
 });
@@ -167,7 +167,7 @@ test("Channel try_recv drains remaining values after close", {
   assert(val.unwrap() == i32(100), "value should be 100");
   val2 := ch.try_recv();
   assert(
-    match(val2, .Ok => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(val2, .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "once drained AND closed it is Disconnected, not merely Empty"
   );
 });
@@ -473,7 +473,7 @@ test("values queued when the last Sender drops are still received first", {
   assert(rx.recv().unwrap() == i32(7), "buffered 7 survives the close");
   assert(rx.recv().unwrap() == i32(8), "buffered 8 survives the close");
   assert(
-    match(rx.recv(), .Ok => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(rx.recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "only THEN is it Disconnected"
   );
 });
@@ -482,14 +482,14 @@ test("Receiver.try_recv is Empty while open and Disconnected once senders are go
   {
     tx := rx.sender();
     assert(
-      match(rx.try_recv(), .Ok => false, .Err(e) => (e == TryRecvError.Empty)),
+      match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Empty)),
       "open and empty says Empty — the producer may still send"
     );
     assert(tx.send(i32(3)).is_ok(), "send one");
   };
-  assert(match(rx.try_recv(), .Ok(v) => (v == i32(3)), .Err => false), "the buffered value first");
+  assert(match(rx.try_recv(), .Ok(v) => (v == i32(3)), .Err(_) => false), "the buffered value first");
   assert(
-    match(rx.try_recv(), .Ok => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "closed AND drained says Disconnected — stop polling"
   );
 });
@@ -504,12 +504,12 @@ test("send fails once the Receiver has been dropped", {
   match(
     tx.send(i32(9)),
     .Err(v) => assert(v == i32(9), "the unsent value is handed back"),
-    .Ok => assert(false, "a send with no receiver must fail, not block")
+    .Ok(_) => assert(false, "a send with no receiver must fail, not block")
   );
   match(
     tx.try_send(i32(10)),
     .Err(v) => assert(v == i32(10), "try_send fails the same way"),
-    .Ok => assert(false, "try_send with no receiver must fail")
+    .Ok(_) => assert(false, "try_send with no receiver must fail")
   );
 });
 test("dropping the last Sender wakes a Receiver already blocked in recv", {
@@ -650,7 +650,7 @@ test("a sender per thread: the last one to finish closes the channel", {
   });
   assert(sum == i32(9), "both workers' values arrived before the close");
   assert(
-    match(rx.try_recv(), .Ok => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "and the drained channel reports Disconnected"
   );
 });

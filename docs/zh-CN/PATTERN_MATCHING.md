@@ -73,7 +73,7 @@ classify :: (fn(r : Result(Option(i32), str)) -> i32)(
     .Ok(.Some(v)) => v,
     .Ok(.None) => i32(-2),
     (.Err("timeout") | .Err("closed")) => i32(-3),
-    .Err => i32(-4)
+    .Err(_) => i32(-4)
   )
 );
 
@@ -149,7 +149,7 @@ leaves :: (fn(t : Tree) -> i32)(
   match(
     t,
     .Node(Rc(.Leaf(a)), Rc(.Leaf(b))) => (a + b),
-    .Node => i32(-1),
+    .Node(_, _) => i32(-1),
     .Leaf(n) => n
   )
 );

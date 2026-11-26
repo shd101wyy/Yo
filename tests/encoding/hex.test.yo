@@ -66,7 +66,7 @@ test("hex.decode reports WHICH error (D13)", {
   assert(
     match(
       hex.decode(`abc`),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .OddLength({ len }) => (len == usize(3)), _ => false)
     ),
     "odd length is OddLength carrying the length seen"
@@ -74,7 +74,7 @@ test("hex.decode reports WHICH error (D13)", {
   assert(
     match(
       hex.decode(`xxyz`),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .InvalidChar({ ch }) => (ch == u8(120)), _ => false)
     ),
     "a bad digit is InvalidChar carrying the offending byte 'x'"
@@ -115,7 +115,7 @@ test("hex.decode reports WHERE the bad digit was", {
   assert(
     match(
       hex.decode(`00ff2g11`),
-      .Ok => false,
+      .Ok(_) => false,
       // The 'g' is the 6th byte of the input, index 5.
       .Err(e) => match(e, .InvalidChar({ ch, pos }) => ((ch == u8(103)) && (pos == usize(5))), _ => false)
     ),
@@ -126,18 +126,18 @@ test("hex.decode reports WHERE the bad digit was", {
   assert(
     match(
       hex.decode(`00zf`),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .InvalidChar({ pos }) => (pos == usize(2)), _ => false)
     ),
     "a high-nibble fault reports its own index"
   );
   // And `pos()` gives it without matching, for the variants that have one.
   assert(
-    match(hex.decode(`0z`), .Ok => false, .Err(e) => (e.pos().unwrap() == usize(1))),
+    match(hex.decode(`0z`), .Ok(_) => false, .Err(e) => (e.pos().unwrap() == usize(1))),
     "EncodingError.pos() reads the offset"
   );
   assert(
-    match(hex.decode(`abc`), .Ok => false, .Err(e) => e.pos().is_none()),
+    match(hex.decode(`abc`), .Ok(_) => false, .Err(e) => e.pos().is_none()),
     "a whole-input length complaint has no single position"
   );
 });

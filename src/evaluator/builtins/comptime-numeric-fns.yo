@@ -526,7 +526,7 @@ evaluate_yo_comptime_numeric_functions :: (
           lhs_val,
           .Some(Rc(.IntLit(raw))) => Rc.new(EvalValueNode.StrLit(str_lit_quote(&raw))),
           .Some(Rc(.FloatLit(raw))) => Rc.new(EvalValueNode.StrLit(str_lit_quote(&raw))),
-          .Some => create_unknown_val(t_comptime_string()),
+          .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         );
       },
@@ -585,13 +585,13 @@ evaluate_yo_comptime_numeric_functions :: (
       lhs_f := match(
         lhs_val,
         .Some(Rc(.FloatLit(raw))) => parse_raw_float(&raw),
-        .Some => Option(f64).None,
+        .Some(_) => Option(f64).None,
         .None => Option(f64).None
       );
       rhs_f := match(
         rhs_val,
         .Some(Rc(.FloatLit(raw))) => parse_raw_float(&raw),
-        .Some => Option(f64).None,
+        .Some(_) => Option(f64).None,
         .None => Option(f64).None
       );
       cond(
@@ -692,13 +692,13 @@ evaluate_yo_comptime_numeric_functions :: (
       lhs_n := match(
         lhs_val,
         .Some(Rc(.IntLit(raw))) => parse_raw_int(&raw),
-        .Some => Option(i64).None,
+        .Some(_) => Option(i64).None,
         .None => Option(i64).None
       );
       rhs_n := match(
         rhs_val,
         .Some(Rc(.IntLit(raw))) => parse_raw_int(&raw),
-        .Some => Option(i64).None,
+        .Some(_) => Option(i64).None,
         .None => Option(i64).None
       );
       // Comptime integers are carried as `i64`, so a `u64`/`usize` value above

@@ -131,7 +131,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
         i = (i + usize(1));
       });
     },
-    Rc(.Atom) => ()
+    Rc(.Atom(_, _)) => ()
   );
   // Macro expansion.
   match(
@@ -262,8 +262,8 @@ collect_effect_record_members :: (fn(mv : &EvalValue, context : &mut CodeGenCont
 _callee_token_value :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
-    Rc(.FnCall(_, func_box, _, _, _)) => match(func_box, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall) => String.from("")),
-    Rc(.Atom) => String.from("")
+    Rc(.FnCall(_, func_box, _, _, _)) => match(func_box, Rc(.Atom(_, tok)) => tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")),
+    Rc(.Atom(_, _)) => String.from("")
   )
 );
 /// Register the callee as an extern "c"/"yo" function when its type carries
@@ -441,10 +441,10 @@ _is_generic_unspecialized_func :: (fn(v : &EvalValue) -> bool)({
       while(tp_i < param_types.len(), {
         match(
           slot_pointee_at(&param_types, tp_i),
-          .Some(Rc(.TypeUni)) => {
+          .Some(Rc(.TypeUni(_))) => {
             has_type_param = true;
           },
-          .Some => (),
+          .Some(_) => (),
           .None => ()
         );
         tp_i = (tp_i + usize(1));
@@ -660,7 +660,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
     match(
       &ei_opt,
       .Some(uei) => match(
-        match(expr, Rc(.FnCall(_, _, Rc(uargs), _, _)) => uargs.get_cloned(usize(0)), Rc(.Atom) => Option(AstExpr).None),
+        match(expr, Rc(.FnCall(_, _, Rc(uargs), _, _)) => uargs.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
         .Some(usrc) => match(
           expr_info_table_get(info, ast_expr_id(&usrc)),
           .Some(usei) => {
@@ -790,7 +790,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
       // gets a C name (the same collection the dyn path does for
       // trait-value methods).
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
-        cdot_args := match(Rc.clone(callee), Rc(.FnCall(_, _, Rc(da), _, _)) => da.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+        cdot_args := match(Rc.clone(callee), Rc(.FnCall(_, _, Rc(da), _, _)) => da.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
         recv_ty := match(cdot_args.get_cloned(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty()), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
         cmname := match(cdot_args.get_cloned(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_text(&m).*.clone(), String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
@@ -1091,8 +1091,8 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
             // to the source arg for non-auto-boxed dyns.
             varg_opt := match(
               &ei.runtime_arg_exprs_in_order(),
-              .Some(ra) => match(ra.get_cloned(usize(0)), .Some(p) => Option(AstExpr).Some(p), .None => match(expr, Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(0)), Rc(.Atom) => Option(AstExpr).None)),
-              .None => match(expr, Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(0)), Rc(.Atom) => Option(AstExpr).None)
+              .Some(ra) => match(ra.get_cloned(usize(0)), .Some(p) => Option(AstExpr).Some(p), .None => match(expr, Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None)),
+              .None => match(expr, Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None)
             );
             match(
               varg_opt,

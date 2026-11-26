@@ -279,10 +279,10 @@ new_pattern_ctx :: (fn(arm_id : usize, ct_scrutinee : bool) -> PatternCtx)(
   PatternCtx(arm_id : arm_id, counter : usize(0), ct_scrutinee : ct_scrutinee, binds : ArrayList(BindInfo).new())
 );
 _args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 _func_of :: (fn(e : &AstExpr) -> Option(AstExpr))(
-  match(e, Rc(.FnCall(_, f, _, _, _)) => Option(AstExpr).Some(Rc.clone(f.*)), Rc(.Atom) => Option(AstExpr).None)
+  match(e, Rc(.FnCall(_, f, _, _, _)) => Option(AstExpr).Some(Rc.clone(f.*)), Rc(.Atom(_, _)) => Option(AstExpr).None)
 );
 _atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.*.clone());
 /// A token for a synthesized node, positioned at `base`.
@@ -387,12 +387,12 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
   });
   match(
     v.value().get(usize(0)),
-    .Some(Rc(.IntLit)) => true,
-    .Some(Rc(.FloatLit)) => true,
-    .Some(Rc(.BoolVal)) => true,
-    .Some(Rc(.StrLit)) => true,
-    .Some(Rc(.EnumVal)) => true,
-    .Some => false,
+    .Some(Rc(.IntLit(_))) => true,
+    .Some(Rc(.FloatLit(_))) => true,
+    .Some(Rc(.BoolVal(_))) => true,
+    .Some(Rc(.StrLit(_))) => true,
+    .Some(Rc(.EnumVal(_, _))) => true,
+    .Some(_) => false,
     .None => false
   )
 });
@@ -1283,7 +1283,7 @@ _compile_tuple :: (
   (elem_vals : Option(ValueCell)) = match(
     value_opt,
     .Some(Rc(.TupleVal(fs))) => Option(ValueCell).Some(Rc.clone(fs)),
-    .Some => Option(ValueCell).None,
+    .Some(_) => Option(ValueCell).None,
     .None => Option(ValueCell).None
   );
   subs := ArrayList(Pattern).new();
@@ -1325,7 +1325,7 @@ _compile_struct :: (
   (field_vals : Option(ValueCell)) = match(
     value_opt,
     .Some(Rc(.StructVal(_, _, fvs))) => Option(ValueCell).Some(Rc.clone(fvs)),
-    .Some => Option(ValueCell).None,
+    .Some(_) => Option(ValueCell).None,
     .None => Option(ValueCell).None
   );
   match(
@@ -1489,7 +1489,7 @@ _compile_struct :: (
 /// position's type for the anonymous form).
 _struct_type_name_for_err :: (fn(struct_ty : &TypeValue, ty_named : &Option(TypeValue)) -> String)({
   base := cond(
-    match(ty_named, .Some => true, .None => false) => _struct_type_name_text(struct_ty),
+    match(ty_named, .Some(_) => true, .None => false) => _struct_type_name_text(struct_ty),
     true => type_to_string(struct_ty)
   );
   out := String.from("struct ");
@@ -1720,7 +1720,7 @@ compile_pattern :: (
       inner_val := match(
         value_opt,
         .Some(Rc(.StructVal(_, _, fvs))) => if(is_unique_box_type(&cell_ty) || cell_handle_view(&cell_ty).is_some(), Option(EvalValue).None, fvs.get(usize(0))),
-        .Some => Option(EvalValue).None,
+        .Some(_) => Option(EvalValue).None,
         .None => Option(EvalValue).None
       );
       sub_expr := match(_args_of(e).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -1854,7 +1854,7 @@ compile_pattern :: (
           first_binds = Option(ArrayList(BindInfo)).Some(alt_binds);
           first_names = alt_names;
         },
-        .Some => {
+        .Some(_) => {
           if(!_same_names(&first_names, &alt_names), {
             exn.throw(
               dyn(
@@ -1910,7 +1910,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
   match(
     p,
     .Wildcard => Option(bool).Some(true),
-    .Bind => Option(bool).Some(true),
+    .Bind(_, _, _) => Option(bool).Some(true),
     .Const(_, _, _, _, test) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test.*)),
       .Some(ti) => match(
@@ -2091,7 +2091,7 @@ _classic_variant_sub :: (fn(sub : &Pattern, ast_params : &ArrayList(AstExpr), i 
   match(
     sub,
     .Wildcard => true,
-    .Bind => true,
+    .Bind(_, _, _) => true,
     .Const(_, _, src, _, _) => {
       // The pre-IR emitters compare only POSITIONAL numeric/bool
       // literals in place; a labeled or curly literal was rejected.
@@ -2110,7 +2110,7 @@ _classic_variant_sub :: (fn(sub : &Pattern, ast_params : &ArrayList(AstExpr), i 
 _pattern_is_const_or_or :: (fn(p : &Pattern) -> bool)(
   match(
     p,
-    .Const => true,
+    .Const(_, _, _, _, _) => true,
     .Or(alts) => {
       (ok : bool) = true;
       (i : usize) = usize(0);
@@ -2133,7 +2133,7 @@ arm_is_classic :: (fn(pattern_ast : &AstExpr, p : &Pattern, has_guard : bool, pr
   match(
     p,
     .Wildcard => ast_expr_is_atom_of(pattern_ast, "_"),
-    .Variant => (_ast_is_classic_variant(pattern_ast) && _pattern_subs_classic(p, _args_of(pattern_ast))),
+    .Variant(_, _, _, _, _, _, _) => (_ast_is_classic_variant(pattern_ast) && _pattern_subs_classic(p, _args_of(pattern_ast))),
     _ => false
   )
 });

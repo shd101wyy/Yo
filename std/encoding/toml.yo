@@ -372,31 +372,31 @@ impl(
   ),
   /// True for a TOML string.
   is_string : (fn(self : &Self) -> bool)(
-    match(self, .Str => true, _ => false)
+    match(self, .Str(_) => true, _ => false)
   ),
   /// True for a TOML integer.
   is_int : (fn(self : &Self) -> bool)(
-    match(self, .Int => true, _ => false)
+    match(self, .Int(_) => true, _ => false)
   ),
   /// True for a TOML float.
   is_float : (fn(self : &Self) -> bool)(
-    match(self, .Float => true, _ => false)
+    match(self, .Float(_) => true, _ => false)
   ),
   /// True for a TOML boolean.
   is_bool : (fn(self : &Self) -> bool)(
-    match(self, .Bool => true, _ => false)
+    match(self, .Bool(_) => true, _ => false)
   ),
   /// True for a TOML date-time of any of the four forms.
   is_datetime : (fn(self : &Self) -> bool)(
-    match(self, .Datetime => true, _ => false)
+    match(self, .Datetime(_) => true, _ => false)
   ),
   /// True for a TOML array.
   is_array : (fn(self : &Self) -> bool)(
-    match(self, .Array => true, _ => false)
+    match(self, .Array(_) => true, _ => false)
   ),
   /// True for a TOML table.
   is_table : (fn(self : &Self) -> bool)(
-    match(self, .Table => true, _ => false)
+    match(self, .Table(_, _) => true, _ => false)
   )
 );
 export(TomlValue);
@@ -562,7 +562,7 @@ impl(
         (b == _HASH) => {
           _skipped := match(
             self.skip_spaces_comment(),
-            .Ok => true,
+            .Ok(_) => true,
             .Err(e) => {
               return(Result(unit, TomlError).Err(e));
             }
@@ -581,7 +581,7 @@ impl(
   expect_line_end : (fn(self : &mut Self) -> Result(unit, TomlError))({
     _skipped := match(
       self.skip_spaces_comment(),
-      .Ok => true,
+      .Ok(_) => true,
       .Err(e) => {
         return(Result(unit, TomlError).Err(e));
       }
@@ -856,7 +856,7 @@ _parse_quoted_string :: (
       ((b == _BACKSLASH) && escapes) => {
         _esc := match(
           _read_escape(p, &mut bytes, multiline),
-          .Ok => true,
+          .Ok(_) => true,
           .Err(e) => {
             return(Result(String, TomlError).Err(e));
           }
@@ -1610,7 +1610,7 @@ _parse_datetime :: (fn(p : &mut _Parser) -> Result(TomlValue, TomlError))({
     .Ok(dt) => Result(TomlValue, TomlError).Ok(
       TomlValue.Datetime(TomlDateTime(kind : kind, value : dt))
     ),
-    .Err => bad
+    .Err(_) => bad
   )
 });
 // ============================================================================
@@ -1643,7 +1643,7 @@ _key_index :: (fn(keys : &ArrayList(String), key : &String) -> Option(usize))({
 _slot_of :: (fn(v : &TomlValue) -> _Slot)(
   match(
     v,
-    .Table => _Slot.Table,
+    .Table(_, _) => _Slot.Table,
     .Array(items) => _Slot.Array(len : items.len()),
     _ => _Slot.Other
   )
@@ -1832,7 +1832,7 @@ _parse_value :: (fn(p : &mut _Parser) -> Result(TomlValue, TomlError))({
       while(!closed, {
         _sk := match(
           p.skip_ws_lines(),
-          .Ok => true,
+          .Ok(_) => true,
           .Err(e) => {
             return(Result(TomlValue, TomlError).Err(e));
           }
@@ -1856,7 +1856,7 @@ _parse_value :: (fn(p : &mut _Parser) -> Result(TomlValue, TomlError))({
             items.push(v);
             _sk2 := match(
               p.skip_ws_lines(),
-              .Ok => true,
+              .Ok(_) => true,
               .Err(e) => {
                 return(Result(TomlValue, TomlError).Err(e));
               }
@@ -1941,7 +1941,7 @@ _parse_value :: (fn(p : &mut _Parser) -> Result(TomlValue, TomlError))({
             );
             _ins := match(
               _insert_inline(&mut tbl, &keys, v, &mut dotted, kv_pos),
-              .Ok => true,
+              .Ok(_) => true,
               .Err(e) => {
                 return(Result(TomlValue, TomlError).Err(e));
               }
@@ -2284,7 +2284,7 @@ _parse_document :: (fn(p : &mut _Parser) -> Result(TomlValue, TomlError))({
   while(going, {
     _sk := match(
       p.skip_ws_lines(),
-      .Ok => true,
+      .Ok(_) => true,
       .Err(e) => {
         return(Result(TomlValue, TomlError).Err(e));
       }
@@ -2296,14 +2296,14 @@ _parse_document :: (fn(p : &mut _Parser) -> Result(TomlValue, TomlError))({
       (p.cur_byte() == _LBRACKET) => {
         _h := match(
           _parse_header(p, &mut root),
-          .Ok => true,
+          .Ok(_) => true,
           .Err(e) => {
             return(Result(TomlValue, TomlError).Err(e));
           }
         );
         _le := match(
           p.expect_line_end(),
-          .Ok => true,
+          .Ok(_) => true,
           .Err(e) => {
             return(Result(TomlValue, TomlError).Err(e));
           }
@@ -2312,14 +2312,14 @@ _parse_document :: (fn(p : &mut _Parser) -> Result(TomlValue, TomlError))({
       true => {
         _kv := match(
           _parse_keyval(p, &mut root),
-          .Ok => true,
+          .Ok(_) => true,
           .Err(e) => {
             return(Result(TomlValue, TomlError).Err(e));
           }
         );
         _le2 := match(
           p.expect_line_end(),
-          .Ok => true,
+          .Ok(_) => true,
           .Err(e) => {
             return(Result(TomlValue, TomlError).Err(e));
           }

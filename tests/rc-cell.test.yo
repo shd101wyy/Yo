@@ -94,7 +94,7 @@ test("nested patterns look through an Rc payload", {
     match(
       c,
       .Value(Rc(42)) => i32(1),
-      .Value => i32(2),
+      .Value(_) => i32(2),
       .Empty => i32(0)
     )
   );
@@ -234,7 +234,7 @@ test("a value enum holding a recursive enum field (RC-cycle analysis)", {
     .Boxed(_, t) => {
       assert(_nest_sum(t) == i32(9), "a recursive enum field inside a value enum");
     },
-    .Plain => ()
+    .Plain(_) => ()
   );
 });
 _WrapS :: enum(Empty, Has(s : String));
@@ -348,7 +348,7 @@ test("an Rc of an enum whose only payload is an Rc keeps its own count", {
   assert(payload_rc == usize(1), "the payload has its own count: only the variant field holds it");
   n := match(&alias.*, .Held(q) => q.n, .Vacant => i32(0));
   assert(n == i32(7), "payload read through the alias");
-  assert(match(_Slot.Vacant, .Vacant => true, .Held => false), "payload-free variant");
+  assert(match(_Slot.Vacant, .Vacant => true, .Held(_) => false), "payload-free variant");
 });
 _Ctr :: enum(Zero, Active(count : i32, step : i32));
 _bump_ctr :: (fn(c : &mut _Ctr) -> unit)({

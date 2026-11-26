@@ -370,8 +370,8 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
           ),
         _ => false
       ),
-    .FuncVal => false,
-    .ReturnVal => false,
+    .FuncVal(_, _) => false,
+    .ReturnVal(_, _) => false,
     .BreakVal => match(b, .BreakVal => true, _ => false),
     .ContinueVal => match(b, .ContinueVal => true, _ => false),
     .TypeVal(at) =>
@@ -884,7 +884,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `comptime_list(${parts_cl})`
     },
-    Rc(.ExprVal) => String.from("<expr>"),
+    Rc(.ExprVal(_)) => String.from("<expr>"),
     Rc(.UnknownVal(ty, _)) => {
       ts := type_to_string(&ty.*);
       `<unknown: ${ts}>`
@@ -895,30 +895,30 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
 // Type predicate functions
 // ---------------------------------------------------------------------------
 is_unit_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.UnitVal) => true, _ => false));
-is_bool_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.BoolVal) => true, _ => false));
-is_int_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.IntLit) => true, _ => false));
-is_float_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.FloatLit) => true, _ => false));
-is_str_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StrLit) => true, _ => false));
-is_var_ref :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.VarRef) => true, _ => false));
-is_enum_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.EnumVal) => true, _ => false));
-is_func_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.FuncVal) => true, _ => false));
-is_return_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ReturnVal) => true, _ => false));
+is_bool_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.BoolVal(_)) => true, _ => false));
+is_int_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.IntLit(_)) => true, _ => false));
+is_float_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.FloatLit(_)) => true, _ => false));
+is_str_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StrLit(_)) => true, _ => false));
+is_var_ref :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.VarRef(_)) => true, _ => false));
+is_enum_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.EnumVal(_, _)) => true, _ => false));
+is_func_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.FuncVal(_, _)) => true, _ => false));
+is_return_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ReturnVal(_, _)) => true, _ => false));
 is_break_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.BreakVal) => true, _ => false));
 is_continue_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ContinueVal) => true, _ => false));
-is_type_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TypeVal) => true, _ => false));
-is_struct_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StructVal) => true, _ => false));
+is_type_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TypeVal(_)) => true, _ => false));
+is_struct_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StructVal(_, _, _)) => true, _ => false));
 /// True for source-namespace struct values (anonymous modules / imports).
 /// Modules are StructValues with a
 /// source-namespace type (plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md); the
 /// generated `source_namespace_` ty_name prefix is the value-side marker.
 is_module_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StructVal(n, _, _)) => n.starts_with(`source_namespace_`), _ => false));
-is_tuple_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TupleVal) => true, _ => false));
-is_array_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ArrayVal) => true, _ => false));
-is_ptr_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.PtrVal) => true, _ => false));
-is_trait_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TraitVal) => true, _ => false));
-is_comptime_list_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ComptimeListVal) => true, _ => false));
-is_expr_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ExprVal) => true, _ => false));
-is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.UnknownVal) => true, _ => false));
+is_tuple_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TupleVal(_)) => true, _ => false));
+is_array_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ArrayVal(_)) => true, _ => false));
+is_ptr_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.PtrVal(_, _, _)) => true, _ => false));
+is_trait_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TraitVal(_, _, _)) => true, _ => false));
+is_comptime_list_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ComptimeListVal(_)) => true, _ => false));
+is_expr_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ExprVal(_)) => true, _ => false));
+is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.UnknownVal(_, _)) => true, _ => false));
 /// True when `v` is — or recursively contains — an `UnknownVal` (a runtime
 /// hole). A bare runtime call yields `UnknownVal`, but a RUNTIME construction
 /// (`.Some((p &+ i).*)`, `Wrap(v : runtimeVal)`, `(f(), 1)`) yields an
@@ -928,7 +928,7 @@ is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.UnknownVal) => true,
 value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
-    Rc(.UnknownVal) => true,
+    Rc(.UnknownVal(_, _)) => true,
     Rc(.EnumVal(_, fields)) => _values_contain_unknown(&fields.items),
     Rc(.StructVal(_, _, field_values)) => field_values.with(_values_contain_unknown),
     Rc(.TupleVal(fields)) => fields.with(_values_contain_unknown),
@@ -959,21 +959,21 @@ is_runtime_only_unknown_val :: (fn(v : &EvalValue) -> bool)(
 /// `IntLit` / `FloatLit` raw
 /// text; this helper is the disjunction of those two checks.
 is_number_val :: (fn(v : &EvalValue) -> bool)(
-  match(v, Rc(.IntLit) => true, Rc(.FloatLit) => true, _ => false)
+  match(v, Rc(.IntLit(_)) => true, Rc(.FloatLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time integer literal (`IntLit`).
 /// Integer literals are stored
 /// as raw text in `IntLit(raw)`; this helper is the
 /// canonical-named alias of `is_int_lit`.
 is_comptime_int_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, Rc(.IntLit) => true, _ => false)
+  match(v, Rc(.IntLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time float literal (`FloatLit`).
 /// Float literals
 /// are stored as raw text in `FloatLit(raw)`; this helper
 /// is the canonical-named alias of `is_float_lit`.
 is_comptime_float_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, Rc(.FloatLit) => true, _ => false)
+  match(v, Rc(.FloatLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time string literal (`StrLit`).
 /// Runtime-`str` and comptime-string are not distinguished at the EvalValue
@@ -981,13 +981,13 @@ is_comptime_float_value :: (fn(v : &EvalValue) -> bool)(
 /// representation; runtime `str` values are constructed via
 /// `convert_comptime_type_to_runtime_type`.
 is_comptime_string_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, Rc(.StrLit) => true, _ => false)
+  match(v, Rc(.StrLit(_)) => true, _ => false)
 );
 /// Check if an `Option(EvalValue)` contains a `TypeVal`.
 is_type_value :: (fn(opt : &Option(EvalValue)) -> bool)(
   match(
     opt,
-    .Some(v) => match(v, Rc(.TypeVal) => true, _ => false),
+    .Some(v) => match(v, Rc(.TypeVal(_)) => true, _ => false),
     .None => false
   )
 );
@@ -1056,11 +1056,11 @@ type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
   match(
     v,
     Rc(.UnitVal) => t_unit(),
-    Rc(.BoolVal) => t_bool(),
-    Rc(.IntLit) => t_comptime_int(),
-    Rc(.FloatLit) => t_comptime_float(),
-    Rc(.StrLit) => t_comptime_string(),
-    Rc(.TypeVal) => t_type(),
+    Rc(.BoolVal(_)) => t_bool(),
+    Rc(.IntLit(_)) => t_comptime_int(),
+    Rc(.FloatLit(_)) => t_comptime_float(),
+    Rc(.StrLit(_)) => t_comptime_string(),
+    Rc(.TypeVal(_)) => t_type(),
     Rc(.StructVal(name, labels, vals)) => {
       // Reconstruct a Struct type from parallel field info. Source-namespace
       // struct values (anonymous modules / imports)

@@ -100,7 +100,7 @@ test("a fresh block is filled with 0xAA under --allocator debug", {
 test("a double free aborts and names the block", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       p := _alloc(usize(32));
       unsafe(GlobalAllocator.free(.Some(p)));
       unsafe(GlobalAllocator.free(.Some(p)));
@@ -117,7 +117,7 @@ test("a double free aborts and names the block", {
 test("a free of a pointer it never handed out aborts", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       // An interior pointer: the block table does not know it.
       p := _alloc(usize(64));
       unsafe(GlobalAllocator.free(.Some((*void)((*u8)(p).add(usize(16))))));
@@ -133,7 +133,7 @@ test("a free of a pointer it never handed out aborts", {
 test("a write after free is reported at exit", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       p := _alloc(usize(40));
       unsafe(GlobalAllocator.free(.Some(p)));
       unsafe(consume((*u8)(p).add(usize(3)).* = u8(1)));
@@ -149,7 +149,7 @@ test("a write after free is reported at exit", {
 test("a block still live when main returns fails the run with status 23", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       _p := _alloc(usize(48));
     },
     .None => if(_debug_on(), {
@@ -164,7 +164,7 @@ test("a block still live when main returns fails the run with status 23", {
 test("an exit before main returns lists its live blocks without judging them", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       _p := _alloc(usize(56));
       unsafe(exit(int(0)));
     },
@@ -183,7 +183,7 @@ g_kept := RefCell(ArrayList(String)).new(ArrayList(String).new());
 test("blocks a module global still reaches at exit are not leaks", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       (mut(k) : usize) = usize(0);
       while(k < usize(20), {
         s := k.to_string();
@@ -205,7 +205,7 @@ _BIG :: usize(73400320);
 test("a double free of a block bigger than the quarantine is still named", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       p := _alloc(_BIG);
       unsafe(GlobalAllocator.free(.Some(p)));
       unsafe(GlobalAllocator.free(.Some(p)));
@@ -222,7 +222,7 @@ test("a double free of a block bigger than the quarantine is still named", {
 test("a free of a block that already left the quarantine is rejected without reading it", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       // The second free pushes the big block out of the quarantine and back
       // to the system; the third must not read its (unmapped) header.
       big := _alloc(_BIG);
@@ -242,7 +242,7 @@ test("a free of a block that already left the quarantine is rejected without rea
 test("YO_DEBUG_ALLOC_VERDICT=0 lists a leaked block without failing the run", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       _p := _alloc(usize(48));
     },
     .None => if(_debug_on(), {
@@ -257,7 +257,7 @@ test("YO_DEBUG_ALLOC_VERDICT=0 lists a leaked block without failing the run", {
 test("a detached thread that finishes after main returns is waited for, not reported", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       // The handle is dropped (detached) and main returns while the thread
       // still holds its closure and the string it builds.
       _t := Thread(unit).spawn(io => {
@@ -277,7 +277,7 @@ test("a detached thread that finishes after main returns is waited for, not repo
 test("a thread still running past the wait leaves the live blocks unjudged", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       _t := Thread(unit).spawn(io => {
         msg := String.from("a string the running thread still owns at exit");
         sleep_blocking(Duration.from_millis(i64(5000)));
@@ -296,7 +296,7 @@ test("a thread still running past the wait leaves the live blocks unjudged", {
 test("a pool's finished tasks are judged after its workers exit", {
   match(
     _child_mode(),
-    .Some => {
+    .Some(_) => {
       pool := ThreadPool.new(usize(4));
       (mut(i) : usize) = usize(0);
       while(i < usize(32), {

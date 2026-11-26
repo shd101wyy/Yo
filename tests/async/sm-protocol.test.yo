@@ -95,7 +95,7 @@ test("a cancelled receiver does not consume the next message", {
   io.await(sleep(u64(2)), io);
   _s := io.await(ch.send(i32(42), io), io);
   r2 := io.await(timeout(hg.join(io), Duration.from_millis(i64(200)), io), io);
-  assert(match(r2, .Ok(v) => (v == .Some(i32(42))), .Err => false), "the live receiver got the message");
+  assert(match(r2, .Ok(v) => (v == .Some(i32(42))), .Err(_) => false), "the live receiver got the message");
 });
 
 test("a cancelled locker neither takes the mutex nor swallows its wake", {
@@ -121,7 +121,7 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
   io.await(yield(io), io);
   m.*.unlock();
   res := io.await(timeout(hc.join(io), Duration.from_millis(i64(200)), io), io);
-  assert(match(res, .Ok(v) => (v == .Some(i32(2))), .Err => false), "c got the lock the dead waiter was offered");
+  assert(match(res, .Ok(v) => (v == .Some(i32(2))), .Err(_) => false), "c got the lock the dead waiter was offered");
   assert(!m.*.is_locked(), "nobody holds the mutex");
 });
 

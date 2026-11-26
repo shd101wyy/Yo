@@ -119,7 +119,7 @@ _parse_quietly :: (fn(src : &String, module_path : &String) -> ArrayList(AstExpr
 /// True iff `e` is an Atom spelled `name` (a `String`-argument twin of
 /// `ast_expr_is_atom_of`, whose parameter is a `str` literal).
 _atom_is :: (fn(e : &AstExpr, name : &String) -> bool)(
-  match(e, Rc(.Atom(_, t)) => (t.value.* == name.*), Rc(.FnCall) => false)
+  match(e, Rc(.Atom(_, t)) => (t.value.* == name.*), Rc(.FnCall(_, _, _, _, _)) => false)
 );
 /// The `name :: value` top-level binding named `head` in `exprs`: its VALUE
 /// expression, or `.None`.
@@ -138,7 +138,7 @@ _binding_value :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Option(Ast
                 return(args.get_cloned(usize(1)));
               });
             },
-            Rc(.Atom) => ()
+            Rc(.Atom(_, _)) => ()
           );
         });
       },
@@ -165,7 +165,7 @@ _binding_name_token :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Optio
               }),
               .None => ()
             ),
-            Rc(.Atom) => ()
+            Rc(.Atom(_, _)) => ()
           );
         });
       },
@@ -182,7 +182,7 @@ _binding_name_token :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Optio
 _find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(Token)) -> unit)({
   match(
     e,
-    Rc(.Atom) => (),
+    Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       is_decl := (
         ast_expr_is_fn_call_of(e, "struct", .None) ||
@@ -204,7 +204,7 @@ _find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(To
                     }),
                     .None => ()
                   ),
-                  Rc(.Atom) => ()
+                  Rc(.Atom(_, _)) => ()
                 );
               });
             },
@@ -231,7 +231,7 @@ _find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(To
 _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(Token)) -> unit)({
   match(
     e,
-    Rc(.Atom) => (),
+    Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       if(ast_expr_is_fn_call_of(e, "enum", .None), {
         (i : usize) = usize(0);
@@ -270,7 +270,7 @@ _subtree_has_position :: (fn(e : &AstExpr, at : &Token) -> bool)({
   });
   match(
     e,
-    Rc(.Atom) => false,
+    Rc(.Atom(_, _)) => false,
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       if(recur(&func_box.*, at), {
         return(true);
@@ -298,7 +298,7 @@ _find_method_label :: (
 )({
   match(
     e,
-    Rc(.Atom) => (),
+    Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       if(ast_expr_is_fn_call_of(e, ":", .Some(usize(2))), {
         lhs_ok := match(args.get_cloned(usize(0)), .Some(l) => _atom_is(&l, member.clone()), .None => false);
@@ -416,7 +416,7 @@ _owner_member_decl :: (
   found := ArrayList(Token).new();
   match(
     owner,
-    Rc(.EnumT) => _find_variant_decl(&value, member, &mut found),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => _find_variant_decl(&value, member, &mut found),
     _ => _find_field_label(&value, member, &mut found)
   );
   found.get_cloned(usize(0))
@@ -460,7 +460,7 @@ _method_decl :: (
   body_tok := match(
     value,
     .Some(Rc(.FuncVal(data, _))) => ast_expr_token(&data.*.body),
-    .Some => {
+    .Some(_) => {
       return(Option(Token).None);
     },
     .None => {
@@ -507,11 +507,11 @@ _import_path_of_binding :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> O
           (t.kind == TokenKind.StringLit) => Option(String).Some(str_lit_unquote_bytes(&t.value.*)),
           true => Option(String).None
         ),
-        Rc(.FnCall) => Option(String).None
+        Rc(.FnCall(_, _, _, _, _)) => Option(String).None
       ),
       .None => Option(String).None
     ),
-    Rc(.Atom) => Option(String).None
+    Rc(.Atom(_, _)) => Option(String).None
   )
 });
 /// `mod.member` where `mod` is bound by `mod :: import("…")`: the `member ::`
@@ -540,13 +540,13 @@ _module_member_decl :: (
   abs := match(
     resolve_module_path(&import_path, &doc_dir, std_path),
     .Found(p) => p,
-    .NotFound => {
+    .NotFound(_) => {
       return(Option(Token).None);
     },
-    .Ambiguous => {
+    .Ambiguous(_) => {
       return(Option(Token).None);
     },
-    .Unavailable => {
+    .Unavailable(_, _) => {
       return(Option(Token).None);
     }
   );
@@ -558,7 +558,7 @@ _module_member_decl :: (
 _find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstExpr)) -> unit)({
   match(
     e,
-    Rc(.Atom) => (),
+    Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -578,7 +578,7 @@ _find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstE
                   },
                   .None => ()
                 ),
-                Rc(.Atom) => ()
+                Rc(.Atom(_, _)) => ()
               );
             });
             recur(&a, target, out);
@@ -639,7 +639,7 @@ _member_definition :: (
                   env_opt = Option(Environment).Some(Rc.clone(out_env(usize(0))));
                 });
               },
-              Rc(.FnCall) => match(
+              Rc(.FnCall(_, _, _, _, _)) => match(
                 expr_info_table_get(info_table, ast_expr_id(&receiver)),
                 .Some(rinfo) => {
                   owner = Rc.clone(rinfo.ty());
@@ -648,7 +648,7 @@ _member_definition :: (
                     .Some(Rc(.TypeVal(tv))) => {
                       owner = Rc.clone(tv);
                     },
-                    .Some => (),
+                    .Some(_) => (),
                     .None => ()
                   );
                   deref = Rc.clone(owner);
@@ -725,7 +725,7 @@ _member_definition :: (
             });
             return(_method_decl(&owner, &deref, &member, &env, doc_abs, exprs));
           },
-          Rc(.Union) => {
+          Rc(.Union(_, _, _)) => {
             return(_owner_member_decl(&deref, &member, &env, doc_abs, exprs));
           },
           _ => {
@@ -733,7 +733,7 @@ _member_definition :: (
           }
         );
       },
-      Rc(.Atom) => ()
+      Rc(.Atom(_, _)) => ()
     ),
     .None => ()
   );
@@ -947,7 +947,7 @@ handle_type_definition :: (
   );
   def_tok := match(
     named_type,
-    .Some => match(
+    .Some(_) => match(
       _select_best_variable(get_variables_from_env(&info.env(), target.value.*.clone()), &target),
       .Some(sv) => sv.initialized_at_token(),
       .None => Option(Token).None

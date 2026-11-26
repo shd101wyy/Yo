@@ -241,7 +241,7 @@ j_diagnostic :: (
   // when the caller has note/help entries to attach.
   match(
     related,
-    .Array => {
+    .Array(items : _) => {
       b = b.put("relatedInformation", related);
     },
     _ => ()
@@ -353,7 +353,7 @@ uri_to_fs_path :: (fn(uri : &String) -> String)({
   decoded := match(
     percent.decode_bytes(s.clone()),
     .Ok(bytes) => String.from_bytes(bytes),
-    .Err => s
+    .Err(_) => s
   );
   if(_has_leading_drive(decoded.clone()), {
     drive := decoded.substring(usize(1), usize(2));

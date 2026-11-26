@@ -498,8 +498,8 @@ _push_names :: (fn(p : &Pattern, out : &mut ArrayList(String)) -> unit)({
     .Bind(name, _, _) => {
       out.push(name.clone());
     },
-    .Const => (),
-    .Range => (),
+    .Const(_, _, _, _, _) => (),
+    .Range(_, _, _, _, _, _, _) => (),
     .Variant(_, _, _, subs, _, _, _) => {
       (mut(i) : usize) = usize(0);
       while(i < subs.len(), {
@@ -548,10 +548,10 @@ pattern_is_irrefutable :: (fn(p : &Pattern) -> bool)(
   match(
     p,
     .Wildcard => true,
-    .Bind => true,
-    .Const => false,
-    .Range => false,
-    .Variant => false,
+    .Bind(_, _, _) => true,
+    .Const(_, _, _, _, _) => false,
+    .Range(_, _, _, _, _, _, _) => false,
+    .Variant(_, _, _, _, _, _, _) => false,
     .Or(alts) => {
       (mut(any_irref) : bool) = false;
       (mut(i) : usize) = usize(0);
@@ -854,7 +854,7 @@ _const_key :: (fn(p : &Pattern) -> String)(
   )
 );
 _head_is_wild :: (fn(p : &Pattern) -> bool)(
-  match(p, .Wildcard => true, .Bind => true, _ => false)
+  match(p, .Wildcard => true, .Bind(_, _, _) => true, _ => false)
 );
 /// True when some row's head is a tuple or struct pattern: the column's one
 /// constructor is present. With none, the column is all wildcards and the
@@ -871,7 +871,7 @@ _column_has_aggregate :: (fn(rows : &ArrayList(ArrayList(Pattern))) -> bool)({
   });
   false
 });
-_is_aggregate_pattern :: (fn(p : &Pattern) -> bool)(match(p, .Tuple => true, .Struct => true, _ => false));
+_is_aggregate_pattern :: (fn(p : &Pattern) -> bool)(match(p, .Tuple(_, _) => true, .Struct(_, _, _, _) => true, _ => false));
 /// Specialize the matrix by variant constructor `name` of arity `arity`.
 _specialize_variant :: (fn(rows : &ArrayList(ArrayList(Pattern)), name : &String, arity : usize) -> ArrayList(ArrayList(Pattern)))({
   mut(out) := ArrayList(ArrayList(Pattern)).new();
@@ -902,7 +902,7 @@ _specialize_variant_row :: (fn(head : &Pattern, row : &ArrayList(Pattern), name 
     .Wildcard => {
       out.push(_extend_cloned(_wildcards(arity), row, usize(1)));
     },
-    .Bind => {
+    .Bind(_, _, _) => {
       out.push(_extend_cloned(_wildcards(arity), row, usize(1)));
     },
     _ => ()
@@ -942,7 +942,7 @@ _specialize_aggregate_row :: (fn(head : &Pattern, row : &ArrayList(Pattern), n :
     .Wildcard => {
       out.push(_extend_cloned(_wildcards(n), row, usize(1)));
     },
-    .Bind => {
+    .Bind(_, _, _) => {
       out.push(_extend_cloned(_wildcards(n), row, usize(1)));
     },
     _ => ()
@@ -1283,7 +1283,7 @@ _present_bool_consts :: (fn(rows : &ArrayList(ArrayList(Pattern))) -> ArrayList(
   });
   out
 });
-_head_is_const :: (fn(head : &Pattern) -> bool)(match(head, .Const => true, _ => false));
+_head_is_const :: (fn(head : &Pattern) -> bool)(match(head, .Const(_, _, _, _, _) => true, _ => false));
 // ---------------------------------------------------------------------------
 // Integer intervals (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 4.5)
 // ---------------------------------------------------------------------------
@@ -1627,12 +1627,12 @@ _useful_head :: (
   // An integer column: intervals decide it exactly.
   if(match(
     head0,
-    .At => false,
-    .ThroughBox => false,
-    .Or => false,
-    .Variant => false,
-    .Tuple => false,
-    .Struct => false,
+    .At(_, _, _, _) => false,
+    .ThroughBox(_, _, _) => false,
+    .Or(_) => false,
+    .Variant(_, _, _, _, _, _, _) => false,
+    .Tuple(_, _) => false,
+    .Struct(_, _, _, _) => false,
     _ => true
   ), {
     match(
@@ -1716,7 +1716,7 @@ _useful_head :: (
         }
       );
     },
-    .Const => {
+    .Const(_, _, _, _, _) => {
       spec := _specialize_const(&rows, _const_key(head0));
       match(
         _useful(&spec, &q_rest, &tys_rest, gadt_exact),
@@ -1728,7 +1728,7 @@ _useful_head :: (
         }
       );
     },
-    .Range => {
+    .Range(_, _, _, _, _, _, _) => {
       spec := _specialize_const(&rows, _const_key(head0));
       match(
         _useful(&spec, &q_rest, &tys_rest, gadt_exact),
@@ -1998,7 +1998,7 @@ _top_alternatives :: (fn(p : &Pattern, out : &mut ArrayList(Pattern)) -> unit)(
 /// One alternative of a top-level or-pattern: a nested or-pattern is
 /// flattened into `out`.
 _push_alternative :: (fn(alt : &Pattern, out : &mut ArrayList(Pattern)) -> unit)(
-  match(alt, .Or => _top_alternatives(alt, out), _ => out.push(alt.clone()))
+  match(alt, .Or(_) => _top_alternatives(alt, out), _ => out.push(alt.clone()))
 );
 /// The verdict for one pattern `part` against the coverage `rows` (the
 /// earlier unguarded arms and earlier sibling alternatives).
@@ -2077,7 +2077,7 @@ pattern_test_exprs :: (fn(p : &Pattern, out : &mut ArrayList(AstExpr)) -> unit)(
   match(
     p,
     .Wildcard => (),
-    .Bind => (),
+    .Bind(_, _, _) => (),
     .Const(_, _, _, _, test) => {
       out.push(Rc.clone(test.*));
     },

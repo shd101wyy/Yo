@@ -134,14 +134,14 @@ test("encode a String's bytes", {
 });
 test("decode to a String through from_utf8", {
   s := String.from_utf8(base64.decode(String.from("SGVsbG8sIFdvcmxkIQ==")).unwrap());
-  assert(match(s, .Ok(v) => (v == "Hello, World!"), .Err => false), "Hello, World!");
+  assert(match(s, .Ok(v) => (v == "Hello, World!"), .Err(_) => false), "Hello, World!");
   // "w6k=" is 0xC3 0xA9 — U+00E9, valid UTF-8.
   m := String.from_utf8(base64.decode(String.from("w6k=")).unwrap());
-  assert(match(m, .Ok(v) => ((v.clone().chars().count() == usize(1)) && (v.len() == usize(2))), .Err => false), "one rune, two bytes");
+  assert(match(m, .Ok(v) => ((v.clone().chars().count() == usize(1)) && (v.len() == usize(2))), .Err(_) => false), "one rune, two bytes");
   // "/w==" is the single byte 0xFF, never valid UTF-8: the byte decode is fine,
   // the String conversion is the honest error.
   bad := String.from_utf8(base64.decode(String.from("/w==")).unwrap());
-  assert(match(bad, .Ok => false, .Err => true), "a non-UTF-8 payload is a StringError, not a broken String");
+  assert(match(bad, .Ok(_) => false, .Err(_) => true), "a non-UTF-8 payload is a StringError, not a broken String");
 });
 test("whitespace inside base64 text is rejected, like any other non-alphabet byte", {
   // Under D13 this is a direct assertion on the error, not the old proxy of
@@ -154,7 +154,7 @@ test("whitespace inside base64 text is rejected, like any other non-alphabet byt
   assert(
     match(
       base64.decode(String.from("Zm9v YmFy")),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .InvalidLength({ len }) => (len == usize(9)), _ => false)
     ),
     "a 9-symbol input is InvalidLength, whatever else is wrong with it"
@@ -164,7 +164,7 @@ test("whitespace inside base64 text is rejected, like any other non-alphabet byt
   assert(
     match(
       base64.decode(String.from("Zm9v YmFyIQ==")),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .InvalidChar({ ch }) => (ch == u8(32)), _ => false)
     ),
     "the space is reported as InvalidChar(0x20)"
@@ -225,7 +225,7 @@ test("base64.decode reports WHERE the bad symbol was", {
   assert(
     match(
       base64.decode(String.from("Zm9v YmFyIQ==")),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .InvalidChar({ ch, pos }) => ((ch == u8(32)) && (pos == usize(4))), _ => false)
     ),
     "the offending symbol and its offset"
@@ -235,7 +235,7 @@ test("base64.decode reports WHERE the bad symbol was", {
   assert(
     match(
       base64.decode(String.from("Zm9vYm!yIQ==")),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .InvalidChar({ pos }) => (pos == usize(6)), _ => false)
     ),
     "third symbol of the second group"
@@ -246,7 +246,7 @@ test("base64.decode reports WHERE the bad symbol was", {
   assert(
     match(
       base64.decode(String.from("QR==")),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .InvalidLastSymbol({ ch, pos }) => ((ch == u8(82)) && (pos == usize(1))), _ => false)
     ),
     "the two-symbol group's trailing symbol and its offset"
@@ -255,7 +255,7 @@ test("base64.decode reports WHERE the bad symbol was", {
   assert(
     match(
       base64.decode(String.from("QUJ=")),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => match(e, .InvalidLastSymbol({ ch, pos }) => ((ch == u8(74)) && (pos == usize(2))), _ => false)
     ),
     "the three-symbol group's trailing symbol and its offset"
@@ -265,7 +265,7 @@ test("base64.decode reports WHERE the bad symbol was", {
   assert(
     match(
       base64.decode(String.from("Zm9v YmFy")),
-      .Ok => false,
+      .Ok(_) => false,
       .Err(e) => (
         e.pos().is_none() && match(e, .InvalidLength({ len }) => (len == usize(9)), _ => false)
       )

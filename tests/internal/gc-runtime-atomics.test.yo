@@ -165,7 +165,7 @@ test("a dispose thunk is a void* forwarder, emitted once per dispose function", 
   c := ctx.base.emitter.print();
   thunk := "static inline void __yo_dispose_thunk_yo_id_7(void* ptr) { yo_id_7(ptr); }";
   at := must_find(&c, thunk, usize(0));
-  assert(match(c.index_of(&thunk, at + usize(1)), .Some => false, .None => true), "the thunk is emitted exactly once");
+  assert(match(c.index_of(&thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
   assert(c.contains("static inline void __yo_dispose_thunk_yo_id_8(void* ptr) { yo_id_8(ptr); }"), "the second thunk is emitted");
 });
 /// Pin: a `Drop` impl's `___dispose` takes `self : &mut Self`, so its thunk
@@ -193,7 +193,7 @@ test("a stable id maps back to the module that minted it", {
   mp := String.from("file:///opt/yo-lib/prelude.yo");
   id := stable_position_id(&String.from("struct_decl_"), &mp, usize(7), usize(1));
   assert(match(stable_id_module_path(&id), .Some(m) => (m == mp), .None => false), "the minting module's path comes back");
-  assert(match(stable_id_module_path(&String.from("struct_decl_never_minted_r1c1")), .Some => false, .None => true), "an id this process never minted has no module");
+  assert(match(stable_id_module_path(&String.from("struct_decl_never_minted_r1c1")), .Some(_) => false, .None => true), "an id this process never minted has no module");
 });
 /// Pin: the runtime passes the alignment to `alloc`, records the extent in
 /// the 16 bytes before the owner, and hands `free` the size and alignment

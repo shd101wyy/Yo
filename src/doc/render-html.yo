@@ -582,11 +582,11 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
     .Some(v) => `\n  <span class="version">${_escape_html(&v.*)}</span>`,
     .None => String.new()
   );
-  overview_active := match(active_module, .Some => String.new(), .None => String.from(" class=\"active\""));
+  overview_active := match(active_module, .Some(_) => String.new(), .None => String.from(" class=\"active\""));
   // A module page sits one directory deeper, so its relative asset paths need
   // the same `../` the sidebar's hrefs get below — and `active_module` is
   // `.Some` on exactly those pages.
-  logo_src := match(active_module, .Some => _asset_for_module_page(model.logo.clone()), .None => model.logo.clone());
+  logo_src := match(active_module, .Some(_) => _asset_for_module_page(model.logo.clone()), .None => model.logo.clone());
   logo_html := match(
     logo_src,
     .Some(l) => `\n  <img class="logo" src="${_escape_html(&l)}" alt="${_escape_html(&model.name)}">`,
@@ -848,7 +848,7 @@ _render_params_table :: (
     );
     match(
       &p.doc,
-      .Some => {
+      .Some(_) => {
         has_doc = true;
       },
       .None => ()
@@ -1216,7 +1216,7 @@ _render_impl_blocks :: (
 _render_function :: (
   fn(f : &DocFunction, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
-  dep_cls := match(&f.deprecated, .Some => String.from(" deprecated"), .None => String.new());
+  dep_cls := match(&f.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   html := `<div class="item-card${dep_cls}" id="fn-${_escape_html(&f.name)}">\n<div class="item-header">\n  <a class="item-name" href="#fn-${_escape_html(&f.name)}">${_escape_html(&f.name)}</a>\n  <span class="item-kind">function</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(&f.signature)}</div>`;
   html.push_string(_render_deprecated_banner(&f.deprecated));
   // A trait-impl method that took the TRAIT's documentation is LABELLED as
@@ -1256,7 +1256,7 @@ _render_function :: (
 _render_type :: (
   fn(t : &DocType, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
-  dep_cls := match(&t.deprecated, .Some => String.from(" deprecated"), .None => String.new());
+  dep_cls := match(&t.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   kind_str := doc_item_kind_to_string(t.kind);
   html := `<div class="item-card${dep_cls}" id="type-${_escape_html(&t.name)}">\n<div class="item-header">\n  <a class="item-name" href="#type-${_escape_html(&t.name)}">${_escape_html(&t.name)}</a>\n  <span class="item-kind">${_escape_html(&kind_str)}</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(&t.signature)}</div>`;
   html.push_string(_render_deprecated_banner(&t.deprecated));
@@ -1297,7 +1297,7 @@ _render_type :: (
 _render_trait :: (
   fn(tr : &DocTrait, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
-  dep_cls := match(&tr.deprecated, .Some => String.from(" deprecated"), .None => String.new());
+  dep_cls := match(&tr.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   kind_str := doc_trait_kind_to_string(tr.kind);
   html := `<div class="item-card${dep_cls}" id="trait-${_escape_html(&tr.name)}">\n<div class="item-header">\n  <a class="item-name" href="#trait-${_escape_html(&tr.name)}">${_escape_html(&tr.name)}</a>\n  <span class="item-kind">${kind_str}</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(&tr.signature)}</div>`;
   html.push_string(_render_deprecated_banner(&tr.deprecated));
@@ -1370,7 +1370,7 @@ _render_constant :: (
   fn(c : &DocConstant, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   type_html := _type_html(c.type_.clone(), links, current_mod_file.clone(), use_links);
-  dep_cls := match(&c.deprecated, .Some => String.from(" deprecated"), .None => String.new());
+  dep_cls := match(&c.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   html := `<div class="item-card${dep_cls}" id="const-${_escape_html(&c.name)}">\n<div class="item-header">\n  <a class="item-name" href="#const-${_escape_html(&c.name)}">${_escape_html(&c.name)}</a>\n  <span class="item-kind">constant</span>\n  <span class="item-sig">${type_html}</span>\n</div>\n<div class="item-body">`;
   html.push_string(_render_deprecated_banner(&c.deprecated));
   html.push_string(_render_doc(&c.doc));

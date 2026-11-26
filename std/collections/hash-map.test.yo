@@ -24,8 +24,8 @@ test("_alloc_with_capacity rejects a capacity whose byte size would wrap usize",
   match(
     HashMap(i64, i64)._alloc_with_capacity(big, .None),
     .Err(.CapacityOverflow) => assert(true, "the wrapped byte size is refused"),
-    .Err(.AllocError) => assert(false, "an allocation was attempted: the overflow guard is gone"),
-    .Ok => assert(false, "the wrapped capacity was accepted: the overflow guard is gone")
+    .Err(.AllocError(_)) => assert(false, "an allocation was attempted: the overflow guard is gone"),
+    .Ok(_) => assert(false, "the wrapped capacity was accepted: the overflow guard is gone")
   );
 });
 
@@ -34,7 +34,7 @@ test("_alloc_with_capacity accepts an ordinary capacity", {
   // so the test above cannot pass by rejecting everything.
   match(
     HashMap(i64, i64)._alloc_with_capacity(usize(16), .None),
-    .Ok => assert(true, "16 buckets is a normal allocation"),
-    .Err => assert(false, "an ordinary capacity was rejected")
+    .Ok(_) => assert(true, "16 buckets is a normal allocation"),
+    .Err(_) => assert(false, "an ordinary capacity was rejected")
   );
 });

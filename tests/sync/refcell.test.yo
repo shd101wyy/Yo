@@ -148,7 +148,7 @@ test("into_inner consumes the cell and returns the value", {
   shared.with_mut(xs => {
     xs.push(String.from("z"));
   });
-  xs := match(Rc.try_unwrap(shared), .Ok(c) => c.into_inner(), .Err => ArrayList(String).new());
+  xs := match(Rc.try_unwrap(shared), .Ok(c) => c.into_inner(), .Err(_) => ArrayList(String).new());
   assert(xs.len() == usize(1), "the only handle's cell gives its list up");
 });
 // A move-only payload moves out of the cell's `Box` bitwise: dropped once,

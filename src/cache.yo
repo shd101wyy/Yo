@@ -210,7 +210,7 @@ get_version_cache_dir :: (fn(version : &String) -> String)(
 /// bundle run in place, a dev build out of `yo-out/`, a binary copied to
 /// `/tmp`), so callers fall back to cache-only behaviour exactly as before.
 get_install_versions_dir :: (fn() -> Option(String))({
-  exe := match(current_exe(), .Ok(p) => p, .Err => return(Option(String).None));
+  exe := match(current_exe(), .Ok(p) => p, .Err(_) => return(Option(String).None));
   // <prefix>/lib/yo/<tag>/bin/yo  ->  walk up bin and <tag>, then require the
   // grandparent to be `yo` sitting directly inside `lib`. Both names are
   // checked: `<x>/yo/<tag>/bin/yo` alone is a shape a dev tree could hit.

@@ -59,19 +59,19 @@ test("chars next and next_back meet in the middle", {
   assert(match(it.next_back(), .Some(r) => (r == rune(100)), .None => false), "back: d");
   assert(match(it.next(), .Some(r) => (r == rune(98)), .None => false), "front: b");
   assert(match(it.next_back(), .Some(r) => (r == rune(99)), .None => false), "back: c");
-  assert(match(it.next(), .Some => false, .None => true), "the ends have met, so next is None");
-  assert(match(it.next_back(), .Some => false, .None => true), "and so is next_back");
+  assert(match(it.next(), .Some(_) => false, .None => true), "the ends have met, so next is None");
+  assert(match(it.next_back(), .Some(_) => false, .None => true), "and so is next_back");
 });
 test("chars next_back on an empty string", {
   mut(it) := ``.chars();
-  assert(match(it.next_back(), .Some => false, .None => true), "nothing to take");
+  assert(match(it.next_back(), .Some(_) => false, .None => true), "nothing to take");
 });
 test("bytes next_back walks raw bytes", {
   mut(it) := `aé`.bytes();
   assert(it.next_back().is_some(), "the last continuation byte");
   assert(match(it.next(), .Some(b) => (b == u8(97)), .None => false), "front is still 'a'");
   assert(it.next_back().is_some(), "the lead byte of é");
-  assert(match(it.next(), .Some => false, .None => true), "then the ends meet");
+  assert(match(it.next(), .Some(_) => false, .None => true), "then the ends meet");
 });
 test("char_indices next_back reports the rune's OWN start offset", {
   mut(it) := `aéb`.char_indices();
@@ -130,10 +130,10 @@ test("lines next and next_back meet in the middle", {
   assert(match(it.next_back(), .Some(s) => (s == `d`), .None => false), "back: d");
   assert(match(it.next(), .Some(s) => (s == `b`), .None => false), "front: b");
   assert(match(it.next_back(), .Some(s) => (s == `c`), .None => false), "back: c");
-  assert(match(it.next(), .Some => false, .None => true), "the ends have met");
-  assert(match(it.next_back(), .Some => false, .None => true), "from both directions");
+  assert(match(it.next(), .Some(_) => false, .None => true), "the ends have met");
+  assert(match(it.next_back(), .Some(_) => false, .None => true), "from both directions");
 });
 test("lines next_back on an empty string", {
   mut(it) := ``.lines();
-  assert(match(it.next_back(), .Some => false, .None => true), "nothing to take");
+  assert(match(it.next_back(), .Some(_) => false, .None => true), "nothing to take");
 });

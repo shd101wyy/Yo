@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
 /// Runtime numeric (Int/Float of any width) — the lowering targets of
 /// comptime_int / comptime_float at a consuming boundary.
 _is_runtime_numeric :: (fn(t : &TypeValue) -> bool)(
-  match(t, Rc(.Int) => true, Rc(.Float) => true, _ => false)
+  match(t, Rc(.Int(_, _)) => true, Rc(.Float(_)) => true, _ => false)
 );
 { TypeTag } :: import("../../types/tags.yo");
 {
@@ -509,7 +509,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     Rc(.SliceT(sl_elem)) => recur(some_type_id, some_type_name, &sl_elem.*, visited, exn),
     Rc(.ComptimeListT(child)) => recur(some_type_id, some_type_name, &child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
-    Rc(.Pointer) => false,
+    Rc(.Pointer(_)) => false,
     // A reference is structural: `&T` contains `T`, so `T := &T` is an
     // infinite type. Without this arm a failed overload trial bound a generic
     // body's own `K := &K` (a blanket `impl(generic(T), &T, …)` candidate
@@ -1590,7 +1590,7 @@ _synthesize_types_impl :: (
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: Slice + Slice (`[T]`, decision 49): the elements synthesize.
-  if(match(expected_ty, Rc(.SliceT) => true, _ => false) && match(given_ty, Rc(.SliceT) => true, _ => false), {
+  if(match(expected_ty, Rc(.SliceT(_)) => true, _ => false) && match(given_ty, Rc(.SliceT(_)) => true, _ => false), {
     exp_sl := match(expected_ty, Rc(.SliceT(c)) => Rc.clone(c), _ => Rc.new(TypeValueNode.Unit));
     giv_sl := match(given_ty, Rc(.SliceT(c)) => Rc.clone(c), _ => Rc.new(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_sl, &ee, &giv_sl, &ge, checked, opts, exn);
@@ -1626,7 +1626,7 @@ _synthesize_types_impl :: (
   // A and B. There was no Dyn case: the pair fell through every arm, and a
   // result-only `B` reached codegen unresolved
   // (issues/fixed/fn-trait-pairs-are-never-synthesized.md).
-  if(match(expected_ty, Rc(.DynT) => true, _ => false) && match(given_ty, Rc(.DynT) => true, _ => false), {
+  if(match(expected_ty, Rc(.DynT(_, _, _, _)) => true, _ => false) && match(given_ty, Rc(.DynT(_, _, _, _)) => true, _ => false), {
     exp_dts := match(expected_ty, Rc(.DynT(rts, _, _, _)) => Rc.clone(rts), _ => no_types());
     giv_dts := match(given_ty, Rc(.DynT(rts, _, _, _)) => Rc.clone(rts), _ => no_types());
     (di : usize) = usize(0);
@@ -1641,7 +1641,7 @@ _synthesize_types_impl :: (
         same_kind := match(
           &et,
           Rc(.FnTraitT(eb, _, _, _, _, _)) => match(&gt, Rc(.FnTraitT(gb, _, _, _, _, _)) => (eb.* == gb.*), _ => false),
-          Rc(.FutureTraitT) => is_future_trait_type(&gt),
+          Rc(.FutureTraitT(_, _, _, _, _)) => is_future_trait_type(&gt),
           Rc(.TraitT(_, _, eid, _, _, _)) => match(&gt, Rc(.TraitT(_, _, gid, _, _, _)) => (eid.* == gid.*), _ => false),
           _ => false
         );

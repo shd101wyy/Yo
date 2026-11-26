@@ -123,7 +123,7 @@ test("one-byte reads frame the same two messages", {
   raw1 := match(
     io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e),
     .Ok(x) => x,
-    .Err => {
+    .Err(_) => {
       assert(false, "first message");
       String.new()
     }
@@ -132,7 +132,7 @@ test("one-byte reads frame the same two messages", {
   raw2 := match(
     io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e),
     .Ok(x) => x,
-    .Err => {
+    .Err(_) => {
       assert(false, "second message");
       String.new()
     }
@@ -170,7 +170,7 @@ test("a chunked response followed by another response carries the tail", {
   raw2 := match(
     io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e),
     .Ok(x) => x,
-    .Err => {
+    .Err(_) => {
       assert(false, "second message after chunked");
       String.new()
     }
@@ -196,7 +196,7 @@ test("read_http_message frames the first message and discards the rest", {
   raw := match(
     io.await(wire.read_http_message(&r, usize(0), wire.MessageKind.Response, io), e),
     .Ok(x) => x,
-    .Err => {
+    .Err(_) => {
       assert(false, "message");
       String.new()
     }
@@ -223,7 +223,7 @@ test("a close-delimited response consumes everything", {
   raw := match(
     io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e),
     .Ok(x) => x,
-    .Err => {
+    .Err(_) => {
       assert(false, "message");
       String.new()
     }
@@ -305,7 +305,7 @@ test("a 204 is framed at its headers at every chunk size, Content-Length notwith
   carry := Rc.new(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
   plain := io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e);
   assert(
-    match(plain, .Ok(x) => (x.len() == String.from(_RHEAD).len()), .Err => false),
+    match(plain, .Ok(x) => (x.len() == String.from(_RHEAD).len()), .Err(_) => false),
     "read as a plain response it stops at EOF, having waited for a body that never came"
   );
 });
@@ -327,7 +327,7 @@ test("a body-less response leaves the next message in the carry, and reading it 
   carry := Rc.new(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
   first := io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e);
   assert(
-    match(first, .Ok(x) => (x == String.from(_R204)), .Err => false),
+    match(first, .Ok(x) => (x == String.from(_R204)), .Err(_) => false),
     "the 204 is exactly its header section"
   );
   assert(
@@ -337,7 +337,7 @@ test("a body-less response leaves the next message in the carry, and reading it 
   reads_before := r.reads.with(k => k.*);
   second := io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e);
   assert(
-    match(second, .Ok(x) => (x == String.from(_R1)), .Err => false),
+    match(second, .Ok(x) => (x == String.from(_R1)), .Err(_) => false),
     "and it frames correctly from the carried bytes"
   );
   assert(r.reads.with(k => k.*) == reads_before, "which cost no read — on a socket that read would block");

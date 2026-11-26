@@ -67,7 +67,7 @@ test("soundness: a substituted phantom enum instance keeps its type argument", {
   }, "Incompatible types");
   p := _phantom_of(true);
   (q : _Phantom(bool)) = p;
-  assert(match(q, .A(a) => (a == i32(1)), .B => false), "the matching instantiation flows");
+  assert(match(q, .A(a) => (a == i32(1)), .B(_) => false), "the matching instantiation flows");
 });
 // Call-site inference binds a `generic` parameter through an enum's phantom
 // type argument too: no payload mentions it, so the payload walk alone left
@@ -84,7 +84,7 @@ test("soundness: a phantom argument binds a generic parameter", {
   }, "Incompatible types");
   x := _pid(_Phantom(i32).A(i32(1)));
   (y : _Phantom(i32)) = x;
-  assert(match(y, .A(a) => (a == i32(1)), .B => false), "the bound instantiation flows");
+  assert(match(y, .A(a) => (a == i32(1)), .B(_) => false), "the bound instantiation flows");
 });
 test("soundness: a phantom argument is checked against a bound parameter", {
   comptime_expect_error(_pick(true, _Phantom(i32).A(i32(1))), "Incompatible types for generic parameter");
@@ -111,8 +111,8 @@ test("soundness canary: same-index GADT and phantom instantiations still flow", 
   p := _Phantom(bool).B(true);
   (q : _Phantom(bool)) = p;
   (v : _Value(bool)) = .BoolVal(true);
-  assert(match(y, .PairVal(a, _) => (a == i32(1)), .IntVal => false), "same index flows");
-  assert(match(q, .B(b) => b, .A => false), "same phantom index flows");
+  assert(match(y, .PairVal(a, _) => (a == i32(1)), .IntVal(_) => false), "same index flows");
+  assert(match(q, .B(b) => b, .A(_) => false), "same phantom index flows");
   assert(match(v, .BoolVal(b) => b), "shorthand at the declared index");
 });
 // ---------------------------------------------------------------------------
@@ -515,7 +515,7 @@ test("soundness canary: an io-param closure's result inside a generic body", {
 // type concrete" test), so `U` stayed a type variable and the callee was
 // specialized abstractly — an FTT stub at run time.
 impl(i32, _wrap_some : (fn(self : i32) -> Option(i32))(Option(i32).Some(self)));
-_take_opt :: (fn(generic(U : Type), o : &Option(U)) -> bool)(match(o, .Some => true, .None => false));
+_take_opt :: (fn(generic(U : Type), o : &Option(U)) -> bool)(match(o, .Some(_) => true, .None => false));
 test("soundness canary: a method-call argument binds the callee's type parameter", {
   x := i32(1);
   assert(_take_opt(x._wrap_some()), "Some through the method call");

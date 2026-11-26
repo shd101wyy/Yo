@@ -29,25 +29,25 @@ test("decode round-trips encode, case-insensitively", {
   match(
     percent.decode(&enc),
     .Ok(back) => assert(back == original, "round trip"),
-    .Err => assert(false, "round trip must decode")
+    .Err(_) => assert(false, "round trip must decode")
   );
   match(
     percent.decode(`%c3%a9`.to_string()),
     .Ok(low) => assert(low == `é`, "lowercase hex accepted"),
-    .Err => assert(false, "lowercase hex must decode")
+    .Err(_) => assert(false, "lowercase hex must decode")
   );
 });
 test("plus passes through decode unchanged (RFC 3986, not the form dialect)", {
   match(
     percent.decode(`a+b`.to_string()),
     .Ok(s) => assert(s == `a+b`, "+ stays +"),
-    .Err => assert(false, "must decode")
+    .Err(_) => assert(false, "must decode")
   );
 });
 test("truncated escape reports its index", {
   match(
     percent.decode(`ab%4`.to_string()),
-    .Ok => assert(false, "must fail"),
+    .Ok(_) => assert(false, "must fail"),
     .Err(e) => match(
       e,
       .TruncatedEscape(index) => assert(index == usize(2), "index of the %"),
@@ -56,7 +56,7 @@ test("truncated escape reports its index", {
   );
   match(
     percent.decode(`ab%`.to_string()),
-    .Ok => assert(false, "must fail"),
+    .Ok(_) => assert(false, "must fail"),
     .Err(e2) => match(
       e2,
       .TruncatedEscape(i2) => assert(i2 == usize(2), "bare trailing %"),
@@ -67,7 +67,7 @@ test("truncated escape reports its index", {
 test("invalid hex digit reports index and byte", {
   match(
     percent.decode(`%GG`.to_string()),
-    .Ok => assert(false, "must fail"),
+    .Ok(_) => assert(false, "must fail"),
     .Err(e) => match(
       e,
       .InvalidHexDigit(index, byte) => {
@@ -81,7 +81,7 @@ test("invalid hex digit reports index and byte", {
 test("decoded non-UTF-8 is an error for Strings but fine as bytes", {
   match(
     percent.decode(`%FF%FE`.to_string()),
-    .Ok => assert(false, "must fail UTF-8 validation"),
+    .Ok(_) => assert(false, "must fail UTF-8 validation"),
     .Err(e) => match(
       e,
       .InvalidUtf8(cause) => assert(cause.index() == usize(0), "fault at byte 0"),
@@ -94,7 +94,7 @@ test("decoded non-UTF-8 is an error for Strings but fine as bytes", {
       assert(bytes.len() == usize(2), "two raw bytes");
       assert(bytes(usize(0)) == u8(255), "0xFF preserved");
     },
-    .Err => assert(false, "bytes form must succeed")
+    .Err(_) => assert(false, "bytes form must succeed")
   );
 });
 test("PercentError impls Error and renders each variant", {

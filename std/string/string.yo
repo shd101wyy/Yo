@@ -135,7 +135,7 @@ impl(
   from_utf8 : (fn(sink(bytes) : ArrayList(u8)) -> Result(Self, StringError))(
     match(
       utf8.validate(&bytes),
-      .Ok => .Ok(Self.from_bytes(bytes)),
+      .Ok(_) => .Ok(Self.from_bytes(bytes)),
       .Err(cause) => {
         _release_bytes(bytes);
         .Err(.InvalidUtf8(cause))
@@ -269,7 +269,7 @@ impl(
     match(
       utf8.decode(&self._bytes, byte_index),
       .Ok(d) => .Some(d.code),
-      .Err => .None
+      .Err(_) => .None
     )
   ),
   /// True when byte offset `index` sits on a rune boundary.
@@ -537,7 +537,7 @@ impl(
   _contains_impl : (fn(self : &Self, substr : &Self, (from_index : usize) ?= 0) -> bool)(
     match(
       self._index_of_impl(substr, from_index),
-      .Some => true,
+      .Some(_) => true,
       .None => false
     )
   ),
@@ -1346,7 +1346,7 @@ impl(
     is_contained_in : (fn(self : Self, haystack : &String, from_index : usize) -> bool)(
       match(
         self.index_in(haystack, from_index),
-        .Some => true,
+        .Some(_) => true,
         .None => false
       )
     ),
@@ -1378,7 +1378,7 @@ impl(
               (d.code == self) => d.width,
               true => usize(0)
             ),
-            .Err => usize(0)
+            .Err(_) => usize(0)
           ),
         true => usize(0)
       )
@@ -2879,7 +2879,7 @@ impl(
   /// DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_i64_radix : (fn(self : &Self, radix : u32) -> Option(i64))(
-    match(_parse_i64_radix_res(self, radix), .Ok(v) => .Some(v), .Err => .None)
+    match(_parse_i64_radix_res(self, radix), .Ok(v) => .Some(v), .Err(_) => .None)
   ),
   /// Parse a `u64` in the given `radix` (2..=36) — Rust's
   /// `u64::from_str_radix`. An optional leading `+` is allowed; `-` is not.
@@ -2888,7 +2888,7 @@ impl(
   /// DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_u64_radix : (fn(self : &Self, radix : u32) -> Option(u64))(
-    match(_parse_u64_radix_res(self, radix), .Ok(v) => .Some(v), .Err => .None)
+    match(_parse_u64_radix_res(self, radix), .Ok(v) => .Some(v), .Err(_) => .None)
   ),
   /// Parse the string as a signed 32-bit integer — Rust's `i32::from_str`.
   /// An optional leading `+`/`-` is allowed. `.None` on an empty digit run,

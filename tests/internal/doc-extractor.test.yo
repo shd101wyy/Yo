@@ -88,7 +88,7 @@ test("extracts a single /// doc comment for a declaration", {
   );
   tokens := lex_(`/// A trait.\nFoo :: trait();\n`, exn);
   result := extract_doc_comments(&tokens);
-  has_module_doc := match(&result.module_doc, .Some => true, .None => false);
+  has_module_doc := match(&result.module_doc, .Some(_) => true, .None => false);
   assert(!has_module_doc, "no module doc");
   assert(result.declarations.len() == usize(1), "one declaration");
   match(
@@ -264,7 +264,7 @@ test("handles empty token stream", {
   );
   tokens := lex_(``, exn);
   result := extract_doc_comments(&tokens);
-  has_module_doc := match(&result.module_doc, .Some => true, .None => false);
+  has_module_doc := match(&result.module_doc, .Some(_) => true, .None => false);
   assert(!has_module_doc, "no module doc");
   assert(result.declarations.len() == usize(0), "no declarations");
 });
@@ -455,7 +455,7 @@ test("handles struct with only some fields documented", {
   assert(host_val == `The hostname.`, "host doc");
   tls_val := match(docs.get_cloned(`tls`), .Some(v) => v, .None => ``);
   assert(tls_val == `Enable TLS.`, "tls doc");
-  has_port := match(docs.get_cloned(`port`), .Some => true, .None => false);
+  has_port := match(docs.get_cloned(`port`), .Some(_) => true, .None => false);
   assert(!has_port, "port not documented");
 });
 test("handles struct with no documented fields", {
@@ -563,7 +563,7 @@ test("does not pick up regular // comments", {
   source := `S :: struct(\n  // regular comment\n  x : i32,\n  /// Doc comment.\n  y : i32\n);`;
   docs := inline_docs_from_source_(&source, exn);
   assert(docs.size == usize(1), "one doc");
-  has_x := match(docs.get_cloned(`x`), .Some => true, .None => false);
+  has_x := match(docs.get_cloned(`x`), .Some(_) => true, .None => false);
   assert(!has_x, "x not documented");
   y_val := match(docs.get_cloned(`y`), .Some(v) => v, .None => ``);
   assert(y_val == `Doc comment.`, "y doc");

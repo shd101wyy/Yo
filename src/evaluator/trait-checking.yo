@@ -386,16 +386,16 @@ type_implements_comptime_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     Rc(.ComptimeInt) => Option(bool).Some(true),
     Rc(.ComptimeFloat) => Option(bool).Some(true),
     Rc(.ComptimeString) => Option(bool).Some(true),
-    Rc(.TypeUni) => Option(bool).Some(true),
-    Rc(.TraitT) => Option(bool).Some(true),
-    Rc(.FnTraitT) => Option(bool).Some(true),
-    Rc(.FutureTraitT) => Option(bool).Some(true),
+    Rc(.TypeUni(_)) => Option(bool).Some(true),
+    Rc(.TraitT(name : _)) => Option(bool).Some(true),
+    Rc(.FnTraitT(base_name : _)) => Option(bool).Some(true),
+    Rc(.FutureTraitT(base_name : _)) => Option(bool).Some(true),
     Rc(.ExprT) => Option(bool).Some(true),
-    Rc(.ComptimeListT) => Option(bool).Some(true),
+    Rc(.ComptimeListT(_)) => Option(bool).Some(true),
     // Runtime-only types — not comptime.
-    Rc(.DynT) => Option(bool).Some(false),
+    Rc(.DynT(_, _, _, _)) => Option(bool).Some(false),
     Rc(.Void) => Option(bool).Some(false),
-    Rc(.Union) => Option(bool).Some(false),
+    Rc(.Union(_, _, _)) => Option(bool).Some(false),
     Rc(.CChar) => Option(bool).Some(false),
     Rc(.CShort) => Option(bool).Some(false),
     Rc(.CUShort) => Option(bool).Some(false),
@@ -411,8 +411,8 @@ type_implements_comptime_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     Rc(.BoolT) => Option(bool).Some(true),
     Rc(.Usize) => Option(bool).Some(true),
     Rc(.Isize) => Option(bool).Some(true),
-    Rc(.Int) => Option(bool).Some(true),
-    Rc(.Float) => Option(bool).Some(true),
+    Rc(.Int(_, _)) => Option(bool).Some(true),
+    Rc(.Float(_)) => Option(bool).Some(true),
     Rc(.Str) => Option(bool).Some(true),
     Rc(.Func({ result : _ })) => Option(bool).Some(true),
     // Undecided — env / Comptime trait lookup needed.
@@ -452,8 +452,8 @@ type_implements_send_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     Rc(.BoolT) => Option(bool).Some(true),
     Rc(.Usize) => Option(bool).Some(true),
     Rc(.Isize) => Option(bool).Some(true),
-    Rc(.Int) => Option(bool).Some(true),
-    Rc(.Float) => Option(bool).Some(true),
+    Rc(.Int(_, _)) => Option(bool).Some(true),
+    Rc(.Float(_)) => Option(bool).Some(true),
     Rc(.Str) => Option(bool).Some(true),
     Rc(.CChar) => Option(bool).Some(true),
     // Everything else defers (incl. comptime_*, other C types, type-level —
@@ -476,8 +476,8 @@ type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     Rc(.BoolT) => Option(bool).Some(true),
     Rc(.Usize) => Option(bool).Some(true),
     Rc(.Isize) => Option(bool).Some(true),
-    Rc(.Int) => Option(bool).Some(true),
-    Rc(.Float) => Option(bool).Some(true),
+    Rc(.Int(_, _)) => Option(bool).Some(true),
+    Rc(.Float(_)) => Option(bool).Some(true),
     Rc(.Str) => Option(bool).Some(true),
     Rc(.CChar) => Option(bool).Some(true),
     Rc(.CShort) => Option(bool).Some(true),
@@ -489,7 +489,7 @@ type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     Rc(.CLongLong) => Option(bool).Some(true),
     Rc(.CULongLong) => Option(bool).Some(true),
     Rc(.CLongDouble) => Option(bool).Some(true),
-    Rc(.ComptimeListT) => Option(bool).Some(true),
+    Rc(.ComptimeListT(_)) => Option(bool).Some(true),
     Rc(.ComptimeInt) => Option(bool).Some(true),
     Rc(.ComptimeFloat) => Option(bool).Some(true),
     Rc(.ComptimeString) => Option(bool).Some(true),
@@ -592,14 +592,14 @@ _acy_expand :: (fn(t_in : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves 
     Rc(.RefineT(inner, _)) => recur(&inner.*, nodes, leaves),
     Rc(.Reference({ pointee : rp })) => recur(&rp.*, nodes, leaves),
     Rc(.ValueSlot(vs_inner)) => recur(&vs_inner.*, nodes, leaves),
-    Rc(.SomeT) => cond(
+    Rc(.SomeT(name : _)) => cond(
       is_bound_closure_identity(&t) => recur(resolve_cell_chain(&t), nodes, leaves),
       true => leaves.push(t.clone())
     ),
-    Rc(.DynT) => leaves.push(t.clone()),
-    Rc(.TypeAppT) => leaves.push(t.clone()),
-    Rc(.FnTraitT) => leaves.push(t.clone()),
-    Rc(.FutureTraitT) => leaves.push(t.clone()),
+    Rc(.DynT(required_trait_types : _)) => leaves.push(t.clone()),
+    Rc(.TypeAppT(constructor : _)) => leaves.push(t.clone()),
+    Rc(.FnTraitT(_, _, _, _, _, _)) => leaves.push(t.clone()),
+    Rc(.FutureTraitT(_, _, _, _, _)) => leaves.push(t.clone()),
     // Primitives, functions (a code pointer), extern opaque C types,
     // comptime lists, types and origins hold no Yo reference.
     _ => ()
@@ -768,8 +768,8 @@ _acyclic_by_reach :: (fn(target : &TypeValue, at : &TypeValue, env : &Environmen
     Rc(.Tuple({ field_types : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
     Rc(.Union({ field_types : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
     Rc(.Array({ element : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
-    Rc(.Pointer) => _acy_expand(&t, &mut nodes, &mut leaves),
-    Rc(.RefineT) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.Pointer(_)) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.RefineT(_, _)) => _acy_expand(&t, &mut nodes, &mut leaves),
     Rc(.Reference({ pointee : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
     Rc(.Func({ result : _ })) => {
       return(Option(bool).Some(true));
@@ -894,7 +894,7 @@ resolve_assoc_type_for_target :: (
             .Some(Rc(.TypeVal(re_t))) => {
               resolved_opt = Option(TypeValue).Some(Rc.clone(re_t));
             },
-            .Some => (),
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -968,7 +968,7 @@ _check_associated_type_constraints :: (
               .Some(Rc(.TypeVal(ae_t))) => {
                 resolved_opt = Option(TypeValue).Some(Rc.clone(ae_t));
               },
-              .Some => (),
+              .Some(_) => (),
               .None => ()
             ),
             .None => ()
@@ -1191,7 +1191,7 @@ _copy_impl_violation_msg :: (fn(target_type : &TypeValue, target : &TypeValue, c
       target,
       Rc(.Unit) => true,
       Rc(.Str) => true,
-      Rc(.Pointer) => true,
+      Rc(.Pointer(_)) => true,
       _ => is_primitive_type(target)
     );
     return(
@@ -1401,7 +1401,7 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
     },
     Rc(.Tuple(field_labels : _, field_types : tfs)) => _clone_parts_run_no_user_code(&tfs.items, clone_tt, visited, depth),
     Rc(.Array(element : el, length : _, length_var : _)) => _clone_runs_no_user_code_inner(&el, clone_tt, visited, depth + u32(1)),
-    Rc(.DynT) => false,
+    Rc(.DynT(required_trait_types : _)) => false,
     Rc(.Func({ result : _ })) => false,
     _ => true
   )
@@ -1416,7 +1416,7 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
 type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // A refinement `refine(T, p)` copies as its `T` (the erasure rule).
   (ty : TypeValue) = Rc.clone(ty_in);
-  while(match(&ty, Rc(.RefineT) => true, _ => false), {
+  while(match(&ty, Rc(.RefineT(_, _)) => true, _ => false), {
     ty = t_refine_inner(&ty);
   });
   // A reference is plain data: `&T` is `Copy` and `&mut T` is not
@@ -1451,7 +1451,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   );
   // A `union` copies its raw bits, as in C, and `derive` cannot give it
   // `Copy`, so it keeps copying implicitly, like a C opaque type.
-  if(is_some_type(&ty) || match(&ty, Rc(.ExternOpaqueT) => true, Rc(.Union) => true, _ => false), {
+  if(is_some_type(&ty) || match(&ty, Rc(.ExternOpaqueT(_, _)) => true, Rc(.Union(name : _, field_labels : _, field_types : _)) => true, _ => false), {
     return(false);
   });
   if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
@@ -1615,7 +1615,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
       _ => ()
     );
   });
-  if(match(&ty, Rc(.ExternOpaqueT) => true, _ => false), {
+  if(match(&ty, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
     shown := type_to_string(&ty);
     if(!out.contains(&shown), {
       out.push(shown);
@@ -1743,7 +1743,7 @@ type_implements_trait :: (
   // value. std cannot state these as impls: the seed that
   // compiles std reads an extern `X : Type` as a SomeT, so `impl(X, Send())`
   // would be a blanket impl. Any other trait needs a real impl.
-  if(match(&target, Rc(.ExternOpaqueT) => true, _ => false), {
+  if(match(&target, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
     eom := _marker_name_of(trait_type, env);
     if((eom == "Runtime") || (eom == "Send") || (eom == "Sync") || (eom == "Acyclic"), {
       return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
@@ -2786,7 +2786,7 @@ type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
         t := match(required_trait_types.get_cloned(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
         match(
           t,
-          Rc(.FnTraitT) => {
+          Rc(.FnTraitT(base_name : _)) => {
             found = true;
           },
           _ => ()
@@ -2803,7 +2803,7 @@ type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
         t := match(required_trait_types.get(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
         match(
           t,
-          Rc(.FnTraitT) => {
+          Rc(.FnTraitT(base_name : _)) => {
             found = true;
           },
           _ => ()
@@ -2830,10 +2830,10 @@ type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
 extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
-    Rc(.FnTraitT) => Option(TypeValue).Some(Rc.clone(ty)),
+    Rc(.FnTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
     // A `Box(Dyn(Fn(...)))` is called through its payload (decision 49 S2).
     (eb_ty := Rc(.Struct({ id : _ }))) => match(unique_box_payload_type(&eb_ty.*), .Some(eb_p) => if(is_dyn_type(&eb_p), extract_fn_trait_from_type(&eb_p), Option(TypeValue).None), .None => Option(TypeValue).None),
-    Rc(.SomeT) => {
+    Rc(.SomeT(_, _, _, _, _, _, _)) => {
       // Walk the SomeT and its `resolution` chain: a where-clause `F`
       // whose Fn bound was
       // stripped by freshening still resolves through `__impl_fn` (which
@@ -2856,7 +2856,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
                 eft_rtt.get_cloned(i),
                 .Some(t) => match(
                   &t,
-                  Rc(.FnTraitT) => {
+                  Rc(.FnTraitT(base_name : _)) => {
                     eft_out = Option(TypeValue).Some(Rc.clone(t));
                   },
                   _ => ()
@@ -2896,7 +2896,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
               });
             });
           },
-          Rc(.FnTraitT) => {
+          Rc(.FnTraitT(base_name : _)) => {
             eft_out = Option(TypeValue).Some(Rc.clone(eft_cur));
             eft_going = false;
           },
@@ -2921,7 +2921,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
         );
         match(
           &t,
-          Rc(.FnTraitT) => {
+          Rc(.FnTraitT(base_name : _)) => {
             return(Option(TypeValue).Some(Rc.clone(t)));
           },
           _ => ()
@@ -3279,7 +3279,7 @@ type_implements_future :: (fn(ty : &TypeValue) -> bool)(
         t := match(required_trait_types.get_cloned(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
         match(
           t,
-          Rc(.FutureTraitT) => {
+          Rc(.FutureTraitT(base_name : _)) => {
             found = true;
           },
           _ => ()
@@ -3296,7 +3296,7 @@ type_implements_future :: (fn(ty : &TypeValue) -> bool)(
         t := match(required_trait_types.get(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
         match(
           t,
-          Rc(.FutureTraitT) => {
+          Rc(.FutureTraitT(base_name : _)) => {
             found = true;
           },
           _ => ()
@@ -3503,7 +3503,7 @@ type_contains_some_type_for_codegen_param :: (
       });
       found
     },
-    Rc(.TypeAppT) => true,
+    Rc(.TypeAppT(constructor : _)) => true,
     _ => false
   )
 });
@@ -3516,7 +3516,7 @@ type_contains_some_type_for_codegen_param :: (
 extract_future_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
-    Rc(.FutureTraitT) => Option(TypeValue).Some(Rc.clone(ty)),
+    Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
     Rc(.SomeT(_, _, _, _, required_trait_types_bounds, _, _)) => {
       required_trait_types := required_trait_types_bounds.required();
       n := required_trait_types.len();
@@ -3532,7 +3532,7 @@ extract_future_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
         );
         match(
           t.clone(),
-          Rc(.FutureTraitT) => {
+          Rc(.FutureTraitT(base_name : _)) => {
             return(Option(TypeValue).Some(t));
           },
           _ => ()
@@ -3555,7 +3555,7 @@ extract_future_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
         );
         match(
           t.clone(),
-          Rc(.FutureTraitT) => {
+          Rc(.FutureTraitT(base_name : _)) => {
             return(Option(TypeValue).Some(t));
           },
           _ => ()
@@ -3627,7 +3627,7 @@ find_some_type_missing_comptime_constraint :: (
   // issues/fixed/pattern-match-literal-in-enum-destructure.md.
   match(
     type_implements_comptime_builtin(ty),
-    .Some => {
+    .Some(_) => {
       return(Option(TypeValue).None);
     },
     .None => ()

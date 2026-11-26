@@ -355,7 +355,7 @@ test("IpAddr.parse_v6 accepts the full eight-group form", {
       assert(segs(usize(6)) == u16(2), "seventh group");
       assert(segs(usize(7)) == u16(1), "eighth group");
     },
-    .V4 => assert(false, "must be v6")
+    .V4(_, _, _, _) => assert(false, "must be v6")
   );
   // Hex is case-insensitive on input.
   assert(_ok_v6(`2001:DB8:0:0:0:0:2:1`) == a, "upper-case hex parses the same");
@@ -375,7 +375,7 @@ test("IpAddr.parse_v6 accepts :: compression in every position", {
         i = (i + usize(1));
       });
     },
-    .V4 => assert(false, "must be v6")
+    .V4(_, _, _, _) => assert(false, "must be v6")
   );
   // Middle and trailing compression.
   assert(
@@ -398,7 +398,7 @@ test("IpAddr.parse_v6 accepts a trailing dotted-quad", {
       assert(segs(usize(6)) == u16(0xc000), "192.0 packs into one group");
       assert(segs(usize(7)) == u16(0x0201), "2.1 packs into the next");
     },
-    .V4 => assert(false, "must be v6")
+    .V4(_, _, _, _) => assert(false, "must be v6")
   );
   // Also legal without compression, spelling all six leading groups.
   assert(

@@ -72,7 +72,7 @@ evaluated_body_contains_unwind :: (fn(e : &AstExpr) -> bool)(
             inner_args := match(
               arg_a,
               Rc(.FnCall(_, _, Rc(ia_inner), _, _)) => ia_inner.clone(),
-              Rc(.Atom) => ArrayList(AstExpr).new()
+              Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
             );
             ni := inner_args.len();
             (ji : usize) = usize(0);
@@ -150,7 +150,7 @@ expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
             inner_args := match(
               arg_a,
               Rc(.FnCall(_, _, Rc(ia_inner), _, _)) => ia_inner.clone(),
-              Rc(.Atom) => ArrayList(AstExpr).new()
+              Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
             );
             ni := inner_args.len();
             (ji : usize) = usize(0);
@@ -232,7 +232,7 @@ expr_contains_loop_terminator :: (fn(expr : &AstExpr) -> bool)(
             // Branch arrow: recurse into each child (condition and body)
             match(
               arg,
-              Rc(.Atom) => (),
+              Rc(.Atom(_, _)) => (),
               Rc(.FnCall(_, _, Rc(branch_args), _, _)) => {
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
@@ -283,7 +283,7 @@ expr_contains_loop_terminator :: (fn(expr : &AstExpr) -> bool)(
 expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    Rc(.Atom) => false,
+    Rc(.Atom(_, _)) => false,
     Rc(.FnCall(_, fn_box, Rc(args), _, _)) => {
       // io.await(future) — the await we are looking for.
       if(is_io_await_call(expr), {
@@ -320,7 +320,7 @@ expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
           if(ast_expr_is_fn_call_of(&arg, "=>", .None), {
             match(
               arg,
-              Rc(.Atom) => (),
+              Rc(.Atom(_, _)) => (),
               Rc(.FnCall(_, _, Rc(branch_args), _, _)) => {
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
@@ -379,7 +379,7 @@ expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
 expr_contains_while_with_await :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    Rc(.Atom) => false,
+    Rc(.Atom(_, _)) => false,
     Rc(.FnCall(_, fn_box, Rc(args), _, _)) => {
       if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) && expr_contains_await(expr), {
         return(true);
@@ -407,7 +407,7 @@ expr_contains_while_with_await :: (fn(expr : &AstExpr) -> bool)(
           if(ast_expr_is_fn_call_of(&arg, "=>", .None), {
             match(
               arg,
-              Rc(.Atom) => (),
+              Rc(.Atom(_, _)) => (),
               Rc(.FnCall(_, _, Rc(branch_args), _, _)) => {
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
@@ -465,7 +465,7 @@ expr_contains_while_with_await :: (fn(expr : &AstExpr) -> bool)(
 all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    Rc(.Atom) => false,
+    Rc(.Atom(_, _)) => false,
     Rc(.FnCall(_, apw_func, Rc(apw_args), _, _)) => {
       if(ast_expr_is_fn_call_of(e, BF_UNWIND, .None), {
         return(true);
@@ -508,7 +508,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
         while(apw_j < apw_args.len(), {
           apw_arm := match(apw_args.get_cloned(apw_j), .Some(a) => a, .None => make_err_expr());
           if(ast_expr_is_fn_call_of(&apw_arm, "=>", .None), {
-            apw_arm_args := match(apw_arm, Rc(.FnCall(_, _, Rc(aa), _, _)) => aa.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+            apw_arm_args := match(apw_arm, Rc(.FnCall(_, _, Rc(aa), _, _)) => aa.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
             if(apw_arm_args.len() >= usize(2), {
               apw_has_arm = true;
               match(
@@ -516,7 +516,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
                 .Some(Rc(.Atom(_, apw_ctok))) => if((apw_ctok.value.* == "true") || (apw_ctok.value.* == "_"), {
                   apw_has_default = true;
                 }),
-                .Some => (),
+                .Some(_) => (),
                 .None => ()
               );
               match(

@@ -118,7 +118,7 @@ extract_target_variable_id :: (
   // Extract args[0] from the FnCall
   var_expr := match(
     pe.clone(),
-    Rc(.Atom) => {
+    Rc(.Atom(_, _)) => {
       return(Option(String).None);
     },
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
@@ -133,7 +133,7 @@ extract_target_variable_id :: (
   tok := match(
     var_expr.clone(),
     Rc(.Atom(_, t)) => Rc.clone(t),
-    Rc(.FnCall) => {
+    Rc(.FnCall(_, _, _, _, _)) => {
       return(Option(String).None);
     }
   );
@@ -430,7 +430,7 @@ _capture_argument_temp :: (
   value := match(
     arg.clone(),
     Rc(.FnCall(_, _, Rc(la), _, _)) => if(ast_expr_is_fn_call_of(arg.clone(), ":", Option(usize).Some(usize(2))), match(la.get_cloned(usize(1)), .Some(v) => v, .None => arg.clone()), arg.clone()),
-    Rc(.Atom) => arg.clone()
+    Rc(.Atom(_, _)) => arg.clone()
   );
   match(
     &get_info(&value),
@@ -529,7 +529,7 @@ walk_expr_ :: (
                     .Some(ref_name) => match(
                       Rc.clone(ref_name),
                       Rc(.Atom(_, ref_tok)) => _capture_env_variable(ast_expr_id(&ref_name), ref_tok.value.*.clone(), &binfo.env(), Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
-                      Rc(.FnCall) => ()
+                      Rc(.FnCall(_, _, _, _, _)) => ()
                     ),
                     .None => ()
                   );
@@ -568,7 +568,7 @@ walk_expr_ :: (
       if(ast_expr_is_fn_call_of(expr_cloned.clone(), ".", Option(usize).Some(usize(2))), {
         member_is_name := match(
           args.get_cloned(usize(1)),
-          .Some(me) => match(me, Rc(.Atom(_, mt)) => (mt.kind == TokenKind.Identifier), Rc(.FnCall) => false),
+          .Some(me) => match(me, Rc(.Atom(_, mt)) => (mt.kind == TokenKind.Identifier), Rc(.FnCall(_, _, _, _, _)) => false),
           .None => false
         );
         if(member_is_name, {
@@ -688,7 +688,7 @@ walk_expr_ :: (
                   .Some(arm_pat) => _capture_pattern_bindings(&arm_pat, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                   .None => ()
                 ),
-                Rc(.Atom) => ()
+                Rc(.Atom(_, _)) => ()
               );
             });
             recur(&arg2, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));

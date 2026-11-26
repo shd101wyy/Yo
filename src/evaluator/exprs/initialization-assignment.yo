@@ -192,7 +192,7 @@ _is_subscript_shape :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     Rc(.FnCall(_, ss_callee, Rc(ss_args), ss_infix, _)) => ((!ss_infix.* && (ss_args.len() == usize(1))) && (ast_expr_is_atom(&ss_callee.*) || ast_expr_is_fn_call_of(&ss_callee.*, BF_DOT, Option(usize).Some(usize(2))))),
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop)) -> Option(AstExpr))({
@@ -208,7 +208,7 @@ _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop
           hops.push(_InoutPlaceHop(node : Rc.clone(cur), field : fld));
           cur = recv;
         },
-        Rc(.Atom) => {
+        Rc(.Atom(_, _)) => {
           walking = false;
         }
       );
@@ -296,12 +296,12 @@ _evaluate_inout_local_binding :: (
         )
       );
     },
-    .Some => ()
+    .Some(_) => ()
   );
   // The LHS: `mut(name)`, one identifier, and the annotation `T` of
   // `(name : &T) = &place`, which the parse-time rewrite (decision 42) passes
   // as a second argument.
-  lhs_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+  lhs_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   if((lhs_args.len() == usize(0)) || (lhs_args.len() > usize(3)), {
     exn.throw(
       dyn(
@@ -785,13 +785,13 @@ _chain_leaves_into :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr), depth : u
         while(ai < c_args.len(), ai = (ai + usize(1)), {
           arm := c_args(ai).clone();
           if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
-            match(arm, Rc(.FnCall(_, _, Rc(arm_args), _, _)) => match(arm_args.get_cloned(usize(1)), .Some(v) => _chain_leaves_into(&v, out, (depth + u32(1))), .None => ()), Rc(.Atom) => ());
+            match(arm, Rc(.FnCall(_, _, Rc(arm_args), _, _)) => match(arm_args.get_cloned(usize(1)), .Some(v) => _chain_leaves_into(&v, out, (depth + u32(1))), .None => ()), Rc(.Atom(_, _)) => ());
           });
         });
         return(());
       });
     },
-    Rc(.Atom) => ()
+    Rc(.Atom(_, _)) => ()
   );
   out.push(e.clone());
 });
@@ -846,7 +846,7 @@ _expr_last_byte_offset :: (fn(e : &AstExpr) -> u32)({
         });
       });
     },
-    Rc(.Atom) => ()
+    Rc(.Atom(_, _)) => ()
   );
   best
 });
@@ -921,7 +921,7 @@ _bind_projection_result :: (
   chain := (view_lhs_id.is_none() && projection_call_mode_of(rhs, ctx).is_none());
   is_mut := match(
     view_lhs_id,
-    .Some => false,
+    .Some(_) => false,
     .None =>
       if(
         chain,
@@ -1091,7 +1091,7 @@ _bind_projection_result :: (
     // result's roots (audit A56).
     root_arg_is_ref_binding := match(
       &root.arg,
-      Rc(.Atom) => match(
+      Rc(.Atom(_, _)) => match(
         get_variables_from_env(env, ast_expr_token(&root.arg).value.*.clone()).last_cloned(),
         .Some(rarv) => variable_is_reference_binding(&rarv),
         .None => false
@@ -1226,7 +1226,7 @@ _subscript_root_args :: (fn(call : &AstExpr) -> ArrayList(ProjectionRootArg))({
   match(
     call,
     Rc(.FnCall(_, sr_callee, _, _, _)) => out.push(ProjectionRootArg(arg : sr_callee.clone(), is_mut : false, label : String.from("self"), by_value : false)),
-    Rc(.Atom) => ()
+    Rc(.Atom(_, _)) => ()
   );
   out
 });
@@ -1256,13 +1256,13 @@ _subscript_root_args :: (fn(call : &AstExpr) -> ArrayList(ProjectionRootArg))({
 /// pin, `macro_expansion` = the cell expression it takes.
 evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   (env : Environment) = Rc.clone(env_in);
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   lhs := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   rhs := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   lhs_tok := ast_expr_token(&lhs);
   is_mut := ast_expr_is_inout_mode_call(&lhs, .None);
   sig := if(is_mut, String.from("&mut "), String.from("&"));
-  lhs_args := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+  lhs_args := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(&name_expr), {
     exn.throw(dyn(Box.new(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`))));
@@ -1488,7 +1488,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   (step_pin : Option(Variable)) = Option(Variable).None;
   match(
     pin_expr.clone(),
-    .Some => {
+    .Some(_) => {
       sp := match(
         &info.step_pin,
         .Some(p) => Rc.clone(p),
@@ -1570,7 +1570,7 @@ _rhs_is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
     ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
       h,
       Rc(.FnCall(_, _, Rc(hargs), _, _)) => match(hargs.get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     )
   );
   cond(
@@ -1578,7 +1578,7 @@ _rhs_is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
     true => match(
       e,
       Rc(.FnCall(_, func, _, _, _)) => head_ok(&func.*),
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     )
   )
 });
@@ -1610,12 +1610,12 @@ evaluate_initialization_assignment :: (
   (lhs : AstExpr) = match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    Rc(.Atom) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   (rhs : AstExpr) = match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    Rc(.Atom) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // `name := rhs` and `name := &mut place` declare RUNTIME storage, so
   // neither can appear in a compile-time context: the body of a function
@@ -1696,7 +1696,7 @@ evaluate_initialization_assignment :: (
     actual_lhs = match(
       Rc.clone(lhs),
       Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(cargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      Rc(.Atom) => make_err_expr()
+      Rc(.Atom(_, _)) => make_err_expr()
     );
   });
   // `name := &mut place` — a LOCAL second-class reference binding
@@ -1710,7 +1710,7 @@ evaluate_initialization_assignment :: (
     n_given_args := match(
       Rc.clone(lhs),
       Rc(.FnCall(_, _, Rc(gargs), _, _)) => gargs.len(),
-      Rc(.Atom) => usize(0)
+      Rc(.Atom(_, _)) => usize(0)
     );
     if(n_given_args != usize(1), {
       exn.throw(
@@ -1728,7 +1728,7 @@ evaluate_initialization_assignment :: (
     actual_lhs = match(
       Rc.clone(lhs),
       Rc(.FnCall(_, _, Rc(gargs), _, _)) => match(gargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      Rc(.Atom) => make_err_expr()
+      Rc(.Atom(_, _)) => make_err_expr()
     );
   });
   // `thread_local(name) := init;` — the inferred form of a module-level
@@ -1743,7 +1743,7 @@ evaluate_initialization_assignment :: (
   // modifier still here is malformed and is rejected below.
   (is_thread_local_decl : bool) = (ast_expr_is_atom(&lhs) && is_thread_local_binding(&ast_expr_token(&lhs), &ast_expr_token(&lhs).value.*));
   if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .None), {
-    n_tl_args := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(targs), _, _)) => targs.len(), Rc(.Atom) => usize(0));
+    n_tl_args := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(targs), _, _)) => targs.len(), Rc(.Atom(_, _)) => usize(0));
     if(n_tl_args != usize(1), {
       exn.throw(
         dyn(
@@ -1759,7 +1759,7 @@ evaluate_initialization_assignment :: (
     tl_atom := match(
       Rc.clone(lhs),
       Rc(.FnCall(_, _, Rc(targs), _, _)) => match(targs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      Rc(.Atom) => make_err_expr()
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     if(!ast_expr_is_atom(&tl_atom), {
       exn.throw(
@@ -1857,7 +1857,7 @@ evaluate_initialization_assignment :: (
     .Some(rhs_info) => {
       is_at_module_level := match(
         &ctx.is_evaluating_function_body_or_async_block,
-        .Some => false,
+        .Some(_) => false,
         .None => true
       );
       // O4 "module-level bindings: no" (O10, §7 "Module-level origins"):
@@ -2028,7 +2028,7 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
     // Check if the user pre-annotated the LHS with a type (via `(x : T) := rhs`).
     has_predefined_type := match(
       &actual_lhs_info_opt,
-      .Some(ali) => (match(ali.value(), .Some => true, .None => false) || (type_value_tag(&ali.ty()) != TypeTag.TUnit)),
+      .Some(ali) => (match(ali.value(), .Some(_) => true, .None => false) || (type_value_tag(&ali.ty()) != TypeTag.TUnit)),
       .None => false
     );
     // More precise: check whether ExprInfo was created with a type annotation —

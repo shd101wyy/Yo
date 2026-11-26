@@ -164,7 +164,7 @@ get_macro_quoted_param_indices :: (fn(func_id : &String) -> ArrayList(usize))(
 macro_return_is_unquote :: (fn(func_id : &String) -> bool)(
   match(
     g_macro_return_is_unquote.with({ func_id : &func_id.* }(m) => m.get(func_id.clone())),
-    .Some => true,
+    .Some(_) => true,
     .None => false
   )
 );
@@ -223,7 +223,7 @@ copy_macro_registration :: (fn(from_id : &String, to_id : &String) -> unit)({
   );
   match(
     g_macro_return_is_unquote.with({ from_id : &from_id.* }(m) => m.get(from_id.clone())),
-    .Some => {
+    .Some(_) => {
       to_id_owned2 := to_id.clone();
       g_macro_return_is_unquote.with_mut({ to_id_owned2 }(m) => m.insert(to_id_owned2.clone(), true));
     },
@@ -810,7 +810,7 @@ register_func_assumed_body :: (fn(func_id : &String, assumed : bool) -> unit)({
 has_func_assumed_body :: (fn(func_id : &String) -> bool)(
   match(
     g_func_assumed_body.with({ func_id : &func_id.* }(m) => m.get(func_id.clone())),
-    .Some => true,
+    .Some(_) => true,
     .None => false
   )
 );
@@ -1166,7 +1166,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
     });
     return(());
   });
-  o_is_type := match(o_var.value().get(usize(0)), .Some(ov) => match(ov, Rc(.TypeVal) => true, _ => false), .None => false);
+  o_is_type := match(o_var.value().get(usize(0)), .Some(ov) => match(ov, Rc(.TypeVal(_)) => true, _ => false), .None => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -1203,7 +1203,7 @@ evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalCo
 _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = e.clone();
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom) => make_err_expr());
+    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
   });
   if(ast_expr_is_atom(&cur) && is_valid_variable_name(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
 });
@@ -1301,7 +1301,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   });
   o_var := match(o_vars.get_cloned(o_n - usize(1)), .Some(v) => v, .None => return(()));
   o_value := o_var.value().get(usize(0));
-  o_is_type := match(o_value.clone(), .Some(Rc(.TypeVal)) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
+  o_is_type := match(o_value.clone(), .Some(Rc(.TypeVal(_))) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -1315,7 +1315,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
       )
     );
   });
-  if(match(o_value, .Some(Rc(.FuncVal)) => true, _ => false), {
+  if(match(o_value, .Some(Rc(.FuncVal(_, _))) => true, _ => false), {
     exn.throw(
       dyn(
         Box.new(
@@ -1358,7 +1358,7 @@ _reject_origin_naming_binding_in :: (fn(e : &AstExpr, name : &String, exn : Exce
         ai = (ai + usize(1));
       });
     },
-    Rc(.Atom) => ()
+    Rc(.Atom(_, _)) => ()
   )
 );
 /// One origin position `o` (a name, a field path, or a union `(a, b)`).
@@ -1647,14 +1647,14 @@ _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
     Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
-    Rc(.Atom) => ArrayList(AstExpr).new()
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   )
 );
 _fn_call_func :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
     Rc(.FnCall(_, func_box, _, _, _)) => Rc.clone(func_box.*),
-    Rc(.Atom) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   )
 );
 /// Evaluate an expression and return (updated_env, TypeValue option).
@@ -3180,7 +3180,7 @@ validate_concrete_type_constraints :: (
       tv := match(
         info.value(),
         .Some(Rc(.TypeVal(b))) => Rc.clone(b),
-        .Some => {
+        .Some(_) => {
           exn.throw(
             dyn(
               Box.new(
@@ -5435,7 +5435,7 @@ evaluate_function_type :: (
           .Some(ct_var) => match(
             ct_var.value().get(usize(0)),
             .Some(Rc(.TypeVal(ct_tb))) => _collect_where_constraints_from_some_t(&wpp.label, &ct_tb, &mut where_constraint_entries),
-            .Some => (),
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -6075,10 +6075,10 @@ _resolve_some_types_deep :: (
           while((rsd_i < rsd_rtt.len()) && !rsd_fut_poisoned, {
             match(
               rsd_rtt.get_cloned(rsd_i),
-              .Some(Rc(.FutureTraitT)) => {
+              .Some(Rc(.FutureTraitT(base_name : _))) => {
                 rsd_fut_poisoned = true;
               },
-              .Some => (),
+              .Some(_) => (),
               .None => ()
             );
             rsd_i = (rsd_i + usize(1));

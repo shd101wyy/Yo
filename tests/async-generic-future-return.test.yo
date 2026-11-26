@@ -213,12 +213,12 @@ _bare_fn :: (fn(generic(T : Type), v : &Option(T)) -> Impl(Fn(k : i32) -> Result
 });
 test("a generic Impl(Future(Result(T, E))) body ending in a bare-variant match", {
   r := io.await(_bare_future(Option(i32).Some(i32(5)), io), io);
-  assert(match(r, .Ok(v) => (v == i32(5)), .Err => false), "the Ok payload is the specialized T");
+  assert(match(r, .Ok(v) => (v == i32(5)), .Err(_) => false), "the Ok payload is the specialized T");
   r2 := io.await(_bare_future(Option(i32).None, io), io);
-  assert(match(r2, .Ok => false, .Err => true), "and the Err arm still works");
+  assert(match(r2, .Ok(_) => false, .Err(_) => true), "and the Err arm still works");
 });
 test("a generic Impl(Fn(...) -> Result(T, E)) closure ending in a bare-variant match", {
   f := _bare_fn(Option(i32).Some(i32(6)));
   r := f(i32(1));
-  assert(match(r, .Ok(v) => (v == i32(6)), .Err => false), "the Ok payload is the specialized T");
+  assert(match(r, .Ok(v) => (v == i32(6)), .Err(_) => false), "the Ok payload is the specialized T");
 });

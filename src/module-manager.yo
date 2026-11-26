@@ -248,7 +248,7 @@ _std_canonicalize :: (fn(p : &String) -> String)({
       .Ok(base) => {
         path = base.join(&path);
       },
-      .Err => ()
+      .Err(_) => ()
     );
   });
   path.normalize().to_string()
@@ -304,7 +304,7 @@ resolve_std_path :: (fn() -> String)({
   );
   match(
     current_exe(),
-    .Err => (),
+    .Err(_) => (),
     .Ok(exe_path) => {
       dir := exe_path.parent();
       while(dir.is_some(), {
@@ -380,14 +380,14 @@ _entry_std_root :: (fn(entry : &String) -> Option(String))({
 prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
   match(
     g_std_path_override.clone(),
-    .Some => {
+    .Some(_) => {
       return(());
     },
     .None => ()
   );
   match(
     _yo_std_env_value(),
-    .Some => {
+    .Some(_) => {
       return(());
     },
     .None => ()
@@ -449,7 +449,7 @@ mm_set_loader_context :: (fn(std_path : &String) -> unit)({
   g_loader_std_path = Option(String).Some(std_path.clone());
 });
 mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env.clone());
-mm_has_prelude_env :: (fn() -> bool)(match(g_cached_prelude_env.clone(), .Some => true, .None => false));
+mm_has_prelude_env :: (fn() -> bool)(match(g_cached_prelude_env.clone(), .Some(_) => true, .None => false));
 mm_clear_prelude_env :: (fn() -> unit)({
   g_cached_prelude_env = Option(Environment).None;
   g_cached_prelude_module_value = Option(EvalValue).None;
@@ -494,9 +494,9 @@ mm_resolve_entry_abs :: (fn(input_path : &String, std_path : &String) -> String)
     // must not rewrite it (issues/fixed/entry-path-shadowed-by-an-import-root-name.md).
     resolve_module_path_ex(input_path.clone(), String.from("."), std_path, false),
     .Found(p) => p,
-    .NotFound => input_path.clone(),
-    .Ambiguous => input_path.clone(),
-    .Unavailable => input_path.clone()
+    .NotFound(_) => input_path.clone(),
+    .Ambiguous(_) => input_path.clone(),
+    .Unavailable(_, _) => input_path.clone()
   )
 );
 /// Resolve an import-path string the way the demand loader would, relative
@@ -507,9 +507,9 @@ mm_resolve_import_abs :: (fn(input_path : &String, base_dir : &String, std_path 
   match(
     resolve_module_path_ex(input_path.clone(), base_dir.clone(), std_path, false),
     .Found(p) => p,
-    .NotFound => input_path.clone(),
-    .Ambiguous => input_path.clone(),
-    .Unavailable => input_path.clone()
+    .NotFound(_) => input_path.clone(),
+    .Ambiguous(_) => input_path.clone(),
+    .Unavailable(_, _) => input_path.clone()
   )
 );
 // Open-document text overlay (Phase B1): the LSP holds newer text for open
@@ -670,7 +670,7 @@ mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
           stmt_state.push_string(ast_expr_to_string(&e));
           stmt_state.push_str("\n");
         },
-        .Some => ()
+        .Some(_) => ()
       ),
       .None => ()
     );
@@ -830,7 +830,7 @@ _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
   match(
     def.expr(),
     Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(1)),
-    Rc(.Atom) => Option(AstExpr).None
+    Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
 /// The `(fn(...) -> T)` HEAD of a fn-literal definition RHS — the callee of
@@ -847,7 +847,7 @@ _def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
         true => Option(AstExpr).None
       )
     },
-    Rc(.Atom) => Option(AstExpr).None
+    Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
 /// True when a `::` definition may take the per-def path: a FN-LITERAL
@@ -972,7 +972,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
                       }),
                       .None => ()
                     ),
-                    Rc(.Atom) => ()
+                    Rc(.Atom(_, _)) => ()
                   );
                 }),
                 .None => ()
@@ -980,7 +980,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
               ai = (ai + usize(1));
             });
           },
-          Rc(.Atom) => ()
+          Rc(.Atom(_, _)) => ()
         );
       }),
       .None => ()
@@ -2039,7 +2039,7 @@ _load_imports_file :: (fn(exn : Exception) -> unit)({
     .Some(p) => {
       text := String.from_bytes(read_file_sync(p.clone(), exn));
       clear_import_roots();
-      cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err => String.from("."));
+      cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
       lines := text.split("\n");
       (i : usize) = usize(0);
       while(i < lines.len(), {
@@ -2278,7 +2278,7 @@ _scan_import_literals :: (
 )({
   match(
     e,
-    Rc(.Atom) => (),
+    Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func, Rc(args), _, _)) => {
       is_import := match(func, Rc(.Atom(_, ft)) => (ft.value.* == BK_IMPORT), _ => false);
       if(is_import && (args.len() == usize(1)), {

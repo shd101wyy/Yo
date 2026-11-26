@@ -65,7 +65,7 @@ test("Test join_all with aborted member", {
   handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
   handles(usize(0)).abort();
   results := io.await(join_all(handles, io), io);
-  assert(match(results(usize(0)), .Some => false, .None => true), "aborted slot should be .None");
+  assert(match(results(usize(0)), .Some(_) => false, .None => true), "aborted slot should be .None");
   assert(match(results(usize(1)), .Some(v) => (v == i32(2)), .None => false), "sibling should complete");
 });
 // ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ test("Test any with all aborted", {
   match(
     io.await(any(handles, io), io),
     (w, back) => {
-      assert(match(w, .Some => false, .None => true), "any over only-aborted handles should be .None");
+      assert(match(w, .Some(_) => false, .None => true), "any over only-aborted handles should be .None");
       assert(back(usize(0)).state() == FutureState.Aborted, "the returned handles are the aborted ones");
       assert(back(usize(1)).state() == FutureState.Aborted, "both of them");
     }
@@ -162,7 +162,7 @@ test("Test any with all aborted", {
 // ---------------------------------------------------------------------------
 test("Test timeout completes in time", {
   r := io.await(timeout(sleepy(i32(7), u64(5), io), Duration.from_millis(i64(200)), io), io);
-  assert(match(r, .Ok(v) => (v == i32(7)), .Err => false), "task inside the limit should deliver its value");
+  assert(match(r, .Ok(v) => (v == i32(7)), .Err(_) => false), "task inside the limit should deliver its value");
 });
 test("Test timeout consumes its operand", {
   comptime_expect_error(
@@ -175,11 +175,11 @@ test("Test timeout consumes its operand", {
   );
   f := sleepy(i32(8), u64(1), io);
   r := io.await(timeout(f, Duration.from_millis(i64(200)), io), io);
-  assert(match(r, .Ok(v) => (v == i32(8)), .Err => false), "the consumed future's value comes back");
+  assert(match(r, .Ok(v) => (v == i32(8)), .Err(_) => false), "the consumed future's value comes back");
   // A task that is already spawned is timed out through its join future.
   h := io.spawn(sleepy(i32(9), u64(1), io), io);
   rh := io.await(timeout(h.join(io), Duration.from_millis(i64(200)), io), io);
-  assert(match(rh, .Ok(o) => (o == .Some(i32(9))), .Err => false), "the join resolves to the task's result");
+  assert(match(rh, .Ok(o) => (o == .Some(i32(9))), .Err(_) => false), "the join resolves to the task's result");
 });
 // ---------------------------------------------------------------------------
 // 6b. timeout — repeated in-time calls against a long deadline.
@@ -194,7 +194,7 @@ test("Test timeout in a loop against a long deadline", {
   (mut(i) : usize) = usize(0);
   while(i < usize(200), i = (i + usize(1)), {
     r := io.await(timeout(sleepy(i32(3), u64(0), io), Duration.from_millis(i64(60000)), io), io);
-    assert(match(r, .Ok(v) => (v == i32(3)), .Err => false), "every in-time call should deliver its value");
+    assert(match(r, .Ok(v) => (v == i32(3)), .Err(_) => false), "every in-time call should deliver its value");
   });
 });
 // ---------------------------------------------------------------------------
@@ -211,7 +211,7 @@ test("Test timeout distinguishes an aborted task from an elapsed deadline", {
   h.abort();
   r := io.await(timeout(h.join(io), Duration.from_millis(i64(500)), io), io);
   assert(
-    match(r, .Ok(v) => v.is_none(), .Err => false),
+    match(r, .Ok(v) => v.is_none(), .Err(_) => false),
     "a task cancelled before its deadline joins as .None, in time"
   );
 });
@@ -231,8 +231,8 @@ test("Test two timeouts of join futures at one T", {
   t2 := io.spawn(_tmo_unit_task(io), io);
   r1 := io.await(timeout(t1.join(io), Duration.from_millis(i64(5000)), io), io);
   r2 := io.await(timeout(t2.join(io), Duration.from_millis(i64(5000)), io), io);
-  assert(match(r1, .Ok(v) => v.is_some(), .Err => false), "the first join resolves in time");
-  assert(match(r2, .Ok(v) => v.is_some(), .Err => false), "the second join resolves in time");
+  assert(match(r1, .Ok(v) => v.is_some(), .Err(_) => false), "the first join resolves in time");
+  assert(match(r2, .Ok(v) => v.is_some(), .Err(_) => false), "the second join resolves in time");
 });
 // ---------------------------------------------------------------------------
 // 7. timeout — deadline aborts the task
@@ -248,7 +248,7 @@ test("Test timeout aborts on deadline", {
   });
   r := io.await(timeout(fut, Duration.from_millis(i64(10)), io), io);
   assert(
-    match(r, .Ok => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)),
+    match(r, .Ok(_) => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)),
     "an over-deadline task should report Elapsed, not a bare .None"
   );
   // Outlive the aborted task's timer so its completion fires the entry guard.
@@ -311,7 +311,7 @@ test("Test any_first is None when every handle was aborted", {
   handles(usize(0)).abort();
   handles(usize(1)).abort();
   r := io.await(any_first(handles, io), io);
-  assert(match(r, .Some => false, .None => true), "no completion means .None");
+  assert(match(r, .Some(_) => false, .None => true), "no completion means .None");
 });
 // ---------------------------------------------------------------------------
 // JoinHandle.join — the suspending wait, and the combinators INSIDE a task.
@@ -363,7 +363,7 @@ test("Test JoinHandle.join of an aborted task is None", {
   h := io.spawn(sleepy(i32(1), u64(50), io), io);
   h.abort();
   r := io.await(h.join(io), io);
-  assert(match(r, .Some => false, .None => true), "an aborted task joins as .None");
+  assert(match(r, .Some(_) => false, .None => true), "an aborted task joins as .None");
 });
 /// Runs join_all over two workers from inside a task.
 join_all_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
@@ -411,7 +411,7 @@ timeouts_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     (mut(score) : i32) = i32(0);
     match(
       a,
-      .Ok => (),
+      .Ok(_) => (),
       .Err(e) => match(
         e,
         .Elapsed => {
@@ -425,7 +425,7 @@ timeouts_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
       .Ok(v) => {
         score = (score + v);
       },
-      .Err => ()
+      .Err(_) => ()
     );
     score
   })
@@ -464,7 +464,7 @@ test("Test aborting the joining task leaves the joined task running", {
   jh := io.spawn(joiner, io);
   jh.abort();
   r := jh.await(io);
-  assert(match(r, .Some => false, .None => true), "the joiner was aborted");
+  assert(match(r, .Some(_) => false, .None => true), "the joiner was aborted");
   // The aborted join dropped the handle, which detached the worker.
   io.await(sleep(u64(60)), io);
   assert(done.with(cur => cur.*), "the joined task still ran to the end");
@@ -510,7 +510,7 @@ _bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32
   match(
     io.await(timeout(s.collect(io), Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
-    .Err => {
+    .Err(_) => {
       assert(false, "stream collect did not finish inside the deadline");
       ArrayList(i32).new()
     }
@@ -535,7 +535,7 @@ _count_items :: (
       nx := io.await(st.next(io), io);
       match(
         nx,
-        .Some => {
+        .Some(_) => {
           n = (n + usize(1));
         },
         .None => {
@@ -765,7 +765,7 @@ test("Test a hand-written consumer loop inside a spawned task", {
     ),
     io
   );
-  assert(match(r, .Ok(n) => (n == usize(3)), .Err => false), "the task looped over every item");
+  assert(match(r, .Ok(n) => (n == usize(3)), .Err(_) => false), "the task looped over every item");
   assert(seen(usize(0)) == i32(6), "and the body's effect is visible outside");
 });
 test("Test a hand-written consumer loop over an empty stream", {
@@ -839,7 +839,7 @@ test("Test a stream loop inside a spawned task, with continue and break", {
   });
   r := io.await(timeout(task, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "the loop finished inside the deadline");
-  got := match(r, .Ok(v) => v, .Err => ArrayList(i32).new());
+  got := match(r, .Ok(v) => v, .Err(_) => ArrayList(i32).new());
   assert(got.len() == usize(3), "6, then 5 skipped, 4 and 3, then 2 breaks");
   assert((got(usize(0)) == i32(6)) && ((got(usize(1)) == i32(4)) && (got(usize(2)) == i32(3))), "6 4 3");
 });
@@ -898,7 +898,7 @@ test("Test a stream loop suspends its task between items", {
       n := io.await(s.next(io), io);
       match(
         n,
-        .Some => {
+        .Some(_) => {
           now := ticks.with(cur => cur.*);
           seen.with_mut(l => l.push(now));
         },
@@ -1335,7 +1335,7 @@ test("A4: a type built from the binder of a join future at two types is two type
 test("A4: timeout over a borrowing future that finishes in time", {
   mut(c) := _A4Counter(n : i32(0));
   r := io.await(timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(500)), io), io);
-  assert(match(r, .Ok(v) => (v == i32(1)), .Err => false), "the operand's value comes back");
+  assert(match(r, .Ok(v) => (v == i32(1)), .Err(_) => false), "the operand's value comes back");
   assert(c.n == i32(1), "the operand wrote through its borrow");
   c.n = (c.n + i32(4));
   assert(io.await(_a4_read_after(&c, u64(0), io), io) == i32(5), "the lent local is usable after the call");
@@ -1344,7 +1344,7 @@ test("A4: timeout over a borrowing future that hits the deadline aborts and join
   mut(c) := _A4Counter(n : i32(0));
   before := g_a4_dropped;
   r := io.await(timeout(_a4_bump_after(&mut c, u64(300), io), Duration.from_millis(i64(5)), io), io);
-  assert(match(r, .Ok => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)), "the deadline fired first");
+  assert(match(r, .Ok(_) => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)), "the deadline fired first");
   assert(g_a4_dropped == (before + i32(1)), "the aborted operand was joined and disposed before timeout resolved");
   c.n = (c.n + i32(10));
   io.await(sleep(u64(350)), io);

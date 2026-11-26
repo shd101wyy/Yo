@@ -34,14 +34,14 @@ test("store_tree_dir: sha256-<64 hex> maps to <root>/store/sha256/<hex>", {
 test("store_tree_dir: a value without the sha256- prefix is an error naming it", {
   match(
     store_tree_dir(String.from("/c"), String.from(HEX64)),
-    .Ok => panic("accepted a bare hex"),
+    .Ok(_) => panic("accepted a bare hex"),
     .Err(m) => assert(m.contains(String.from("does not start with \"sha256-\"")), &m)
   );
 });
 test("store_tree_dir: a short hash is an error", {
   match(
     store_tree_dir(String.from("/c"), String.from("sha256-abc")),
-    .Ok => panic("accepted a short hash"),
+    .Ok(_) => panic("accepted a short hash"),
     .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), &m)
   );
 });
@@ -50,15 +50,15 @@ test("store_tree_dir: uppercase or non-hex digits are an error (no path escape)"
   bad.push_str("../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../////////");
   match(
     store_tree_dir(String.from("/c"), &bad),
-    .Ok => panic("accepted a path-escaping value"),
+    .Ok(_) => panic("accepted a path-escaping value"),
     .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), &m)
   );
   mut(upper) := String.from("sha256-");
   upper.push_str("0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef");
   match(
     store_tree_dir(String.from("/c"), &upper),
-    .Ok => panic("accepted uppercase hex"),
-    .Err => ()
+    .Ok(_) => panic("accepted uppercase hex"),
+    .Err(_) => ()
   );
 });
 test("store_verified_marker: a sibling file of the tree", {

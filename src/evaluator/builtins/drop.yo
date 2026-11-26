@@ -58,7 +58,7 @@ evaluate_drop :: (
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
     &arg_info_opt,
-    .Some => (),
+    .Some(_) => (),
     .None => {
       exn.throw(
         dyn(
@@ -92,7 +92,7 @@ evaluate_drop :: (
   // Determine if value is a TypeVal (type values are not consumed).
   is_tv := match(
     arg_info.value(),
-    .Some(v) => match(v, Rc(.TypeVal) => true, _ => false),
+    .Some(v) => match(v, Rc(.TypeVal(_)) => true, _ => false),
     .None => false
   );
   match(

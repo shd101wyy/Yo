@@ -31,7 +31,7 @@
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 /// The `i`-th argument of a FnCall (or `.None`).
 _arg :: (fn(expr : &AstExpr, i : usize) -> Option(AstExpr))(
-  match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(i), Rc(.Atom) => Option(AstExpr).None)
+  match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(i), Rc(.Atom(_, _)) => Option(AstExpr).None)
 );
 /// The result type of an expression (Unit when it has no ExprInfo).
 _ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
@@ -225,7 +225,7 @@ _emit_unsized_place_drop :: (fn(ty : &TypeValue, fat : &String, indent : &String
     t_refine_inner(ty),
     // A `Dyn` place drops through its vtable's `drop_in_place` slot, which
     // drops the payload and frees nothing (decision 49 S2).
-    Rc(.DynT) => {
+    Rc(.DynT({})) => {
       dft := get_type_string(ty, &mut context.base);
       context.base.emitter.emit_string_line(`${indent.clone()}{ ${dft} __yo_dip_f = ${fat.clone()}; __yo_dip_f.vtable->__yo_drop_in_place(__yo_dip_f.data); }`);
     },

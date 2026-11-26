@@ -143,7 +143,7 @@ evaluate_struct_type :: (
   // Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived AFTER field
   // evaluation by `auto_derive_traits_for_struct_type` (below).
   // Evaluate fields
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   runtime_field_types := ArrayList(TypeValue).new();
@@ -168,7 +168,7 @@ evaluate_struct_type :: (
       dup_idx = (dup_idx + usize(1));
     });
     if(has_dup, {
-      arg_args := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+      arg_args := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(arg_args.get_cloned(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
@@ -370,7 +370,7 @@ evaluate_struct_type :: (
   out_info.set_value(Option(EvalValue).Some(struct_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info
-  callee_expr := match(expr, Rc(.FnCall(_, f_box, _, _, _)) => Rc.clone(f_box.*), Rc(.Atom) => Rc.clone(expr.*));
+  callee_expr := match(expr, Rc(.FnCall(_, f_box, _, _, _)) => Rc.clone(f_box.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
   Rc.clone(expr.*)
 });
@@ -465,7 +465,7 @@ evaluate_cell_type :: (
     );
     return(make_err_expr());
   });
-  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
     exn.throw(
       dyn(
@@ -580,7 +580,7 @@ evaluate_cell_type :: (
   out_info := new_expr_info(&env, &type_of_type(&cell_ty));
   out_info.set_value(Option(EvalValue).Some(create_type_value(&cell_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  callee_expr := match(expr, Rc(.FnCall(_, f_box, _, _, _)) => Rc.clone(f_box.*), Rc(.Atom) => Rc.clone(expr.*));
+  callee_expr := match(expr, Rc(.FnCall(_, f_box, _, _, _)) => Rc.clone(f_box.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
   Rc.clone(expr.*)
 });

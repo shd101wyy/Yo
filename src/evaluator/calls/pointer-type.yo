@@ -131,7 +131,7 @@ try_to_convert_to_pointer_type :: (
   type_expr := match(
     expr,
     Rc(.FnCall(_, func_box, _, _, _)) => Rc.clone(func_box.*),
-    Rc(.Atom) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // Lower the runtime pointer→pointer cast to a `__yo_as` node, attached to the
   // ORIGINAL expr's ExprInfo as a `macro_expansion`. Codegen walks the original

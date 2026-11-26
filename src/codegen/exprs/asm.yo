@@ -215,7 +215,7 @@ _atom_value_cg :: (fn(e : &AstExpr) -> String)(
   match(e, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""))
 );
 _fn_call_args_cg :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), Rc(.Atom) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// Read an expr's comptime-string VALUE (decoded, delimiters stripped).
 _cg_comptime_str :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
@@ -224,7 +224,7 @@ _cg_comptime_str :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> O
     .Some(info) => match(
       info.value(),
       .Some(Rc(.StrLit(s))) => Option(String).Some(_strip_str_delims(decode_str_lit_escapes(s.clone()))),
-      .Some => Option(String).None,
+      .Some(_) => Option(String).None,
       .None => Option(String).None
     ),
     .None => Option(String).None
@@ -236,7 +236,7 @@ _cg_is_type_value :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> 
     .Some(info) => match(
       info.value(),
       .Some(Rc(.TypeVal(t))) => Option(TypeValue).Some(Rc.clone(t)),
-      .Some => Option(TypeValue).None,
+      .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None

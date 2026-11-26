@@ -72,7 +72,7 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
   });
   match(
     t,
-    Rc(.FnTraitT) => out.push(String.from("call")),
+    Rc(.FnTraitT(_, _, _, _, _, _)) => out.push(String.from("call")),
     Rc(.TraitT({ body : fls_body })) => {
       fls := fls_body.field_labels();
       fts := fls_body.field_types();
@@ -160,7 +160,7 @@ evaluate_dyn_type :: (
   args := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
-    Rc(.Atom) => ArrayList(AstExpr).new()
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   required_traits := ArrayList(TypeValue).new();
   required_levels := ArrayList(usize).new();
@@ -214,7 +214,7 @@ evaluate_dyn_type :: (
     inner_ty := match(
       trait_info.value(),
       .Some(Rc(.TypeVal(it))) => Rc.clone(it),
-      .Some => t_i32(),
+      .Some(_) => t_i32(),
       .None => t_i32()
     );
     if(!is_type_value(&trait_info.value()), {
@@ -231,7 +231,7 @@ evaluate_dyn_type :: (
     });
     // `Dyn(Trait, p)`: a payload bounded by an origin (decision 43,
     // plans/backlog/REFERENCES_AND_ORIGINS.md O4) is first-class storage.
-    if(match(&inner_ty, Rc(.OriginSet) => true, _ => false), {
+    if(match(&inner_ty, Rc(.OriginSet(_, _)) => true, _ => false), {
       exn.throw(
         dyn(
           Box.new(

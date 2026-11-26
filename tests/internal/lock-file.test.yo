@@ -85,7 +85,7 @@ test("parse_lock_file: a v1 lock is rejected with a regeneration hint", {
   content := String.from("[[dependencies]]\nname = \"json-parser\"\nurl = \"https://github.com/user/json-parser.git\"\nref = \"v1.0.0\"\ncommit = \"abc123\"\nhash = \"sha256-XXXXX\"\n");
   match(
     parse_lock_file(&content),
-    .Ok => assert(false, "a v1 lock must not parse as v2"),
+    .Ok(_) => assert(false, "a v1 lock must not parse as v2"),
     .Err(msg) => {
       assert(msg.contains(String.from("format version 0 is not 2")), `message names the versions: ${msg}`);
       assert(msg.contains(String.from("yo install")), "message says how to regenerate");
@@ -95,28 +95,28 @@ test("parse_lock_file: a v1 lock is rejected with a regeneration hint", {
 test("parse_lock_file: a future version is rejected", {
   match(
     parse_lock_file(String.from("version = 3\n")),
-    .Ok => assert(false, "v3 must not parse"),
+    .Ok(_) => assert(false, "v3 must not parse"),
     .Err(msg) => assert(msg.contains(String.from("format version 3")), "names the version")
   );
 });
 test("parse_lock_file: a package without a source is an error", {
   match(
     parse_lock_file(String.from("version = 2\n[[package]]\nname = \"x\"\n")),
-    .Ok => assert(false, "must fail"),
+    .Ok(_) => assert(false, "must fail"),
     .Err(msg) => assert(msg.contains(String.from("needs name and source")), `message: ${msg}`)
   );
 });
 test("parse_lock_file: an unknown source kind is an error", {
   match(
     parse_lock_file(String.from("version = 2\n[[package]]\nname = \"x\"\nsource = \"svn+https://x\"\n")),
-    .Ok => assert(false, "must fail"),
+    .Ok(_) => assert(false, "must fail"),
     .Err(msg) => assert(msg.contains(String.from("unknown source kind")), `message: ${msg}`)
   );
 });
 test("parse_lock_file: malformed TOML is an error", {
   match(
     parse_lock_file(String.from("version = 2\n[[package\nname = \"x\"\n")),
-    .Ok => assert(false, "must fail"),
+    .Ok(_) => assert(false, "must fail"),
     .Err(msg) => assert(msg.starts_with(String.from("yo.lock:")), `message: ${msg}`)
   );
 });
@@ -178,7 +178,7 @@ test("find_lock_entry: None for an unknown name, the entry otherwise", {
   mut(entries) := ArrayList(LockEntry).new();
   entries.push(_entry("a", "1.0.0", git_source(String.from("https://a"), String.from("v1.0.0")), "aaa", "sha256-a"));
   lock := _lock_of(&entries);
-  match(find_lock_entry(&lock, String.from("unknown")), .Some => assert(false, "expected None"), .None => ());
+  match(find_lock_entry(&lock, String.from("unknown")), .Some(_) => assert(false, "expected None"), .None => ());
   match(
     find_lock_entry(&lock, String.from("a")),
     .None => assert(false, "expected the entry"),

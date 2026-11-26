@@ -135,10 +135,10 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
           ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT) || (ht.value.* == BK_FN_MUT_TRAIT)) => ht.value.*.clone(),
           true => String.new()
         ),
-        Rc(.FnCall) => String.new()
+        Rc(.FnCall(_, _, _, _, _)) => String.new()
       )
     ),
-    Rc(.Atom) => String.new()
+    Rc(.Atom(_, _)) => String.new()
   )
 );
 /// A capture-list borrow pun in decision 42's spelling: `&y` or `&mut z`, a
@@ -149,13 +149,13 @@ _is_capture_sigil_pun :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
     Rc(.FnCall(_, pf, Rc(pargs), p_infix, _)) => (
-      !p_infix.* && (pargs.len() == usize(1)) && match(pf, Rc(.Atom(_, pt)) => ((pt.value.* == "&") || (pt.value.* == "&mut")), Rc(.FnCall) => false) && match(
+      !p_infix.* && (pargs.len() == usize(1)) && match(pf, Rc(.Atom(_, pt)) => ((pt.value.* == "&") || (pt.value.* == "&mut")), Rc(.FnCall(_, _, _, _, _)) => false) && match(
         pargs.get_cloned(usize(0)),
-        .Some(a) => match(a, Rc(.Atom(_, at)) => (at.kind == TokenKind.Identifier), Rc(.FnCall) => false),
+        .Some(a) => match(a, Rc(.Atom(_, at)) => (at.kind == TokenKind.Identifier), Rc(.FnCall(_, _, _, _, _)) => false),
         .None => false
       )
     ),
-    Rc(.Atom) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 /// The deleted mode-word pun `imm(y)` / `mut(z)` / `inout(z)` on one
@@ -167,8 +167,8 @@ _is_old_capture_mode_pun :: (fn(expr : &AstExpr) -> bool)(
     .Some(w) => (
       (w != "own") && match(
         expr,
-        Rc(.FnCall(_, _, Rc(pargs), p_infix, _)) => (!p_infix.* && match(pargs.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, at)) => (at.kind == TokenKind.Identifier), Rc(.FnCall) => false), .None => false)),
-        Rc(.Atom) => false
+        Rc(.FnCall(_, _, Rc(pargs), p_infix, _)) => (!p_infix.* && match(pargs.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, at)) => (at.kind == TokenKind.Identifier), Rc(.FnCall(_, _, _, _, _)) => false), .None => false)),
+        Rc(.Atom(_, _)) => false
       )
     ),
     .None => false
@@ -1289,7 +1289,7 @@ impl(
         is_infix.* => match(
           func_box,
           Rc(.Atom(_, func_tok)) => (func_tok.value.* == ":"),
-          Rc(.FnCall) => false
+          Rc(.FnCall(_, _, _, _, _)) => false
         ),
         // `imm(y)` / `mut(z)` / `inout(z)`: the deleted mode-word spelling of
         // a capture-list borrow pun (decision 42 Generation B). It still
@@ -1300,7 +1300,7 @@ impl(
         true => match(
           func_box,
           Rc(.Atom(_, func_tok2)) => (func_tok2.value.* == "..."),
-          Rc(.FnCall) => false
+          Rc(.FnCall(_, _, _, _, _)) => false
         )
       )
     )
@@ -1615,10 +1615,10 @@ impl(
         true => match(
           rfb,
           Rc(.Atom(_, ft)) => (ft.kind != TokenKind.Dot),
-          Rc(.FnCall) => false
+          Rc(.FnCall(_, _, _, _, _)) => false
         )
       ),
-      Rc(.Atom) => false
+      Rc(.Atom(_, _)) => false
     );
     if(rhs_is_infix_non_dot, {
       (left_operand : AstExpr) = match(
@@ -1628,7 +1628,7 @@ impl(
           .Some(a) => a,
           .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: missing left arg in rhs`))))
         ),
-        Rc(.Atom) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
+        Rc(.Atom(_, _)) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
       );
       (right_operand : AstExpr) = match(
         rhs,
@@ -1637,7 +1637,7 @@ impl(
           .Some(a) => a,
           .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: missing right arg in rhs`))))
         ),
-        Rc(.Atom) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
+        Rc(.Atom(_, _)) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
       );
       rhs_func_tok := match(
         rhs,
@@ -1683,7 +1683,7 @@ impl(
                     cand_tok = Option(Token).Some(Rc.clone(ft));
                   });
                 },
-                Rc(.FnCall) => ()
+                Rc(.FnCall(_, _, _, _, _)) => ()
               );
             });
             at_rhs_level := match(
@@ -1708,7 +1708,7 @@ impl(
               true => Option(Tuple(Token, AstExpr, AstExpr)).None
             );
           },
-          Rc(.Atom) => ()
+          Rc(.Atom(_, _)) => ()
         );
         match(
           step,
@@ -1799,7 +1799,7 @@ impl(
     primary_is_dot := match(
       primary_expr,
       Rc(.Atom(_, pt)) => (pt.kind == TokenKind.Dot),
-      Rc(.FnCall) => false
+      Rc(.FnCall(_, _, _, _, _)) => false
     );
     // Dot at start of new line (method chaining across lines)
     is_dot_at_line_start := cond(
@@ -1919,10 +1919,10 @@ impl(
             true => match(
               rfb,
               Rc(.Atom(_, ft)) => (ft.kind != TokenKind.Dot),
-              Rc(.FnCall) => false
+              Rc(.FnCall(_, _, _, _, _)) => false
             )
           ),
-          Rc(.Atom) => false
+          Rc(.Atom(_, _)) => false
         );
         rhs_is_parenthesized := self.is_parenthesized_expr(rhs_start, rhs_end - usize(1));
         if(rhs_is_chained_op && (rhs_is_parenthesized == false), {
@@ -1935,9 +1935,9 @@ impl(
             Rc(.FnCall(_, rfb2, _, _, _)) => match(
               rfb2,
               Rc(.Atom(_, ft2)) => ft2.value.*.clone(),
-              Rc(.FnCall) => String.from("")
+              Rc(.FnCall(_, _, _, _, _)) => String.from("")
             ),
-            Rc(.Atom) => String.from("")
+            Rc(.Atom(_, _)) => String.from("")
           );
           cond(
             (tok.value.* == rhs_op_value) =>
@@ -2108,7 +2108,7 @@ impl(
       (rhs_op.* == "->") => match(
         rhs,
         Rc(.FnCall(_, _, Rc(rargs), _, _)) => match(rargs.get_cloned(usize(0)), .Some(rl) => _e0003_fn_type_head(&rl), .None => String.new()),
-        Rc(.Atom) => String.new()
+        Rc(.Atom(_, _)) => String.new()
       ),
       true => String.new()
     );
@@ -2192,7 +2192,7 @@ impl(
     prim_is_op_atom := match(
       Rc.clone(cur_expr),
       Rc(.Atom(_, at)) => _is_prefix_op_token(&at),
-      Rc(.FnCall) => false
+      Rc(.FnCall(_, _, _, _, _)) => false
     );
     if(started_at_op && prim_is_op_atom, {
       // A no-whitespace `(` is the operator-CALL form — the postfix loop
@@ -2269,7 +2269,7 @@ impl(
     prim_is_op_atom := match(
       Rc.clone(pr.expr),
       Rc(.Atom(_, at)) => _is_prefix_op_token(&at),
-      Rc(.FnCall) => false
+      Rc(.FnCall(_, _, _, _, _)) => false
     );
     if(started_at_op && prim_is_op_atom, {
       immediate_lparen := match(
@@ -2364,7 +2364,7 @@ impl(
   _brace_pass : (fn(self : &mut Self, e : &AstExpr, mode : u8, exn : Exception) -> Option(AstExpr))(
     match(
       e,
-      Rc(.Atom) => Option(AstExpr).None,
+      Rc(.Atom(_, _)) => Option(AstExpr).None,
       Rc(.FnCall(id, callee, Rc(args), is_infix, ftok)) => {
         binder := (mode == u8(1));
         if(!binder && self.bare_groups.contains_key(&id.*), {
@@ -2386,7 +2386,7 @@ impl(
             )
           );
         });
-        head := match(callee, Rc(.Atom(_, ht)) => ht.value.*.clone(), Rc(.FnCall) => String.new());
+        head := match(callee, Rc(.Atom(_, ht)) => ht.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.new());
         n := args.len();
         binds := ((mode == u8(0)) && ((head == ":=") || (head == "::") || (head == "=") || (head == "=>")) && (n == usize(2)));
         guard := (binder && (head == "&&") && (n == usize(2)));

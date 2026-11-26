@@ -491,7 +491,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     // `./` prefix) — so walk the CWD by absolute path but label entries
     // with their path-join shape.
     is_dot := (owned_root == ".");
-    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err => String.from(".")), owned_root.clone());
+    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), owned_root.clone());
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
       // Unreadable/missing root → skip.
