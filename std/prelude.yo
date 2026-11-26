@@ -8681,15 +8681,11 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
         "",
         (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
           fname :: fields.get(fi).name;
-          // A `Deref` wrapper field (`Box`, `Rc`, `Arc`) clones through its own
-          // `Clone` impl by name: `self.f.clone()` would be decision 32's
-          // wrapper/payload clash (E0616) when the payload is `Clone` too.
           part :: cond(
             // A reference field (decision 43 step 3): the clone lends the
             // same referent (`&T` is `Copy`; a `&mut T` field read through
             // `self : &Self` is a `&` reborrow, E0908 at the derive).
             __derive_field_is_reference(fields.get(fi).field_type) => __s2("self.", fname),
-            Type.impls(fields.get(fi).field_type, Deref) => __s5("(type_of(self.", fname, ") <: Clone).clone(&self.", fname, ")"),
             true => __s3("self.", fname, ".clone()")
           );
           cond(
@@ -8740,7 +8736,6 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                   fname :: v.fields.get(fi).name;
                   part :: cond(
                     __derive_field_is_reference(v.fields.get(fi).field_type) => __s2("__v_", fname),
-                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(type_of(__v_", fname, ") <: Clone).clone(&__v_", fname, ")"),
                     true => __s3("__v_", fname, ".clone()")
                   );
                   cond(
@@ -8811,13 +8806,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
             "",
             (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
               fname :: fields.get(fi).name;
-              // A `Deref` wrapper field hashes through its own `Hash` impl by
-              // name, as `__derive_clone` does: `self.f.hash(...)` is
-              // decision 32's wrapper/payload clash (E0616).
-              cond(
-                Type.impls(fields.get(fi).field_type, Deref) => __s5(a, "\n    (type_of(self.", fname, __s3(") <: Hash).hash(&self.", fname, ", hasher);"), ""),
-                true => __s4(a, "\n    self.", fname, ".hash(hasher);")
-              )
+              __s4(a, "\n    self.", fname, ".hash(hasher);")
             })
           );
           __s3("{", hash_stmts, "\n  }")
@@ -8852,10 +8841,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
                 __s3("hasher.write_u64(u64(", vi_str, "));"),
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
-                  cond(
-                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5(a, " (type_of(__v_", fname, __s3(") <: Hash).hash(&__v_", fname, ", hasher);"), ""),
-                    true => __s4(a, " __v_", fname, ".hash(hasher);")
-                  )
+                  __s4(a, " __v_", fname, ".hash(hasher);")
                 })
               );
               __s5(
