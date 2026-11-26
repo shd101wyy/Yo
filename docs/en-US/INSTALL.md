@@ -28,9 +28,16 @@ its options:
 | `--prefix=<dir>`           | Install prefix (default `$HOME/.local`)                   |
 | `--from-source`            | Build from the published single-file `yo.c` (see below)   |
 | `--no-deps`, `--no-verify` | Skip the system packages, skip the hello-world check      |
+| `--no-solver`              | Do not download the Z3 solver                             |
 | `-f`, `--force`            | Reinstall a release that is already installed             |
 | `-u`, `--uninstall`        | Remove the install                                        |
 | `--dry-run`                | Show what would happen, change nothing                    |
+
+The script also installs the [Z3](https://github.com/Z3Prover/z3) solver the
+verifier uses ([FORMAL_VERIFICATION.md](FORMAL_VERIFICATION.md)): one
+self-contained `z3` binary built for the release, unpacked into the solver
+cache, `~/.cache/yo/solvers/` (`%LOCALAPPDATA%\yo\cache\solvers\` on Windows,
+`$YO_CACHE_DIR/solvers/` when that is set). On Windows `-NoSolver` skips it.
 
 The rest of this page is for setting the C toolchain up by hand, or for
 diagnosing a failed install.

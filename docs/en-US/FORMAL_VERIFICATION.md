@@ -791,11 +791,45 @@ invariants — is `tests/spec/fixtures/valid/spec-insertion-sort.yo`.
 ## The solver
 
 One pinned Z3 (see `Z3_VERSION` in `src/verifier/z3.yo`; currently
-5.1.0). Resolution order: `--solver-path <path>` → `YO_Z3_PATH` → the
-pinned install under `~/.cache/yo/solvers/` → automatic one-time download
-from GitHub Releases. A `--solver-path` that does not exist is a hard
-error (`verify: solver path '…' does not exist`), never a fallback to
-discovery. Verdicts are cached per-obligation under
+5.1.0). Every Yo release builds it from source as one self-contained `z3`
+binary for each platform it publishes (static on Linux, so it runs on glibc
+and musl systems alike) and publishes it next to the compiler as
+`yo-v<version>-<target-triple>-z3.tar.gz`. It lives in the solver cache,
+`~/.cache/yo/solvers/z3-<pin>-<target-triple>/bin/z3`
+(`%LOCALAPPDATA%\yo\cache\solvers\…` on Windows, `$YO_CACHE_DIR/solvers/`
+when that is set).
+
+How it gets there:
+
+| Command | Fetches the solver |
+| --- | --- |
+| `install.sh`, `install.ps1` | with the compiler (`--no-solver` / `-NoSolver` to skip) |
+| `yo version install <v>` | with that version |
+| `yo build` | on first need: a build whose compiles had proofs to run and found no solver at all fetches it at the end, and the next build proves (`--offline` fetches nothing) |
+| `yo verify` | when it finds none |
+| `yo check`, `yo compile`, `yo lsp` | never: they do not touch the network |
+
+Resolution order: `--solver-path <path>` (`yo verify`) → `YO_Z3_PATH` →
+the solver cache. A `--solver-path` that does not exist is a hard error
+(`verify: solver path '…' does not exist`), never a fallback to discovery.
+
+**Without a solver.** A missing solver, a `YO_Z3_PATH` that names no file,
+and a solver that cannot run (say, a binary for another platform) are one
+case. The solver is probed once per run, and `yo check`, `yo compile` and
+`yo build` report it in one line for the whole run, not once per function,
+file or artifact:
+
+```text
+verify: no Z3 solver found — verify+ contracts keep their runtime asserts, so nothing is proved. Run 'yo verify <file>' once to fetch Z3 5.1.0, or point YO_Z3_PATH at one.
+```
+
+A `verify+` module then keeps every runtime check and the build passes. A
+`verify` module has no runtime `ensures` checks to fall back on, so `yo
+compile` and `yo build` fail. `--require-solver` (on `check`, `compile` and
+`build`) or `YO_REQUIRE_SOLVER=1` turns the line into an error for every
+mode, so what CI proves is what ships. Whether a solver ran, and which one,
+is part of each `yo build` artifact's cache stamp: an artifact built without
+the solver is rebuilt once it is installed. Verdicts are cached per-obligation under
 `~/.cache/yo/verify-cache/` (keyed by the sha256 of the query, the
 solver binary's own `--version` output, and the run options); pass
 `--no-cache` to bypass. Determinism comes from `:rlimit` budgets (not

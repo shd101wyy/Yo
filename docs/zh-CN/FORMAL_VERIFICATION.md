@@ -647,10 +647,42 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 ## 求解器
 
 单一固定版本的 Z3（见 `src/verifier/z3.yo` 的 `Z3_VERSION`；当前为
-5.1.0）。解析顺序：`--solver-path <路径>` → `YO_Z3_PATH` →
-`~/.cache/yo/solvers/` 下的固定安装 → 从 GitHub Releases 自动一次性下载。
+5.1.0）。每个 Yo 版本都从源码为它发布的每个平台构建一个自包含的 `z3`
+可执行文件（Linux 上为静态链接，glibc 与 musl 系统都能运行），并以
+`yo-v<版本>-<目标三元组>-z3.tar.gz` 的名字与编译器一同发布。它位于求解器缓存
+`~/.cache/yo/solvers/z3-<固定版本>-<目标三元组>/bin/z3`（Windows 上为
+`%LOCALAPPDATA%\yo\cache\solvers\…`，设置了 `$YO_CACHE_DIR` 时为
+`$YO_CACHE_DIR/solvers/`）。
+
+它如何到位：
+
+| 命令 | 何时下载求解器 |
+| --- | --- |
+| `install.sh`、`install.ps1` | 与编译器一同下载（`--no-solver` / `-NoSolver` 跳过） |
+| `yo version install <v>` | 与该版本一同下载 |
+| `yo build` | 首次需要时：某次构建的编译有证明要做而完全找不到求解器时，在构建结束时下载，下一次构建即可证明（`--offline` 不下载任何东西） |
+| `yo verify` | 找不到求解器时 |
+| `yo check`、`yo compile`、`yo lsp` | 从不：它们不访问网络 |
+
+解析顺序：`--solver-path <路径>`（`yo verify`）→ `YO_Z3_PATH` → 求解器缓存。
 不存在的 `--solver-path` 是硬错误（`verify: solver path '…' does not exist`），
-绝不会退回自动发现。判定结果按义务缓存在
+绝不会退回自动发现。
+
+**没有求解器时。** 求解器缺失、`YO_Z3_PATH` 指向不存在的文件、求解器无法运行
+（例如另一平台的可执行文件）是同一种情况。每次运行只探测一次求解器，
+`yo check`、`yo compile` 与 `yo build` 为整次运行只报告一行，而不是每个函数、
+文件或产物各一行：
+
+```text
+verify: no Z3 solver found — verify+ contracts keep their runtime asserts, so nothing is proved. Run 'yo verify <file>' once to fetch Z3 5.1.0, or point YO_Z3_PATH at one.
+```
+
+此时 `verify+` 模块保留全部运行期检查，构建通过。`verify` 模块没有可退回的
+运行期 `ensures` 检查，所以 `yo compile` 与 `yo build` 失败。`--require-solver`
+（`check`、`compile`、`build` 均支持）或 `YO_REQUIRE_SOLVER=1` 让这一行在任何
+模式下都成为错误，使 CI 证明的就是发布的。求解器是否运行、运行的是哪一个，
+是每个 `yo build` 产物缓存戳的一部分：没有求解器时构建的产物，在安装求解器后会
+重新构建。判定结果按义务缓存在
 `~/.cache/yo/verify-cache/`（以查询内容、求解器二进制自身的 `--version`
 输出与运行选项的 sha256 为键）；传 `--no-cache` 可跳过。确定性来自
 `:rlimit` 预算（而非墙上时钟）与固定的 `:random-seed 0`，因此只缓存可复现的

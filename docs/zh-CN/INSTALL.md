@@ -26,9 +26,16 @@ clang 和 git 时一并安装。每个发行版本位于 `<prefix>/lib/yo/<tag>`
 | `--prefix=<dir>`           | 安装前缀（默认 `$HOME/.local`）                        |
 | `--from-source`            | 从发布的单文件 `yo.c` 构建（见下文）                   |
 | `--no-deps`、`--no-verify` | 跳过系统软件包安装，跳过 hello-world 检查              |
+| `--no-solver`              | 不下载 Z3 求解器                                       |
 | `-f`、`--force`            | 重新安装已经安装过的版本                               |
 | `-u`、`--uninstall`        | 卸载                                                   |
 | `--dry-run`                | 只显示将要执行的操作，不做任何改动                     |
+
+脚本还会安装验证器使用的 [Z3](https://github.com/Z3Prover/z3) 求解器
+（[FORMAL_VERIFICATION.md](FORMAL_VERIFICATION.md)）：为该版本构建的单个自包含
+`z3` 可执行文件，解压到求解器缓存 `~/.cache/yo/solvers/`（Windows 上为
+`%LOCALAPPDATA%\yo\cache\solvers\`，设置了 `$YO_CACHE_DIR` 时为
+`$YO_CACHE_DIR/solvers/`）。Windows 上用 `-NoSolver` 跳过。
 
 本页其余部分用于手动配置 C 工具链或排查安装失败。
 

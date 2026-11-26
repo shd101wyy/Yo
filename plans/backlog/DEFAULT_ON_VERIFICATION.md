@@ -10,6 +10,13 @@ two steps (report by default, then erase by default), S1 waits for a new S0, the
 solver's distribution is a step (SD) and a gate (G6), and `yo build` proves every
 module of its package (D10).
 
+**SD built 2026-11-26** (branch `wip/v0281-dov-sd`, v0.2.81): the release builds
+the pin itself for its six targets and publishes it next to the bundles; the
+installers, `yo version install` and `yo build` fetch it; a missing or broken
+solver is one line per run; `--require-solver`; the solver is in the build stamp.
+G6 is wired into the release and has no evidence until the first release that
+carries it (§3, the SD row; §4, G6; §5 items 8 and 9).
+
 Filed the same day as a design question and promoted to a plan when the verdict was
 given. (The file is not called `VERIFICATION_BY_DEFAULT`: that abbreviates to "VBD",
 which already names VALUES_BY_DEFAULT.) Tree citations are to `origin/develop`
@@ -286,7 +293,7 @@ In order. S0, S2 and SD need nothing else and start at v0.2.80. S1 follows S0 (D
 | --- | --- | --- | --- |
 | **S0** | Fix `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`, and add the both-modes sweep: every fixture of `tests/spec/fixtures/valid/` runs under `Pragma.Verify` and under `Pragma.VerifyOrAssert` and must prove the same set of functions | S to M: the root cause is not known | nothing |
 | **S1** | `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` in the source modules it generates, and the scaffolded `AGENTS.md` says so. `src/init.yo` already scaffolds a verified `spec/` | S: `src/init.yo` plus a cli-case golden | S0 |
-| **SD** | Solver distribution (D9): a static build of the pinned Z3 for each release target, published with the release, and an install that keeps only that binary; the installer and `yo version install` fetch it with the compiler, and `yo build` fetches it on first need; a missing solver and one that cannot execute are probed once and reported in one line for the build; `--require-solver` / `YO_REQUIRE_SOLVER=1` for CI; solver presence in the artifact's input stamp (§5 items 8 and 9) | M | nothing |
+| **SD** | Solver distribution (D9): a static build of the pinned Z3 for each release target, published with the release, and an install that keeps only that binary; the installer and `yo version install` fetch it with the compiler, and `yo build` fetches it on first need; a missing solver and one that cannot execute are probed once and reported in one line for the build; `--require-solver` / `YO_REQUIRE_SOLVER=1` for CI; solver presence in the artifact's input stamp (§5 items 8 and 9). **Built 2026-11-26**: `scripts/build-static-z3.sh`, `.github/workflows/solver.yml` (called by `release.yml`), `scripts/solver-smoke.sh`; what was decided is in §5 items 8 and 9 | M | nothing |
 | **S2** | A proved result is capped by what it rests on: the satisfiability probe per `assumed()` contract, the feasibility probe after a call, and `ok` naming the assumed contracts it used | about a week, with the vacuity probes of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) | nothing |
 | **S3** | std bodies the verifier walks instead of `assumed()` | weeks; it is the shared bottleneck of [`POST_VBD_PLAN.md`](POST_VBD_PLAN.md) phase 4, item 1 | the raw-buffer model ([`THEOREM_PROVING_DIRECTION.md`](THEOREM_PROVING_DIRECTION.md) R1) |
 | **S4** | Incremental verification: an edit re-proves only the functions it changed, and a default-on `yo check` does not hold every function's state at once. Its three parts by §2.2: a solver pool, a per-function cache key, and a small budget for automatic obligations (§5 items 5 to 7) | L (SELF_VERIFICATION lever L8) | nothing |
@@ -339,7 +346,7 @@ Each is a number or a verdict a CI job re-derives. None is asserted in prose.
 | **G3** the overhead is bounded | on the compiler's front-end modules, a warm default-on `yo check` after a one-function edit is within a stated factor of the unverified time and a stated RSS; both numbers are set from the first S4 measurement, not before |
 | **G4** the subset covers real code | a stated share of the functions in `tests/` and `std/` is inside the subset; the share is set from the first measurement after S5's first lever |
 | **G5** no flaky builds | over the language suite, no obligation's verdict differs between two cold runs on two machines (the pinned Z3 and `rlimit` budgets make this checkable) |
-| **G6** the solver runs wherever `yo` runs (D9) | on every release target, the release's smoke job proves one obligation with the solver the installer fetched; and a build with no solver, or with one that cannot execute, passes in the default mode with exactly one line |
+| **G6** the solver runs wherever `yo` runs (D9) | on every release target, the release's smoke job proves one obligation with the solver the installer fetched; and a build with no solver, or with one that cannot execute, passes in the default mode with exactly one line. **Wired 2026-11-26** (`release.yml` `solver-smoke`, gating `publish-release`; `scripts/solver-smoke.sh`). It holds at the first release whose six `solver-smoke` legs are green; until then it is not met |
 
 Which gate holds which step (D7):
 
@@ -401,12 +408,59 @@ roadmap that says Yo code is verified by default.
    - whether the solver ran is part of the artifact's input stamp, so a build
      cached without it is not served after it is installed *(grep:
      `src/build_runner.yo` does not mention the solver today; not run)*.
+
+   **What SD built (2026-11-26).** Every bullet above, with these details:
+   - *One probe, one line.* `probe_solver` (`src/verifier/z3.yo`) runs once per
+     process: missing, a `YO_Z3_PATH` that names no file, and a binary whose
+     `--version` fails are one case (`SolverProbe`), reported by one line per
+     run. `yo check <dir>` prints it once for all its files; `yo build` gives
+     each compile `--solver-notice <file>` and prints the first line it
+     collects, once for the build. Before, a broken binary gave a
+     `SOLVER-ERROR` block per function.
+   - *First need.* A `yo build` compile has a need when its entry file is in a
+     proving mode and the solver is missing. The fetch runs once, after the
+     step's DAG: that build keeps its runtime checks (or, for a `verify` entry,
+     fails as before) and the next one proves, because the solver is in every
+     artifact's stamp. It is not a pre-scan of the sources and it does not
+     re-run the compiles. A dangling `YO_Z3_PATH` or a solver that cannot run
+     is the user's to fix and is not replaced; `--offline` fetches nothing.
+     With S1 scaffolding the pragma, the first `yo build` of a new project
+     without a solver fetches it.
+   - *`--require-solver`* is on `check`, `compile` and `build` (forwarded to
+     the build's compiles); `YO_REQUIRE_SOLVER=1` is read by every process.
+     It fails every mode, `verify+` included, and only when there are proofs to
+     run.
+   - *The stamp line* is `solver <--version line>`, or `solver none`,
+     `not-found <path>`, `unusable <path>`. Installing or replacing the solver
+     therefore rebuilds every artifact once, verified or not; keying it per
+     artifact would need the need to be known before the compile.
+   - *Where it lives.* One place, the solver cache `<yo cache>/solvers/z3-<pin>-<triple>/`
+     (`src/cache.yo`'s root, so `%LOCALAPPDATA%\yo\cache` on Windows, where it
+     used to be `~/.cache/yo` on every OS). The installers write there too, so
+     a `--prefix=/usr/local` install puts the solver in the installing user's
+     cache, and another user's first `yo build` fetches it again.
 9. **Decided 2026-11-15: D9, step SD, gate G6.** Solver coverage must equal compiler
    coverage. *Judgment:* Yo builds
    the pinned Z3 itself as a static binary for each release target and
    publishes it with the release, the way it publishes its own bundles, and
    the install keeps only that binary (36 MB, against 157 MB today). Until
    then gate G6 cannot be met on the systems §2.3 names.
+
+   **What SD built (2026-11-26).** Yo builds it (no third-party static build):
+   `scripts/build-static-z3.sh` compiles the pin's source release with CMake
+   (`Z3_BUILD_LIBZ3_SHARED=OFF`, no bindings, no git hash, so `--version`
+   prints `Z3 version 5.1.0 - 64 bit` exactly as the official build does).
+   Linux builds inside Alpine with `-static`; macOS links libz3 statically
+   and the system's libc++ dynamically (deployment target 11.0); Windows uses
+   MSVC with the static CRT (`/MT`). `.github/workflows/solver.yml` runs it on
+   the six bundle targets' runners, cached on the pin and the script's hash,
+   and `release.yml` attaches each as `yo-v<version>-<triple>-z3.tar.gz`
+   (named by the Yo version, so an installer needs no copy of the pin; the
+   archive's one directory `z3-<pin>-<triple>/` carries it). Measured on
+   x86_64 musl, built locally in `alpine:3.20` with 12 cores: 11.5 min, a
+   32.5 MB stripped static binary, a 14.3 MB archive; it runs on Alpine 3.20,
+   `busybox:musl` and Debian 11 (glibc 2.31), where the official asset does
+   not. The other five targets are first built by the CI workflow.
 10. **The verify cache is never collected.** It holds one JSON file per
     obligation in one directory (22,206 files and 90 MB on the measuring
     box), and `yo cache gc` and `yo cache clean` do not know it *(grep:

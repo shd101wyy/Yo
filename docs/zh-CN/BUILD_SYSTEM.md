@@ -700,6 +700,7 @@ Options:
   --locked               若抓取依赖会改动 yo.lock 则失败
   --offline              若抓取依赖需要联网则失败
   --frozen               同时 --locked 与 --offline
+  --require-solver       需要证明却没有可运行的 Z3 求解器时失败（亦可设 YO_REQUIRE_SOLVER=1）
   --watch                源码变化时重新构建（产物在同一进程内重新编译）
   --poll-ms <ms>         监听轮询间隔（默认 200）
   --max-rss-mb <N>       仅监听模式：常驻进程超过 N MB 时重启
@@ -710,7 +711,8 @@ Options:
 
 只有当某个**输入**发生变化时，产物才会重新编译。输入就是上一次编译真正打开过的
 文件——它到达的每一个 `.yo` 模块，仅此而已——再加上该次编译自身的参数列表、编译器
-版本、编译器可执行文件本身（路径、大小与修改时间），以及项目的 `yo.toml` 与 `yo.lock`。
+版本、编译器可执行文件本身（路径、大小与修改时间）、它用来证明的 Z3 求解器（其
+`--version` 输出，或没有求解器这一事实），以及项目的 `yo.toml` 与 `yo.lock`。
 
 子编译进程用 `yo compile --emit-deps <file>` 记录这份清单，每行一个路径，写在产物
 旁边（`<output>.deps`）。下一次构建只对这些文件求哈希；若哈希与记录的
@@ -928,6 +930,12 @@ install.depend_on(proofs);
 yo build install     # 先构建 app，再证明 ./src
 yo build --dry-run   # [dry-run]   verify proofs
 ```
+
+入口文件带有上述 pragma 的产物，其自身的编译也会做证明。没有求解器时，构建只报告
+一次（`verify: no Z3 solver found — …`），保留 `verify+` 的运行期检查，并在结束时
+下载本版本发布的求解器，下一次构建即可证明；`--offline` 不下载任何东西，
+`--require-solver` 则让构建失败。求解器与这一行的说明见
+[FORMAL_VERIFICATION.md § 求解器](FORMAL_VERIFICATION.md#求解器)。
 
 ## 依赖管理
 

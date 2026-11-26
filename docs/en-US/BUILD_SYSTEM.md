@@ -711,6 +711,7 @@ Options:
   --locked               Fail if fetching dependencies would change yo.lock
   --offline              Fail if fetching dependencies would need the network
   --frozen               --locked and --offline
+  --require-solver       Fail when proofs are due and no Z3 solver runs (also YO_REQUIRE_SOLVER=1)
   --watch                Rebuild on source changes (artifacts recompile in-process)
   --poll-ms <ms>         Watch poll interval (default 200)
   --max-rss-mb <N>       Watch only: restart the resident process once it exceeds N MB
@@ -722,7 +723,8 @@ Options:
 An artifact is recompiled only when one of its **inputs** changed. The inputs
 are the files the previous compile actually opened — every `.yo` module it
 reached, and nothing else — plus the compile's own argument list, the compiler
-version, the compiler binary itself (its path, size and modification time), and
+version, the compiler binary itself (its path, size and modification time), the
+Z3 solver it would prove with (its `--version` line, or that there is none), and
 the project's `yo.toml` and `yo.lock`.
 
 The child compile records that list with `yo compile --emit-deps <file>`, which
@@ -967,6 +969,14 @@ verified; the step's mode is the `--verify-mode` override for them.
 yo build install     # builds app, then proves ./src
 yo build --dry-run   # [dry-run]   verify proofs
 ```
+
+An artifact whose entry file carries one of those pragmas is proved by its own
+compile as well. With no solver, the build reports it once
+(`verify: no Z3 solver found — …`), keeps the `verify+` runtime checks, and at
+the end fetches the solver this release publishes, so the next build proves;
+`--offline` fetches nothing and `--require-solver` fails the build instead. The
+solver and the line are described in
+[FORMAL_VERIFICATION.md § The solver](FORMAL_VERIFICATION.md#the-solver).
 
 ## Dependencies
 

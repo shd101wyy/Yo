@@ -21,7 +21,10 @@ not by the short internal label:
 | `linux-x64` (portable C only) | `x86_64-unknown-linux-gnu` |
 
 So `yo-v0.2.19-aarch64-apple-darwin.tar.gz`, and the portable single-file C
-assets follow the same stems (`yo-v0.2.19-x86_64-unknown-linux-gnu.c.gz`).
+assets follow the same stems (`yo-v0.2.19-x86_64-unknown-linux-gnu.c.gz`). The
+Z3 solver built for each bundle target follows the bundle's stem with a `-z3`
+suffix (`yo-v0.2.81-x86_64-unknown-linux-musl-z3.tar.gz`; step SD of
+[`DEFAULT_ON_VERIFICATION.md`](../backlog/DEFAULT_ON_VERIFICATION.md)).
 
 ### Why the ABI field is the point
 

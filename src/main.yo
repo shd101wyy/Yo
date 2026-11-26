@@ -2329,8 +2329,8 @@ run_check :: (
 /// Run the `verify` subcommand — the compile-time verifier driver
 /// (V2+V3 of plans/backlog/FORMAL_VERIFICATION.md).
 ///
-/// Resolve the pinned Z3 (YO_Z3_PATH → `~/.cache/yo/solvers/…`,
-/// auto-install on miss), run the harness SELF-TEST obligations through
+/// Resolve the pinned Z3 (YO_Z3_PATH → `<yo cache>/solvers/…`, fetched
+/// from this release's assets on miss), run the harness SELF-TEST obligations through
 /// the full encode → spawn → parse → cache pipeline, then evaluate the
 /// target file set with the mode override armed — the evaluator records
 /// one VerifyTask per verifiable function — and discharge every task's
@@ -10120,6 +10120,7 @@ Options:
   --emit-c                  Print the generated C to stdout and stop
   --emit-c-to <path>        Write the generated C to <path> instead of <output>.c
   --emit-deps <path>        Write the files this compile read, one per line
+  --solver-notice <path>    Write the missing-solver line to <path>, not stderr (yo build prints it once)
   --skip-c-compiler         Generate C but skip the C compile
   --no-guard-elision        Keep every safe-mode runtime guard, even ones a proof removed
   --require-solver          Fail when proofs are due and no Z3 solver runs (also YO_REQUIRE_SOLVER=1)
@@ -10179,6 +10180,7 @@ Examples:
   --emit-c                  把生成的 C 打印到 stdout 然后停止
   --emit-c-to <path>        把生成的 C 写到 <path>，代替 <output>.c
   --emit-deps <path>        把本次编译读取的文件逐行写入该文件
+  --solver-notice <path>    把缺少求解器的那一行写入该文件而非 stderr（yo build 只打印一次）
   --skip-c-compiler         只生成 C，跳过 C 编译
   --no-guard-elision        保留所有安全模式运行期守卫，即使证明可以移除它们
   --require-solver          需要证明却没有可运行的 Z3 求解器时失败（亦可设 YO_REQUIRE_SOLVER=1）

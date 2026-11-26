@@ -92,7 +92,8 @@ yo version pin 0.2.4    # 固定到特定版本
 yo version install 0.2.9
 ```
 
-这对于在切换项目前预获取版本很有用。
+这对于在切换项目前预获取版本很有用。该版本发布的 Z3 求解器会一并下载到
+`~/.cache/yo/solvers/`；没有发布求解器的版本会打印一条说明，照常安装。
 
 ### `yo version list [--remote]`
 

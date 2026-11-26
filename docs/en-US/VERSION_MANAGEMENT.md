@@ -92,7 +92,9 @@ Download and cache a specific version without pinning:
 yo version install 0.2.9
 ```
 
-This is useful for pre-fetching versions before switching projects.
+This is useful for pre-fetching versions before switching projects. The
+release's Z3 solver is fetched with it, into `~/.cache/yo/solvers/`; a release
+that publishes none prints a note and still installs.
 
 ### `yo version list [--remote]`
 

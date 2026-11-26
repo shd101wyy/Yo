@@ -93,6 +93,32 @@ jobs:
           echo "program printed: $out"
           [ "$out" = "installed ok" ] || { echo "unexpected output"; exit 1; }
 
+      # Gate G6's installer half (plans/backlog/DEFAULT_ON_VERIFICATION.md):
+      # the Z3 that install.sh unpacked into the solver cache proves an
+      # obligation through the installed compiler, with no YO_Z3_PATH. A
+      # release that publishes no solver predates step SD; the installer said
+      # so, and there is nothing to prove.
+      - name: The installed solver proves
+        shell: bash
+        run: |
+          export PATH="$HOME/.yo-test/bin:$PATH"
+          solvers="$HOME/.cache/yo/solvers"
+          if ! ls "$solvers"/z3-*/bin/z3 > /dev/null 2>&1; then
+            echo "this release publishes no solver (it predates step SD): nothing to prove"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/proof" && cd "$RUNNER_TEMP/proof"
+          cat > proved.yo <<'EOF'
+          pragma(Pragma.Verify);
+
+          next_below :: (fn(x : i32, requires((x >= i32(0)) && (x < i32(100))), ensures(r > x)) -> (r : i32))(
+            x + i32(1)
+          );
+          EOF
+          yo verify proved.yo --no-cache 2>&1 | tee verify.log
+          grep -q "^verify: solver: $solvers/" verify.log || { echo "::error::yo verify did not use the installed solver"; exit 1; }
+          grep -qE '^verify: 1 ok, .* 0 refuted, 0 solver-error' verify.log || { echo "::error::the installed solver did not prove the obligation"; exit 1; }
+
       - name: Uninstall leaves nothing behind
         shell: bash
         run: |
@@ -211,6 +237,34 @@ jobs:
           $out = (& .\hello.exe | Out-String).Trim()
           Write-Host "program printed: $out"
           if ($out -ne 'installed ok') { throw "unexpected output: $out" }
+
+      # Gate G6's installer half, as in the posix job.
+      - name: The installed solver proves
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:RUNNER_TEMP\yo-test\bin;$env:PATH"
+          $solvers = Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'yo') 'cache') 'solvers'
+          if (-not (Get-ChildItem -Path (Join-Path $solvers 'z3-*\bin\z3.exe') -ErrorAction SilentlyContinue)) {
+            Write-Host 'this release publishes no solver (it predates step SD): nothing to prove'
+            exit 0
+          }
+          $dir = Join-Path $env:RUNNER_TEMP 'proof'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          Set-Location $dir
+          $src = @'
+          pragma(Pragma.Verify);
+
+          next_below :: (fn(x : i32, requires((x >= i32(0)) && (x < i32(100))), ensures(r > x)) -> (r : i32))(
+            x + i32(1)
+          );
+          '@
+          [System.IO.File]::WriteAllText((Join-Path $dir 'proved.yo'), $src)
+          $ErrorActionPreference = 'Continue'
+          $log = (& yo verify proved.yo --no-cache 2>&1 | Out-String)
+          $ErrorActionPreference = 'Stop'
+          Write-Host $log
+          if ($LASTEXITCODE -ne 0) { throw "yo verify failed with the installed solver" }
+          if ($log -notmatch '(?m)^verify: 1 ok, .* 0 refuted, 0 solver-error') { throw 'the installed solver did not prove the obligation' }
 
       # The compile check above links the async I/O runtime into hello.exe and
       # never runs it: that `main` takes no `io`, so no event loop, no timer,
