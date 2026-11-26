@@ -231,7 +231,7 @@ comptime_expect_error({
 }, "A bound is written in `where(...)`, not in the binder: write `generic(T : Type)` and the bound `where(T <: FormProbe)`.");
 comptime_expect_error({
   _kind_ctor :: (fn(generic(T : Eq), a : &T, b : &T) -> bool)(a == b);
-}, "`Eq` is a trait constructor, not a kind.");
+}, "`Eq` is a trait constructor (`Eq(Rhs)`), not a kind. Write `generic(T : Type)` and a bound on the applied trait, such as `where(T <: Eq(T))`.");
 comptime_expect_error({
   FormKindCtor :: (fn(comptime(T) : FormProbe) -> comptime(Type))(struct(v : i32));
 }, "Write `comptime(T) : Type` and the bound `where(T <: FormProbe)`.");
@@ -242,7 +242,7 @@ comptime_expect_error({
 // (E0603), and a type that is not a trait bounds nothing (E0624, VERDICTS-85 §6).
 comptime_expect_error({
   _rhs_ctor :: (fn(generic(T : Type), a : &T, b : &T, where(T <: Eq)) -> bool)(a == b);
-}, "`Eq` takes one type argument (Rhs) and none was given: a bound names the trait applied, as in `T <: Eq(T)`.");
+}, "`Eq` takes one type argument, `Eq(Rhs)`, and none was given: a bound names the trait applied, as in `T <: Eq(T)`.");
 comptime_expect_error({
   _rhs_struct :: (fn(generic(T : Type), a : &T, where(T <: FormImpl)) -> i32)(i32(1));
 }, "`<:` says a type implements a trait, and `FormImpl` is not a trait.");

@@ -11,7 +11,7 @@
 //! spread spelling was removed (2026-10-03) and is reported as an error.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ eprintln } :: import("std/fmt");
+{ eprintln, StringBuilder } :: import("std/fmt");
 {
   AstExpr,
   AstExprNode,
@@ -2058,10 +2058,48 @@ _param_default_not_comptime_error :: (fn(label : &Option(String), param_type : &
 /// the head token of its parameter list (`fn`, `ctl`, `unsafe_fn`, `Fn`,
 /// ...) and the list's entries.
 SignatureSource :: struct(head : Option(Token), params : ArrayList(AstExpr));
+/// One side of a bound as a comparison key: its text without whitespace and
+/// without parentheses enclosing the whole of it (the AST printer writes
+/// `Self.Item` as `(Self.Item)`).
+_bound_side_key :: (fn(text : &String) -> String)({
+  sb := StringBuilder.new();
+  (i : usize) = usize(0);
+  while(i < text.len(), i = (i + usize(1)), {
+    b := text.byte_at(i);
+    if((b != u8(32)) && (b != u8(9)) && (b != u8(10)) && (b != u8(13)), {
+      sb.write_byte(b);
+    });
+  });
+  (k : String) = sb.to_string();
+  while((k.len() >= usize(2)) && (k.byte_at(usize(0)) == u8(40)) && (k.byte_at(k.len() - usize(1)) == u8(41)), {
+    // Strip only when the first `(` closes at the end: `(A)(B)` is kept.
+    (depth : usize) = usize(0);
+    (closes_at_end : bool) = true;
+    (j : usize) = usize(0);
+    while(j < k.len(), j = (j + usize(1)), {
+      c := k.byte_at(j);
+      if(c == u8(40), {
+        depth = (depth + usize(1));
+      });
+      if(c == u8(41), {
+        depth = (depth - usize(1));
+        if((depth == usize(0)) && (j != (k.len() - usize(1))), {
+          closes_at_end = false;
+        });
+      });
+    });
+    if(!closes_at_end, {
+      break;
+    });
+    k = k.substring(usize(1), k.len() - usize(1));
+  });
+  k
+});
 /// Does a `where(...)` entry of `sig` already read `label <: rhs`? Compared
-/// on the printed operands, so spacing does not matter.
+/// on `_bound_side_key`, so spacing and enclosing parentheses do not matter.
 _signature_has_bound :: (fn(sig : &SignatureSource, label : &String, rhs : &AstExpr) -> bool)({
-  rhs_s := ast_expr_to_string(rhs);
+  rhs_s := _bound_side_key(&ast_expr_to_string(rhs));
+  label_s := _bound_side_key(label);
   (i : usize) = usize(0);
   while(i < sig.params.len(), i = (i + usize(1)), {
     p := sig.params(i).clone();
@@ -2072,7 +2110,7 @@ _signature_has_bound :: (fn(sig : &SignatureSource, label : &String, rhs : &AstE
         e := entries(k).clone();
         if(ast_expr_is_fn_call_of(&e, "<:", .Some(usize(2))), {
           sides := _fn_call_args(&e);
-          if((ast_expr_to_string(&sides(usize(0))) == label.*) && (ast_expr_to_string(&sides(usize(1))) == rhs_s), {
+          if((_bound_side_key(&ast_expr_to_string(&sides(usize(0)))) == label_s) && (_bound_side_key(&ast_expr_to_string(&sides(usize(1)))) == rhs_s), {
             return(true);
           });
         });
@@ -2142,10 +2180,9 @@ _bound_insertion_repair :: (fn(sig : &SignatureSource, bound : &String) -> Optio
   if(input.substring(ls, e).contains("//"), {
     return(Option(Tuple(Span, String)).None);
   });
-  text := if(input.byte_at(e - usize(1)) == u8(44), ` where(${bound}),`, `, where(${bound})`);
   match(
     source_span_from_anchor(&head, e, e),
-    .Some(sp) => Option(Tuple(Span, String)).Some((sp, text)),
+    .Some(sp) => Option(Tuple(Span, String)).Some((sp, `, where(${bound})`)),
     .None => Option(Tuple(Span, String)).None
   )
 });
@@ -2183,6 +2220,16 @@ throw_bound_in_kind_slot :: (
     .None => format_error_message(anchor, msg)
   );
   exn.throw(dyn(Box.new(with_code(&err, E_TRAIT_BOUND_FORM))));
+});
+/// `Eq(T)`: the trait constructor `name` applied to `arg` for each of its
+/// `n` parameters, the example a diagnostic shows.
+_applied_to :: (fn(name : &String, arg : &String, n : usize) -> String)({
+  args := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    args.push(arg.clone());
+  });
+  `${name}(${String.from(", ").join(&args)})`
 });
 /// The binder a kind-slot diagnostic tells the author to write.
 _kind_binder_spelling :: (fn(label : &String, in_generic : bool) -> String)(
@@ -2241,7 +2288,7 @@ _reject_trait_constructor_as_type :: (
           with_code(
             format_error_message(
               &ast_expr_first_token(te),
-              `\`${name}\` is a trait constructor, not a kind. Write \`${_kind_binder_spelling(&l, in_generic)}\` and a bound on the applied trait, \`where(${l} <: ${applied})\`, with the arguments the bound needs.`
+              `\`${name}\` is a trait constructor (\`${applied}\`), not a kind. Write \`${_kind_binder_spelling(&l, in_generic)}\` and a bound on the applied trait, such as \`where(${l} <: ${_applied_to(&name, &l, params.len())})\`.`
             ),
             E_TRAIT_BOUND_FORM
           )
