@@ -31,6 +31,7 @@ Detailed instructions live in `.github/instructions/`. Read the relevant file be
 | `escape`                                                                                                 | `unwind`                                                                                                |
 | the operator traits `Mod`, `Negate`, `BitLeftShift`, `BitRightShift` and their `Comptime*` twins           | `Rem`, `Neg`, `Shl`, `Shr` (`ComptimeRem`, …); members unchanged (`plans/backlog/STD_RUST_ALIGNMENT.md` §9) |
 | `plans/backlog/NON_ESCAPABLE_TYPES.md`, `FUTURE_ORIGINS.md`                                              | `plans/backlog/REFERENCES_AND_ORIGINS.md` (decision 43; "non-escapable" is O10's `Escapable` bound)     |
+| `BK_SUBTYPE_OF`, `src/evaluator/exprs/subtype-of.yo`, `evaluate_subtype_of`                               | `BK_IMPLEMENTS`, `src/evaluator/exprs/implements.yo`, `evaluate_implements` (`<:` is the bound operator, read *implements*; VERDICTS-85) |
 | `phase6*` tests; `macro_expansion`, `macro_registry`, `macro_def_*`, `try_macro_assign` tests            | `quote-macro-eval`, `ast-reflection`, `macro-helpers`; the rest were deleted with the user-macro fixtures |
 
 ---

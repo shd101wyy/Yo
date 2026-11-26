@@ -194,7 +194,7 @@ The core rule (`return(expr)` in a handler resumes, `unwind(expr)` discards the 
 
 - Effect handlers are **explicit parameters**: a function that uses an effect names it in its signature (`safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)`), and callers pass the handler by name (`safe_divide(i32(10), i32(0), raise)`).
 - Install a handler with a local binding: `(raise : Raise) = ((msg) -> { unwind(i32(-1)); });` (a lambda on the RHS of `=` needs outer parens).
-- A handler that may `unwind` has type `ctl(args) -> R`; one that always resumes can be `fn(args) -> R`. Subtyping is one-way: `fn(T) -> R <: ctl(T) -> R`. `unwind` is valid only inside a `ctl` body and exits the install frame (the function that bound the handler).
+- A handler that may `unwind` has type `ctl(args) -> R`; one that always resumes can be `fn(args) -> R`. A `fn(T) -> R` is accepted where a `ctl(T) -> R` is expected, not the reverse. `unwind` is valid only inside a `ctl` body and exits the install frame (the function that bound the handler).
 - For effect-bundle polymorphism, quantify over a struct: `generic(E : Type.Struct)`, and pass `E` as the Future's single effect argument.
 - Handlers use evidence passing (function-pointer parameters).
 - **Handler functions are standalone, not closures**: compiled as standalone C functions, they cannot reference variables of the enclosing scope. Pass state as explicit arguments.
