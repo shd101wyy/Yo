@@ -1,10 +1,15 @@
 # CI in about an hour
 
-**Status: ACTIVE.** Phase 1 (identical coverage) is implemented in `test.yml` by the PR that adds this
-plan. Phase 2 (engineering, identical coverage) is proposed. Phase 3 is the maintainer decisions (§7): every
-item that changes what a battery covers or costs money. Measured
-2026-11-26 on develop batteries 45417105015, 45460102665, 45513685564, 45604698557, 45652683010 and
-45674049929 (all green, heads c0f92a85f to 5c985877d).
+**Status: ACTIVE.**
+
+- **Phase 1** (identical coverage) is #2091. It was measured green at 129 min on its own PR battery.
+- **Phase 2 + D1 + D2** are implemented on the parked branch `wip/v0281-ci-phase2`, stacked on #2091 (§11).
+  It runs after #2091 merges.
+- **Decisions, recorded 2026-11-26:** D1 and D2 adopted; D3 after a validation battery; D4 and D5 measure
+  first; D6 a one-shard trial; D7 deferred; D8 rejected (§7).
+
+Measured 2026-11-26 on develop batteries 45417105015, 45460102665, 45513685564, 45604698557, 45652683010
+and 45674049929 (all green, heads c0f92a85f to 5c985877d).
 
 The maintainer asked whether the whole CI can take about an hour. Short answer:
 
@@ -13,7 +18,7 @@ The maintainer asked whether the whole CI can take about an hour. Short answer:
   5 macOS jobs. One battery is ~2,700 runner-minutes, so even perfect packing needs ~70 minutes. The macOS
   Intel leg alone holds ~230 runner-minutes of tests on the 3 macOS slots it can get, and it cannot start
   before a tree-built compiler has been cross-emitted for it (~50-75 minutes in).
-- **Phase 1 (this branch) changes no coverage.** It cuts the tail and roughly 15-25 minutes off the median:
+- **Phase 1 (#2091) changes no coverage.** It cuts the tail and roughly 15-25 minutes off the median:
   from a median of 182 minutes (range 164-209) to ~150-165 minutes. The macOS chain is then the battery's only
   long pole.
 - **About 60-75 minutes is reachable for a merge-critical core battery.** It takes decision D2 (the native
@@ -31,6 +36,8 @@ The maintainer asked whether the whole CI can take about an hour. Short answer:
 | Phase 2 + D1 + D3 (two test processes per runner)                | ~130                     | ~2,650     |
 | Core battery: phase 2 + D1 + D2, cache miss / hit                | ~96 / ~68                | ~1,900     |
 | The moved native workflow (D2), beside it                        | ~145                     | ~950       |
+| **Implemented** core `test.yml`, run alone (a PR), miss / hit    | ~99 / ~71                | ~1,700     |
+| **Implemented** on a develop push, both workflows sharing caps   | core ~111 / ~83; native ~115-147 / ~89-119 | ~2,650 / ~2,450 |
 
 The simulated figures come from a list scheduler over the measured job DAG (40-job cap, 5-macOS cap, FIFO by
 ready time, median durations). It reproduces today's battery at 178 minutes against the measured 164-209. Each
@@ -208,6 +215,17 @@ build on.
 
 ## 7. Phase 3: maintainer decisions (each changes coverage or costs money)
 
+**Verdicts (2026-11-26, relayed by the coordinator):**
+
+- D1 and D2: **adopted**, implemented on `wip/v0281-ci-phase2`.
+- D3: adopt after a validation battery.
+- D4 and D5: measure first.
+- D6: trial on one shard.
+- D7: deferred.
+- D8: rejected.
+
+The table keeps the analysis the verdicts were made on.
+
 | # | Decision | Saves | Coverage trade-off | Recommendation |
 | --- | --- | --- | --- | --- |
 | D1 | Cross-emit (and run the chunked gate) with the seed-built `stage1` instead of the stage-2 candidate | ~25-30 min on the native chain; ~25 on the chunked chain | Today the C reaching macOS/Windows is emitted by a compiler that the tree's codegen compiled. Under D1 it is emitted by the seed-compiled stage 1. Both run the tree's codegen; the emitted C differs only if the seed miscompiled the emitter. The fixpoint job checks that only for the host target, so a seed miscompile in a target-specific emitter path (e.g. the macOS runtime emitter) would ship to the native legs unseen until the next seed | **Adopt.** The fixpoint gates the same battery, and D1 tests the route that ships: release.yml's `seed-cross-emit` emits the released macOS/Windows C with a seed-built stage 1 (`yo compile -o yo-candidate`), not a stage 2 |
@@ -259,3 +277,66 @@ Phase 1 is checked by:
 - `test-name-shard.sh` stripes: every multi-test file partitions.
 
 The draft PR's battery is the end-to-end check. Its measured wall time is recorded in the PR.
+
+## 11. Phase 2 + D1 + D2 as implemented (`wip/v0281-ci-phase2`)
+
+**`native.yml` (new).** It runs on every develop push, plus `workflow_dispatch`, outside `merge-gate`, with
+the same concurrency rule as test.yml on develop. Its jobs:
+
+- `stage1`: the seed build, cached;
+- `suite-cross-emit` ×4: the seed-built stage 1 emits the C (D1), cached per target;
+- `test-native`: macOS 2 + 3 and Windows 4 + 4, moved verbatim;
+- `linux-arm64`: native seed stage 1 and stage 2, both cached, plus the smoke;
+- `linux-arm64-suite` ×4;
+- `native-gate`.
+
+**Changes to `test.yml`:**
+
+| Job | Change |
+| --- | --- |
+| `stage1` | `.github/actions/stage1-cached` (seed `yo build`, restored from the cache when the inputs match) |
+| `suite-candidate` | stage 2 only, from `stage1`'s artifact, cached; no seed build of its own |
+| `test` (ubuntu-latest) | fmt, doc imports and the smoke on the downloaded candidate; its own two builds are gone |
+| `test-suite` | ubuntu shards on the candidate; the arm64 shards moved to native.yml |
+| wasm / wasi | download `yo-stage1`; the emscripten smoke is its own job (`test-wasm32_emscripten-smoke`) on the candidate |
+| `chunked-gate` | both legs build with stage 1 (D1) |
+| `compiler-internal-tests-selfhosted` | 12 shards |
+| `bootstrap-self-test` | `T1_SKIP_CLI=1`; GATE 7 runs as the new `cli-cases` job (3 stripes, `cli-diff-test.sh --shard`) |
+| `hollow-sweep` | 2 stripes (`SHARD=i/2`; allowlist rows gated by the stripe that owns the file, stale rows by stripe 0) |
+| `memory-ratchet` | `rss` and `work` legs |
+| `merge-gate` | needs `cli-cases` and `test-wasm32_emscripten-smoke`; no longer needs the moved jobs |
+
+**The build cache.** `.github/actions/compiler-cache-key` builds the key from:
+
+- the compiler's sources (`src/**`, `std/**`, `build.yo`, `yo.toml`, `yo.lock`, `vendor/**`);
+- the seed;
+- the runner (OS, arch, `ImageOS`/`ImageVersion`, the clang version);
+- the recipe file holding the build commands.
+
+Notes:
+
+- Stage 1's recipe is the `stage1-cached` action, so test.yml and native.yml share its entry. Stage 2 and the
+  cross C are keyed on their workflow file.
+- The repository variable `YO_CI_NO_BUILD_CACHE=1` turns every restore off.
+- On a miss, both workflows build stage 1 at the same time on the same push. That is one duplicate build
+  (~31 runner-min), the price of not making native.yml wait on test.yml. The second save is refused with a
+  warning.
+
+**Pins and the release gate.** The `SEED_VERSION` guard counts six workflows, and release.yml's seed bump
+rewrites six. Release.yml's gate requires both `test.yml` and `native.yml` to have succeeded on the SHA.
+
+**Not done, and why.** The Windows legs stay at 4 + 4. With D2 the two workflows run at once and share the
+40-job cap: the simulation peaks at 40, and two more Windows shards per arch only moved queueing around.
+PR batteries, which do not run native.yml, are where the extra slots exist.
+
+**Projected wall times** (the list scheduler from the summary at the top, the implemented DAG, PR #2091's measured leg times):
+
+| Run | Core `test.yml` | `native.yml` |
+| --- | --- | --- |
+| PR battery (core only), build-cache miss | ~99 | — |
+| PR battery, cache hit | ~71 | — |
+| Develop push, miss, both workflows sharing the caps | ~111 | ~115 (Intel as on #2091) to ~147 (Intel at the plan median) |
+| Develop push, hit | ~83 | ~89 to ~119 |
+
+Develop pushes now pass through two gates, and each queues only behind its own workflow's previous run. The
+core verdict (`merge-gate`) is the fast one. The native verdict decides releases along with it.
