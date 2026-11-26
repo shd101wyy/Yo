@@ -159,3 +159,34 @@ So the 4-way sharding stays. The sampler below is what can say whether disk, mem
 ### Sampler landed
 
 `scripts/ci-vm-sampler.sh` (sourced by the macOS Intel leg only, in "Compile the suite compiler natively" and "Run tests") prints, every 30 s into the step's streamed log: the UTC time, `df -h /`, `vm_stat | head -6`, `sysctl vm.swapusage`, the process count and the five processes with the largest RSS (KiB, pid, command). The loop stops with the step (an `EXIT` trap). After the next loss on the intel leg, read the last block before the log ends (`gh run view --job <id> --log` while the job is still running, or the log blob if it lands): that closes recommendation 2. Recommendation 1 (one `gh run rerun --failed` per lost job on a release-candidate battery) is unchanged.
+
+## Update 2026-11-26: the first Windows loss, and the sampler cannot be read for a lost job
+
+### A Windows shard was lost in the same battery as an intel shard
+
+| Date | Run | Job | Shard | Ran for |
+| --- | --- | --- | --- | --- |
+| 2026-11-25 | 45617416692 (fc89e3195, develop) | 139341464958 | `test (windows-latest)` 3/4 | 76 min (16:23:35Z to 17:39:38Z) |
+| 2026-11-25 | 45617416692 (fc89e3195, develop) | 139341465067 | `test (macos-26-intel)` 2/4 | 71 min (16:21:08Z to 17:32:15Z) |
+
+Both jobs concluded `failure` with no failed step recorded and one annotation, the "hosted runner lost communication with the server" text. Both log blobs are gone (`gh api repos/shd101wyy/Yo/actions/jobs/<id>/logs` returns `BlobNotFound` for the intel job). The rest of the battery was green; `merge-gate` was the only other red job.
+
+This is the first `windows-latest` loss in this document. Every earlier entry was on `macos-26-intel`, so "the loss is intel-only" no longer holds, and a cause local to the intel VM image (the sampler's premise: disk, memory, swap or the process table on that VM) is now one hypothesis among several. Two losses on two different OSes in one battery, started 2.5 min apart and lost within 7 min of each other, point at something shared on GitHub's side (the runner-to-service connection) more than at anything in this repository's jobs. Nothing here rules the intel-specific causes out; the Windows loss means the sampler, which exists only on the intel leg, cannot explain every loss.
+
+### The sampler's "read it live" path does not exist through `gh`
+
+The 2026-11-25 section says to read the sampler's last block with `gh run view --job <id> --log` while the job is still running. That does not work:
+
+- The log blob of a lost job does not exist afterwards (the 404 above), the same as for every earlier loss, so the lines the sampler printed are not recoverable.
+- `gh run view --job <id> --log` refuses a job that is in progress ("logs will be available when it is complete"), so a job cannot be read before it is lost either. GitHub's web UI streams a running job's log, but nothing there is saved once the job is lost, and a human would have to be watching the right job for the minutes before the loss.
+
+As landed, the sampler therefore cannot answer recommendation 2 for any loss that follows the usual pattern.
+
+### Options
+
+1. **Emit the samples as annotations.** Have `scripts/ci-vm-sampler.sh` print one `::notice::` line per interval (UTC time, free disk, `vm_stat` free pages, swap used, process count, the top RSS process). Annotations are attached to the check run and survive after the log blob is gone: the "lost communication" annotation above is read back through the check-run annotations API (`gh api repos/shd101wyy/Yo/check-runs/<job-id>/annotations`) for both lost jobs even though their logs 404. Limits to design for: GitHub caps the annotations of one type per step (10 notices per step, as documented; verify on a trial) and per job, so the interval has to be coarse (one `::notice::` every 8-10 minutes, not every 30 s), with the 30-second detail dropped or kept only in the streamed log. Whether notices posted from a step that later dies are retained, rather than uploaded only when the step finishes, is not established; it needs one trial job (kill the runner process mid-step on a throwaway branch) before relying on it. `GITHUB_STEP_SUMMARY` does not help: it is uploaded when the step ends.
+2. **Drop the sampler.** It cannot be read for the failure it was written for, it runs only on the intel leg, and the Windows loss weakens its premise. Dropping it removes a background loop from two steps and leaves the rerun policy (recommendation 1) as the only response.
+
+### Recommendation
+
+Option 1, as a one-battery experiment with the interval at 10 minutes: it costs one short `::notice::` line per interval, it is the only route found by which the data can survive a loss, and the same line can be added to the Windows leg if the experiment works. If the next loss shows no sampler annotation on the lost job, take option 2 and stop investing in sampling; the pattern (both OSes, no failed step, no log) then needs a report to GitHub Support with the run and job ids in this document. The CI change is a maintainer decision and is not part of this documentation batch.
