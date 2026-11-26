@@ -7352,12 +7352,6 @@ _scratch_concrete_binding :: (fn(se : &Environment, name : &String) -> Option(Ty
     .None => Option(TypeValue).None
   )
 });
-/// The order the inline FuncVal arm evaluates a call's arguments in: every
-/// argument in source order, except that a closure literal whose parameter is
-/// an `Impl(Fn(...))` mentioning one of the callee's binders goes after the
-/// others (Phase 2.4, "function-literal arguments last"). A call with an `undefined`
-/// argument keeps source order: its default may read the earlier arguments'
-/// evaluated infos by position.
 /// The `ai`-th parameter's value type as the inline `FuncVal` arm has it
 /// solved before its arguments are read: the declared type, or the expected
 /// type's resolution (`resolved_param_types`), and for a bare binder the type
@@ -7380,6 +7374,12 @@ _fv_solved_slot :: (fn(resolved_param_types : &SharedList(TypeValue), ai : usize
     .None => slot
   )
 });
+/// The order the inline FuncVal arm evaluates a call's arguments in: every
+/// argument in source order, except that a closure literal whose parameter is
+/// an `Impl(Fn(...))` mentioning one of the callee's binders goes after the
+/// others (Phase 2.4, "function-literal arguments last"). A call with an `undefined`
+/// argument keeps source order: its default may read the earlier arguments'
+/// evaluated infos by position.
 _fv_argument_eval_order :: (fn(args : &ArrayList(AstExpr), n_p : usize, param_types : &ArrayList(TypeValue), forall_names : &ArrayList(String)) -> ArrayList(usize))({
   first := ArrayList(usize).new();
   last := ArrayList(usize).new();
