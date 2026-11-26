@@ -210,9 +210,9 @@ test("a destructuring takes mut(...) per name", {
   }, "a pattern binding declared without `mut`");
 });
 
-// A destructuring borrows its elements: a `mut(name)` copy of one holding
-// an RC cell or an owned buffer would release what the destructured value
-// still releases (issues/fixed/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md).
+// A destructuring of an owned value consumes it (VERDICTS-76 Q2): each
+// name owns its element, so a `mut(name)` one is written and released once
+// (issues/fixed/2026-11-22-a-mut-name-destructured-from-a-call-result-is-released-twice.md).
 _MbNode :: struct(n : i32);
 _MbHolder :: struct(a : Rc(_MbNode), b : usize);
 _mb_pair :: (fn(e : &Rc(_MbNode)) -> Tuple(Rc(_MbNode), usize))((Rc.clone(e.*), usize(0)));
@@ -229,6 +229,21 @@ _mb_match_swap :: (fn(e : &Rc(_MbNode), swap : bool) -> i32)(
     }
   )
 );
+_mb_destructure_swap :: (fn(e : &Rc(_MbNode), swap : bool) -> i32)({
+  (mut(w), _s) := _mb_pair(e);
+  if(swap, {
+    w = Rc.new(_MbNode(n : i32(9)));
+  });
+  w.*.n
+});
+_mb_holder_swap :: (fn(e : &Rc(_MbNode), swap : bool) -> i32)({
+  h := _mb_holder(e);
+  { a : mut(w), b } := h;
+  if(swap, {
+    w = Rc.new(_MbNode(n : i32(9)));
+  });
+  (w.*.n + i32(b))
+});
 _mb_copy_swap :: (fn(e : &Rc(_MbNode), swap : bool) -> i32)({
   (w0, _s) := _mb_pair(e);
   mut(w) := w0.clone();
@@ -238,26 +253,6 @@ _mb_copy_swap :: (fn(e : &Rc(_MbNode), swap : bool) -> i32)({
   w.*.n
 });
 
-test("a mut(...) destructuring binding of an element with drops is E0901", {
-  e := Rc.new(_MbNode(n : i32(7)));
-  comptime_expect_error({
-    (mut(w), _s) := _mb_pair(&e);
-    w = Rc.new(_MbNode(n : i32(9)));
-  }, "cannot copy `w` out of the destructured value");
-  comptime_expect_error({
-    (mut(w), _s) := _mb_pair(&e);
-    _n := w.*.n;
-  }, "cannot copy `w` out of the destructured value");
-  comptime_expect_error({
-    { a : mut(w), b } := _mb_holder(&e);
-    _n := (w.*.n + i32(b));
-  }, "cannot copy `w` out of the destructured value");
-  comptime_expect_error({
-    t := _mb_pair(&e);
-    (mut(w), _s) := t;
-    _n := w.*.n;
-  }, "cannot copy `w` out of the destructured value");
-});
 
 test("a mut(...) name of a destructuring that consumes its source owns its element", {
   (mut(s), _bx, _xs) := _mb_owned_parts();
@@ -271,13 +266,17 @@ test("a mut(...) name of a destructuring that consumes its source owns its eleme
   assert(xs.len() == usize(1), "xs owns the ArrayList");
 });
 
-test("a destructured element with drops changes through an owned copy or a consuming match", {
+test("a destructured element with drops changes through an owned copy, a consuming match or a consuming destructuring", {
   e := Rc.new(_MbNode(n : i32(7)));
   before := ref_count(e);
   assert(_mb_match_swap(&e, false) == i32(7), "match, kept");
   assert(_mb_match_swap(&e, true) == i32(9), "match, reassigned");
   assert(_mb_copy_swap(&e, false) == i32(7), "copy, kept");
   assert(_mb_copy_swap(&e, true) == i32(9), "copy, reassigned");
+  assert(_mb_destructure_swap(&e, false) == i32(7), "destructuring, kept");
+  assert(_mb_destructure_swap(&e, true) == i32(9), "destructuring, reassigned");
+  assert(_mb_holder_swap(&e, false) == i32(8), "a struct's destructuring, kept");
+  assert(_mb_holder_swap(&e, true) == i32(10), "a struct's destructuring, reassigned");
   assert(ref_count(e) == before, "every release is balanced");
 });
 

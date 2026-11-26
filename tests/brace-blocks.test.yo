@@ -53,10 +53,10 @@ test("a block with statements is unchanged", {
 });
 test("binders keep their bare braces", {
   p := Point(x : i32(1), y : i32(2));
-  { x, y } := p;
-  assert((x + y) == i32(3));
-  { x : px } := p;
-  assert(px == i32(1));
+  { x, y } := &p;
+  assert((x.* + y.*) == i32(3));
+  { x : px } := &p;
+  assert(px.* == i32(1));
   n := match(p, { x : i32(1), y } => y, _ => i32(0));
   assert(n == i32(2));
   s := Shape.At(.{ x : i32(4), y : i32(5) });
