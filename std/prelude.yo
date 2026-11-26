@@ -693,16 +693,12 @@ export(not, !);
       where(_Self <: BitNot)
     ) -> _Self.Output
   )(self.(~)());
-  // `comptime(_Self)`, not `comptime(_Self.Output)`: a generic function's
-  // `comptime(T.Output)` return comes back as the bare `Output`
-  // (issues/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
-  // Every `ComptimeNeg` and `ComptimeBitNot` impl in the prelude has `Output = Self`.
   comptime_bit_not :: (
     fn(
       generic(_Self : Type),
       comptime(self) : _Self,
       where(_Self <: (Comptime, ComptimeBitNot))
-    ) -> comptime(_Self)
+    ) -> comptime(_Self.Output)
   )(self.(~)());
   Call :: (bit_not, comptime_bit_not);
   export(Call);
@@ -718,16 +714,12 @@ export(~);
   )({
     return(self.neg());
   });
-  // `comptime(_Self)`, not `comptime(_Self.Output)`: a generic function's
-  // `comptime(T.Output)` return comes back as the bare `Output`
-  // (issues/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
-  // Every `ComptimeNeg` and `ComptimeBitNot` impl in the prelude has `Output = Self`.
   comptime_neg :: (
     fn(
       generic(_Self : Type),
       comptime(self) : _Self,
       where(_Self <: (Comptime, ComptimeNeg))
-    ) -> comptime(_Self)
+    ) -> comptime(_Self.Output)
   )({
     return(self.neg());
   });

@@ -3001,6 +3001,39 @@ _rre_dot_receiver_type :: (
     .None => Option(TypeValue).None
   )
 });
+/// Re-evaluate the callee's declared return-type EXPRESSION (the rre
+/// re-eval) in the call's bound env `call_env`, under the call's own `Self`
+/// (`_rre_dot_receiver_type`). This channel resolves what substitution
+/// cannot: an associated-type projection (`T.Output`, resolved by name
+/// through `T`'s binding and the where clause), a type constructor applied
+/// to a bound binder, the ctor memo's canonical instance. `.None` when the
+/// callee registered no return-type expr or the expr does not evaluate to a
+/// type; the caller decides adoption.
+_rre_reevaluate_return_type :: (
+  fn(func_id : &String, callee : &AstExpr, call_env : &Environment, ctx : &mut EvalContext) -> Option(TypeValue)
+)(
+  match(
+    get_func_return_type_expr(func_id.clone()),
+    .Some(rre_expr) => {
+      rre_prev_fnty := ctx.is_evaluating_function_type;
+      ctx.is_evaluating_function_type = true;
+      rre_prev_self := ctx.self_type.clone();
+      match(
+        _rre_dot_receiver_type(callee, ctx),
+        .Some(rre_rs) => {
+          ctx.self_type = Option(TypeValue).Some(rre_rs);
+        },
+        .None => ()
+      );
+      rre_out := ArrayList(TypeValue).new();
+      _trial_eval_ret_type_expr(clone_expr_fresh_ids(&rre_expr), call_env, ctx, &mut rre_out);
+      ctx.is_evaluating_function_type = rre_prev_fnty;
+      ctx.self_type = rre_prev_self;
+      rre_out.get_cloned(usize(0))
+    },
+    .None => Option(TypeValue).None
+  )
+);
 /// Resolve unresolved Array `length_var`s in `ty` by structurally matching it
 /// against the concrete `self_ty` (the receiver of a `comptime(Self)` method).
 /// Wherever `ty` has `Array(_, _, lvar)` with a non-empty `lvar` and `self_ty`
@@ -8936,34 +8969,21 @@ _evaluate_funcval_runtime_call :: (
   rre_old_wanted := (hkt_ret_binder || ((get_all_some_types(&resolved_ret).len() > usize(0)) && !type_somes_all_resolve_concrete(&resolved_ret)));
   (rre_wanted : bool) = (rre_old_wanted || rre_era_suspect);
   if(rre_wanted, {
+    // Re-evaluate under the CALL's own Self (see _rre_dot_receiver_type):
+    // without it a bare-`Self` return-type expr adopts the ENCLOSING impl's
+    // Self during def-time body evals.
+    hkt_out := _rre_reevaluate_return_type(func_id_fv, func_expr, fresh_env, ctx);
+    if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
+      rre_dbg_self := match(
+        _rre_dot_receiver_type(func_expr, ctx),
+        .Some(st) => type_to_string(&st),
+        .None => match(&ctx.self_type, .Some(st) => type_to_string(&st.*), .None => String.from("<none>"))
+      );
+      rre_dbg_out := match(&hkt_out, .Some(t) => type_to_string(&t.*), .None => String.from("<none>"));
+      eprintln(`[rre] callee=${ast_expr_to_string(func_expr)} old=${rre_old_wanted.to_string()} era=${rre_era_suspect.to_string()} self=${rre_dbg_self} hkt=${rre_dbg_out} resolved_ret=${type_to_string(&resolved_ret)}`);
+    });
     match(
-      get_func_return_type_expr(func_id_fv.clone()),
-      .Some(hkt_expr) => {
-        hkt_prev_fnty := ctx.is_evaluating_function_type;
-        ctx.is_evaluating_function_type = true;
-        // Re-evaluate under the CALL's own Self —
-        // see _rre_dot_receiver_type. Without
-        // it a bare-`Self` return-type expr adopts the ENCLOSING impl's
-        // Self during def-time body evals.
-        hkt_prev_self := ctx.self_type.clone();
-        match(
-          _rre_dot_receiver_type(func_expr, ctx),
-          .Some(hkt_rs) => {
-            ctx.self_type = Option(TypeValue).Some(hkt_rs);
-          },
-          .None => ()
-        );
-        hkt_out := ArrayList(TypeValue).new();
-        _trial_eval_ret_type_expr(clone_expr_fresh_ids(&hkt_expr), fresh_env, ctx, &mut hkt_out);
-        if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
-          rre_dbg_self := match(&ctx.self_type, .Some(st) => type_to_string(&st.*), .None => String.from("<none>"));
-          rre_dbg_out := match(hkt_out.get_cloned(usize(0)), .Some(t) => type_to_string(&t), .None => String.from("<none>"));
-          eprintln(`[rre] callee=${ast_expr_to_string(func_expr)} old=${rre_old_wanted.to_string()} era=${rre_era_suspect.to_string()} self=${rre_dbg_self} hkt=${rre_dbg_out} resolved_ret=${type_to_string(&resolved_ret)}`);
-        });
-        ctx.is_evaluating_function_type = hkt_prev_fnty;
-        ctx.self_type = hkt_prev_self;
-        match(
-          hkt_out.get_cloned(usize(0)),
+      hkt_out,
           // Accept a SomeT-free result, OR one whose SomeTs ALL resolve
           // concretely through their resolutions (the closure-`F` family:
           // `IterFilter(Self, F)` with the per-call `F → __impl_fn →
@@ -9015,9 +9035,6 @@ _evaluate_funcval_runtime_call :: (
             resolved_ret = hkt_ty;
           }),
           .None => ()
-        );
-      },
-      .None => ()
     );
   });
   // A result that still mentions one of this callee's OWN binders, unresolved,
@@ -15413,6 +15430,23 @@ Fix: wrap the call:
               });
             });
             ct_res_ret = evaluate_function_return_type_again(&ct_res_ret, &fresh_env, ctx);
+            // An associated-type projection (`-> comptime(T.Output)`) is a
+            // SomeT of its own (`Output`), not a binder: neither the
+            // substitution nor the env lookup above can resolve it, and the
+            // call came back typed as the bare `Output`. The runtime arm
+            // resolves it by re-evaluating the declared return-type
+            // EXPRESSION in the bound call env; so does this arm, adopting
+            // only a SomeT-free result
+            // (issues/fixed/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
+            if(get_all_some_types(&ct_res_ret).len() > usize(0), {
+              match(
+                _rre_reevaluate_return_type(&func_id_fv, &func_expr, &fresh_env, ctx),
+                .Some(ct_rre_ty) => if((get_all_some_types(&ct_rre_ty).len() == usize(0)) && !is_unit_type(&ct_rre_ty), {
+                  ct_res_ret = ct_rre_ty;
+                }),
+                .None => ()
+              );
+            });
             if(get_all_some_types(&ct_res_ret).len() == usize(0), {
               resolved_ret_ct = ct_res_ret;
             });
