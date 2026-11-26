@@ -226,10 +226,12 @@ _reject_positional_rest :: (fn(args : &ArrayList(AstExpr), n_slots : usize, what
   tok := ast_expr_token(&dots);
   n_args := args.len();
   (repair : Option(Repair)) = Option(Repair).None;
+  (help : String) = `write \`_\` for each ${what} it stands for${extra_help}`;
   if((_rest_count(args) == usize(1)) && (n_slots >= (n_args - usize(1))), {
     k := (n_slots - (n_args - usize(1)));
     if(k == usize(0), {
       repair = _rest_drop_repair(&dots);
+      help = `delete the \`..\`: every ${what} is already listed`;
     }, {
       fill := String.new();
       (j : usize) = usize(0);
@@ -244,12 +246,12 @@ _reject_positional_rest :: (fn(args : &ArrayList(AstExpr), n_slots : usize, what
         Repair(
           span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)),
           replacement : fill.clone(),
-          description : `write \`${fill}\` for the ${what} \`..\` stands for`
+          description : `write \`${fill}\`, one \`_\` per ${what} \`..\` stands for`
         )
       );
     });
   });
-  _throw_rest_pattern(&dots, `write \`_\` for each ${what} it stands for${extra_help}`, repair, exn);
+  _throw_rest_pattern(&dots, help, repair, exn);
 });
 /// A binding the pattern introduces, collected during compilation and added
 /// to the arm's env frame by the caller once the WHOLE pattern is compiled
