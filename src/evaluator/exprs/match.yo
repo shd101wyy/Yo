@@ -784,8 +784,10 @@ _throw_unmovable_destructure_source :: (fn(src : &AstExpr, ty : &TypeValue, why 
     exn
   );
 });
-/// Decide how `{ a, b } := src` takes its evaluated source (VERDICTS-76 Q2):
-/// `match`'s table for a bare scrutinee (`_decide_match_mode`). True when the
+/// Decide how `{ a, b } := src` takes its source (VERDICTS-76 Q2): `match`'s
+/// table for a bare scrutinee (`_decide_match_mode`), judged on `src` as
+/// written (`r.*` is a dereference, though it evaluates to `r`'s place) and
+/// consuming `evaluated`. True when the
 /// destructuring CONSUMES the source: an owned local, a by-value parameter or
 /// an owned temporary of a type that is not implicitly copyable moves, and its
 /// names own their fields. False when it copies (an implicitly copyable value)
@@ -794,7 +796,7 @@ _throw_unmovable_destructure_source :: (fn(src : &AstExpr, ty : &TypeValue, why 
 /// module-level binding, a closure capture, a projection (no partial moves), a
 /// borrowed temporary and a type with a user `Drop` (moving its fields out
 /// would skip the destructor; Rust's E0509) are E0901.
-decide_destructuring_consumes :: (fn(src : &AstExpr, info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> bool)({
+decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> bool)({
   ty := Rc.clone(info.ty());
   root := _scrutinee_root_variable(src, env);
   is_atom := ast_expr_is_atom(src);
@@ -847,11 +849,11 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, info : &ExprInfo, env : &En
           return(false);
         },
         _scrutinee_moves_through_param_shadow(&rv, &ty, env) => {
-          _moved := move_through_sink_shadow(&rv, src, env, ctx, exn);
+          _moved := move_through_sink_shadow(&rv, evaluated, env, ctx, exn);
           note_consuming_destructure_source(&stok);
         },
         true => {
-          set_expr_as_consumed(src, env, false, ctx, exn);
+          set_expr_as_consumed(evaluated, env, false, ctx, exn);
           note_consuming_destructure_source(&stok);
         }
       ),

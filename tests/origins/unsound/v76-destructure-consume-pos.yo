@@ -5,7 +5,10 @@
 { println } :: import("std/fmt");
 Fd :: struct(s : String);
 Pair :: struct(a : Fd, b : Fd, c : Fd);
-take :: (fn(f : Fd) -> String)(f.s);
+take :: (fn(f : Fd) -> String)({
+  { s } := f;
+  s
+});
 main :: (fn() -> unit)({
   p := Pair(a : Fd(s : String.from("a")), b : Fd(s : String.from("b")), c : Fd(s : String.from("c")));
   { a, b : _ } := p;

@@ -177,7 +177,8 @@
   OriginRootPlace,
   LocalBorrowElidedOrigin,
   bind_join_roots_for,
-  variable_holder_roots
+  variable_holder_roots,
+  local_borrow_alias_statement
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1827,28 +1828,26 @@ _lend_field :: (fn(recv : &AstExpr, label : &String, at : &Token) -> AstExpr)({
 });
 /// A lending destructuring (VERDICTS-76 Q2): `{ a, b : c } := &x` is
 /// `a := &x.a; c := &x.b` — each name a local borrow of its field, read with
-/// `a.*`, and `x` frozen (exclusively under `&mut`) while a name lives. The
-/// lent place is first bound to a hidden local borrow the names borrow
-/// through; a reference binding `r` read bare is that borrow already. Codegen
-/// emits the recorded bindings in place of the destructuring.
+/// `a.*`, and `x` frozen (exclusively under `&mut`) while a name lives; a
+/// reference binding `r` read bare lends through itself, `a := &r.a`.
+/// Codegen emits the recorded bindings in place of the destructuring.
 _evaluate_lending_destructuring :: (fn(expr : &AstExpr, lhs : &AstExpr, rhs : &AstExpr, ls : &_LendSource, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   binds := ArrayList(AstExpr).new();
   rtok := ast_expr_token(rhs);
-  src_name := cond(
+  // The source's type: the lent place's (evaluated as a place, as a local
+  // borrow evaluates its own), or the referent of the reference binding.
+  src_ty := cond(
     ls.is_sigil => {
-      hname := generate_new_temp_variable_name(&env.module_path().*, usize(rtok.row), usize(rtok.column), Option(String).Some(String.from("dl")), Option(String).Some(rtok.module_path.*.clone()));
-      h_bind := _lend_binding(expr, ls.is_mut, &_lend_atom(&hname, TokenKind.Identifier, &rtok), &ls.place);
-      h_done := evaluate_initialization_assignment(&h_bind, env, ctx, exn);
-      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&h_done)), .Some(hi) => env_adopt(env, &hi.env()), .None => ());
-      binds.push(h_done);
-      hname
+      deref_exempt_mark(&ls.place);
+      ev_place := evaluate_expression_raw(&ls.place, env, ctx, exn);
+      deref_exempt_clear();
+      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_place)), .Some(pi) => Rc.clone(pi.ty()), .None => t_unit())
     },
-    true => rtok.value.*.clone()
-  );
-  src_ty := match(
-    get_variables_from_env(env, src_name.clone()).last_cloned(),
-    .Some(sv) => variable_value_type(&sv),
-    .None => t_unit()
+    true => match(
+      get_variables_from_env(env, rtok.value.*.clone()).last_cloned(),
+      .Some(sv) => variable_value_type(&sv),
+      .None => t_unit()
+    )
   );
   if(is_enum_type(&src_ty), {
     exn.throw(
@@ -1871,8 +1870,13 @@ _evaluate_lending_destructuring :: (fn(expr : &AstExpr, lhs : &AstExpr, rhs : &A
     name_atom := match(dr.lend_atoms.get_cloned(i), .Some(a) => a, .None => return(Rc.clone(expr.*)));
     if(!(rd.variable_name == "_"), {
       ntok := ast_expr_token(&name_atom);
-      place := _lend_field(&_lend_atom(&src_name, TokenKind.Identifier, &rtok), &rd.label, &ntok);
-      b_done := evaluate_initialization_assignment(&_lend_binding(expr, ls.is_mut, &name_atom, &place), env, ctx, exn);
+      // `a := &x.a`: the field of the lent place itself, so the borrow is
+      // of `x`; through a reference binding `r`, `a := &r.a` reborrows.
+      src_place := cond(ls.is_sigil => Rc.clone(ls.place), true => _lend_atom(&rtok.value.*, TokenKind.Identifier, &rtok));
+      place := _lend_field(&src_place, &rd.label, &ntok);
+      b_bind := _lend_binding(expr, ls.is_mut, &name_atom, &place);
+      local_borrow_alias_statement(ast_expr_id(&b_bind), ast_expr_id(expr));
+      b_done := evaluate_initialization_assignment(&b_bind, env, ctx, exn);
       match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b_done)), .Some(bi) => env_adopt(env, &bi.env()), .None => ());
       binds.push(b_done);
     });
@@ -2890,7 +2894,7 @@ Use \`::\` for compile-time definitions inside impl.`
     // their fields; a copyable value is copied; a borrowed binding lends.
     destr_consumes := (!effective_is_compile_time_only && !is_const && ctx.is_evaluating_function_body_or_async_block.is_some() && match(
       &rhs_info_opt,
-      .Some(dc_info) => ((is_struct_type(&dc_info.ty()) || is_tuple_type(&dc_info.ty()) || is_enum_type(&dc_info.ty())) && decide_destructuring_consumes(&rhs, dc_info, &env, ctx, exn)),
+      .Some(dc_info) => ((is_struct_type(&dc_info.ty()) || is_tuple_type(&dc_info.ty()) || is_enum_type(&dc_info.ty())) && decide_destructuring_consumes(&match(expr, Rc(.FnCall(_, _, Rc(dc_args), _, _)) => match(dc_args.get_cloned(usize(1)), .Some(dc_raw) => dc_raw, .None => Rc.clone(rhs)), Rc(.Atom(_, _)) => Rc.clone(rhs)), &rhs, dc_info, &env, ctx, exn)),
       .None => false
     ));
     destr_result := evaluate_destructuring_assignment(
