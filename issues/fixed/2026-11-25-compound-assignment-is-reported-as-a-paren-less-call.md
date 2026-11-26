@@ -40,3 +40,23 @@ A dedicated parser diagnostic. When an assignment target is followed by one of `
 ## Test to add with the fix
 
 A parser test in `tests/internal/parser.test.yo` (one file, run singly) asserting the new text and code for `x += 1`, `x |= i32(1)`, `x <<= i32(1)`, `x -= 1`, and that `c := (a |- b)` still parses; plus a `tests/cli-cases/` golden for the `yo fix` rewrite.
+
+## Fix (2026-11-26, lane `v81-v84-pr2`)
+
+A dedicated parser diagnostic, E0010 (`E_COMPOUND_ASSIGNMENT`, `src/diagnostics.yo`), with its own `yo explain`
+entry in English and Chinese. `reject_compound_assignment` (`src/parser.yo`) runs in the infix-operator arm of
+`parse_primary_end` before the right operand is parsed: when the operator is one of `+ - * / % & | ^ << >>` and the
+very next token is `=` (no whitespace between), it reports
+
+```text
+error[E0010]: Yo has no compound assignment: `+=` is an operator followed by `=`. Write the assignment out: `x = (x + i32(1))`.
+```
+
+anchored at the operator. The target and the right operand are read back from the source (an operator right
+operand is parenthesized, `x -= a - b` gives `x = (x - (a - b))`), and when the edit stays on one line the
+diagnostic carries the repair `= (x + i32(1))` over the operator through the operand, which `yo fix` applies.
+`a |- 1` and `a <= b` are untouched: the check keys on the adjacent `=`. The rule is stated in `pack/context.md`,
+`.github/instructions/yo-syntax.instructions.md` and the operator plan's notes.
+
+Tests: `tests/internal/parser.test.yo` (the four `E0010` tests), `tests/cli-cases/compound-assignment-is-e0010`,
+`tests/cli-cases/fix-rewrites-a-compound-assignment`.

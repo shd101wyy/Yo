@@ -88,6 +88,9 @@ if(arch == Arch.Wasm32, {
 
 Layout never affects grouping (no newline-based associativity).
 
+Yo has no compound assignment: `x += 1`, `flags |= m`, `bits <<= 1` (and `-`, `*`, `/`, `%`, `&`, `^`, `>>`)
+are E0010, written `x = (x + 1)`; `yo fix` rewrites the one-line form.
+
 `:`, `:=`, `=`, `::` and `->` are ordinary operators, so a different operator beside them needs a group:
 `x := a + b;` is E0003 — write `x := (a + b);`, `ok := (p && q);`, `end : (j + usize(1))`.
 
@@ -951,6 +954,23 @@ as a value (`ArrayList(i32).new`) is not emitted yet
 `dyn(Box.new(() => ArrayList(i32).new()))`.
 
 ## Generics and traits
+
+### Bounds
+
+- `<:` is the bound operator, read *implements*: `L <: R` says type `L` implements trait `R`. `L` is a
+  binder, `Self`, a projection `Self.X` or an application `F(A)`; `R` is a trait, an applied trait (`Eq(T)`,
+  `Iterator(Item := A)`), a grouped `(Fn(x : A) -> B)`, `!Tr`, or in `where` a tuple `(A, B)`. Yo has no
+  subtyping: `<:` never relates two types or two traits.
+- It is written in the `where(...)` of a function, a type constructor, a `trait(...)` (supertraits,
+  associated-type bounds), an `impl` (on its own `generic(...)` binders only) and a `derive`; and as the
+  expression `(T <: Tr)`, the impl used as a namespace (`(T <: Tr).m(a)`).
+- A type binder's `:` takes a kind and nothing else: `Type`, `?Sized`, `Type.Struct`, `Origin`, `Trait`
+  (`comptime(marker) : Trait`) or a constructor kind (`fn(comptime(T) : Type) -> comptime(Type)`).
+  `generic(T : Tr)`, `generic(T : (A, B))`, `generic(T <: Tr)`, `where(T : Tr)` and `trait(Item : Tr)` are
+  E0624 (`yo fix` moves the bound into `where(...)`).
+- A value's `:` takes a type: `Impl(Tr)`, `&Dyn(Tr)`, `Box(Dyn(Tr))`, never `Tr` (`a : Tr`, `a : &Tr`,
+  `-> Tr`, `(x : Tr) = v`, `struct(v : Tr)` are E0625). `T <: Eq` is E0603: write `T <: Eq(T)`.
+- Rust's `T: A + B` is `generic(T : Type), where(T <: (A, B))` (`T <: A + B` is E0003 with that hint).
 
 ### Generic calls
 

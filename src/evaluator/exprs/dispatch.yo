@@ -63,7 +63,7 @@ import("std/fmt");
   BK_TEST,
   BK_EXTERN,
   BK_C_INCLUDE,
-  BK_SUBTYPE_OF,
+  BK_IMPLEMENTS,
   BK_COLON,
   BK_ASSIGN,
   BK_INIT_ASSIGN,
@@ -271,7 +271,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_unwind } :: import("./unwind.yo");
 { evaluate_import } :: import("./import.yo");
-{ evaluate_subtype_of } :: import("./subtype-of.yo");
+{ evaluate_implements } :: import("./implements.yo");
 { evaluate_typeof } :: import("./typeof.yo");
 { evaluate_while } :: import("./while.yo");
 { evaluate_identifier_and_operator } :: import("./identifer-and-operator.yo");
@@ -977,8 +977,8 @@ _evaluate_expression :: (
         // `ref_count` is nine bytes; a wrong length gate makes the arm dead.
         ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_REF_COUNT, .None)) =>
           evaluate_ref_count(expr, env, ctx, exn),
-        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .None)) =>
-          evaluate_subtype_of(expr, env, ctx, exn),
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_IMPLEMENTS, .None)) =>
+          evaluate_implements(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_THE, .None)) =>
           evaluate_the(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_IMPORT, .None)) =>

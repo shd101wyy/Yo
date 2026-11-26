@@ -1996,9 +1996,8 @@ dyn_type_lists_clone :: (fn(ty : &TypeValue) -> bool)(
 /// (struct, enum, tuple, array, closure capture record) holding one? A
 /// reference type, an `Rc`/`Arc` handle and a pointer stop the walk: copying
 /// one shares the `Dyn` instead of copying it. Such a value copies only
-/// explicitly once `Dyn` is uniquely owned (plans/VALUES_BY_DEFAULT.md
-/// decision 7), which the evaluator enforces on every copy
-/// (`check_dyn_copy`, evaluator/utils.yo).
+/// explicitly: `Dyn` is uniquely owned (plans/VALUES_BY_DEFAULT.md
+/// decision 7, `type_requires_explicit_copy`).
 type_holds_dyn_by_value :: (fn(ty : &TypeValue) -> bool)(_holds_dyn_by_value_inner(ty, u32(0)));
 _any_holds_dyn_by_value :: (fn(fields : &ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
@@ -2039,12 +2038,19 @@ _holds_dyn_by_value_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
     _ => false
   )
 });
+/// A `Dyn` owns its payload uniquely (plans/VALUES_BY_DEFAULT.md decision 7):
+/// one whose trait list has no `Clone`, or names a call-once or
+/// exclusive-call closure trait (`_dyn_move_only_fn_trait`), is move-only. A
+/// `Dyn(Trait, Clone)` is explicit-copy (`type_requires_explicit_copy`), and
+/// a value aggregate holding a `Dyn` follows it, by containment.
+_dyn_is_move_only :: (fn(ty : &TypeValue) -> bool)(
+  match(ty, Rc(.DynT(required_trait_types : _)) => (!dyn_type_lists_clone(ty) || !_dyn_move_only_fn_trait(ty).is_empty()), _ => false)
+);
 /// The closure trait of a move-only `Dyn`: `"FnOnce"` for a `Dyn(FnOnce(...))`
 /// (plans/VALUES_BY_DEFAULT.md decision 37: its call consumes it, so two
 /// handles to one payload would run a call-once body twice), `"FnMut"` for a
 /// `Dyn(FnMut(...))` (its call borrows the payload exclusively, so two handles
-/// would be two writers of one state), `""` otherwise — although a `Dyn` is
-/// reference counted.
+/// would be two writers of one state), `""` otherwise.
 _dyn_move_only_fn_trait :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
@@ -2184,7 +2190,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : 
       w.cut = true;
       false
     },
-    !_dyn_move_only_fn_trait(&ty).is_empty() => true,
+    _dyn_is_move_only(&ty) => true,
     is_future_value_type(&ty) => true,
     is_rc_type(&ty) => false,
     _nominal_declares_move_only(&ty) => true,
@@ -2291,9 +2297,9 @@ type_is_move_only :: (fn(ty : &TypeValue) -> bool)({
 /// no-partial-moves rule and closure-capture moves all key on this predicate;
 /// only "may it be copied with `.clone()`" and the `Drop` rule key on
 /// `type_is_move_only`, its strict sub-case. It holds for move-only types and,
-/// since decision 36's flip, for a plain-data type that is not `Copy`. A
-/// value owning a buffer (`String`, the collections, `Dyn`) joins in V2b's
-/// own, separately measured migration.
+/// since decision 36's flip, for a plain-data type that is not `Copy`, a
+/// counted handle (decision 17) and a value holding a `Dyn` (decision 7: a
+/// `Dyn(Trait, Clone)` is explicit-copy, any other `Dyn` move-only).
 /// Decision 36's flip (plans/VALUES_BY_DEFAULT.md, Generation B): a
 /// plain-data type (no owned buffer, no counted cell) that is not `Copy` is
 /// explicit-copy too. The `Copy` question needs the trait registry and an
@@ -2334,22 +2340,21 @@ _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
   // migration of `String`, the collections and `Rc` themselves, not of the
   // closures that capture them: a closure owning a `String` is explicit-copy
   // now (issues/fixed/2026-10-14-a-closure-owning-a-string-copies-implicitly.md).
-  if(is_bound_closure_identity(ty_in) || is_closure_capture_struct(ty_in), {
-    return(match(g_type_lacks_copy_fn, .Some(f) => f(resolve_cell_chain(ty_in)), .None => false));
+  //
+  // A type variable is judged at its instantiation, as `type_is_move_only`
+  // does: by the end of its resolution chain, however many links it has. A
+  // generic `V` instantiated with a closure is such a chain: `V` is the
+  // closure's type (an `Impl` binding, or the nameless wrapper `dyn(...)`
+  // evaluates a closure literal against), which resolves to its capture
+  // record. An open variable is judged where it is bound (a generic body is
+  // re-evaluated per instantiation).
+  ty := resolution_chain_end(ty_in);
+  if(is_some_type(&ty), {
+    return(false);
   });
-  ty := match(
-    ty_in,
-    Rc(.SomeT({ resolution : sr })) => match(
-      sr,
-      .Some(c) => Rc.clone(c),
-      .None => {
-        // A generic parameter is judged where it is bound (a generic body is
-        // re-evaluated per instantiation), as `type_is_move_only` does.
-        return(false);
-      }
-    ),
-    _ => Rc.clone(ty_in)
-  );
+  if(is_closure_capture_struct(&ty), {
+    return(match(g_type_lacks_copy_fn, .Some(f) => f(&ty), .None => false));
+  });
   if(type_contains_rc_cell_or_move_only(&ty), {
     return(false);
   });
@@ -2375,16 +2380,29 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
     _ => false
   )
 );
-type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || type_holds_counted_handle(ty)));
+/// `type_requires_explicit_copy`'s permanent form (VERDICTS-70 Q1, amendment 3) is Rust's rule: a value
+/// is implicitly copyable only if it has no drop glue
+/// (`type_needs_drop_glue`). The kinds named above are the cases a type
+/// still mentioning an open type variable is judged by before its
+/// instantiation; every value that needs a drop is explicit-copy, so no copy
+/// is ever lowered as a count increment (`set_expr_as_needs_to_call_dup`).
+type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || (type_holds_counted_handle(ty) || (type_holds_dyn_by_value(ty) || type_needs_drop_glue(ty)))));
+/// Does a value of `ty` need a drop where its owner's life ends: a count to
+/// release, a cell, a buffer, a `Drop` impl, or a part holding one
+/// (`type_contains_rc_type`)? A type that mentions an open type variable is
+/// judged at its instantiation (a generic body is re-evaluated per
+/// instantiation), so it answers false here.
+type_needs_drop_glue :: (fn(ty : &TypeValue) -> bool)(type_contains_rc_type(ty) && type_has_no_open_some(ty));
 /// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc`/`Arc` needs
 /// `.clone()`, as in Rust. A new handle is a new owner, so sharing is visible
 /// where it is created: `Rc.clone(h)`, `Arc.clone(h)`. True for a counted
 /// handle (`is_counted_handle_value_type`) and for a value aggregate (struct,
 /// enum, tuple, array) holding one by value: a composite is implicitly
 /// copyable only when every part is. The walk stops at every other `ref`
-/// object, `Dyn` and future (each a shared handle of its own, which copies
-/// implicitly until V5 and B12), at a closure (judged by its capture record,
-/// decision 36: one owning an `Rc` is not `Copy`) and at a type variable. A
+/// object, `Dyn` and future (each judged on its own: a future is move-only,
+/// a `Dyn` by decision 7), at a closure (judged by its capture record,
+/// decision 36: one owning an `Rc` is not `Copy`) and at an open type
+/// variable; a bound one is walked through its resolution. A
 /// generic body's copy of a `T` is judged as decision 36's flip judges it,
 /// at each instantiation, std's included: a std reader that copies its
 /// element through `T` (`ArrayList(T).get`, `HashMap(K, V).get`) is E0901 at
@@ -2445,6 +2463,9 @@ _holds_counted_handle_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth
           _type_walk_leave(w, &ty, depth, found)
         }
       ),
+      // A bound type variable is judged at its instantiation, by what it
+      // resolves to; an open one where it is bound.
+      Rc(.SomeT({ resolution : hc_res })) => match(hc_res, .Some(r) => recur(&r.*, w, depth + u32(1)), .None => false),
       _ => false
     )
   )
@@ -2464,6 +2485,9 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   });
   if(dmo == "FnMut", {
     return(Option(String).Some(`\`${type_to_string(&ty)}\` is an exclusive-call closure: its call borrows it exclusively to write its state, so two copies would be two writers of one state`));
+  });
+  if(_dyn_is_move_only(&ty), {
+    return(Option(String).Some(`\`${type_to_string(&ty)}\` owns its payload uniquely, and a \`Dyn\` copies only when \`Clone\` is in its trait list`));
   });
   if((depth > _TYPE_WALK_MAX_DEPTH) || is_rc_type(&ty), {
     return(Option(String).None);
@@ -5318,17 +5342,24 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 /// `?Sized` variable is decided per specialization, where it is bound; the
 /// generic definition's slot keeps the thin ABI its sized instances use.
 _pointee_is_fat :: (fn(t : &TypeValue) -> bool)(!type_is_sized(t) && !type_contains_some_type(t));
-/// Is the borrow slot `s` over a Box whose payload is UNSIZED (decision 49:
-/// `&Box(Dyn(T))`, `&AnyError`)? The box's C value is the fat pair and the
-/// by-ref read convention derefs (`(*self)` is the pair), so the parameter
-/// is POINTER-passed (a pointer to the pair).
-_dyn_box_pointee :: (fn(s : &TypeValue) -> bool)(
+/// Is `t` a Box whose payload is UNSIZED (decision 49: `Box(Dyn(T))`,
+/// `AnyError`)? The box's C value is the fat pair and the by-ref read
+/// convention derefs (`(*self)` is the pair), so a `&t` parameter is
+/// POINTER-passed (a pointer to the pair), whatever the rest of its
+/// signature. A binder decides it at the type the parameter binds
+/// (`bind_parameter`): a `generic(...)` body's `x : &T` at
+/// `T := Box(Dyn(S))` is pointer-passed by its specialization's prototype,
+/// though the generic slot `&T` is not.
+pointee_is_unsized_box :: (fn(t : &TypeValue) -> bool)(
   match(
-    unique_box_payload_type(&t_slot_pointee(s)),
+    unique_box_payload_type(t),
     .Some(p) => !type_is_sized(&p),
     .None => false
   )
 );
+/// Is the borrow slot `s` over a Box whose payload is unsized
+/// (`pointee_is_unsized_box`)?
+_dyn_box_pointee :: (fn(s : &TypeValue) -> bool)(pointee_is_unsized_box(&t_slot_pointee(s)));
 /// Is the borrow slot `s` over a `Dyn` pointee (decision 49)? Such a
 /// parameter takes the fat pair BY VALUE — the pointer-argument ABI never
 /// applies to it (a slice's `&[T]` keeps the pointer ABI).
@@ -5392,7 +5423,7 @@ fn_abi_param_is_ptr :: (fn(fn_ty : &TypeValue) -> ArrayList(bool))({
   );
   out
 });
-export(fn_param_is_ptr_borrow, fn_abi_param_is_ptr);
+export(fn_param_is_ptr_borrow, fn_abi_param_is_ptr, pointee_is_unsized_box);
 /// The `Fn(...)` trait a closure-typed value carries: the trait itself, the
 /// `Fn` a `Dyn` lists (also through a `Box(Dyn(...))`, which is called
 /// through its payload, decision 49 S2), or a type variable's `Fn` bound,
