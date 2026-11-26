@@ -156,7 +156,7 @@ def rewrite_impls(s, trait, method, new_trait, new_method, path, report):
                         body = body[bm.end():]
                     ok = '%s(%s%s : ((self, f) -> %sf.write(&%s)))' % (new_trait, lead, new_method, note, body)
         if ok is None:
-            if entries and any(re.match(r'\s*' + method + r'\b', e) for e in entries):
+            if entries and any(re.match(r'\s*(?://[^\n]*\n\s*)*' + method + r'\b', e, re.S) for e in entries):
                 report.append('%s:%d: %s(...) left for a hand edit' % (path, line, trait))
             out.append(s[i:close_i + 1])
         else:
