@@ -104,7 +104,7 @@ int32_t r = d.vtable->speak(d.data);
 - 泛型方法是一族函数（每个实例化一个），而一个虚表槽位只能放一个。
 - 按值的 `self` 会把载荷从拥有它的指针里移出来，而非定长的载荷没有可供移动的值形式。
 
-只有这些方法拥有虚表槽位。通过 `Dyn` 调用其他方法会在调用处报错 E0614（`yo explain E0614`）。带有按值 `self` 方法的 trait 完全不能放到 `Dyn` 后面，无论载荷是什么：按值接收操作数的运算符 trait（`LogicalNot`、`Negate`、`Add` 等）都在此列。
+只有这些方法拥有虚表槽位。通过 `Dyn` 调用其他方法会在调用处报错 E0614（`yo explain E0614`）。带有按值 `self` 方法的 trait 完全不能放到 `Dyn` 后面，无论载荷是什么：按值接收操作数的运算符 trait（`LogicalNot`、`Neg`、`Add` 等）都在此列。
 
 `Future` 同样不能出现在 `Dyn` 中，任何位置都不行（在写出该类型的地方报 E0614）。future 本身就是指向其状态机的一个指针，await 或 spawn 会消耗它（`io.await(f, e)`、`io.spawn(f, e)`）。单个 future 的类型写作 `Impl(Future(T, E))`。多个不同的运行中任务保存为 `JoinHandle(T)`：逐个 spawn，把句柄收集到 `ArrayList(JoinHandle(T))` 中，`std/async` 中的 `join_all` 和 `race` 接受这个列表。
 
