@@ -120,3 +120,5 @@ this test" to reap never arrives before exit. The teardown direction above
 future) is the remaining fix. Until then, `tests/net/tcp.test.yo` is a known
 failure of any suite-wide `--allocator debug` run (W6a's corpus
 measurement).
+
+Measured 2026-11-25 (lane abort-walk, WSL2): the test fails LeakSanitizer on develop `0d862baec` under both `YO_IO_BACKEND=uring` and `YO_IO_BACKEND=epoll` (`--test-name-pattern "non-routable"`), and identically with the abort-walk branch, so the epoll backend leaks it here too.

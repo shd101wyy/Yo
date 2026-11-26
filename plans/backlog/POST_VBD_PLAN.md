@@ -120,7 +120,7 @@ battery takes the next lane-F item.
 - **Lane E starts here (maintainer, 2026-11-13; an exception to rule 5's "lane E
   starts when one drains"):** [`DEFAULT_ON_VERIFICATION.md`](DEFAULT_ON_VERIFICATION.md)
   S0 (the `verify+` defect
-  `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
+  `issues/fixed/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
   and the both-modes fixture sweep; amended 2026-11-15), then S1 (`yo init`
   scaffolds `pragma(Pragma.VerifyOrAssert);`), with S2 (the S2 issue
   `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`)

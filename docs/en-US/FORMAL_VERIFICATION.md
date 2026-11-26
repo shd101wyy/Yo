@@ -5,7 +5,7 @@ annotated with contracts (and, in verify mode, **unannotated** functions
 too) are symbolically executed and their proof obligations are discharged
 by the pinned [Z3](https://github.com/Z3Prover/z3) SMT solver. A proof
 replaces runtime checks; a refutation is a compile error with a concrete
-counter-example. Design record: [`plans/backlog/FORMAL_VERIFICATION.md`](../../plans/backlog/FORMAL_VERIFICATION.md).
+counter-example. Design record: `plans/backlog/FORMAL_VERIFICATION.md`.
 
 ```bash
 # Verify a file (or directory) — non-zero exit if anything fails
@@ -474,6 +474,11 @@ a hover computation (they need the solver).
 | `verify` | `pragma(Pragma.Verify);` | Proofs replace the `ensures` asserts; refuted/unprovable ⇒ compile error. `requires` keeps its runtime entry check, because a caller the verifier never sees (outside the subset, an exported symbol's foreign caller, a call through a function value) proves nothing |
 | `verify+` | `pragma(Pragma.VerifyOrAssert);` | Prove when possible; budget-exhausted falls back to the runtime assert |
 | `ignore` | `pragma(Pragma.NoContracts);` | Contracts erased entirely |
+
+A clause that cannot run is proof-only in every mode and never becomes an
+assert: one that quantifies, uses `==>` or a std/spec ghost collection
+(`seq_*`, `seq_of`, `ms_*`, `set_*`, `str_bytes`), uses `distinct`, or calls
+a `ghost_fn`. Nothing is spliced into a `ghost_fn`, which never runs.
 
 `yo verify <path>` defaults its target set to `verify` mode; a
 `--verify-mode runtime|verify|verify+` flag overrides, and a file's own

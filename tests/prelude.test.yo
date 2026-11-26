@@ -180,7 +180,7 @@ test("Test 'Drop' receivers", {
 // S0 C6 (plans/archive/STD_API_AUDIT.md §2): floats are not bit patterns and
 // unsigned integers have no negation. The prelude used to ship
 // BitAnd/BitOr/BitXor/BitNot impls for f32/f64 (C rejects float bitwise
-// operands, so using them could not even compile the emitted C) and Negate
+// operands, so using them could not even compile the emitted C) and Neg
 // impls for u8/u16/u32/u64/usize. All of them are compile errors now.
 test("float bitwise operators are compile errors", {
   comptime_expect_error({
@@ -215,6 +215,25 @@ test("float bitwise operators are compile errors", {
     v := ~f64(1.0);
     consume(v);
   });
+  // `longdouble` kept all four until VERDICTS-87 PR D: `check` passed and clang
+  // rejected the emitted C
+  // (issues/fixed/2026-11-26-bitnot-on-a-longdouble-passes-check-and-emits-invalid-c.md).
+  comptime_expect_error({
+    v := ~longdouble(1.0);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (longdouble(1.0) & longdouble(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (longdouble(1.0) | longdouble(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (longdouble(1.0) ^ longdouble(2.0));
+    consume(v);
+  });
 });
 test("unsigned integer negation is a compile error", {
   comptime_expect_error({
@@ -237,6 +256,74 @@ test("unsigned integer negation is a compile error", {
     v := -usize(1);
     consume(v);
   });
+  // The C-named unsigned types follow
+  // (issues/fixed/2026-11-26-should-bang-on-a-number-be-deleted.md).
+  comptime_expect_error({
+    v := -uint(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -ushort(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -ulong(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -ulonglong(1);
+    consume(v);
+  });
+});
+// `!` is `bool`'s alone: "is zero" is `x == 0`, and Rust's `!` on an integer
+// is `~` (issues/fixed/2026-11-26-should-bang-on-a-number-be-deleted.md).
+test("! on a number is a compile error", {
+  comptime_expect_error({
+    v := !i32(5);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := !u8(0);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := !usize(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := !int(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := !char(0);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := !f64(0.0);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := !longdouble(0.0);
+    consume(v);
+  });
+  n := i32(5);
+  assert(!(n == i32(0)), "the spelling of `!n` is `n == 0`");
+  assert(~n == i32(-6), "Rust's `!n` on an integer is `~n`");
+});
+// The unary dispatchers return the trait's `Output`, as the binary operators
+// do: an impl whose `Output` is not `Self` is usable
+// (issues/fixed/2026-11-26-negate-and-bitnot-output-are-ignored-by-the-unary-dispatchers.md).
+test("Neg and BitNot honour an Output that is not Self", {
+  NegOutV :: struct(x : i32);
+  NegOutW :: struct(y : i32);
+  derive(NegOutV, Copy, Clone);
+  impl(NegOutV, Neg(Output : NegOutW, neg : (fn(self : Self) -> Self.Output)(NegOutW(y : (i32(0) - self.x)))));
+  impl(NegOutV, BitNot(Output : NegOutW, (~) : (fn(self : Self) -> Self.Output)(NegOutW(y : ~self.x))));
+  b := NegOutV(x : i32(3));
+  n := -b;
+  m := ~b;
+  assert(n.y == i32(-3), "-b is Neg.Output");
+  assert(m.y == i32(-4), "~b is BitNot.Output");
 });
 test("Test 'MaybeUninit'", {
   {

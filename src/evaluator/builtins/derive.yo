@@ -58,7 +58,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../error.yo");
 { rust_std_name_hint, E_VARIABLE_NOT_FOUND, E_ARGUMENT_COUNT_MISMATCH } :: import("../../diagnostics.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ check_where_clause_form } :: import("../utils.yo");
+{ check_where_clause_form, trait_constructor_params_of, trait_constructor_spelling } :: import("../utils.yo");
 { extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive-rule.yo");
 { Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
@@ -455,29 +455,28 @@ call_registered_derive_rule :: (
 });
 /// `derive(P, Eq)` names a trait constructor without its arguments: `Eq` is a
 /// function from the right-hand type to a trait, and a derive implements the
-/// trait it returns. E0603 at the user's argument, with `Eq(P)` as the repair
-/// when the constructor takes one parameter (every prelude comparison and
-/// operator trait): a derived impl relates the type to itself.
+/// trait it returns. E0603 at the user's argument, as at a bound
+/// (`bare_trait_constructor_bound_error`), with `Eq(P)` as the repair when the
+/// constructor takes one parameter (every prelude comparison and operator
+/// trait): a derived impl relates the type to itself.
 _check_derive_trait_constructor_applied :: (
   fn(trait_arg_expr : &AstExpr, key : &String, target_type_expr : &AstExpr, env : &Environment, exn : Exception) -> unit
 )({
   if(!ast_expr_is_atom(trait_arg_expr), {
     return(());
   });
-  param_count := match(
+  params := match(
     get_variables_from_env(env, key).last_cloned(),
-    .Some(v) => match(variable_value_type(&v), Rc(.Func({ param_types : pts })) => pts.len(), _ => usize(0)),
-    .None => usize(0)
+    .Some(v) => match(trait_constructor_params_of(&v.value().get(usize(0)), &variable_value_type(&v)), .Some(ps) => ps, .None => return(())),
+    .None => return(())
   );
-  if(param_count == usize(0), {
-    return(());
-  });
   tok := ast_expr_token(trait_arg_expr);
   target := ast_expr_to_string(target_type_expr);
   applied := `${key}(${target})`;
-  msg := `derive: \`${key}\` is a trait constructor taking ${param_count} argument(s) and names no trait on its own; derive the trait it builds, \`${key}(...)\`.`;
+  count := cond((params.len() == usize(1)) => String.from("one type argument"), true => `${params.len()} type arguments`);
+  msg := `derive: \`${key}\` takes ${count}, \`${trait_constructor_spelling(key, &params)}\`, and none was given: a derive names the trait applied, \`${key}(...)\`.`;
   err := cond(
-    (param_count == usize(1)) => format_error_message_with_repair(
+    (params.len() == usize(1)) => format_error_message_with_repair(
       &tok,
       &msg,
       Option(String).Some(`write \`${applied}\`: the derived impl relates \`${target}\` to itself`),

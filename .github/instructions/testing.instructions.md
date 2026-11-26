@@ -26,6 +26,8 @@ Every command here is the self-hosted compiler `yo` (a release bundle on `PATH`,
   harness inputs, one of which MUST fail. std's own tests: `yo test ./std --bail`.
 - Large files are batch-compiled 100 tests per batch (`--test-batch-size N`); a slow file
   (`tests/string/string.test.yo`, ~300 tests) is faster to iterate with `--test-name-pattern`.
+- `scripts/test-name-shard.sh <yo> <file> <i> <n>` prints a `--test-name-pattern` for stripe `i` of `n` of one
+  file's tests (escaped, anchored, checked against `--list`); CI splits `verifier-list-len.test.yo` with it.
 - Tests run under AddressSanitizer by default (leak detection on Linux).
 - **The test binaries are compiled by whichever `yo` runs `yo test`.** Under the installed seed a test
   gets the SEED's codegen, and LeakSanitizer reports leaks the tree already fixed. Judge a leak or a
@@ -480,6 +482,14 @@ Verify `tests/spec` PER PATH: `yo verify ./tests/spec` as one directory exits 1 
 for p in tests/spec/*.test.yo tests/spec/fixtures/valid tests/spec/fixtures/elision; do yo verify ./$p --format json; done
 ```
 
+Every fixture of `tests/spec/fixtures/valid/` must prove the same set of functions under
+`Pragma.Verify` and `Pragma.VerifyOrAssert`. The FV job's harness leg runs the sweep with stage 1; a
+divergence fails unless `tests/spec/verify-both-modes-known.tsv` names its open issue:
+
+```bash
+python3 -I scripts/verify-both-modes.py --bin yo-out/x86_64-unknown-linux-gnu/bin/yo --std-path ./std
+```
+
 ## Decision 43's origins corpus: `tests/origins/` is not run by `yo test`
 
 `tests/origins/corpus/<id>.yo` is decision 43's corpus (`plans/backlog/REFERENCES_AND_ORIGINS.md` §8):
@@ -500,7 +510,8 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
 - `tests/origins/unsound/` (G-B, `plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §6): each program has a
   `// expect: E09xx` or `// expect: accept` header, and a negative's positive twin is `<id>-pos.yo`. Gate:
   `YO=<binary> bash scripts/origins-unsound.sh` inside the nix shell (clang on `PATH`). A negative that
-  passes `check` is compiled under ASan and run; every positive twin must run ASan-clean.
+  passes `check` is compiled under ASan and run; every positive twin must run ASan-clean. `SHARD=i/n` runs
+  one stripe of the byte-sorted program list (CI runs four).
 - G-D, the generator: `YO=<binary> python3 -I scripts/origins-gen.py` renders borrow programs (families
   `slot`, `args`, `valpos`, `join`) plus rustc twins and minimizes each use-after-free or rustc
   disagreement into `tests/origins/gen-findings/`. `YO_GEN_SEED=<n>` replays, `--sig <signature>` runs
@@ -524,6 +535,8 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
 `scripts/cli-diff-test.sh` runs each case in a sandbox and compares rc, stdout and trees; `--record`
 writes goldens. Always read each GOLDEN-DIFF before `--record`, and record with a binary built from the
 SAME tree (one built before a merge silently drops the other side's changes).
+`--shard I/N` scores every N-th case of the sorted list (CI's `cli-cases` job runs three stripes;
+`gates_fast.sh` GATE 7 runs them all locally unless `T1_SKIP_CLI=1`).
 
 - **`yo fmt` a fixture BEFORE recording.** CI's fmt check scans every fixture `.yo`, and the fixture's
   hash is part of `expected_tree`. Order: `yo fmt` the fixture, `--record <case>`, re-score without
@@ -590,6 +603,28 @@ S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
   structural differences.
 - `fixpoint_only.sh` and `chunked_gate.sh` score stage-2 with `scripts/count-transpile-failures.sh` and
   the fixpoint GATES on it (see "Counting untranspiled bodies" below).
+
+## What CI runs where
+
+Plan and measurements: `plans/CI_ONE_HOUR.md`.
+
+- **`test.yml`** (every PR to develop and every develop push; `merge-gate`) is the core battery: one seed
+  build of stage 1 (`stage1`), the stage-2 `suite-candidate` built from it, and everything Linux x86_64.
+  wasm/wasi, the chunked gate, the self-hosted jobs and the ubuntu suite reuse those two binaries instead
+  of rebuilding them.
+- **`native.yml`** (every develop push; `native-gate`) runs the macOS, Windows and Linux arm64 legs. Its
+  cross-emits use the seed-built stage 1, the route release.yml ships. PRs do not run it: a change to a
+  platform runtime (`src/codegen/async/runtime-io-*.yo`, Windows or macOS std paths) dispatches it on
+  its branch with `gh workflow run native.yml --ref <branch>` before merging.
+- A release needs both workflows green on the exact tip (release.yml checks both).
+- **The compiler build cache** (`.github/actions/compiler-cache-key`, `stage1-cached`): stage 1,
+  stage 2 and the cross-emitted C are restored when `src/`, `std/`, `build.yo`, `yo.toml`, `yo.lock`,
+  `vendor/`, the seed, the runner image, clang and the recipe file are all unchanged. A suspected stale
+  entry: set the repository variable `YO_CI_NO_BUILD_CACHE=1` and re-run.
+- Striping knobs the jobs use, all defaulting to the whole set locally: `yo test --shard i/n`,
+  `scripts/test-name-shard.sh`, `SHARD=i/n` for `scripts/origins-unsound.sh` and
+  `scripts/bootstrap/hollow_sweep69.sh`, `cli-diff-test.sh --shard I/N`,
+  `SIDE=single|chunked|compare` for `scripts/bootstrap/chunked_gate.sh`.
 
 ## Choosing a Tier 1 gate: select by what the diff touches
 

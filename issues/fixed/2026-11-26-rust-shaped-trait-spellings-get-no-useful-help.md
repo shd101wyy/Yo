@@ -119,7 +119,7 @@ help: run `yo explain E0610` for more information
 yo: error: check: 1 file(s) failed evaluator coverage
 ```
 
-Rust's `!` on an integer is `~` in Yo (`BitNot`); `!` yields `bool` (`LogicalNot`) and is defined only on `bool`-like operands. The error should name `~`. (If `issues/questions/2026-11-26-should-bang-on-a-number-be-deleted.md` is accepted, `!` at any numeric slot lands here.)
+Rust's `!` on an integer is `~` in Yo (`BitNot`); `!` yields `bool` (`LogicalNot`) and is defined only on `bool`-like operands. The error should name `~`. (If `issues/fixed/2026-11-26-should-bang-on-a-number-be-deleted.md` is accepted, `!` at any numeric slot lands here.)
 
 ## 5. Unary `-` on a moved value: E0610 instead of E0901
 
@@ -163,7 +163,7 @@ Cli-case goldens (`tests/cli-cases/`, one per spelling, recorded with `scripts/c
 
 ## Fixed (2026-11-26, VERDICTS-87 PR C), item 3 split out
 
-Item 3 (`where(T <: Ord)`) belongs to the bound sites that lane v81-v84-pr2 owns; it is split into `issues/2026-11-26-a-bare-trait-constructor-in-a-where-bound-is-uncoded.md`, which that lane fixes. The other four are fixed here, each pinned by a cli-case that fails on develop:
+Item 3 (`where(T <: Ord)`) belongs to the bound sites that lane v81-v84-pr2 owns; it is split into `issues/fixed/2026-11-26-a-bare-trait-constructor-in-a-where-bound-is-uncoded.md`, which that lane fixes. The other four are fixed here, each pinned by a cli-case that fails on develop:
 
 1. `derive(P, PartialEq, …)`: a derive trait with no rule whose name is bound nowhere is E0401 at the derive argument, with the Rust-name table's help (`src/evaluator/builtins/derive.yo`, `process_trait_arg`). A bound trait without a rule keeps the derive_rule() advice. Case `a-rust-derive-trait-name-is-e0401-with-its-yo-name`.
 2. `derive(P, Eq, …)`: a derive argument that is a bare trait constructor is E0603 at the user's argument, "`Eq` is a trait constructor taking 1 argument(s) and names no trait on its own", with the repair `Eq(P)` (`_check_derive_trait_constructor_applied`). The error no longer points into the prelude. Case `a-bare-comparison-trait-in-a-derive-is-e0603-naming-its-argument`.
