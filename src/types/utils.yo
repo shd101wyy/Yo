@@ -53,6 +53,7 @@ pragma(Pragma.AllowUnsafe);
   is_integer_type,
   is_float_type,
   is_comptime_int_type,
+  is_comptime_string_type,
   is_comptime_float_type,
   is_some_type,
   is_rc_type,
@@ -5090,6 +5091,19 @@ _decl_id_of :: (fn(t : &TypeValue) -> String)(
     _ => String.new()
   )
 );
+/// The help for a double-quoted literal given where a `String` is expected
+/// (`m.get("a")` on a `HashMap(String, V)`, `Path.new("/tmp")`,
+/// `Command.new("ls")`): a `"..."` literal is a `str`, not a `String`, so the
+/// argument is the backtick literal, an owned `String` built from the same text.
+/// `.None` for every other pair.
+string_literal_slot_help :: (fn(expected : &TypeValue, given : &TypeValue) -> Option(String))(
+  cond(
+    (is_comptime_string_type(given) && (type_to_string(expected) == "String")) => .Some(
+      String.from("a \"...\" literal is a `str`; this parameter takes a `String`: write the text as a backtick literal (`` `...` ``) or `String.from(\"...\")`")
+    ),
+    true => .None
+  )
+);
 /// The note a type mismatch appends when the two types PRINT the same but are
 /// different declarations — two modules' `P`, say: `Expected: "P"`, `Given:
 /// "P"` alone reads as a compiler bug (plans/reference/TYPE_IDENTITY.md).
@@ -5180,7 +5194,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, is_dyn_fn_slot, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, is_dyn_fn_slot, same_name_note, string_literal_slot_help, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such

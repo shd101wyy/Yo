@@ -202,7 +202,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, &nm)
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help, _with_primary_subject } :: import("../../error.yo");
-{ E_EXPLICIT_DESTRUCTOR_CALL, E_WRITE_THROUGH_BORROW, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_ORIGIN_MISMATCH, Repair, Span } :: import("../../diagnostics.yo");
+{ E_EXPLICIT_DESTRUCTOR_CALL, E_WRITE_THROUGH_BORROW, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, float_method_import_hint, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_ORIGIN_MISMATCH, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -9880,9 +9880,9 @@ _d6_callee_is_by_name :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> bool)(
 });
 /// `No method "m" on T.` for a dot callee `recv.m` whose receiver type has
 /// neither a field nor a method `m`.
-_no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
+_no_method_receiver_type :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)(
   // D6: read where bound — the list never escapes as a copy.
-  recv_ty_str := match(
+  match(
     match(
       func_expr,
       Rc(.FnCall(_, _, Rc(a), _, _)) => a.get_cloned(usize(0)),
@@ -9894,7 +9894,15 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
       .None => ast_expr_to_string(&recv)
     ),
     .None => String.from("?")
-  );
+  )
+);
+/// The help line of a method miss (`_no_method_message`): the Rust-name hints
+/// of plans/backlog/STD_RUST_ALIGNMENT.md §3.6 that apply to the receiver.
+_no_method_help :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> Option(String))(
+  float_method_import_hint(&_no_method_receiver_type(func_expr, ctx))
+);
+_no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
+  recv_ty_str := _no_method_receiver_type(func_expr, ctx);
   method_name := match(
     func_expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.from("?")),
@@ -16581,7 +16589,7 @@ Fix: wrap the call:
                   cond(
                     ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).None) => _generated_no_method_independence(
                       &with_code(
-                        format_error_message(ast_expr_token(&func_expr), _no_method_message(&func_expr, ctx)),
+                        format_error_message_with_help(ast_expr_token(&func_expr), &_no_method_message(&func_expr, ctx), &_no_method_help(&func_expr, ctx)),
                         E_NO_MATCHING_CALL
                       ),
                       &func_expr,
