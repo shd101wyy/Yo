@@ -69,9 +69,11 @@ which the inline `FuncVal` arm stamps with the specialized function (`_lend_thro
 then `&X`, it occupies the holder's static position, and `r` is judged as the store `slot.* = .Some(r)` would be:
 
 ```text
-error[E0923]: Cannot keep this value in `slot`: its type is declared over the empty origin `static` (`Option(&X)`), which holds only values that borrow no place, and the value holds `x` (decision 49; plans/backlog/REFERENCES_AND_ORIGINS.md O3).
+error[E0923]: Cannot keep this value in `slot`: its type is declared over the empty origin `static` (`Option(&X)`), which holds only values that borrow no place, and the value holds `r` (decision 49; plans/backlog/REFERENCES_AND_ORIGINS.md O3).
 ```
 
 Tests: `tests/origins/unsound/static-generic-fn-store.yo` (through a caller's holder),
 `static-generic-fn-store-block.yo` (a local holder, a block local), and the positive control
-`static-generic-fn-store-pos.yo` (a reference declared over `static` is stored and read back).
+`static-generic-fn-store-pos.yo` (a reference declared over `static` is stored and read back). The positive
+control first met a pre-existing false positive, filed and fixed alongside:
+`issues/fixed/2026-11-27-a-static-reference-parameter-passed-on-to-a-static-holders-method-is-e0923.md`.

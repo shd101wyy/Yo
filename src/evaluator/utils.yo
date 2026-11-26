@@ -12851,6 +12851,14 @@ _static_offending_root_of :: (fn(e : &AstExpr, skip : &String, env : &Environmen
 /// static place (rule 3: a literal, a read of a `static`-typed place, `&G`
 /// of an immutable module-level binding).
 _static_value_offense :: (fn(value : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(String))({
+  // A parameter whose declared slot spells `static` (rule 3) is read as a
+  // static value, whatever origin its read at an argument position is typed
+  // with: `slot.replace(g)` for `g : &(X, static)` stores what the caller was
+  // checked to pass
+  // (issues/fixed/2026-11-27-a-static-reference-parameter-passed-on-to-a-static-holders-method-is-e0923.md).
+  if(ast_expr_is_atom(value) && match(get_variables_from_env(env, ast_expr_token(value).value.*.clone()).last_cloned(), .Some(sp_v) => (sp_v.is_parameter() && _static_slot_param(&sp_v, env, ctx)), .None => false), {
+    return(Option(String).None);
+  });
   pv := byvalue_param_origin_names(value, env, ctx);
   if(pv.len() > usize(0), {
     return(Option(String).Some(pv(0).clone()));
