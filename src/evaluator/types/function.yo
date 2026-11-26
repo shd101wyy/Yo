@@ -2188,12 +2188,13 @@ _bound_insertion_repair :: (fn(sig : &SignatureSource, bound : &String) -> Optio
 });
 /// E0624 at a type binder whose kind slot holds a bound: `generic(T : Tr)`,
 /// `comptime(T) : Tr`, `generic(T : (A, B))`, `generic(T <: Tr)`. `op` is the
-/// `:` or `<:` before `rhs`. The repair takes two passes of `yo fix`, one edit
+/// `:` or `<:` before `rhs`; `label` is the bound's left side and `binder`
+/// the name the kind belongs to (`Self.Item` and `Item` in a trait). The repair takes two passes of `yo fix`, one edit
 /// each (a repair edits one line): the first writes the bound into the
 /// signature's `where(...)`; the second, the bound now there, gives the binder
 /// the kind `Type`. `.None` repair when the source does not read back.
 throw_bound_in_kind_slot :: (
-  fn(msg : &String, anchor : &Token, op : &Token, label : &String, rhs : &AstExpr, sig : &SignatureSource, exn : Exception) -> unit
+  fn(msg : &String, anchor : &Token, op : &Token, label : &String, binder : &String, rhs : &AstExpr, sig : &SignatureSource, exn : Exception) -> unit
 )({
   operand := source_operand_after(op);
   bound_text := match(&operand, .Some(t) => t.0.clone(), .None => ast_expr_to_string(rhs));
@@ -2203,7 +2204,7 @@ throw_bound_in_kind_slot :: (
       &operand,
       .Some(t) => match(
         source_span_from_anchor(op, usize(op.byte_offset), t.2),
-        .Some(sp) => Option(Tuple(Span, String, String)).Some((sp, String.from(": Type"), `give \`${label}\` the kind \`Type\``)),
+        .Some(sp) => Option(Tuple(Span, String, String)).Some((sp, String.from(": Type"), `give \`${binder}\` the kind \`Type\``)),
         .None => Option(Tuple(Span, String, String)).None
       ),
       .None => Option(Tuple(Span, String, String)).None
@@ -2263,6 +2264,7 @@ _reject_trait_tuple_kind :: (
     &`\`${text}\` is a tuple of traits, not a kind. Write \`${_kind_binder_spelling(&l, in_generic)}\` and the bound \`where(${l} <: ${text})\`.`,
     &ast_expr_first_token(te),
     &op,
+    &l,
     &l,
     te,
     sig,
@@ -2641,6 +2643,7 @@ evaluate_function_parameter :: (
         &b_op,
         &b_op,
         &b_label,
+        &b_label,
         &b_rhs,
         sig,
         exn
@@ -2974,6 +2977,7 @@ evaluate_function_parameter :: (
           &`\`${bt_text}\` is a trait, not a kind. Write \`${_kind_binder_spelling(&bt_label, in_generic)}\` and the bound \`where(${bt_label} <: ${bt_text})\`.`,
           &ast_expr_first_token(&bt_te),
           ct,
+          &bt_label,
           &bt_label,
           &bt_te,
           sig,
