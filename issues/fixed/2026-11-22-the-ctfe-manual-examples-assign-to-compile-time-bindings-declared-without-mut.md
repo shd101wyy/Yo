@@ -50,3 +50,7 @@ languages.
 
 Give each of the four examples a `comptime_assert` and a `main` so the
 `examples` check of `scripts/check-docs.py` compiles them.
+
+## Fixed (2026-11-26)
+
+The four examples declare the bindings they assign `mut(...)` (`result` and `i` in `factorial`, `sum_squares` and `sum_odd`; `i` and `result` in `is_prime`), in both languages. Each of the four blocks now ends with a `comptime_assert` of its result and a `main`, so `scripts/check-docs.py` compiles and checks it.
