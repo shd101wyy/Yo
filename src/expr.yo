@@ -433,7 +433,7 @@ BK_BREAK :: "break";
 BK_TEST :: "test";
 BK_EXTERN :: "extern"; // `extern` declaration form
 BK_C_INCLUDE :: "c_include"; // `c_include` form
-BK_SUBTYPE_OF :: "<:"; // `T <: Trait` constraint operator
+BK_IMPLEMENTS :: "<:"; // the bound operator: `T <: Trait`, read "T implements Trait"
 BK_WHERE :: "where"; // `where(T <: Trait)` clause
 BK_FN :: "fn";
 BK_UNSAFE_FN :: "unsafe_fn";
@@ -756,6 +756,19 @@ ast_expr_token :: (fn(e : &AstExpr) -> Token)(
     Rc(.FnCall(_, _, _, _, tok)) => Rc.clone(tok.*)
   )
 );
+/// The first token of `e` in source order: an infix call starts at its left
+/// operand, every other call at its callee. The AST keeps no parentheses, so
+/// a parenthesized operand starts after its `(`.
+ast_expr_first_token :: (fn(e : &AstExpr) -> Token)(
+  match(
+    e,
+    Rc(.Atom(_, t)) => Rc.clone(t.*),
+    Rc(.FnCall(_, callee, Rc(args), is_infix, _)) => cond(
+      (is_infix.* && (args.len() > usize(0))) => recur(&args(usize(0))),
+      true => recur(callee)
+    )
+  )
+);
 /// The representative token's text cell: `ast_expr_token(e).value`
 /// centralised (VBD B4 D16). A `-> &String` projection through a `ref`-enum
 /// payload is not expressible today — decision 24's single-root rule rejects
@@ -945,8 +958,8 @@ export(BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
 export(BF_SIZE_OF, BF_ALIGN_OF, BF_SIZE_OF_VAL, BF_ALIGN_OF_VAL, BF_UNSIZE, BF_SLICE_LEN, BF_SLICE_PTR, BF_SLICE_FROM_RAW_PARTS, BF_TYPE_OF, BF_TYPE_ID, BF_ADDR_OF, BK_MUT, BK_IMM, BK_BORROW_MUT);
 export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH, BK_THREAD_LOCAL);
 export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
-export(BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_WHERE);
-export(make_err_expr, ast_expr_token, ast_expr_text, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string);
+export(BK_EXTERN, BK_C_INCLUDE, BK_IMPLEMENTS, BK_WHERE);
+export(make_err_expr, ast_expr_token, ast_expr_first_token, ast_expr_text, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string);
 // ---------------------------------------------------------------------------
 // Atom / FnCall predicate helpers
 // ---------------------------------------------------------------------------

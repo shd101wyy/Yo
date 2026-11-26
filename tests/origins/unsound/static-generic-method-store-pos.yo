@@ -1,0 +1,24 @@
+// expect: accept
+// The positive control of static-generic-method-store: the container's method
+// handed `&G` of an immutable module-level binding, a static value
+// (VERDICTS-74 rule 3), read after the store.
+{ println } :: import("std/fmt");
+X :: struct(n : i32);
+Box1 :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : Option(T))
+);
+impl(
+  generic(T : Type),
+  Box1(T),
+  put : (fn(self : &mut Self, v : T) -> unit)({
+    self.v = .Some(v);
+  })
+);
+G := X(n : i32(7));
+main :: (fn() -> unit)({
+  mut(b) := Box1(&(X, static))(v : .None);
+  b.put(&G);
+  match(b.v, .Some(r) => println(`OUT: ${r.*.n.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

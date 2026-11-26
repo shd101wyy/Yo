@@ -194,7 +194,7 @@ The core rule (`return(expr)` in a handler resumes, `unwind(expr)` discards the 
 
 - Effect handlers are **explicit parameters**: a function that uses an effect names it in its signature (`safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)`), and callers pass the handler by name (`safe_divide(i32(10), i32(0), raise)`).
 - Install a handler with a local binding: `(raise : Raise) = ((msg) -> { unwind(i32(-1)); });` (a lambda on the RHS of `=` needs outer parens).
-- A handler that may `unwind` has type `ctl(args) -> R`; one that always resumes can be `fn(args) -> R`. Subtyping is one-way: `fn(T) -> R <: ctl(T) -> R`. `unwind` is valid only inside a `ctl` body and exits the install frame (the function that bound the handler).
+- A handler that may `unwind` has type `ctl(args) -> R`; one that always resumes can be `fn(args) -> R`. A `fn(T) -> R` is accepted where a `ctl(T) -> R` is expected, not the reverse. `unwind` is valid only inside a `ctl` body and exits the install frame (the function that bound the handler).
 - For effect-bundle polymorphism, quantify over a struct: `generic(E : Type.Struct)`, and pass `E` as the Future's single effect argument.
 - Handlers use evidence passing (function-pointer parameters).
 - **Handler functions are standalone, not closures**: compiled as standalone C functions, they cannot reference variables of the enclosing scope. Pass state as explicit arguments.
@@ -341,7 +341,7 @@ When a type implements several traits with a same-named method, `where(T <: T1)`
 
 ## Operator traits use associated type Output
 
-All operator traits (Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor, BitLeftShift, BitRightShift, Exponentiation, Negate, BitNot) declare `Output` as an **associated type**, not a parameter, as `Index` does. Binary traits take `Rhs` as a type parameter. Operands are BY VALUE, as in Rust's `Add::add(self, rhs)`; only `Eq`, `Ord`, `ComptimeEq` and `ComptimeOrd` borrow (`lhs : &Self, rhs : &Rhs`). An impl writes exactly the trait's modes and provides `Output` explicitly. Unary traits (Negate, BitNot) are parameterless; comptime variants add `where(Self <: Comptime, Self.Output <: Comptime)`.
+All operator traits (Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr, Exponentiation, Neg, BitNot) declare `Output` as an **associated type**, not a parameter, as `Index` does. Binary traits take `Rhs` as a type parameter. Operands are BY VALUE, as in Rust's `Add::add(self, rhs)`; only `Eq`, `Ord`, `ComptimeEq` and `ComptimeOrd` borrow (`lhs : &Self, rhs : &Rhs`). An impl writes exactly the trait's modes and provides `Output` explicitly. Unary traits (Neg, BitNot) are parameterless; comptime variants add `where(Self <: Comptime, Self.Output <: Comptime)`.
 
 ```yo
 Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
@@ -482,7 +482,7 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
 | `char` | `rune` | `char` is C's 8-bit type and FFI needs it |
 | `Path` + `PathBuf` | one owned `Path` | no unsized path view |
 | `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` | floats carry a total `cmp`; no split. Code that needs a total order calls `cmp`; the operators are partial on floats |
-| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot`/`BitNot` | Yo's own names; `!` is `LogicalNot` (yields `bool`), `~` is `BitNot` |
+| `Not` | `LogicalNot`/`BitNot` | two operators where Rust has one; `!` is `LogicalNot`, on `bool` only (`x == 0` tests a number), `~` is `BitNot` |
 | `collect::<T>()`, `parse::<T>()`, `into()` | `collect(T)`, `parse(T)`, `into(T)` | the type is an argument: Yo does not infer from the result type |
 | `lock()`, `borrow()`/`borrow_mut()`, `Cell` | `with_lock(v => ..)`, `with_read`/`with_write`, `with`/`with_mut` | closure-scoped access; a guard cannot have `g.*` outside the prelude (E0622); no poisoning |
 | `io::Result<T>`, blocking calls, `thread::spawn`, `JoinHandle<T>` | `exn : Exception`, `io : Io`, `-> Impl(Future(T, IoExn))`, `Thread(T).spawn((io : Io) => ..)`, `join() -> T` | effects and the `Io` interface |
