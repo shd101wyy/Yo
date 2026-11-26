@@ -13,6 +13,10 @@
 # Usage (from the repository root, the C compiler on PATH — inside the nix
 # shell for a tree binary):
 #   YO=<yo binary> bash scripts/origins-unsound.sh
+#   SHARD=<i>/<n> YO=<yo binary> bash scripts/origins-unsound.sh   # CI: one stripe
+# SHARD keeps the programs whose index in the byte-sorted list is i modulo n, so
+# n runs with i = 0..n-1 cover every program exactly once (test.yml's
+# origins-corpus job runs the stripes on separate runners).
 # Each check is one `yo check` of a small program; the ASan leg runs only for
 # a program that passes its `yo check` (a missing rejection) and for the
 # positive controls.
@@ -23,6 +27,18 @@ YO=${YO:-yo}
 ROOT=$PWD
 DIR=tests/origins/unsound
 [ -d "$DIR" ] && [ -d std ] || { echo "run from the repository root" >&2; exit 2; }
+
+shard_i=0
+shard_n=1
+if [ -n "${SHARD:-}" ]; then
+  if ! [[ "$SHARD" =~ ^([0-9]+)/([0-9]+)$ ]] || [ "${BASH_REMATCH[2]}" -lt 1 ] ||
+    [ "${BASH_REMATCH[1]}" -ge "${BASH_REMATCH[2]}" ]; then
+    echo "SHARD must be <index>/<count> with index < count, got '$SHARD'" >&2
+    exit 2
+  fi
+  shard_i=${BASH_REMATCH[1]}
+  shard_n=${BASH_REMATCH[2]}
+fi
 
 fail=0
 pass=0
@@ -47,7 +63,16 @@ asan_run() { # <program> <log>
   echo "RUN-OK"
 }
 
-for prog in "$DIR"/*.yo; do
+programs=()
+idx=0
+while IFS= read -r prog; do
+  if [ $((idx % shard_n)) -eq "$shard_i" ]; then programs+=("$prog"); fi
+  idx=$((idx + 1))
+done < <(printf '%s\n' "$DIR"/*.yo | LC_ALL=C sort)
+[ ${#programs[@]} -gt 0 ] || { echo "origins unsound (G-B): no program selected (SHARD=${SHARD:-})" >&2; exit 1; }
+[ "$shard_n" -eq 1 ] || echo "origins unsound (G-B): shard $shard_i/$shard_n, ${#programs[@]} of $idx programs"
+
+for prog in "${programs[@]}"; do
   id=$(basename "$prog" .yo)
   expect=$(sed -n 's/^\/\/ expect: //p' "$prog" | head -1)
   [ -n "$expect" ] || { problem "$id: no '// expect:' header"; continue; }

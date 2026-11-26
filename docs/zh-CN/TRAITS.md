@@ -62,6 +62,8 @@ notify2 :: (fn(generic(T : Type), item : &mut T, where(T <: Display)) -> unit)({
 });
 ```
 
+约束写作 `T <: Trait`，读作“`T` 实现了 `Trait`”；同一类型上的多个约束写成元组 `T <: (Clone, Hash)`。所有 `where(...)` 都使用同一写法：函数、类型构造器、trait、impl 和 derive 的 `where`。`where(T : Trait)` 是错误 E0624，在子句定义处报告（`:` 给名字指定类型或种类），`yo fix` 会把它改写为 `<:`。
+
 ### 静态 trait 方法
 
 没有 `self` 参数的 trait 方法就是静态方法。可以在实现了该 trait 的类型上调用（`Point.make(...)`），也可以在受该 trait 约束的类型参数上调用（`T.make(...)`）。构造器风格的 trait 就是这样写的，`FromJson` 的 `from_json(v)` 即是一例。
