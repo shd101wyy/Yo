@@ -1797,7 +1797,8 @@ _lend_binding :: (fn(bind : &AstExpr, is_mut : bool, name_atom : &AstExpr, place
   mode_args := ArrayList(AstExpr).new();
   mode_args.push(Rc.clone(name_atom.*));
   mode_head := _lend_atom(&String.from(cond(is_mut => BK_MUT, true => BK_IMM)), TokenKind.Identifier, &ntok);
-  mode_call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), mode_head, Rc.new(mode_args), false, ast_expr_token(&mode_head)));
+  mode_tok := ast_expr_token(&mode_head);
+  mode_call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), mode_head, Rc.new(mode_args), false, mode_tok));
   args := ArrayList(AstExpr).new();
   args.push(mode_call);
   args.push(Rc.clone(place.*));
@@ -1821,7 +1822,8 @@ _lend_field :: (fn(recv : &AstExpr, label : &String, at : &Token) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(Rc.clone(recv.*));
   args.push(_lend_atom(label, cond(digits => TokenKind.Integer, true => TokenKind.Identifier), at));
-  Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), dot, Rc.new(args), true, ast_expr_token(&dot)))
+  dot_tok := ast_expr_token(&dot);
+  Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), dot, Rc.new(args), true, dot_tok))
 });
 /// A lending destructuring (VERDICTS-76 Q2): `{ a, b : c } := &x` is
 /// `a := &x.a; c := &x.b` — each name a local borrow of its field, read with
@@ -1862,7 +1864,7 @@ _evaluate_lending_destructuring :: (fn(expr : &AstExpr, lhs : &AstExpr, rhs : &A
     );
   });
   dr := destructure_type(lhs, rhs, &src_ty, &Option(EvalValue).None, env, false, false, true, ctx, exn);
-  rds := match(dr.runtime_destructurings, .Some(r) => r, .None => ArrayList(RuntimeDestructuring).new());
+  rds := match(&dr.runtime_destructurings, .Some(r) => r.clone(), .None => ArrayList(RuntimeDestructuring).new());
   (i : usize) = usize(0);
   while(i < rds.len(), i = (i + usize(1)), {
     rd := match(rds.get_cloned(i), .Some(r) => r, .None => return(Rc.clone(expr.*)));
