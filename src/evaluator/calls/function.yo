@@ -5931,6 +5931,20 @@ _value_loan_entries_into :: (fn(value : &AstExpr, env : &Environment, ctx : &Eva
   if(depth > u32(8), {
     return(());
   });
+  // `f(x).*` over a handle referent (`w.head().*` on a `&Rc(W)`) keeps the
+  // payload reading and is not recorded as the call
+  // (`note_projection_call_deref`), but the payload is still reached through
+  // the call's result: the value holds the call's loans, as the bare call
+  // `w.head()` does when deref forwarding synthesizes the step
+  // (`w.head().peek(...)`), so spelling the step keeps the verdict.
+  match(
+    _projection_call_under_stars(value, ctx),
+    .Some(pc) => {
+      recur(&pc, env, ctx, out, (depth + u32(1)));
+      return(());
+    },
+    .None => ()
+  );
   if(projection_call_mode_of(value, ctx).is_some(), {
     roots := projection_call_root_args(value, ctx);
     (ri : usize) = usize(0);
@@ -5972,6 +5986,37 @@ _value_loan_entries_into :: (fn(value : &AstExpr, env : &Environment, ctx : &Eva
       out.push(held(hi).clone());
     });
   });
+});
+/// The projection call `f(x)` under the written `.*` steps of `e`
+/// (`f(x).*`, `f(x).*.*`), when `e` is at least one such step over one.
+_projection_call_under_stars :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
+  (cur : AstExpr) = e.clone();
+  (stars : usize) = usize(0);
+  (more : bool) = true;
+  while(more, {
+    next := match(
+      &cur,
+      Rc(.FnCall(_, _, Rc(ps_args), _, _)) => cond(
+        (ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) && match(ps_args.get_cloned(usize(1)), .Some(ps_l) => ast_expr_is_atom_of(&ps_l, "*"), .None => false)) => ps_args.get_cloned(usize(0)),
+        true => Option(AstExpr).None
+      ),
+      Rc(.Atom(_, _)) => Option(AstExpr).None
+    );
+    match(
+      next,
+      .Some(o) => {
+        cur = o;
+        stars = (stars + usize(1));
+      },
+      .None => {
+        more = false;
+      }
+    );
+  });
+  cond(
+    ((stars > usize(0)) && projection_call_mode_of(&cur, ctx).is_some()) => Option(AstExpr).Some(cur),
+    true => Option(AstExpr).None
+  )
 });
 /// `target` names a place overlapping `lp`, an entry of an argument value's
 /// origin: the same root binding (the one the evaluator recorded on the
