@@ -34,7 +34,8 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("./array-list");
 /// MAX-heap backed by an ArrayList (D11 — Rust's `BinaryHeap`).
-/// `peek`/`pop` yield the LARGEST element. For a min-heap, use
+/// `peek`/`pop` yield the LARGEST element under `cmp`, `Ord`'s total order
+/// (a float NaN is larger than every number). For a min-heap, use
 /// `PriorityQueue(Reverse(T))` rather than negating keys — negation is wrong
 /// for unsigned types and for the minimum of a signed type.
 PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -86,7 +87,7 @@ impl(
     while(i > usize(0), {
       parent := ((i - usize(1)) / usize(2));
       cond(
-        (self._data(i) > self._data(parent)) => {
+        match(T.cmp(&self._data(i), &self._data(parent)), .Greater => true, _ => false) => {
           self._data.swap(i, parent);
           i = parent;
         },
@@ -119,13 +120,13 @@ impl(
           mut(largest) := i;
           new_n := self._data.len();
           cond(
-            ((left < new_n) && (self._data(left) > self._data(largest))) => {
+            ((left < new_n) && match(T.cmp(&self._data(left), &self._data(largest)), .Greater => true, _ => false)) => {
               largest = left;
             },
             true => ()
           );
           cond(
-            ((right < new_n) && (self._data(right) > self._data(largest))) => {
+            ((right < new_n) && match(T.cmp(&self._data(right), &self._data(largest)), .Greater => true, _ => false)) => {
               largest = right;
             },
             true => ()

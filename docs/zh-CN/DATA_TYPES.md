@@ -693,7 +693,7 @@ cond(
 | `VecDeque`、`BinaryHeap` | `Deque`、`PriorityQueue` | 使用抽象类型的名字，而不是某一种实现的名字。 |
 | `char` | `rune` | `char` 是 C 的 8 位类型，FFI 需要它。 |
 | `Path`、`PathBuf` | 一个拥有所有权的 `Path` | 没有无大小的路径视图。 |
-| `PartialEq`/`Eq`、`PartialOrd`/`Ord` | `Eq(T)`、`Ord(T)` | 浮点数带有全序的 `cmp`，因此不做拆分。 |
+| `PartialEq`/`Eq`、`PartialOrd`/`Ord` | `Eq(T)`、`Ord(T)` | 浮点数带有全序的 `cmp`，因此不做拆分。需要全序的代码调用 `cmp`；比较运算符是类型自身的运算，在浮点数上是偏序。 |
 | `Neg`、`Rem`、`Shl`、`Shr`、`Not` | `Negate`、`Mod`、`BitLeftShift`、`BitRightShift`、`LogicalNot` / `BitNot` | Yo 自己的名称。`Not` 对应两个运算符：`!` 是 `LogicalNot`，结果为 `bool`；`~` 是 `BitNot`。 |
 | `collect::<Vec<_>>()`、`parse::<i32>()`、`into()` | `it.collect(ArrayList(i32))`、`s.parse(i32)`、`x.into(i64)` | 类型是一个参数：Yo 不会根据结果类型推断。 |
 | `lock()`、`borrow()` / `borrow_mut()`、`Cell` | `m.with_lock(v => ..)`，`RefCell` 的 `c.with(v => ..)` / `c.with_mut(v => ..)` | 访问限定在闭包内；没有守卫，也没有锁中毒。 |
