@@ -46,7 +46,7 @@ Raw :: struct(p : ?*u8);
 
 ### 手动 Send 与 Sync 实现需要 Pragma
 
-编写 `impl(MyType, Send())` 或 `impl(MyType, Sync())` 需要 `pragma(Pragma.AllowUnsafe)` 和解释该类型为何可以安全地跨线程移动或共享的 `// SAFETY:` 注释。持有裸指针的类型就是这样选择加入的（std 的 `Channel`、`Waker`），这也让每个这样的声明都可审计。
+编写 `impl(MyType, Send())` 或 `impl(MyType, Sync())` 需要 `pragma(Pragma.AllowUnsafe)` 和解释该类型为何可以安全地跨线程移动或共享的 `// SAFETY:` 注释。持有裸指针的类型就是这样选择加入的（std 的 `Channel`、`Waker`），这也让每个这样的声明都可审计。该规则覆盖所有 impl 形式：泛型 impl（`impl(generic(T : Type), Holder(T), Send())`）以及通过 trait 的另一个名字写出的 impl（`S :: Send; impl(MyType, S())`）同样需要该 pragma。
 
 ## 原子对象 vs 普通单元
 

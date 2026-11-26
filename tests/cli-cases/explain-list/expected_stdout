@@ -66,7 +66,7 @@ E0619  an unsized type is used by value
 E0621  a dereference (`.*`) is written on a value
 E0620  an unsizing is applied to a value, not a pointer
 E0622  a Deref impl outside the prelude has a sized Target
-E0623  a member of the place `.*` names, read with `.` alone
+E0624  a trait bound is written with `:` instead of `<:`
 E1301  internal compiler error
 E1501  a dependency could not be fetched
 E1502  no yo.toml at or above the working directory
@@ -80,7 +80,7 @@ E0610 — no matching call
 
 No candidate accepts this call: the receiver has no such method, or no overload fits the arguments.
 
-The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Deref` type (`Box`, `Rc`, `Arc`) `.` reaches the handle's own methods only: a method its payload has is E0623, written `b.*.m()`; when the payload lacks it too, this message says so and names the payload.
+The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Rc` or `Arc` (a `Deref` type) a method the wrapper lacks is looked up on its payload (auto-dereference, `b.m()` is `b.*.m()`); when the payload lacks it too, the message says so and names the payload. The float math methods (`sqrt`, `sin`, `powf`, ...) on an `f32` or `f64` exist only after `import("std/math");`, and the help says so.
 
 Example — this fails:
   Point :: struct(x : i32);

@@ -34,7 +34,7 @@
 :: import("../../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env-lookup.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_message_with_repair_at, with_code } :: import("../../error.yo");
-{ suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
+{ suggest_name, lookup_std_exporters, rust_std_name_hint, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
 { use_of_moved_value_error, moved_value_type, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type, note_reference_read } :: import("../utils.yo");
@@ -366,6 +366,20 @@ evaluate_identifier_and_operator :: (
             // Rename OR import: two candidates, neither unique.
             not_found_repair = Option(String).None;
           });
+        });
+        // A Rust std name Yo spells differently (`Vec`, `VecDeque`, `PartialEq`, ...,
+        // plans/backlog/STD_RUST_ALIGNMENT.md §3.6): the Yo name and its import
+        // replace the nearest-name guess (`Vec` is not "did you mean `Rc`"). Two
+        // edits are not one mechanical repair, so `yo fix` offers none.
+        if(std_exporters.len() == usize(0), {
+          match(
+            rust_std_name_hint(&identifier_string),
+            .Some(rust_help) => {
+              not_found_help = Option(String).Some(rust_help);
+              not_found_repair = Option(String).None;
+            },
+            .None => ()
+          );
         });
         // The prelude's `rc`/`box`/`arc`, deleted by static-argument inference
         // B3 (plans/archive/STATIC_ARGUMENT_INFERENCE.md §5): the handle's

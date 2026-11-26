@@ -8403,3 +8403,41 @@ test("Test an await inside a later template part", {
   s := `a${io.await(_d10_after(i32(1), io), io)}b${io.await(_d10_after(i32(2), io), io)}c`;
   assert(s == `a1b2c`, "both awaits resolve, in order");
 });
+// ---------------------------------------------------------------------------
+// A closure returning a future behind `Box(Dyn(Fn(...) -> Impl(Future(T, E))))`:
+// the closure takes on the `Dyn`'s payload wrapper resolved to its capture
+// struct, so the vtable's call slot calls it and upcasts the concrete future
+// to the slot's interface pointer. It returned NULL, and the await read
+// `->state` at address 8
+// (issues/fixed/2026-11-25-a-closure-returning-a-future-behind-a-box-dyn-fn-is-called-through-a-zeroed-stub.md).
+// ---------------------------------------------------------------------------
+_dfr_later :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ n }(io : Io) => {
+    io.await(yield(io), io);
+    (n + i32(1))
+  })
+);
+test("a closure returning a future behind a Box(Dyn(Fn)) is called and awaited", {
+  (mk : Box(Dyn(Fn(io : Io) -> Impl(Future(i32, Io))))) = dyn(Box.new((io : Io) => io.async((io : Io) => i32(1))));
+  assert(io.await(mk(io), io) == i32(1), "a sync future through the slot");
+  (mk2 : Box(Dyn(Fn(io : Io) -> Impl(Future(i32, Io))))) = dyn(Box.new((io : Io) => _dfr_later(i32(41), io)));
+  assert(io.await(mk2(io), io) == i32(42), "a state machine through the slot");
+  k := i32(6);
+  (mk3 : Box(Dyn(Fn(io : Io) -> Impl(Future(i32, Io))))) = dyn(Box.new({ k }(io : Io) => _dfr_later(k, io)));
+  assert(io.await(mk3(io), io) == i32(7), "a capturing closure");
+  assert(io.await(mk3(io), io) == i32(7), "called twice");
+});
+// A typed `Impl(Fn(...) -> Impl(Future(...)))` local holding a closure: the
+// local is the closure's capture struct, and the call goes through the
+// closure's function. It was declared `void*` and called through a function
+// pointer cast
+// (issues/fixed/an-impl-fn-local-returning-a-future-is-declared-as-a-void-pointer.md).
+test("an Impl(Fn) local whose result is a future holds its closure", {
+  (mk : Impl(Fn(k : i32, io : Io) -> Impl(Future(i32, Io)))) = (
+    (k : i32, io : Io) => io.async((io : Io) => {
+      io.await(yield(io), io);
+      k
+    })
+  );
+  assert(io.await(mk(i32(42), io), io) == i32(42), "the closure ran");
+});

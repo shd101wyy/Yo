@@ -246,3 +246,36 @@ test("private _-field accessible in same file", {
   v._secret = i32(99);
   assert(v._secret == i32(99), "should write _-prefixed field in same file");
 });
+// ============================================================================
+// Phase A (THREAD_SAFETY): every manual Send/Sync impl needs the pragma
+// ============================================================================
+// The gate reads the RESOLVED trait of every impl form: a generic header and an
+// alias of the trait are held to it as `impl(T, Send())` is. Both used to pass
+// in this pragma-free file and let an `Rc` cross a thread
+// (issues/fixed/2026-11-25-a-generic-or-aliased-send-impl-skips-the-allow-unsafe-gate.md).
+GateHolder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+comptime_expect_error({
+  impl(generic(T : Type), GateHolder(T), Send());
+}, "requires pragma(Pragma.AllowUnsafe)");
+comptime_expect_error({
+  impl(generic(T : Type), GateHolder(T), Sync());
+}, "requires pragma(Pragma.AllowUnsafe)");
+comptime_expect_error({
+  impl(generic(T : Type), where(T <: Send), GateHolder(T), Send());
+}, "requires pragma(Pragma.AllowUnsafe)");
+comptime_expect_error({
+  AliasedSendCell :: struct(v : Rc(i32));
+  SendAlias :: Send;
+  impl(AliasedSendCell, SendAlias());
+}, "requires pragma(Pragma.AllowUnsafe)");
+// `Sized` and `Escapable` are read from a type's structure, generic header or not.
+comptime_expect_error({
+  impl(generic(T : Type), GateHolder(T), Sized());
+}, "is never implemented by hand");
+comptime_expect_error({
+  impl(generic(T : Type), GateHolder(T), Escapable());
+}, "is never implemented by hand");
+// With no impl the holder of an `Rc` stays on its thread, and a negative impl
+// needs no pragma.
+comptime_assert(Type.impls(GateHolder(Rc(i32)), Send) == false, "GateHolder(Rc(i32)) must not be Send");
+comptime_assert(Type.impls(GateHolder(i32), Send), "GateHolder(i32) is Send by its field");

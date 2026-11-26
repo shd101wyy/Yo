@@ -64,6 +64,8 @@ notify2 :: (fn(generic(T : Type), item : &mut T, where(T <: Display)) -> unit)({
 });
 ```
 
+A bound is written `T <: Trait`, read "`T` implements `Trait`"; several bounds on one type are a tuple, `T <: (Clone, Hash)`. The same form is used in every `where(...)`: a function's, a type constructor's, a trait's, an impl's and a derive's. `where(T : Trait)` is error E0624, raised where the clause is defined (`:` gives a name its type or kind), and `yo fix` rewrites it to `<:`.
+
 ### Static trait methods
 
 A trait method with no `self` parameter is a static method. Call it on an implementing type (`Point.make(...)`), or on a type parameter the trait constrains (`T.make(...)`). Constructor-style traits are written this way; `FromJson`'s `from_json(v)` is one.

@@ -368,7 +368,7 @@ The `Type` type provides static methods for compile-time type analysis:
 | `Type.eq(A, B)`                   | Exact type equality (nominal — same definition required) |
 | `Type.neq(A, B)`                  | Type inequality (negation of `Type.eq`)                  |
 | `Type.is_compatible_with(A, B)`   | Loose type compatibility (allows coercion)               |
-| `Type.impls(T, Marker)`           | Checks if type `T` implements a marker trait             |
+| `Type.impls(T, Tr)`               | Checks if type `T` implements trait `Tr` (any trait, applied ones such as `Eq(i32)` too) |
 | `Type.contains_rc_type(T)`        | Checks if type contains reference-counted fields         |
 
 ### Type Equality vs Compatibility
