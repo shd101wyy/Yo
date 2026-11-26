@@ -9,8 +9,8 @@ CTFE 允许编译器在所有输入在编译期已知的情况下，于编译期
 ```yo
 // comptime 参数 + comptime 返回值：在编译期求值
 factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result :: i32(1);
-  i :: i32(1);
+  mut(result) :: i32(1);
+  mut(i) :: i32(1);
   while(comptime(i <= n), {
     result = (result * i);
     i = (i + i32(1));
@@ -21,6 +21,9 @@ factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
 // 编译器在编译期求值 factorial(10)
 // 生成的代码中直接包含常量 3628800
 value :: factorial(10);
+comptime_assert(value == i32(3628800), "10! is 3628800");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ## 主要特性
@@ -34,8 +37,8 @@ value :: factorial(10);
 ```yo
 // comptime(n) + comptime 返回值：在编译过程中运行
 sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result :: i32(0);
-  i :: i32(1);
+  mut(result) :: i32(0);
+  mut(i) :: i32(1);
   while(comptime(i <= n), {
     result = (result + (i * i));
     i = (i + i32(1));
@@ -45,6 +48,9 @@ sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
 
 // 编译期求值: 1 + 4 + 9 + 16 + 25 = 55
 total :: sum_squares(5);
+comptime_assert(total == i32(55), "1 + 4 + 9 + 16 + 25");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ### 2. 完整的控制流支持
@@ -61,8 +67,8 @@ Yo 的 CTFE 支持所有控制流结构：
 ```yo
 // 示例: 使用 continue 只对奇数求和
 sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
-  result :: i32(0);
-  i :: i32(0);
+  mut(result) :: i32(0);
+  mut(i) :: i32(0);
   while(comptime(i < max), {
     i = (i + i32(1));
     cond(
@@ -78,6 +84,9 @@ sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
 
 // 编译期求值: 1 + 3 + 5 + 7 + 9 = 25
 odd_sum :: sum_odd(10);
+comptime_assert(odd_sum == i32(25), "1 + 3 + 5 + 7 + 9");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ### 3. 一等类型
@@ -287,8 +296,8 @@ is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(
     (n < 2) => false,
     true => {
-      i :: i32(2);
-      result :: true;
+      mut(i) :: i32(2);
+      mut(result) :: true;
       while(comptime((i * i) <= n), {
         cond(
           ((n % i) == 0) => {
@@ -308,6 +317,8 @@ is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
 comptime_assert(is_prime(2) == true, "2 是素数");
 comptime_assert(is_prime(17) == true, "17 是素数");
 comptime_assert(is_prime(18) == false, "18 不是素数");
+main :: (fn() -> unit)({});
+export(main);
 ```
 
 ## 元编程
