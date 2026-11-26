@@ -4,7 +4,7 @@
 
 - Filed: 2026-11-25 (lane q6-abort-uring, v0.2.80; found next to `issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md`, which this does not cover).
 - Amended: 2026-11-25 by VERDICTS-83 (the reach, the design).
-- Status: open until AFA-8 (`plans/backlog/ALLOCATION_FREE_ASYNC.md`). Known open in v0.2.80. The abort path is closed by VERDICTS-83 §3 part 5 (the first v0.2.81 PR); the finish and scope-end path stays the caller's obligation until AFA-8.
+- Status: open until AFA-8 (`plans/backlog/ALLOCATION_FREE_ASYNC.md`). Known open in v0.2.80. **The abort path is fixed** by VERDICTS-83 §3 part 5 (the abort walk, the first v0.2.81 PR): the walk aborts a pending `IoFuture` held by a local and the task lingers on it, pinned by `tests/sys/socketpair.test.yo`'s "an aborted task's pending named recv does not write into its released frame" (the reproducer below; an ASan heap-use-after-free on epoll before the fix). The finish and scope-end path (`p7`) stays the caller's obligation until AFA-8.
 
 ## Reach
 
