@@ -257,18 +257,18 @@ test("a mut(...) destructuring binding of an element with drops is E0901", {
     (mut(w), _s) := t;
     _n := w.*.n;
   }, "cannot copy `w` out of the destructured value");
-  comptime_expect_error({
-    (mut(s), _bx, _xs) := _mb_owned_parts();
-    _n := s.len();
-  }, "cannot copy `s` out of the destructured value");
-  comptime_expect_error({
-    (_s, mut(bx), _xs) := _mb_owned_parts();
-    _n := bx.*;
-  }, "cannot copy `bx` out of the destructured value");
-  comptime_expect_error({
-    (_s, _bx, mut(xs)) := _mb_owned_parts();
-    xs.push(i32(2));
-  }, "cannot copy `xs` out of the destructured value");
+});
+
+test("a mut(...) name of a destructuring that consumes its source owns its element", {
+  (mut(s), _bx, _xs) := _mb_owned_parts();
+  s.push_str("t");
+  assert(s == String.from("st"), "s owns the String");
+  (_s, mut(bx), _xs2) := _mb_owned_parts();
+  bx = Box.new(i32(2));
+  assert(bx.* == i32(2), "bx owns the Box");
+  (_s2, _bx2, mut(xs)) := _mb_owned_parts();
+  xs.push(i32(2));
+  assert(xs.len() == usize(1), "xs owns the ArrayList");
 });
 
 test("a destructured element with drops changes through an owned copy or a consuming match", {
