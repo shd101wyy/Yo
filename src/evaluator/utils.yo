@@ -593,7 +593,7 @@ trait_constructor_params_of :: (fn(value : &Option(EvalValue), ty : &TypeValue) 
     .Some(Rc(.FuncVal(tc_fvd, _))) => match(
       t_refine_inner(ty),
       Rc(.Func({ result : tc_r })) => match(
-        t_refine_inner(&t_slot_pointee(&tc_r.*)),
+        t_refine_inner(&t_slot_pointee(&tc_r)),
         Rc(.TypeUni(tc_level)) => if(tc_level == usize(1), Option(ArrayList(String)).Some(tc_fvd.*.params.clone()), Option(ArrayList(String)).None),
         _ => Option(ArrayList(String)).None
       ),
@@ -674,6 +674,18 @@ throw_if_bound_rhs_is_not_a_trait :: (fn(rhs_expr : &AstExpr, value : &Option(Ev
     }),
     _ => ()
   );
+});
+/// The note for a witness `(T <: Tr)` read where a `bool` is
+/// (VERDICTS-85 §6): the expression names the impl of `Tr` for `T`, and
+/// `Type.impls(T, Tr)` is the test. "" unless `expr` is a `<:` call.
+witness_as_bool_note :: (fn(expr : &AstExpr) -> String)({
+  if(!ast_expr_is_fn_call_of(expr, "<:", .Some(usize(2))), {
+    return(String.new());
+  });
+  sides := match(expr, Rc(.FnCall(_, _, Rc(wa), _, _)) => wa.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  l := match(sides.get_cloned(usize(0)), .Some(e) => ast_expr_to_string(&e), .None => String.from("T"));
+  r := match(sides.get_cloned(usize(1)), .Some(e) => ast_expr_to_string(&e), .None => String.from("Tr"));
+  `\n\`${l} <: ${r}\` names the impl of \`${r}\` for \`${l}\`, a value that is not a \`bool\`. The compile-time test is \`Type.impls(${l}, ${r})\`.`
 });
 /// ASCII space, tab, carriage return or newline.
 _is_ascii_space :: (fn(b : u8) -> bool)((b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13)));
@@ -6860,7 +6872,7 @@ legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &Ast
 });
 export(reject_dyn_place_by_value, legacy_box_dyn_lend);
 export(in_compile_time_fn_body);
-export(check_where_clause_form, throw_if_bound_rhs_is_not_a_trait, is_bare_trait_type, trait_constructor_params_of, trait_constructor_spelling, bare_trait_constructor_bound_error, non_trait_bound_error, trait_as_value_type_error, source_expr_end_byte, source_matching_paren_byte, source_span_from_anchor, source_operand_after);
+export(check_where_clause_form, witness_as_bool_note, throw_if_bound_rhs_is_not_a_trait, is_bare_trait_type, trait_constructor_params_of, trait_constructor_spelling, bare_trait_constructor_bound_error, non_trait_bound_error, trait_as_value_type_error, source_expr_end_byte, source_matching_paren_byte, source_span_from_anchor, source_operand_after);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(move_only_help, move_only_type_help, use_of_moved_value_error, moved_value_type, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);

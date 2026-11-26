@@ -71,7 +71,8 @@ export(main);
 - Parenthesize wherever two different operators meet, including the right side
   of `:=`, `=`, a field's `:` and an arm's or closure's `=>` (`x := (a + b);`,
   `.{ x : (a + b) }`, `.Some(q) => (q != u8(0))`), or it is E0003. The
-  operator set is closed: `**x` is two `*`s (a power is `x.pow(n)`).
+  operator set is closed: `**x` is two `*`s (a power is `x.pow(n)`). Yo has no
+  compound assignment: `x += 1` is E0010, written `x = (x + 1)`.
 - A bare `{ ... }` in expression position is a block (`{}` is unit); a `,` or
   `label : value` inside one is E0007. `(a, b)` is a tuple, `Tuple(A, B)` its
   type, `t.0` its first field; tuples are positional (`(lo : a, hi : b)` is an
@@ -130,10 +131,13 @@ export(main);
   `std/error`).
 - `impl(...)` statements end with `;`. A generic impl:
   `impl(generic(T : Type), where(T <: ToString), Box(T), ...)`.
-- A bound is `where(T <: Tr)`, several `T <: (A, B)`; read it "implements". A
-  name's `:` takes a type or a kind, never a trait: `where(T : Tr)` is E0624
-  (`yo fix` rewrites it). Rust's `T: A + B` is
-  `generic(T : Type), where(T <: (A, B))`.
+- `<:` is the bound operator, read *implements*: `where(T <: Tr)`, several
+  `T <: (A, B)`, a function trait grouped `F <: (Fn(x : A) -> B)`. A name's `:`
+  takes a type or a kind, never a trait: `where(T : Tr)` and
+  `generic(T : Tr)` are E0624 (`yo fix` rewrites them), and a value is
+  `x : Impl(Tr)` or `x : &Dyn(Tr)` (`a : Tr` is E0625). Rust's `T: A + B` is
+  `generic(T : Type), where(T <: (A, B))`. Yo has no subtyping: `dyn(&x)` makes
+  the `&Dyn(Tr)`, and `Type.impls(T, Tr)` is the compile-time test.
 - A generic type is a compile-time function, used as `Pair(i32)`:
   `Pair :: (fn(comptime(A) : Type) -> comptime(Type))(struct(a : A, b : A));`
 - A function returning a compile-time value (`-> comptime(T)`, `-> Type`)

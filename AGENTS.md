@@ -30,6 +30,7 @@ Detailed instructions live in `.github/instructions/`. Read the relevant file be
 | a bare `{ a, b }` / `{ k : v }` VALUE; a value `{}`                                                      | the record `.{ a, b }` / `.{ k : v }`; `.{}` (`{}` is the unit block). Binders are unchanged (`plans/reference/BRACE_BLOCKS.md`) |
 | `escape`                                                                                                 | `unwind`                                                                                                |
 | `plans/backlog/NON_ESCAPABLE_TYPES.md`, `FUTURE_ORIGINS.md`                                              | `plans/backlog/REFERENCES_AND_ORIGINS.md` (decision 43; "non-escapable" is O10's `Escapable` bound)     |
+| `BK_SUBTYPE_OF`, `src/evaluator/exprs/subtype-of.yo`, `evaluate_subtype_of`                               | `BK_IMPLEMENTS`, `src/evaluator/exprs/implements.yo`, `evaluate_implements` (`<:` is the bound operator, read *implements*; VERDICTS-85) |
 | `phase6*` tests; `macro_expansion`, `macro_registry`, `macro_def_*`, `try_macro_assign` tests            | `quote-macro-eval`, `ast-reflection`, `macro-helpers`; the rest were deleted with the user-macro fixtures |
 
 ---

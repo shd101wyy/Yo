@@ -8610,6 +8610,31 @@ _deref_view_lend_help :: (fn(arg_ty : &TypeValue, param_ty : &TypeValue, arg : &
     .None => Option(String).None
   )
 );
+/// The note for a value whose type implements every trait of the expected
+/// `Dyn(...)` (VERDICTS-85 §6): a bound never makes a value a `Dyn`, the
+/// conversion is written, `dyn(&x)` for a `&Dyn(...)` and `dyn(Box.new(x))`
+/// for a `Box(Dyn(...))`. "" when the expected type is no `Dyn`, the given
+/// one is a `Dyn` already, or some trait is not implemented.
+dyn_conversion_note :: (fn(expected : &TypeValue, given : &TypeValue, env : &Environment) -> String)({
+  boxed := unique_box_payload_type(expected).is_some();
+  exp := match(unique_box_payload_type(expected), .Some(p) => p, .None => t_slot_pointee(expected));
+  traits := match(t_refine_inner(&exp), Rc(.DynT({ required_trait_types : dc_rtt })) => Rc.clone(dc_rtt), _ => return(String.new()));
+  g := t_slot_pointee(given);
+  if(is_dyn_type(&g) || (traits.len() == usize(0)), {
+    return(String.new());
+  });
+  names := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < traits.len(), i = (i + usize(1)), {
+    tr := match(traits.get(i), .Some(t) => t, .None => return(String.new()));
+    if(!type_implements_trait(&g, &tr, env).implemented, {
+      return(String.new());
+    });
+    names.push(`\`${type_to_string(&tr)}\``);
+  });
+  conv := if(boxed, String.from("`dyn(Box.new(x))`"), String.from("`dyn(&x)`"));
+  `\n\`${type_to_string(&g)}\` implements ${String.from(", ").join(&names)}, and a value becomes a \`Dyn\` only where it is written: ${conv}.`
+});
 _evaluate_funcval_runtime_call :: (
   fn(
     expr : &AstExpr,
@@ -8731,7 +8756,7 @@ _evaluate_funcval_runtime_call :: (
                     // swallow re-raises it at check time instead of leaving
                     // codegen an unresolved receiver type it splices verbatim
                     // into C. Same guard as C18 / helper.yo's overload re-raise.
-                    _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(&_ac_pty)}"\nGiven: "${type_to_string(&_ac_aty)}"${dyn_upcast_note(&_ac_pty, &_ac_aty)}${same_name_note(&_ac_pty, &_ac_aty)}`;
+                    _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(&_ac_pty)}"\nGiven: "${type_to_string(&_ac_aty)}"${dyn_upcast_note(&_ac_pty, &_ac_aty)}${dyn_conversion_note(&_ac_pty, &_ac_aty, env)}${same_name_note(&_ac_pty, &_ac_aty)}`;
                     // Reported at the ARGUMENT (index-aligned with the infos here).
                     _ac_arg := match(runtime_arg_exprs.get_cloned(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr.clone());
                     _ac_tok := ast_expr_token(&_ac_arg);
