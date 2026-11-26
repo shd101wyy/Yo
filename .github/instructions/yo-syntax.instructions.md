@@ -165,8 +165,10 @@ guards it; `plans/archive/FMT_PAREN_ELISION.md`). Write the bare forms directly.
   (`reject_reserved_yo_binder`, `src/evaluator/memory-safety.yo`). A binder is judged by `TokenData.written`, the
   lexer's mark on an identifier it made from source text: the compiler mints `__yo_tpl_N`, `__yo_self`,
   `__yo_pat_s` and `__yo_contract_result` into user modules under the user's path, and a minted token is never
-  rejected (no list of minted names). A synthesized program the compiler lexes itself (`auto-generated://`, the
-  test runner's batch file) names its binders `_yo_…`. Uses are legal: calling a builtin by name without
+  rejected (no list of minted names). A program the compiler synthesizes and lexes itself is
+  exempt (`auto-generated://`); the test runner's batch program prints each test's AST back to text, so it
+  names the `__yo_` identifiers the parser minted into it (`__yo_tpl_N`) in a last line,
+  `// yo-batch-minted: a b c `, and names its own binders `_yo_…` (`_yo_batch_env`, `_yo_test_idx`). Uses are legal: calling a builtin by name without
   declaring it, or `externs.__yo_async_send_start(…)` through a module value; destructuring such a name into a
   binding is not (`{ __yo_x } :: externs`). errno is `std/libc/errno`'s `last_errno()`, the I/O backend teardown
   `std/sys/process`'s `reset_io_backend()`; a white-box runtime test lives beside its std module.
