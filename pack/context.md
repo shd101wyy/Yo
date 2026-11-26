@@ -199,8 +199,10 @@ export(main);
   its last use and freezes its place meanwhile: no write or move under `&`,
   no access at all except through it under `&mut` (E0911). Sibling fields
   borrow independently. `&T` is `Copy`; a `&mut T` moves: `a := m` hands
-  `m`'s borrow to `a` and a later use of `m` is E0901, while `a := &mut m.*`
-  reborrows and leaves `m` usable after `a`'s last use.
+  `m`'s borrow to `a` and a later use of `m` is E0901 (as do `a = m`, a
+  capture entry `{ m }` and a tuple element), while `a := &mut m.*` reborrows
+  and leaves `m` usable after `a`'s last use. A `&mut` field reborrows as
+  `&mut s.r.*` (`a := s.r` would be a partial move, E0901).
 - Writing through `&` is E0908. A later argument may read what an earlier one
   lends (`xs.push(xs.len())`) but not move or `&mut`-lend it; overlapping
   lends with a `&mut` (`s.push_string(&s)`) are E0910.

@@ -400,10 +400,13 @@ export(main);
 place. Binding a `&mut T` to a new name moves it: after `a := m` (or
 `(a : &mut T) = m`), `a` holds `m`'s borrow until `a`'s last use, and a later
 use of `m` is E0901. A tuple element, a generic `T` argument and a return
-move it too. To keep `m`, reborrow it: `a := &mut m.*` borrows the place for
-`a`'s life, and `m` is usable again after `a`'s last use. Passing a `&mut T`
-binding to a `&mut T` parameter reborrows it for the call and leaves the
-binding usable afterwards.
+move it too, and so does `a = m` on a reference binding `a`, which re-points
+`a` to the place `m` borrows. To keep `m`, reborrow it: `a := &mut m.*`
+borrows the place for `a`'s life, and `m` is usable again after `a`'s last
+use. A `&mut T` field is part of its holder, so `a := s.r` is E0901; its
+reborrow is `a := &mut s.r.*`, which freezes `s.r` and what it refers to while
+`a` lives. Passing a `&mut T` binding to a `&mut T` parameter reborrows it for
+the call and leaves the binding usable afterwards.
 
 ```yo
 main :: (fn() -> unit)({

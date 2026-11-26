@@ -117,8 +117,8 @@ count := i32(0);
   copies the reference, not the value it refers to: a `&T` is `Copy`, so `y`
   stays usable, and the closure's origin is what `y` refers to (`x`), not the
   binding `y`. `{ q : &p.field }` projects and `{ m : &mut m.* }` reborrows a
-  `&mut T`; the by-value entry `{ m }` of a `&mut` binding is rejected because
-  it would move the reference. A closure that captures any value carrying an
+  `&mut T`; the by-value entry `{ m }` of a `&mut` binding moves the reference
+  into the closure, which writes through it, and a later use of `m` is E0901. A closure that captures any value carrying an
   origin by value (a holder `h`, a reference copy) carries that origin: it
   cannot be returned over the local the origin names, and that local is frozen
   while the closure lives. A copied `&T` parameter (`{ p }`, `{ self }`) carries

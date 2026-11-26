@@ -1722,15 +1722,15 @@ evaluate_reference_repoint_by_move :: (fn(expr : &AstExpr, env_in : &Environment
   bind_join_roots_for(&cur_var, &roots, &rhs_tok, &env, ctx, exn, kill : true, holder_may_drop : false);
   // The re-point codegen emits: `__yo_mut(a) = m`.
   mode_args := ArrayList(AstExpr).new();
-  mode_args.push(Rc.clone(evaluated_lhs));
+  mode_args.push(Rc.clone(&evaluated_lhs));
   mode_head := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(String.from(cond(info.is_mut => BK_MUT, true => BK_IMM))), row : lhs_tok.row, column : lhs_tok.column, character : lhs_tok.character, byte_offset : lhs_tok.byte_offset, module_path : Rc.clone(lhs_tok.module_path), input : Rc.clone(lhs_tok.input)))));
-  mode_call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), mode_head, Rc.new(mode_args), false, Rc.clone(lhs_tok)));
+  mode_call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), mode_head, Rc.new(mode_args), false, Rc.clone(&lhs_tok)));
   rp_args := ArrayList(AstExpr).new();
-  rp_args.push(Rc.clone(mode_call));
-  rp_args.push(Rc.clone(evaluated_rhs));
+  rp_args.push(Rc.clone(&mode_call));
+  rp_args.push(Rc.clone(&evaluated_rhs));
   rp := match(
     expr,
-    Rc(.FnCall(_, ef, _, e_infix, etok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(ast_expr_token(&ef.*)))), Rc.new(rp_args), e_infix.*, Rc.clone(etok.*))),
+    Rc(.FnCall(_, ef, _, e_infix, etok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), ast_expr_token(&ef.*))), Rc.new(rp_args), e_infix.*, Rc.clone(etok.*))),
     Rc(.Atom(_, _)) => Rc.clone(expr.*)
   );
   mode_info := new_expr_info(&env, t_unit());
@@ -1803,7 +1803,7 @@ _lend_binding :: (fn(bind : &AstExpr, is_mut : bool, name_atom : &AstExpr, place
   args.push(Rc.clone(place.*));
   match(
     bind,
-    Rc(.FnCall(_, bf, _, b_infix, btok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(ast_expr_token(&bf.*)))), Rc.new(args), b_infix.*, Rc.clone(btok.*))),
+    Rc(.FnCall(_, bf, _, b_infix, btok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), ast_expr_token(&bf.*))), Rc.new(args), b_infix.*, Rc.clone(btok.*))),
     Rc(.Atom(_, _)) => Rc.clone(bind.*)
   )
 });
