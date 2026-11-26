@@ -25,6 +25,7 @@ import("std/fmt");
   make_err_expr
 } :: import("../../expr.yo");
 { TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
+{ reject_reserved_yo_binder } :: import("../memory-safety.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr-info.yo");
 { Environment, add_variable_to_env, get_variables_from_env, env_adopt } :: import("../../env.yo");
@@ -333,6 +334,7 @@ evaluate_binding :: (
       exn
     );
   });
+  reject_reserved_yo_binder(&res_tok, &ctx.std_path, exn);
   // Reject type annotations that require comptime but binding is runtime.
   // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
   // in initialization-assignment.yo.

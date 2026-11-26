@@ -20,6 +20,9 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
 { type_to_string } :: import("../types/string.yo");
 { canonical_module_path } :: import("../utils.yo");
+{ Token } :: import("../token.yo");
+{ format_error_message_with_help } :: import("../error.yo");
+{ Exception } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
@@ -293,6 +296,18 @@ reserved_yo_name_message :: (fn(name : &String) -> String)(
 reserved_yo_name_help :: (fn() -> String)(
   String.from("delete it and call the std API for the facility, or give your own symbol its own name.")
 );
+/// E0407 (VERDICTS-72 rule (b)): a binder written in source (`::`, `:=`, a
+/// typed `(x : T) =`, a parameter, a pattern or destructuring binding, an
+/// import rename) named in the `__yo_` namespace outside the std tree. The
+/// binder is judged by `TokenData.written`, the fact that the lexer made the
+/// token: the compiler mints `__yo_tpl_N`, `__yo_self`, `__yo_pat_s` and
+/// `__yo_contract_result` into user modules under the user's path, and those
+/// are never rejected. Uses stay legal.
+reject_reserved_yo_binder :: (fn(tok : &Token, std_path : &String, exn : Exception) -> unit)({
+  if(tok.written && is_yo_namespace_name(&tok.value.*) && !may_bind_yo_namespace_name(&tok.module_path.*, std_path), {
+    exn.throw(dyn(Box.new(format_error_message_with_help(tok, &reserved_yo_name_message(&tok.value.*), &Option(String).Some(reserved_yo_name_help())))));
+  });
+});
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
 /// the mutability rule for a binding below module level (a write to an
 /// unmarked local, pattern or compile-time binding, E0917) is enforced
@@ -502,5 +517,6 @@ export(
   may_bind_yo_namespace_name,
   reserved_yo_name_message,
   reserved_yo_name_help,
+  reject_reserved_yo_binder,
   _lex_abs_path
 );

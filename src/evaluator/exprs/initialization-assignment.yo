@@ -167,7 +167,7 @@
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
+{ is_implicitly_unsafe_capable_file, reject_reserved_yo_binder } :: import("../memory-safety.yo");
 { is_io_async_call } :: import("../async/await-analysis.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -2016,6 +2016,7 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
         exn
       );
     });
+    reject_reserved_yo_binder(&res_tok, &ctx.std_path, exn);
     effective_is_compile_time_only := (is_implicit || is_compile_time_only);
     effective_should_convert_to_runtime := (!is_implicit && should_convert_to_runtime_type);
     // Determine the LHS type.

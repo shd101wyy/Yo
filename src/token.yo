@@ -37,6 +37,15 @@ derive(TokenKind, Eq(TokenKind), Hash, Clone, Copy, ToString);
 /// bump, spelled `Rc.clone(tok)` where a second owner appears.
 TokenData :: struct(
   kind : TokenKind,
+  /// True iff the LEXER made this token from source text a person wrote
+  /// (an identifier or a `true`/`false` word); false for every token the
+  /// parser or evaluator mints (`__yo_tpl_N`, `__yo_self`, `__yo_pat_s`,
+  /// `__yo_contract_result`, ...) and for the lexer's other kinds. The
+  /// rule that no user binder is named in the `__yo_` namespace (E0407,
+  /// VERDICTS-72) tests this fact, not a list of minted names. Declared
+  /// beside `kind` so it fills the padding after the 4-byte enum: the
+  /// struct stays the size it was.
+  (written : bool) ?= false,
   /// The token's text, a SHARED cell like `input`/`module_path` below:
   /// identifier, keyword, operator, dot and number tokens take the
   /// canonical cell of `intern_token_str` (one per distinct text), the
@@ -134,11 +143,11 @@ is_reserved_operator_name :: (fn(name : &String) -> bool)(
 /// typeable). Structural keywords (begin/cond/match/while/if/return/…)
 /// never lex as identifiers and need no entry. `std/prelude.yo` is exempt at
 /// the gate sites (its `unsafe :: impl(…)` namespace module predates the
-/// rule). The `__yo_` prefix is the compiler's namespace (VERDICTS-72): an
-/// `extern`/`c_include` member in it is E0407 outside std
-/// (`reject_reserved_ffi_member`), but other binders are not checked yet,
-/// because the evaluator mints `__yo_self`/`__yo_pat_s`/`__yo_contract_result`
-/// into user modules (issues/2026-11-21-a-user-binding-named-in-the-yo-namespace-hijacks-or-is-hijacked.md). The V3b
+/// rule). The `__yo_` prefix is the compiler's namespace (VERDICTS-72): a
+/// binder or an `extern`/`c_include` member in it is E0407 outside std
+/// (`reject_reserved_ffi_member`, `reject_reserved_yo_binder`; a binder is
+/// judged by `TokenData.written`, because the compiler mints
+/// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules). The V3b
 /// snake_case synonyms (`type_of` `size_of` `align_of` `type_id`) and the
 /// `addr_of` address-of builtin are on the first line
 /// (plans/VALUES_BY_DEFAULT.md V3b Generation A). Of the `__yo` names only the
