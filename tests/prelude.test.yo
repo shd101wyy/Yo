@@ -215,6 +215,25 @@ test("float bitwise operators are compile errors", {
     v := ~f64(1.0);
     consume(v);
   });
+  // `longdouble` kept all four until VERDICTS-87 PR D: `check` passed and clang
+  // rejected the emitted C
+  // (issues/fixed/2026-11-26-bitnot-on-a-longdouble-passes-check-and-emits-invalid-c.md).
+  comptime_expect_error({
+    v := ~longdouble(1.0);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (longdouble(1.0) & longdouble(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (longdouble(1.0) | longdouble(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (longdouble(1.0) ^ longdouble(2.0));
+    consume(v);
+  });
 });
 test("unsigned integer negation is a compile error", {
   comptime_expect_error({
@@ -237,6 +256,21 @@ test("unsigned integer negation is a compile error", {
     v := -usize(1);
     consume(v);
   });
+});
+// The unary dispatchers return the trait's `Output`, as the binary operators
+// do: an impl whose `Output` is not `Self` is usable
+// (issues/fixed/2026-11-26-negate-and-bitnot-output-are-ignored-by-the-unary-dispatchers.md).
+test("Neg and BitNot honour an Output that is not Self", {
+  NegOutV :: struct(x : i32);
+  NegOutW :: struct(y : i32);
+  derive(NegOutV, Copy, Clone);
+  impl(NegOutV, Neg(Output : NegOutW, neg : (fn(self : Self) -> Self.Output)(NegOutW(y : (i32(0) - self.x)))));
+  impl(NegOutV, BitNot(Output : NegOutW, (~) : (fn(self : Self) -> Self.Output)(NegOutW(y : ~self.x))));
+  b := NegOutV(x : i32(3));
+  n := -b;
+  m := ~b;
+  assert(n.y == i32(-3), "-b is Neg.Output");
+  assert(m.y == i32(-4), "~b is BitNot.Output");
 });
 test("Test 'MaybeUninit'", {
   {
