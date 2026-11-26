@@ -2,7 +2,7 @@
 
 **Severity:** S3 — `(x, ..) := t` compiles and binds a variable named `..` (only an "unused variable `..`" warning says so), and `.V({ w, .. })`, `{ x : 0, .. }` (a curly pattern) and `{ a, .. } := s` fail with E0007 "`{ ... }` is a block, and a block separates statements with `;`", which says nothing about patterns; neither suggests the fix.
 
-- Filed: 2026-11-26 (lane `v81-bare-variant`). That lane made `..` in a match arm's variant, tuple and named struct pattern a coded E0609 with a repair (`.V(..)` is the bare `.V`); these two sites never reach the pattern compiler (`src/evaluator/exprs/pattern-compile.yo`), so they keep their old behavior.
+- Filed: 2026-11-26 (lane `v81-bare-variant`). Under VERDICTS-88 `..` stands for a variant's whole payload and is written alone (`.V(..)`); the lane made every other `..` in a match arm's variant, tuple and named struct pattern a coded E0609 with a repair. These two sites never reach the pattern compiler (`src/evaluator/exprs/pattern-compile.yo`), so they keep their old behavior.
 
 ## Reproducer
 
@@ -51,4 +51,4 @@ error[E0007]: `{ ... }` is a block, and a block separates statements with `;`. A
 
 ## Fix direction
 
-Reject `..` at both sites with E0609 ("`..` is not a pattern: Yo has no rest pattern"), as the match-pattern compiler does: in a tuple binder the help writes `_` for each element it stands for; in a curly field list the help and the repair delete `, ..`, since a field list names only the fields it needs. Tests: a `comptime_expect_error` case for the binder beside the `..` cases in `tests/match-bind-nothing.test.yo`, and a cli-case for the parse error.
+Reject `..` at both sites with E0609 ("`..` stands for a variant's whole payload and is written alone, as `.V(..)`"), as the match-pattern compiler does (VERDICTS-88 §8.2 keeps them rejected; accepting them later would be additive): in a tuple binder the help writes `_` for each element it stands for; in a curly field list the help and the repair delete `, ..`, since a field list names only the fields it needs. Tests: a `comptime_expect_error` case for the binder beside the `..` cases in `tests/match-bind-nothing.test.yo`, and a cli-case for the parse error.

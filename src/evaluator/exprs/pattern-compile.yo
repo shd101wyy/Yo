@@ -140,7 +140,7 @@ _backticked_list :: (fn(names : &ArrayList(String)) -> String)({
       out.push_str(", ");
     });
     out.push_str("`");
-    match(names.get(i), .Some(n) => out.push_string(n.clone()), .None => ());
+    match(names.get_cloned(i), .Some(n) => out.push_string(n), .None => ());
     out.push_str("`");
     i = (i + usize(1));
   });
@@ -154,7 +154,7 @@ _comma_list :: (fn(names : &ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(", ");
     });
-    match(names.get(i), .Some(n) => out.push_string(n.clone()), .None => ());
+    match(names.get_cloned(i), .Some(n) => out.push_string(n), .None => ());
     i = (i + usize(1));
   });
   out
