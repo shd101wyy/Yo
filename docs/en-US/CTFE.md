@@ -254,7 +254,7 @@ During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
    `::` and `x` to `comptime(x)`. A runtime function literal nested in such a
    body keeps its runtime locals, and so does a runtime function evaluated at
    compile time (`comptime_fn(f)`)
-   ([`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md)).
+   (`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`).
    The other direction is error E0918: code that runs when the program runs
    cannot assign a compile-time binding. A runtime function body that writes
    a module-level `::` (or one of an enclosing function), or writes a runtime
@@ -262,7 +262,7 @@ During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
    was already folded to its value. Declare such a binding with `:=` (at
    module level, `mut(G) := v`: a written global needs `mut`); a
    body's own `mut(a) :: 1; a = 2;` with a compile-time value works (a compile-time binding that is written is declared `mut(a) ::` or `comptime(mut(a)) :=`; an unmarked one is E0917)
-   ([`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`](../../issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md)).
+   (`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`).
 2. Preserves function argument values for compile-time evaluation
 3. Marks parameters as compile-time only
 
