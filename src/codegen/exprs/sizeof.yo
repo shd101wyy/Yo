@@ -184,7 +184,7 @@ generate_unsized_builtin :: (fn(expr : &AstExpr, indent : &String, context : &mu
       match(
         t_refine_inner(&pointee),
         // A `Dyn`'s size and alignment are its vtable's (decision 49).
-        Rc(.DynT({})) => `((${unsized_place_fat_code(&_call_generate_expr(&ast_expr_strip_borrow_marker(&arg0), indent.clone(), context))}).vtable->${if(is_size, "__yo_size", "__yo_align")})`,
+        Rc(.DynT(_, _, _, _)) => `((${unsized_place_fat_code(&_call_generate_expr(&ast_expr_strip_borrow_marker(&arg0), indent.clone(), context))}).vtable->${if(is_size, "__yo_size", "__yo_align")})`,
         Rc(.SliceT(sv_e)) => {
           et := get_type_string(&sv_e, &mut context.base);
           if(is_size, `((${_pointer_arg_code(&arg0, indent, context)}).len * ${_c_elem_size(&et)})`, if(et == "void", String.from("((size_t)1)"), `_Alignof(${et})`))

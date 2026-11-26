@@ -119,14 +119,14 @@ _throw_rest_pattern :: (fn(dots : &AstExpr, help : String, repair : Option(Repai
 });
 /// Throw E0626 (VERDICTS-88) at the variant name `name_tok`: the pattern's
 /// shape is not its variant's. `span`, when known, is where the one repair
-/// writes `replacement`.
+/// writes `replacement`; `fix` describes that edit.
 _throw_variant_shape :: (
-  fn(name_tok : &Token, msg : String, help : String, span : Option(Span), replacement : String, exn : Exception) -> unit
+  fn(name_tok : &Token, msg : String, help : String, span : Option(Span), replacement : String, fix : String, exn : Exception) -> unit
 )({
-  hlp := Option(String).Some(help.clone());
+  hlp := Option(String).Some(help);
   err := match(
     span,
-    .Some(sp) => format_error_message_with_repair_at(name_tok, &msg, &hlp, &sp, &replacement, &help),
+    .Some(sp) => format_error_message_with_repair_at(name_tok, &msg, &hlp, &sp, &replacement, &fix),
     .None => format_error_message_with_help(name_tok, &msg, &hlp)
   );
   exn.throw(dyn(Box.new(with_code(&err, E_VARIANT_PATTERN_SHAPE))));
@@ -1051,6 +1051,7 @@ _compile_variant :: (
         `write \`.${vname}\``,
         cond(binds_nothing => _variant_group_span(&name_tok), true => Option(Span).None),
         String.new(),
+        `write \`.${vname}\``,
         exn
       );
       return(Pattern.Wildcard);
@@ -1063,6 +1064,7 @@ _compile_variant :: (
         `write \`.${vname}(..)\` to match it whatever its payload, or bind the fields: \`.${vname}(${_comma_list(&labels.items)})\``,
         _after_name_span(&name_tok),
         String.from("(..)"),
+        `write \`.${vname}(..)\``,
         exn
       );
       return(Pattern.Wildcard);
@@ -1074,6 +1076,7 @@ _compile_variant :: (
         `write \`.${vname}(..)\``,
         _variant_group_span(&name_tok),
         String.from("(..)"),
+        `write \`.${vname}(..)\``,
         exn
       );
       return(Pattern.Wildcard);
@@ -1107,6 +1110,7 @@ _compile_variant :: (
         `write one sub-pattern per field, name the fields you need (\`.${vname}(label : p)\`), or write \`.${vname}(..)\` to ignore the payload`,
         Option(Span).None,
         String.new(),
+        String.new(),
         exn
       );
       return(Pattern.Wildcard);
@@ -1121,6 +1125,7 @@ _compile_variant :: (
         `Variant "${vname}" has ${arity} fields, but the pattern lists ${dparams.len()}`,
         `name each field at most once, or write \`.${vname}(..)\` to ignore the payload`,
         Option(Span).None,
+        String.new(),
         String.new(),
         exn
       );
