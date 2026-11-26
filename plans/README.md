@@ -22,8 +22,9 @@ beside it. Everything else is in `backlog/`, ordered by
 
 - [`ROADMAP.md`](ROADMAP.md) — the language and product roadmap.
 - [`CI_ONE_HOUR.md`](CI_ONE_HOUR.md) — the battery's measured critical path,
-  phase 1 (identical coverage, landed), and the decisions that reach ~60-75
-  min.
+  phase 1 (identical coverage), phase 2 with the adopted decisions D1 and D2
+  (the native legs in `native.yml`, a compiler build cache), and the
+  remaining decisions.
 - [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) — every declared type is a
   value, `ref(...)`/`atomic(...)` leave the language, sharing is spelled
   `Rc(T)`/`Arc(T)`, references carry origins (decisions 1–50).

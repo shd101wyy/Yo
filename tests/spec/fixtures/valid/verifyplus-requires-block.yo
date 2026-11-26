@@ -1,0 +1,28 @@
+// verify+ fixture: a function with a `requires`, no runtime-checked `ensures`
+// and a block body is walked and proved under `Pragma.VerifyOrAssert` exactly
+// as under `Pragma.Verify`. The requires-only splice used to flatten the block
+// into its own begin, so the body node the verifier walks had no ExprInfo and
+// every such function was reported `subset`
+// (issues/fixed/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md).
+pragma(Pragma.VerifyOrAssert);
+
+inc :: (fn(x : i32, requires(x < i32(100))) -> i32)(x + i32(1));
+
+block :: (fn(x : i32, requires(x < i32(50))) -> i32)({
+  v := inc(x);
+  v
+});
+
+expr :: (fn(x : i32, requires(x < i32(50))) -> i32)(inc(x));
+
+unit_block :: (fn(x : i32, requires(x < i32(50))) -> unit)({
+  _ := inc(x);
+});
+
+// A quantified `ensures` is proof-only, never spliced, so this function takes
+// the requires-only splice too.
+quantified_ensures_block :: (
+  fn(n : i64, requires(n == i64(47)), ensures(exists(x : i64, (x + i64(1)) == r))) -> (r : i64)
+)({
+  n + i64(1)
+});

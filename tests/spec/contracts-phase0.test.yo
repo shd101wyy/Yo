@@ -458,3 +458,30 @@ test("a quantified ensures is proof-only; a checkable ensures beside it still as
   )(x);
   assert(floor_of(i32(3)) == i32(3), "floor_of(3) == 3");
 });
+
+// issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md:
+// the same rule for a `requires` and for the std/spec ghost collections. A
+// quantified or ghost_fn `requires` and an `ensures` over `seq_*` were
+// spliced as runtime asserts, and the module failed to load with E0401
+// ("exists" not found) or "ghost-only builtin".
+proof_only_within :: ghost_fn((fn(x : i32, lo : i32) -> bool)((x >= lo) && (x <= (lo + i32(100)))));
+
+proof_only_quant_req :: (fn(n : i64, requires(exists(x : i64, (x + x) == n))) -> i64)(n);
+
+proof_only_ghost_req :: (fn(x : i32, requires(proof_only_within(x, i32(0)), x < i32(1000))) -> i32)({
+  y := x;
+  y
+});
+
+proof_only_seq_ens :: (
+  fn(x : i32, y : i32, ensures(seq_len(seq_append(seq_unit(x), seq_unit(y))) == i64(2), r == (x + y))) -> (r : i32)
+)({
+  z := (x + y);
+  z
+});
+
+test("a quantified or ghost_fn requires and a ghost-collection ensures are proof-only at runtime", {
+  assert(proof_only_quant_req(i64(4)) == i64(4), "quant_req(4) == 4");
+  assert(proof_only_ghost_req(i32(7)) == i32(7), "ghost_req(7) == 7");
+  assert(proof_only_seq_ens(i32(2), i32(3)) == i32(5), "seq_ens(2, 3) == 5");
+});
