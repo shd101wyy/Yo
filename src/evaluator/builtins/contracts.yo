@@ -2984,9 +2984,11 @@ wrap_function_body_with_contracts :: (
   });
   (splice_requires : ArrayList(AstExpr)) = requires_exprs.clone();
   // Whether the requires-only splice may flatten a block body into its own
-  // begin. Not in `verify` mode: the verifier walks the task's UNWRAPPED body
-  // node and needs its ExprInfo, which a flattened body never gets (its
-  // statements are evaluated under the new begin instead).
+  // begin. Not in `verify` or `verify+` mode: there the function is a
+  // VerifyTask whose UNWRAPPED body node the verifier walks, and the walk
+  // needs that node's ExprInfo, which a flattened body never gets (its
+  // statements are evaluated under the new begin instead, so the walk finds
+  // an untyped root and reports `subset`).
   (flatten_body : bool) = true;
   // V3 mode dispatch (plans/backlog/FORMAL_VERIFICATION.md §"The
   // assert-splice interaction"). Effects apply only when this module is a
@@ -3000,6 +3002,9 @@ wrap_function_body_with_contracts :: (
     // override) — erase contract clauses entirely.
     if(mode == "ignore", {
       return(Rc.clone(body.*));
+    });
+    if((mode == "verify") || (mode == "verify+"), {
+      flatten_body = false;
     });
     // `verify` — suppress the ENSURES asserts: the verifier proves each one
     // against this body, so the proof replaces the check. The REQUIRES entry
@@ -3029,7 +3034,6 @@ wrap_function_body_with_contracts :: (
       });
       splice_requires = kept_requires;
       splice_ensures = ArrayList(AstExpr).new();
-      flatten_body = false;
     });
   });
   bind_op := cond(is_comptime_fn => String.from("::"), true => String.from(":="));
