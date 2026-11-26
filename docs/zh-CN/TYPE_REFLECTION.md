@@ -368,7 +368,7 @@ derive_rule(
 | `Type.eq(A, B)`                   | 精确类型相等（名义类型——需要相同的定义）        |
 | `Type.neq(A, B)`                  | 类型不等（`Type.eq` 的取反）                    |
 | `Type.is_compatible_with(A, B)`   | 宽松类型兼容性（允许隐式转换）                  |
-| `Type.impls(T, Marker)`           | 检查类型 `T` 是否实现了标记 trait               |
+| `Type.impls(T, Tr)`               | 检查类型 `T` 是否实现了 trait `Tr`（任意 trait，`Eq(i32)` 等带参数的 trait 也可） |
 | `Type.contains_rc_type(T)`        | 检查类型是否包含引用计数字段                    |
 
 ### 类型相等 vs 类型兼容
@@ -440,4 +440,4 @@ branches :: Type.map_variants(
 
 ## 设计文档
 
-完整设计包括实现细节，请参阅 [TYPE_REFLECTION.md](../../plans/reference/TYPE_REFLECTION.md)。
+完整设计包括实现细节，请参阅 `plans/reference/TYPE_REFLECTION.md`。

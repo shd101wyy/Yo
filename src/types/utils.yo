@@ -53,6 +53,7 @@ pragma(Pragma.AllowUnsafe);
   is_integer_type,
   is_float_type,
   is_comptime_int_type,
+  is_comptime_string_type,
   is_comptime_float_type,
   is_some_type,
   is_rc_type,
@@ -1356,14 +1357,16 @@ _static_origin_marks_list :: (fn(ts : &SharedList(TypeValue), out : &mut String,
 /// VERDICTS-74 rule 1: `a` and `b` differ in their static bit at some origin
 /// position (`_static_origin_marks`). Such types are two instantiations,
 /// never one memo entry.
-static_origin_marks_differ :: (fn(a : &TypeValue, b : &TypeValue) -> bool)({
-  ma := String.new();
-  sa := ArrayList(String).new();
-  _static_origin_marks(a, &mut ma, &mut sa, u32(0));
-  mb := String.new();
-  sb := ArrayList(String).new();
-  _static_origin_marks(b, &mut mb, &mut sb, u32(0));
-  !(ma == mb)
+static_origin_marks_differ :: (fn(a : &TypeValue, b : &TypeValue) -> bool)(
+  !(static_origin_marks_text(a) == static_origin_marks_text(b))
+);
+/// `ty`'s static bits in walk order (`_static_origin_marks`): the part of its
+/// identity a `type_key` leaves out, for a memo keyed by `type_key` to append.
+static_origin_marks_text :: (fn(ty : &TypeValue) -> String)({
+  m := String.new();
+  seen := ArrayList(String).new();
+  _static_origin_marks(ty, &mut m, &mut seen, u32(0));
+  m
 });
 /// VERDICTS-74 rule 2's scope: `ty` spells the empty origin `static` at a
 /// position the subset check covers — a reference over a SIZED pointee, a
@@ -4705,7 +4708,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
-export(type_carries_origin, nominal_has_hidden_origin, fn_param_origin_links, fn_param_origins_narrower, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, legacy_value_str, is_legacy_value_str, is_static_view_slot, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_error, static_origin_marks_differ, type_spells_checked_static, join_static_bit);
+export(type_carries_origin, nominal_has_hidden_origin, fn_param_origin_links, fn_param_origins_narrower, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, legacy_value_str, is_legacy_value_str, is_static_view_slot, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_error, static_origin_marks_differ, static_origin_marks_text, type_spells_checked_static, join_static_bit);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);
@@ -5088,6 +5091,19 @@ _decl_id_of :: (fn(t : &TypeValue) -> String)(
     _ => String.new()
   )
 );
+/// The help for a double-quoted literal given where a `String` is expected
+/// (`m.get("a")` on a `HashMap(String, V)`, `Path.new("/tmp")`,
+/// `Command.new("ls")`): a `"..."` literal is a `str`, not a `String`, so the
+/// argument is the backtick literal, an owned `String` built from the same text.
+/// `.None` for every other pair.
+string_literal_slot_help :: (fn(expected : &TypeValue, given : &TypeValue) -> Option(String))(
+  cond(
+    (is_comptime_string_type(given) && (type_to_string(expected) == "String")) => .Some(
+      String.from("a \"...\" literal is a `str`; this parameter takes a `String`: write the text as a backtick literal (`` `...` ``) or `String.from(\"...\")`")
+    ),
+    true => .None
+  )
+);
 /// The note a type mismatch appends when the two types PRINT the same but are
 /// different declarations — two modules' `P`, say: `Expected: "P"`, `Given:
 /// "P"` alone reads as a compiler bug (plans/reference/TYPE_IDENTITY.md).
@@ -5178,7 +5194,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, is_dyn_fn_slot, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, is_dyn_fn_slot, same_name_note, string_literal_slot_help, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such

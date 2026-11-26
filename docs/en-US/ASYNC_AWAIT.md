@@ -625,7 +625,14 @@ cancelled with it.
   `JoinHandle.await` further up reads `.None`. Starting an `io.await` on a
   Future that is **already** aborted behaves the same way.
 
-The aborted task's locals are dropped when its last reference goes away.
+The abort drops the task's locals right away, newest first, once what the
+task was suspended on has stopped, and only then wakes the tasks waiting on
+it. When a local's drop aborts something that cannot stop at once (a
+`select` or `timeout` operand whose read io_uring is still completing), the
+task stops dropping there: it stays allocated, still reading `Aborted`, and
+drops the rest of its locals once that operand is done. So when a
+`JoinHandle.await` or join of an aborted task returns, every local of the
+task has been dropped, and nothing the task started touches memory any more.
 
 ```yo
 { sleep } :: import("std/sys/timer");
@@ -981,8 +988,9 @@ handles (§3.13 A4 of `plans/VALUES_BY_DEFAULT.md`; Tokio's `time::timeout` and
 
 Each operand is a `Future(T, Io)` and runs as a **scoped child task**. The loser, or
 an operand past its deadline, is aborted, and every operand is joined before
-the combinator resolves; if the combinator's own Future is aborted or dropped
-first, dropping it aborts its operands. An aborted task never resumes, and
+the combinator resolves. If the task awaiting the combinator is aborted
+first, the abort aborts the operands and is not over until each has stopped;
+a combinator Future dropped first aborts them too. An aborted task never resumes, and
 its join returns only after the operation it was suspended in is done, so an
 operand may be a borrowing Future: its borrow ends when the call does.
 

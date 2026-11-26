@@ -130,6 +130,10 @@ export(main);
   `std/error`).
 - `impl(...)` statements end with `;`. A generic impl:
   `impl(generic(T : Type), where(T <: ToString), Box(T), ...)`.
+- A bound is `where(T <: Tr)`, several `T <: (A, B)`; read it "implements". A
+  name's `:` takes a type or a kind, never a trait: `where(T : Tr)` is E0624
+  (`yo fix` rewrites it). Rust's `T: A + B` is
+  `generic(T : Type), where(T <: (A, B))`.
 - A generic type is a compile-time function, used as `Pair(i32)`:
   `Pair :: (fn(comptime(A) : Type) -> comptime(Type))(struct(a : A, b : A));`
 - A function returning a compile-time value (`-> comptime(T)`, `-> Type`)
@@ -533,6 +537,28 @@ test("push then len", {
   assert(xs.len() == usize(1), "one element");
 });
 ```
+
+## Names that are not Rust's
+
+Std keeps Rust's method names (`push`, `len`, `insert`, `contains_key`,
+`checked_add`, `Rc`, `Duration`); the types below differ on purpose. A Rust
+name that does not resolve (E0401) gets a help line naming the Yo spelling.
+
+| Rust | Yo |
+| --- | --- |
+| `Vec<T>`, `vec![..]` | `ArrayList(T)` (`std/collections/array-list`), `ArrayList(T).from([..])` |
+| `VecDeque`, `BinaryHeap`, `PathBuf` | `Deque`, `PriorityQueue`, `Path` (one owned type) |
+| `char` | `rune` (`char` is C's 8-bit type) |
+| `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` |
+| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot`/`BitNot` |
+| `collect::<Vec<_>>()`, `parse::<i32>()`, `into()` | `it.collect(ArrayList(i32))`, `s.parse(i32)`, `x.into(i64)`: the type is an argument |
+| `m.lock()`, `c.borrow_mut()`, `Cell` | `m.with_lock(v => ..)`, `c.with_mut(v => ..)` on `RefCell`; no guards |
+| `thread::spawn`, `JoinHandle<T>` | `Thread(T).spawn((io : Io) => ..)`, `t.join()` |
+| `io::Result<T>` | `exn : Exception` and `io : Io`, `-> Impl(Future(T, IoExn))` |
+| `sync::Weak`, `atomic::Ordering` | `ArcWeak`, `MemoryOrder` |
+| `Duration` over `u64`/`u128` | `Duration` over `i64`; `as_millis() -> i64` |
+| `serde_json::from_str`/`to_string` | `parse`/`stringify` (`json`, `toml`) |
+| `x.sqrt()` | `import("std/math");` registers the float methods |
 
 ## Where to look next
 

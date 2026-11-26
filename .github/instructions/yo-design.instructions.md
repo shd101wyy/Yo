@@ -473,6 +473,25 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
 | conversion | `from_` / `to_` / `into_`, with Rust's discipline (`into_` consumes) | two spellings of one conversion (`to_cstr` vs `to_c_str`) |
 | comptime twins | `Comptime` prefix on the trait, `comptime_` prefix on the method | an infix `_comptime_` |
 
+- **Divergences from Rust's std that stay** (`plans/backlog/STD_RUST_ALIGNMENT.md` §4; the pack prints the same list). Do not "fix" one toward Rust; a new module follows the Yo column.
+
+| Rust | Yo | Reason |
+| --- | --- | --- |
+| `Vec<T>`, `vec![..]` | `ArrayList(T)`, `ArrayList(T).from([..])` | maintainer's decision: in mathematics a vector has a fixed size and this type grows; no std name says `Vec` |
+| `VecDeque`, `BinaryHeap` | `Deque`, `PriorityQueue` | the abstract type's name, not one implementation's (`OrderedMap`, `StringBuilder`, `WaitGroup`, `Semaphore` have no Rust std counterpart) |
+| `char` | `rune` | `char` is C's 8-bit type and FFI needs it |
+| `Path` + `PathBuf` | one owned `Path` | no unsized path view |
+| `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` | floats carry a total `cmp`; no split |
+| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot`/`BitNot` | Yo's own names; `!` is `LogicalNot` (yields `bool`), `~` is `BitNot` |
+| `collect::<T>()`, `parse::<T>()`, `into()` | `collect(T)`, `parse(T)`, `into(T)` | the type is an argument: Yo does not infer from the result type |
+| `lock()`, `borrow()`/`borrow_mut()`, `Cell` | `with_lock(v => ..)`, `with_read`/`with_write`, `with`/`with_mut` | closure-scoped access; a guard cannot have `g.*` outside the prelude (E0622); no poisoning |
+| `io::Result<T>`, blocking calls, `thread::spawn`, `JoinHandle<T>` | `exn : Exception`, `io : Io`, `-> Impl(Future(T, IoExn))`, `Thread(T).spawn((io : Io) => ..)`, `join() -> T` | effects and the `Io` interface |
+| `sync::Weak`, `atomic::Ordering` | `ArcWeak`, `MemoryOrder` | one flat prelude namespace: `Weak` and `Ordering` are taken |
+| `Duration` over `u64`/`u128` | `Duration` over `i64`; `as_millis() -> i64` | no 128-bit integers; a negative span is representable |
+| serde's `from_str`/`to_string` | `json`/`toml` `parse`/`stringify` | one verb pair for every text format |
+| `unwrap`/`expect` everywhere | E0611 outside tests and unsafe-capable files | safe mode |
+
+  The compiler keeps the unresolved-name half of this table in `rust_std_name_hint` (`src/diagnostics.yo`: E0401 prints the Yo name and its import) and the float-method import help in `float_method_import_hint` (E0610 on `f32`/`f64`); a divergence added here that a model will write by its Rust name gets a row in that function.
 - A rename sweep also rewrites the `test("<Type>.<method> …")` name strings (and comments) that spell the renamed method: `--test-name-pattern` matches them, so a stale name hides the test (`issues/fixed/collection-test-names-still-use-pre-rename-method-spellings.md`).
 - **`sys/` is plumbing, `std/*` is the product.** Every user-relevant syscall gets a typed wrapper, and an underscore-private name never appears in an `export(...)` list. For struct fields and impl methods the `_` prefix is the visibility rule the compiler enforces (E0405, `plans/reference/MEMBER_VISIBILITY.md`): private to the declaring module and its same-directory siblings. A `_` member another directory needs is an API gap to close with a public method.
 - **Traits are the API.** An inherent method that duplicates a trait method becomes a trait impl, so generic code can dispatch on it. Types that should compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.

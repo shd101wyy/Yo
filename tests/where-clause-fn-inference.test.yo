@@ -181,3 +181,40 @@ test("where-clause bounds accept the types that satisfy them", {
   m.insert(String.from("k"), i32(1));
   assert(m.len() == usize(1), "String satisfies (Eq(K), Hash)");
 });
+// A `where(...)` entry is a bound `L <: R`. `L : R` is E0624 at the clause's
+// definition, at every reader: an impl or a derive used to drop it and register
+// an unbounded impl, a function's was reported only when it was called
+// (issues/fixed/2026-11-25-a-colon-spelled-where-bound-on-an-impl-or-derive-is-silently-dropped.md).
+FormProbe :: trait(probe : (fn(self : &Self) -> i32));
+FormMarker :: trait();
+FormBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+comptime_expect_error({
+  impl(generic(T : Type), where(T : FormProbe), FormBox(T), FormMarker());
+}, "A trait bound is written `T <: FormProbe`");
+comptime_expect_error({
+  impl(generic(T : Type), FormBox(T), where(T : FormProbe), FormMarker());
+}, "A trait bound is written `T <: FormProbe`");
+comptime_expect_error({
+  FormPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+  derive(generic(T : Type), where(T : Clone), FormPair(T), Clone);
+}, "A trait bound is written `T <: Clone`");
+comptime_expect_error({
+  _form_uncalled :: (fn(generic(T : Type), a : &T, b : &T, where(T : Eq(T))) -> bool)(a == b);
+}, "A trait bound is written `T <: Eq(T)`");
+comptime_expect_error({
+  FormCtor :: (fn(comptime(T) : Type, where(T : FormProbe)) -> comptime(Type))(struct(v : T));
+}, "A trait bound is written `T <: FormProbe`");
+comptime_expect_error({
+  FormSub :: trait(sub_probe : (fn(self : &Self) -> i32), where(Self : FormProbe));
+}, "A trait bound is written `Self <: FormProbe`");
+// Any other shape is the form error at definition too.
+comptime_expect_error({
+  impl(generic(T : Type), where(T), FormBox(T), FormMarker());
+}, "Expected constraint in the form");
+// The bound the impl spells with `<:` is applied: `FormBox(i32)` is not a
+// `FormMarker`, `FormBox(FormImpl)` is.
+FormImpl :: struct(n : i32);
+impl(FormImpl, FormProbe(probe : (fn(self : &Self) -> i32)(self.n)));
+impl(generic(T : Type), where(T <: FormProbe), FormBox(T), FormMarker());
+comptime_assert(Type.impls(FormBox(FormImpl), FormMarker), "FormBox(FormImpl) is a FormMarker");
+comptime_assert(Type.impls(FormBox(i32), FormMarker) == false, "FormBox(i32) is not a FormMarker: i32 has no FormProbe");

@@ -1334,11 +1334,15 @@ static int32_t __yo_join_handle_state_raw(void* fut) {
 // lingering future lingers with it, because the buffer the operation writes
 // into may be one of its locals lent down the await chain
 // (issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md).
-static bool __yo_future_abort(void* fut) {
+//
+// A future that is already Aborting (-4) has not retired: aborting it again
+// answers false, so whoever aborts it waits for it like the first aborter
+// (VERDICTS-83 §3 part 3). Completed and Aborted futures have retired.
+static bool __yo_future_abort_now(void* fut) {
   __yo_future_header_t* f = (__yo_future_header_t*)fut;
   int prev = f->state;
   if (prev < 0) {
-    return true;
+    return prev != -4;
   }
   if (!f->vt) {
     // A raw I/O future (an IoFuture spawned or held directly): no state
@@ -1371,6 +1375,137 @@ static bool __yo_future_abort(void* fut) {
   }
   __yo_future_wake_waiters(fut);
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// The abort walk (VERDICTS-83 §3). Once an aborted task's await slot has
+// retired, the task drops its live locals, newest first, and only then wakes
+// its waiters. A combinator's scoped operands (\`_Scoped\`, std/async) and a
+// pending operation held in a local are reachable only through the frame, so
+// the abort is not observed until the frame's drops have aborted them. A drop
+// that aborts a future which does not retire at once (__yo_future_abort
+// answers false) stops the walk there: the task stays Aborting (-4) and
+// continues the walk when that future has retired, so a local declared before
+// a lingering child is not dropped while the child can still use it
+// (issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md,
+// issues/fixed/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md).
+//
+// The walk is \`<block>_state_dispose_locals\`: it drops one local at a time,
+// records how many it has dropped in the task's \`__yo_walk\`, and returns
+// false right after a drop that lingered. While it runs, __yo_abort_walk_on
+// is set and every __yo_future_abort that answers false adds the walk's GATE
+// as a waiter of the future it could not retire. The gate counts what the
+// walk waits for; the last count resumes the task, whose aborted-entry guard
+// continues the walk.
+// ---------------------------------------------------------------------------
+// The gate's first field is a future header in state -2, so the thread-exit
+// drain, which aborts and then resumes every queued node, treats it like any
+// other: aborting it is a no-op and resuming it fires it.
+typedef struct __yo_abort_gate_t {
+  __yo_future_header_t h;
+  int pending;            // futures the walk waits for, plus a resume the task is owed
+  void* sm;               // the walking task
+  void (*resume)(void*);  // its resume function: the aborted-entry guard continues the walk
+  void** slot;            // the task's __yo_walk_gate, cleared when the gate fires
+} __yo_abort_gate_t;
+static ${thread_local} bool __yo_abort_walk_on = false;
+static ${thread_local} __yo_abort_gate_t* __yo_abort_walk_gate = NULL;
+
+// One count of the gate is done: a future the walk waits for retired, or the
+// resume the task was owed arrived. The last count resumes the task.
+static void __yo_abort_gate_fire(void* p) {
+  __yo_abort_gate_t* g = (__yo_abort_gate_t*)p;
+  if (--g->pending > 0) {
+    return;
+  }
+  void* sm = g->sm;
+  void (*resume)(void*) = g->resume;
+  *g->slot = NULL;
+  __yo_free(g);
+  resume(sm);
+}
+
+// Did a drop of the running walk abort a future that has not retired?
+static bool __yo_abort_walk_lingers(void) {
+  return __yo_abort_walk_gate != NULL;
+}
+
+// Abort a future. Inside a walk, a future that does not retire at once is
+// added to the walk's gate: the walk waits for it.
+static bool __yo_future_abort(void* fut) {
+  bool on = __yo_abort_walk_on;
+  __yo_abort_gate_t* g = __yo_abort_walk_gate;
+  // The abort's own hook runs its own walk, with its own gate.
+  __yo_abort_walk_on = false;
+  __yo_abort_walk_gate = NULL;
+  bool retired = __yo_future_abort_now(fut);
+  __yo_abort_walk_on = on;
+  __yo_abort_walk_gate = g;
+  if (!retired && on) {
+    if (!__yo_abort_walk_gate) {
+      __yo_abort_gate_t* ng = (__yo_abort_gate_t*)__yo_malloc(sizeof(__yo_abort_gate_t));
+      memset(ng, 0, sizeof(__yo_abort_gate_t));
+      ng->h.state = -2;
+      __yo_abort_walk_gate = ng;
+    }
+    __yo_abort_walk_gate->pending++;
+    __yo_future_add_waiter(fut, __yo_abort_gate_fire, (void*)__yo_abort_walk_gate);
+  }
+  return retired;
+}
+
+// A pending operation held in a local is in flight like the one in the await
+// slot: the walk aborts it before the local's reference is released, and
+// waits for it when the backend cannot take it back (VERDICTS-83 §3 part 5).
+// Outside a walk (a task released after an effect unwind) the local's
+// reference is only released.
+static void __yo_abort_walk_io_local(void* fut) {
+  if (__yo_abort_walk_on && atomic_load(&((__yo_io_future_t*)fut)->state) == 0) {
+    (void)__yo_future_abort(fut);
+  }
+}
+
+// Run, or continue, the abort walk of the task \`sm\`. True when every live
+// local has been dropped. False when a drop lingered: the task is Aborting
+// (-4), and its gate, stored in \`*gate_slot\`, resumes it once what that drop
+// aborted has retired. \`owed\` is 1 when a resume of the task is already on
+// its way (the hook retired it, and the future it awaited, or the queue,
+// resumes it to release it): the gate counts that resume too, so the task
+// continues the walk only after both, in either order.
+static bool __yo_sm_abort_walk(void* sm, bool (*walk)(void*), void (*resume)(void*), void** gate_slot, int owed) {
+  bool on = __yo_abort_walk_on;
+  __yo_abort_gate_t* outer = __yo_abort_walk_gate;
+  __yo_abort_walk_on = true;
+  __yo_abort_walk_gate = NULL;
+  bool done = walk(sm);
+  __yo_abort_gate_t* g = __yo_abort_walk_gate;
+  __yo_abort_walk_on = on;
+  __yo_abort_walk_gate = outer;
+  if (done) {
+    return true;
+  }
+  g->sm = sm;
+  g->resume = resume;
+  g->slot = gate_slot;
+  g->pending += owed;
+  *gate_slot = (void*)g;
+  ((__yo_future_header_t*)sm)->state = -4;
+  return false;
+}
+
+// The locals of a task released by its last reference while it was Aborted
+// (\`<block>_state_dispose\`): whatever the walk has not dropped (an effect
+// unwind does not walk) is dropped here, outside any walk, so a drop that
+// aborts something waits for nothing and every local is dropped, also when
+// the release happens inside another task's walk.
+static void __yo_sm_drop_locals(void* sm, bool (*walk)(void*)) {
+  bool on = __yo_abort_walk_on;
+  __yo_abort_gate_t* outer = __yo_abort_walk_gate;
+  __yo_abort_walk_on = false;
+  __yo_abort_walk_gate = NULL;
+  (void)walk(sm);
+  __yo_abort_walk_on = on;
+  __yo_abort_walk_gate = outer;
 }
 
 // Cancel a spawned task (JoinHandle.abort).
@@ -1509,6 +1644,13 @@ static void __yo_join_wait_add(__yo_io_future_t* w, void* task) {
   if (t->state < 0 && t->state != -4) {
     __yo_waker_wake_local(w);
     return;
+  }
+  // A wait on an Aborting task cannot be cancelled: its operation is still in
+  // flight, so a joiner that is aborted while it waits lingers until the task
+  // has retired instead of handing back what the task borrows
+  // (VERDICTS-83 §3 part 4; \`select\` joining the loser it has just aborted).
+  if (t->state == -4) {
+    w->cancel_fn = NULL;
   }
   __yo_incr_rc((void*)w);
   __yo_future_add_waiter(task, __yo_join_wait_fire, (void*)w);
