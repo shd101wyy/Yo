@@ -124,14 +124,20 @@ jobs:
             fi
           fi
           echo "Releasing $(git rev-parse HEAD) (gate SHA: $SHA)"
-          CONCLUSION=$(gh api \
-            "repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=$SHA&status=completed&event=push&branch=develop" \
-            --jq '[.workflow_runs[] | select(.conclusion != null)] | first | .conclusion // "none"')
-          echo "Test workflow conclusion for $SHA: $CONCLUSION"
-          if [[ "$CONCLUSION" != "success" ]]; then
-            echo "::error::Refusing to release $SHA — the Test workflow is '$CONCLUSION', not 'success'."
-            exit 1
-          fi
+          # BOTH develop workflows: test.yml (the core battery, `merge-gate`)
+          # and native.yml (the macOS, Windows and Linux arm64 legs, moved out
+          # of the core battery by D2 of plans/CI_ONE_HOUR.md). Either one red
+          # or missing on the exact SHA refuses the release.
+          for wf in test.yml native.yml; do
+            CONCLUSION=$(gh api \
+              "repos/${{ github.repository }}/actions/workflows/$wf/runs?head_sha=$SHA&status=completed&event=push&branch=develop" \
+              --jq '[.workflow_runs[] | select(.conclusion != null)] | first | .conclusion // "none"')
+            echo "$wf conclusion for $SHA: $CONCLUSION"
+            if [[ "$CONCLUSION" != "success" ]]; then
+              echo "::error::Refusing to release $SHA — $wf is '$CONCLUSION', not 'success'."
+              exit 1
+            fi
+          done
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -493,8 +499,8 @@ jobs:
   # below is the per-release backstop.) The macOS runners then only
   # clang-compile the C and
   # smoke-test the bundle natively, which is the same end-to-end proof the
-  # native legs have. Native Yo->C coverage on macOS is not lost: test.yml's
-  # `test-native` job runs the compiler natively on macOS on every PR.
+  # native legs have. Native Yo->C coverage on macOS is not lost: native.yml's
+  # `test-native` job runs the compiler natively on macOS on every develop push.
   seed-cross-emit:
     name: Cross-emit C (${{ matrix.target }})
     needs: release
@@ -551,7 +557,7 @@ jobs:
           # issues/fixed/windows-arm64-mimalloc-msvc-arm-intrinsics.md), and
           # the 2026-09-04 x64 A/B that re-affirmed `system` on wall time
           # applies here too — mimalloc stays CI-exercised every battery for
-          # users who opt in via --allocator mimalloc (test.yml test-native).
+          # users who opt in via --allocator mimalloc (native.yml test-native).
           #
           # The question is SETTLED: Windows uses the system allocator on both
           # targets by decision, not by breakage — the full record (including
@@ -1457,17 +1463,17 @@ jobs:
             echo "SEED_VERSION is already ${new} — nothing to bump."
             exit 0
           fi
-          for f in test.yml release.yml fixpoint-arm64.yml ubsan.yml leak-verdict.yml; do
+          for f in test.yml release.yml fixpoint-arm64.yml ubsan.yml leak-verdict.yml native.yml; do
             sed -i "s|^\([[:space:]]*SEED_VERSION:\) ${old}\$|\1 ${new}|" ".github/workflows/$f"
           done
           changed=$(git diff --name-only | wc -l)
-          if [ "$changed" -ne 5 ]; then
-            echo "::error::seed bump expected to touch exactly 5 workflows, touched ${changed} — did a pin move or diverge? Bump manually (see test.yml's SEED_VERSION comment)."
+          if [ "$changed" -ne 6 ]; then
+            echo "::error::seed bump expected to touch exactly 6 workflows, touched ${changed} — did a pin move or diverge? Bump manually (see test.yml's SEED_VERSION comment)."
             exit 1
           fi
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add .github/workflows/test.yml .github/workflows/release.yml .github/workflows/fixpoint-arm64.yml .github/workflows/ubsan.yml .github/workflows/leak-verdict.yml
+          git add .github/workflows/test.yml .github/workflows/release.yml .github/workflows/fixpoint-arm64.yml .github/workflows/ubsan.yml .github/workflows/leak-verdict.yml .github/workflows/native.yml
           git commit -m "ci: bump SEED_VERSION to ${new} (release-pipeline auto-bump)"
           # Push to develop. With RELEASE_DEPLOY_KEY set: over SSH with that
           # write deploy key, the ruleset's bypass actor for release pushes

@@ -527,6 +527,8 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
 `scripts/cli-diff-test.sh` runs each case in a sandbox and compares rc, stdout and trees; `--record`
 writes goldens. Always read each GOLDEN-DIFF before `--record`, and record with a binary built from the
 SAME tree (one built before a merge silently drops the other side's changes).
+`--shard I/N` scores every N-th case of the sorted list (CI's `cli-cases` job runs three stripes;
+`gates_fast.sh` GATE 7 runs them all locally unless `T1_SKIP_CLI=1`).
 
 - **`yo fmt` a fixture BEFORE recording.** CI's fmt check scans every fixture `.yo`, and the fixture's
   hash is part of `expected_tree`. Order: `yo fmt` the fixture, `--record <case>`, re-score without
@@ -593,6 +595,28 @@ S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
   structural differences.
 - `fixpoint_only.sh` and `chunked_gate.sh` score stage-2 with `scripts/count-transpile-failures.sh` and
   the fixpoint GATES on it (see "Counting untranspiled bodies" below).
+
+## What CI runs where
+
+Plan and measurements: `plans/CI_ONE_HOUR.md`.
+
+- **`test.yml`** (every PR to develop and every develop push; `merge-gate`) is the core battery: one seed
+  build of stage 1 (`stage1`), the stage-2 `suite-candidate` built from it, and everything Linux x86_64.
+  wasm/wasi, the chunked gate, the self-hosted jobs and the ubuntu suite reuse those two binaries instead
+  of rebuilding them.
+- **`native.yml`** (every develop push; `native-gate`) runs the macOS, Windows and Linux arm64 legs. Its
+  cross-emits use the seed-built stage 1, the route release.yml ships. PRs do not run it: a change to a
+  platform runtime (`src/codegen/async/runtime-io-*.yo`, Windows or macOS std paths) dispatches it on
+  its branch with `gh workflow run native.yml --ref <branch>` before merging.
+- A release needs both workflows green on the exact tip (release.yml checks both).
+- **The compiler build cache** (`.github/actions/compiler-cache-key`, `stage1-cached`): stage 1,
+  stage 2 and the cross-emitted C are restored when `src/`, `std/`, `build.yo`, `yo.toml`, `yo.lock`,
+  `vendor/`, the seed, the runner image, clang and the recipe file are all unchanged. A suspected stale
+  entry: set the repository variable `YO_CI_NO_BUILD_CACHE=1` and re-run.
+- Striping knobs the jobs use, all defaulting to the whole set locally: `yo test --shard i/n`,
+  `scripts/test-name-shard.sh`, `SHARD=i/n` for `scripts/origins-unsound.sh` and
+  `scripts/bootstrap/hollow_sweep69.sh`, `cli-diff-test.sh --shard I/N`,
+  `SIDE=single|chunked|compare` for `scripts/bootstrap/chunked_gate.sh`.
 
 ## Choosing a Tier 1 gate: select by what the diff touches
 
