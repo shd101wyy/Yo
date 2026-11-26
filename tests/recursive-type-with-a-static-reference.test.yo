@@ -1,0 +1,44 @@
+// A recursive type that holds a `static` reference (a `str` field) is ONE
+// type inside and after its declaration. `Option(ArrayList(Self))` written in
+// the declaration is instantiated over the fieldless `Self` shell; written
+// after it, over the final. The static bit of a type's origins is part of its
+// instance identity (VERDICTS-74 rule 1), and reading the shell's empty field
+// list instead of its final's made the two spellings two instances: two C
+// types, and the C compiler rejected the assignment between them
+// (issues/fixed/2026-11-26-a-recursive-structs-self-field-type-is-a-second-instance-when-the-struct-holds-a-static-reference.md).
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+_Token :: struct(
+  tag : str,
+  children : Option(ArrayList(Self))
+);
+derive(_Token, Clone);
+_Node :: enum(
+  Leaf(tag : str),
+  Branch(tag : str, kids : Option(ArrayList(Self)))
+);
+derive(_Node, Clone);
+_child_count :: (fn(t : &_Token) -> usize)(
+  match(&t.children, .Some(ks) => ks.len(), .None => usize(0))
+);
+test("recursive type with a static reference: derive(Clone) over the Self field compiles and clones", {
+  t := _Token(tag : "p", children : .None);
+  u := t.clone();
+  assert(u.tag == "p", "the clone keeps the tag");
+  assert(_child_count(&u) == usize(0), "no children");
+});
+test("recursive type with a static reference: a value typed after the declaration fills the Self field", {
+  mut(kids) := ArrayList(_Token).new();
+  kids.push(_Token(tag : "b", children : .None));
+  (c : Option(ArrayList(_Token))) = .Some(kids);
+  t := _Token(tag : "p", children : c);
+  assert(_child_count(&t) == usize(1), "one child");
+  u := t.clone();
+  assert(_child_count(&u) == usize(1), "the clone has the child");
+});
+test("recursive type with a static reference: a recursive enum's Self payload is one type", {
+  n := _Node.Branch(tag : "p", kids : .None);
+  m := n.clone();
+  tag := match(&m, .Leaf(t) => t.*, .Branch(t, _) => t.*);
+  assert(tag == "p", "the clone keeps the tag");
+});

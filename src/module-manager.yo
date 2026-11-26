@@ -3021,6 +3021,15 @@ mm_load_file :: (
   outcome := mm_eval_entry_exprs(&entry_abs, std_path.clone(), &exprs, local_exn);
   if(outcome.ok, {
     module_load_end(&entry_abs, entry_touch_mark);
+    // The entry is cached like a demand-loaded module, so a later target
+    // that imports it is the cache HIT above instead of a second evaluation.
+    // A second evaluation mints the file's types again while the first
+    // evaluation's registrations stay live, and the two eras meet: `yo check
+    // ./src` over `lib.yo` + a `main.yo` importing it failed `derive(Vr,
+    // Clone)` with `Cannot unify incompatible struct types: "Matrix" and
+    // "Matrix"`
+    // (issues/fixed/2026-11-17-a-directory-check-fails-a-derive-copy-clone-over-an-array-field-of-a-same-module-struct.md).
+    register_module(&entry_abs, &outcome.module_value, &outcome.module_type);
   });
   if(outcome.ok && verbose, {
     emit_chatter(`check: ${input_path} — evaluator OK`);
