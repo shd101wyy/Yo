@@ -16,10 +16,14 @@ doc.
 
 ## Active
 
-Only VALUES_BY_DEFAULT is in progress (until v0.2.80). Everything else is in
-`backlog/`, ordered by [`backlog/POST_VBD_PLAN.md`](backlog/POST_VBD_PLAN.md).
+VALUES_BY_DEFAULT is in progress (until v0.2.80), and CI_ONE_HOUR's phases
+beside it. Everything else is in `backlog/`, ordered by
+[`backlog/POST_VBD_PLAN.md`](backlog/POST_VBD_PLAN.md).
 
 - [`ROADMAP.md`](ROADMAP.md) — the language and product roadmap.
+- [`CI_ONE_HOUR.md`](CI_ONE_HOUR.md) — the battery's measured critical path,
+  phase 1 (identical coverage, landed), and the decisions that reach ~60-75
+  min.
 - [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) — every declared type is a
   value, `ref(...)`/`atomic(...)` leave the language, sharing is spelled
   `Rc(T)`/`Arc(T)`, references carry origins (decisions 1–50).

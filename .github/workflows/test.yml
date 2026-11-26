@@ -599,17 +599,29 @@ jobs:
   # required check until V3 lands (the plan's CI section); a red job here
   # is a solver-harness regression, not a language regression.
   verify:
-    name: Formal verification (pinned Z3, ${{ matrix.part }})
+    name: Formal verification (pinned Z3, ${{ matrix.part }}${{ matrix.shards && format(' {0}/{1}', matrix.shard, matrix.shards) || '' }})
     needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    # Two legs on two runners: `list-model` runs verifier_list_len alone (the
-    # longest file, 67-108 min); `harness` runs the other four tests/internal
-    # verifier files and the `yo verify` steps.
+    # Six legs on six runners (plans/CI_ONE_HOUR.md phase 1). Until 2026-11-26
+    # there were two: `harness` ran four verifier files back to back (5 + 33 +
+    # 20 + 24 min) and `list-model` ran verifier-list-len alone (85-128 min,
+    # the battery's slowest job). Now `harness` keeps the unit tests, the
+    # assumed-contract tests and the `yo verify` steps; `negative` and
+    # `refine` run one file each; and verifier-list-len's 39 tests (each one
+    # 1-4 min of in-process evaluation after a ~10 min batch compile) are
+    # striped three ways by scripts/test-name-shard.sh, which checks that its
+    # pattern selects exactly its stripe. Same files, same tests, same flags.
     strategy:
       fail-fast: false
       matrix:
-        part: [harness, list-model]
+        include:
+          - part: harness
+          - part: negative
+          - part: refine
+          - { part: list-model, shard: 0, shards: 3 }
+          - { part: list-model, shard: 1, shards: 3 }
+          - { part: list-model, shard: 2, shards: 3 }
     # Five tests/internal files, each compiling the compiler. The "~45 min
     # nominal" this note used to give is stale: MEASURED 2026-10-08, the last
     # three green develop runs took 85, 83 and 84 min, and run 37732698461 was
@@ -721,7 +733,7 @@ jobs:
       # issues/self-hosted-emit-leaks-remaining-classes.md); ASan crash
       # detection stays armed.
       - name: Verifier negative-path tests (subset + refutations)
-        if: matrix.part == 'harness'
+        if: matrix.part == 'negative'
         env:
           YO_TEST_LEAK_VERDICT: "0"
         run: /tmp/yo-stage1 test ./tests/internal/verifier-negative.test.yo --bail -v --compile-timeout-ms 1200000
@@ -739,19 +751,23 @@ jobs:
       # refine(T, p) refinement annotations — modular VCs (callee assumes,
       # call sites prove).
       - name: Verifier refinement tests
-        if: matrix.part == 'harness'
+        if: matrix.part == 'refine'
         env:
           YO_TEST_LEAK_VERDICT: "0"
         run: /tmp/yo-stage1 test ./tests/internal/verifier-refine.test.yo --bail -v --compile-timeout-ms 1200000
 
       # The ArrayList list model (R1 slice 1 of ATS_STYLE_INDEXED_TYPES.md):
       # len/is_empty/index reads over a runtime collection, modular length
-      # contracts.
-      - name: Verifier list-model tests
+      # contracts. One stripe of the file's tests per leg (see the matrix).
+      - name: Verifier list-model tests (stripe ${{ matrix.shard }}/${{ matrix.shards }})
         if: matrix.part == 'list-model'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier-list-len.test.yo --bail -v --compile-timeout-ms 1200000
+        run: |
+          f=./tests/internal/verifier-list-len.test.yo
+          # No pipe and no `|| true`: a failing selection must fail the step.
+          pattern=$(bash scripts/test-name-shard.sh /tmp/yo-stage1 "$f" ${{ matrix.shard }} ${{ matrix.shards }})
+          /tmp/yo-stage1 test "$f" --test-name-pattern "$pattern" --bail -v --compile-timeout-ms 1200000
 
       - name: yo verify harness report (JSON)
         if: matrix.part == 'harness'
@@ -1434,18 +1450,18 @@ jobs:
           { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
-      - name: Install the seed compiler (previous release)
-        uses: ./.github/actions/install-seed
+      # Stage 1 through the split route (the seed emits C and exits, clang
+      # compiles it in a fresh process): the route the `test` and wasm jobs
+      # use, with the same flags (`--optimize 2 --allocator mimalloc`). The
+      # one-process `yo compile -o` it replaces took 28-36 min here against
+      # 17-33 min for the split route on the same batteries (plans/CI_ONE_HOUR.md),
+      # and this job is the head of the battery's critical path
+      # (candidate -> cross-emit -> test-native). The action installs the
+      # seed and the dependencies, and exports S1=/tmp/yo-stage1.
+      - name: Build the candidate's stage 1 (previous seed, split route)
+        uses: ./.github/actions/build-stage1
         with:
-          version: ${{ env.SEED_VERSION }}
-
-      - name: Fetch the project's Yo dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Build the candidate compiler (previous seed, native)
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o yo-candidate
+          seed-version: ${{ env.SEED_VERSION }}
 
       - name: "Stage 2: the candidate compiles the tree (self-application)"
         # A codegen fix in THIS tree only reaches a compiler's OWN compiled-in
@@ -1459,7 +1475,7 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          YO_STD="$PWD/std" ./yo-candidate compile src/main.yo \
+          YO_STD="$PWD/std" "$S1" compile src/main.yo \
             --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
           # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
@@ -1487,12 +1503,26 @@ jobs:
   # a DEFAULT for something and the behavioural fixpoint gate runs on every
   # code PR — a chunked-built and a single-file-built compiler must emit
   # byte-identical C.
+  #
+  # Two legs plus a scorer (plans/CI_ONE_HOUR.md phase 1): the gate is four
+  # full compiles of src/main.yo (build single ~20 min, build chunked ~19,
+  # then each binary self-emits, ~27 each), which ran back to back as one
+  # 93-115 min job. Each leg now builds ONE compiler and emits its C
+  # (chunked_gate.sh SIDE=single / SIDE=chunked, the same commands), and
+  # `chunked-gate-compare` runs the unchanged hollow count and byte
+  # comparison on the two uploaded emissions. Same checkout path, same
+  # candidate, same flags on both runners, as the bootstrap-fixpoint-stage3
+  # job's cross-runner comparison already relies on.
   chunked-gate:
-    name: Chunked-emission behavioural fixpoint (chunked vs single)
+    name: Chunked-emission behavioural fixpoint (${{ matrix.side }} side)
     needs: [changes, tree-hygiene, suite-candidate]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        side: [single, chunked]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1538,10 +1568,38 @@ jobs:
         with:
           yo: ./yo-candidate
 
-      - name: Run the chunked behavioural fixpoint gate
+      - name: Build the ${{ matrix.side }} compiler and emit its C
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
+        run: SIDE=${{ matrix.side }} S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
+
+      - name: Upload the emitted C
+        uses: actions/upload-artifact@v4
+        with:
+          name: chunked-gate-emit-${{ matrix.side }}
+          path: /tmp/chgate_emit_${{ matrix.side }}.c
+          retention-days: 1
+          if-no-files-found: error
+
+  chunked-gate-compare:
+    name: Chunked-emission behavioural fixpoint (chunked vs single)
+    needs: [changes, tree-hygiene, chunked-gate]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download both emissions
+        uses: actions/download-artifact@v8
+        with:
+          pattern: chunked-gate-emit-*
+          path: /tmp
+          merge-multiple: true
+
+      - name: Compare the two emissions (hollow count + byte identity)
+        run: SIDE=compare bash scripts/bootstrap/chunked_gate.sh
 
   suite-cross-emit:
     name: Cross-emit suite compiler (${{ matrix.target }})
@@ -1700,8 +1758,17 @@ jobs:
         include:
           # SHARDED 2-way: macos-latest took 37-60 min unsharded (measured
           # 2026-10-08). Two, not four: GitHub runs a limited number of macOS
-          # jobs at once per account, and macos-26-intel's four shards already
-          # take most of them.
+          # jobs at once per account, and macos-26-intel's shards take most
+          # of them.
+          #
+          # FIVE macOS legs in all, not six (plans/CI_ONE_HOUR.md phase 1):
+          # the account runs at most five macOS jobs at once, so with 2 + 4
+          # one leg queued until another finished, and that queue was the
+          # battery's critical path (32-51 min waits on batteries 45674049929,
+          # 45652683010 and 45604698557). Measured over six green batteries,
+          # the last macOS leg ended 78-128 min (median ~100) after the legs
+          # became runnable; 2 + 3 puts every leg on a runner at once, ~76-95
+          # min for the slowest intel third, from the same per-shard numbers.
           - { os: macos-latest, target: macos-arm64, shard: 0, shards: 2 }
           - { os: macos-latest, target: macos-arm64, shard: 1, shards: 2 }
           # SHARDED 4-way: under AddressSanitizer the whole corpus took
@@ -1716,10 +1783,11 @@ jobs:
           # (measured, run 34932915472). They CONSUME a cross-emitted
           # artifact and rebuild nothing, so shards are cheap — the same
           # argument that justified sharding compiler-internal-tests.
-          - { os: macos-26-intel, target: macos-x64, shard: 0, shards: 4 }
-          - { os: macos-26-intel, target: macos-x64, shard: 1, shards: 4 }
-          - { os: macos-26-intel, target: macos-x64, shard: 2, shards: 4 }
-          - { os: macos-26-intel, target: macos-x64, shard: 3, shards: 4 }
+          # macos-26-intel is SHARDED 3-way since 2026-11-26: the macOS cap
+          # above leaves it three slots.
+          - { os: macos-26-intel, target: macos-x64, shard: 0, shards: 3 }
+          - { os: macos-26-intel, target: macos-x64, shard: 1, shards: 3 }
+          - { os: macos-26-intel, target: macos-x64, shard: 2, shards: 3 }
           # windows-11-arm doubles as the strictest C-conformance runner: it
           # installs clang 22 (no pre-installed LLVM, unlike windows-latest's
           # 20), where -Wincompatible-pointer-types is a default ERROR.
@@ -2003,10 +2071,24 @@ jobs:
     # run clean under ASan) and G-E (the sink grep gate, and the totality
     # audit `YO_AUDIT_ORIGIN_TOTALITY`, whose count is 0). The corpus `target`
     # set is printed for the record: its open rows are the parity items.
-    name: Origins corpus, unsound programs, origin totality (G-A, G-B, G-E)
+    name: Origins corpus, unsound programs, origin totality (G-A, G-B, G-E)${{ matrix.shards && format(' G-B {0}/{1}', matrix.shard, matrix.shards) || '' }}
     needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    # Five legs (plans/CI_ONE_HOUR.md phase 1): `gates` runs G-E, G-A and the
+    # informational target set; G-B, 77 of the job's 107 min on battery
+    # 45674049929 and growing with every corpus program, is striped four ways
+    # (scripts/origins-unsound.sh SHARD=i/n keeps every program whose sorted
+    # index is i mod n, so the four legs cover the directory exactly once).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: gates
+          - { part: unsound, shard: 0, shards: 4 }
+          - { part: unsound, shard: 1, shards: 4 }
+          - { part: unsound, shard: 2, shards: 4 }
+          - { part: unsound, shard: 3, shards: 4 }
     # G-A today ~9 min, G-B ~28 min, G-E totality ~15 min since it checks
     # ./src (#1918): 52 min of gates before the informational target set, so
     # the old 60-minute cap cancelled the job in that last step (battery
@@ -2038,14 +2120,19 @@ jobs:
         with:
           yo: /tmp/yo-stage1
       - name: G-E sink grep gate
+        if: matrix.part == 'gates'
         run: bash scripts/check-origin-sinks.sh
       - name: G-A corpus (today)
+        if: matrix.part == 'gates'
         run: YO=/tmp/yo-stage1 bash scripts/origins-corpus.sh today
-      - name: G-B unsound programs (ASan)
-        run: YO=/tmp/yo-stage1 YO_CC=clang bash scripts/origins-unsound.sh
+      - name: G-B unsound programs (ASan, stripe ${{ matrix.shard }}/${{ matrix.shards }})
+        if: matrix.part == 'unsound'
+        run: SHARD=${{ matrix.shard }}/${{ matrix.shards }} YO=/tmp/yo-stage1 YO_CC=clang bash scripts/origins-unsound.sh
       - name: G-E origin totality (count 0)
+        if: matrix.part == 'gates'
         run: YO=/tmp/yo-stage1 bash scripts/check-origin-sinks.sh --totality
       - name: G-A corpus target set (informational)
+        if: matrix.part == 'gates'
         continue-on-error: true
         timeout-minutes: 20
         run: YO=/tmp/yo-stage1 bash scripts/origins-corpus.sh target | tail -1
@@ -3435,6 +3522,7 @@ jobs:
       - test-suite
       - suite-candidate
       - chunked-gate
+      - chunked-gate-compare
       - suite-cross-emit
       - test-native
       - stage1
