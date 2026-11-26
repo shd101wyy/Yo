@@ -440,4 +440,4 @@ branches :: Type.map_variants(
 
 ## 设计文档
 
-完整设计包括实现细节，请参阅 [TYPE_REFLECTION.md](../../plans/reference/TYPE_REFLECTION.md)。
+完整设计包括实现细节，请参阅 `plans/reference/TYPE_REFLECTION.md`。
