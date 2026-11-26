@@ -1633,7 +1633,7 @@ _lend_binding :: (fn(bind : &AstExpr, is_mut : bool, name_atom : &AstExpr, place
   args.push(Rc.clone(place.*));
   match(
     bind,
-    Rc(.FnCall(_, bf, _, b_infix, btok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(ast_expr_token(&bf.*)))), Rc.new(args), b_infix.*, Rc.clone(btok.*))),
+    Rc(.FnCall(_, bf, _, b_infix, btok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), ast_expr_token(&bf.*))), Rc.new(args), b_infix.*, Rc.clone(btok.*))),
     Rc(.Atom(_, _)) => Rc.clone(bind.*)
   )
 });
@@ -1693,7 +1693,7 @@ _evaluate_lending_destructuring :: (fn(expr : &AstExpr, lhs : &AstExpr, rhs : &A
     );
   });
   dr := destructure_type(lhs, rhs, &src_ty, &Option(EvalValue).None, env, false, false, true, ctx, exn);
-  rds := match(dr.runtime_destructurings, .Some(r) => r, .None => ArrayList(RuntimeDestructuring).new());
+  rds := match(&dr.runtime_destructurings, .Some(r) => r.clone(), .None => ArrayList(RuntimeDestructuring).new());
   (i : usize) = usize(0);
   while(i < rds.len(), i = (i + usize(1)), {
     rd := match(rds.get_cloned(i), .Some(r) => r, .None => return(Rc.clone(expr.*)));
