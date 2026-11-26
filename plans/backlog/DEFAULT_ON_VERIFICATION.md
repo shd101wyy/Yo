@@ -328,6 +328,52 @@ What S6b contains:
 - the default mode becomes `verify+`: the two erasures are switched on for it;
 - `Pragma.VerifyOrAssert` is deleted, with no alias and no deprecation window (D4).
 
+### 3.1 S2 as built
+
+- **The contract probe** (`probe_assumed_contract`, `src/verifier/vc.yo`): per
+  `assumed()` function, one query with its `requires`, parameter refinements and
+  `ensures` assumed and the goal `false`. A parameter the function may change (`&mut`,
+  or named in `old(...)`) is a fresh post-call value in the `ensures`. `unsat` is the
+  outcome `contradictory`, a failure in every mode (`--deny` can name it too). A
+  contract the walk cannot express is reported as not probed, with the construct. std's
+  nine `ArrayList` contracts are in that case today: their `Self` and `T` come from the
+  `impl`'s type parameter, which the abstract walk does not model (`assumed … ; contract
+  not probed (outside the subset: …)`); the call probe still checks each use.
+- **The call probe** (`_record_callee_fact`, `vc.yo`; `_run_call_probes`,
+  `src/verifier/driver.yo`): after each call to an `assumed()` callee, one query asks
+  whether the path, with the callee's `ensures` added, is satisfiable. Only when it is
+  not: one query for the path before the call (`unsat` again is `dead-path`: dead code,
+  not a finding), then one per proved obligation whose path carries the call's facts,
+  re-asked with the goal `false`; an `unsat` turns its verdict into `Infeasible`. The
+  function's outcome is `infeasible`: a failure in `verify`, the runtime-assert fallback
+  in `verify+` (the strip pass removes only `Proved` asserts), denied by `--strict`.
+- **`assumes`**: per report, the sorted ids of the `assumed()` contracts on its proved
+  obligations' paths (a fact keeps its callee through a branch's guard), closed over the
+  callees the same run verified. Syntactic reachability, an over-approximation of what
+  the proofs used, until unsat cores render (`LEAN_ADOPTION_CANDIDATES.md` LE2).
+- **Output, for S6a to reuse:** text `rests on assumed: …` on the `ok` line,
+  `; contract satisfiable` (or why not probed) on the `assumed` line, the failing probe
+  under an `infeasible` report; JSON per function `assumes` and `probes[]` (`name`,
+  `kind`, `callee`, `result` ∈ `sat`/`unsat`/`dead-path`/`unknown`/`solver-error`/
+  `outside-subset`, `detail`, `queries`, `cached`), per obligation `verdict:
+  "infeasible"` with `infeasible_by`, summary `probe_queries` and `probe_cached`. Probe
+  queries are counted apart from `queries` (obligations). A probe runs at a twenty-fifth
+  of the run's `rlimit` (200,000 by default) and is never escalated: finding a model for
+  a quantified path can exhaust any budget (`dml-sorted-insert.yo`'s two calls cost
+  1.8 s each at the full one), and a probe that gives up only leaves a contract
+  unchecked.
+- **Cost, measured 2026-11-26** (`yo verify`, the tree binary against the `wip/v0281-dov-s0`
+  binary of the same develop, Z3 5.1.0, the 32-core box at load 17 to 38): every
+  satisfiable probe is one query, so the added count is the number of calls to
+  `assumed()` functions plus one per `assumed()` definition. `std/collections`: 0
+  queries before and after (its nine `assumed()` contracts are not probed, see above,
+  and none of its walked functions calls one). A generated module in the §2.2 shape
+  plus a `push` pair in one function of eight (320 functions, 1,043 lines): 440 → 440
+  obligation queries plus 80 probe queries (+18 %); cold solving, three interleaved
+  runs, 15.1 / 15.7 / 18.0 s → 18.5 / 19.1 / 21.0 s (about 42 ms a probe, the cost of
+  one cold obligation); warm, every probe answers from the cache (88 to 183 ms of
+  solving for the whole module, as before).
+
 ## 4. The gates for the flip
 
 Each is a number or a verdict a CI job re-derives. None is asserted in prose.

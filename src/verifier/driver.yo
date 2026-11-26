@@ -1183,15 +1183,27 @@ _verdict_rank :: (fn(v : &VerifyVerdict) -> usize)(
 /// the FuncVal id itself when neither knows it.
 _callee_report_id :: (fn(fid : &String, task_ids : &HashMap(String, String)) -> String)({
   base := match(specialized_base_of(fid.clone()), .Some(b) => b, .None => fid.clone());
-  match(assumed_fn_site(fid.clone()), .Some(site) => {
-    return(site);
-  }, .None => ());
-  match(assumed_fn_site(base.clone()), .Some(site) => {
-    return(site);
-  }, .None => ());
-  match(task_ids.get_cloned(fid.clone()), .Some(id) => {
-    return(id);
-  }, .None => ());
+  match(
+    assumed_fn_site(fid.clone()),
+    .Some(site) => {
+      return(site);
+    },
+    .None => ()
+  );
+  match(
+    assumed_fn_site(base.clone()),
+    .Some(site) => {
+      return(site);
+    },
+    .None => ()
+  );
+  match(
+    task_ids.get_cloned(fid.clone()),
+    .Some(id) => {
+      return(id);
+    },
+    .None => ()
+  );
   match(task_ids.get_cloned(base.clone()), .Some(id) => id, .None => fid.clone())
 });
 /// Is `fid` (or its unspecialized base) an `assumed()` function?
@@ -1218,6 +1230,27 @@ _probe_detail_of :: (fn(v : &VerifyVerdict) -> String)(
     .Unproven(reason) => reason.clone(),
     .SolverError(msg) => msg.clone(),
     _ => String.new()
+  )
+);
+/// The budget a probe runs under: a twenty-fifth of the run's `rlimit`
+/// (200,000 at the default, about a second of solving, §2.2 of
+/// plans/backlog/DEFAULT_ON_VERIFICATION.md). Showing a path satisfiable
+/// means finding a model, which a quantified path can make the solver
+/// search for until the budget runs out (`dml-sorted-insert.yo`'s calls:
+/// 1.8 s each at the full budget); a probe that gives up only leaves a
+/// contract unchecked, so it gets the small budget, deterministically.
+_probe_run_config :: (fn(cfg : &VerifyRunConfig) -> VerifyRunConfig)(
+  VerifyRunConfig(
+    solver_path : cfg.solver_path.clone(),
+    encode_opts : EncodeOptions(
+      rlimit : (cfg.encode_opts.rlimit / usize(25)),
+      random_seed : cfg.encode_opts.random_seed,
+      timeout_ms : cfg.encode_opts.timeout_ms,
+      want_unsat_core : cfg.encode_opts.want_unsat_core,
+      want_counterexample : cfg.encode_opts.want_counterexample
+    ),
+    no_cache : cfg.no_cache,
+    elision_obligations : cfg.elision_obligations
   )
 );
 /// `q` asking whether its assumptions are satisfiable at all: the goal
@@ -1258,7 +1291,7 @@ _probe_assumed_contract :: (
   (oi : usize) = usize(0);
   while(oi < res.obligations.len(), {
     if(res.obligations(oi).probe.is_some(), {
-      r := run_vc_query(&res.obligations(oi).query, cfg, binary.clone(), false);
+      r := run_vc_query(&res.obligations(oi).query, &_probe_run_config(cfg), binary.clone(), false);
       queries = (queries + usize(1));
       if(r.cached, {
         cached = (cached + usize(1));
@@ -1298,6 +1331,7 @@ _run_call_probes :: (
   ) -> ArrayList(VerifyProbeReport)
 )({
   out := ArrayList(VerifyProbeReport).new();
+  pcfg := _probe_run_config(cfg);
   (pi : usize) = usize(0);
   while(pi < all.len(), {
     match(
@@ -1307,7 +1341,7 @@ _run_call_probes :: (
         callee_id := _callee_report_id(&pk.callee, task_ids);
         (queries : usize) = usize(1);
         (cached : usize) = usize(0);
-        post := run_vc_query(&all(pi).query, cfg, binary.clone(), false);
+        post := run_vc_query(&all(pi).query, &pcfg, binary.clone(), false);
         if(post.cached, {
           cached = (cached + usize(1));
         });
@@ -1321,7 +1355,7 @@ _run_call_probes :: (
             _ := pre_q.assumptions.pop();
             drop_n = (drop_n - usize(1));
           });
-          pre := run_vc_query(&pre_q, cfg, binary.clone(), false);
+          pre := run_vc_query(&pre_q, &pcfg, binary.clone(), false);
           queries = (queries + usize(1));
           if(pre.cached, {
             cached = (cached + usize(1));
@@ -1337,7 +1371,7 @@ _run_call_probes :: (
             rests := all(si).after_probes.contains(p_name.clone());
             proved := match(&obligations(oi).verdict, .Proved(_) => true, _ => false);
             if(rests && proved && !obligations(oi).folded, {
-              recheck := run_vc_query(&_with_goal_false(&all(si).query, &`${all(si).name}/feasible`), cfg, binary.clone(), false);
+              recheck := run_vc_query(&_with_goal_false(&all(si).query, &`${all(si).name}/feasible`), &pcfg, binary.clone(), false);
               queries = (queries + usize(1));
               if(recheck.cached, {
                 cached = (cached + usize(1));

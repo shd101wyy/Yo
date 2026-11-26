@@ -5,7 +5,8 @@
 // directly; `at_least_one` uses `above_zero`'s ensures, which rests on
 // `bump`, so it lists `bump` too. `guarded` calls `bump` only on a path its
 // own `requires` rules out: the path is dead before the call, which is not
-// the call's doing, so the function stays `ok`.
+// the call's doing, so the function stays `ok` (and lists `bump`: the
+// branch's guarded fact is on its ensures' path).
 pragma(Pragma.Verify);
 
 bump :: (fn(x : i32, requires(x < i32(100)), ensures(r > x), assumed()) -> (r : i32))(x + i32(1));

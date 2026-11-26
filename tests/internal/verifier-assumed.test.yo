@@ -413,7 +413,9 @@ test("a satisfiable assumed contract keeps its callers ok, and each ok names it"
   while(i < reports.len(), {
     rp := reports.get_cloned(i).unwrap();
     if(rp.outcome == "ok", {
-      // above_zero directly, at_least_one through above_zero's ensures.
+      // above_zero directly, at_least_one through above_zero's ensures,
+      // guarded through the branch's guarded fact (its proof of ensures#0
+      // carries `(x < 0) ==> (ret > x)`).
       if((rp.assumes.len() == usize(1)) && (rp.assumes.get_cloned(usize(0)).unwrap() == bump.fn_id), {
         listing = (listing + usize(1));
       });
@@ -424,6 +426,6 @@ test("a satisfiable assumed contract keeps its callers ok, and each ok names it"
     });
     i = (i + usize(1));
   });
-  assert(listing == usize(2), `two ok reports must list exactly ${bump.fn_id}, got ${listing.to_string()}: [${_reports_dump(&reports)}]`);
+  assert(listing == usize(3), `every ok report must list exactly ${bump.fn_id}, got ${listing.to_string()}: [${_reports_dump(&reports)}]`);
   assert(dead == usize(1), `guarded's call probe must answer dead-path, got ${dead.to_string()}`);
 });

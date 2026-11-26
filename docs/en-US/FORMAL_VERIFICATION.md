@@ -429,15 +429,17 @@ bad :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))(oracle(x));
 ```
 
 ```text
-  contradictory  fn@main.yo:2 [verify] — the assumed() contract is unsatisfiable: …
+  contradictory  fn@main.yo:2 [verify] — the assumed() contract is unsatisfiable: no input meets its requires while a result meets its ensures, so every proof that uses it is void
   infeasible  fn@main.yo:4 [verify]
     fn@main.yo:4/ensures#0: INFEASIBLE  proved only because the assumed() contract of fn@main.yo:2 makes the path infeasible
-    fn@main.yo:4/feasible@5:58: INFEASIBLE after the call to fn@main.yo:2: …
+    fn@main.yo:4/feasible@5:58: INFEASIBLE after the call to fn@main.yo:2: its assumed() ensures contradict the facts the path held before the call
+    rests on assumed: fn@main.yo:2
 ```
 
-With a satisfiable contract (`ensures(r > x)` alone) the caller of a
-function that returns `oracle(x)` with `ensures(r > x)` is
-`ok — 1 obligation(s) proved; rests on assumed: fn@main.yo:2`.
+With a satisfiable contract, `ensures(r > x)` alone, `oracle` reports
+`assumed … ; contract satisfiable`, and a caller that returns `oracle(x)`
+under `ensures(r > x)` reports
+`ok … — 1 obligation(s) proved; rests on assumed: fn@main.yo:2`.
 
 ### Refinement types — `refine(T, p)`
 
