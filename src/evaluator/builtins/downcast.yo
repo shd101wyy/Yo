@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_type_value } :: import("../../value.yo");
 { create_option_type } :: import("./rc-fns.yo");
-{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, transfer_value_into } :: import("../utils.yo");
 { apply_type_ctor_via } :: import("../values/dyn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, format_error_message_with_help, format_eval_failure, with_code } :: import("../../error.yo");
@@ -234,7 +234,7 @@ evaluate_downcast :: (
       res_ty := match(apply_type_ctor_via(&String.from("Result"), &res_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(Rc.clone(dc_call)));
       match(
         &dc_call,
-        Rc(.FnCall(_, _, Rc(oargs), _, _)) => match(oargs.get_cloned(usize(0)), .Some(oa) => set_expr_as_needs_to_call_dup(&oa, ctx, exn, "downcast"), .None => ()),
+        Rc(.FnCall(_, _, Rc(oargs), _, _)) => match(oargs.get_cloned(usize(0)), .Some(oa) => transfer_value_into(&oa, ctx, exn, "downcast"), .None => ()),
         _ => ()
       );
       out_info_o := new_expr_info(&cur_env, &res_ty);
@@ -454,7 +454,7 @@ evaluate_upcast :: (
       uc_result_ty = match(apply_type_ctor_via(&hname, &ht, &cur_env, ctx, exn), .Some(t) => t, .None => return(Rc.clone(uc_call)));
       match(
         &uc_call,
-        Rc(.FnCall(_, _, Rc(uargs), _, _)) => match(uargs.get_cloned(usize(0)), .Some(ua) => set_expr_as_needs_to_call_dup(&ua, ctx, exn, "upcast"), .None => ()),
+        Rc(.FnCall(_, _, Rc(uargs), _, _)) => match(uargs.get_cloned(usize(0)), .Some(ua) => transfer_value_into(&ua, ctx, exn, "upcast"), .None => ()),
         _ => ()
       );
     },

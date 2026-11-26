@@ -512,15 +512,9 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
       .None => ()
     );
   });
-  // The single index argument. A by-value `idx` parameter (the trait's
-  // contract since 2026-10-11) attaches its caller-side share as a deferred
-  // dup on the argument's ExprInfo (`consume_argument_for_parameter` in
-  // try_to_call_with_index_trait), exactly as a normal call's argument — and
-  // like a normal call's argument site, that dup must be EMITTED here and the
-  // dup result passed to the call: the specialized index method's C drops its
-  // by-value parameter on every exit, so passing the plain value with no
-  // balancing +1 under-counts an RC-typed index (`_mark_by_value_param_shares`).
-  // A `Copy` index carries no deferred dup and passes through unchanged.
+  // The single index argument, decided by `consume_argument_for_parameter`
+  // (try_to_call_with_index_trait) exactly as a normal call's argument, and
+  // emitted the same way, with any deferred dup it carries.
   index_arg_opt := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.get_cloned(usize(0)),

@@ -16,6 +16,11 @@ tried first and does NOT work: derive-generated bodies carry quote-
 template tokens from the macro's defining file, not auto-generated
 ones.)
 
+**Update 2026-11-26 (VERDICTS-70 row 10):** the own-param marker is now
+`transfer_value_into` and evaluates no dup at all, and the borrowed-argument
+guard synthesizes its dup, so no caller evaluates a nested `___dup` today.
+The evaluator fragility itself is unchanged.
+
 ## Symptom
 
 With aliasing Stage 0's borrow-projection marker active in yo-self,

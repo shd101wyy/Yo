@@ -2385,7 +2385,8 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
 /// (`type_needs_drop_glue`). The kinds named above are the cases a type
 /// still mentioning an open type variable is judged by before its
 /// instantiation; every value that needs a drop is explicit-copy, so no copy
-/// is ever lowered as a count increment (`set_expr_as_needs_to_call_dup`).
+/// is ever lowered as a count increment: a store moves or rejects it
+/// (`transfer_value_into`).
 type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || (type_holds_counted_handle(ty) || (type_holds_dyn_by_value(ty) || type_needs_drop_glue(ty)))));
 /// Does a value of `ty` need a drop where its owner's life ends: a count to
 /// release, a cell, a buffer, a `Drop` impl, or a part holding one
@@ -2592,9 +2593,9 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : u
   // reasoning as get_size_of_type (fifth shell-consumption site). An empty
   // shell walks to `false`, and a specialization whose T binding is the
   // recursive-Self shell (e.g. ArrayList(JsonValue).push's `value` param)
-  // then SKIPS set_expr_as_needs_to_call_dup's element retain — the pushed
-  // element's payload is freed when the caller's Result temp drops (the
-  // json `["abc"]` / `{"k": "v"}` value-loss). `_TypeWalk`'s path guards the
+  // is then judged as holding nothing to drop — the pushed element's payload
+  // was freed when the caller's Result temp dropped (the json `["abc"]` /
+  // `{"k": "v"}` value-loss). `_TypeWalk`'s path guards the
   // recursive descent the resolution re-opens.
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(

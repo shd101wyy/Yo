@@ -240,7 +240,7 @@ The evaluator places each drop; codegen emits it there:
 
 ### Where a `___dup` comes from
 
-A dup is a second owner of counted data: `Rc.clone(h)` / `Arc.clone(h)` (an explicit `___dup` in the prelude) and the aliasing guard below. No implicit copy is a dup: a value that needs a drop (`type_needs_drop_glue`) is not implicitly copyable (`type_requires_explicit_copy`), so its copy moves or is E0901, and a copy that reaches `set_expr_as_needs_to_call_dup`'s dup is an internal error (E1301). A type that still mentions an open type variable is judged at its instantiation and mints nothing. A last-use move has no count traffic; plain data copies without a count; a `Box` moves and is never counted. `ref_count` reads a count.
+A dup is a second owner of counted data: `Rc.clone(h)` / `Arc.clone(h)` (an explicit `___dup` in the prelude) and the aliasing guard below. No implicit copy is a dup: every store (`transfer_value_into`, `src/evaluator/utils.yo`) moves a value that needs a drop (`type_needs_drop_glue` is part of `type_requires_explicit_copy`) or rejects the copy (E0901), and copies any other value bitwise. A type that still mentions an open type variable is judged at its instantiation. A last-use move has no count traffic; plain data copies without a count; a `Box` moves and is never counted. `ref_count` reads a count.
 
 ### The borrowed-argument aliasing guard
 
@@ -256,7 +256,7 @@ A VALUE literal with RC-typed fields passed straight to a call (a tuple `(i32(1)
 
 ### Move-only values ride the RC machinery, without dups
 
-A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or an aggregate holding one; `type_is_move_only`, `src/types/utils.yo`) makes `type_contains_rc_type` true: owning temps, scope-end drops and flow joins like an RC value, but never a dup. `set_expr_as_needs_to_call_dup` moves every value that is not implicitly copyable (`type_requires_explicit_copy`; `transfer_explicit_copy_value`, `src/evaluator/utils.yo`) or rejects the copy (E0901); a closure capture consumes it.
+A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or an aggregate holding one; `type_is_move_only`, `src/types/utils.yo`) makes `type_contains_rc_type` true: owning temps, scope-end drops and flow joins like an RC value, but never a dup. `transfer_value_into` moves every value that is not implicitly copyable (`type_requires_explicit_copy`; `transfer_explicit_copy_value`, `src/evaluator/utils.yo`) or rejects the copy (E0901); a closure capture consumes it.
 
 - Its drop (`generate_drop_code_for_value`) calls the type's `___dispose` first, then drops fields inline. For a `Drop` impl the `___dispose` is a synthesized `(Self <: Drop).drop(self)` (`_destructor_method_name`, registered by `collect_dispose_methods` → `_synthesize_and_register_value_dispose`); its source is `auto-generated://`, the one caller E0915 (explicit destructor call) exempts.
 - Over a `Drop` impl `___dispose` takes `self : &mut Self` (a C pointer): `dispose_call_on_value` emits `X(&(value))` so the destructor's writes reach the storage the field drops read; a reference type's header goes through `dispose_fn_thunk`, which passes the address of a local holding the handle (`dispose_function_takes_pointer` decides; a `___dispose` with no user destructor keeps the by-value ABI).
@@ -264,9 +264,9 @@ A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or
 
 ### A capture's reference is taken once, by whoever decided it
 
-- **A capture-list entry is a field store.** The evaluator decides it on the entry's initializer (`set_expr_as_needs_to_call_dup`): a copy carries its own deferred dup, a move carries none and consumes its source. The emitter emits the initializer through `emit_deferred_dup_or_code` and takes no other reference (`closures.yo`, `_build_async_capture_struct_literal` in `exprs/async.yo`).
-- **An implicit capture's copy is the closure's capture dup.** A capture that is not implicitly copyable (`type_requires_explicit_copy`: a future, a waker, a channel half) and has no dup was MOVED; retaining it leaks it.
-- **A closure construction's deferred dups belong to the closure emitter** (its captures' references, written into the capture struct's initializer). `generate_deferred_dup_expressions` emits nothing for a closure construction (`is_closure_construction`, `drop-dup.yo`), and a site that treats a tail or returned value's dups as a borrowed value's must test it too (`functions/generation.yo`).
+- **A capture-list entry is a field store.** The evaluator decides it on the entry's initializer (`transfer_value_into`): a move consumes its source, a copy is bitwise. The emitter emits the initializer through `emit_deferred_dup_or_code` and takes no other reference (`closures.yo`, `_build_async_capture_struct_literal` in `exprs/async.yo`).
+- **An implicit capture is a field store too** (`transfer_captured_variables`, `src/evaluator/utils/closure.yo`). A capture that is not implicitly copyable (`type_requires_explicit_copy`: every value that needs a drop) was MOVED; retaining it leaks it.
+- **A closure construction's deferred dups are not a borrowed value's.** `generate_deferred_dup_expressions` emits nothing for a closure construction (`is_closure_construction`, `drop-dup.yo`), and a site that treats a tail or returned value's dups as a borrowed value's must test it too (`functions/generation.yo`).
 - **Every drop an `FnOnce` body schedules for its own capture must carry the tag.** In a closure body, codegen skips any drop whose target names a capture (`is_deferred_drop_for_closure_capture`) unless it is tagged `mark_fnonce_capture_drop`. The capture-frame scope-end and early-exit drops (`begin.yo`) carry it, as do the drops for a capture moved on some paths only (`_drop_in_arms_that_keep`, `drop_moves_of_skippable_operand`, tagged when `is_own_fnonce_capture` holds). A new evaluator path that drops a value a sibling path moved must tag it, or the keeping path leaks the capture.
 
 ### A hand-written C declaration must be registered, or its drops vanish
@@ -279,9 +279,9 @@ A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or
 
 ### A call emitter must emit its arguments' deferred dups
 
-The evaluator decides one ownership rule for every call form (`consume_argument_for_parameter`, `src/evaluator/calls/helper.yo`): a borrowed argument of a `sink` parameter gets a +1 the callee releases, and a borrowed projection passed to a borrowing parameter gets a +1 the caller releases after the call. Both ride on the argument as a deferred `___dup`, so every argument emitter honors it: the plain call through `_materialize_arg`, method dispatch through `_dispatch_arg_code` (`src/codegen/exprs/other-fn-call.yo`). A bare `_call_generate_expr(arg)` in an argument loop drops the dup. Check a new loop by comparing `f(x.field)`, `T.f(x.field)` and `x.field.g(...)` under `--sanitize address`.
+The evaluator decides one ownership rule for every call form (`consume_argument_for_parameter`, `src/evaluator/calls/helper.yo`): a by-value argument moves or is copied bitwise, and a borrowed projection passed to a borrowing parameter gets a +1 the caller releases after the call. That +1 rides on the argument as a deferred `___dup`, so every argument emitter honors it: the plain call through `_materialize_arg`, method dispatch through `_dispatch_arg_code` (`src/codegen/exprs/other-fn-call.yo`). A bare `_call_generate_expr(arg)` in an argument loop drops the dup. Check a new loop by comparing `f(x.field)`, `T.f(x.field)` and `x.field.g(...)` under `--sanitize address`.
 
-Constructor arguments follow the same rule: `set_expr_as_needs_to_call_dup` (`src/evaluator/calls/type.yo`) puts the dup on struct and newtype field arguments alike, so both arms of the value-struct constructor emitter (compound literal and newtype cast) use `emit_deferred_dup_or_code`.
+Constructor arguments are stores (`transfer_value_into`, `src/evaluator/calls/type.yo`) for struct and newtype field arguments alike, and both arms of the value-struct constructor emitter (compound literal and newtype cast) use `emit_deferred_dup_or_code`.
 
 ### A call with a result temp is a statement on every call path
 

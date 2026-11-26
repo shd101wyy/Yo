@@ -23,7 +23,7 @@ import("std/string");
 { EvalValue, EvalValueNode, value_cell_new } :: import("../../value.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
-{ set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ transfer_value_into } :: import("../utils.yo");
 /// Build a ComptimeList value from `comptime_list_type` and `arg_exprs`.
 try_to_implement_comptime_list_by_comptime_list_type :: (
   fn(
@@ -77,7 +77,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
         new_expr_info(&env, Rc.new(TypeValueNode.Unit))
       }
     );
-    set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");
+    transfer_value_into(&evaluated_arg, ctx, exn, "element");
     env_adopt(&env, &info.env());
     if(!are_types_compatible(&info.ty(), &expected_element_type), {
       exn.throw(

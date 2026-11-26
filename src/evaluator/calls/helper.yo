@@ -87,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ reject_dyn_place_by_value, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type, legacy_str_type_arg, future_view_error } :: import("../utils.yo");
+{ reject_dyn_place_by_value, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, transfer_value_into, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type, legacy_str_type_arg, future_view_error } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation-summary.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_is_binder_slot, t_value_slot, fn_result_slot } :: import("../../types/definitions.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
@@ -196,8 +196,6 @@ pragma(Pragma.AllowUnsafe);
   has_any_control_flow,
   some_resolution,
   record_spec_instantiation,
-  expr_info_deferred_dup_expressions,
-  mark_by_value_param_share_dup,
   expr_info_index_trait_ptr_type,
   note_lent_temporary,
   note_self_lend_operand,
@@ -1461,26 +1459,6 @@ closure_argument_owned_type :: (fn(arg_info : &ExprInfo, decl_pt : &TypeValue, b
     .None => Option(TypeValue).None
   )
 });
-/// Mark the dups a by-value parameter's share just put on `arg`: the +1 is
-/// the callee's, so codegen emits it even for a state-machine slot argument,
-/// whose other deferred dups move with the slot (`_arg_carries_call_share`).
-_mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
-  match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(arg)),
-    .Some(ai) => match(
-      expr_info_deferred_dup_expressions(&ai),
-      .Some(dl) => {
-        (i : usize) = usize(0);
-        while(i < dl.len(), {
-          match(dl.get_cloned(i), .Some(d) => mark_by_value_param_share_dup(ast_expr_id(&d)), .None => ());
-          i = (i + usize(1));
-        });
-      },
-      .None => ()
-    ),
-    .None => ()
-  )
-);
 /// `YO_DEBUG_GUARD_OFF=1` turns the borrowed-argument guard (4c of
 /// `consume_argument_for_parameter`, Aliasing Stage 0) off: no caller-owned
 /// +1 is held for a projection or an `Rc`/`Arc` payload place lent to a
@@ -1563,14 +1541,13 @@ consume_argument_for_parameter :: (
             // copy is E0901 (a borrow, an `inout` binding, a projection, a
             // module-level binding).
             type_requires_explicit_copy(&arg_info.ty()) => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+              transfer_value_into(evaled_arg, ctx, exn);
             },
             // An `inout` parameter or `name := &mut place` binding names a
-            // slot it does not own: the callee gets a COPY (+1) of the
-            // referenced handle, and the binding stays usable — nothing is
-            // moved (issues/fixed/inout-arg-to-own-param-moves-without-dup.md).
+            // slot it does not own: the callee gets a copy of the implicitly
+            // copyable value, and the binding stays usable — nothing is moved.
             arg_var.*.is_ref() => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
+              transfer_value_into(evaled_arg, ctx, exn, "param");
             },
             // A `sink(x)` parameter takes the value, and so does every
             // parameter for a closure or function value: sharing an `FnOnce`
@@ -1580,18 +1557,15 @@ consume_argument_for_parameter :: (
                 set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
               },
               true => {
-                set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
+                transfer_value_into(evaled_arg, ctx, exn, "param");
                 set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
               }
             ),
-            // A value that is still implicitly copyable but holds a count (a
-            // `std/sync` handle, for one) is passed to a plain by-value
-            // parameter the way `t := s` binds it: a share (+1), and the
-            // caller keeps its value. The callee drops the share at its
-            // return.
+            // An implicitly copyable value is passed to a plain by-value
+            // parameter the way `t := s` binds it: a copy, and the caller
+            // keeps its value.
             true => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
-              _mark_by_value_param_shares(evaled_arg, ctx);
+              transfer_value_into(evaled_arg, ctx, exn, "param");
             }
           );
         });

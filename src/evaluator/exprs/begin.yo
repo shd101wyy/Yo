@@ -105,7 +105,7 @@ pragma(Pragma.AllowUnsafe);
   attach_temp_variable_to_expr,
   throw_expr_is_implicit_variable_error,
   consume_case_body_temp_var,
-  set_expr_as_needs_to_call_dup,
+  transfer_value_into,
   snapshot_loop_flow,
   ImplicitCopyPending,
   audit_take_implicit_copy_pending,
@@ -150,8 +150,7 @@ is_unit_value_expression :: (fn(expr : &AstExpr) -> bool)(
 );
 /// If `e` is an evaluated `___dup` call, return the duped variable's NAME.
 /// Matches BOTH shapes: the method-resolved `(x.___dup)()` and the bare
-/// `___dup(x)` builtin call (the shape
-/// set_expr_as_needs_to_call_dup mints via generate_expr_from_code).
+/// `___dup(x)` builtin call.
 _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
@@ -1163,23 +1162,6 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         .None => ()
       );
       if(match(expr_info_is_anonymous_function_definition(&ei.*), .Some(b) => b, .None => false), {
-        match(
-          expr_info_deferred_dup_expressions(&ei.*),
-          .Some(dl) => {
-            (di : usize) = usize(0);
-            while(di < dl.len(), {
-              match(
-                dl.get_cloned(di),
-                .Some(d) => if(match(_dup_call_target_name(&d), .Some(n) => (n == v.*.*.name), .None => false), {
-                  _ic_read(&tok, site, acc);
-                }),
-                .None => ()
-              );
-              di = (di + usize(1));
-            });
-          },
-          .None => ()
-        );
         return(());
       });
     },
@@ -2820,11 +2802,9 @@ _evaluate_begin_expression_impl :: (
   // (or an `own(...)` parameter of the enclosing function) transfers
   // ownership out — mark it consumed so the scope-end scheduler skips it.
   // A NON-OWNING local (e.g. a match pattern binding borrowing the
-  // scrutinee's payload) or one from an OUTER frame is SHARED out — mark the
-  // tail with a deferred `___dup` so codegen emits the balancing incr before
-  // the owner's scope-end `___drop` runs (without it, widening the drop
-  // predicate to value enums/structs freed payloads still in use — the
-  // hashmap_self_cycle abort).
+  // scrutinee's payload) or one from an OUTER frame is stored into the
+  // block's result (`transfer_value_into`): a value that needs a drop moves
+  // or is E0901, any other value is copied.
   (return_value_expr : AstExpr) = Rc.clone(last_expr);
   if(ast_expr_is_fn_call_of(&last_expr, BK_RETURN, Option(usize).Some(usize(1))), {
     match(
@@ -2863,12 +2843,10 @@ _evaluate_begin_expression_impl :: (
         // The tail's recorded temp name is NOT visible in the live begin env
         // (snapshot env threading can drop an inline field-read's temp
         // registration on a bare-expression body — e.g. `(fn(p : Pair) ->
-        // Krate)(p.inner)`). Delegate to set_expr_as_needs_to_call_dup,
-        // which re-checks ownership/consumption against the RECORDED ei.env
-        // (where the temp does exist): owning temps still consume, non-RC and
-        // inlinable-concrete values still decline — only the borrowed case
-        // gains its balancing +1 (the round-3 borrowed-field-tail UAF).
-        set_expr_as_needs_to_call_dup(&return_value_expr, ctx, exn, "return");
+        // Krate)(p.inner)`). Delegate to transfer_value_into, which
+        // re-checks ownership/consumption against the RECORDED ei.env (where
+        // the temp does exist).
+        transfer_value_into(&return_value_expr, ctx, exn, "return");
       });
       if(nrv > usize(0), {
         match(
@@ -2928,8 +2906,8 @@ _evaluate_begin_expression_impl :: (
                 });
                 rv.*.set_consumed_at_token(Option(Token).Some(ast_expr_token(&last_expr)));
               }, {
-                // Borrow/outer-frame share: balancing dup.
-                set_expr_as_needs_to_call_dup(&return_value_expr, ctx, exn, "return");
+                // A borrow or an outer frame's local: a store into the result.
+                transfer_value_into(&return_value_expr, ctx, exn, "return");
               });
             });
           }
