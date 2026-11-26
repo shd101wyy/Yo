@@ -247,7 +247,7 @@ are erased. Six consequences for this document:
    `requires(exists(...))` is E0401 outside `Pragma.Verify`, and a
    quantified `ensures` on a block body is `subset` under
    `Pragma.VerifyOrAssert`
-   (`issues/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md`).
+   (`issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md`).
    S0's both-modes sweep will meet it on `dml-sorted-insert.yo`. It also
    raises LP2's value: a quantified clause is proof-only
    (`ensures_is_runtime_checkable`, `src/evaluator/builtins/contracts.yo:2888`),
@@ -632,7 +632,7 @@ Each recommendation is the author's, for the maintainer's verdict.
 | Doc | Kind | What |
 | --- | --- | --- |
 | `issues/questions/2026-11-21-a-contract-whose-body-is-a-panic-stub-passes-yo-verify-strict.md` | design question | LP3's recommendation |
-| `issues/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md` | S2 | blocks quantified contracts in the default's mode; S0's sweep will meet it |
+| `issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md` | S2 | blocks quantified contracts in the default's mode; S0's sweep will meet it |
 | `issues/2026-11-22-a-comptime-assert-over-a-promoted-call-in-a-function-body-accepts-a-false-condition.md` | S2 | a false compile-time assertion passes in a `test` body; gates LP5a |
 | `issues/2026-11-22-the-ctfe-manual-examples-assign-to-compile-time-bindings-declared-without-mut.md` | S3 | four manual examples per language are rejected with E0917 |
 

@@ -133,7 +133,7 @@ scaffolds this pragma into every new project.
 - `tests/spec/fixtures/valid/verifyplus-requires-block.yo`: the reproducer
   (`block`, `expr`), a unit-result block body, and a block body whose only
   `ensures` is quantified (the block-body half of
-  `issues/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md`).
+  `issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md`).
   Before the fix `yo verify` reports 3 `subset-error`; after it, 5 `ok`.
 - `scripts/verify-both-modes.py`, run by the formal-verification job's harness
   leg: every fixture of `tests/spec/fixtures/valid/` under `Pragma.Verify` and
