@@ -240,7 +240,7 @@ The evaluator places each drop; codegen emits it there:
 
 ### Where a `___dup` comes from
 
-A dup is a second owner of counted data: `Rc.clone(h)` / `Arc.clone(h)` (an explicit `___dup` in the prelude), an implicit copy of a still implicitly copyable value that holds a count, and the aliasing guard below. A last-use move has no count traffic; plain data copies without a count; a `Box` moves and is never counted. `ref_count` reads a count.
+A dup is a second owner of counted data: `Rc.clone(h)` / `Arc.clone(h)` (an explicit `___dup` in the prelude) and the aliasing guard below. No implicit copy is a dup: a value that needs a drop (`type_needs_drop_glue`) is not implicitly copyable (`type_requires_explicit_copy`), so its copy moves or is E0901, and a copy that reaches `set_expr_as_needs_to_call_dup`'s dup is an internal error (E1301). A type that still mentions an open type variable is judged at its instantiation and mints nothing. A last-use move has no count traffic; plain data copies without a count; a `Box` moves and is never counted. `ref_count` reads a count.
 
 ### The borrowed-argument aliasing guard
 
