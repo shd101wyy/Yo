@@ -241,19 +241,6 @@ _probe_result :: (fn(rp : &VerifyFnReport, kind : &String) -> String)({
   });
   out
 });
-/// `ids` joined with ", " (the assertion messages' rendering).
-_join :: (fn(ids : &ArrayList(String)) -> String)({
-  sb := StringBuilder.new();
-  (i : usize) = usize(0);
-  while(i < ids.len(), {
-    if(i > usize(0), {
-      sb.write_string(String.from(", "));
-    });
-    sb.write_string(ids.get_cloned(i).unwrap());
-    i = (i + usize(1));
-  });
-  sb.to_string()
-});
 
 test("an assumed fn reports assumed and its caller proves through the assumed contracts", {
   if(!_have_z3(), {

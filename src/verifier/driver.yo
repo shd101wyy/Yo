@@ -1058,10 +1058,9 @@ verify_and_strip_tasks :: (
             source_index := ArrayList(usize).new();
             (bi : usize) = usize(0);
             while(bi < body_res.obligations.len(), {
-              obl := &body_res.obligations(bi);
-              if(obl.probe.is_none(), {
+              if(body_res.obligations(bi).probe.is_none(), {
                 source_index.push(bi);
-                obligations.push(_discharge(obl, cfg, binary, &t.fn_id));
+                obligations.push(_discharge(&body_res.obligations(bi), cfg, binary, &t.fn_id));
               });
               bi = (bi + usize(1));
             });
@@ -1301,22 +1300,22 @@ _run_call_probes :: (
   out := ArrayList(VerifyProbeReport).new();
   (pi : usize) = usize(0);
   while(pi < all.len(), {
-    p_obl := &all(pi);
     match(
-      &p_obl.probe,
+      all(pi).probe.clone(),
       .Some(pk) => {
+        p_name := all(pi).name.clone();
         callee_id := _callee_report_id(&pk.callee, task_ids);
         (queries : usize) = usize(1);
         (cached : usize) = usize(0);
-        post := run_vc_query(&p_obl.query, cfg, binary.clone(), false);
+        post := run_vc_query(&all(pi).query, cfg, binary.clone(), false);
         if(post.cached, {
           cached = (cached + usize(1));
         });
         (result : String) = _probe_result_of(&post.verdict);
         detail := _probe_detail_of(&post.verdict);
         if(result == "unsat", {
-          pre_q := p_obl.query.clone();
-          pre_q.name = `${p_obl.name}/pre`;
+          pre_q := all(pi).query.clone();
+          pre_q.name = `${p_name}/pre`;
           (drop_n : usize) = pk.pre_drop;
           while((drop_n > usize(0)) && (pre_q.assumptions.len() > usize(0)), {
             _ := pre_q.assumptions.pop();
@@ -1334,11 +1333,11 @@ _run_call_probes :: (
         if(result == "unsat", {
           (oi : usize) = usize(0);
           while(oi < obligations.len(), {
-            src := &all(source_index(oi));
-            rests := src.after_probes.contains(p_obl.name.clone());
+            si := source_index(oi);
+            rests := all(si).after_probes.contains(p_name.clone());
             proved := match(&obligations(oi).verdict, .Proved(_) => true, _ => false);
             if(rests && proved && !obligations(oi).folded, {
-              recheck := run_vc_query(&_with_goal_false(&src.query, &`${src.name}/feasible`), cfg, binary.clone(), false);
+              recheck := run_vc_query(&_with_goal_false(&all(si).query, &`${all(si).name}/feasible`), cfg, binary.clone(), false);
               queries = (queries + usize(1));
               if(recheck.cached, {
                 cached = (cached + usize(1));
@@ -1352,7 +1351,7 @@ _run_call_probes :: (
         });
         out.push(
           VerifyProbeReport(
-            name : p_obl.name.clone(),
+            name : p_name,
             kind : pk.kind.clone(),
             callee : callee_id,
             result : result,
@@ -1401,7 +1400,7 @@ _fill_assumes :: (fn(reports : &mut ArrayList(VerifyFnReport), task_ids : &HashM
             target := match(index_of.get_cloned(u.clone()), .Some(k) => Option(usize).Some(k), .None => index_of.get_cloned(base));
             match(
               target,
-              .Some(k) => if((k != rj) && !es.contains(k), {
+              .Some(k) => if((k != rj) && !es.contains(&k), {
                 es.push(k);
               }),
               .None => ()
