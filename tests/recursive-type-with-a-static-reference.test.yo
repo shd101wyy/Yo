@@ -39,6 +39,6 @@ test("recursive type with a static reference: a value typed after the declaratio
 test("recursive type with a static reference: a recursive enum's Self payload is one type", {
   n := _Node.Branch(tag : "p", kids : .None);
   m := n.clone();
-  tag := match(&m, .Leaf(t) => t.*, .Branch(t, _) => t.*);
-  assert(tag == "p", "the clone keeps the tag");
+  is_p := match(&m, .Leaf(_) => false, .Branch(t, _) => (t.* == "p"));
+  assert(is_p, "the clone is the branch with its tag");
 });
