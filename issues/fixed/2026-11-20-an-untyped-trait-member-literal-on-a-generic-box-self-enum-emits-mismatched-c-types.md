@@ -102,6 +102,15 @@ VERDICTS-77 (lane `v81-v77`, two stacked PRs: the `type_key` rendering, then sub
   recursive enum's pre-final reads its final's recorded arguments (it is the same instance) for its
   node and its substituted copy records them; a generic struct instance's cut renders as its full
   `gs_` key. The CTFE memo compares a substituted shell by what it resolves to.
+- **Only a recursive enum is a node of the cut.** `type_key`'s cycle guard pushed every enum
+  instance by (id, type arguments), so a non-recursive instance around a recursive type
+  (`Option(Rc(N))`, a field of `N`) cut at different depths depending on whether the walk entered
+  through a substituted copy (def-era id) or the constructor's instance (its own id). The enum
+  definition records whether a payload held the self-shell (`mark_enum_recursive`), and only those
+  enums are guard nodes. `YO_DEBUG_SELF_PATTERN_CHECK=1` (at `fmg_spec_ty`, `_is_self_pattern`
+  bypassed: the substituted receiver pattern against the receiver, by key and exact compatibility
+  both ways) counted 258 such mismatches over `check ./src` before this and 0 after; 0 over
+  `check ./std` either way.
 - **Exact struct identity** no longer rejects two instances of one constructor whose stamped names
   differ (`Box(<struct:…n0>)` against `Box(<struct:…n2>)`): the type arguments decide, as in the
   lenient rule. This was the struct twin's E0605.

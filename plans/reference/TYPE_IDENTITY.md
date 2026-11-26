@@ -74,6 +74,9 @@ and two rules make it hold (VERDICTS-77):
 - **An evaluation-minted id never decides identity.** A substituted copy and the constructor's
   own instance are one type: `type_key` renders a recursion cut (and an enum past its depth cap)
   as the declaration identity and the keys of the instance's type arguments, never as the id.
+  Only a recursive declaration (one that names `Self`) is a node of the cut: a non-recursive
+  instance met twice on one path sits around a recursive type, and the recursive type inside it
+  is where the key cuts, whichever presentation the walk entered through.
 
 ## Flow: identity plus these coercions, and nothing else
 
