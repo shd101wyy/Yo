@@ -1,10 +1,11 @@
 # A stable C ABI for exported Yo code (and no stable native ABI)
 
-**Status:** BACKLOG (maintainer asked for it, 2026-11-26). Not started.
-Position: Yo should promise a **narrow, opt-in stable C ABI** for what a
-program exports, and should **not** promise a stable native Yo-to-Yo ABI. The
-position is the coordinator's recommendation; confirm it through a Fable
-consultation when this plan is scheduled (`plans/README.md`, lane F).
+**Status:** BACKLOG, position agreed (maintainer, 2026-11-26). Not started.
+Yo promises a **narrow, opt-in stable C ABI** for what a program exports, and
+does **not** promise a stable native Yo-to-Yo ABI. The open design questions
+below (the export spelling, the C-layout marker, the diagnostic code) go
+through a Fable consultation when this plan is scheduled (`plans/README.md`,
+lane F).
 
 ## What exists today
 
@@ -112,8 +113,8 @@ explicit surface.
 When the first external user ships a Yo library to another language, or when
 `SharedLibrary` becomes a documented use case. Then:
 
-1. A Fable consultation to confirm the position and settle the open questions:
-   the export spelling, the C-layout marker and the diagnostic code.
+1. A Fable consultation to settle the open questions: the export spelling,
+   the C-layout marker and the diagnostic code.
 2. The C-layout marker, and the check on exported signatures.
 3. Header generation.
 4. The golden C-consumer test and the docs (`FFI.md`, `WASM.md`, en and zh-CN).
