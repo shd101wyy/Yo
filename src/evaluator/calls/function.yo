@@ -10573,9 +10573,23 @@ _lent_argument_pointee :: (fn(op_args : &ArrayList(AstExpr), ai : usize, slot : 
 /// arguments is what the callee may store there, and is judged as that
 /// store would be. When its type also occupies a non-static position, which
 /// one the callee writes is not known here, and the static one decides (rule
-/// 4: a site that cannot tell rejects).
+/// 4: a site that cannot tell rejects). A free generic function's slots are
+/// its definition's (`_lend_through_slots`), so a `v : T` slot names the
+/// binder, not what the call solved it to: its type is read off the call's
+/// specialization (`spec_slots`, empty when the callee has none), as the
+/// specialized method's own slot is (`keep(dst : &mut Option(T), v : T)`
+/// called with a `&mut Option(&(X, static))` holder and a local's `&X`).
 _static_type_argument_stores :: (
-  fn(op_args : &ArrayList(AstExpr), slots : &SharedList(TypeValue), wi : usize, pointees : &ArrayList(TypeValue), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+  fn(
+    op_args : &ArrayList(AstExpr),
+    slots : &SharedList(TypeValue),
+    spec_slots : &SharedList(TypeValue),
+    wi : usize,
+    pointees : &ArrayList(TypeValue),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> unit
 )({
   (pi : usize) = usize(0);
   while(pi < pointees.len(), pi = (pi + usize(1)), {
@@ -10587,9 +10601,16 @@ _static_type_argument_stores :: (
           slots.get(xj),
           // A slot that spells `static` itself is step 1b's.
           .Some(x_slot) => if((xj != wi) && !type_spells_checked_static(&x_slot), {
+            // A slot naming a type binder takes what the call solved it to.
+            x_binders := ArrayList(String).new();
+            type_var_ids_of(&x_slot, &mut x_binders, u32(0), true);
+            x_solved := cond(
+              ((x_binders.len() > usize(0)) && (spec_slots.len() == slots.len())) => match(spec_slots.get(xj), .Some(xs) => xs, .None => Rc.clone(&x_slot)),
+              true => Rc.clone(&x_slot)
+            );
             // A binder-typed by-value slot specialized to a reference is
             // `ValueSlot(&X)` (R3): the value it takes is the bare `&X`.
-            x_needle := match(&x_slot, Rc(.ValueSlot(xn_inner)) => Rc.clone(xn_inner), _ => Rc.clone(&x_slot));
+            x_needle := match(&x_solved, Rc(.ValueSlot(xn_inner)) => Rc.clone(xn_inner), _ => Rc.clone(&x_solved));
             if(_type_occurs_at_static_position(&x_needle, &st_pointee, u32(0)), {
               x_arg := _unlabeled_argument(match(op_args.get_cloned(xj), .Some(a) => a, .None => make_err_expr()));
               w_arg := _unlabeled_argument(match(op_args.get_cloned(wi), .Some(a) => a, .None => make_err_expr()));
@@ -10690,6 +10711,13 @@ _lend_through_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(AstE
     i = (i + usize(1));
   });
   out
+});
+/// The parameter slots of the specialization `call` was evaluated against:
+/// its callee node's recorded type, which the inline `FuncVal` arm stamps
+/// with the specialized function (empty when the callee has no record).
+_lend_through_spec_slots :: (fn(call : &AstExpr, ctx : &EvalContext) -> SharedList(TypeValue))({
+  sp_callee := match(call, Rc(.FnCall(_, c, _, _, _)) => Rc.clone(c.*), Rc(.Atom(_, _)) => return(no_types()));
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sp_callee)), .Some(spi) => _callee_param_slots(&spi.ty()), .None => no_types())
 });
 /// A recorded method call's parameter slots (empty for any other call).
 _method_slots :: (fn(call : &AstExpr) -> SharedList(TypeValue))(
@@ -11041,6 +11069,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   // values where the callee may store them (`_static_type_argument_stores`).
   // The pointee is the lent argument's own (`_lent_argument_pointee`), not
   // the slot's.
+  sc_spec_slots := _lend_through_spec_slots(call, ctx);
   (sc_i : usize) = usize(0);
   while(sc_i < op_args.len(), sc_i = (sc_i + usize(1)), {
     match(
@@ -11055,7 +11084,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
           sc_seen := ArrayList(String).new();
           _nested_mut_pointees(&sc_ty, &mut sc_pointees, &mut sc_seen, u32(0));
         }));
-        _static_type_argument_stores(&op_args, &slots, sc_i, &sc_pointees, env, ctx, exn);
+        _static_type_argument_stores(&op_args, &slots, &sc_spec_slots, sc_i, &sc_pointees, env, ctx, exn);
       },
       .None => ()
     );

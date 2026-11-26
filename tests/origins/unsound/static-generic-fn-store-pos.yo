@@ -1,0 +1,20 @@
+// expect: accept
+// The positive control of static-generic-fn-store: the free generic function
+// handed a reference declared over `static` (`&G` of an immutable
+// module-level binding, VERDICTS-74 rule 3), read after the store.
+{ println } :: import("std/fmt");
+X :: struct(n : i32);
+keep :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+G := X(n : i32(7));
+fill :: (fn(slot : &mut Option(&(X, static)), g : &(X, static)) -> unit)({
+  keep(slot, g);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&(X, static)).None;
+  fill(&mut slot, &G);
+  match(slot, .Some(r) => println(`OUT: ${r.*.n.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

@@ -1,0 +1,24 @@
+// expect: E0923
+// A free generic function stores its `v : T` through `dst : &mut Option(T)`;
+// the caller's holder is declared over `static`, so `T` is `&(X, static)` and
+// a function local's reference may not be stored there. The holder outlives
+// `fill`, and `main` reads freed stack through it
+// (issues/fixed/2026-11-27-a-free-generic-function-stores-a-local-reference-into-a-callers-static-holder.md).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+keep :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+fill :: (fn(slot : &mut Option(&(X, static))) -> unit)({
+  x := X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  r := &x;
+  keep(slot, r);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&(X, static)).None;
+  fill(&mut slot);
+  match(slot, .Some(r) => println(`OUT: ${r.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
