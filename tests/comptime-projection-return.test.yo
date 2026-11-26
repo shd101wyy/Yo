@@ -2,11 +2,13 @@
 //! runtime `T.Output` return is
 //! (issues/fixed/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
 { assert } :: import("std/assert");
+import("std/math");
 neg_ct :: (fn(generic(T : Type), comptime(x) : T, where(T <: (Comptime, ComptimeNeg))) -> comptime(T.Output))(x.neg());
 neg_rt :: (fn(generic(T : Type), x : T, where(T <: Neg)) -> T.Output)(x.neg());
 CtV :: struct(x : i32);
 CtW :: struct(y : i32);
 impl(CtV, ComptimeNeg(Output : CtW, neg : (fn(comptime(self) : Self) -> comptime(Self.Output))(CtW(y : (i32(0) - self.x)))));
+impl(CtV, ComptimeBitNot(Output : CtW, (~) : (fn(comptime(self) : Self) -> comptime(Self.Output))(CtW(y : ~self.x))));
 test("a generic comptime(T.Output) return is T's Output", {
   d := neg_ct(2.5);
   assert(d == -2.5, "a float's ComptimeNeg.Output");
@@ -19,4 +21,16 @@ test("a generic comptime(T.Output) return is T's Output", {
 test("a generic comptime(T.Output) return that is not T", {
   w :: neg_ct(CtV(x : i32(3)));
   assert(w.y == i32(-3), "CtV's ComptimeNeg.Output is CtW");
+});
+// The prelude's comptime `(-)` and `(~)` dispatchers return the trait's
+// `Output`, as the runtime ones do.
+test("comptime - and ~ return the trait's Output", {
+  n :: -CtV(x : i32(3));
+  m :: ~CtV(x : i32(3));
+  assert(n.y == i32(-3), "-v is ComptimeNeg.Output");
+  assert(m.y == i32(-4), "~v is ComptimeBitNot.Output");
+  inf := f64(-1.0e400);
+  assert(inf == f64.NEG_INFINITY, "an overflowing negative literal is negative infinity");
+  assert(inf < f64(0.0), "and is negative");
+  assert(f32(-1.0e400) == f32.NEG_INFINITY, "f32 too");
 });
