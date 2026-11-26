@@ -135,6 +135,10 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
 // O(distinct types on path) and is MORE precise than depth truncation (each
 // distinct type still gets a distinct key), so C-type identity is preserved.
 (g_tk_visited : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+/// `rec:` + declaration identity per enum id, the head of `_tk_enum_cut`'s
+/// rendering: a cut is the hottest string `type_key` builds, and this makes
+/// it one copy. An id gets its declaration once, when its definition starts.
+(g_tk_cut_heads : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Resolve a SomeT TYPE-ARGUMENT slot through its resolution chain
 /// (cycle-guarded) before keying. Bare-id keying of argument slots split one
 /// logical instantiation into two C types whenever two records held the same
@@ -295,30 +299,40 @@ _tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
 /// own instance carries a fresh one, and the two are one type
 /// (plans/reference/TYPE_IDENTITY.md; VERDICTS-77, I2). An id with no recorded
 /// declaration renders as the id.
-_tk_enum_cut :: (fn(eid : &String, rs : &TypeValue, depth : usize) -> String)(
-  match(
-    enum_decl_identity(eid),
-    .Some(decl) => {
-      out := String.from("rec:");
-      out.push_string(&decl);
-      cut_tas := match(rs, Rc(.EnumT({ type_arguments : ctas })) => Rc.clone(ctas), _ => no_types());
-      (i : usize) = usize(0);
-      while(i < cut_tas.len(), {
-        match(
-          cut_tas.get(i),
-          .Some(cut_ta) => {
-            out.push_str("|");
-            out.push_string(_type_key_at(&_tk_resolve_arg_slot(&cut_ta), depth + usize(1)));
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      out
-    },
-    .None => eid.clone()
-  )
-);
+_tk_enum_cut :: (fn(eid : &String, rs : &TypeValue, depth : usize) -> String)({
+  out := match(
+    g_tk_cut_heads.with({ eid : &eid.* }(m) => m.get_cloned(eid)),
+    .Some(h) => h,
+    .None => match(
+      enum_decl_identity(eid),
+      .Some(decl) => {
+        h := String.from("rec:");
+        h.push_string(&decl);
+        hk := eid.clone();
+        hv := h.clone();
+        _ := g_tk_cut_heads.with_mut({ hk, hv }(m) => m.insert(hk, hv));
+        h
+      },
+      .None => {
+        return(eid.clone());
+      }
+    )
+  );
+  cut_tas := match(rs, Rc(.EnumT({ type_arguments : ctas })) => Rc.clone(ctas), _ => no_types());
+  (i : usize) = usize(0);
+  while(i < cut_tas.len(), {
+    match(
+      cut_tas.get(i),
+      .Some(cut_ta) => {
+        out.push_str("|");
+        out.push_string(_type_key_at(&_tk_resolve_arg_slot(&cut_ta), depth + usize(1)));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
   match(
     t,
