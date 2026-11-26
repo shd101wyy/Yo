@@ -3288,8 +3288,8 @@ _select_matching_overload :: (
   // comptime-priority rule below can run — filter to type-matching
   // candidates and THEN apply "comptime function call
   // has higher priority". Without it,
-  // `self.neg()` on a comptime receiver picked the RUNTIME `Negate.neg`
-  // (registered before `ComptimeNegate.neg`), its result was a runtime
+  // `self.neg()` on a comptime receiver picked the RUNTIME `Neg.neg`
+  // (registered before `ComptimeNeg.neg`), its result was a runtime
   // UnknownVal, and every `NAME :: <ctfe call>` whose body used a prefix
   // operator bound an unknown — the batch-arm undeclared-identifier family
   // (issues/fixed/yo-self-comptime-const-batch-undeclared.md).
@@ -15377,7 +15377,7 @@ Fix: wrap the call:
           // acceptance rule). Without this a comptime OPERATOR call kept its
           // raw declared SomeT as the call type — `nv :: -(f32(50.75))`
           // bound nv to a CONCRETE -50.75 whose type stayed
-          // `_Self : (Comptime + ComptimeNegate)`, every later dispatch on nv
+          // `_Self : (Comptime + ComptimeNeg)`, every later dispatch on nv
           // failed (swallowed at def time), and the comptime_asserts over it
           // passed VACUOUSLY inside test arms (tests/comptime.test.yo arm 0's
           // negative-number block; scratchpad m5/m9 repros).

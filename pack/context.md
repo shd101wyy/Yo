@@ -542,7 +542,7 @@ name that does not resolve (E0401) gets a help line naming the Yo spelling.
 | `VecDeque`, `BinaryHeap`, `PathBuf` | `Deque`, `PriorityQueue`, `Path` (one owned type) |
 | `char` | `rune` (`char` is C's 8-bit type) |
 | `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` |
-| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot`/`BitNot` |
+| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Neg`, `Rem`, `Shl`, `Shr`, `LogicalNot`/`BitNot` |
 | `collect::<Vec<_>>()`, `parse::<i32>()`, `into()` | `it.collect(ArrayList(i32))`, `s.parse(i32)`, `x.into(i64)`: the type is an argument |
 | `m.lock()`, `c.borrow_mut()`, `Cell` | `m.with_lock(v => ..)`, `c.with_mut(v => ..)` on `RefCell`; no guards |
 | `thread::spawn`, `JoinHandle<T>` | `Thread(T).spawn((io : Io) => ..)`, `t.join()` |
