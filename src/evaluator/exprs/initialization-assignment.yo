@@ -99,7 +99,7 @@
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env-lookup.yo");
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
-{ is_unit_type, is_comptime_int_type, is_counted_handle_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_comptime_int_type, is_counted_handle_type, is_struct_type, is_tuple_type, is_enum_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code, YoError } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH, E_BORROW_OF_NON_PLACE } :: import("../../diagnostics.yo");
@@ -116,6 +116,8 @@
   DestructuringResult
 } :: import("./destructuring-assignment.yo");
 { synthesize_expr_and_type } :: import("../types/expr-synthesizer.yo");
+{ decide_destructuring_consumes } :: import("./match.yo");
+{ register_arm_entry_drops } :: import("../../pattern.yo");
 { clone_value } :: import("../values/clone-value.yo");
 { find_rc_value_owner_relationship, throw_expr_is_implicit_variable_error, require_expr_not_consumed, set_expr_as_needs_to_call_dup, doc_comment_lookup_key_from_token } :: import("../utils.yo");
 {
@@ -2572,14 +2574,27 @@ Use \`::\` for compile-time definitions inside impl.`
     // Destructuring LHS: `{x, y} := rhs`
     // -------------------------------------------------------------------
     effective_is_compile_time_only := (is_implicit || is_compile_time_only);
+    // How the destructuring takes its source (VERDICTS-76 Q2, `match`'s
+    // table): an owned local, a by-value parameter or an owned temporary of a
+    // type that is not implicitly copyable is consumed, and the names own
+    // their fields; a copyable value is copied; a borrowed binding lends.
+    destr_consumes := (!effective_is_compile_time_only && !is_const && ctx.is_evaluating_function_body_or_async_block.is_some() && match(
+      &rhs_info_opt,
+      .Some(dc_info) => ((is_struct_type(&dc_info.ty()) || is_tuple_type(&dc_info.ty()) || is_enum_type(&dc_info.ty())) && decide_destructuring_consumes(&rhs, dc_info, &env, ctx, exn)),
+      .None => false
+    ));
     destr_result := evaluate_destructuring_assignment(
       &actual_lhs,
       &rhs,
       &env,
       effective_is_compile_time_only,
+      destr_consumes,
       ctx,
       exn
     );
+    if(destr_result.entry_drops.len() > usize(0), {
+      register_arm_entry_drops(ast_expr_id(expr), &destr_result.entry_drops);
+    });
     env_adopt(&env, &destr_result.env);
     // N2b's binding freeze, per destructured name: an element whose type
     // carries an origin (`(p, q) := pair(&mut x, &mut y)`) holds what the

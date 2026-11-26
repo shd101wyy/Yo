@@ -91,6 +91,7 @@ pragma(Pragma.AllowUnsafe);
 { type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_carries_origin, is_static_view_slot, join_static_bit } :: import("../../types/utils.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { E_USE_OF_MOVED_VALUE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
+{ type_implements_dispose } :: import("../trait-checking.yo");
 { with_code } :: import("../../error.yo");
 { generate_new_temp_variable_name, is_temp_variable_name, canonical_module_path } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -106,7 +107,7 @@ pragma(Pragma.AllowUnsafe);
 { origin_of, variable_holder_roots, origin_scope_close, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, is_temporary_operand, local_borrow_place_of_variable, local_borrow_access_at, _last_token_of } :: import("../utils.yo");
 { reject_dyn_place_by_value, reject_guard_moves, merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, local_borrow_flow_region_begin, local_borrow_flow_region_end } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
-{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, access_place, local_borrow_require_writable, local_borrow_root_is_shared_reference, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
+{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, note_consuming_destructure_source, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, access_place, local_borrow_require_writable, local_borrow_root_is_shared_reference, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -751,6 +752,141 @@ _decide_match_mode :: (
     .None => ()
   );
   MATCH_MODE_CONSUME
+});
+// ---------------------------------------------------------------------------
+// How a destructuring takes its source (VERDICTS-76 Q2): `match`'s table
+// ---------------------------------------------------------------------------
+/// E0901 for a destructuring source that would have to move but cannot.
+_throw_unmovable_destructure_source :: (fn(src : &AstExpr, ty : &TypeValue, why : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  text := ast_expr_to_string(src);
+  if(text.starts_with("(") && text.ends_with(")"), {
+    text = text.substring(usize(1), text.len() - usize(1));
+  });
+  rd := ast_rewritten_node(src);
+  is_reference_deref := (ast_expr_is_fn_call_of(src, ".", Option(usize).Some(usize(2))) && ast_expr_is_atom(&rd));
+  if(is_reference_deref, {
+    text = `${ast_expr_token(&rd).value.*}.*`;
+  });
+  help := cond(
+    is_reference_deref => `destructure through the reference: \`{ … } := ${ast_expr_token(&rd).value.*}\` binds each name as a borrow of its field`,
+    true => `destructure a borrow: \`{ … } := &${text}\` (\`&mut ${text}\` to write through the names), or a copy, \`{ … } := ${text}.clone()\``
+  );
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        _leftmost_token(src),
+        `Cannot destructure \`${text}\` by value: its type \`${type_to_string(ty)}\` is not implicitly copyable, so the destructuring takes it by value and moves its fields into the names, but ${why}`,
+        Option(String).Some(help)
+      ),
+      E_USE_OF_MOVED_VALUE
+    ),
+    ctx,
+    exn
+  );
+});
+/// Decide how `{ a, b } := src` takes its evaluated source (VERDICTS-76 Q2):
+/// `match`'s table for a bare scrutinee (`_decide_match_mode`). True when the
+/// destructuring CONSUMES the source: an owned local, a by-value parameter or
+/// an owned temporary of a type that is not implicitly copyable moves, and its
+/// names own their fields. False when it copies (an implicitly copyable value)
+/// or reads through a borrowed binding (a reference binding, a borrowing
+/// `match`/`for` binding), which keep the borrowing destructure. A
+/// module-level binding, a closure capture, a projection (no partial moves), a
+/// borrowed temporary and a type with a user `Drop` (moving its fields out
+/// would skip the destructor; Rust's E0509) are E0901.
+decide_destructuring_consumes :: (fn(src : &AstExpr, info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> bool)({
+  ty := Rc.clone(info.ty());
+  root := _scrutinee_root_variable(src, env);
+  is_atom := ast_expr_is_atom(src);
+  if(is_atom, {
+    match(
+      &root,
+      .Some(rv) => if((_variable_is_mut_borrow(&rv.*) || _variable_is_imm_borrow(&rv.*)) && !_scrutinee_moves_through_param_shadow(&rv.*, &ty, env), {
+        return(false);
+      }),
+      .None => ()
+    );
+  });
+  dyn_tok := ast_expr_token(src);
+  if(is_atom && !type_requires_explicit_copy(&ty) && dyn_copy_rule_applies(&ty), {
+    match(
+      &root,
+      .Some(rv) => cond(
+        rv.is_module_level() => _throw_unmovable_destructure_source(src, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn),
+        match_scrutinee_is_capture(&rv.*, env, ctx) => _throw_unmovable_destructure_source(src, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn),
+        rv.is_compile_time_only() => (),
+        true => {
+          note_consuming_destructure_source(&dyn_tok);
+          note_dyn_copy_pending(&rv.*, &dyn_tok, &ty);
+        }
+      ),
+      .None => ()
+    );
+  });
+  if(!type_requires_explicit_copy(&ty), {
+    return(false);
+  });
+  if(type_implements_dispose(&ty, env), {
+    _throw_unmovable_destructure_source(src, &ty, `\`${type_to_string(&ty)}\` implements \`Drop\`: moving its fields out would skip its destructor.`, ctx, exn);
+    return(false);
+  });
+  stok := ast_expr_token(src);
+  if(is_atom, {
+    match(
+      root,
+      .Some(rv) => cond(
+        rv.is_module_level() => {
+          _throw_unmovable_destructure_source(src, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn);
+          return(false);
+        },
+        match_scrutinee_is_capture(&rv, env, ctx) => {
+          _throw_unmovable_destructure_source(src, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn);
+          return(false);
+        },
+        rv.is_compile_time_only() => {
+          return(false);
+        },
+        _scrutinee_moves_through_param_shadow(&rv, &ty, env) => {
+          _moved := move_through_sink_shadow(&rv, src, env, ctx, exn);
+          note_consuming_destructure_source(&stok);
+        },
+        true => {
+          set_expr_as_consumed(src, env, false, ctx, exn);
+          note_consuming_destructure_source(&stok);
+        }
+      ),
+      .None => ()
+    );
+    return(true);
+  });
+  if(_scrutinee_is_projection(src, env), {
+    why := cond(
+      ast_expr_is_fn_call_of(src, BF_DOT, Option(usize).Some(usize(2))) => String.from("it is a part of another value (a field or a dereference), and moving it out would leave that value partly moved (Yo has no partial moves)."),
+      true => String.from("it is an element of a collection, which still owns it.")
+    );
+    _throw_unmovable_destructure_source(src, &ty, &why, ctx, exn);
+    return(false);
+  });
+  // A temporary: an owned one transfers to the names.
+  match(
+    &info.variable_name(),
+    .Some(tname) => match(
+      find_variable_in_env(&info.env(), tname.clone()),
+      .Some(tv) => if(is_temp_variable_name(&env.module_path().*, &tname.*), {
+        if(tv.is_owning_the_rc_value(), {
+          if(tv.consumed_at_token().is_none(), {
+            tv.set_consumed_at_token(Option(Token).Some(stok));
+          });
+        }, {
+          _throw_unmovable_destructure_source(src, &ty, String.from("it is borrowed from the value that holds it (an element, or a binding into another value)."), ctx, exn);
+          return(false);
+        });
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  true
 });
 /// The hidden bindings a consuming arm adds to its pattern
 /// (`_augment_consuming_pattern`), and the user's bindings below a cell.
@@ -2841,4 +2977,4 @@ evaluate_match :: (
   });
   Rc.clone(expr.*)
 });
-export(evaluate_match);
+export(evaluate_match, decide_destructuring_consumes);

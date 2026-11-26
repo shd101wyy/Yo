@@ -187,7 +187,8 @@ impl(
 /// How each match takes its scrutinee (`register_match_mode`).
 (g_match_modes : RefCell(HashMap(usize, u8))) = RefCell(HashMap(usize, u8)).new(HashMap(usize, u8).new());
 /// The `___drop` of each part a consuming arm does not bind, keyed by the
-/// arm's `=>` node: codegen runs them once the arm is selected.
+/// arm's `=>` node: codegen runs them once the arm is selected. A consuming
+/// destructuring's are keyed by its `:=` node, run after the binds.
 (g_arm_entry_drops : RefCell(HashMap(usize, ArrayList(AstExpr)))) = RefCell(HashMap(usize, ArrayList(AstExpr))).new(HashMap(usize, ArrayList(AstExpr)).new());
 register_match_arms :: (fn(match_id : usize, arms : &ArrayList(Arm)) -> unit)({
   if(!match_arms_table_enabled(), {

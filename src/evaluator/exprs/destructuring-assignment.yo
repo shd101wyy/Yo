@@ -21,11 +21,12 @@ pragma(Pragma.AllowUnsafe);
   BK_COLON,
   BK_TUPLE,
   make_err_expr,
-  ast_expr_to_string
+  ast_expr_to_string,
+  alloc_global_expr_id
 } :: import("../../expr.yo");
 { is_union_member_read_capable, union_member_read_error_message } :: import("../memory-safety.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
-{ Token, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
+{ Token, TokenKind, TokenData, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
@@ -41,7 +42,9 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr-info.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type, type_decl_module } :: import("../../types/guards.yo");
-{ private_member_blocked } :: import("../../utils.yo");
+{ private_member_blocked, generate_new_temp_variable_name } :: import("../../utils.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
@@ -57,7 +60,10 @@ pragma(Pragma.AllowUnsafe);
 /// Result of a destructuring assignment.
 DestructuringResult :: struct(
   env : Environment,
-  runtime_destructurings : Option(ArrayList(RuntimeDestructuring))
+  runtime_destructurings : Option(ArrayList(RuntimeDestructuring)),
+  /// A consuming destructuring's `___drop` of each part no name binds (a
+  /// `_` or a field the pattern leaves out), run right after the binds.
+  entry_drops : ArrayList(AstExpr)
 );
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -275,9 +281,10 @@ handle_member_destructuring :: (
     rhs_type : &TypeValue,
     lhs : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_compile_time_only : bool,
     is_destructuring_atom_variable : bool,
+    consumes : bool,
     exn : Exception
   ) -> DestructuringResult
 )({
@@ -328,6 +335,8 @@ handle_member_destructuring :: (
     );
   });
   mut(seen_labels) := ArrayList(String).new();
+  // The labels a consuming destructuring binds to `_`: dropped at the binding.
+  mut(wild_labels) := ArrayList(String).new();
   mut(runtime_destructurings) := ArrayList(RuntimeDestructuring).new();
   (mut(i) : usize) = usize(0);
   while(i < lhs_fields.len(), {
@@ -437,8 +446,8 @@ handle_member_destructuring :: (
               is_compile_time_only,
               false,
               // is_reassignable
-              false,
-              // is_owning_the_rc_value (stub)
+              consumes,
+              // is_owning_the_rc_value: a consuming destructuring's names own their fields
               false,
               // is_implicit
               ast_expr_token(&lhs_field)
@@ -651,7 +660,12 @@ handle_member_destructuring :: (
           // An adopted C type selected under its own name is already bound —
           // leave it; under a NEW name it is an ordinary alias of the type.
           adopted_in_place := (_is_adopted_extern_c_field(rhs_type, &field_value_opt) && (var_name == rhs_field_label));
-          if(!adopted_in_place, {
+          // A consuming destructuring drops a field bound to `_` at the
+          // binding, with the fields the pattern leaves out (below).
+          if(consumes && (var_name == "_"), {
+            wild_labels.push(rhs_field_label.clone());
+          });
+          if(!adopted_in_place && !(consumes && (var_name == "_")), {
             _reject_shadowing(env, var_name.clone(), ast_expr_token(&var_tok_expr), ctx, exn);
             _record_extern_c_alias(rhs_type, rhs_field_label.clone(), var_name.clone(), &rhs_field_type);
             // An element whose type is a reference (a tuple of lends,
@@ -672,8 +686,8 @@ handle_member_destructuring :: (
               is_compile_time_only,
               false,
               // is_reassignable
-              false,
-              // is_owning_the_rc_value (stub)
+              (consumes && ref_elem.is_none()),
+              // is_owning_the_rc_value: a consuming destructuring's names own their fields
               false,
               // is_implicit
               ast_expr_token(&var_tok_expr)
@@ -696,14 +710,15 @@ handle_member_destructuring :: (
                 );
                 // A `mut(name)` binding may be reassigned (decision 47).
                 if(is_mut_binding(&ast_expr_token(&var_tok_expr), &var_name), {
-                  // A destructuring borrows: each name is a by-value copy
-                  // of its element, which the destructured value still
+                  // A borrowing destructuring's names are by-value copies
+                  // of their elements, which the destructured value still
                   // owns and releases (there are no partial moves). A
                   // `mut` copy of an element holding an RC cell or an
                   // owned buffer would release that data on its write
                   // and at its scope end a second time: E0901, as a `&`
-                  // match's `mut(name)` binding (VERDICTS-28 Q2).
-                  if(ref_elem.is_none() && !is_compile_time_only && type_contains_rc_cell_or_move_only(&bind_field_type), {
+                  // match's `mut(name)` binding (VERDICTS-28 Q2). A
+                  // consuming destructuring's `mut` name owns its field.
+                  if(!consumes && ref_elem.is_none() && !is_compile_time_only && type_contains_rc_cell_or_move_only(&bind_field_type), {
                     _throw_mut_destructure_copy(&var_tok_expr, &bind_field_type, ctx, exn);
                   });
                   added_var.set_is_reassignable(true);
@@ -743,9 +758,40 @@ handle_member_destructuring :: (
     });
     i = (i + usize(1));
   });
+  // A consuming destructuring takes the whole value (VERDICTS-76 Q2): each
+  // part with a drop that no name binds (a `_`, a field the pattern leaves
+  // out) gets a hidden owning binding, dropped right after the binds, as a
+  // consuming `match` arm drops its unbound parts on entry (decision 26).
+  entry_drops := ArrayList(AstExpr).new();
+  if(consumes, {
+    ltok := ast_expr_token(lhs);
+    (fi : usize) = usize(0);
+    while(fi < rhs_field_labels.len(), fi = (fi + usize(1)), {
+      flab := match(rhs_field_labels.get_cloned(fi), .Some(l) => l, .None => String.new());
+      fty := match(rhs_field_types.get_cloned(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      unbound := (!_label_already_seen(&seen_labels, flab.clone()) || _label_already_seen(&wild_labels, flab.clone()));
+      is_ref_part := match(&fty, Rc(.Reference(_, _, _)) => true, _ => false);
+      if(unbound && !is_ref_part && type_contains_rc_cell_or_move_only(&fty), {
+        hname := generate_new_temp_variable_name(&env.module_path().*, usize(ltok.row), usize(ltok.column), Option(String).Some(`dv${fi.to_string()}`), Option(String).Some(ltok.module_path.*.clone()));
+        htok := Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(hname.clone()), row : ltok.row, column : ltok.column, character : ltok.character, byte_offset : ltok.byte_offset, module_path : Rc.clone(ltok.module_path), input : Rc.clone(ltok.input)));
+        hatom := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), htok));
+        runtime_destructurings.push(RuntimeDestructuring(label : flab.clone(), variable_name : hname.clone(), ty : Rc.clone(fty)));
+        match(
+          add_variable_to_env(env, hname.clone(), &fty, Option(EvalValue).None, false, false, true, false, ast_expr_token(&hatom)),
+          .Some(hv) => {
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&hatom), new_expr_info(env, &fty));
+            entry_drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${hname})`, exn), env, ctx, exn));
+            hv.set_consumed_at_token(Option(Token).Some(Rc.clone(ltok)));
+          },
+          .None => ()
+        );
+      });
+    });
+  });
   DestructuringResult(
     env : Rc.clone(env),
-    runtime_destructurings : Option(ArrayList(RuntimeDestructuring)).Some(runtime_destructurings)
+    runtime_destructurings : Option(ArrayList(RuntimeDestructuring)).Some(runtime_destructurings),
+    entry_drops : entry_drops
   )
 });
 // ---------------------------------------------------------------------------
@@ -758,7 +804,8 @@ evaluate_destructuring_assignment :: (
     rhs : &AstExpr,
     env : &Environment,
     is_compile_time_only : bool,
-    ctx : &EvalContext,
+    consumes : bool,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> DestructuringResult
 )({
@@ -813,6 +860,7 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
+        consumes,
         exn
       )
     );
@@ -838,6 +886,7 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
+        consumes,
         exn
       )
     );
@@ -921,6 +970,7 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
+        consumes,
         exn
       )
     );
