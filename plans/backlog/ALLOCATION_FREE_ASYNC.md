@@ -316,14 +316,14 @@ operation the abort cannot take back synchronously (io_uring, IOCP) reads
 `-4` (Aborting) and is released by the operation's completion
 (`issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md`).
 Scoped combinator operands outside the await chain were still open
-(`issues/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`),
+(`issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md`),
 and so was a pending `IoFuture` held by a local
 (`issues/2026-11-25-a-pending-io-future-dropped-with-its-task-keeps-writing-into-the-released-buffer.md`).
 Both have one cause: an abort does not drop the task's frame, whose locals
 are dropped only at its last release
-(`issues/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md`).
-VERDICTS-83 (2026-11-25) decided the fix, the first v0.2.81 PR: **the abort
-walk on today's cells**, compiler-only. (1) Once an aborted task's await slot
+(`issues/fixed/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md`).
+VERDICTS-83 (2026-11-25) decided the fix, which landed as the first v0.2.81
+PR: **the abort walk on today's cells**, compiler-only. (1) Once an aborted task's await slot
 has retired, it drops its live locals, newest first, before it wakes its
 waiters. (2) A drop that aborts a future which does not retire stops the
 walk; the task stays `-4` and continues when that future retires. (3)
