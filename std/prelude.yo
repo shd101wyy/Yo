@@ -691,8 +691,12 @@ export(not, !);
       generic(_Self : Type),
       self : _Self,
       where(_Self <: BitNot)
-    ) -> _Self
+    ) -> _Self.Output
   )(self.(~)());
+  // `comptime(_Self)`, not `comptime(_Self.Output)`: a generic function's
+  // `comptime(T.Output)` return comes back as the bare `Output`
+  // (issues/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
+  // Every `ComptimeNeg` and `ComptimeBitNot` impl in the prelude has `Output = Self`.
   comptime_bit_not :: (
     fn(
       generic(_Self : Type),
@@ -710,10 +714,14 @@ export(~);
       generic(_Self : Type),
       self : _Self,
       where(_Self <: Neg)
-    ) -> _Self
+    ) -> _Self.Output
   )({
     return(self.neg());
   });
+  // `comptime(_Self)`, not `comptime(_Self.Output)`: a generic function's
+  // `comptime(T.Output)` return comes back as the bare `Output`
+  // (issues/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
+  // Every `ComptimeNeg` and `ComptimeBitNot` impl in the prelude has `Output = Self`.
   comptime_neg :: (
     fn(
       generic(_Self : Type),
@@ -6927,34 +6935,6 @@ impl(
   longdouble,
   LogicalNot(
     (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  longdouble,
-  BitNot(
-    Output : longdouble,
-    (~) : (self -> __yo_op_bit_complement(self))
-  )
-);
-impl(
-  longdouble,
-  BitAnd(longdouble)(
-    Output : longdouble,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
-  )
-);
-impl(
-  longdouble,
-  BitOr(longdouble)(
-    Output : longdouble,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
-  )
-);
-impl(
-  longdouble,
-  BitXor(longdouble)(
-    Output : longdouble,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
