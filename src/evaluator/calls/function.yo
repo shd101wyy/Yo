@@ -3038,7 +3038,7 @@ _resolve_array_length_vars_from_self :: (
 /// the push, leaving `ok_out` empty (the `_trial_eval_fn_body` pattern).
 /// The `try_to_call_function_with_arguments` path only type-checks (CTFE
 /// execution lives in the FuncVal arm of `evaluate_function_call`), so
-/// trials are side-effect-free.
+/// trials are side-effect-free. Returns the error a failed trial raised.
 _trial_call_overload_candidate :: (
   fn(
     fn_val : &EvalValue,
@@ -3049,7 +3049,7 @@ _trial_call_overload_candidate :: (
     callee_env : &Environment,
     ctx : &mut EvalContext,
     ok_out : &mut ArrayList(bool)
-  ) -> unit
+  ) -> Option(AnyError)
 )({
   // FRESH-ID clones — the dry-run must write fresh `$` slots instead of
   // polluting the real expr's eval data;
@@ -3077,7 +3077,7 @@ _trial_call_overload_candidate :: (
   saved_vars := ArrayList(Variable).new();
   saved_moves := ArrayList(Option(Token)).new();
   _save_move_states(callee_env, &mut saved_vars, &mut saved_moves);
-  _run_overload_trial(fn_val, fn_ty, &cloned_call, func_expr, &cloned_args, callee_env, ctx, ok_out);
+  trial_err := _run_overload_trial(fn_val, fn_ty, &cloned_call, func_expr, &cloned_args, callee_env, ctx, ok_out);
   _restore_move_states(&saved_vars, &saved_moves);
   // Only the verdict survives the trial: the clones' own metadata is dead
   // either way (the real call evaluates the originals). Specializations the
@@ -3088,9 +3088,11 @@ _trial_call_overload_candidate :: (
     match(cloned_args.get_cloned(pi), .Some(a) => purge_executed_clone_metadata(&ctx.expr_info_table, &a, clone_lo, clone_hi), .None => ());
     pi = (pi + usize(1));
   });
+  trial_err
 });
 /// The trial itself: a failure unwinds out of THIS function (the handler is
-/// created here), so the caller's purge runs on both outcomes.
+/// created here) with the error it caught, so the caller's purge runs on both
+/// outcomes.
 _run_overload_trial :: (
   fn(
     fn_val : &EvalValue,
@@ -3101,9 +3103,17 @@ _run_overload_trial :: (
     callee_env : &Environment,
     ctx : &mut EvalContext,
     ok_out : &mut ArrayList(bool)
-  ) -> unit
+  ) -> Option(AnyError)
 )({
-  trial_exn := Exception(throw : (_err -> unwind(())));
+  // A block, not a bare `e -> unwind(...)` body (see
+  // `_evaluate_function_call_trapped`).
+  trial_exn := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
   try_to_call_function_with_arguments(
     Option(EvalValue).Some(Rc.clone(fn_val.*)),
     fn_ty,
@@ -3118,6 +3128,7 @@ _run_overload_trial :: (
     trial_exn
   );
   ok_out.push(true);
+  Option(AnyError).None
 });
 /// Build the C-call argument list for a receiver method candidate: prepend the
 /// receiver (wrapped in `&(...)` when the method's self param is `*(T)`) for
@@ -3529,7 +3540,8 @@ _trial_call_overload_candidates :: (
     func_expr : &AstExpr,
     args : &ArrayList(AstExpr),
     env : &Environment,
-    ctx : &mut EvalContext
+    ctx : &mut EvalContext,
+    errs_out : &mut ArrayList(AnyError)
   ) -> ArrayList(usize)
 )({
   old_checking_ph := ctx.is_in_function_call_checking_phase;
@@ -3540,7 +3552,11 @@ _trial_call_overload_candidates :: (
     cv2 := match(cand_vals.get_cloned(cand_i), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
     ct2 := match(cand_tys.get_cloned(cand_i), .Some(t) => t, .None => t_unit());
     ok_out := ArrayList(bool).new();
-    _trial_call_overload_candidate(&cv2, &ct2, call_expr, func_expr, args, env, ctx, &mut ok_out);
+    match(
+      _trial_call_overload_candidate(&cv2, &ct2, call_expr, func_expr, args, env, ctx, &mut ok_out),
+      .Some(trial_err) => errs_out.push(trial_err),
+      .None => ()
+    );
     if(ok_out.len() > usize(0), {
       successes.push(cand_i);
     });
@@ -3548,6 +3564,60 @@ _trial_call_overload_candidates :: (
   });
   ctx.is_in_function_call_checking_phase = old_checking_ph;
   successes
+});
+/// The E0901 a failed overload trial raised in user code, if any: a moved
+/// operand. One raised inside std (a generic candidate's body) is the
+/// candidate's own failure, not the operand's.
+_moved_operand_trial_error :: (fn(errs : &ArrayList(AnyError), ctx : &EvalContext) -> Option(YoError))({
+  (ei : usize) = usize(0);
+  while(ei < errs.len(), ei = (ei + usize(1)), {
+    match(
+      errs.get_cloned(ei),
+      .Some(err) => {
+        is_moved := match(primary_diagnostic_code(&err), .Some(code) => (code == E_USE_OF_MOVED_VALUE), .None => false);
+        in_std := match(primary_diagnostic_path(&err), .Some(ep) => is_std_module_path(&ep, ctx.std_path.clone()), .None => false);
+        if(is_moved && !in_std, {
+          match(downcast(&err.*, YoError), .Some(ye) => return(Option(YoError).Some(ye.clone())), .None => ());
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(YoError).None
+});
+/// The help of an operator-module miss. `!x` on an operand with a bitwise
+/// complement (`BitNot`) is Rust's `!` on an integer: Yo's `!` is logical not
+/// and yields `bool`, the complement is `~x`.
+_overload_miss_help :: (fn(call_expr : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &mut EvalContext) -> Option(String))({
+  if(!ast_expr_is_fn_call_of(call_expr, "!", .Some(usize(1))), {
+    return(Option(String).None);
+  });
+  operand := match(
+    args.get_cloned(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(Option(String).None);
+    }
+  );
+  // A probe of a fresh-id clone: the real operand's metadata stays untouched.
+  probe_lo := next_global_expr_id();
+  probe := clone_expr_fresh_ids(&operand);
+  probe_hi := next_global_expr_id();
+  operand_tys := ArrayList(TypeValue).new();
+  _try_eval_operand_type(&probe, env, ctx, &mut operand_tys);
+  purge_executed_clone_metadata(&ctx.expr_info_table, &probe, probe_lo, probe_hi);
+  has_complement := match(
+    operand_tys.get_cloned(usize(0)),
+    .Some(oty) => match(get_trait_type_from_env(env, String.from("BitNot")), .Some(bit_not) => type_implements_trait(&oty, &bit_not, env).implemented, .None => false),
+    .None => false
+  );
+  cond(
+    has_complement => {
+      text := ast_expr_to_string(&operand);
+      Option(String).Some(`\`!\` is logical not and yields \`bool\`; the bitwise complement of \`${text}\` is \`~${text}\``)
+    },
+    true => Option(String).None
+  )
 });
 /// The tokens of the arguments that name a reference binding judged by the
 /// deref rule (a bare `r`, not a written `r.*`).
@@ -3719,7 +3789,8 @@ _try_expand_call_overload :: (
   });
   func_expr := match(call_expr, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), _ => Rc.clone(evaluated_callee.*));
   // Trial each candidate; collect the indices that type-check.
-  mut(successes) := _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx);
+  trial_errs := ArrayList(AnyError).new();
+  mut(successes) := _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx, &mut trial_errs);
   // A reference binding `r` passed to an operator module (`-r`, `!r`, `~r`
   // on `r : &T`) reads as the reference at the candidates' unbound binder
   // (the read rule), and no candidate takes a reference. When one takes its
@@ -3731,7 +3802,7 @@ _try_expand_call_overload :: (
     value_toks := _reference_binding_argument_tokens(args, env, ctx);
     if(value_toks.len() > usize(0), {
       for(&value_toks, vt => note_binder_value_read(vt));
-      successes = _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx);
+      successes = _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx, &mut trial_errs);
       if(successes.len() == usize(0), {
         for(&value_toks, vt => forget_binder_value_read(vt));
       });
@@ -3744,13 +3815,23 @@ _try_expand_call_overload :: (
     // here, letting the source-namespace struct callee fall through to the
     // struct path — which silently ACCEPTED e.g. `add(4, 5, 6, 7)` against a
     // `Call :: (add2, add3)` module (tests/fn.test.yo arm 13, hollow batch).
+    //
+    // An operand that is a use of a moved value fails every candidate the
+    // same way before any parameter is matched: the operand is the error, so
+    // it is E0901 as at a binary operator or a method call, not "no matching
+    // call" (`-b` after `take(b)`).
+    match(_moved_operand_trial_error(&trial_errs, ctx), .Some(moved_err) => raise_flow_violation(&moved_err, ctx, exn), .None => ());
     exn.throw(
       dyn(
         Box.new(
-          format_error_message(
-            ast_expr_token(call_expr),
-            `No matching call found with arguments:
-${ast_expr_to_string(call_expr)}`
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(call_expr),
+              `No matching call found with arguments:
+${ast_expr_to_string(call_expr)}`,
+              _overload_miss_help(call_expr, args, env, ctx)
+            ),
+            E_NO_MATCHING_CALL
           )
         )
       )
