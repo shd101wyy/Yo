@@ -190,6 +190,10 @@ impl(
 /// arm's `=>` node: codegen runs them once the arm is selected. A consuming
 /// destructuring's are keyed by its `:=` node, run after the binds.
 (g_arm_entry_drops : RefCell(HashMap(usize, ArrayList(AstExpr)))) = RefCell(HashMap(usize, ArrayList(AstExpr))).new(HashMap(usize, ArrayList(AstExpr)).new());
+/// A lending destructuring's local borrows (`{ a, b } := &x` binds
+/// `a := &x.a; b := &x.b`, VERDICTS-76 Q2), keyed by its `:=` node: codegen
+/// emits them in place of the destructuring.
+(g_destructure_lends : RefCell(HashMap(usize, ArrayList(AstExpr)))) = RefCell(HashMap(usize, ArrayList(AstExpr))).new(HashMap(usize, ArrayList(AstExpr)).new());
 register_match_arms :: (fn(match_id : usize, arms : &ArrayList(Arm)) -> unit)({
   if(!match_arms_table_enabled(), {
     return(());
@@ -268,10 +272,6 @@ register_arm_entry_drops :: (fn(arm_id : usize, drops : &ArrayList(AstExpr)) -> 
   record_owned_expr_id(arm_id);
 });
 lookup_arm_entry_drops :: (fn(arm_id : usize) -> Option(ArrayList(AstExpr)))(g_arm_entry_drops.with(m => m.get_cloned(&arm_id)));
-/// A lending destructuring's local borrows (`{ a, b } := &x` binds
-/// `a := &x.a; b := &x.b`, VERDICTS-76 Q2), keyed by its `:=` node: codegen
-/// emits them in place of the destructuring.
-(g_destructure_lends : RefCell(HashMap(usize, ArrayList(AstExpr)))) = RefCell(HashMap(usize, ArrayList(AstExpr))).new(HashMap(usize, ArrayList(AstExpr)).new());
 register_destructure_lends :: (fn(bind_id : usize, binds : &ArrayList(AstExpr)) -> unit)({
   if(!codegen_tables_enabled(), {
     return(());
