@@ -145,7 +145,7 @@ pragma(Pragma.AllowUnsafe);
   format_error_message_with_repair_at
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
+{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH, E_TRAIT_BOUND_FORM } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -517,6 +517,65 @@ is_valid_variable_name :: (fn(expr : &AstExpr) -> bool)({
   (ast_expr_is_atom(expr) && (tok.kind == TokenKind.Identifier)) ||
     (tok.kind == TokenKind.Operator)
   });
+// ---------------------------------------------------------------------------
+// check_where_clause_form
+// ---------------------------------------------------------------------------
+/// The form of a `where(...)` clause, checked where the clause is first read
+/// (a function or type constructor's signature, a trait, an impl header, a
+/// derive) before any reader filters its entries (VERDICTS-84 §4): every
+/// entry is a bound `L <: R`. An `L : R` entry is E0624 with the repair
+/// `:` -> `<:` (`where` takes no labels, so the rewrite is the only reading);
+/// any other entry is the form error. The impl and derive readers used to skip
+/// such an entry, which registered the impl without the bound
+/// (issues/fixed/2026-11-25-a-colon-spelled-where-bound-on-an-impl-or-derive-is-silently-dropped.md).
+check_where_clause_form :: (fn(where_expr : &AstExpr, exn : Exception) -> unit)({
+  entries := match(
+    where_expr,
+    Rc(.FnCall(_, _, Rc(wa), _, _)) => wa.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+  );
+  (i : usize) = usize(0);
+  while(i < entries.len(), i = (i + usize(1)), {
+    entry := match(entries.get_cloned(i), .Some(e) => e, .None => make_err_expr());
+    if(ast_expr_is_fn_call_of(&entry, BK_COLON, .Some(usize(2))), {
+      sides := match(
+        Rc.clone(entry),
+        Rc(.FnCall(_, _, Rc(ca), _, _)) => ca.clone(),
+        Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+      );
+      lhs := match(sides.get_cloned(usize(0)), .Some(e) => ast_expr_to_string(&e), .None => String.new());
+      rhs := match(sides.get_cloned(usize(1)), .Some(e) => ast_expr_to_string(&e), .None => String.new());
+      exn.throw(
+        dyn(
+          Box.new(
+            with_code(
+              format_error_message_with_repair(
+                ast_expr_token(&entry),
+                `A trait bound is written \`${lhs} <: ${rhs}\`. \`:\` gives a name its type or kind; \`<:\` says a type implements a trait.`,
+                Option(String).Some(`write \`${lhs} <: ${rhs}\``),
+                String.from("<:"),
+                `write the bound \`${lhs} <: ${rhs}\``
+              ),
+              E_TRAIT_BOUND_FORM
+            )
+          )
+        )
+      );
+    });
+    if(!ast_expr_is_fn_call_of(&entry, "<:", .Some(usize(2))), {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&entry),
+              `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(&entry)}`
+            )
+          )
+        )
+      );
+    });
+  });
+});
 // ---------------------------------------------------------------------------
 // find_rc_value_owner_relationship
 // ---------------------------------------------------------------------------
@@ -6562,6 +6621,7 @@ legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &Ast
 });
 export(reject_dyn_place_by_value, legacy_box_dyn_lend);
 export(in_compile_time_fn_body);
+export(check_where_clause_form);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(move_only_help, move_only_type_help, use_of_moved_value_error, moved_value_type, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
