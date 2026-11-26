@@ -250,6 +250,22 @@ main :: (fn(io : Io) -> unit)({
 // 丢弃/销毁 Future 时释放状态机。
 ```
 
+future 在这个指针之后已经是类型擦除的，所以 `Future` 不能出现在 `Dyn` 中：`Dyn(Future(T, E))` 在任何位置都是 E0614。单个 future 的类型写作 `Impl(Future(T, E))`（参数、返回值或结构体字段）。要把多个不同的任务放进同一个集合，就保存它们的句柄：逐个 spawn，保存在 `ArrayList(JoinHandle(T))` 中，`join_all` 和 `race` 接受这个列表。
+
+```yo
+{ ArrayList } :: import("std/collections/array-list");
+{ join_all } :: import("std/async");
+one :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(1)));
+add :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async({ n }(io : Io) => (n + i32(1))));
+main :: (fn(io : Io) -> unit)({
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
+  hs.push(io.spawn(one(io), io));
+  hs.push(io.spawn(add(i32(41), io), io));
+  rs := io.await(join_all(hs, io), io); // ArrayList(Option(i32))：.Some(1)、.Some(42)
+});
+export(main);
+```
+
 #### 带效应的 Future
 
 `Future(T)` 可以携带代数效应信息。形态为：
@@ -454,12 +470,19 @@ export(main);
 
 - 挂起中的 I/O 操作或定时器会在操作系统层面被取消，前提是后端有取消路径（所有
   平台的定时器；Linux 上的 epoll 与 io_uring 描述符和数据报操作；macOS 上停在
-  kqueue 中的描述符操作）。没有取消路径的操作会运行到完成，而任务保持中止状态。
+  kqueue 中的描述符操作；Windows 上的 socket 操作）。没有取消路径的操作会运行到
+  完成，而任务保持中止状态。
+- 只有当任何操作都不会再触碰任务的内存时，任务才会被释放。epoll 和 kqueue 会立即
+  收回操作；io_uring 和 Windows 只是请求取消，内核在报告操作结束之前仍会写入交给
+  它的缓冲区。在那之前，任务以及所有正在 await 它的任务都连同局部变量一起保持分配。
+  从中止那一刻起任务的状态就读作 `Aborted`，而对它的 `JoinHandle.await` 或 join
+  会在操作结束后返回：被取消的读取只需事件循环转一圈。没有取消路径的操作会让任务
+  一直保留到它完成。
 - 任务正在 await 的子 Future 会被递归地中止，前提是它是由该任务启动的：匿名的
   `io.await(child(io), io)`，或由这次 await 冷启动的具名 future。由别人启动的具名
   future 可能被其他等待者共享，所以它会继续运行。
 - 直接 spawn 的原始 `IoFuture` 也以同样方式被取消，它的 handle 在操作本该完成的
-  时间之后仍读出 `.None`。
+  时间之后仍读出 `.None`。它的缓冲区属于传入指针的一方：在操作结束之前要让它保持有效。
 - 停在 `Mutex` 或 `Channel` 上的任务会离开等待队列。下一次 `unlock` 或 `send`
   会跳过这个已死的等待者，把锁或消息交给一个存活的等待者；锁已经移交给它的任务
   会在它的最后一个引用消失时把锁继续交给下一个等待者，不会丢失任何东西。
@@ -467,7 +490,12 @@ export(main);
   `io.await` 会让它自己所在的任务也中止，因此更上层的 `JoinHandle.await` 读到
   `.None`。对一个**已经**中止的 Future 发起 `io.await` 的行为与此相同。
 
-被中止任务的局部变量会在它的最后一个引用消失时被 drop。
+中止会立即 drop 任务的局部变量（从最新声明的开始），前提是任务挂起所在的操作已经停止；
+之后才唤醒等待它的任务。如果某个局部变量的 drop 中止了一个不能立即停止的东西（例如
+io_uring 仍在完成其读取的 `select` 或 `timeout` 操作数），任务就停在那里：它保持分配，
+状态仍读作 `Aborted`，等那个操作数结束后再 drop 其余的局部变量。因此，对被中止任务的
+`JoinHandle.await` 或 join 返回时，任务的每个局部变量都已被 drop，它启动的任何操作都不会
+再访问内存。
 
 ```yo
 { sleep } :: import("std/sys/timer");
@@ -807,8 +835,9 @@ while(i < rest.len(), i = (i + usize(1)), {
   两者都被中止时是 `None`。查看时两者都已完成的话，第一个获胜。
 
 每个操作数都是一个 `Future(T, Io)`，作为一个**有作用域的子任务**运行。失败者以及超过截止时间的操作数会被中止，并且每个操作数都会在组合器
-解析之前被 join；如果组合器自己的 Future 先被中止或丢弃，丢弃它会中止它的操作数。被中止的任务
-永远不会再恢复，所以操作数可以是借用的 Future：它的借用随调用结束。
+解析之前被 join。如果等待组合器的任务先被中止，中止会中止各个操作数，并且直到每个操作数都停止才算结束；先被丢弃的组合器 Future 同样会中止它们。被中止的任务
+永远不会再恢复，而且它的 join 要等到它挂起所在的操作结束后才返回，所以操作数可以是借用的
+Future：它的借用随调用结束。
 
 ```yo
 { assert } :: import("std/assert");

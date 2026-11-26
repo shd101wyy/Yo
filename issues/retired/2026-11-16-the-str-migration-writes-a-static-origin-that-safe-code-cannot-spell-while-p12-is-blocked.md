@@ -4,8 +4,10 @@
 
 **Kind:** design question
 
-**Status:** RETIRED 2026-11-21 (see above). Filed 2026-11-16 by the d49-str lane. The branch implements option 3 (below) so that it is mergeable
-as it stands. The coordinator chooses between 3 and 1.
+**Status:** RETIRED 2026-11-21 (see above). Also answered by VERDICTS-74 (adopted by the coordinator): P12 lands
+`static` as a CHECKED origin and deletes E0922, so any file may spell `&(str, static)` and the spelling is checked
+(only values that borrow no place flow into it). Filed 2026-11-16 by the d49-str lane; the branch implemented
+option 3 so that it was mergeable as it stood.
 
 ## What
 
@@ -44,3 +46,14 @@ Option 3 for v0.2.79, with option 1 as the fallback if the coordinator wants the
 release. The migration should never write code that the release running it rejects. Option 3 also changes nothing in
 the wall that VERDICTS-57 §1 put up after an audit, and the alias makes the rewrite unnecessary in safe code until
 S3b-`str`.
+
+## Resolution (2026-11-21, VERDICTS-74)
+
+VERDICTS-74 ("Option 2: `static` becomes a checked origin (P12) before the value-`str` alias is deleted") adopted the
+position this question's option 1 gestured at, one step further: instead of exempting the exact `&(str, static)`
+spelling from the wall, P12 deletes the wall (E0922) and CHECKS the spelling everywhere — the static bit enters type
+identity (rule 1), the subset check runs at every expected-type site (rule 2), rule 3 lists the introduction forms,
+joins widen (rule 4), and every file is checked (rule 5). The migration's `&(str, static)` output therefore evaluates
+in any file, and a site where a non-static value reaches a `&(str, static)` slot is E0923 — the hazard this question
+feared is a compile error. (`yo fix --migrate` itself is being deleted by the drop-fix-migrate lane; the question's
+subject is resolved wholesale, so the doc retires.)

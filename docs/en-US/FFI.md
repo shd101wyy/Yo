@@ -267,7 +267,7 @@ For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers t
 
 Ownership, moves and copies, `&T`/`&mut T` references and their origins, and the borrow rules the compiler checks are explained in [OWNERSHIP_AND_BORROWING.md](OWNERSHIP_AND_BORROWING.md).
 
-Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)):
+Yo's safety model is layered (the design plan is `plans/reference/MEMORY_SAFETY.md`):
 
 - **`Rc(T)`** is a reference-counted cell, automatically freed at its last handle (a cycle leaks unless a `Weak` breaks it). Memory-safe by construction.
 - **`Arc(T)`** provides atomic-RC ownership for thread-shared cases; a `Send` value is transferred to another thread by moving it.

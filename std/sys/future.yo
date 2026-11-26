@@ -45,6 +45,13 @@ extern(
 /// resolves to its own `DNS_ERR_*` codes, which `std/net/dns` maps to
 /// `DnsError`. `io.state` reads an in-flight raw future as `Running`: it was
 /// submitted when it was created, so it is never `Cold`.
+///
+/// The memory given to an operation (a buffer, an address or its length)
+/// must stay valid until its future is terminal. Dropping a pending
+/// `IoFuture` releases the handle but does not cancel the operation: it keeps
+/// running and may still write into that memory. So a started operation is
+/// awaited before the memory it was given goes away, and std above `std/sys`
+/// awaits every operation where it is made.
 IoFuture :: Impl(Concrete(__yo_io_future_t), Future(i32));
 // The native Io's executor entries and IoFuture.completed
 // (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2, §3, IO-1a). Declared here

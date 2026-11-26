@@ -496,7 +496,7 @@ main :: (fn() -> unit)({
 
 - A parameter may spell its reference's origin: `x : &(T, p)` / `x : &mut(T, p)` with `generic(p : Origin)`
   (a union is `&(T, (p, q))`). Same function type and C as `x : &T`; an origin binder does not make the
-  function generic. A non-origin second argument (a type, an undeclared name, another parameter) is E0922
+  function generic. A non-origin second argument (a type, an undeclared name, another parameter) is an uncoded error
   (a reference to a tuple is `&Tuple(A, B)`).
 - A projection's result may spell its origin: `-> &(T, p)`, `-> &(T, xs)` (the reference parameter `xs`), a
   union `-> &(T, (p, xs))`; a by-value parameter there is E0912. A call freezes only the arguments the
@@ -811,7 +811,7 @@ main :: (fn() -> unit)({
 ```
 
 - **Result-type inference:** when an argument's return type must be inferred into a type variable
-  (`o.map((x) -> ...)`, any `Impl(Fn(..) -> R)` / `where(F <: Fn(..) -> R)` parameter), a capture-free `->`
+  (`o.map((x) -> ...)`, any `Impl(Fn(..) -> R)` / `where(F <: (Fn(..) -> R))` parameter), a capture-free `->`
   literal and a `=>` closure both bind `R`; pick `=>` only to capture. `->` stays required for effect
   handlers (their result is the per-call-site `ResumeType`).
 - A closure's body is checked against the `Fn(...) -> R` it adopts (E0604). A `comptime(x) : T` parameter
@@ -1235,8 +1235,8 @@ to run-time `assert(...)` (`comptime_assert(...)` in comptime fns); `yo verify <
   (`requires(a, b, c)`). Zero-argument `requires()` / `ensures()` is an error — omit the clause.
 - In `ensures`, the return value is the name a LABELED return binds (`-> (result : i32)`); there is no magic
   `result` (E0401 with a "label the return" hint). `old(expr)` is `expr` at entry.
-- `where(P)` with a `bool` predicate acts as `requires(P)`: `where` for type intent, `requires` for value
-  intent.
+- `where(...)` holds only trait bounds (`T <: Tr`); a `bool` predicate is the form error at definition, and
+  `where(T : Tr)` is E0624. A value predicate goes in `requires(...)`.
 
 ```yo
 divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> (result : i32))(

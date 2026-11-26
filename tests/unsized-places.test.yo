@@ -6,6 +6,7 @@
 //! the fat pointer. `static` is the empty origin.
 pragma(Pragma.AllowUnsafe);
 { assert, panic } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
 { malloc, free } :: import("std/libc/stdlib.yo");
 
 // A test-local container: the prelude's `Index` keeps `Output : Type` until
@@ -117,4 +118,198 @@ test("an unsized projection call result is read where the call may unwind", {
   assert(v.len() == usize(3), "bound, then read");
   assert(_up_row_name(&r).len() == usize(4), "a free &str projection");
   assert(_up_any_view(&r.a.*).len() == usize(3), "a generic projection at T = [i32]");
+});
+// ---------------------------------------------------------------------------
+// `static` becomes a checked origin (VERDICTS-74, 2026-11-21): a reference's
+// origin enters type identity as one bit (static or not), the empty origin is
+// spelled in any file, and only values that borrow no place flow into it.
+// ---------------------------------------------------------------------------
+// Each order uses its own pointee, so the instance it asks about first is
+// the first one created (probes s13a and s13b); a `::` alias is evaluated at
+// its first use.
+_UpX :: struct(n : i32);
+_UpY :: struct(n : i32);
+_UpOptStaticX :: Option(&(_UpX, static));
+_UpOptElidedX :: Option(&_UpX);
+_UpOptElidedY :: Option(&_UpY);
+_UpOptStaticY :: Option(&(_UpY, static));
+test("Option(&(X, static)) and Option(&X) are two instances, static written first", {
+  comptime_assert(Type.impls(_UpOptStaticX, Escapable), "Option of a static reference is Escapable");
+  comptime_assert(!Type.impls(_UpOptElidedX, Escapable), "Option of an elided-origin reference is not Escapable");
+});
+test("Option(&(X, static)) and Option(&X) are two instances, elided written first", {
+  comptime_assert(!Type.impls(_UpOptElidedY, Escapable), "Option of an elided-origin reference is not Escapable");
+  comptime_assert(Type.impls(_UpOptStaticY, Escapable), "Option of a static reference is Escapable");
+});
+_UpStaticFn :: (fn(a : &(str, static), b : &(str, static)) -> &(str, static))(cond(true => a, true => b));
+_UpStaticHolder :: struct(name : &(str, static));
+test("a -> &(str, static) function over two literals", {
+  s := _UpStaticFn("hello", "world");
+  assert(s.len() == usize(5), "the static result reads");
+});
+test("a &(str, static) field and an ArrayList(&(str, static)) element", {
+  h := _UpStaticHolder(name : "abc");
+  mut(xs) := ArrayList(&(str, static)).new();
+  xs.push("def");
+  // Bound first: a method call straight on `xs(i)` emits invalid C
+  // (issues/2026-11-23-a-method-call-on-an-arraylist-str-element-read-by-index-emits-a-dot-on-a-pointer.md).
+  e := xs(usize(0));
+  assert((h.name.len() == usize(3)) && (e.len() == usize(3)), "static slots hold literals");
+});
+test("a static value passed to a &str parameter", {
+  takes :: (fn(s : &str) -> usize)(s.len());
+  (lit : &(str, static)) = "static";
+  assert(takes(lit) == usize(6), "a static value widens into every origin position");
+});
+_UpG := _UpX(n : i32(7));
+_UpStaticSlot :: struct(r : Option(&(_UpX, static)));
+_UpStaticWrap :: (fn(v : &(_UpX, static)) -> Option(&(_UpX, static)))(.Some(v));
+_UpStaticFieldOf :: (fn(t : &_UpStaticSlot) -> Option(&(_UpX, static)))(t.r);
+_UpStaticCopyField :: (fn(s : &mut _UpStaticSlot, t : &_UpStaticSlot) -> unit)({
+  s.r = t.r;
+});
+test("a read of a static parameter or of a static-typed field is a static value", {
+  // A bare static parameter returned as `-> &(T, static)` checks but emits
+  // invalid C (issues/2026-11-25-a-static-reference-parameter-returned-bare-emits-its-referent.md).
+  mut(h) := _UpStaticSlot(r : .None);
+  h.r = _UpStaticWrap(&_UpG);
+  mut(k) := _UpStaticSlot(r : .None);
+  // A `&mut` / `&` of a holder with a static field borrows the holder; it
+  // is no static value, and no static slot asks it to be.
+  _UpStaticCopyField(&mut k, &h);
+  rk := &k;
+  assert(match(_UpStaticFieldOf(rk), .Some(r) => (r.*.n == i32(7)), .None => false), "the static reference reads through every hop");
+});
+// A generic container's method types `v : T` from the argument, so the
+// receiver's type argument spelled over `static` is what judges a stored
+// value (VERDICTS-74 rule 2; issues/fixed/2026-11-24-a-generic-containers-method-stores-a-local-reference-into-a-static-instantiated-receiver.md).
+_UpBox1 :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : Option(T))
+);
+impl(
+  generic(T : Type),
+  _UpBox1(T),
+  put : (fn(self : &mut Self, v : T) -> unit)({
+    self.v = .Some(v);
+  }),
+  get : (fn(self : &Self) -> Option(T))(self.v)
+);
+_UpBoxHolder :: struct(inner : _UpBox1(&(_UpX, static)));
+comptime_expect_error(
+  _up_static_box_put_local :: (fn() -> _UpBox1(&(_UpX, static)))({
+    x := _UpX(n : i32(1));
+    mut(b) := _UpBox1(&(_UpX, static))(v : .None);
+    b.put(&x);
+    b
+  }),
+  "declared over the empty origin `static`"
+);
+comptime_expect_error(
+  _up_static_box_put_bound_ref :: (fn() -> _UpBox1(&(_UpX, static)))({
+    x := _UpX(n : i32(1));
+    mut(b) := _UpBox1(&(_UpX, static))(v : .None);
+    r := &x;
+    b.put(r);
+    b
+  }),
+  "declared over the empty origin `static`"
+);
+comptime_expect_error(
+  _up_static_box_put_inner_block :: (fn() -> unit)({
+    mut(b) := _UpBox1(&(_UpX, static))(v : .None);
+    {
+      x := _UpX(n : i32(1));
+      b.put(&x);
+    };
+    _ := b;
+  }),
+  "declared over the empty origin `static`"
+);
+comptime_expect_error(
+  _up_static_holder_field_put :: (fn() -> _UpBoxHolder)({
+    x := _UpX(n : i32(1));
+    mut(h) := _UpBoxHolder(inner : _UpBox1(&(_UpX, static))(v : .None));
+    h.inner.put(&x);
+    h
+  }),
+  "declared over the empty origin `static`"
+);
+comptime_expect_error(
+  _up_static_list_push_local :: (fn() -> ArrayList(&(_UpX, static)))({
+    x := _UpX(n : i32(1));
+    mut(xs) := ArrayList(&(_UpX, static)).new();
+    xs.push(&x);
+    xs
+  }),
+  "declared over the empty origin `static`"
+);
+// The elided-origin instance keeps its flow check when the static one
+// specialized `put` first: its `self` slot is the static instance's, which
+// carries no origin
+// (issues/fixed/2026-11-25-a-generic-containers-elided-instance-skips-its-store-check-after-the-static-instance-specialized-the-method.md).
+comptime_expect_error(
+  _up_elided_box_put_after_static :: (fn() -> unit)({
+    mut(b) := _UpBox1(&_UpX)(v : .None);
+    {
+      x := _UpX(n : i32(1));
+      b.put(&x);
+    };
+    _ := b;
+  }),
+  "Cannot store a reference to `x` in `b` here"
+);
+// A method result is typed by the receiver's own instance, not by whichever
+// instance looked the method up first: `_UpBox1(&_UpX).get()` is no static
+// value after `_UpBox1(&(_UpX, static)).get()`
+// (issues/fixed/2026-11-25-a-generic-containers-method-result-is-typed-by-whichever-instance-looked-it-up-first.md).
+comptime_expect_error(
+  _up_elided_box_get_after_static :: (fn() -> unit)({
+    a := _UpBox1(&(_UpX, static))(v : .Some(&_UpG));
+    _s := a.get();
+    mut(k) := _UpStaticSlot(r : .None);
+    x := _UpX(n : i32(1));
+    b := _UpBox1(&_UpX)(v : .Some(&x));
+    k.r = b.get();
+    _ := k;
+  }),
+  "declared over the empty origin `static`"
+);
+// The instance that specializes the method first does not decide: the
+// elided-origin instance's `put` runs first here, then the static one's.
+_UpBox2 :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : Option(T))
+);
+impl(
+  generic(T : Type),
+  _UpBox2(T),
+  put : (fn(self : &mut Self, v : T) -> unit)({
+    self.v = .Some(v);
+  })
+);
+comptime_expect_error(
+  _up_static_box_put_after_elided :: (fn() -> unit)({
+    x := _UpX(n : i32(1));
+    mut(e) := _UpBox2(&_UpX)(v : .None);
+    e.put(&x);
+    mut(b) := _UpBox2(&(_UpX, static))(v : .None);
+    b.put(&x);
+    _ := e;
+    _ := b;
+  }),
+  "declared over the empty origin `static`"
+);
+test("a generic container over a static reference stores static values", {
+  mut(b) := _UpBox1(&(_UpX, static))(v : .None);
+  b.put(&_UpG);
+  assert(match(b.v, .Some(r) => (r.*.n == i32(7)), .None => false), "the static store reads back");
+  mut(xs) := ArrayList(&(_UpX, static)).new();
+  xs.push(&_UpG);
+  xs.push(&_UpG);
+  assert(xs.len() == usize(2), "an ArrayList of a static reference grows");
+});
+test("a generic container over an elided-origin reference is unaffected", {
+  x := _UpX(n : i32(3));
+  mut(b) := _UpBox1(&_UpX)(v : .None);
+  b.put(&x);
+  assert(match(b.v, .Some(r) => (r.*.n == i32(3)), .None => false), "the local store reads back");
 });

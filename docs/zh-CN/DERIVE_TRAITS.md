@@ -349,4 +349,4 @@ derive(generic(T1, T2), Pair(T1, T2), where(T1 <: MyEq(T1), T2 <: MyEq(T2)), MyE
 
 ## 设计文档
 
-完整的设计文档（包含实现细节）请参阅 [DERIVE_TRAITS.md](../../plans/reference/DERIVE_TRAITS.md)。
+完整的设计文档（包含实现细节）请参阅 `plans/reference/DERIVE_TRAITS.md`。

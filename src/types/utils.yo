@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 (mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots, is_origin_kind, t_static_str_ref } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, shared_list, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots, is_origin_kind, t_static_str_ref, t_origin_elided } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -53,6 +53,7 @@ pragma(Pragma.AllowUnsafe);
   is_integer_type,
   is_float_type,
   is_comptime_int_type,
+  is_comptime_string_type,
   is_comptime_float_type,
   is_some_type,
   is_rc_type,
@@ -1287,6 +1288,326 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     _ => false
   )
 });
+/// VERDICTS-74 rule 1: the static bit of `ty`'s origins, as a comparable
+/// mark string. The walk mirrors `_carries_origin_inner`'s (every origin
+/// position an origin-dependent fact can read) and appends `s` for the
+/// spelled empty origin `static` (decision 49) and `n` for any other origin
+/// (named or elided — named origins stay erased from identity, so only the
+/// static bit is compared). Two types whose marks differ are two
+/// instantiations wherever a memo would merge them: `Option(&(X, static))`
+/// and `Option(&X)` must never share one instance, or the first one written
+/// decides every origin-dependent fact (`Escapable`, `type_carries_origin`)
+/// for both
+/// (issues/fixed/2026-11-11-a-static-origin-in-a-pragmad-file-is-an-unchecked-assertion-until-v0278.md).
+_static_origin_marks :: (fn(ty : &TypeValue, out : &mut String, seen : &mut ArrayList(String), depth : u32) -> unit)({
+  if(depth > u32(24), {
+    return(());
+  });
+  match(
+    ty,
+    Rc(.Reference(som_p, _, som_o)) => {
+      out.push_str(if(is_static_origin(&som_o.*), "s", "n"));
+      _static_origin_marks(&som_p.*, out, seen, (depth + u32(1)));
+    },
+    Rc(.ValueSlot(som_vs)) => _static_origin_marks(&som_vs.*, out, seen, (depth + u32(1))),
+    Rc(.OriginSet(_, _)) => out.push_str(if(is_static_origin(ty), "s", "n")),
+    Rc(.Pointer(som_inner)) => _static_origin_marks(&som_inner.*, out, seen, (depth + u32(1))),
+    Rc(.SliceT(som_elem)) => _static_origin_marks(&som_elem.*, out, seen, (depth + u32(1))),
+    Rc(.Array(element : som_elem)) => _static_origin_marks(&som_elem.*, out, seen, (depth + u32(1))),
+    Rc(.RefineT(som_inner, _)) => _static_origin_marks(&som_inner.*, out, seen, (depth + u32(1))),
+    Rc(.Tuple({ field_types : som_fs })) => _static_origin_marks_list(&som_fs.*, out, seen, depth),
+    Rc(.FutureTraitT(output : som_out, effect_types : som_ets, origin : som_fo)) => {
+      out.push_str(if(is_static_origin(&som_fo.*), "s", "n"));
+      _static_origin_marks(&som_out.*, out, seen, (depth + u32(1)));
+      _static_origin_marks_list(&som_ets.*, out, seen, depth);
+    },
+    Rc(.SomeT({ resolution : som_res })) => match(som_res, .Some(som_r) => _static_origin_marks(&som_r.*, out, seen, (depth + u32(1))), .None => ()),
+    Rc(.Struct({ id : som_sid, field_types : som_fs, type_arguments : som_tas })) => {
+      _static_origin_marks_list(&som_tas.*, out, seen, depth);
+      if(!((som_sid.len() > usize(0)) && seen.contains(&som_sid.*)), {
+        if(som_sid.len() > usize(0), {
+          seen.push(som_sid.clone());
+        });
+        _static_origin_marks_list(&som_fs.*, out, seen, depth);
+      });
+    },
+    Rc(.EnumT({ id : som_eid, variant_fields : som_vfs, type_arguments : som_etas })) => {
+      _static_origin_marks_list(&som_etas.*, out, seen, depth);
+      if(!((som_eid.len() > usize(0)) && seen.contains(&som_eid.*)), {
+        if(som_eid.len() > usize(0), {
+          seen.push(som_eid.clone());
+        });
+        (som_vi : usize) = usize(0);
+        while(som_vi < som_vfs.len(), {
+          match(som_vfs.get(som_vi), .Some(som_vf) => _static_origin_marks_list(&som_vf, out, seen, depth), .None => ());
+          som_vi = (som_vi + usize(1));
+        });
+      });
+    },
+    _ => ()
+  )
+});
+_static_origin_marks_list :: (fn(ts : &SharedList(TypeValue), out : &mut String, seen : &mut ArrayList(String), depth : u32) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), {
+    match(ts.get(i), .Some(t) => _static_origin_marks(&t, out, seen, (depth + u32(1))), .None => ());
+    i = (i + usize(1));
+  });
+});
+/// VERDICTS-74 rule 1: `a` and `b` differ in their static bit at some origin
+/// position (`_static_origin_marks`). Such types are two instantiations,
+/// never one memo entry.
+static_origin_marks_differ :: (fn(a : &TypeValue, b : &TypeValue) -> bool)(
+  !(static_origin_marks_text(a) == static_origin_marks_text(b))
+);
+/// `ty`'s static bits in walk order (`_static_origin_marks`): the part of its
+/// identity a `type_key` leaves out, for a memo keyed by `type_key` to append.
+static_origin_marks_text :: (fn(ty : &TypeValue) -> String)({
+  m := String.new();
+  seen := ArrayList(String).new();
+  _static_origin_marks(ty, &mut m, &mut seen, u32(0));
+  m
+});
+/// VERDICTS-74 rule 2's scope: `ty` spells the empty origin `static` at a
+/// position the subset check covers — a reference over a SIZED pointee, a
+/// future's origin argument, directly or through type arguments, fields,
+/// payloads, elements and resolved variables. A static reference over an
+/// UNSIZED pointee (`&(str, static)`, `&([T], static)`) is a by-value view
+/// (decision 49 S2) and stays outside these checks while the legacy
+/// value-`str` alias arms read it (PR B of the S3b-str lane deletes them).
+type_spells_checked_static :: (fn(ty : &TypeValue) -> bool)({
+  seen := ArrayList(String).new();
+  _checked_static_inner(ty, &mut seen, u32(0))
+});
+_checked_static_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  if(depth > u32(24), {
+    return(false);
+  });
+  match(
+    ty,
+    // A reference over any other origin borrows a place, whatever its
+    // pointee spells (`&mut S` for an `S` with a static field): only the
+    // places reached through the pointee are static, and a write there is
+    // checked as a write of that place.
+    Rc(.Reference(tcs_p, _, tcs_o)) => (is_static_origin(&tcs_o.*) && type_is_sized(&tcs_p.*)),
+    Rc(.ValueSlot(tcs_vs)) => _checked_static_inner(&tcs_vs.*, seen, (depth + u32(1))),
+    Rc(.Pointer(tcs_inner)) => _checked_static_inner(&tcs_inner.*, seen, (depth + u32(1))),
+    Rc(.SliceT(tcs_elem)) => _checked_static_inner(&tcs_elem.*, seen, (depth + u32(1))),
+    Rc(.Array(element : tcs_elem)) => _checked_static_inner(&tcs_elem.*, seen, (depth + u32(1))),
+    Rc(.RefineT(tcs_inner, _)) => _checked_static_inner(&tcs_inner.*, seen, (depth + u32(1))),
+    Rc(.Tuple({ field_types : tcs_fs })) => _checked_static_list(&tcs_fs.*, seen, depth),
+    Rc(.FutureTraitT(output : tcs_out, effect_types : tcs_ets, origin : tcs_fo)) =>
+      (is_static_origin(&tcs_fo.*) || (_checked_static_inner(&tcs_out.*, seen, (depth + u32(1))) || _checked_static_list(&tcs_ets.*, seen, depth))),
+    // An origin argument of an instantiated holder (`H(static)`'s
+    // `comptime(p) : Origin` filled with the empty origin): the instance's
+    // fields keep the RIGID `p`, so the argument itself decides.
+    Rc(.OriginSet(_, _)) => is_static_origin(ty),
+    // `Impl(Future(T, E, p))` is the reserved SomeT name "Impl" whose
+    // required bounds hold the future: the future's origin decides.
+    Rc(.SomeT({ resolution : tcs_res, bounds : tcs_bnd })) => cond(
+      match(tcs_res, .Some(tcs_r) => _checked_static_inner(&tcs_r.*, seen, (depth + u32(1))), .None => false) => true,
+      true => _checked_static_list(&shared_list(tcs_bnd.required()), seen, depth)
+    ),
+    Rc(.Struct({ id : tcs_sid, field_types : tcs_fs, type_arguments : tcs_tas })) => cond(
+      _checked_static_list(&tcs_tas.*, seen, depth) => true,
+      ((tcs_sid.len() > usize(0)) && seen.contains(&tcs_sid.*)) => false,
+      true => {
+        if(tcs_sid.len() > usize(0), {
+          seen.push(tcs_sid.clone());
+        });
+        _checked_static_list(&tcs_fs.*, seen, depth)
+      }
+    ),
+    Rc(.EnumT({ id : tcs_eid, variant_fields : tcs_vfs, type_arguments : tcs_etas })) => cond(
+      _checked_static_list(&tcs_etas.*, seen, depth) => true,
+      ((tcs_eid.len() > usize(0)) && seen.contains(&tcs_eid.*)) => false,
+      true => {
+        if(tcs_eid.len() > usize(0), {
+          seen.push(tcs_eid.clone());
+        });
+        (tcs_vi : usize) = usize(0);
+        while(tcs_vi < tcs_vfs.len(), {
+          match(
+            tcs_vfs.get(tcs_vi),
+            .Some(tcs_vf) => if(_checked_static_list(&tcs_vf, seen, depth), {
+              return(true);
+            }),
+            .None => ()
+          );
+          tcs_vi = (tcs_vi + usize(1));
+        });
+        false
+      }
+    ),
+    _ => false
+  )
+});
+_checked_static_list :: (fn(ts : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), {
+    if(match(ts.get(i), .Some(t) => _checked_static_inner(&t, seen, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// VERDICTS-74 rule 4: the join of `static` and a non-static origin is the
+/// non-static one. `a` and `b` are compatible types (the caller checked);
+/// the result is `a` with every origin position where `a` spells `static`
+/// and `b` spells a non-static one widened to the elided origin, so a join
+/// never keeps a first arm's static type. Named origins stay as they are
+/// (erased from identity); a nominal joins through its TYPE ARGUMENTS (its
+/// fields are its arguments' fate: one definition, one id), and unshared
+/// shapes keep `a` (the caller's compatibility check decided those).
+join_static_bit :: (fn(a : &TypeValue, b : &TypeValue, depth : u32) -> TypeValue)({
+  if(depth > u32(16), {
+    return(a.clone());
+  });
+  match(
+    a,
+    Rc(.Reference(jsb_p, jsb_m, jsb_o)) => match(
+      b,
+      Rc(.Reference(jsb_bp, _, jsb_o2)) => {
+        jsb_inner := join_static_bit(&jsb_p.*, &jsb_bp.*, (depth + u32(1)));
+        jsb_origin := if(is_static_origin(&jsb_o.*) && !is_static_origin(&jsb_o2.*), t_origin_elided(), Rc.clone(jsb_o));
+        cond(
+          (__yo_ptr_eq(&jsb_inner, &jsb_p.*) && __yo_ptr_eq(&jsb_origin, &jsb_o.*)) => a.clone(),
+          true => Rc.new(TypeValueNode.Reference(pointee : jsb_inner, mutable : jsb_m.*, origin : jsb_origin))
+        )
+      },
+      _ => a.clone()
+    ),
+    Rc(.ValueSlot(jsb_vs)) => match(
+      b,
+      Rc(.ValueSlot(jsb_bvs)) => {
+        jsb_inner := join_static_bit(&jsb_vs.*, &jsb_bvs.*, (depth + u32(1)));
+        cond(__yo_ptr_eq(&jsb_inner, &jsb_vs.*) => a.clone(), true => Rc.new(TypeValueNode.ValueSlot(jsb_inner)))
+      },
+      _ => a.clone()
+    ),
+    Rc(.OriginSet(_, _)) => if(is_static_origin(a) && match(b, Rc(.OriginSet(_, _)) => !is_static_origin(b), _ => true), t_origin_elided(), a.clone()),
+    Rc(.Pointer(jsb_inner)) => match(
+      b,
+      Rc(.Pointer(jsb_bi)) => {
+        jsb_j := join_static_bit(&jsb_inner.*, &jsb_bi.*, (depth + u32(1)));
+        cond(__yo_ptr_eq(&jsb_j, &jsb_inner.*) => a.clone(), true => Rc.new(TypeValueNode.Pointer(jsb_j)))
+      },
+      _ => a.clone()
+    ),
+    Rc(.SliceT(jsb_inner)) => match(
+      b,
+      Rc(.SliceT(jsb_bi)) => {
+        jsb_j := join_static_bit(&jsb_inner.*, &jsb_bi.*, (depth + u32(1)));
+        cond(__yo_ptr_eq(&jsb_j, &jsb_inner.*) => a.clone(), true => Rc.new(TypeValueNode.SliceT(jsb_j)))
+      },
+      _ => a.clone()
+    ),
+    Rc(.Array(element : jsb_inner, length : jsb_len, length_var : jsb_lv)) => match(
+      b,
+      Rc(.Array(element : jsb_bi, _, _)) => {
+        jsb_j := join_static_bit(&jsb_inner.*, &jsb_bi.*, (depth + u32(1)));
+        cond(__yo_ptr_eq(&jsb_j, &jsb_inner.*) => a.clone(), true => Rc.new(TypeValueNode.Array(element : jsb_j, length : jsb_len.*, length_var : jsb_lv.clone())))
+      },
+      _ => a.clone()
+    ),
+    Rc(.RefineT(jsb_inner, jsb_pred)) => match(
+      b,
+      Rc(.RefineT(jsb_bi, _)) => {
+        jsb_j := join_static_bit(&jsb_inner.*, &jsb_bi.*, (depth + u32(1)));
+        cond(__yo_ptr_eq(&jsb_j, &jsb_inner.*) => a.clone(), true => Rc.new(TypeValueNode.RefineT(jsb_j, jsb_pred.clone())))
+      },
+      _ => a.clone()
+    ),
+    Rc(.Tuple(jsb_labels, jsb_fs)) => match(
+      b,
+      Rc(.Tuple(_, jsb_bfs)) => if(jsb_fs.len() == jsb_bfs.len(), {
+        jsb_out := ArrayList(TypeValue).new();
+        (jsb_changed : bool) = false;
+        (jsb_i : usize) = usize(0);
+        while(jsb_i < jsb_fs.len(), {
+          jsb_ai := match(jsb_fs.get(jsb_i), .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
+          jsb_bi2 := match(jsb_bfs.get(jsb_i), .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
+          jsb_j := join_static_bit(&jsb_ai, &jsb_bi2, (depth + u32(1)));
+          if(!__yo_ptr_eq(&jsb_j, &jsb_ai), {
+            jsb_changed = true;
+          });
+          jsb_out.push(jsb_j);
+          jsb_i = (jsb_i + usize(1));
+        });
+        cond(jsb_changed => Rc.new(TypeValueNode.Tuple(Rc.clone(jsb_labels), shared_list(jsb_out))), true => a.clone())
+      }, {
+        a.clone()
+      }),
+      _ => a.clone()
+    ),
+    Rc(.FutureTraitT(base_name : jsb_bn, output : jsb_out, effect_labels : jsb_els, effect_types : jsb_ets, origin : jsb_fo)) => match(
+      b,
+      Rc(.FutureTraitT(output : jsb_bo, _, _, origin : jsb_bfo)) => {
+        jsb_o2 := if(is_static_origin(&jsb_fo.*) && !is_static_origin(&jsb_bfo.*), t_origin_elided(), Rc.clone(jsb_fo));
+        jsb_inner := join_static_bit(&jsb_out.*, &jsb_bo.*, (depth + u32(1)));
+        cond(
+          (__yo_ptr_eq(&jsb_o2, &jsb_fo.*) && __yo_ptr_eq(&jsb_inner, &jsb_out.*)) => a.clone(),
+          true => Rc.new(TypeValueNode.FutureTraitT(base_name : jsb_bn.clone(), output : jsb_inner, effect_labels : Rc.clone(jsb_els), effect_types : Rc.clone(jsb_ets), origin : jsb_o2))
+        )
+      },
+      _ => a.clone()
+    ),
+    Rc(.Struct({ id : jsb_sid, type_arguments : jsb_tas })) => match(
+      b,
+      Rc(.Struct({ id : jsb_bsid, type_arguments : jsb_btas })) => if((jsb_sid == jsb_bsid) && (jsb_tas.len() == jsb_btas.len()), {
+        jsb_args := _join_static_bit_list(&jsb_tas.*, &jsb_btas.*, depth);
+        cond(__yo_ptr_eq(&jsb_args, &jsb_tas.*) => a.clone(), true => _rebuild_struct_args(a, &jsb_args))
+      }, {
+        a.clone()
+      }),
+      _ => a.clone()
+    ),
+    Rc(.EnumT({ id : jsb_eid, type_arguments : jsb_etas })) => match(
+      b,
+      Rc(.EnumT({ id : jsb_beid, type_arguments : jsb_betas })) => if((jsb_eid == jsb_beid) && (jsb_etas.len() == jsb_betas.len()), {
+        jsb_args := _join_static_bit_list(&jsb_etas.*, &jsb_betas.*, depth);
+        cond(__yo_ptr_eq(&jsb_args, &jsb_etas.*) => a.clone(), true => _rebuild_enum_args(a, &jsb_args))
+      }, {
+        a.clone()
+      }),
+      _ => a.clone()
+    ),
+    _ => a.clone()
+  )
+});
+_join_static_bit_list :: (fn(as : &SharedList(TypeValue), bs : &SharedList(TypeValue), depth : u32) -> SharedList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < as.len(), {
+    ai := match(as.get(i), .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
+    bi := match(bs.get(i), .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
+    out.push(join_static_bit(&ai, &bi, (depth + u32(1))));
+    i = (i + usize(1));
+  });
+  shared_list(out)
+});
+/// One node of `join_static_bit`'s nominal rebuild: an instance with its
+/// type arguments replaced. The shared fields keep their nodes (a nominal's
+/// fields follow its arguments).
+_rebuild_struct_args :: (fn(a : &TypeValue, args : &SharedList(TypeValue)) -> TypeValue)(
+  match(
+    a,
+    Rc(.Struct({ id : rsa_id, name : rsa_n, field_labels : rsa_fl, field_types : rsa_ft, is_reference_semantics : rsa_rs, is_atomic_rc : rsa_ar, is_newtype : rsa_nt, constructor_func_id : rsa_ctor, is_source_namespace : rsa_ns })) => Rc.new(
+      TypeValueNode.Struct(id : rsa_id.clone(), name : rsa_n.clone(), field_labels : Rc.clone(rsa_fl), field_types : Rc.clone(rsa_ft), is_reference_semantics : rsa_rs.*, is_atomic_rc : rsa_ar.*, is_newtype : rsa_nt.*, constructor_func_id : rsa_ctor.clone(), type_arguments : args.clone(), is_source_namespace : rsa_ns.*)
+    ),
+    _ => a.clone()
+  )
+);
+_rebuild_enum_args :: (fn(a : &TypeValue, args : &SharedList(TypeValue)) -> TypeValue)(
+  match(
+    a,
+    Rc(.EnumT({ id : rea_id, name : rea_n, variant_names : rea_vn, variant_fields : rea_vf, selected_variant_name : rea_sel, variant_field_labels : rea_vfl, variant_discriminants : rea_ds, is_reference_semantics : rea_rs, is_atomic_rc : rea_ar })) => Rc.new(
+      TypeValueNode.EnumT(id : rea_id.clone(), name : rea_n.clone(), variant_names : Rc.clone(rea_vn), variant_fields : Rc.clone(rea_vf), selected_variant_name : rea_sel.clone(), variant_field_labels : Rc.clone(rea_vfl), variant_discriminants : Rc.clone(rea_ds), is_reference_semantics : rea_rs.*, is_atomic_rc : rea_ar.*, type_arguments : args.clone())
+    ),
+    _ => a.clone()
+  )
+);
 /// N2a's wall (decision 43 step 3; plans/handover/D43_STEP3_N2_DESIGN.md §4):
 /// a type holding a reference may be named — a field's type, a type
 /// argument, an alias — but no value of one is built until N2b, so no build
@@ -4411,7 +4732,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
-export(type_carries_origin, nominal_has_hidden_origin, fn_param_origin_links, fn_param_origins_narrower, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, legacy_value_str, is_legacy_value_str, is_static_view_slot, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_error);
+export(type_carries_origin, nominal_has_hidden_origin, fn_param_origin_links, fn_param_origins_narrower, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, legacy_value_str, is_legacy_value_str, is_static_view_slot, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_error, static_origin_marks_differ, static_origin_marks_text, type_spells_checked_static, join_static_bit);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);
@@ -4794,6 +5115,19 @@ _decl_id_of :: (fn(t : &TypeValue) -> String)(
     _ => String.new()
   )
 );
+/// The help for a double-quoted literal given where a `String` is expected
+/// (`m.get("a")` on a `HashMap(String, V)`, `Path.new("/tmp")`,
+/// `Command.new("ls")`): a `"..."` literal is a `str`, not a `String`, so the
+/// argument is the backtick literal, an owned `String` built from the same text.
+/// `.None` for every other pair.
+string_literal_slot_help :: (fn(expected : &TypeValue, given : &TypeValue) -> Option(String))(
+  cond(
+    (is_comptime_string_type(given) && (type_to_string(expected) == "String")) => .Some(
+      String.from("a \"...\" literal is a `str`; this parameter takes a `String`: write the text as a backtick literal (`` `...` ``) or `String.from(\"...\")`")
+    ),
+    true => .None
+  )
+);
 /// The note a type mismatch appends when the two types PRINT the same but are
 /// different declarations — two modules' `P`, say: `Expected: "P"`, `Given:
 /// "P"` alone reads as a compiler bug (plans/reference/TYPE_IDENTITY.md).
@@ -4884,7 +5218,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, is_dyn_fn_slot, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, is_dyn_fn_slot, same_name_note, string_literal_slot_help, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such
@@ -4993,7 +5327,9 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 /// — a borrow (`-> &T` / `-> &mut T`) or a type that carries an origin
 /// (`-> Option(&T)`, a holder: decision 43 step 3) — or when a parameter
 /// may store it: a parameter's value type carries an origin, the slot's
-/// own included (VERDICTS-23 R2). Parameter `i` of `fn_ty` is such a
+/// own included (VERDICTS-23 R2) — or when the slot spells the empty origin
+/// (`v : &(T, static)`, VERDICTS-74): its value is a static reference the
+/// body may return or store anywhere. Parameter `i` of `fn_ty` is such a
 /// pointer-passed shared borrow (`&mut T` parameters are pointers anyway,
 /// and a by-value parameter is never one).
 ///
@@ -5027,13 +5363,15 @@ _dyn_pointee :: (fn(s : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// The borrow slot `s` is a reference over the empty origin (`&(T, static)`).
+_slot_spells_static :: (fn(s : &TypeValue) -> bool)(match(s, Rc(.Reference(_, _, sss_o)) => is_static_origin(&sss_o.*), _ => false));
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
     Rc(.Func({ param_types : pb_pts, result : pb_r })) => match(
       pb_pts.get(i),
       .Some(pb_s) => (
-        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (!_dyn_pointee(&pb_s) && (_dyn_box_pointee(&pb_s) || _pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r.*) || _params_may_store_a_reference(&pb_pts.*)))
+        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (!_dyn_pointee(&pb_s) && (_dyn_box_pointee(&pb_s) || _pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r.*) || (_params_may_store_a_reference(&pb_pts.*) || _slot_spells_static(&pb_s))))
       ),
       .None => false
     ),
@@ -5042,7 +5380,7 @@ fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
     Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => match(
       pb_cpts.get(i),
       .Some(pb_cs) => (
-        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (!_dyn_pointee(&pb_cs) && (_dyn_box_pointee(&pb_cs) || _pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr.*) || _params_may_store_a_reference(&pb_cpts.*)))
+        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (!_dyn_pointee(&pb_cs) && (_dyn_box_pointee(&pb_cs) || _pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr.*) || (_params_may_store_a_reference(&pb_cpts.*) || _slot_spells_static(&pb_cs))))
       ),
       .None => false
     ),
