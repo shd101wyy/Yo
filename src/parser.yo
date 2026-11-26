@@ -2070,40 +2070,6 @@ impl(
       true => String.new()
     )
   }),
-  /// E0003's canonical-grouping hint. No precedence means the unparenthesized
-  /// mix is a parse error, but where the adjacent operators have exactly ONE
-  /// canonical grouping the diagnostic names it, so an author (LLM or human)
-  /// gets the grouping to copy instead of a bare rejection.
-  ///
-  /// The parser's right operand is greedy, so `tok` is the LEFT operator with
-  /// left operand `lhs`, and `rhs_op` the root operator of the right operand
-  /// `rhs` (a deeper mismatch inside that operand already threw). The verdict
-  /// per pair follows `_e0003_tier`'s lattice, with every pair whose lattice
-  /// grouping is not a Yo form, or not the only reading, left hint-free — the
-  /// full table is in the issue doc `_e0003_tier` names. `->` is two arrows:
-  /// a fn type when its left operand is a `fn(`/`unsafe_fn(`/`ctl(`/`Fn(`/
-  /// `FnMut(`/`FnOnce(` head, a lambda arrow otherwise (`err -> {...}`).
-  ///
-  /// - a binding then `=>`/`->`/computational, `:` then computational
-  ///   (`x := a + b`, a named argument `P(x : a + b)`), `:` then a fn type,
-  ///   `=>` then `->`/computational, either `->` then computational, and a
-  ///   fn type then `:` (the labeled return `fn() -> (r : T)`): wrap the
-  ///   right-hand side, rendered from source when it fits on one line;
-  /// - `:` then `=`/`?=`: the annotated binding `(name : Type) = value`;
-  /// - `:` then `=>` or a lambda `->`: the annotated parameter
-  ///   `(name : Type) => body`;
-  /// - a fn type then `=`/`?=`/`=>` (`x : fn() -> T = f`): wrap the fn type;
-  /// - a computational operator then `=>` (`n <= i32(1) => v`): wrap the
-  ///   WHOLE condition — the operator the parser stops at is the innermost
-  ///   one, so naming its operands (`p == q && r` stops at `&&`) would pick a
-  ///   grouping inside the condition;
-  /// - everything else is hint-free: two computational operators (both
-  ///   groupings are real programs, plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md
-  ///   §3.1), two different binding operators, an arrow then a binding
-  ///   (`c => x = v`), a binding or `=>` then `:` (`x := (y : T)` declares
-  ///   `y`, it does not ascribe), `:`/fn-type `->` then `:=`/`::` (an
-  ///   annotated `:=`/`::` target is rejected), a lambda `->` then
-  ///   `:`/`=>`, and a computational operator then `:`/`->`/a binding.
   /// `x += 1`, `x |= m`, `x <<= 1` (E0010): Yo has no compound assignment.
   /// The lexer splits `+=` into `+` and `=`, so the operator's right operand
   /// would start at `=` and the error used to be a paren-less call at the
@@ -2270,6 +2236,40 @@ impl(
     });
     cond((depth == i64(0)) => self._source_snippet(si, op_idx, usize(4096)), true => String.new())
   }),
+  /// E0003's canonical-grouping hint. No precedence means the unparenthesized
+  /// mix is a parse error, but where the adjacent operators have exactly ONE
+  /// canonical grouping the diagnostic names it, so an author (LLM or human)
+  /// gets the grouping to copy instead of a bare rejection.
+  ///
+  /// The parser's right operand is greedy, so `tok` is the LEFT operator with
+  /// left operand `lhs`, and `rhs_op` the root operator of the right operand
+  /// `rhs` (a deeper mismatch inside that operand already threw). The verdict
+  /// per pair follows `_e0003_tier`'s lattice, with every pair whose lattice
+  /// grouping is not a Yo form, or not the only reading, left hint-free — the
+  /// full table is in the issue doc `_e0003_tier` names. `->` is two arrows:
+  /// a fn type when its left operand is a `fn(`/`unsafe_fn(`/`ctl(`/`Fn(`/
+  /// `FnMut(`/`FnOnce(` head, a lambda arrow otherwise (`err -> {...}`).
+  ///
+  /// - a binding then `=>`/`->`/computational, `:` then computational
+  ///   (`x := a + b`, a named argument `P(x : a + b)`), `:` then a fn type,
+  ///   `=>` then `->`/computational, either `->` then computational, and a
+  ///   fn type then `:` (the labeled return `fn() -> (r : T)`): wrap the
+  ///   right-hand side, rendered from source when it fits on one line;
+  /// - `:` then `=`/`?=`: the annotated binding `(name : Type) = value`;
+  /// - `:` then `=>` or a lambda `->`: the annotated parameter
+  ///   `(name : Type) => body`;
+  /// - a fn type then `=`/`?=`/`=>` (`x : fn() -> T = f`): wrap the fn type;
+  /// - a computational operator then `=>` (`n <= i32(1) => v`): wrap the
+  ///   WHOLE condition — the operator the parser stops at is the innermost
+  ///   one, so naming its operands (`p == q && r` stops at `&&`) would pick a
+  ///   grouping inside the condition;
+  /// - everything else is hint-free: two computational operators (both
+  ///   groupings are real programs, plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md
+  ///   §3.1), two different binding operators, an arrow then a binding
+  ///   (`c => x = v`), a binding or `=>` then `:` (`x := (y : T)` declares
+  ///   `y`, it does not ascribe), `:`/fn-type `->` then `:=`/`::` (an
+  ///   annotated `:=`/`::` target is rejected), a lambda `->` then
+  ///   `:`/`=>`, and a computational operator then `:`/`->`/a binding.
   e0003_grouping_hint : (
     fn(self : &Self, tok : &Token, lhs : &AstExpr, rhs_op : &String, rhs : &AstExpr, rhs_start : usize, rhs_end : usize) -> String
   )({
