@@ -184,7 +184,9 @@ binding of a moved value. A field (`{ a, b } := p.f`), an element or a
 dereference (`r.*`) is not destructured by value (no partial moves), and
 neither is a type with a `Drop` impl, whose destructor would be skipped: both
 are E0901. A `mut(b)` name of a moved value owns its field; a `mut(b)` name of
-a borrow is a reference binding that can be re-pointed.
+a borrow is a reference binding that can be re-pointed. `&` lends a place, so
+`{ a, b } := &make()` is E0927: bind the value first (`t := make();`), then
+destructure `t` or `&t`.
 
 ```yo
 { String } :: import("std/string");
