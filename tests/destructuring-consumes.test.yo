@@ -92,7 +92,7 @@ test("a later use of the destructured source is E0901", {
 test("a Copy source is copied and stays usable", {
   pt := _DcPoint(x : i32(1), y : i32(2));
   { x, y } := pt;
-  assert(((x + y) + pt.x) == i32(4), "pt is still usable");
+  assert((x + y + pt.x) == i32(4), "pt is still usable");
 });
 test("a field or an element is not destructured by value (no partial moves)", {
   comptime_expect_error({
@@ -116,7 +116,7 @@ test("a type with a user Drop is not destructured by value", {
 // fields; a reference binding read bare lends through itself, in its mode.
 _dc_total :: (fn(acc : &_DcAccount) -> i64)({
   { name, balance } := acc;
-  (balance.* + i64(name.len()))
+  balance.* + i64(name.len())
 });
 _dc_bump :: (fn(acc : &mut _DcAccount) -> unit)({
   { balance } := acc;

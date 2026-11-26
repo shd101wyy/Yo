@@ -2892,11 +2892,13 @@ Use \`::\` for compile-time definitions inside impl.`
     // table): an owned local, a by-value parameter or an owned temporary of a
     // type that is not implicitly copyable is consumed, and the names own
     // their fields; a copyable value is copied; a borrowed binding lends.
-    destr_consumes := (!effective_is_compile_time_only && !is_const && ctx.is_evaluating_function_body_or_async_block.is_some() && match(
-      &rhs_info_opt,
-      .Some(dc_info) => ((is_struct_type(&dc_info.ty()) || is_tuple_type(&dc_info.ty()) || is_enum_type(&dc_info.ty())) && decide_destructuring_consumes(&match(expr, Rc(.FnCall(_, _, Rc(dc_args), _, _)) => match(dc_args.get_cloned(usize(1)), .Some(dc_raw) => dc_raw, .None => Rc.clone(rhs)), Rc(.Atom(_, _)) => Rc.clone(rhs)), &rhs, dc_info, &env, ctx, exn)),
-      .None => false
-    ));
+    destr_consumes := (
+      !effective_is_compile_time_only && !is_const && ctx.is_evaluating_function_body_or_async_block.is_some() && match(
+        &rhs_info_opt,
+        .Some(dc_info) => ((is_struct_type(&dc_info.ty()) || is_tuple_type(&dc_info.ty()) || is_enum_type(&dc_info.ty())) && decide_destructuring_consumes(&match(expr, Rc(.FnCall(_, _, Rc(dc_args), _, _)) => match(dc_args.get_cloned(usize(1)), .Some(dc_raw) => dc_raw, .None => Rc.clone(rhs)), Rc(.Atom(_, _)) => Rc.clone(rhs)), &rhs, dc_info, &env, ctx, exn)),
+        .None => false
+      )
+    );
     destr_result := evaluate_destructuring_assignment(
       &actual_lhs,
       &rhs,
