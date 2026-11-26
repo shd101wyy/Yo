@@ -299,6 +299,27 @@ result := io.await(fut, e.io);
    函数自身**不必**是 `ctl`。unwind 跳回的目标在传播函数之上的
    安装帧。
 
+10. **泛型恢复类型不会恢复。** 在 `ctl` 类型中，类型参数只能作为整个
+    结果类型出现，即 `ctl(generic(R : Type), ps) -> R`，`Exception.throw`
+    就是这样声明的。每个 throw 点各自选定 `R`，而一个处理器函数服务所有
+    throw 点，因此该操作不会恢复：其处理器 unwind、发散或以 `()` 结束，
+    其中的 `return(...)`（包括 `return(())`）是 E0627。在参数中（`v : R`、
+    `v : &R`）或结果内部（`-> Option(R)`）使用类型参数，会在类型书写处
+    报 E0627。要带值恢复，请在构造处理器记录时固定恢复类型：
+
+    ```yo
+    Recover :: (fn(comptime(E) : Type, comptime(R) : Type) -> comptime(Type))(
+      struct(
+        throw : (ctl(error : &E, fallback : R) -> R)
+      )
+    );
+    ```
+
+    `Recover(i32, String)` 的处理器在 `String` 下检查：
+    `(val, fallback) -> return(fallback)` 把 fallback 移出，`&R` 形式的
+    fallback 则用 `.clone()` 恢复。`std/error.yo` 中的
+    `ResumableException(T)` 就是这种形式。
+
 ### 完整示例
 
 ```yo

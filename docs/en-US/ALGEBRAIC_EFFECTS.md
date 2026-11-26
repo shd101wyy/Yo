@@ -333,6 +333,30 @@ locally installed.
    does **not** itself need to be `ctl`. The unwind targets the
    install frame above the propagating function.
 
+10. **A generic resume type does not resume.** In a `ctl` type, a type
+    parameter may appear only as the whole result type,
+    `ctl(generic(R : Type), ps) -> R`, as `Exception.throw` is declared.
+    Each throw site picks `R` and one handler function serves them all,
+    so the operation does not resume: its handler unwinds, diverges or
+    falls through with `()`, and a `return(...)` in it, `return(())`
+    included, is E0627. A type parameter in a parameter (`v : R`,
+    `v : &R`) or inside the result (`-> Option(R)`) is E0627 where the
+    type is written. To resume with a value, fix the resume type when the
+    handler record is built:
+
+    ```yo
+    Recover :: (fn(comptime(E) : Type, comptime(R) : Type) -> comptime(Type))(
+      struct(
+        throw : (ctl(error : &E, fallback : R) -> R)
+      )
+    );
+    ```
+
+    A `Recover(i32, String)` handler is checked at `String`:
+    `(val, fallback) -> return(fallback)` moves the fallback out, and a
+    `&R` fallback is resumed from with `.clone()`. `ResumableException(T)`
+    in `std/error.yo` has this shape.
+
 ### Worked example
 
 ```yo

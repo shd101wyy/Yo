@@ -450,6 +450,11 @@ export(main);
 
 - std's exception effect: `exn := Exception(throw : (e -> unwind(.None)));`
   catches what `exn.throw(dyn(Box.new(err)))` raises (`std/error`).
+- A `ctl` type parameter may only be the whole result,
+  `ctl(generic(R : Type), ps) -> R` (as `Exception.throw`): the operation does
+  not resume, and a `return(...)` in its handler (`return(())` too) is E0627.
+  To resume with a value, fix the type when the record is built
+  (`comptime(R)` on its constructor, as `ResumableException(T)` does).
 - Async runs on ONE event-loop thread per thread and a task never migrates:
   async state needs no mutexes or atomics (blocking work goes to
   `spawn_blocking`). `io.async((io : Io) => body)` builds a lazy future that

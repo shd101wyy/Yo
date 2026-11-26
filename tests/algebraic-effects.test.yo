@@ -1290,12 +1290,12 @@ test("Struct-record effect with generic handler — unwind in while loop", {
   // handler uses unwind inside a while loop to abort traversal.
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
-      throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
+      throw : (ctl(generic(ResumeType : Type), error : &ErrorType) -> ResumeType)
     )
   );
   safe_divide :: (fn(x : i32, y : i32, exn : MyException(i32)) -> i32)(
     cond(
-      (y == 0) => exn.throw(&x, i32(666)),
+      (y == 0) => exn.throw(&x),
       true => (x / y)
     )
   );
@@ -1315,7 +1315,7 @@ test("Struct-record effect with generic handler — unwind in while loop", {
   arr := Array(i32, 4)(1, 2, 0, 3);
   exn := MyException(i32)(
     throw : (
-      (val, resume_val) -> {
+      val -> {
         unwind(());
       }
     )
@@ -1323,26 +1323,28 @@ test("Struct-record effect with generic handler — unwind in while loop", {
   traverse(arr, exn, .{});
   assert(false, "Should not reach here after unwind");
 });
-test("Struct-record effect with generic handler — resume in while loop", {
-  // Struct-record effect with generic(ResumeType), handler resumes with a value.
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+// Tests 43–46 resume through a record whose resume type is fixed when the
+// record is built (`comptime(ResumeType)`): a `ctl` whose resume type is its
+// own type parameter does not resume (E0627, VERDICTS-89). Every resume value
+// is nonzero, so a value the lowering loses fails the sums.
+test("Struct-record effect with a fixed resume type — resume in while loop", {
+  MyException :: (fn(comptime(ErrorType) : Type, comptime(ResumeType) : Type) -> comptime(Type))(
     struct(
-      throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
+      throw : (ctl(error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_divide :: (fn(x : i32, y : i32, exn : MyException(i32)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, exn : MyException(i32, i32)) -> i32)(
     cond(
-      (y == 0) => exn.throw(&x, i32(0)),
+      (y == 0) => exn.throw(&x, i32(7)),
       true => (x / y)
     )
   );
   run_test :: (fn() -> unit)({
     sum := Rc.new(RefCell(i32).new(0));
     counter := Rc.new(RefCell(i32).new(0));
-    exn := MyException(i32)(
+    exn := MyException(i32, i32)(
       throw : (
         (val, resume_val) -> {
-          // resume_val should be i32(0), resume with it
           return(resume_val.*);
         }
       )
@@ -1362,26 +1364,27 @@ test("Struct-record effect with generic handler — resume in while loop", {
       });
     });
     assert(counter.with(cur => cur.*) == i32(5), "counter should reach 5");
-    // 10/1=10, 10/0→resume(0)=0, 10/3=3, 10/0→resume(0)=0, 10/5=2 => sum = 15
-    assert(sum.with(cur => cur.*) == i32(15), "sum should be 15");
+    // 10/1=10, 10/0→resume(7)=7, 10/3=3, 10/0→resume(7)=7, 10/5=2 => sum = 29
+    assert(sum.with(cur => cur.*) == i32(29), "sum should be 29");
   });
   run_test();
 });
-test("Struct-record effect with generic handler — break after resume in while loop", {
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+test("Struct-record effect with a fixed resume type — break after resume in while loop", {
+  MyException :: (fn(comptime(ErrorType) : Type, comptime(ResumeType) : Type) -> comptime(Type))(
     struct(
-      throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
+      throw : (ctl(error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
+  safe_op :: (fn(x : i32, exn : MyException(i32, i32)) -> i32)(
     cond(
-      (x < 0) => exn.throw(&x, i32(0)),
+      (x < 0) => exn.throw(&x, i32(100)),
       true => x
     )
   );
   run_test :: (fn() -> unit)({
+    sum := Rc.new(RefCell(i32).new(0));
     counter := Rc.new(RefCell(i32).new(0));
-    exn := MyException(i32)(
+    exn := MyException(i32, i32)(
       throw : (
         (val, resume_val) -> {
           return(resume_val.*);
@@ -1390,6 +1393,9 @@ test("Struct-record effect with generic handler — break after resume in while 
     );
     while(true, {
       result := safe_op(counter.with(cur => cur.*) - i32(2), exn);
+      sum.with_mut(cur => {
+        cur.* = (cur.* + result);
+      });
       counter.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
@@ -1401,25 +1407,27 @@ test("Struct-record effect with generic handler — break after resume in while 
       );
     });
     assert(counter.with(cur => cur.*) == i32(5), "break after struct-record resume: counter should be 5");
+    // -2→100, -1→100, 0, 1, 2 => sum = 203
+    assert(sum.with(cur => cur.*) == i32(203), "break after struct-record resume: sum should be 203");
   });
   run_test();
 });
-test("Struct-record effect with generic handler — continue after resume in while loop", {
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+test("Struct-record effect with a fixed resume type — continue after resume in while loop", {
+  MyException :: (fn(comptime(ErrorType) : Type, comptime(ResumeType) : Type) -> comptime(Type))(
     struct(
-      throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
+      throw : (ctl(error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
+  safe_op :: (fn(x : i32, exn : MyException(i32, i32)) -> i32)(
     cond(
-      (x < 0) => exn.throw(&x, i32(0)),
+      (x < 0) => exn.throw(&x, i32(50)),
       true => x
     )
   );
   run_test :: (fn() -> unit)({
     sum := Rc.new(RefCell(i32).new(0));
     counter := Rc.new(RefCell(i32).new(0));
-    exn := MyException(i32)(
+    exn := MyException(i32, i32)(
       throw : (
         (val, resume_val) -> {
           return(resume_val.*);
@@ -1432,8 +1440,7 @@ test("Struct-record effect with generic handler — continue after resume in whi
         cur.* = (cur.* + 1);
       });
       result := safe_op(i - i32(2), exn);
-      // result: negative inputs → 0 (resumed), non-negative → identity
-      // i=0→-2→0, i=1→-1→0, i=2→0, i=3→1, i=4→2, i=5→3
+      // i=0→-2→50 (resumed), i=1→-1→50 (resumed), i=2→0 (continue), i=3→1, i=4→2, i=5→3
       cond(
         (result == i32(0)) => {
           continue;
@@ -1445,26 +1452,27 @@ test("Struct-record effect with generic handler — continue after resume in whi
       });
     });
     assert(counter.with(cur => cur.*) == i32(6), "continue after struct-record resume: counter should be 6");
-    // sum = 1 + 2 + 3 = 6
-    assert(sum.with(cur => cur.*) == i32(6), "continue after struct-record resume: sum should be 6");
+    // sum = 50 + 50 + 1 + 2 + 3 = 106
+    assert(sum.with(cur => cur.*) == i32(106), "continue after struct-record resume: sum should be 106");
   });
   run_test();
 });
-test("Struct-record effect with generic handler — early return after resume in while loop", {
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+test("Struct-record effect with a fixed resume type — early return after resume in while loop", {
+  MyException :: (fn(comptime(ErrorType) : Type, comptime(ResumeType) : Type) -> comptime(Type))(
     struct(
-      throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
+      throw : (ctl(error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
+  safe_op :: (fn(x : i32, exn : MyException(i32, i32)) -> i32)(
     cond(
-      (x < 0) => exn.throw(&x, i32(0)),
+      (x < 0) => exn.throw(&x, i32(-9)),
       true => x
     )
   );
   find_first_positive :: (fn() -> i32)({
+    sum := Rc.new(RefCell(i32).new(0));
     counter := Rc.new(RefCell(i32).new(0));
-    exn := MyException(i32)(
+    exn := MyException(i32, i32)(
       throw : (
         (val, resume_val) -> {
           return(resume_val.*);
@@ -1473,12 +1481,15 @@ test("Struct-record effect with generic handler — early return after resume in
     );
     while(counter.with(cur => cur.*) < i32(10), {
       result := safe_op(counter.with(cur => cur.*) - i32(3), exn);
+      sum.with_mut(cur => {
+        cur.* = (cur.* + result);
+      });
       counter.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       cond(
         (result > i32(0)) => {
-          return(result);
+          return((result * i32(1000)) + sum.with(cur => cur.*));
         },
         true => ()
       );
@@ -1486,8 +1497,8 @@ test("Struct-record effect with generic handler — early return after resume in
     return(i32(-1));
   });
   result := find_first_positive();
-  // counter: 0→-3→0, 1→-2→0, 2→-1→0, 3→0, 4→1>0 → return 1
-  assert(result == i32(1), "early return after struct-record resume: should find 1");
+  // counter: 0→-3→-9, 1→-2→-9, 2→-1→-9, 3→0, 4→1>0 → sum = -27 + 0 + 1 = -26, returns 1000 - 26
+  assert(result == i32(974), "early return after struct-record resume: should find 1 after three resumes with -9");
 });
 // ---------------------------------------------------------------------------
 // Break in tagged union (Option) match arm after fn resume
@@ -2289,9 +2300,119 @@ test("a plain Exception handler cannot resume the throw with a value", {
     _tail := Exception(throw : (err -> i32(7))),
     "resumes the throw with a value"
   );
-  // Unwinding and falling through with `()` stay legal.
+  // `return(())` resumes too, and the operation does not resume (E0627).
+  comptime_expect_error(
+    _unit := Exception(
+      throw : (
+        err -> {
+          return(());
+        }
+      )
+    ),
+    "This handler resumes the throw, but its resume type"
+  );
+  // Unwinding is legal; falling through with `()` still is.
   _unwinds := Exception(throw : (err -> unwind(())));
   _falls := Exception(throw : (err -> ()));
+});
+// VERDICTS-89 R1: a `ctl` type parameter may only be the whole result type,
+// the operation that does not resume (E0627).
+test("a ctl type parameter used outside the whole result type is E0627", {
+  comptime_expect_error((ctl(generic(R : Type), code : i32, hint : &R) -> R), "is used in the parameter `hint`");
+  comptime_expect_error((ctl(generic(R : Type), code : i32, fallback : R) -> R), "is used in the parameter `fallback`");
+  comptime_expect_error((ctl(generic(R : Type), code : i32) -> Option(R)), "is used in the result type");
+  comptime_expect_error((ctl(generic(T : Type), item : T) -> unit), "is used in the parameter `item`");
+});
+// VERDICTS-89 R3: a resume type fixed when the record is built resumes with a
+// value at every type, checked at that type (run under ASan).
+_Recover :: (fn(comptime(E) : Type, comptime(R) : Type) -> comptime(Type))(
+  struct(
+    throw : (ctl(error : &E, fallback : R) -> R)
+  )
+);
+_RecoverRef :: (fn(comptime(E) : Type, comptime(R) : Type) -> comptime(Type))(
+  struct(
+    throw : (ctl(error : &E, fallback : &R) -> R)
+  )
+);
+_recover_string :: (fn(x : i32, exn : _Recover(i32, String)) -> String)(
+  cond(
+    (x < i32(0)) => exn.throw(&x, String.from("a fallback long enough to live on the heap")),
+    true => String.from("no throw")
+  )
+);
+_recover_rc :: (fn(x : i32, exn : _Recover(i32, Rc(i32))) -> Rc(i32))(
+  cond(
+    (x < i32(0)) => exn.throw(&x, Rc.new(i32(41))),
+    true => Rc.new(i32(0))
+  )
+);
+_recover_i32 :: (fn(x : i32, exn : _RecoverRef(i32, i32)) -> i32)(
+  cond(
+    (x < i32(0)) => exn.throw(&x, &i32(17)),
+    true => x
+  )
+);
+_recover_rc_ref :: (fn(x : i32, exn : _RecoverRef(i32, Rc(i32))) -> Rc(i32))({
+  shared := Rc.new(i32(23));
+  cond(
+    (x < i32(0)) => exn.throw(&x, &shared),
+    true => Rc.new(i32(0))
+  )
+});
+test("a fixed resume type resumes with a value at String, Rc(i32) and i32", {
+  es := _Recover(i32, String)(throw : ((val, fallback) -> return(fallback)));
+  assert(_recover_string(i32(-1), es) == String.from("a fallback long enough to live on the heap"), "the String resume value arrives");
+  er := _Recover(i32, Rc(i32))(throw : ((val, fallback) -> return(fallback)));
+  assert(_recover_rc(i32(-1), er).* == i32(41), "the Rc(i32) resume value arrives");
+  ei := _RecoverRef(i32, i32)(throw : ((val, fallback) -> return(fallback.*)));
+  assert(_recover_i32(i32(-1), ei) == i32(17), "the i32 resume value arrives through `.*`");
+  ec := _RecoverRef(i32, Rc(i32))(throw : ((val, fallback) -> return(Rc.clone(fallback))));
+  assert(_recover_rc_ref(i32(-1), ec).* == i32(23), "the Rc(i32) resume value arrives through `Rc.clone`");
+});
+test("a fixed resume type copies a resume value that needs a drop only explicitly (E0901)", {
+  comptime_expect_error(
+    _es := _RecoverRef(i32, String)(throw : ((val, fallback) -> return(fallback.*))),
+    "cannot copy `fallback`, whose type `String` is move-only"
+  );
+  comptime_expect_error(
+    _er := _RecoverRef(i32, Rc(i32))(throw : ((val, fallback) -> return(fallback.*))),
+    "cannot copy `fallback`, whose type `Rc(i32)` is a counted handle"
+  );
+});
+// A non-resuming throw in value position: the handler unwinds, so the throw
+// site's result temp is never read, whatever its type.
+_Raise :: struct(
+  throw : (ctl(generic(R : Type), code : i32) -> R)
+);
+_raise_string :: (fn(c : i32, exn : _Raise) -> String)(
+  cond(
+    (c == i32(0)) => String.from("no throw, a string long enough to live on the heap"),
+    true => exn.throw(c)
+  )
+);
+_raise_rc :: (fn(c : i32, exn : _Raise) -> Rc(i32))(
+  cond(
+    (c == i32(0)) => Rc.new(i32(1)),
+    true => exn.throw(c)
+  )
+);
+_raise_box :: (fn(c : i32, exn : _Raise) -> Box(i32))(
+  cond(
+    (c == i32(0)) => Box.new(i32(2)),
+    true => exn.throw(c)
+  )
+);
+_raise_all :: (fn(c : i32) -> i32)({
+  exn := _Raise(throw : (code -> unwind(i32(100) + code)));
+  s := _raise_string(c, exn);
+  r := _raise_rc(c, exn);
+  b := _raise_box(c, exn);
+  i32(s.len()) + (r.* + b.*)
+});
+test("a non-resuming generic throw in value position unwinds at String, Rc(i32) and Box(i32)", {
+  assert(_raise_all(i32(0)) == i32(53), "no throw: 50 + 1 + 2");
+  assert(_raise_all(i32(3)) == i32(103), "the throw unwinds with 100 + 3");
 });
 // Regression (issues/fixed/an-unwind-through-a-frame-whose-destructor-calls-a-function-is-lost.md):
 // an unwind passing through a frame drops that frame's locals, and a
