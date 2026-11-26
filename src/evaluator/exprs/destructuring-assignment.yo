@@ -63,7 +63,11 @@ DestructuringResult :: struct(
   runtime_destructurings : Option(ArrayList(RuntimeDestructuring)),
   /// A consuming destructuring's `___drop` of each part no name binds (a
   /// `_` or a field the pattern leaves out), run right after the binds.
-  entry_drops : ArrayList(AstExpr)
+  entry_drops : ArrayList(AstExpr),
+  /// A lending destructuring's name atoms, one per entry of
+  /// `runtime_destructurings` (a spread's are synthesized at the `...`); it
+  /// binds no variable itself.
+  lend_atoms : ArrayList(AstExpr)
 );
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -285,6 +289,7 @@ handle_member_destructuring :: (
     is_compile_time_only : bool,
     is_destructuring_atom_variable : bool,
     consumes : bool,
+    lends : bool,
     exn : Exception
   ) -> DestructuringResult
 )({
@@ -337,6 +342,7 @@ handle_member_destructuring :: (
   mut(seen_labels) := ArrayList(String).new();
   // The labels a consuming destructuring binds to `_`: dropped at the binding.
   mut(wild_labels) := ArrayList(String).new();
+  mut(lend_atoms) := ArrayList(AstExpr).new();
   mut(runtime_destructurings) := ArrayList(RuntimeDestructuring).new();
   (mut(i) : usize) = usize(0);
   while(i < lhs_fields.len(), {
@@ -435,8 +441,14 @@ handle_member_destructuring :: (
               )
             );
           });
+          // A lending destructuring binds each name as a local borrow
+          // (`evaluate_initialization_assignment`); its atom sits at the `...`.
+          if(lends, {
+            stok := ast_expr_token(&lhs_field);
+            lend_atoms.push(Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(flab.clone()), row : stok.row, column : stok.column, character : stok.character, byte_offset : stok.byte_offset, module_path : Rc.clone(stok.module_path), input : Rc.clone(stok.input))))));
+          });
           // An adopted C type is already bound under this name — leave it.
-          if(!_is_adopted_extern_c_field(rhs_type, &fval_opt), {
+          if(!lends && !_is_adopted_extern_c_field(rhs_type, &fval_opt), {
             _reject_shadowing(env, flab.clone(), ast_expr_token(&lhs_field), ctx, exn);
             _spread_added := add_variable_to_env(
               env,
@@ -645,6 +657,9 @@ handle_member_destructuring :: (
         variable_name_opt,
         .Some(var_name) => {
           var_tok_expr := match(variable_token_opt, .Some(e) => Rc.clone(e), .None => Rc.clone(lhs_field));
+          if(lends, {
+            lend_atoms.push(Rc.clone(var_tok_expr));
+          }, {
           if(match(field_value_opt.clone(), .None => true, _ => false) && is_compile_time_only, {
             exn.throw(
               dyn(
@@ -752,6 +767,7 @@ handle_member_destructuring :: (
             .None => ()
           );
           scope_release_note_binding(ast_expr_id(&var_tok_expr), env, var_name.clone());
+          });
         },
         .None => ()
       );
@@ -791,7 +807,8 @@ handle_member_destructuring :: (
   DestructuringResult(
     env : Rc.clone(env),
     runtime_destructurings : Option(ArrayList(RuntimeDestructuring)).Some(runtime_destructurings),
-    entry_drops : entry_drops
+    entry_drops : entry_drops,
+    lend_atoms : lend_atoms
   )
 });
 // ---------------------------------------------------------------------------
@@ -823,8 +840,26 @@ evaluate_destructuring_assignment :: (
     );
   });
   rhs_info := match(rhs_info_opt, .Some(ri) => Rc.clone(ri), .None => new_expr_info(env, Rc.new(TypeValueNode.Unit)));
-  rhs_type := Rc.clone(rhs_info.ty());
-  rhs_value := rhs_info.value();
+  destructure_type(lhs, rhs, &Rc.clone(rhs_info.ty()), &rhs_info.value(), env, is_compile_time_only, consumes, false, ctx, exn)
+});
+/// Destructure a value of `rhs_type` (`rhs` names it, for the diagnostics):
+/// the type dispatch of `evaluate_destructuring_assignment`, and of a lending
+/// destructuring, whose source is a place it does not evaluate as a value.
+destructure_type :: (
+  fn(
+    lhs : &AstExpr,
+    rhs : &AstExpr,
+    rhs_type_in : &TypeValue,
+    rhs_value : &Option(EvalValue),
+    env : &Environment,
+    is_compile_time_only : bool,
+    consumes : bool,
+    lends : bool,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> DestructuringResult
+)({
+  rhs_type := Rc.clone(rhs_type_in.*);
   is_rhs_atom := ast_expr_is_atom(rhs);
   // -------------------------------------------------------------------
   // Struct / union / module destructuring
@@ -853,7 +888,7 @@ evaluate_destructuring_assignment :: (
         &lhs_args,
         &field_labels.items,
         &field_types.items,
-        &rhs_value,
+        rhs_value,
         &rhs_type,
         lhs,
         env,
@@ -861,6 +896,7 @@ evaluate_destructuring_assignment :: (
         is_compile_time_only,
         is_rhs_atom,
         consumes,
+        lends,
         exn
       )
     );
@@ -879,7 +915,7 @@ evaluate_destructuring_assignment :: (
         &lhs_args,
         &field_labels.items,
         &field_types.items,
-        &rhs_value,
+        rhs_value,
         &rhs_type,
         lhs,
         env,
@@ -887,6 +923,7 @@ evaluate_destructuring_assignment :: (
         is_compile_time_only,
         is_rhs_atom,
         consumes,
+        lends,
         exn
       )
     );
@@ -963,7 +1000,7 @@ evaluate_destructuring_assignment :: (
         &lhs_args,
         &field_labels,
         &field_types.items,
-        &rhs_value,
+        rhs_value,
         &rhs_type,
         lhs,
         env,
@@ -971,6 +1008,7 @@ evaluate_destructuring_assignment :: (
         is_compile_time_only,
         is_rhs_atom,
         consumes,
+        lends,
         exn
       )
     );
@@ -1002,4 +1040,4 @@ evaluate_destructuring_assignment :: (
   );
   __yo_panic("unreachable: evaluate_destructuring_assignment")
 });
-export(DestructuringResult, handle_member_destructuring, evaluate_destructuring_assignment);
+export(DestructuringResult, handle_member_destructuring, evaluate_destructuring_assignment, destructure_type);

@@ -11,6 +11,7 @@
 { ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_atom,
@@ -32,10 +33,17 @@
   ast_expr_is_local_borrow_mode_call,
   BK_THREAD_LOCAL,
   BF_DOT,
+  BF_ADDRESS_OF,
+  BK_BORROW_MUT,
+  BK_MUT,
+  BK_IMM,
+  ast_expr_strip_borrow_marker,
+  alloc_global_expr_id,
   ast_expr_is_atom_of
 } :: import("../../expr.yo");
 {
   ExprInfo,
+  RuntimeDestructuring,
   new_expr_info,
   expr_info_table_set,
   scope_release_note_binding,
@@ -104,7 +112,7 @@
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code, YoError } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH, E_BORROW_OF_NON_PLACE } :: import("../../diagnostics.yo");
 { _type_origin_names_into } :: import("../types/function.yo");
-{ Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
+{ Token, TokenKind, TokenData, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait-checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
@@ -113,11 +121,12 @@
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param, throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
+  destructure_type,
   DestructuringResult
 } :: import("./destructuring-assignment.yo");
 { synthesize_expr_and_type } :: import("../types/expr-synthesizer.yo");
 { decide_destructuring_consumes } :: import("./match.yo");
-{ register_arm_entry_drops } :: import("../../pattern.yo");
+{ register_arm_entry_drops, register_destructure_lends } :: import("../../pattern.yo");
 { clone_value } :: import("../values/clone-value.yo");
 { find_rc_value_owner_relationship, throw_expr_is_implicit_variable_error, require_expr_not_consumed, set_expr_as_needs_to_call_dup, doc_comment_lookup_key_from_token } :: import("../utils.yo");
 {
@@ -127,6 +136,7 @@
   deref_exempt_mark,
   deref_exempt_clear,
   variable_is_reference_binding,
+  variable_is_mut_borrow,
   set_expr_as_consumed,
   is_reference_deref_site,
   deref_rule_applies,
@@ -1584,6 +1594,123 @@ _rhs_is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
     )
   )
 });
+/// The source of a lending destructuring: the place a `&x`/`&mut x` lends,
+/// or a reference binding read bare (it lends through itself, in its mode).
+_LendSource :: struct(place : AstExpr, is_mut : bool, is_sigil : bool);
+_lending_destructure_source :: (fn(rhs : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(_LendSource))(
+  cond(
+    ast_expr_is_fn_call_of(rhs, BK_BORROW_MUT, Option(usize).Some(usize(1))) => Option(_LendSource).Some(_LendSource(place : ast_expr_strip_borrow_marker(rhs), is_mut : true, is_sigil : true)),
+    ast_expr_is_fn_call_of(rhs, BF_ADDRESS_OF, Option(usize).Some(usize(1))) => Option(_LendSource).Some(_LendSource(place : ast_expr_strip_borrow_marker(rhs), is_mut : false, is_sigil : true)),
+    // Compiler-synthesized code keeps the old reading of a bare reference
+    // binding (its value, `deref_rule_applies`): the derived `___dispose`'s
+    // `{ f : a } := self` destructures the referent.
+    (ast_expr_is_atom(rhs) && deref_rule_applies(ast_expr_token(rhs), ctx)) => match(
+      get_variables_from_env(env, ast_expr_token(rhs).value.*.clone()).last_cloned(),
+      .Some(lv) => cond(
+        variable_is_reference_binding(&lv) => Option(_LendSource).Some(_LendSource(place : Rc.clone(rhs.*), is_mut : variable_is_mut_borrow(&lv), is_sigil : false)),
+        true => Option(_LendSource).None
+      ),
+      .None => Option(_LendSource).None
+    ),
+    true => Option(_LendSource).None
+  )
+);
+/// An atom `name` at `at`'s position.
+_lend_atom :: (fn(name : &String, kind : TokenKind, at : &Token) -> AstExpr)(
+  Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : kind, value : Rc.new(name.clone()), row : at.row, column : at.column, character : at.character, byte_offset : at.byte_offset, module_path : Rc.clone(at.module_path), input : Rc.clone(at.input)))))
+);
+/// `name := &place` (`&mut` when `is_mut`), in the shape the parse-time
+/// rewrite gives it (`__yo_imm(name) := place`), with `bind`'s `:=` head.
+_lend_binding :: (fn(bind : &AstExpr, is_mut : bool, name_atom : &AstExpr, place : &AstExpr) -> AstExpr)({
+  ntok := ast_expr_token(name_atom);
+  mode_args := ArrayList(AstExpr).new();
+  mode_args.push(Rc.clone(name_atom.*));
+  mode_head := _lend_atom(&String.from(cond(is_mut => BK_MUT, true => BK_IMM)), TokenKind.Identifier, &ntok);
+  mode_call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), mode_head, Rc.new(mode_args), false, ast_expr_token(&mode_head)));
+  args := ArrayList(AstExpr).new();
+  args.push(mode_call);
+  args.push(Rc.clone(place.*));
+  match(
+    bind,
+    Rc(.FnCall(_, bf, _, b_infix, btok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(ast_expr_token(&bf.*)))), Rc.new(args), b_infix.*, Rc.clone(btok.*))),
+    Rc(.Atom(_, _)) => Rc.clone(bind.*)
+  )
+});
+/// `recv.label` at `at`'s position (a tuple's digit label is an integer token).
+_lend_field :: (fn(recv : &AstExpr, label : &String, at : &Token) -> AstExpr)({
+  (digits : bool) = (label.len() > usize(0));
+  (di : usize) = usize(0);
+  while(di < label.len(), di = (di + usize(1)), {
+    b := label.byte_at(di);
+    if((b < u8(48)) || (b > u8(57)), {
+      digits = false;
+    });
+  });
+  dot := _lend_atom(&String.from("."), TokenKind.Dot, at);
+  args := ArrayList(AstExpr).new();
+  args.push(Rc.clone(recv.*));
+  args.push(_lend_atom(label, cond(digits => TokenKind.Integer, true => TokenKind.Identifier), at));
+  Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), dot, Rc.new(args), true, ast_expr_token(&dot)))
+});
+/// A lending destructuring (VERDICTS-76 Q2): `{ a, b : c } := &x` is
+/// `a := &x.a; c := &x.b` — each name a local borrow of its field, read with
+/// `a.*`, and `x` frozen (exclusively under `&mut`) while a name lives. The
+/// lent place is first bound to a hidden local borrow the names borrow
+/// through; a reference binding `r` read bare is that borrow already. Codegen
+/// emits the recorded bindings in place of the destructuring.
+_evaluate_lending_destructuring :: (fn(expr : &AstExpr, lhs : &AstExpr, rhs : &AstExpr, ls : &_LendSource, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  binds := ArrayList(AstExpr).new();
+  rtok := ast_expr_token(rhs);
+  src_name := cond(
+    ls.is_sigil => {
+      hname := generate_new_temp_variable_name(&env.module_path().*, usize(rtok.row), usize(rtok.column), Option(String).Some(String.from("dl")), Option(String).Some(rtok.module_path.*.clone()));
+      h_bind := _lend_binding(expr, ls.is_mut, &_lend_atom(&hname, TokenKind.Identifier, &rtok), &ls.place);
+      h_done := evaluate_initialization_assignment(&h_bind, env, ctx, exn);
+      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&h_done)), .Some(hi) => env_adopt(env, &hi.env()), .None => ());
+      binds.push(h_done);
+      hname
+    },
+    true => rtok.value.*.clone()
+  );
+  src_ty := match(
+    get_variables_from_env(env, src_name.clone()).last_cloned(),
+    .Some(sv) => variable_value_type(&sv),
+    .None => t_unit()
+  );
+  if(is_enum_type(&src_ty), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message_with_help(
+            &rtok,
+            `A destructuring lends the fields of a struct or a tuple, and \`${ast_expr_to_string(&ls.place)}\` is an enum value (\`${type_to_string(&src_ty)}\`), whose payload depends on its variant.`,
+            Option(String).Some(`match it through the borrow: \`match(${ast_expr_to_string(rhs)}, .Variant(a) => …)\``)
+          )
+        )
+      )
+    );
+  });
+  dr := destructure_type(lhs, rhs, &src_ty, &Option(EvalValue).None, env, false, false, true, ctx, exn);
+  rds := match(dr.runtime_destructurings, .Some(r) => r, .None => ArrayList(RuntimeDestructuring).new());
+  (i : usize) = usize(0);
+  while(i < rds.len(), i = (i + usize(1)), {
+    rd := match(rds.get_cloned(i), .Some(r) => r, .None => return(Rc.clone(expr.*)));
+    name_atom := match(dr.lend_atoms.get_cloned(i), .Some(a) => a, .None => return(Rc.clone(expr.*)));
+    if(!(rd.variable_name == "_"), {
+      ntok := ast_expr_token(&name_atom);
+      place := _lend_field(&_lend_atom(&src_name, TokenKind.Identifier, &rtok), &rd.label, &ntok);
+      b_done := evaluate_initialization_assignment(&_lend_binding(expr, ls.is_mut, &name_atom, &place), env, ctx, exn);
+      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b_done)), .Some(bi) => env_adopt(env, &bi.env()), .None => ());
+      binds.push(b_done);
+    });
+  });
+  register_destructure_lends(ast_expr_id(expr), &binds);
+  expr_info := new_expr_info(env, t_unit());
+  expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
+  expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
+  Rc.clone(expr.*)
+});
 evaluate_initialization_assignment :: (
   fn(
     expr : &AstExpr,
@@ -1789,6 +1916,16 @@ evaluate_initialization_assignment :: (
           )
         )
       )
+    );
+  });
+  // A lending destructuring (VERDICTS-76 Q2, `match`'s `&`/`&mut` rows):
+  // `{ a, b } := &x`, `{ a, b } := &mut x`, or a reference binding read bare
+  // (`{ a, b } := r`). Its source is a place, not a value to evaluate.
+  if(is_init_assign && !is_implicit && !is_comptime_wrapped && !is_compile_time_only && ast_expr_is_fn_call(&actual_lhs), {
+    match(
+      _lending_destructure_source(&rhs, &env, ctx),
+      .Some(ls) => return(_evaluate_lending_destructuring(expr, &actual_lhs, &rhs, &ls, &env, ctx, exn)),
+      .None => ()
     );
   });
   // Evaluate the rhs expression.
