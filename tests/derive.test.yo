@@ -76,16 +76,16 @@ test("derive Ord for struct", {
   assert(!(p1 < p4), "equal points should not be <");
   assert(!(p1 > p4), "equal points should not be >");
 });
-// === Test derive Display for struct ===
-derive(Point, Display);
-test("derive Display for struct", {
+// === Test derive Debug for struct ===
+derive(Point, Debug);
+test("derive Debug for struct", {
   p := Point(i32(1), i32(2));
-  s := p.to_string();
+  s := p.debug_string();
   assert(s == `Point(1, 2)`, "toString should format as Point(1, 2)");
 });
 // === Test multiple derives in one call ===
 Color :: struct(r : i32, g : i32, b : i32);
-derive(Color, Eq(Color), Hash, Clone, Copy, Ord(Color), Display);
+derive(Color, Eq(Color), Hash, Clone, Copy, Ord(Color), Debug);
 test("multiple derives in one call", {
   c1 := Color(i32(255), i32(0), i32(0));
   c2 := Color(i32(255), i32(0), i32(0));
@@ -100,8 +100,8 @@ test("multiple derives in one call", {
   assert(c1 == c4, "cloned color should equal original");
   // Ord
   assert(c3 < c1, "(0,255,0) should be < (255,0,0)");
-  // Display
-  s := c1.to_string();
+  // Debug
+  s := c1.debug_string();
   assert(s == `Color(255, 0, 0)`, "toString should format correctly");
 });
 // === Test derive for struct with bool fields ===
@@ -151,11 +151,11 @@ test("derive Ord for fieldless enum", {
   assert(Direction.North <= Direction.North, "North <= North");
   assert(Direction.West > Direction.East, "West > East");
 });
-// === Test derive Display for fieldless enum ===
-derive(Direction, Display);
-test("derive Display for fieldless enum", {
+// === Test derive Debug for fieldless enum ===
+derive(Direction, Debug);
+test("derive Debug for fieldless enum", {
   d := Direction.North;
-  s := d.to_string();
+  s := d.debug_string();
   assert(s == `Direction.North`, "toString should format as Direction.North");
 });
 // === Test derive for enum with fields ===
@@ -163,7 +163,7 @@ Shape :: enum(
   Circle(radius : i32),
   Rectangle(width : i32, height : i32)
 );
-derive(Shape, Eq(Shape), Hash, Clone, Display);
+derive(Shape, Eq(Shape), Hash, Clone, Debug);
 test("derive Eq for enum with fields", {
   s1 := Shape.Circle(i32(5));
   s2 := Shape.Circle(i32(5));
@@ -181,11 +181,11 @@ test("derive Clone for enum with fields", {
   s4 := s3.clone();
   assert(s3 == s4, "cloned rectangle should equal original");
 });
-test("derive Display for enum with fields", {
+test("derive Debug for enum with fields", {
   s1 := Shape.Circle(i32(5));
-  assert(s1.to_string() == `Shape.Circle(5)`, "circle toString");
+  assert(s1.debug_string() == `Shape.Circle(5)`, "circle debug_string");
   s2 := Shape.Rectangle(i32(3), i32(4));
-  assert(s2.to_string() == `Shape.Rectangle(3, 4)`, "rectangle toString");
+  assert(s2.debug_string() == `Shape.Rectangle(3, 4)`, "rectangle debug_string");
 });
 // === Test derive for struct containing derived struct ===
 Line :: struct(start : Point, end_ : Point);
@@ -761,7 +761,7 @@ comptime_expect_error({
   derive(DeriveUnionT, Hash);
 });
 comptime_expect_error({
-  derive(DeriveUnionT, Display);
+  derive(DeriveUnionT, Debug);
 });
 DeriveArrayT :: Array(i32, usize(2));
 comptime_expect_error({
@@ -770,16 +770,16 @@ comptime_expect_error({
 // Over-rejection canaries: a field-less struct and an all-unit-variant enum
 // are the smallest aggregates the guard admits, and every rule must take them.
 DeriveEmptyS :: struct();
-derive(DeriveEmptyS, Eq(DeriveEmptyS), Clone, Hash, Display);
+derive(DeriveEmptyS, Eq(DeriveEmptyS), Clone, Hash, Debug);
 DeriveUnitE :: enum(A, B);
-derive(DeriveUnitE, Eq(DeriveUnitE), Clone, Copy, Hash, Display);
+derive(DeriveUnitE, Eq(DeriveUnitE), Clone, Copy, Hash, Debug);
 test("derive on a tuple, union or array is a comptime error; the smallest aggregates still derive", {
   assert(DeriveEmptyS() == DeriveEmptyS(), "unit struct Eq");
   assert(DeriveUnitE.A == DeriveUnitE.A, "unit enum Eq");
   assert(DeriveUnitE.A != DeriveUnitE.B, "unit enum Ne");
   assert(DeriveUnitE.B.clone() == DeriveUnitE.B, "unit enum Clone");
   assert(hash_one(DeriveUnitE.A) != hash_one(DeriveUnitE.B), "unit enum Hash separates variants");
-  assert(DeriveUnitE.B.to_string() == `DeriveUnitE.B`, "unit enum Display");
+  assert(DeriveUnitE.B.debug_string() == `DeriveUnitE.B`, "unit enum Debug");
 });
 // ===== D15: Debug is split from Display =====
 _D15Err :: enum(NotFound(path : String), Denied);

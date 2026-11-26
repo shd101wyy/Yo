@@ -1,0 +1,102 @@
+// `Display`, `Debug` and `Formatter` (VERDICTS-78 Q3): a value renders by
+// writing into a `Formatter`; `to_string` and `debug_string` are the provided
+// methods that run one, and a template of several parts is one formatter.
+{ assert } :: import("std/assert");
+{ String, rune } :: import("std/string");
+{ Display, Debug, Formatter } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{ Error, AnyError } :: import("std/error");
+_FdPoint :: struct(x : i32, y : i32);
+impl(
+  _FdPoint,
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+      f.write_str("(");
+      f.write(&self.x);
+      f.write_str(", ");
+      f.write(&self.y);
+      f.write_str(")");
+    })
+  )
+);
+derive(_FdPoint, Debug);
+// An override of the provided `to_string`: a one-part template and a direct
+// call use it, a part of a longer template is written by `fmt`.
+_FdLoud :: struct(n : i32);
+impl(
+  _FdLoud,
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(f.write_str("loud")),
+    to_string : (fn(self : &Self) -> String)(String.from("LOUD"))
+  )
+);
+_fd_show :: (fn(generic(T : ?Sized), v : &T, where(T <: Display)) -> String)(v.to_string());
+_fd_both :: (fn(v : &Dyn(Display, Debug)) -> String)({
+  mut(f) := Formatter.new();
+  v.fmt(&mut f);
+  f.write_str(" / ");
+  v.debug_fmt(&mut f);
+  f.finish()
+});
+test("a written fmt renders through to_string, a template and a generic bound", {
+  p := _FdPoint(x : i32(1), y : i32(-2));
+  assert(p.to_string() == "(1, -2)", "the provided to_string runs fmt");
+  assert(`p = ${p}.` == "p = (1, -2).", "a template part is written by fmt");
+  assert(`${p}` == "(1, -2)", "a one-part template");
+  assert(_fd_show(&p) == "(1, -2)", "through where(T <: Display)");
+  assert(p.debug_string() == "_FdPoint(1, -2)", "derive(Debug) beside a written Display");
+});
+test("an overridden to_string serves a one-part template, fmt serves a longer one", {
+  l := _FdLoud(n : i32(0));
+  assert(l.to_string() == "LOUD", "the override");
+  assert(`${l}` == "LOUD", "a one-part template calls to_string");
+  assert(`[${l}]` == "[loud]", "a part of a longer template calls fmt");
+});
+test("Formatter: new, from, write_str, write_rune, write, write_debug, finish", {
+  mut(f) := Formatter.from(String.from("ab"));
+  f.write_str("c");
+  f.write_rune(rune(u32(0x00E9)));
+  f.write(&i32(7));
+  f.write(&String.from("!"));
+  f.write_debug(&_FdPoint(x : i32(3), y : i32(4)));
+  assert(f.finish() == "abcé7!_FdPoint(3, 4)", "every write lands in order");
+  assert(Formatter.new().finish() == "", "an empty formatter");
+});
+test("the std impls write their parts", {
+  assert(`${Option(i32).Some(i32(5))}|${Option(i32).None}` == "Some(5)|None", "Option");
+  (r : Result(i32, String)) = .Err(String.from("bad"));
+  assert(r.to_string() == "Err(bad)", "Result");
+  mut(l) := ArrayList(i32).new();
+  l.push(i32(1));
+  l.push(i32(2));
+  assert(`list ${l}` == "list [1, 2]", "ArrayList");
+  assert(`${f64(1.5)} ${u8(255)} ${i64(-9)} ${true}` == "1.5 255 -9 true", "primitives");
+  assert(`${()}` == "()", "unit");
+});
+test("a reference renders as its referent", {
+  p := _FdPoint(x : i32(5), y : i32(6));
+  r := &p;
+  assert(`<${r}>` == "<(5, 6)>", "a &T part");
+  assert(r.to_string() == "(5, 6)", "to_string through &T");
+  assert(_fd_show(&r) == "(5, 6)", "T := &_FdPoint through a generic bound");
+  assert(r.debug_string() == "_FdPoint(5, 6)", "Debug through &T");
+});
+test("a Dyn(Display, Debug) calls both", {
+  p := _FdPoint(x : i32(1), y : i32(2));
+  (d : Box(Dyn(Display, Debug))) = dyn(Box.new(p));
+  assert(_fd_both(d.as_ref()) == "(1, 2) / _FdPoint(1, 2)", "fmt and debug_fmt through the vtable");
+});
+_FdErr :: enum(Missing(name : String), Busy);
+derive(_FdErr, Error(.Missing => `missing ${name}`, .Busy => `busy`), Debug, Clone);
+test("derive(Error) writes the variant's message; derive(Debug) the structure", {
+  e := _FdErr.Missing(name : String.from("x"));
+  assert(e.to_string() == "missing x", "Display from derive(Error)");
+  assert(e.debug_string() == "_FdErr.Missing(x)", "Debug from derive(Debug)");
+  (a : AnyError) = dyn(Box.new(_FdErr.Busy));
+  assert(`error: ${a.*}` == "error: busy", "an AnyError renders through Display");
+});
+_FdBad :: struct(n : i32);
+test("ToString is not a trait; a fmt that yields a value is a type error", {
+  comptime_expect_error(impl(_FdBad, ToString(to_string : (self -> String.from("x")))), "ToString");
+  comptime_expect_error(impl(_FdBad, Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(Result(i32, i32).Ok(i32(1))))));
+});

@@ -13,7 +13,7 @@
 { RefCell } :: import("std/sync/refcell");
 { sleep } :: import("std/sys/timer");
 { DefaultHasher } :: import("std/hash");
-{ Display, Debug, Format } :: import("std/fmt");
+{ Display, Debug, Format, Formatter } :: import("std/fmt");
 { ToJson, JsonValue } :: import("std/encoding/json");
 { Error, AnyError } :: import("std/error");
 
@@ -940,7 +940,7 @@ test("imm is an ordinary identifier", {
 // (issues/fixed/an-impl-may-write-a-receiver-its-trait-lends-read-only.md).
 _PmLbl :: struct(s : String);
 impl(_PmLbl, Clone(clone : (fn(self : &Self) -> Self)(_PmLbl(s : self.s.clone()))));
-impl(_PmLbl, Display(fmt : ((self, f) -> f.write(&self.s.clone()))));
+impl(_PmLbl, Display(fmt : ((self, f) -> f.write(&self.s))));
 _pm_copy_of :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
 _pm_render :: (fn(generic(T : Type), x : &T, where(T <: Display)) -> String)(x.to_string());
 _PmReadM :: trait(read_m : (fn(self : &Self) -> i32));
@@ -968,7 +968,7 @@ test("an impl member may not write a receiver its trait lends read-only", {
   comptime_expect_error(impl(_PmTally, Clone(clone : (fn(self : &mut Self) -> Self)(_PmTally(n : self.n)))), "lends its receiver read-only");
 });
 
-// `Hash.hash`, `Hasher.finish`, `Debug.debug_string`, `Format.format`,
+// `Hash.hash`, `Hasher.finish`, `Debug.debug_fmt`, `Format.format`,
 // `ToJson.to_json` and `Error.source` only read their receiver too, so they take `self : &Self`
 // as well (issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md):
 // a `&T` borrow reaches them, and an impl member that spells
@@ -1004,7 +1004,7 @@ test("Hash, Debug, Format, ToJson and Error.source read a & borrow", {
   assert(k.n == i32(7), "the source is unchanged");
 });
 test("Hash, Debug, Format, ToJson and Error impls may not take self : &mut Self", {
-  comptime_expect_error(impl(_PmReadOnly, Debug(debug_string : (fn(self : &mut Self) -> String)(self.n.to_string()))), "lends its receiver read-only");
+  comptime_expect_error(impl(_PmReadOnly, Debug(debug_fmt : (fn(self : &mut Self, f : &mut Formatter) -> unit)(f.write(&self.n)))), "lends its receiver read-only");
   comptime_expect_error(impl(_PmReadOnly, ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Null))), "lends its receiver read-only");
   comptime_expect_error(impl(_PmReadOnly, Error(source : (fn(self : &mut Self) -> Option(AnyError))(.None))), "lends its receiver read-only");
   comptime_expect_error(impl(_PmReadOnly, Hash(hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(self.n)))), "lends its receiver read-only");

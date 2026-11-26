@@ -1,6 +1,6 @@
 // Regression fixture: this file deliberately does NOT import `String`.
 //
-// `derive(Debug)` / `derive(Display)` build their body as SOURCE TEXT that is
+// `derive(Debug)` builds its body as SOURCE TEXT that is
 // re-parsed by `.to_expr()`, so every free name in it resolves in THIS file's
 // scope — not in std/fmt/to_string.yo's. A body that emitted `String.from(...)`
 // therefore failed definition-time evaluation here, the failure was swallowed,
@@ -18,11 +18,11 @@ derive(Z, Debug);
 E :: enum(A, B);
 derive(E, Debug);
 Q :: struct(a : i32);
-derive(Q, Display);
+derive(Q, Debug);
 main :: (fn() -> unit)({
   println(P(x : i32(1), y : i32(2)).debug_string());
   println(Z().debug_string());
   println(E.B.debug_string());
-  println(Q(a : i32(3)).to_string());
+  println(Q(a : i32(3)).debug_string());
 });
 export(main);

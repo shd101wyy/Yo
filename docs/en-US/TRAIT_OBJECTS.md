@@ -149,7 +149,7 @@ through the vtable.
 An inherent impl on a `Dyn` type adds methods to that `Dyn`, like Rust's `impl dyn Error`:
 `std/error.yo`'s `impl(AnyError, is : ...)` is why `err.is(NotFound)` works on an `AnyError`.
 
-A trait implemented through a generic impl (`ArrayList(T)`'s `ToString` for `T <: ToString`) can be
+A trait implemented through a generic impl (`ArrayList(T)`'s `Display` for `T <: Display`) can be
 put behind a `Dyn`: `dyn(&xs)` specializes the generic impl's methods for the concrete type.
 
 **No implicit upcasting.** A `Dyn(Sp, Ot)` does not flow into a `Dyn(Sp)` slot: the two have

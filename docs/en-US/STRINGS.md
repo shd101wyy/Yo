@@ -366,7 +366,7 @@ take the list over. Bytes are read in place with `len()`, `byte_at(i)`,
 
 ### Template string interpolation with `${}` syntax:
 
-The template string works similarly to JavaScript's template literals, allowing you to embed expressions inside a string using `${}` syntax. The value inside `${}` must implement the `ToString` trait to be converted to a `String`.
+The template string works similarly to JavaScript's template literals, allowing you to embed expressions inside a string using `${}` syntax. The value inside `${}` must implement the `Display` trait (`std/fmt`).
 
 ```yo
 name := "Alice";
@@ -376,7 +376,29 @@ greeting := `Hello, ${name}!, age: ${age}`;
 // value "Hello, Alice!, age: 16"
 ```
 
-A template of two or more parts builds one `String` and appends its parts to it in order: a literal part with `push_str`, an interpolated one with `ToString.append_to(self, out : &mut String)`. The default `append_to` appends `self.to_string()`; `String` and `str` append their bytes by borrow, so a `String` part is never copied first. A type can override `append_to` to write its text straight into the result. A one-part template (`${s}`) is just `s.to_string()`.
+A template of two or more parts is one `Formatter`: each literal part is written with `write_str`, each interpolated part by its own `Display.fmt(self, f : &mut Formatter)`, and the template's value is the formatter's `finish()`. Every part writes its text straight into the one result, so a `String` part is never copied first. A one-part template (`${s}`) is `s.to_string()`, `Display`'s provided method, which runs `fmt` into a fresh formatter (`String` and `str` override it to copy their bytes).
+
+A type of your own becomes printable and interpolable by implementing `Display`. Its `fmt` writes into the formatter with `write_str` (a `str`), `write_rune`, `write` (any `Display` value) and `write_debug` (any `Debug` value):
+
+```yo
+{ Display, Formatter } :: import("std/fmt");
+Point :: struct(x : i32, y : i32);
+impl(
+  Point,
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+      f.write_str("(");
+      f.write(&self.x);
+      f.write_str(", ");
+      f.write(&self.y);
+      f.write_str(")");
+    })
+  )
+);
+// `${Point(x : i32(1), y : i32(2))}` is "(1, 2)"
+```
+
+`Debug` is the structural channel beside it: `derive(T, Debug)` writes `T(field1, field2)` through `debug_fmt`, and `debug_string()` returns that text.
 
 #### Format specifications — `${value:spec}`
 
@@ -410,11 +432,11 @@ sign or radix prefix and the digits (`${i32(-(42)):08}` is `-0000042`, not
 
 Numbers accept every part: sign, radix and zero-fill as well as width, fill, alignment and
 truncation. Text, `bool`, `Option`, `Result`, `ArrayList` and the other std types that implement
-`ToString` accept width, fill, alignment and truncation, through `Format`'s default member. A
+`Display` accept width, fill, alignment and truncation, through `Format`'s default member. A
 type of your own opts in with one line, since there is no blanket impl (see Coherence above):
 
 ```yo
-impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(Point, Display(fmt : ((self, f) -> f.write(&`(${self.x}, ${self.y})`))));
 impl(Point, Format());
 `[${Point(x : i32(1), y : i32(2)):>8}]` // "[  (1, 2)]"
 ```

@@ -52,7 +52,7 @@ The standard library defines an `Error` trait and `AnyError` type for dynamic er
 ```yo
 { Error, AnyError } :: import("std/error");
 
-// Error trait requires ToString. `derive(Error)` supplies both from one
+// Error trait requires Display. `derive(Error)` supplies both from one
 // message per variant, listed in declaration order:
 MathError :: enum(
   DivisionByZero,

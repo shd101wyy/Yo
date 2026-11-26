@@ -419,11 +419,7 @@ test("an index result passed to an async call in a task is released", {
 _SmErr :: struct(n : i32);
 impl(
   _SmErr,
-  Display(
-    to_string : (fn(self : &Self) -> String)({
-      return(String.from("sm error"));
-    })
-  )
+  Display(fmt : ((self, f) -> f.write_str("sm error")))
 );
 impl(_SmErr, Error());
 impl(

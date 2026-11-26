@@ -146,7 +146,7 @@ Example — this fails:
 错误指向引起它的代码：与形参不符的那个实参、构造器调用缺少的那个字段。在检查你写的调用时于标准库内部引发的错误，会报告在那个调用处，并以 note 给出标准库中的位置：
 
 ```
-error[E0602]: Type P does not implement required trait ToString.
+error[E0602]: Type P does not implement required trait Display.
   --> main.yo:5:3
   |
 5 |   println(p);

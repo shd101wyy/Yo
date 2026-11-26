@@ -92,7 +92,7 @@ c.*.bump(); // 错误：不能在原子对象 'c' 上调用 &mut self 方法
 bump_by_ten(c.*); // 错误：不能传递以原子对象 'c' 为根的 &mut 参数
 ```
 
-局部副本是值，所以 `k := c.*; k.bump()` 没问题（它修改的是副本）；`Mutex.with_lock` 的 `v : &mut T` 是参数，所以闭包体可以通过 `v` 写入；只读的 `&mut self` 方法 —— `ToString` 的 `${c.*.n}`、`Sender.clone` —— 也没问题，因为编译器依据被调用者的函数体做决定（`plans/reference/PARALLELISM_RULES.md` D3），而不只看参数模式。
+局部副本是值，所以 `k := c.*; k.bump()` 没问题（它修改的是副本）；`Mutex.with_lock` 的 `v : &mut T` 是参数，所以闭包体可以通过 `v` 写入；只读的 `&mut self` 方法 —— `Display` 的 `${c.*.n}`、`Sender.clone` —— 也没问题，因为编译器依据被调用者的函数体做决定（`plans/reference/PARALLELISM_RULES.md` D3），而不只看参数模式。
 
 这阻止了最常见的数据竞争来源——两个线程在无同步的情况下写入同一块内存。要修改共享状态，请组合正确的原语：
 
@@ -342,7 +342,7 @@ Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 有两处，由 2026-11-11 的所有权与借用审计发现（`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md`）。两者都是线程闭包在规则 D1 看不到的情况下到达非 `Send` 模块级全局变量的途径，在 ThreadSanitizer 下都是数据竞争：
 
 - **析构函数。** 一个被移动进线程的值，其 `Drop` 写入 `mut(G)` 全局变量：drop 在另一个线程上运行，而可达性遍历不检查 drop 代码（`issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`）。
-- **被标准库回调的用户 impl。** 线程体调用一个泛型标准库函数（`xs.contains(&k)`、对用户类型的 `println`），而用户的 `Eq` 或 `ToString` impl 写入该全局变量：遍历在标准库中定义的函数体处停止（`issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`）。
+- **被标准库回调的用户 impl。** 线程体调用一个泛型标准库函数（`xs.contains(&k)`、对用户类型的 `println`），而用户的 `Eq` 或 `Display` impl 写入该全局变量：遍历在标准库中定义的函数体处停止（`issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`）。
 
 在修复之前，请让跨线程使用的类型的 `Drop` impl 和 trait impl 不写入模块级状态。
 

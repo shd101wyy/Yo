@@ -120,7 +120,7 @@ d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn 
 直接写在 `Dyn` 类型上的固有 impl 会为这个 `Dyn` 添加方法，就像 Rust 的 `impl dyn Error`：
 `std/error.yo` 的 `impl(AnyError, is : ...)` 让 `err.is(NotFound)` 可以用在 `AnyError` 上。
 
-通过泛型 impl 实现的 trait（`T <: ToString` 时 `ArrayList(T)` 的 `ToString`）可以放到 `Dyn` 后面：`dyn(&xs)` 会针对具体类型特化泛型 impl 的方法。
+通过泛型 impl 实现的 trait（`T <: Display` 时 `ArrayList(T)` 的 `Display`）可以放到 `Dyn` 后面：`dyn(&xs)` 会针对具体类型特化泛型 impl 的方法。
 
 **没有隐式的向上转换。** `Dyn(Sp, Ot)` 不会流入 `Dyn(Sp)` 槽位：两者的虚表布局不同，因此这种转换需要用 `upcast`（见下文）显式写出。trait 列表是一个集合：`Dyn(Sp, Ot)` 和 `Dyn(Ot, Sp)` 是同一个类型。
 

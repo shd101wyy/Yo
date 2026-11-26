@@ -50,7 +50,7 @@ std/sys/
 ├── copy.yo         — copyfile, sendfile
 ├── dir.yo          — mkdir, unlink, rename, symlink, link, readlink, getdents/readdir
 ├── dns.yo          — getaddrinfo, getnameinfo, addrinfo accessors
-├── errors.yo       — IoError enum with errno mapping, ToString impl
+├── errors.yo       — IoError enum with errno mapping, Display impl
 ├── events.yo       — TTY/poll/FS event constants + FS-event / poll wrappers
 ├── externs.yo      — All C extern function declarations
 ├── fallocate.yo    — fallocate (pre-allocate file space)
@@ -104,7 +104,7 @@ timer :: import("std/sys/timer");
 | Socket Constants | `socket.yo`     | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP*\*, NI*\*     |
 | Signals          | `signals.yo`    | ✅ Complete | Platform-aware POSIX signal numbers                      |
 | Events           | `events.yo`     | ✅ Complete | TTY/poll/FS event constants + FS/poll wrappers           |
-| IoError          | `errors.yo`     | ✅ Complete | Enum with errno mapping, ToString impl                   |
+| IoError          | `errors.yo`     | ✅ Complete | Enum with errno mapping, Display impl                   |
 | IoFuture         | `future.yo`     | ✅ Complete | Extern type wrapping `__yo_io_future_t`                  |
 | Externs          | `externs.yo`    | ✅ Complete | All C extern function declarations                       |
 | Statx            | `statx.yo`      | ✅ Complete | File metadata accessor object                            |

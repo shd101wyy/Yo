@@ -469,11 +469,11 @@ test("Test dyn rejects a type that satisfies only PART of the Dyn's traits", {
   // `Dyn(Error)`'s required set is (Error, Display). A Display-only type used
   // to be accepted and dispatched — symptom 2, the silent one: `source` resolved
   // to the trait's `?=` default, so the program ran and printed plausible text.
-  ToStringOnly :: enum(Boom);
-  derive(ToStringOnly, Copy, Clone);
-  impl(ToStringOnly, Display(fmt : ((self, f) -> f.write(&`boom`))));
+  DisplayOnly :: enum(Boom);
+  derive(DisplayOnly, Copy, Clone);
+  impl(DisplayOnly, Display(fmt : ((self, f) -> f.write(&`boom`))));
   comptime_expect_error({
-    (e : AnyError) = dyn(Box.new(ToStringOnly.Boom));
+    (e : AnyError) = dyn(Box.new(DisplayOnly.Boom));
     e
   });
 });
@@ -485,11 +485,7 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   RefErr :: struct(msg : String);
   impl(
     RefErr,
-    Display(
-      to_string : (fn(self : &Self) -> String)({
-        return(self.msg.clone());
-      })
-    )
+    Display(fmt : ((self, f) -> f.write(&self.msg)))
   );
   impl(RefErr, Error());
   impl(
@@ -509,7 +505,7 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   impl(ValErr, Error());
   (re : AnyError) = dyn(Box.new(RefErr(`ref-err`)));
   assert(`${re.*}` == `ref-err`, "Dyn(Error) from a ref struct");
-  assert(`e: ${re.*}!` == `e: ref-err!`, "a Dyn(Error) as a later template part (Display's append_to)");
+  assert(`e: ${re.*}!` == `e: ref-err!`, "a Dyn(Error) as a later template part (Display's fmt)");
   match(re.*.source(), .Some(_) => assert(false, "default source must be None"), .None => ());
   (ve : AnyError) = dyn(Box.new(ValErr.Bust));
   assert(`${ve.*}` == `bust`, "Dyn(Error) from a value enum (auto-box)");
@@ -550,7 +546,7 @@ test("a dyn of a type variable binds every parameter of a trait default", {
   p := _DynDefP(x : i32(41));
   assert(_dyn_def_generic(&p) == i32(42), "through a dyn of the type variable");
   assert(_dyn_def_use(dyn(Box.new(p))) == i32(42), "through a concrete dyn (which moves `p`)");
-  // Display's own `append_to` default is one: a later template part calls it.
+  // Display's `to_string` default is one: it calls `fmt`, whose formatter follows `self`.
   assert(`[${_generic_show(i32(7))}]` == `[7]`, "a Dyn(Display) rendered inside a template");
 });
 
@@ -747,11 +743,11 @@ test("Dyn: two traits with a same-named method cannot share one Dyn (E0616)", {
 // issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md: this module
 // imports `std/libc/stdio`, whose `Option(*(FILE))` instance the CTFE memo used
 // to hand `ArrayList(Dyn(T))._ptr`, so reading an element back did not compile.
-{ Display : _AlToString } :: import("std/fmt/to_string");
+{ Display : _AlDisplay } :: import("std/fmt/to_string");
 test("Test an ArrayList of trait objects reads its elements back", {
-  (mut(xs) : ArrayList(Box(Dyn(_AlToString)))) = ArrayList(Box(Dyn(_AlToString))).new();
-  xs.push(dyn(Box.new(i32(7)), _AlToString));
-  xs.push(dyn(Box.new(i32(9)), _AlToString));
+  (mut(xs) : ArrayList(Box(Dyn(_AlDisplay)))) = ArrayList(Box(Dyn(_AlDisplay))).new();
+  xs.push(dyn(Box.new(i32(7)), _AlDisplay));
+  xs.push(dyn(Box.new(i32(9)), _AlDisplay));
   got := xs(usize(1)).*.to_string();
   assert(got == String.from("9"), "index 1 reads back the second trait object");
   assert(xs.len() == usize(2), "both elements are held");
