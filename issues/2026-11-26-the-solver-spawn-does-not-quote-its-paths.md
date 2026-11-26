@@ -19,6 +19,15 @@ EOF
 YO_Z3_PATH="/tmp/with space/z3" yo check tmp/fixme.yo
 ```
 
+`yo check` (tree binary, branch `wip/v0281-dov-sd` `5fa089d70`), rc 0:
+
+```text
+verify: the Z3 solver at '/tmp/with space/z3' cannot run (sh: 1: /tmp/with: not found) — verify+ contracts keep their runtime asserts, so nothing is proved. Run 'yo verify <file>' once to fetch Z3 5.1.0, or point YO_Z3_PATH at one.
+```
+
+The same file with the same binary at `~/.cache/yo/solvers/…` (no space)
+prints `ok       fn@tmp/fixme.yo:2 [verify+] — 2 obligation(s) proved`.
+
 The shell the spawn goes through, given the same command line:
 
 ```text
