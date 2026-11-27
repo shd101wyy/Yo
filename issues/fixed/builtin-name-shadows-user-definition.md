@@ -1,6 +1,6 @@
-# Builtin names silently shadow same-named user definitions (OPEN-DESIGN)
+# Builtin names silently shadow same-named user definitions (DECIDED: reserve them)
 
-**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+**Kind:** design question, decided 2026-11-27 (option 1) and implemented; see `## Decision`. Moved from `issues/` root in the 2026-09-28 severity triage.
 
 **PRODUCTION CASUALTY (2026-08-30):** a local named `short` in
 `src/version_cache.yo`'s `download_version` resolved to the prelude C-interop
@@ -59,7 +59,7 @@ yo-self mirrors in `yo-self/evaluator/exprs/_expr.yo` /
 Found writing D5's `tests/io/bufio.test.yo` — a local named `short` (the
 C-interop integer type) broke method calls on it:
 
-```rust
+```yo ignore
 short := Option(i32).Some(i32(1));
 short.is_none()   // Error: No matching call found with arguments: (short.is_none)()
 ```
@@ -92,3 +92,46 @@ as the fallback if that audit finds builtin-first dispatch load-bearing in the
 prelude. The third face (a local shadowing an in-scope type name as a method
 receiver) should follow the same decision — env-first fixes it; until then the
 diagnostic must name the collision, which today's error does not.
+
+## Decision (maintainer, 2026-11-27: option 1)
+
+"Give the user an error if binding with builtin names." A binder a person wrote
+whose name the compiler resolves before any binding is E0407, with the help
+"`` `law` is a builtin; rename the binding (e.g. `law_`) ``" and, when every use
+of the binder is in the file and none heads a call or is a brace pun, a
+`yo fix` repair that renames the binder and its uses to `law_`. Every binder is
+checked: `::`, `:=`, a typed `(x : T) =`, a parameter (a closure's included), a
+capture entry, a labeled return, a pattern or destructuring binding, an import
+rename. `std/prelude.yo` is exempt; compiler-minted binders are never checked
+(`TokenData.written`, VERDICTS-72 rule (b)).
+
+The reserved set is read from the compiler, not listed by hand
+(`reserved_binding_message`, `src/evaluator/memory-safety.yo`):
+
+- the call heads: every identifier-spelled head of `_evaluate_expression`'s
+  dispatch outside the `__yo_` namespace (`builtin_call_head_names`,
+  `src/expr.yo`), the parse-time and statement heads `if`, `for`, `return`,
+  `break`, `continue`, and the mutation summary's pure-structure heads `clone`
+  and `as`. `tests/internal/reserved-names.test.yo` reads the dispatch and fails
+  when an arm is missing from the list;
+- the builtin type names identifier resolution answers before any binding
+  (`builtin_type_keyword` minus `is_env_first_c_type_name`,
+  `src/types/creators.yo`);
+- `mut`, and `logic` and `lemma`, reserved ahead of SPEC_AND_PROOF PR 2;
+- every `__yo_` name (VERDICTS-72).
+
+Kept out, because a binding of the name is reached: `assert` (the dispatch
+evaluates the ordinary call), `exists` (the quantifier only in ghost context),
+the words that are keywords only in one position (`fn`, `ctl`, `unsafe_fn`,
+`Fn`, `FnMut`, `FnOnce`, `generic`, `given`, `where`, `comptime`, `own`, `sink`,
+`using`, `thread_local`, `export`) and the C interop type names (`int`, `char`,
+`short`, `uint`, `long`, `ulong`, `ushort`, `longlong`, `ulonglong`,
+`longdouble`, `void`).
+
+The third face (a local `short` as a method receiver) was already fixed by
+issues/fixed/local-named-after-a-prelude-c-type-is-not-shadowed.md: the C
+interop names resolve env-first, so `short` stays bindable and its repro is a
+passing row of `tests/reserved-builtin-names.test.yo`. The same face for the
+types that still resolve first (`i32 := …; i32.is_some()` was E0610) is now
+E0407 at the binder. Struct and enum field labels, methods and named arguments
+are not binders: `p.law` resolves through `.` (VERDICTS-92 probes q01, q04).

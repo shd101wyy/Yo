@@ -32,7 +32,7 @@ An independent review read develop `617cfc052` and probed with the v0.2.68 seed.
 - **For the change:**
   - It would make construction uniform: every other type is built as `T(args).new(...)`.
   - Models trained on Rust reach for `Rc::new`.
-  - Three lowercase prelude names are a shadowing hazard (`issues/questions/builtin-name-shadows-user-definition.md`;
+  - Three lowercase prelude names are a shadowing hazard (`issues/fixed/builtin-name-shadows-user-definition.md`;
     3 corpus sites bind `rc` as a local name, defended by `tests/rc_binding_gives_way.test.yo`).
 - **Against it:**
   - It needs a new rule, inference from a parameter's declared type. Nested binder inference has been fragile

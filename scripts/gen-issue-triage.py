@@ -30,7 +30,6 @@ ORDER = [a for a, _ in AREAS] + ["Other"]
 # issues/questions/ (docs whose core is an open decision, not a defect — each
 # carries a ## Recommendation awaiting the maintainer's verdict).
 QUESTIONS = {
-    "builtin-name-shadows-user-definition.md": "which name-resolution policy when user definitions collide with builtins: reserve, prefer user bindings, or warn",
     "emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md": "grow the emscripten heap, size it from a flag, or make the OOM abort say what happened",
     "httpmethod-from-string-returns-option-not-result.md": "`HttpMethod.from_string` should be a `FromString` impl — with which error type",
     "manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md": "how the `[package] yo` MSRV field is enforced: error vs warning, `>=` or range, checked where",

@@ -27,7 +27,7 @@ checking `runtime_io_common.yo` directly passed.
 So at least two faces: (a) comment-with-parens/paths above a definition, (b)
 many sequential `emit_string_line` string literals in one body — both only
 reproducible on the dependency-load path, both resolved by the rewrite. Same
-family as issues/questions/builtin-name-shadows-user-definition.md's "doc-comment
+family as issues/fixed/builtin-name-shadows-user-definition.md's "doc-comment
 shaping": comment text influencing def-eval.
 
 ## Suggested attack

@@ -99,7 +99,7 @@ Two points:
 - *Explicit over implicit.* A reader of `x :: ghost_fn(...)` must find the return type and look for an `ensures` to know which rules apply. `x :: lemma(...)` says it.
 - *The exact design over a patch.* The patch is seven verifier fixes keyed on the shape test. The exact design is two forms with their own rules; the seven fall out of it.
 - *Written by models, checked by the compiler, read by people.* A model that writes the `p20` shape gets a green run that means something else. With two forms the compiler can say "a `logic` function has no `ensures`: state the property as a `lemma`".
-- *Builtin names are reserved.* The cost is one word net: `logic` and `lemma` in, `ghost_fn` out. Neither word is bound anywhere in `src/`, `std/` or `tests/` (VERDICTS-92 §1), so the reservation needs no sweep.
+- *Builtin names are reserved.* The cost is one word net: `logic` and `lemma` in, `ghost_fn` out. Neither word is bound anywhere in `src/`, `std/` or `tests/` (VERDICTS-92 §1), so the reservation needs no sweep. Both words are reserved from v0.2.81 by the reserve-builtin-names PR (E0407, `is_reserved_ahead_name` in `src/evaluator/memory-safety.yo`), before PR 2 makes them builtins.
 
 ## 3. The surface
 
