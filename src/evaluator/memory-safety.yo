@@ -478,6 +478,7 @@ _reserved_rename_uses :: (fn(tok : &Token) -> Option(ArrayList(Span)))({
   roles := classify_atom_roles(&exprs);
   uses := ArrayList(Span).new();
   seen := HashSet(String).new();
+  name_len := name.clone().chars().count();
   for(&scoped, sa => {
     t := ast_expr_token(&sa.atom);
     same_binding := match(&sa.scope, .Some(d) => (!top_level && _same_position(d, tok)), .None => top_level);
@@ -489,7 +490,7 @@ _reserved_rename_uses :: (fn(tok : &Token) -> Option(ArrayList(Span)))({
       at := `${t.row.to_string()}:${t.column.to_string()}`;
       if(!seen.contains(&at), {
         seen.insert(at);
-        uses.push(Span(path : t.module_path.*.clone(), row : usize(t.row), col : usize(t.column), len : name.chars().count()));
+        uses.push(Span(path : t.module_path.*.clone(), row : usize(t.row), col : usize(t.column), len : name_len));
       });
     });
   });
