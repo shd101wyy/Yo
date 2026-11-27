@@ -1,0 +1,41 @@
+// verify+ fixture: a `ghost_fn` never runs, so no mode splices its contracts
+// into its body. `verify+` used to splice a `requires failed` guard into it,
+// and the walk of the ghost function, and of every caller that unfolds it,
+// reported `subset` on the spliced panic call
+// (issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md).
+pragma(Pragma.VerifyOrAssert);
+{ ArrayList } :: import("std/collections/array-list");
+
+g :: ghost_fn(
+  (fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
+    y := x;
+    y
+  })
+);
+
+use_it :: (fn(n : i32, requires(n > i32(0)), ensures(result > i32(0))) -> (result : i32))({
+  ghost(v := g(n));
+  n
+});
+
+all_pos :: ghost_fn(
+  (fn(xs : &ArrayList(i32), n : usize, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => true,
+      true => (all_pos(xs, n - usize(1)) && (xs(n - usize(1)) > i32(0)))
+    )
+  )
+);
+
+check_all :: (fn(xs : &ArrayList(i32), ensures(r ==> all_pos(xs, xs.len()))) -> (r : bool))({
+  (mut(i) : usize) = usize(0);
+  (mut(ok) : bool) = true;
+  while(i < xs.len(), {
+    invariant(i <= xs.len(), ok ==> all_pos(xs, i));
+    if(xs(i) <= i32(0), {
+      ok = false;
+    });
+    i = (i + usize(1));
+  });
+  ok
+});

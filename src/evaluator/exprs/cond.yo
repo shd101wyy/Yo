@@ -69,7 +69,8 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_flow_region_end,
   CondConditionMove,
   cond_condition_moves,
-  drop_cond_condition_moves_in_earlier_arms
+  drop_cond_condition_moves_in_earlier_arms,
+  witness_as_bool_note
 } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
@@ -255,7 +256,7 @@ evaluate_cond :: (
           Box.new(
             format_error_message(
               ast_expr_token(&evaluated_cond_expr),
-              `Expected bool for cond statement, got ${ast_expr_to_string(&evaluated_cond_expr)} of type ${type_to_string(&cond_info.ty())}`
+              `Expected bool for cond statement, got ${ast_expr_to_string(&evaluated_cond_expr)} of type ${type_to_string(&cond_info.ty())}${witness_as_bool_note(&evaluated_cond_expr)}`
             )
           )
         )

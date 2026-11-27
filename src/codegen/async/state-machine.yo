@@ -1851,10 +1851,22 @@ generate_async_block_resume_function_inline :: (
   // Externally aborted while suspended or queued: release the pending await's
   // future and the task's own reference; never resume. An Aborting task (-4)
   // was resumed by the completion of the operation its abort could not take
-  // back: it is Aborted now, and its waiters, held until the operation
-  // retired, are woken (the abort hook below).
+  // back, or by the gate of its abort walk once what the walk waits for has
+  // retired. Its slot has retired, so it walks its frame (runtime-core.yo,
+  // `__yo_sm_abort_walk`): its locals are dropped, newest first, before its
+  // waiters, held until then, are woken. A walk that lingers again leaves it
+  // Aborting. A resume that arrives while the walk waits on its gate is the
+  // one the hook said the task was owed: it counts on the gate
+  // (VERDICTS-83 §3; the abort hook below).
+  walk_args := `sm_ptr, ${async_block_id}_state_dispose_locals, ${resume_function_name}, &sm->__yo_walk_gate`;
   context.base.emitter.emit_string_line(`  if (sm->state == -2 || sm->state == -4) {`);
-  context.base.emitter.emit_string_line(`    if (sm->state == -4) { sm->state = -2; __yo_future_wake_waiters(sm_ptr); }`);
+  context.base.emitter.emit_string_line(`    if (sm->state == -4) {`);
+  context.base.emitter.emit_string_line(`      if (sm->__yo_walk_gate != NULL) { __yo_abort_gate_fire(sm->__yo_walk_gate); return; }`);
+  context.base.emitter.emit_string_line(`      if (sm->__yo_await_slot) { __yo_decr_rc(sm->__yo_await_slot); sm->__yo_await_slot = NULL; }`);
+  context.base.emitter.emit_string_line(`      if (!__yo_sm_abort_walk(${walk_args}, 0)) return;`);
+  context.base.emitter.emit_string_line(`      sm->state = -2;`);
+  context.base.emitter.emit_string_line(`      __yo_future_wake_waiters(sm_ptr);`);
+  context.base.emitter.emit_string_line(`    }`);
   context.base.emitter.emit_string_line(`    if (sm->__yo_await_slot) { __yo_decr_rc(sm->__yo_await_slot); sm->__yo_await_slot = NULL; }`);
   context.base.emitter.emit_string_line(`    __yo_decr_rc((void*)sm);`);
   context.base.emitter.emit_string_line(`    return;`);
@@ -2016,6 +2028,12 @@ generate_async_block_resume_function_inline :: (
 /// so it is released only by its aborted-entry guard, which that operation's
 /// completion runs
 /// (issues/fixed/2026-11-25-an-aborted-tasks-frame-is-released-while-io-uring-can-still-write-into-it.md).
+/// Once the slot has retired, the hook walks the frame before it wakes the
+/// waiters (VERDICTS-83 §3, runtime-core.yo `__yo_sm_abort_walk`); a walk that
+/// lingers leaves the task Aborting too. On the cancelled-operation path the
+/// hook took the continuation, so nothing else resumes the task (`owed` 0);
+/// past the switch, the retired child's wake or the queue resumes it to
+/// release it (`owed` 1).
 generate_async_block_cancel_pending_function_inline :: (
   fn(async_block_id : &String, struct_name : &String, context : &mut FunctionGenerationContext) -> Option(String)
 )({
@@ -2023,6 +2041,7 @@ generate_async_block_cancel_pending_function_inline :: (
   // `InlineSuspension` has no `Clone`.
   sps := match(g_inline_suspensions.with_mut({ k : async_block_id.clone() }(m) => m.remove(&k)), .Some(l) => l, .None => ArrayList(InlineSuspension).new());
   fn_name := `${async_block_id.clone()}_cancel_pending`;
+  walk_args := `sm_ptr, ${async_block_id.clone()}_state_dispose_locals, ${async_block_id.clone()}_resume, &sm->__yo_walk_gate`;
   context.base.emitter.emit_declaration_string_line(`bool ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
   context.base.emitter.emit_declaration_line("");
   context.base.emitter.emit_string_line(`// Abort hook for async block ${async_block_id.clone()} (single-pass lowering)`);
@@ -2039,6 +2058,7 @@ generate_async_block_cancel_pending_function_inline :: (
           context.base.emitter.emit_string_line(`      if (sm->__yo_await_slot != NULL && __yo_async_io_cancel(sm->__yo_await_slot)) {`);
           context.base.emitter.emit_string_line(`        __yo_decr_rc(sm->__yo_await_slot);`);
           context.base.emitter.emit_string_line(`        sm->__yo_await_slot = NULL;`);
+          context.base.emitter.emit_string_line(`        if (!__yo_sm_abort_walk(${walk_args}, 0)) return false;  // a drop lingered: the walk's gate resumes this task`);
           context.base.emitter.emit_string_line(`        __yo_future_wake_waiters(sm_ptr);`);
           context.base.emitter.emit_string_line(`        __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
           context.base.emitter.emit_string_line(`        return true;`);
@@ -2065,6 +2085,7 @@ generate_async_block_cancel_pending_function_inline :: (
   context.base.emitter.emit_string_line(`    default:`);
   context.base.emitter.emit_string_line(`      break;`);
   context.base.emitter.emit_string_line(`  }`);
+  context.base.emitter.emit_string_line(`  if (!__yo_sm_abort_walk(${walk_args}, 1)) return false;  // a drop lingered: the walk's gate resumes this task`);
   context.base.emitter.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
   context.base.emitter.emit_string_line(`  return true;`);
   context.base.emitter.emit_string_line(`}`);

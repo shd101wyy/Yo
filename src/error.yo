@@ -27,6 +27,7 @@
   E_UNKNOWN_OPERATOR,
   E_STRUCT_LITERAL_VS_BLOCK,
   E_CALL_SYNTAX,
+  E_COMPOUND_ASSIGNMENT,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
   E_FIELD_NOT_FOUND,
@@ -144,6 +145,9 @@ _classify_message :: (fn(error_message : &String) -> Option(String))({
   // `{ names }` on a binding side picks fields, every other `{ … }` is a block.
   if(msg.contains(String.from("is a block, and a block separates statements with")) || (msg.contains(String.from("a record's fields are named")) || (msg.contains(String.from("a field list on the binding side is written without the dot")) || msg.contains(String.from("builds a record; a block has no dot")))), {
     return(_coded(E_STRUCT_LITERAL_VS_BLOCK));
+  });
+  if(msg.starts_with(String.from("Yo has no compound assignment")), {
+    return(_coded(E_COMPOUND_ASSIGNMENT));
   });
   if(msg.contains(String.from("paren-less function")) || msg.contains(
     String.from("whitespace before '('")

@@ -105,12 +105,15 @@
 # Usage:
 #   scripts/cli-diff-test.sh [case ...] [--cases-dir DIR] [--filter SUBSTR]
 #                            [--network] [--keep] [-v] [--golden] [--record]
+#                            [--shard I/N]
 #
 # `--golden` is accepted and ignored: golden scoring is the only mode now that
 # the TS reference is gone. It is kept so existing callers keep working.
 #
 # With no case arguments every case under --cases-dir (default
-# tests/cli-cases) runs.
+# tests/cli-cases) runs. `--shard I/N` keeps the cases whose index in that
+# byte-sorted list (or in the named cases' order) is I modulo N, so N runs
+# with I = 0..N-1 score every case once (test.yml's `cli-cases` job).
 #
 # Env:
 #   YO_SELF_BIN        path to the self-hosted binary (default /tmp/yo-self-bin)
@@ -155,13 +158,15 @@ NETWORK=0
 KEEP=0
 RECORD=0
 declare -a WANTED=()
+SHARD=""
 
-usage() { sed -n '2,111p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,116p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cases-dir) CASES_DIR="$2"; shift 2 ;;
     --filter)    FILTER="$2"; shift 2 ;;
+    --shard)     SHARD="$2"; shift 2 ;;
     --network)   NETWORK=1; shift ;;
     --keep)      KEEP=1; shift ;;
     --golden)    shift ;;   # no-op: golden scoring is the only mode
@@ -453,6 +458,19 @@ for d in "${CASES[@]}"; do
   [[ -f "$d/cmd" ]] || { echo "error: case $(basename "$d") has no cmd file (every directory under $CASES_DIR is a case)" >&2; exit 2; }
 done
 [[ ${#CASES[@]} -eq 0 ]] && { echo "error: no cases found under $CASES_DIR" >&2; exit 2; }
+if [[ -n "$SHARD" ]]; then
+  if ! [[ "$SHARD" =~ ^([0-9]+)/([0-9]+)$ ]] || (( BASH_REMATCH[2] < 1 || BASH_REMATCH[1] >= BASH_REMATCH[2] )); then
+    echo "error: --shard expects I/N with I < N, got '$SHARD'" >&2; exit 2
+  fi
+  shard_i=${BASH_REMATCH[1]} shard_n=${BASH_REMATCH[2]}
+  declare -a SHARDED=()
+  for k in "${!CASES[@]}"; do
+    (( k % shard_n == shard_i )) && SHARDED+=("${CASES[$k]}")
+  done
+  echo "shard $SHARD: ${#SHARDED[@]} of ${#CASES[@]} cases"
+  CASES=("${SHARDED[@]}")
+  [[ ${#CASES[@]} -eq 0 ]] && { echo "error: shard $SHARD selects no case" >&2; exit 2; }
+fi
 
 # ── run the case ────────────────────────────────────────────────────────────
 # Runs every line of the case's `cmd` in a fresh sandbox.

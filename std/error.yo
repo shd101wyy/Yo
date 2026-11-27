@@ -274,7 +274,7 @@ export(Exception);
 /// Creates a resumable exception effect record parameterized by the resume type.
 /// Unlike `Exception`, the handler can return a value to resume the computation.
 /// `throw` is still `ctl(...)` because the handler MAY choose to unwind;
-/// regular `fn` returns are also valid via subtyping `fn <: ctl`.
+/// a regular `fn` is also accepted where this `ctl` is expected.
 ResumableException :: (fn(comptime(ResumeType) : Type) -> comptime(Type))(
   struct(
     throw : (ctl(error : AnyError) -> ResumeType)

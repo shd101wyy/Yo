@@ -1,0 +1,34 @@
+// verify+ fixture: an `ensures` over the std/spec ghost collections
+// (`seq_*`, `seq_of`, `ms_*`, `set_*`, `str_bytes`) is proof-only in every
+// mode. The runtime-checkability test knew only the quantifiers, so `verify+`
+// spliced it as an exit assert and the module failed to load with
+// "ghost-only builtin"
+// (issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md).
+pragma(Pragma.VerifyOrAssert);
+{ ArrayList } :: import("std/collections/array-list");
+
+seq_len_two :: (
+  fn(
+    x : i32,
+    y : i32,
+    requires(x >= i32(0), y >= i32(0)),
+    ensures(seq_len(seq_append(seq_unit(x), seq_unit(y))) == i64(2))
+  ) -> (result : i32)
+)({
+  z := (x + y);
+  z
+});
+
+copy :: (fn(xs : &ArrayList(i32), ensures(seq_of(r) == seq_of(xs.*))) -> (r : ArrayList(i32)))({
+  mut(out) := ArrayList(i32).new();
+  for(&xs.*, x => {
+    invariant(out == produced(xs.*));
+    out.push(x.*);
+  });
+  out
+});
+
+set_twice :: (fn(x : i32, requires(x >= i32(0)), ensures(set_contains(set_add(set_single(x), x), x))) -> (r : i32))({
+  y := x;
+  y
+});
