@@ -16,8 +16,7 @@ It is recorded in class D (§4) and applied to the names that follow it (`Deque`
 `wip/v0281-s1`): §3.1's item modes and consuming receivers, with `Option.as_ref`/`as_mut` (the borrowing form the consuming
 receivers need); row 12; `IterPair` deleted for `Tuple`. The callbacks stay lent (`f : &mut Impl(FnMut(...))`, the iterator
 consumers' `f : &mut F`): a closure that holds a reference is E0909 at any by-value slot (decision 38 A), so §3.1's by-value
-`FnOnce` slot would reject `opt.inspect({ &mut seen }(v) => …)` and every closure reading a borrowed parameter. Which slot S-1
-ships is VERDICTS-93's question. Q3's rider (`FromIterator.Elem` → `Item`) is not taken: the
+`FnOnce` slot would reject `opt.inspect({ &mut seen }(v) => …)` and every closure reading a borrowed parameter. VERDICTS-93 confirms the lent slot for S-1; the by-value `FnOnce` slot is PR P-5, after P4-1. Q3's rider (`FromIterator.Elem` → `Item`) is not taken: the
 assoc-type registry is keyed by (type, label) without the trait, so an `Item` there would alias `IntoIterator.Item` on every
 collection whose two element types differ (the reason `Elem` was chosen); it needs trait-keyed associated types first.
 S-2 to S-6, L-1 and P-1 to P-4 are not started.
@@ -55,10 +54,10 @@ Counts are `git grep` call sites on develop (`src` / `std` non-test / `tests`).
 
 ```yo ignore
 // Option(T). Result(T, E) the same way: map, map_err, and_then, or_else, unwrap_or_else, map_or, map_or_else.
-map : (fn(generic(B : Type), self : Self, f : Impl(FnOnce(a : T) -> B)) -> Option(B))
-and_then : (fn(generic(B : Type), self : Self, f : Impl(FnOnce(a : T) -> Option(B))) -> Option(B))
-is_some_and : (fn(self : Self, f : Impl(FnOnce(a : T) -> bool)) -> bool)
-filter : (fn(self : Self, predicate : Impl(FnOnce(a : &T) -> bool)) -> Option(T)) // &T, as Rust
+map : (fn(generic(B : Type), self : Self, f : &mut Impl(FnMut(a : T) -> B)) -> Option(B))
+and_then : (fn(generic(B : Type), self : Self, f : &mut Impl(FnMut(a : T) -> Option(B))) -> Option(B))
+is_some_and : (fn(self : Self, f : &mut Impl(FnMut(a : T) -> bool)) -> bool)
+filter : (fn(self : Self, predicate : &mut Impl(FnMut(a : &T) -> bool)) -> Option(T)) // &T, as Rust
 as_ref : (fn(self : &Self) -> Option(&T))
 as_mut : (fn(self : &mut Self) -> Option(&mut T))
 // on Option(&T): copied (T <: Copy), cloned (T <: Clone)
@@ -67,7 +66,8 @@ as_mut : (fn(self : &mut Self) -> Option(&mut T))
 map : (fn(generic(A : Type, B : Type, F : Type), self : Self, f : F, where(Self <: Iterator(Item := A), F <: (FnMut(item : A) -> B))) -> IterMap(Self, B, F))
 ```
 
-- Receivers consume (`unwrap` already does); `opt.as_ref().map(…)` is the borrowed form, as in Rust. The closure is passed by value, not `&mut Impl(FnMut)`: it runs once, so it may move its captures.
+- Receivers consume (`unwrap` already does); `opt.as_ref().map(…)` is the borrowed form, as in Rust.
+- **The callback stays lent: `f : &mut Impl(FnMut(...))`** (decision 37 as VERDICTS-28 Q1 wrote it; VERDICTS-93). A closure that holds a reference cannot be moved into a by-value slot (E0909), so a by-value `Impl(FnOnce(...))` would reject `opt.inspect({ &mut seen }(v) => …)` and a closure that reads a `&T` parameter. Over 14,912 closures at these combinators in 992 Rust crates, at least 8.6% capture a reference (they name `self`) and about 1% move a capture out (VERDICTS-93 §2.2). VERDICTS-82's by-value slot here was probed with capture-free closures only and is retracted. What the lent slot cannot do: a closure cannot move a capture out (E0913), and a named closure is passed `&mut g`. The by-value `FnOnce` slot is PR P-5, after first-class closures (`BORROW_CHECKER_COMPLETENESS.md` §7 P4).
 - After this, `xs.iter().map(x => (x.* * i32(2)))` is Rust's `|x| *x * 2`, and `.filter(x => (x.*.* > i32(1)))` is Rust's `|x| **x > 1`. The double star stops being a Yo oddity and becomes the one a model already knows.
 - To file (S3, diagnostics): a type error inside an adapter's closure is reported as E0610 `No method "collect" on IterMap(…)` (a5; the real error is `x.* * i32(2)` at `x : &&i32`).
 
@@ -156,6 +156,7 @@ One table in the compiler, read by E0401, E0610 and the module-not-found path, a
 | `Duration` over signed `i64`; `as_millis() -> i64` | `u64` seconds, `u128` millis | No 128-bit integers (S6); a negative span is representable |
 | `json`/`toml` `parse`/`stringify` | serde's `from_str`/`to_string` | D2: one verb pair for every text format |
 | `BTreeMap` | `BTreeMap` | Same name and order; it is a sorted array today (O(n) insert). Say so in its doc until it is a tree |
+| `f : &mut Impl(FnMut(...))` on the `Option`/`Result` combinators and the iterator consumers; a named closure is passed `&mut g`; the closure cannot move a capture out | `F: FnOnce` by value | A closure that holds a reference cannot be moved into a by-value slot (E0909) until closures are first-class (P4). Inline call sites read as Rust's. Temporary: PR P-5 |
 
 ## 5. PR plan
 
@@ -164,7 +165,7 @@ Order inside a release is top to bottom. Every PR: `check ./src`, `check ./std`,
 | PR | Release | Content | Depends on | Extra gates |
 | --- | --- | --- | --- | --- |
 | S-0 | v0.2.80 or v0.2.81 | compiler: the Rust-name table (§3.6); the E0601 `as_str()` repair once PR E is in; file the E0610 misattribution (§3.1) and the uncoded safe-code raw-pointer error (c32); a help line on E0601 for a literal at a `&String` slot (b1, b7) until P-2 removes the slot | nothing | cli-cases `explain`/`fix`; `diagnostics-registry` |
-| S-1 | **v0.2.81**, after VERDICTS-78 Q3 PR 1 (both edit the prelude and `std/fmt`) and after F1/F2 | §3.1; row 12 (`From`/`Into`/`TryFrom`/`TryInto`, `from_iter_add` by value); `IterPair` → `Tuple` (row 10, first half) | v0.2.80 seed only for ordering | `option-result-combinators`, the iterator and `prelude` tests, `async/stream` (its own `map`/`filter`), `yo compile src/main.yo --skip-c-compiler` |
+| S-1 | **v0.2.81**, after VERDICTS-78 Q3 PR 1 (both edit the prelude and `std/fmt`) and after F1/F2 | §3.1 (item modes, consuming receivers, `as_ref`/`as_mut`; the callback slot stays `&mut Impl(FnMut(...))`, VERDICTS-93); row 12 (`From`/`Into`/`TryFrom`/`TryInto`, `from_iter_add` by value); `IterPair` → `Tuple` (row 10, first half) | v0.2.80 seed only for ordering | `option-result-combinators`, the iterator and `prelude` tests, `async/stream` (its own `map`/`filter`), `yo compile src/main.yo --skip-c-compiler`; `comptime_expect_error` pins for the E0913 move-out and for `r := opt.as_ref().filter(…)` (E0911), which P-5 flips |
 | S-2 | **v0.2.81** | row 9, all additive; `get_mut`/`first_mut`/`last_mut`/`values_mut` | S-1 (`Option(&T).cloned`) | each addition has a test |
 | S-3 | **v0.2.81** | §3.5 for collections; `MapEntry` → `Tuple` (row 10, second half) | S-1 | the collection tests, `tests/origins` corpus and model, `for`-desugar tests, `yo verify ./std/collections` |
 | S-4 | **v0.2.81** | §3.7, as two PRs: collections/strings/sync, then env/thread/fs/process | S-3 for `find` vs `position` | the renamed modules' tests; test-name strings rewritten (the D2 rule) |
@@ -174,6 +175,7 @@ Order inside a release is top to bottom. Every PR: `check ./src`, `check ./std`,
 | P-2 | v0.2.83+ | §3.3: `&str` parameters by module group (string, encoding, http/url, regex, cli/log, process/env), `Borrow`, `AsPath`; `push_string` deleted | S-0's repair, S-5 | per group |
 | P-3 | v0.2.83+ | §3.2 stage 2 and the slice views of §3.5 | N2 (collections of references) | origins corpus rows for views |
 | P-4 | v0.2.83+ | row 13 with IO-1c; row 14; row 8 when a consumed holder can return its origin | IO-1c; the parity item | — |
+| P-5 | the release after the one that carries P4-1 | the `Option`/`Result` callback slots become `f : Impl(FnOnce(...))` by value (§3.1; VERDICTS-93 §4.4); the class-D row of §4 is deleted; decide by-value `F` for the iterator consumers | `BORROW_CHECKER_COMPLETENESS.md` §7 P4-1 in the seed | the S-1 pins flip; `closure-fnonce-by-value` and its negative rows; `option-result-combinators`, `iterator-combinators`, `prelude` |
 | L-1 | first post-VBD language item (v0.2.83); the keystone of [`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md) (its E-1) | Q1: the `try(expr)` builtin (`.Err(e)` returns `.Err(From.from(e))` from the enclosing `fn`, `.None` returns `.None`); not a macro, not `?`. Scope added by ERRORS_AS_VALUES (VERDICTS-94 §6): inside a closure or an `io.async` body `try` returns from that body; `try` on `Option`; the error conversion through `From` by value | S-1 (`From` by value) | seed split: the builtin lands first, the std and `src/` uses after the seed carries it; `option-result-combinators`, an error-propagation test file, `yo explain` |
 
 Why S-1 to S-4 go into v0.2.81 and not later: they are small (under 100 `src` sites each except the renames), they are what the pack and the docs teach, and v0.2.81 already rewrites the same pages for `Display`/`Debug`. Why P-1 and P-2 wait: each is a tree-wide call-site sweep, and v0.2.81–82 need quiet call sites while implicit dup and drop are deleted.

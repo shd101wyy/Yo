@@ -2024,7 +2024,11 @@ reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, 
       format_error_message_with_help(
         tok,
         `This value borrows ${_capture_borrow_note(&b)}, so it is second-class and cannot be ${how}: a borrow never outlives the scope that lends it.`,
-        Option(String).Some(`capture a value instead (\`{ ${b.label} : ${capture_borrow_place_string(&b)}.clone() }\`), or keep the closure local to the scope that owns \`${b.root_name}\` and call it there`)
+        cond(
+          // A copy of a `&mut` capture would take the closure's writes away from `x`: no clone repair.
+          b.is_mut => Option(String).Some(`keep the closure local to the scope that owns \`${b.root_name}\` and call it there, or pass it to a parameter that lends it (\`f : &mut Impl(FnMut(...))\`); a copy (\`.clone()\`) would take the writes away from \`${b.root_name}\``),
+          true => Option(String).Some(`capture a value instead (\`{ ${b.label} : ${capture_borrow_place_string(&b)}.clone() }\`), or keep the closure local to the scope that owns \`${b.root_name}\` and call it there`)
+        )
       ),
       E_BORROW_ESCAPES
     ),

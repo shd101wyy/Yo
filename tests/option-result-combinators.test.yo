@@ -368,3 +368,50 @@ test("Result.map and map_err move their payloads", {
   back := Result(i32, String).Err(`lost`).unwrap_or_else(e => i32(e.len()));
   assert(back == i32(4), "unwrap_or_else hands over the error");
 });
+// === The lent callback slot's two walls (VERDICTS-93; STD_RUST_ALIGNMENT P-5 flips both) ===
+// The combinators lend their callback (`f : &mut Impl(FnMut(...))`), so a closure
+// cannot move a capture out (E0913).
+test("a combinator's closure cannot move a capture out (P-5 flips this)", {
+  comptime_expect_error(
+    {
+      name := `yo`;
+      got := Option(i32).Some(i32(1)).map({ name }(x) => name);
+      consume(got);
+    },
+    "Cannot move `name` out of the closure"
+  );
+});
+// A bound `Option(&T)` result of `filter` is rooted in the lent predicate
+// (issues/2026-11-27-a-bound-combinator-result-over-option-of-a-reference-is-rooted-in-the-lent-callback.md);
+// consuming it in the statement, or naming the predicate, works.
+test("a bound `opt.as_ref().filter(...)` is E0911; the inline and named forms work", {
+  opt := Option(String).Some(`hello`);
+  comptime_expect_error(
+    {
+      r := opt.as_ref().filter(s => (s.*.len() > usize(2)));
+      consume(r);
+    },
+    "a temporary that ends with this statement"
+  );
+  n := match(opt.as_ref().filter(s => (s.*.len() > usize(2))), .Some(s) => s.len(), .None => usize(0));
+  assert(n == usize(5), "consumed in the statement");
+  (mut(pred) : Impl(FnMut(s : &(&String)) -> bool)) = (s => (s.*.len() > usize(2)));
+  r := opt.as_ref().filter(&mut pred);
+  m := match(r, .Some(s) => s.len(), .None => usize(0));
+  assert(m == usize(5), "a named predicate");
+});
+// E0909 at a by-value closure slot: for a `&mut` capture the help does not
+// suggest a clone, which would take the writes away from the captured place
+// (issues/fixed/2026-11-27-e0909-suggests-cloning-a-mut-capture-which-drops-the-writes.md).
+_orc_run_once :: (fn(a : i32, f : Impl(FnOnce(a : i32) -> unit)) -> unit)({
+  f(a);
+});
+test("E0909 on a &mut capture names a lending parameter, not a clone", {
+  mut(seen) := i32(0);
+  comptime_expect_error(
+    _orc_run_once(i32(7), { &mut seen }(a) => {
+      seen.* = a;
+    }),
+    "a copy (`.clone()`) would take the writes away from `seen`"
+  );
+});
