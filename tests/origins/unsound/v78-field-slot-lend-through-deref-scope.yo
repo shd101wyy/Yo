@@ -1,18 +1,22 @@
 // expect: E0911
+// VERDICTS-78 Q1: `&mut pp.*.r` lends the field of the holder `pp` borrows; what the callee
+// stores is charged to `h` (test 7 re-probe e_deref_chain, elided).
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 X :: struct(s : String);
 mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
 H :: struct(r : &Rc(X), n : i32);
+setp :: (fn(generic(p : Origin), slot : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  slot.* = v;
+});
 main :: (fn() -> unit)({
   z := mk();
   mut(h) := H(r : &z, n : i32(0));
   {
     y := mk();
-    p := &mut h;
-    p.* = H(r : &y, n : p.n);
+    pp := &mut h;
+    setp(&mut pp.*.r, &y);
   };
   println(`OUT: ${h.r.*.*.s.len().to_string()}`);
-  ()
 });
 export(main);
