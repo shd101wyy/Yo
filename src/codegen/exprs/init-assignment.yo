@@ -17,6 +17,7 @@
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { _call_generate_expr, call_projection_mode } :: import("./dispatch.yo");
+{ lookup_arm_entry_drops, lookup_destructure_lends } :: import("../../pattern.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value, generate_drop_code_for_value } :: import("./drop-dup.yo");
 { type_contains_rc_cell_or_move_only, type_is_sized } :: import("../../types/utils.yo");
 { get_state_machine_field_name, sm_slot_of, sm_move_flag_of, sm_local_field_name, sm_storage_id } :: import("../async/state-machine-naming.yo");
@@ -483,12 +484,41 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
   if(ast_expr_is_atom(&lhs) && ((call_projection_mode(&rhs, context).is_some() && !ast_call_is_deref_read(&rhs)) || rhs_is_ref_chain || rhs_is_ref_atom), {
     return(_generate_inout_local_binding(&lhs, &rhs, ast_expr_id(&lhs), Option(Environment).Some(ei.env()), indent.clone(), context));
   });
+  // A lending destructuring's local borrows (VERDICTS-76 Q2), in order.
+  match(
+    lookup_destructure_lends(ast_expr_id(expr)),
+    .Some(lbs) => {
+      for(&lbs, lb => {
+        lb_code := _call_generate_expr(lb, indent.clone(), context);
+        if(lb_code.len() > usize(0), {
+          context.base.emitter.emit_string_line(`${indent.clone()}${lb_code};`);
+        });
+      });
+      return(Option(String).Some(String.from("")));
+    },
+    .None => ()
+  );
   // Destructuring binds.
   match(
     expr_info_runtime_destructurings(&ei),
     .Some(destructurings) => {
       rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => Rc.clone(rei.ty()), .None => Rc.new(TypeValueNode.Unit));
       _emit_destructurings(&destructurings, &rhs, &lhs, &rhs_type, &ei.env(), indent.clone(), context);
+      // A consuming destructuring drops the parts no name binds
+      // (VERDICTS-76 Q2), once the names hold theirs.
+      match(
+        lookup_arm_entry_drops(ast_expr_id(expr)),
+        .Some(eds) => for(&eds, ed => {
+          if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(ed)), {
+            context.emitted_deferred_drop_ids.insert(ast_expr_id(ed));
+            ed_code := _call_generate_expr(ed, indent.clone(), context);
+            if(ed_code.len() > usize(0), {
+              context.base.emitter.emit_string_line(`${indent.clone()}${ed_code};`);
+            });
+          });
+        }),
+        .None => ()
+      );
       return(Option(String).Some(String.from("")));
     },
     .None => ()

@@ -21,6 +21,7 @@ pragma(Pragma.AllowUnsafe);
   BK_WHERE,
   desugar_if_calls,
   ast_expr_is_atom,
+  ast_expr_to_string,
   is_maybe_sized_kind_spelling
 } :: import("../../expr.yo");
 {
@@ -47,9 +48,17 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env
 } :: import("../../expr-info.yo");
 { push_in_derive_impl, pop_in_derive_impl } :: import("../../types/flowability.yo");
-{ format_error_message, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
+{
+  format_error_message,
+  format_error_message_with_help,
+  format_error_message_with_repair,
+  primary_diagnostic_code,
+  with_code,
+  with_code_carried
+} :: import("../../error.yo");
+{ rust_std_name_hint, E_VARIABLE_NOT_FOUND, E_ARGUMENT_COUNT_MISMATCH } :: import("../../diagnostics.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ check_where_clause_form } :: import("../utils.yo");
+{ check_where_clause_form, trait_constructor_params_of, trait_constructor_spelling } :: import("../utils.yo");
 { extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive-rule.yo");
 { Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
@@ -444,6 +453,40 @@ call_registered_derive_rule :: (
   );
   expr_info_adopt_env(&result_info)
 });
+/// `derive(P, Eq)` names a trait constructor without its arguments: `Eq` is a
+/// function from the right-hand type to a trait, and a derive implements the
+/// trait it returns. E0603 at the user's argument, as at a bound
+/// (`bare_trait_constructor_bound_error`), with `Eq(P)` as the repair when the
+/// constructor takes one parameter (every prelude comparison and operator
+/// trait): a derived impl relates the type to itself.
+_check_derive_trait_constructor_applied :: (
+  fn(trait_arg_expr : &AstExpr, key : &String, target_type_expr : &AstExpr, env : &Environment, exn : Exception) -> unit
+)({
+  if(!ast_expr_is_atom(trait_arg_expr), {
+    return(());
+  });
+  params := match(
+    get_variables_from_env(env, key).last_cloned(),
+    .Some(v) => match(trait_constructor_params_of(&v.*.value().get(usize(0)), &variable_value_type(&v)), .Some(ps) => ps, .None => return(())),
+    .None => return(())
+  );
+  tok := ast_expr_token(trait_arg_expr);
+  target := ast_expr_to_string(target_type_expr);
+  applied := `${key}(${target})`;
+  count := cond((params.len() == usize(1)) => String.from("one type argument"), true => `${params.len()} type arguments`);
+  msg := `derive: \`${key}\` takes ${count}, \`${trait_constructor_spelling(key, &params)}\`, and none was given: a derive names the trait applied, \`${key}(...)\`.`;
+  err := cond(
+    (params.len() == usize(1)) => format_error_message_with_repair(
+      &tok,
+      &msg,
+      Option(String).Some(`write \`${applied}\`: the derived impl relates \`${target}\` to itself`),
+      &applied,
+      `write \`${applied}\``
+    ),
+    true => format_error_message(&tok, &msg)
+  );
+  exn.throw(dyn(Box.new(with_code(&err, E_ARGUMENT_COUNT_MISMATCH))));
+});
 // ---------------------------------------------------------------------------
 // process_trait_arg
 //
@@ -488,6 +531,21 @@ process_trait_arg :: (
     rule_opt,
     .Some(r) => Rc.clone(r),
     .None => {
+      // A name bound nowhere is E0401 at the user's derive, with the
+      // Rust-name hint when it is one (`PartialEq`, `PartialOrd`, ...); the
+      // derive_rule() advice is for a trait that exists.
+      if(get_variables_from_env(env, &key).len() == usize(0), {
+        exn.throw(
+          dyn(
+            Box.new(
+              with_code(
+                format_error_message_with_help(&tok, `derive: trait \`${key}\` is not defined.`, rust_std_name_hint(&key)),
+                E_VARIABLE_NOT_FOUND
+              )
+            )
+          )
+        );
+      });
       exn.throw(
         dyn(
           Box.new(
@@ -501,6 +559,9 @@ process_trait_arg :: (
       Rc.new(EvalValueNode.UnitVal)
     }
   );
+  // A bare trait constructor (`derive(P, Eq)`) would be applied to no
+  // arguments inside the rule; name the trait it builds at the user's site.
+  _check_derive_trait_constructor_applied(trait_arg_expr, &key, target_type_expr, env, exn);
   // Look up the rule's Func type (needed to bind the rule fn callably).
   derive_rule_ty := match(get_derive_rule_type(key.clone()), .Some(t) => t, .None => t_unit());
   // Call the registered derive rule.
