@@ -350,7 +350,7 @@ export(main);
   places stay frozen while the closure lives.
 - `Fn` reads its captures, `FnMut` writes them (call it through a `mut`
   binding or `&mut Impl(FnMut(...))`), `FnOnce` moves one out (`Thread.spawn`
-  and `io.async` bodies, the `Option`/`Result` combinators).
+  and `io.async` bodies).
 - Combinator closures take the item by value, as Rust's: `opt.map(v => …)`,
   `res.map_err(e => …)`, `it.map(x => …)`, `fold((acc, x) => …)`, `for_each`,
   `any`, `all`, `position`, `filter_map`. `filter` (and `Option.inspect`)

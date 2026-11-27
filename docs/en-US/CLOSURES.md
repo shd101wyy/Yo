@@ -188,12 +188,13 @@ run_once(add); // an `Fn` serves for one call
 - **`Fn` implies `FnMut`, which implies `FnOnce`.** An `Fn(...)` or
   `FnMut(...)` closure is accepted wherever `FnOnce(...)` is required. An
   `FnOnce` closure passed where `Fn(...)` or `FnMut(...)` is required is E0913.
-- **An API that calls its argument at most once takes it by value**,
-  `sink(f) : Impl(FnOnce(...))`: the `Option`/`Result` combinators (`map`,
-  `and_then`, `unwrap_or_else`, …), the spawns and the `io.async` body.
-  Calling an `FnOnce` closure through a borrowed parameter is E0901. Like
-  every owned value, a `sink` closure called on some arms of a `cond`/`match`
-  is dropped, uncalled, at the end of the others.
+- **Only an API the closure escapes into can call it once.** Take it by value,
+  `sink(f) : Impl(FnOnce(...))`; calling an `FnOnce` closure through a
+  borrowed parameter is E0901. A closure that holds a reference cannot be
+  moved into a by-value parameter (E0909), so a non-escaping callback is lent,
+  `f : &mut Impl(FnMut(...))`. Like every owned value, a `sink` closure called
+  on some arms of a `cond`/`match` is dropped, uncalled, at the end of the
+  others.
 - **Moving a capture out needs `FnOnce` and a capture list.** Against
   `Fn(...)`, whose call borrows the captures so the closure can run again, a
   move out is E0913 at the moving line. An implicit capture
@@ -256,12 +257,12 @@ twice({ n : i32(10) }() => {
   from several threads at once, so a closure that writes a `&mut` capture or
   its own state is rejected there, naming `FnMut`.
 - **A `&mut`-capturing literal at an `Fn(...)` slot is E0913.** A literal
-  that holds a `&mut` capture is `FnMut(...)` by its captures alone: every std
-  callback it lends to a call (`for_each`, `retain`, `sort_by`, the
-  `with_lock` bodies, `RefCell.with`, `Once.call`, the `*_lazy` loggers) takes
-  `f : &mut Impl(FnMut(...))`, and every one it calls at most once (the
-  `Option`/`Result` combinators) `sink(f) : Impl(FnOnce(...))`, so the write
-  goes through the capture's pointer at an `FnMut` or `FnOnce` slot instead. `Fn` survives only where the callback
+  that holds a `&mut` capture is `FnMut(...)` by its captures alone: every std non-escaping
+  callback — call-repeatedly (`for_each`, `retain`, `sort_by`, the
+  `with_lock` bodies) and call-once alike (the `Option`/`Result`
+  combinators, `RefCell.with`, `Once.call`, the `*_lazy` loggers) — takes
+  `f : &mut Impl(FnMut(...))`, so the write goes through the capture's
+  pointer at an `FnMut` slot instead. `Fn` survives only where the callback
   is shared, stored beyond the call, or called from another thread.
 
 ## Closure Type Restrictions

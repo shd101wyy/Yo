@@ -911,10 +911,11 @@ slot, is E0913. A closure literal takes the trait of its slot.
   E0913.
 - An `FnMut` closure (and `Dyn(FnMut(...))`) is move-only. A `Sync` slot (`Impl(Fn(...), Sync)`) rejects a
   closure that writes a `&mut` capture or its state.
-- Every std callback that is lent to a call takes `&mut Impl(FnMut(...))` (`for_each`, `fold`, `retain`,
-  `RefCell.with`, `with_lock` bodies, `Once.call`, the `*_lazy` loggers); the `Option`/`Result` combinators
-  call theirs at most once and take `sink(f) : Impl(FnOnce(...))`. `Fn` remains only where the callback is
-  shared, stored, or called from another thread (`thread.spawn_blocking`'s `sink(cb)`, the http `handler`).
+- Every std non-escaping callback takes `&mut Impl(FnMut(...))` (the `Option`/`Result` combinators,
+  `for_each`, `fold`, `RefCell.with`, `with_lock` bodies, `Once.call`, the `*_lazy` loggers): a closure that
+  holds a reference cannot be moved into a by-value slot (E0909, even `Impl(FnOnce(...))`). `Fn` remains only
+  where the callback is shared, stored, or called from another thread (`thread.spawn_blocking`'s `sink(cb)`,
+  the http `handler`).
 - Combinator closures take the item by value, as Rust's (`opt.map(v => …)`, `it.map(x => …)`,
   `fold((acc, x) => …)`, `for_each`, `any`, `all`, `position`, `filter_map`); `filter`, `find`,
   `take_while`, `skip_while` and `Option.inspect` lend it (`&A`).

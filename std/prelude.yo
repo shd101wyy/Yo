@@ -8259,16 +8259,17 @@ impl(
     )
   )
 );
-/// Functional combinators for `Option(T)`. As Rust's: each consumes the
-/// option and passes the closure by value (it runs at most once, so it may
-/// move its captures out); `map`, `and_then`, `map_or`, `map_or_else` and
-/// `is_some_and` hand the closure the value itself, `filter` and `inspect` a
-/// `&T`. `opt.as_ref().map(…)` is the borrowing form.
+/// Functional combinators for `Option(T)`. As Rust's, each consumes the
+/// option, and `map`, `and_then`, `map_or`, `map_or_else` and `is_some_and`
+/// hand the closure the value itself, `filter` and `inspect` a `&T`;
+/// `opt.as_ref().map(…)` is the borrowing form. The closure is lent
+/// (`&mut Impl(FnMut(...))`), so it may hold references to the caller's
+/// places: a closure holding one cannot be moved into a by-value slot (E0909).
 impl(
   generic(T : Type),
   Option(T),
   /// Apply `f` to the contained value (if `Some`), or return `None`.
-  map : (fn(generic(B : Type), self : Self, sink(f) : Impl(FnOnce(a : T) -> B)) -> Option(B))(
+  map : (fn(generic(B : Type), self : Self, f : &mut Impl(FnMut(a : T) -> B)) -> Option(B))(
     match(
       self,
       .Some(value) => Option(B).Some(f(value)),
@@ -8276,7 +8277,7 @@ impl(
     )
   ),
   /// Apply `f` to the contained value (if `Some`) and flatten the result.
-  and_then : (fn(generic(B : Type), self : Self, sink(f) : Impl(FnOnce(a : T) -> Option(B))) -> Option(B))(
+  and_then : (fn(generic(B : Type), self : Self, f : &mut Impl(FnMut(a : T) -> Option(B))) -> Option(B))(
     match(
       self,
       .Some(value) => f(value),
@@ -8284,7 +8285,7 @@ impl(
     )
   ),
   /// Return `Some(value)` if the predicate returns `true`, otherwise `None`.
-  filter : (fn(self : Self, sink(predicate) : Impl(FnOnce(a : &T) -> bool)) -> Option(T))(
+  filter : (fn(self : Self, predicate : &mut Impl(FnMut(a : &T) -> bool)) -> Option(T))(
     match(
       self,
       .Some(value) => cond(
@@ -8295,7 +8296,7 @@ impl(
     )
   ),
   /// Return this option if `Some`, otherwise call `f` and return its result.
-  or_else : (fn(self : Self, sink(f) : Impl(FnOnce() -> Option(T))) -> Option(T))(
+  or_else : (fn(self : Self, f : &mut Impl(FnMut() -> Option(T))) -> Option(T))(
     match(
       self,
       .Some(value) => Option(T).Some(value),
@@ -8303,7 +8304,7 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise return `default_val`.
-  map_or : (fn(generic(B : Type), self : Self, default_val : B, sink(f) : Impl(FnOnce(a : T) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : Self, default_val : B, f : &mut Impl(FnMut(a : T) -> B)) -> B)(
     match(
       self,
       .Some(value) => {
@@ -8314,7 +8315,7 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise call `default_fn`.
-  map_or_else : (fn(generic(B : Type), self : Self, sink(default_fn) : Impl(FnOnce() -> B), sink(f) : Impl(FnOnce(a : T) -> B)) -> B)(
+  map_or_else : (fn(generic(B : Type), self : Self, default_fn : &mut Impl(FnMut() -> B), f : &mut Impl(FnMut(a : T) -> B)) -> B)(
     match(
       self,
       .Some(value) => f(value),
@@ -8344,7 +8345,7 @@ impl(
     )
   ),
   /// Extract the contained value, or call `f` to produce a default.
-  unwrap_or_else : (fn(self : Self, sink(f) : Impl(FnOnce() -> T)) -> T)(
+  unwrap_or_else : (fn(self : Self, f : &mut Impl(FnMut() -> T)) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8360,7 +8361,7 @@ impl(
     )
   ),
   /// Return `true` if `Some` and the predicate holds for the value.
-  is_some_and : (fn(self : Self, sink(f) : Impl(FnOnce(a : T) -> bool)) -> bool)(
+  is_some_and : (fn(self : Self, f : &mut Impl(FnMut(a : T) -> bool)) -> bool)(
     match(
       self,
       .Some(value) => f(value),
@@ -8368,7 +8369,7 @@ impl(
     )
   ),
   /// Call `f` with the contained value (if `Some`), then return the option.
-  inspect : (fn(self : Self, sink(f) : Impl(FnOnce(a : &T) -> unit)) -> Option(T))(
+  inspect : (fn(self : Self, f : &mut Impl(FnMut(a : &T) -> unit)) -> Option(T))(
     match(
       self,
       .Some(value) => {
@@ -9243,15 +9244,16 @@ impl(
     )
   )
 );
-/// Functional combinators for `Result(OkType, ErrorType)`. As Rust's: each
-/// consumes the result and passes the closure by value; `map`, `map_err`,
-/// `and_then`, `or_else`, `map_or`, `map_or_else` and `unwrap_or_else` hand it
-/// the payload itself, `inspect` and `inspect_err` a reference.
+/// Functional combinators for `Result(OkType, ErrorType)`. As Rust's, each
+/// consumes the result; `map`, `map_err`, `and_then`, `or_else`, `map_or`,
+/// `map_or_else` and `unwrap_or_else` hand the closure the payload itself,
+/// `inspect` and `inspect_err` a reference. The closure is lent, as
+/// `Option`'s are.
 impl(
   generic(OkType : Type, ErrorType : Type),
   Result(OkType, ErrorType),
   /// Map the `Ok` value with `f`, leaving `Err` untouched.
-  map : (fn(generic(B : Type), self : Self, sink(f) : Impl(FnOnce(a : OkType) -> B)) -> Result(B, ErrorType))(
+  map : (fn(generic(B : Type), self : Self, f : &mut Impl(FnMut(a : OkType) -> B)) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => Result(B, ErrorType).Ok(f(value)),
@@ -9259,7 +9261,7 @@ impl(
     )
   ),
   /// Map the `Err` value with `f`, leaving `Ok` untouched.
-  map_err : (fn(generic(F : Type), self : Self, sink(f) : Impl(FnOnce(a : ErrorType) -> F)) -> Result(OkType, F))(
+  map_err : (fn(generic(F : Type), self : Self, f : &mut Impl(FnMut(a : ErrorType) -> F)) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9267,7 +9269,7 @@ impl(
     )
   ),
   /// Chain a computation that may fail on the `Ok` value.
-  and_then : (fn(generic(B : Type), self : Self, sink(f) : Impl(FnOnce(a : OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
+  and_then : (fn(generic(B : Type), self : Self, f : &mut Impl(FnMut(a : OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => f(value),
@@ -9275,7 +9277,7 @@ impl(
     )
   ),
   /// Chain a recovery computation on the `Err` value.
-  or_else : (fn(generic(F : Type), self : Self, sink(f) : Impl(FnOnce(a : ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
+  or_else : (fn(generic(F : Type), self : Self, f : &mut Impl(FnMut(a : ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9321,7 +9323,7 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise return `default_val`.
-  map_or : (fn(generic(B : Type), self : Self, default_val : B, sink(f) : Impl(FnOnce(a : OkType) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : Self, default_val : B, f : &mut Impl(FnMut(a : OkType) -> B)) -> B)(
     match(
       self,
       .Ok(value) => {
@@ -9332,7 +9334,7 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise call `default_fn` with the error.
-  map_or_else : (fn(generic(B : Type), self : Self, sink(default_fn) : Impl(FnOnce(a : ErrorType) -> B), sink(f) : Impl(FnOnce(a : OkType) -> B)) -> B)(
+  map_or_else : (fn(generic(B : Type), self : Self, default_fn : &mut Impl(FnMut(a : ErrorType) -> B), f : &mut Impl(FnMut(a : OkType) -> B)) -> B)(
     match(
       self,
       .Ok(value) => f(value),
@@ -9340,7 +9342,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, or call `f` with the error to produce a fallback.
-  unwrap_or_else : (fn(self : Self, sink(f) : Impl(FnOnce(a : ErrorType) -> OkType)) -> OkType)(
+  unwrap_or_else : (fn(self : Self, f : &mut Impl(FnMut(a : ErrorType) -> OkType)) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9372,7 +9374,7 @@ impl(
     )
   ),
   /// Call `f` with the `Ok` value (if any), then return the result.
-  inspect : (fn(self : Self, sink(f) : Impl(FnOnce(a : &OkType) -> unit)) -> Result(OkType, ErrorType))(
+  inspect : (fn(self : Self, f : &mut Impl(FnMut(a : &OkType) -> unit)) -> Result(OkType, ErrorType))(
     match(
       self,
       .Ok(value) => {
@@ -9383,7 +9385,7 @@ impl(
     )
   ),
   /// Call `f` with the `Err` value (if any), then return the result.
-  inspect_err : (fn(self : Self, sink(f) : Impl(FnOnce(a : &ErrorType) -> unit)) -> Result(OkType, ErrorType))(
+  inspect_err : (fn(self : Self, f : &mut Impl(FnMut(a : &ErrorType) -> unit)) -> Result(OkType, ErrorType))(
     match(
       self,
       .Ok(value) => Result(OkType, ErrorType).Ok(value),
@@ -9473,7 +9475,7 @@ impl(
     )
   ),
   /// Convert `Some(value)` to `Ok(value)`, or call `err_fn` to produce `Err` if `None`.
-  ok_or_else : (fn(generic(E : Type), self : Self, sink(err_fn) : Impl(FnOnce() -> E)) -> Result(T, E))(
+  ok_or_else : (fn(generic(E : Type), self : Self, err_fn : &mut Impl(FnMut() -> E)) -> Result(T, E))(
     match(
       self,
       .Some(value) => Result(T, E).Ok(value),

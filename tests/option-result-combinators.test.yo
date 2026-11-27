@@ -309,20 +309,23 @@ test("Result method chaining", {
 });
 // === By value (STD_RUST_ALIGNMENT §3.1) ===
 // The combinators consume the option or result and hand the closure the
-// payload itself, so a non-`Copy` payload moves into the closure, and the
-// closure (passed by value, called at most once) may move its captures out.
+// payload itself, so a non-`Copy` payload moves into the closure. The closure
+// is lent (`&mut Impl(FnMut(...))`), so it may hold references.
 test("Option.map moves a non-Copy payload into the closure", {
   name := Option(String).Some(`yo`);
   len := name.map(s => s.len());
   assert(len.unwrap() == usize(2), "the closure owns the String");
 });
-test("Option.and_then and unwrap_or_else move their captures out", {
-  fallback := `fallback`;
+test("Option.and_then moves the payload; the closure is lent, so it may borrow", {
   suffix := `!`;
-  got := Option(String).Some(`hi`).and_then({ suffix }(s) => Option(String).Some(`${s}${suffix}`));
-  assert(got.unwrap() == `hi!`, "and_then's closure moves the payload");
-  other := Option(String).None.unwrap_or_else({ fallback }() => fallback);
-  assert(other == `fallback`, "unwrap_or_else's closure moves its capture out");
+  got := Option(String).Some(`hi`).and_then({ &suffix }(s) => Option(String).Some(`${s}${suffix.*}`));
+  assert(got.unwrap() == `hi!`, "and_then's closure owns the payload and borrows suffix");
+  mut(calls) := i32(0);
+  other := Option(String).None.unwrap_or_else({ &mut calls }() => {
+    calls.* = (calls.* + i32(1));
+    `fallback`
+  });
+  assert((other == `fallback`) && (calls == i32(1)), "unwrap_or_else wrote its &mut capture");
 });
 test("Option.filter and inspect read the payload through a reference", {
   kept := Option(String).Some(`abc`).filter(s => (s.len() == usize(3)));

@@ -403,7 +403,7 @@ do_map :: (
 
 ## Option and Result combinators
 
-`Option(T)` and `Result(T, E)` provide Rust's combinators with Rust's shapes: each consumes its receiver and takes its callback by value, `sink(f) : Impl(FnOnce(...))`, so the closure may move its captures out; the generic parameter is inferred, and `a => expr` lambdas infer their parameter types.
+`Option(T)` and `Result(T, E)` provide Rust's combinators with Rust's item shapes: each consumes its receiver; the callback is lent, `f : &mut Impl(FnMut(...))`, so it may hold references (a reference-holding closure cannot be moved into a by-value slot, E0909); the generic parameter is inferred, and `a => expr` lambdas infer their parameter types.
 
 - **Option**: `map`, `and_then`, `filter`, `or_else`, `flatten`, `map_or`, `map_or_else`, `ok_or`, `ok_or_else`, `and`, `or`, `unwrap_or_else`, `is_some_and`, `inspect`, `zip` (a `Tuple`), `as_ref`, `as_mut`
 - **Result**: `map`, `map_err`, `and_then`, `or_else`, `and`, `or`, `ok`, `err`, `map_or`, `map_or_else`, `unwrap_or_else`, `inspect`, `inspect_err`

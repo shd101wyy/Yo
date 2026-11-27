@@ -771,9 +771,9 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-- std 中重复调用或借给调用的回调（`for_each`、`retain`、`RefCell.with`、`Mutex.with_lock`）接受
-  `&mut Impl(FnMut(…))`。至多调用闭包一次的 API（`Option` 与 `Result` 的组合子、`Thread.spawn`、
-  `io.async` 的函数体）按值接受 `FnOnce`。
+- std 中不逃逸的回调（`for_each`、`retain`、`RefCell.with`、`Mutex.with_lock`、`Option` 与 `Result`
+  的组合子）接受 `&mut Impl(FnMut(…))`，因此可以接受持有引用的闭包。闭包会逃逸进去的 API
+  （`Thread.spawn`、`io.async` 的函数体）按值接受 `FnOnce`。
 
 ## 堆与共享
 

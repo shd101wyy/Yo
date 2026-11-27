@@ -888,10 +888,11 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-- std's callbacks that run repeatedly or are lent (`for_each`, `retain`,
-  `RefCell.with`, `Mutex.with_lock`) take `&mut Impl(FnMut(…))`. APIs that
-  call a closure at most once (the `Option` and `Result` combinators,
-  `Thread.spawn`, the `io.async` body) take an `FnOnce` by value.
+- std's non-escaping callbacks (`for_each`, `retain`, `RefCell.with`,
+  `Mutex.with_lock`, the `Option` and `Result` combinators) take
+  `&mut Impl(FnMut(…))`, so they accept closures that hold references. APIs a
+  closure escapes into (`Thread.spawn`, the `io.async` body) take an `FnOnce`
+  by value.
 
 ## Heap and sharing
 
