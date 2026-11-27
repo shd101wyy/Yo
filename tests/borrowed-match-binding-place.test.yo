@@ -100,12 +100,12 @@ test("a binding lives across an await in an io.async arm", {
       },
       _ => i32(0)
     );
-    result.with_mut(cur => {
+    result.*.with_mut(cur => {
       cur.* = v;
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur.*) == i32(14), "the bindings read the scrutinee after the await");
+  assert(result.*.with(cur => cur.*) == i32(14), "the bindings read the scrutinee after the await");
 });
 // An implicit capture of a `&` match's binding captures the part BY VALUE,
 // under the copy rules: a `Copy` part is copied (above), and a move-only
@@ -275,7 +275,7 @@ test("a match binding of an inline Some over a run-time payload is a place a `fo
   match(
     Option(Rc(_InlineBag)).Some(Rc.clone(&r)),
     .Some(entry) => {
-      for(&entry.items, x => {
+      for(&entry.*.items, x => {
         n = (n + usize(1));
       });
     },

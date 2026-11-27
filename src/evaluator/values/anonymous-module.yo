@@ -188,19 +188,19 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
   // (`end_module_walk`); nothing forces its definitions afterwards, so
   // reaching this is a broken invariant, reported rather than masked.
   mut(force_ctx) := match(
-    walk.ctx_copy(),
+    walk.*.*.ctx_copy(),
     .Some(c) => c,
     .None => return(
       Option(String).Some(
-        `internal error: forcing \`${def.name}\` after module \`${walk.module_path}\` finished its walk and released its evaluation context (only \`check --watch\` and \`yo lsp\` retain it)`
+        `internal error: forcing \`${def.*.*.name}\` after module \`${walk.*.*.module_path}\` finished its walk and released its evaluation context (only \`check --watch\` and \`yo lsp\` retain it)`
       )
     )
   );
   force_ctx.expected_type = .None;
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();
-  set_module_walk(&walk.begin_exprs_snapshot());
-  set_module_walk_index(def.index);
+  set_module_walk(&walk.*.*.begin_exprs_snapshot());
+  set_module_walk_index(def.*.*.index);
   prev_trial := set_in_def_time_trial(false);
   saved_where := take_active_where_trait_ids();
   ___cf := _take_force_failure();
@@ -214,11 +214,11 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
   // (issues/fixed/a-file-that-fails-check-alone-passes-inside-a-directory-check.md).
   prev_owner := registration_owner();
   match(
-    loading_key_for_module(&walk.module_path),
+    loading_key_for_module(&walk.*.*.module_path),
     .Some(k) => set_registration_owner(&k),
     .None => ()
   );
-  _force_eval(&def.expr(), &force_env, &mut force_ctx);
+  _force_eval(&def.*.*.expr(), &force_env, &mut force_ctx);
   set_registration_owner(&prev_owner);
   truncate_forcing_depths(force_depths);
   restore_active_where_trait_ids(&saved_where);
@@ -228,9 +228,9 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
     _take_force_failure(),
     .Some(msg) => Option(String).Some(
       cond(
-        def.is_derive() => `${msg}\n  note: \`derive(${def.name}, …)\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that derive in the source`,
-        def.is_impl => `${msg}\n  note: \`impl(${def.name}, …)\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that impl in the source`,
-        true => `${msg}\n  note: \`${def.name}\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because it is referenced before its definition in the source`
+        def.*.*.is_derive() => `${msg}\n  note: \`derive(${def.*.*.name}, …)\` (line ${(def.*.*.row() + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.*.*.name}\` is used before that derive in the source`,
+        def.*.*.is_impl => `${msg}\n  note: \`impl(${def.*.*.name}, …)\` (line ${(def.*.*.row() + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.*.*.name}\` is used before that impl in the source`,
+        true => `${msg}\n  note: \`${def.*.*.name}\` (line ${(def.*.*.row() + usize(1)).to_string()}) was evaluated here because it is referenced before its definition in the source`
       )
     ),
     .None => Option(String).None
@@ -311,10 +311,10 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
         skip_statement := match(
           &pending_here,
           .Some(def) => match(
-            def.state(),
+            def.*.*.state(),
             .Done => true,
             .Failed => {
-              exn.throw(dyn(Box.new(match(&def.failure(), .Some(m) => m.clone(), .None => String.from("definition failed")))));
+              exn.throw(dyn(Box.new(match(&def.*.*.failure(), .Some(m) => m.clone(), .None => String.from("definition failed")))));
               true
             },
             .Forcing => {
@@ -323,7 +323,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                   Box.new(
                     format_error_message(
                       ast_expr_token(&expr),
-                      `internal error: definition "${def.name}" reached by the module walk while it is being forced`
+                      `internal error: definition "${def.*.*.name}" reached by the module walk while it is being forced`
                     )
                   )
                 )
@@ -433,12 +433,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           cond(
                             ast_expr_is_atom(&exclude_expr) => {
                               tok_val := ast_expr_token(&exclude_expr);
-                              lbl := tok_val.value.*.clone();
+                              lbl := tok_val.*.value.*.clone();
                               // Verify label exists in ext_mod_type
                               match(
                                 &ext_mod_type,
                                 Rc(.Struct({ field_labels : efls })) => {
-                                  if(_find_field_label_index(&efls.items, lbl.clone()).is_none(), {
+                                  if(_find_field_label_index(&efls.*.*.items, lbl.clone()).is_none(), {
                                     exn.throw(
                                       dyn(
                                         Box.new(
@@ -485,11 +485,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                         )
                                       );
                                     });
-                                    lbl := ast_expr_token(&member_expr).value.*.clone();
+                                    lbl := ast_expr_token(&member_expr).*.value.*.clone();
                                     match(
                                       &ext_mod_type,
                                       Rc(.Struct({ field_labels : efls })) => {
-                                        if(_find_field_label_index(&efls.items, lbl.clone()).is_none(), {
+                                        if(_find_field_label_index(&efls.*.*.items, lbl.clone()).is_none(), {
                                           exn.throw(
                                             dyn(
                                               Box.new(
@@ -606,7 +606,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               )
                             );
                           });
-                          variable_name = ast_expr_token(&export_expr).value.*.clone();
+                          variable_name = ast_expr_token(&export_expr).*.value.*.clone();
                           given_var_name = variable_name.clone();
                         },
                         // export Label : _OriginalName
@@ -641,7 +641,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               )
                             );
                           });
-                          variable_name = ast_expr_token(&label_expr).value.*.clone();
+                          variable_name = ast_expr_token(&label_expr).*.value.*.clone();
                           if(!ast_expr_is_atom(&name_expr), {
                             exn.throw(
                               dyn(
@@ -666,7 +666,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               )
                             );
                           });
-                          given_var_name = ast_expr_token(&name_expr).value.*.clone();
+                          given_var_name = ast_expr_token(&name_expr).*.value.*.clone();
                         },
                         true => ()
                       );
@@ -677,7 +677,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       (forced_var : Option(Variable)) = Option(Variable).None;
                       if(vars.len() == usize(0), {
                         match(
-                          resolve_pending_definition(given_var_name.clone(), ast_expr_token(&export_expr).module_path.*.clone()),
+                          resolve_pending_definition(given_var_name.clone(), ast_expr_token(&export_expr).*.module_path.*.clone()),
                           .Resolved({ var : fv, frame_id : _fid }) => {
                             forced_var = Option(Variable).Some(fv);
                           },
@@ -731,7 +731,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         );
                       });
                       // Only compile-time variables can be exported
-                      if(!the_var.is_compile_time_only(), {
+                      if(!the_var.*.is_compile_time_only(), {
                         exn.throw(
                           dyn(
                             Box.new(
@@ -743,7 +743,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           )
                         );
                       });
-                      the_val := match(the_var.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
+                      the_val := match(the_var.*.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
                       // Overload-set gate: an exported `Call` holding a TUPLE of
                       // two or more candidates is function overloading (the
                       // `_try_expand_call_overload` dispatch trial-calls every
@@ -760,7 +760,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           Rc.clone(the_val),
                           Rc(.TupleVal(cand_fns)) => if(cand_fns.len() >= usize(2), {
                             if(!is_overload_set_capable_file(
-                              Option(String).Some(ast_expr_token(&export_expr).module_path.*.clone()),
+                              Option(String).Some(ast_expr_token(&export_expr).*.module_path.*.clone()),
                               ctx.std_path.clone()
                             ), {
                               exn.throw(
@@ -856,7 +856,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                   }, {
                     // Bare-atom reassignment of a previously recorded static.
                     if(ast_expr_is_atom(&assign_lhs), {
-                      if(g_module_level_static_names.with(s => s.contains(ast_expr_token(&assign_lhs).value.*)), {
+                      if(g_module_level_static_names.with(s => s.contains(ast_expr_token(&assign_lhs).*.value.*)), {
                         record_module_level_init_expr(&evaluated);
                         _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
                       });
@@ -871,12 +871,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
         match(
           pending_here,
           .Some(def) => if(!skip_statement, {
-            def.set_state(PendingDefState.Done);
-            if(!def.is_impl && def.variable().is_none(), {
+            def.*.set_state(PendingDefState.Done);
+            if(!def.*.is_impl && def.*.variable().is_none(), {
               match(
                 &walk_opt,
                 .Some(w) => {
-                  def.set_variable(module_frame_variable(&w.*, def.name.clone()));
+                  def.*.set_variable(module_frame_variable(&w.*, def.*.name.clone()));
                 },
                 .None => ()
               );
@@ -999,8 +999,8 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
             fv.get_cloned(i),
             .Some(v) => {
               minted_here := match(
-                v.initialized_at_token(),
-                .Some(it) => ((stmt_tok.module_path == it.module_path) && (stmt_tok.input == it.input) && (stmt_tok.character <= it.character)),
+                v.*.initialized_at_token(),
+                .Some(it) => ((stmt_tok.*.module_path == it.*.module_path) && (stmt_tok.*.input == it.*.input) && (stmt_tok.*.character <= it.*.character)),
                 .None => false
               );
               some_undroppable := match(
@@ -1011,7 +1011,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
                 },
                 _ => false
               );
-              if(minted_here && v.is_owning_the_rc_value() && type_contains_rc_type(&variable_value_type(&v)) && !v.is_module_level() && !v.is_ref() && !some_undroppable && v.consumed_at_token().is_none(), {
+              if(minted_here && v.*.is_owning_the_rc_value() && type_contains_rc_type(&variable_value_type(&v)) && !v.*.is_module_level() && !v.*.is_ref() && !some_undroppable && v.*.consumed_at_token().is_none(), {
                 stmt_temps.push(v);
               });
             },
@@ -1031,7 +1031,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
       di = (di - usize(1));
       match(
         stmt_temps.get_cloned(di),
-        .Some(v) => drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${v.name})`, exn), env, ctx, exn)),
+        .Some(v) => drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${v.*.name})`, exn), env, ctx, exn)),
         .None => ()
       );
     });

@@ -7,14 +7,21 @@
 H :: struct(xs : ArrayList(String));
 f :: (fn(xs : &ArrayList(String), h : Rc(RefCell(H))) -> usize)({
   mut(i) := i32(0);
-  while(i < i32(1000), { h.with_mut(v => { v.xs.push(String.from("payload-0123456789abcdefghijklmnop")); }); i = (i + i32(1)); });
+  while(i < i32(1000), {
+    h.*.with_mut(v => {
+      v.xs.push(String.from("payload-0123456789abcdefghijklmnop"));
+    });
+    i = (i + i32(1));
+  });
   xs(usize(0)).len()
 });
 main :: (fn() -> unit)({
   h := Rc.new(RefCell(H).new(H(xs : ArrayList(String).new())));
-  h.with_mut(v => { v.xs.push(String.from("first-0123456789abcdefghijklmnop")); });
+  h.*.with_mut(v => {
+    v.xs.push(String.from("first-0123456789abcdefghijklmnop"));
+  });
   h2 := Rc.clone(h);
-  n := h.with(v => f(&v.xs, Rc.clone(h2)));
+  n := h.*.with(v => f(&v.xs, Rc.clone(h2)));
   println(`OUT n=${n.to_string()}`);
 });
 export(main);

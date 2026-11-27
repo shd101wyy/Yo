@@ -302,14 +302,14 @@ impl(
     )(
       io.async({ self : &mut self.* }(io : Io) => {
         (mut(out) : Option(Result(TcpStream, NetError))) = Option(Result(TcpStream, NetError)).None;
-        if(!self._listener._cell._is_closed, {
+        if(!self._listener._cell.*._is_closed, {
           // The raw accept, not the throwing `accept` method: this stream
           // reports failure IN the item, and an `Exception` handler cannot be
           // installed across a suspension inside an async body.
           addr_buf := (*u8)(malloc(usize(128)).unwrap());
           addr_len := (*u32)(malloc(usize(4)).unwrap());
           addr_len.* = u32(128);
-          client_fd := io.await(IO_tcp.accept(self._listener._cell._fd, addr_buf, addr_len, io), io);
+          client_fd := io.await(IO_tcp.accept(self._listener._cell.*._fd, addr_buf, addr_len, io), io);
           // A failed accept, or an accepted socket that cannot be made safe
           // for `stream_write` (closed here, never handed out), is the item's
           // error.
@@ -391,7 +391,7 @@ impl(
   /// (closing it, and freeing the number for reuse) in between.
   accept : (fn(self : &Self, io : Io) -> Impl(Future(TcpStream, IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       // Allocate space for the peer address
       addr_buf := (*u8)(malloc(usize(128)).unwrap());
       addr_len := (*u32)(malloc(usize(4)).unwrap());
@@ -446,18 +446,18 @@ impl(
   ),
   /// Get the local address this listener is bound to.
   local_addr : (fn(self : &Self) -> SocketAddr)(
-    self._cell._local_addr
+    self._cell.*._local_addr
   ),
   /// Close the listener socket.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
       cond(
-        self._cell._is_closed => (),
+        self._cell.*._is_closed => (),
         true => {
           st := addr_of(self._cell.*);
           // Closed before the await: see `_close_stream_state`.
           unsafe(consume(st.*._is_closed = true));
-          r := e.io.await(IO_tcp.close(self._cell._fd, e.io), e.io);
+          r := e.io.await(IO_tcp.close(self._cell.*._fd, e.io), e.io);
           cond(
             (r < i32(0)) => {
               _throw_io(i32(0) - r, e.exn);
@@ -470,7 +470,7 @@ impl(
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._cell._fd
+    self._cell.*._fd
   )
 );
 export(TcpListener);
@@ -514,7 +514,7 @@ impl(
   write_str : (fn(self : &Self, data : &str, io : Io) -> Impl(Future(usize, IoExn)))({
     s := String.from(data);
     io.async({ self : &self.*, s }(e : IoExn) => {
-      r := e.io.await(IO_tcp.stream_write(self._cell._fd, s.ptr().unwrap(), s.len(), e.io), e.io);
+      r := e.io.await(IO_tcp.stream_write(self._cell.*._fd, s.ptr().unwrap(), s.len(), e.io), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -522,7 +522,7 @@ impl(
   /// Returns the number of bytes written.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len(), e.io), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -531,7 +531,7 @@ impl(
   /// Returns the number of bytes written.
   write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len(), e.io), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -539,7 +539,7 @@ impl(
   /// Shut down part or all of the connection.
   shutdown : (fn(self : &Self, how : Shutdown, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, how }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       raw_how := _shutdown_to_how(how);
       r := e.io.await(IO_tcp.shutdown(fd, raw_how, e.io), e.io);
       cond(
@@ -563,10 +563,10 @@ impl(
   /// never called by hand (E0915).
   close_sync : (fn(self : &Self) -> unit)({
     cond(
-      !self._cell._is_closed => {
+      !self._cell.*._is_closed => {
         { close_sync } :: import("../sys/file");
         st := addr_of(self._cell.*);
-        close_sync(self._cell._fd);
+        close_sync(self._cell.*._fd);
         unsafe(consume(st.*._is_closed = true));
       },
       true => ()
@@ -574,23 +574,23 @@ impl(
   }),
   /// Get the remote peer's socket address.
   peer_addr : (fn(self : &Self) -> SocketAddr)(
-    self._cell._peer_addr
+    self._cell.*._peer_addr
   ),
   /// Get this end's socket address — Rust's `TcpStream::local_addr`. Read
   /// from the kernel once, when the stream was connected or accepted, because
   /// that is the only way to learn the ephemeral port and the source
   /// interface the kernel chose; neither is in the `connect` argument.
   local_addr : (fn(self : &Self) -> SocketAddr)(
-    self._cell._local_addr
+    self._cell.*._local_addr
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._cell._fd
+    self._cell.*._fd
   ),
   /// Enable or disable TCP_NODELAY (disables Nagle's algorithm).
   set_nodelay : (fn(self : &Self, nodelay : bool, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, nodelay }(e : IoExn) => {
-      sock_fd := self._cell._fd;
+      sock_fd := self._cell.*._fd;
       val := cond(nodelay => i32(1), true => i32(0));
       val_ptr := addr_of(val);
       r := e.io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, (*u8)(val_ptr), u32(4), e.io), e.io);
@@ -605,7 +605,7 @@ impl(
   /// Enable or disable SO_KEEPALIVE on the socket.
   set_keepalive : (fn(self : &Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, enabled }(e : IoExn) => {
-      sock_fd := self._cell._fd;
+      sock_fd := self._cell.*._fd;
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := addr_of(val);
       r := e.io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, (*u8)(val_ptr), u32(4), e.io), e.io);
@@ -644,7 +644,7 @@ impl(
     /// `BufReader(TcpStream)`.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size }(e : IoExn) => {
-        fd := self._cell._fd;
+        fd := self._cell.*._fd;
         r := e.io.await(IO_tcp.recv(fd, buf, size, i32(0), e.io), e.io);
         usize(NetError.check(r, e.exn))
       })
@@ -662,7 +662,7 @@ impl(
     /// `write_bytes` / `write_str` / `write_string` are the safe spellings.
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size }(e : IoExn) => {
-        fd := self._cell._fd;
+        fd := self._cell.*._fd;
         r := e.io.await(IO_tcp.stream_write(fd, buf, size, e.io), e.io);
         usize(NetError.check(r, e.exn))
       })

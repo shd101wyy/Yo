@@ -161,7 +161,7 @@ impl(
   /// existed while no `connect` did, so they could only fail with ENOTCONN.
   connect : (fn(self : &Self, addr : SocketAddr, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, addr }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       saddr := make_sockaddr(addr);
       r := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len, e.io), e.io);
       IO_tcp.free_sockaddr(saddr);
@@ -178,7 +178,7 @@ impl(
   /// Returns the number of bytes sent.
   send_to : (fn(self : &Self, data : &ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, data : &data.*, addr }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       saddr := make_sockaddr(addr);
       r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len, e.io), e.io);
       IO_tcp.free_sockaddr(saddr);
@@ -189,7 +189,7 @@ impl(
   /// Returns the number of bytes received.
   recv : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, buf, size }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       r := e.io.await(IO_udp.recv(fd, buf, size, i32(0), e.io), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -202,7 +202,7 @@ impl(
   /// to `malloc`, pre-set to 128, pass in, decode and free — a C signature in
   /// a Yo API, and the address was handed back undecoded.
   recv_from : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(Tuple(usize, SocketAddr), IoExn)))(
-    io.async({ self : &self.*, buf, size, io }(e : IoExn) => e.io.await(_recv_from(self._cell._fd, buf, size, io), e))
+    io.async({ self : &self.*, buf, size, io }(e : IoExn) => e.io.await(_recv_from(self._cell.*._fd, buf, size, io), e))
   ),
   /// Receive a datagram as bytes, resolving to at most `max` of them.
   ///
@@ -216,7 +216,7 @@ impl(
   /// size `max` for the largest message the protocol allows.
   recv_bytes : (fn(self : &Self, max : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
     io.async({ self : &self.*, max }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       mut(out) := ArrayList(u8).with_capacity(max);
       (mut(i) : usize) = usize(0);
       while(i < max, i = (i + usize(1)), {
@@ -234,7 +234,7 @@ impl(
   /// `recv_bytes` does.
   recv_from_bytes : (fn(self : &Self, max : usize, io : Io) -> Impl(Future(Tuple(ArrayList(u8), SocketAddr), IoExn)))(
     io.async({ self : &self.*, max, io }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       mut(out) := ArrayList(u8).with_capacity(max);
       (mut(i) : usize) = usize(0);
       while(i < max, i = (i + usize(1)), {
@@ -249,7 +249,7 @@ impl(
   /// Send data to the peer set by `connect`. Returns the number of bytes sent.
   send : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       r := e.io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0), e.io), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -258,14 +258,14 @@ impl(
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
       cond(
-        self._cell._is_closed => (),
+        self._cell.*._is_closed => (),
         true => {
           st := addr_of(self._cell.*);
           // Marked closed BEFORE the await: a task aborted while the close is
           // in flight must not let the state's `Drop` close the (possibly
           // reused) descriptor again.
           unsafe(consume(st.*._is_closed = true));
-          r := e.io.await(IO_udp.close(self._cell._fd, e.io), e.io);
+          r := e.io.await(IO_udp.close(self._cell.*._fd, e.io), e.io);
           cond(
             (r < i32(0)) => {
               _throw_net_io(i32(0) - r, e.exn);
@@ -279,7 +279,7 @@ impl(
   /// Enable or disable SO_BROADCAST on the socket.
   set_broadcast : (fn(self : &Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, enabled }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := addr_of(val);
       r := e.io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, (*u8)(val_ptr), u32(4), e.io), e.io);
@@ -293,11 +293,11 @@ impl(
   ),
   /// Get the local address this socket is bound to.
   local_addr : (fn(self : &Self) -> SocketAddr)(
-    self._cell._local_addr
+    self._cell.*._local_addr
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._cell._fd
+    self._cell.*._fd
   )
 );
 export(UdpSocket);

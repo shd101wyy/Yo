@@ -206,7 +206,7 @@ test("Thread spawn releases its closure's captures", {
     // the call-site struct's references), that release is the last one.
     tracked := Arc.new(_Tracked(tag : i32(7)));
     t := Thread(unit).spawn(io => {
-      assert(tracked.tag == i32(7), "the capture arrived on the thread");
+      assert(tracked.*.tag == i32(7), "the capture arrived on the thread");
       ()
     });
     t.join();
@@ -235,7 +235,7 @@ test("Thread spawn's captured local is still owned by the caller", {
   {
     tracked := Arc.new(_Tracked(tag : i32(9)));
     t := Thread(unit).spawn({ held : Arc.clone(&tracked) }(io) => {
-      _x := held.tag;
+      _x := held.*.tag;
       ()
     });
     t.join();
@@ -245,7 +245,7 @@ test("Thread spawn's captured local is still owned by the caller", {
       _spawn_dispose_count.load(MemoryOrder.Acquire) == usize(0),
       "the caller still owns its reference after the thread released the capture's"
     );
-    assert(tracked.tag == i32(9), "and can still read through it");
+    assert(tracked.*.tag == i32(9), "and can still read through it");
   };
   assert(
     _spawn_dispose_count.load(MemoryOrder.Acquire) == usize(1),
@@ -259,7 +259,7 @@ test("Thread spawn releases captures on every iteration of a loop", {
   while(i < i32(16), i = (i + i32(1)), {
     tracked := Arc.new(_Tracked(tag : i));
     t := Thread(unit).spawn(io => {
-      _x := tracked.tag;
+      _x := tracked.*.tag;
       ()
     });
     t.join();
@@ -425,7 +425,7 @@ test("Test a spawned thread joins a thread of its own, 5000 times", {
   while(i < i32(5000), {
     t := Thread(unit).spawn({ done : Arc.clone(done) }(io : Io) => {
       inner := Thread(unit).spawn((iio : Io) => {
-        _n := done.fetch_add(usize(1), MemoryOrder.AcqRel);
+        _n := done.*.fetch_add(usize(1), MemoryOrder.AcqRel);
         ()
       });
       inner.join();
@@ -434,7 +434,7 @@ test("Test a spawned thread joins a thread of its own, 5000 times", {
     t.join();
     i = (i + i32(1));
   });
-  assert(done.load(MemoryOrder.Acquire) == usize(5000), "every inner thread ran");
+  assert(done.*.load(MemoryOrder.Acquire) == usize(5000), "every inner thread ran");
 });
 // ============================================================================
 // Cross-thread runtime-registry stress (Windows regression coverage)
@@ -646,7 +646,7 @@ comptime_expect_error({
   _th_rc_string :: (fn() -> unit)({
     r := Rc.new(String.from("abc"));
     th := Thread(unit).spawn(io => {
-      _n := r.len();
+      _n := r.*.len();
       ()
     });
     th.join();

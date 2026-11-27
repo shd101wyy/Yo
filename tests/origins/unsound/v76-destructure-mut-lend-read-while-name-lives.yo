@@ -1,0 +1,11 @@
+// expect: E0911
+// VERDICTS-76 Q2: a name of `{ b } := &mut p` is an exclusive borrow of `p.b`; reading `p.b` while it lives is a conflict.
+{ String } :: import("std/string");
+Pair :: struct(a : String, b : i32);
+main :: (fn() -> unit)({
+  mut(p) := Pair(a : String.from("a"), b : i32(1));
+  { b } := &mut p;
+  c := p.b;
+  b.* = (c + i32(1));
+});
+export(main);

@@ -78,7 +78,7 @@ set_variable_as_consumed :: (
     }
   );
   match(
-    variable.consumed_at_token(),
+    variable.*.consumed_at_token(),
     .Some(consumed_token) => {
       if(!allow_consume_again, {
         entries := ArrayList(TokenAndError).new();
@@ -106,10 +106,10 @@ set_variable_as_consumed :: (
       // scan's String-id compares under scope-end drop scheduling.
       // Logged first: per-path move state for joins and loops (a compiler
       // temp's mark is ownership bookkeeping, not a move).
-      if(!is_temp_variable_name(&env.module_path().*, &variable.name), {
-        record_branch_consume(variable.id(), token.clone(), &variable.initialized_at_token(), Option(Token).None);
+      if(!is_temp_variable_name(&env.module_path().*, &variable.*.name), {
+        record_branch_consume(variable.*.id(), token.clone(), &variable.*.initialized_at_token(), Option(Token).None);
       });
-      variable.set_consumed_at_token(Option(Token).Some(token.clone()));
+      variable.*.set_consumed_at_token(Option(Token).Some(token.clone()));
     }
   );
 });
@@ -150,8 +150,8 @@ _consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &Eva
     },
     _ => false
   );
-  captured := (match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false) && !is_own_fnonce_capture(&v, env, ctx));
-  v.is_owning_the_rc_value() && (type_contains_rc_type(&variable_value_type(&v)) && (!v.is_module_level() && (!v.is_ref() && (!some_undroppable && (v.consumed_at_token().is_none() && !captured)))))
+  captured := (match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.*.name.clone()), .None => false) && !is_own_fnonce_capture(&v, env, ctx));
+  v.*.is_owning_the_rc_value() && (type_contains_rc_type(&variable_value_type(&v)) && (!v.*.is_module_level() && (!v.*.is_ref() && (!some_undroppable && (v.*.consumed_at_token().is_none() && !captured)))))
 });
 evaluate_consume :: (
   fn(

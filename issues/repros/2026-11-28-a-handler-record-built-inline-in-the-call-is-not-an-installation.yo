@@ -1,0 +1,35 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+Raise :: (ctl(msg : &String) -> i32);
+Log :: (ctl(msg : &String) -> unit);
+Eff :: struct(raise : Raise, log : Log);
+
+run :: (
+  fn(
+    generic(T : Type, E : Type.Struct),
+    f : (fn(e : E) -> T),
+    e : E
+  ) -> T
+)(f(e));
+
+might_fail :: (fn(e : Eff) -> i32)({
+  e.log(`about to fail`);
+  e.raise(`boom`)
+});
+
+go :: (fn() -> i32)({
+  (raise : Raise) = (msg -> unwind(i32(-1)));
+  (log : Log) = (
+    msg -> {
+      println(msg);
+      return(());
+    }
+  );
+  might_fail(Eff(raise : raise, log : log))
+});
+
+main :: (fn() -> unit)({
+  println(`go=${go()}`);
+});
+export(main);

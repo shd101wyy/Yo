@@ -776,9 +776,9 @@ impl(ChildStderr, !Sync());
 impl(
   ChildStdin,
   /// The underlying file descriptor.
-  fd : (fn(self : &Self) -> i32)(self._cell._fd),
+  fd : (fn(self : &Self) -> i32)(self._cell.*._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
+  is_closed : (fn(self : &Self) -> bool)(self._cell.*._closed),
   /// Close the write end — the child sees EOF. Safe to call multiple times.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, io }(e : IoExn) => {
@@ -793,7 +793,7 @@ impl(
     /// The future borrows the handle, so the fd cannot be closed under it.
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size, io }(e : IoExn) => {
-        raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
+        raw := cond(self._cell.*._closed => i32(-1), true => self._cell.*._fd);
         e.io.await(_pipe_write(raw, buf, size, io), e)
       })
     ),
@@ -830,9 +830,9 @@ impl(
 impl(
   ChildStdout,
   /// The underlying file descriptor.
-  fd : (fn(self : &Self) -> i32)(self._cell._fd),
+  fd : (fn(self : &Self) -> i32)(self._cell.*._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
+  is_closed : (fn(self : &Self) -> bool)(self._cell.*._closed),
   /// Close the read end. Safe to call multiple times.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, io }(e : IoExn) => {
@@ -847,7 +847,7 @@ impl(
     /// The future borrows the handle, so the fd cannot be closed under it.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size, io }(e : IoExn) => {
-        raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
+        raw := cond(self._cell.*._closed => i32(-1), true => self._cell.*._fd);
         e.io.await(_pipe_read(raw, buf, size, io), e)
       })
     )
@@ -856,9 +856,9 @@ impl(
 impl(
   ChildStderr,
   /// The underlying file descriptor.
-  fd : (fn(self : &Self) -> i32)(self._cell._fd),
+  fd : (fn(self : &Self) -> i32)(self._cell.*._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
+  is_closed : (fn(self : &Self) -> bool)(self._cell.*._closed),
   /// Close the read end. Safe to call multiple times.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, io }(e : IoExn) => {
@@ -873,7 +873,7 @@ impl(
     /// The future borrows the handle, so the fd cannot be closed under it.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size, io }(e : IoExn) => {
-        raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
+        raw := cond(self._cell.*._closed => i32(-1), true => self._cell.*._fd);
         e.io.await(_pipe_read(raw, buf, size, io), e)
       })
     )
@@ -885,7 +885,7 @@ impl(
   _st : (fn(self : &Self) -> *_ChildState)(addr_of(self._cell.*)),
   /// The child's process id.
   pid : (fn(self : &Self) -> i32)(
-    self._cell._pid
+    self._cell.*._pid
   ),
   /// Take the parent's write end of the child's stdin pipe as a `Writer`.
   /// `.None` if stdin was not `Stdio.Piped`, or if it has already been taken
@@ -897,7 +897,7 @@ impl(
   /// pipe, which is the EOF the child is usually waiting for.
   take_stdin : (fn(self : &Self) -> Option(ChildStdin))(
     match(
-      self._cell._stdin_fd,
+      self._cell.*._stdin_fd,
       .Some(f) => {
         st := self._st();
         unsafe(consume(st.*._stdin_fd = Option(i32).None));
@@ -913,7 +913,7 @@ impl(
   /// Taking MOVES the fd out of the `Child`, exactly as `take_stdin` does.
   take_stdout : (fn(self : &Self) -> Option(ChildStdout))(
     match(
-      self._cell._stdout_fd,
+      self._cell.*._stdout_fd,
       .Some(f) => {
         st := self._st();
         unsafe(consume(st.*._stdout_fd = Option(i32).None));
@@ -926,7 +926,7 @@ impl(
   /// `.None` if stderr was not `Stdio.Piped`, or if it has already been taken.
   take_stderr : (fn(self : &Self) -> Option(ChildStderr))(
     match(
-      self._cell._stderr_fd,
+      self._cell.*._stderr_fd,
       .Some(f) => {
         st := self._st();
         unsafe(consume(st.*._stderr_fd = Option(i32).None));
@@ -940,7 +940,7 @@ impl(
   write_stdin : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
       fd := match(
-        self._cell._stdin_fd,
+        self._cell.*._stdin_fd,
         .Some(f) => f,
         .None => {
           e.exn.throw(dyn(Box.new(IoError.BadFileDescriptor)));
@@ -955,7 +955,7 @@ impl(
   close_stdin : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
       match(
-        self._cell._stdin_fd,
+        self._cell.*._stdin_fd,
         .Some(f) => {
           st := self._st();
           // Cleared BEFORE the await: a task aborted mid-close must not let
@@ -971,7 +971,7 @@ impl(
   read_stdout_to_end : (fn(self : &Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
       fd := match(
-        self._cell._stdout_fd,
+        self._cell.*._stdout_fd,
         .Some(f) => f,
         .None => {
           e.exn.throw(dyn(Box.new(IoError.BadFileDescriptor)));
@@ -986,7 +986,7 @@ impl(
   read_stderr_to_end : (fn(self : &Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
       fd := match(
-        self._cell._stderr_fd,
+        self._cell.*._stderr_fd,
         .Some(f) => f,
         .None => {
           e.exn.throw(dyn(Box.new(IoError.BadFileDescriptor)));
@@ -1003,7 +1003,7 @@ impl(
   /// 2026-09-06 this handed back the raw `-errno` as an `i32`
   /// (issues/fixed/child-kill-returned-a-raw-errno.md).
   kill : (fn(self : &Self, signum : i32, exn : Exception) -> unit)({
-    _rc := IoError.check(IO_process.kill(self._cell._pid, signum), exn);
+    _rc := IoError.check(IO_process.kill(self._cell.*._pid, signum), exn);
   }),
   /// Wait for the child to exit and return its status. Closes any pipe fds
   /// still open on this handle.
@@ -1011,7 +1011,7 @@ impl(
     io.async({ self : &self.* }(e : IoExn) => {
       st := self._st();
       match(
-        self._cell._stdin_fd,
+        self._cell.*._stdin_fd,
         .Some(sf) => {
           unsafe(consume(st.*._stdin_fd = Option(i32).None));
           e.io.await(IO_file.close(sf, e.io), e.io);
@@ -1019,7 +1019,7 @@ impl(
         .None => ()
       );
       match(
-        self._cell._stdout_fd,
+        self._cell.*._stdout_fd,
         .Some(of) => {
           unsafe(consume(st.*._stdout_fd = Option(i32).None));
           e.io.await(IO_file.close(of, e.io), e.io);
@@ -1027,14 +1027,14 @@ impl(
         .None => ()
       );
       match(
-        self._cell._stderr_fd,
+        self._cell.*._stderr_fd,
         .Some(ef) => {
           unsafe(consume(st.*._stderr_fd = Option(i32).None));
           e.io.await(IO_file.close(ef, e.io), e.io);
         },
         .None => ()
       );
-      raw := e.io.await(IO_process.waitpid(self._cell._pid, i32(0), e.io), e.io);
+      raw := e.io.await(IO_process.waitpid(self._cell.*._pid, i32(0), e.io), e.io);
       IoError.check(raw, e.exn);
       unsafe(consume(st.*._reaped = true));
       ExitStatus(raw : raw)

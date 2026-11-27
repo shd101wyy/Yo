@@ -14,33 +14,33 @@ test("Test Io timer", {
   // =========================================================================
   value := Rc.new(RefCell(i32).new(0));
   task1 := io.async({ value : Rc.clone(value) }(io : Io) => {
-    assert(value.with(cur => cur.*) == 0); // 0
-    value.with_mut(cur => {
+    assert(value.*.with(cur => cur.*) == 0); // 0
+    value.*.with_mut(cur => {
       cur.* = (cur.* + 1);
     }); // 1
     unsafe(printf("Timer test: sleeping 50ms...\n"));
     result := io.await(sleep(u64(50), io), io);
     unsafe(printf("Timer test: woke up with result=%d\n", result));
     assert(result > i32(0));
-    assert(value.with(cur => cur.*) == 3); // yield() resumed block2 first, which set it to 3
-    value.with_mut(cur => {
+    assert(value.*.with(cur => cur.*) == 3); // yield() resumed block2 first, which set it to 3
+    value.*.with_mut(cur => {
       cur.* = (cur.* + 1);
     }); // 4
     unsafe(printf("Timer test: sleeping 3000ms...\n"));
     result2 := io.await(sleep(u64(3000), io), io);
     unsafe(printf("Timer test: woke up with result=%d\n", result2));
     assert(result2 > i32(0));
-    assert(value.with(cur => cur.*) == 4); // 4
+    assert(value.*.with(cur => cur.*) == 4); // 4
     unsafe(printf("All async timer tests passed!\n"));
   });
   task2 := io.async((io : Io) => {
-    assert(value.with(cur => cur.*) == 1); // 1
-    value.with_mut(cur => {
+    assert(value.*.with(cur => cur.*) == 1); // 1
+    value.*.with_mut(cur => {
       cur.* = (cur.* + 1);
     }); // 2
     io.await(yield(io), io);
-    assert(value.with(cur => cur.*) == 2); // yield() resumes before sleep(50ms), nobody changed it
-    value.with_mut(cur => {
+    assert(value.*.with(cur => cur.*) == 2); // yield() resumes before sleep(50ms), nobody changed it
+    value.*.with_mut(cur => {
       cur.* = (cur.* + 1);
     }); // 3
   });
@@ -60,13 +60,13 @@ test("Test zero-length sleep completes", {
   t := io.async({ inner : Rc.clone(inner) }(io : Io) => {
     r1 := io.await(sleep(u64(0), io), io);
     assert(r1 >= i32(0), "sleep(0) awaited inside a task should complete without error");
-    inner.with_mut(cur => {
+    inner.*.with_mut(cur => {
       cur.* = true;
     });
   });
   h := io.spawn(t, io);
   _r := h.await(io);
-  assert(inner.with(cur => cur.*), "the zero-sleep task body should have run to completion");
+  assert(inner.*.with(cur => cur.*), "the zero-sleep task body should have run to completion");
 });
 // io_uring submission is deferred to the loop's next poll, so a single tick
 // that starts more operations than the ring has SQ entries (1024) used to run
@@ -115,7 +115,7 @@ test("1500 sleeps started in one tick all complete (epoll fallback)", {
 _sleeper :: (fn(ms : i32, order : &Rc(RefCell(ArrayList(i32))), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ ms, order : Rc.clone(order) }(io : Io) => {
     _r := io.await(sleep(u64(ms), io), io);
-    order.with_mut(xs => xs.push(ms));
+    order.*.with_mut(xs => xs.push(ms));
     i32(0)
   })
 );
@@ -131,10 +131,10 @@ _timer_order :: (fn(io : Io) -> unit)({
   _b := h20.await(io);
   assert(match(h30.await(io), .Some(_) => false, .None => true), "the aborted sleeper never finished");
   _d := h40.await(io);
-  assert(order.with(xs => xs.len()) == usize(3), "three sleepers finished");
-  assert(order.with(xs => xs(usize(0))) == i32(20), "20 ms first");
-  assert(order.with(xs => xs(usize(1))) == i32(40), "then 40 ms");
-  assert(order.with(xs => xs(usize(2))) == i32(60), "then 60 ms");
+  assert(order.*.with(xs => xs.len()) == usize(3), "three sleepers finished");
+  assert(order.*.with(xs => xs(usize(0))) == i32(20), "20 ms first");
+  assert(order.*.with(xs => xs(usize(1))) == i32(40), "then 40 ms");
+  assert(order.*.with(xs => xs(usize(2))) == i32(60), "then 60 ms");
 });
 test("timers fire in deadline order around an aborted one", {
   _timer_order(io);

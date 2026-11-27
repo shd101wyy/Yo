@@ -1,0 +1,10 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Ask :: (ctl(q : &String) -> i32);
+worker :: (fn(ask : Ask) -> i32)(ask(`q`));
+main :: (fn() -> unit)({
+  base := i32(40);
+  (ask : Ask) = (q => (base + i32(2)));
+  println(`r=${worker(ask)}`);
+});
+export(main);

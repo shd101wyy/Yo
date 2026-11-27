@@ -307,7 +307,7 @@ _bind_some_type :: (
       // another lineage's `T` shadows it rather than overwriting it
       // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
       found_slot_someid := match(
-        old_var.value().get(usize(0)),
+        old_var.*.value().get(usize(0)),
         .Some(ov) => match(ov, Rc(.TypeVal(ovt)) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
         .None => String.from("")
       );
@@ -331,11 +331,11 @@ _bind_some_type :: (
       });
       bind_probe_name := match(debug_knob(`YO_DEBUG_BIND`), .Some(bpn) => bpn, .None => String.from(""));
       if((bind_probe_name.len() > usize(0)) && (name.* == bind_probe_name) && !val_is_self_marker, {
-        wrote_lvl := if(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.frame_level != (env.frames_len() - usize(1)))), env.frames_len() - usize(1), old_var.frame_level);
+        wrote_lvl := if(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.*.frame_level != (env.frames_len() - usize(1)))), env.frames_len() - usize(1), old_var.*.frame_level);
         wrote_fid := match(env.frame_at(wrote_lvl), .Some(wf) => wf.id(), .None => usize(0));
-        eprintln(`[bind-T] val=${value_to_string(val)} slot_lvl=${old_var.frame_level.to_string()} top=${(env.frames_len() - usize(1)).to_string()} wrote_lvl=${wrote_lvl.to_string()} fid=${wrote_fid.to_string()} inplace=${(!(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.frame_level != (env.frames_len() - usize(1)))))).to_string()}`);
+        eprintln(`[bind-T] val=${value_to_string(val)} slot_lvl=${old_var.*.frame_level.to_string()} top=${(env.frames_len() - usize(1)).to_string()} wrote_lvl=${wrote_lvl.to_string()} fid=${wrote_fid.to_string()} inplace=${(!(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.*.frame_level != (env.frames_len() - usize(1)))))).to_string()}`);
       });
-      if(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.frame_level != (env.frames_len() - usize(1)))), {
+      if(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.*.frame_level != (env.frames_len() - usize(1)))), {
         _record_bound_some_id(
           add_variable_to_env(
             env,
@@ -361,23 +361,23 @@ _bind_some_type :: (
       // In-place update keeps the EXISTING variable's declared type — only
       // the value is replaced.
       new_var := make_variable(
-        id : old_var.id(),
-        name : old_var.name.clone(),
+        id : old_var.*.id(),
+        name : old_var.*.name.clone(),
         bound_ty : variable_value_type(&old_var),
-        frame_level : old_var.frame_level,
+        frame_level : old_var.*.frame_level,
         value : value_cell_of(Option(EvalValue).Some(Rc.clone(val.*))),
-        is_owning_the_same_rc_value_as : old_var.is_owning_the_same_rc_value_as(),
-        token : Rc.clone(old_var.token),
-        initialized_at_token : old_var.initialized_at_token(),
-        consumed_at_token : old_var.consumed_at_token(),
-        rare : old_var.rare(),
-        is_compile_time_only : old_var.is_compile_time_only(),
-        is_owning_the_rc_value : old_var.is_owning_the_rc_value(),
-        is_reassignable : old_var.is_reassignable(),
-        is_implicit : old_var.is_implicit(),
-        is_created_from_destructuring_atom_variable : old_var.is_created_from_destructuring_atom_variable(),
-        is_effect_param : old_var.is_effect_param(),
-        is_module_level : old_var.is_module_level(),
+        is_owning_the_same_rc_value_as : old_var.*.is_owning_the_same_rc_value_as(),
+        token : Rc.clone(old_var.*.token),
+        initialized_at_token : old_var.*.initialized_at_token(),
+        consumed_at_token : old_var.*.consumed_at_token(),
+        rare : old_var.*.rare(),
+        is_compile_time_only : old_var.*.is_compile_time_only(),
+        is_owning_the_rc_value : old_var.*.is_owning_the_rc_value(),
+        is_reassignable : old_var.*.is_reassignable(),
+        is_implicit : old_var.*.is_implicit(),
+        is_created_from_destructuring_atom_variable : old_var.*.is_created_from_destructuring_atom_variable(),
+        is_effect_param : old_var.*.is_effect_param(),
+        is_module_level : old_var.*.is_module_level(),
         is_ref : false,
         is_parameter : false
       );
@@ -519,7 +519,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     Rc(.Reference(ref_pointee, _, _)) => recur(some_type_id, some_type_name, &ref_pointee.*, visited, exn),
     Rc(.ValueSlot(vs_inner)) => recur(some_type_id, some_type_name, &vs_inner.*, visited, exn),
     Rc(.Func({ param_types, implicit_types, result, meta : __fm1 })) => {
-      forall_labels := Rc.clone(__fm1.forall_labels);
+      forall_labels := Rc.clone(__fm1.*.*.forall_labels);
       // A generic declared by this Func's OWN signature SHADOWS the
       // searched variable: occurrences inside its params/return are
       // bound (alpha-renameable), not free occurrences. Value-typed
@@ -896,7 +896,7 @@ _synthesize_future_traits :: (
   // Synthesize effects
   exp_et := match(expected_ty, Rc(.FutureTraitT(_, _, _, ets, _)) => Rc.clone(ets), _ => no_types());
   giv_et := match(given_ty, Rc(.FutureTraitT(_, _, _, ets, _)) => Rc.clone(ets), _ => no_types());
-  _synthesize_implicit_params(&exp_et.items, &giv_et.items, &ee, &ge, checked, opts, exn);
+  _synthesize_implicit_params(&exp_et.*.items, &giv_et.*.items, &ee, &ge, checked, opts, exn);
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 // ---------------------------------------------------------------------------
@@ -1296,7 +1296,7 @@ _synthesize_types_impl :: (
     if((exp_id3 != giv_id3) && !same_constructor3 && !same_shape3, {
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         eprintln(
-          `[unify-struct] exp_id=${exp_id3.clone()} giv_id=${giv_id3.clone()} exp_cfid=${exp_eff_cfid.clone()} giv_cfid=${giv_eff_cfid.clone()} exp_key=${type_key(expected_ty)} giv_key=${type_key(given_ty)} mod=${ee.module_path()}`
+          `[unify-struct] exp_id=${exp_id3.clone()} giv_id=${giv_id3.clone()} exp_cfid=${exp_eff_cfid.clone()} giv_cfid=${giv_eff_cfid.clone()} exp_key=${type_key(expected_ty)} giv_key=${type_key(given_ty)} mod=${ee.module_path().*}`
         );
       });
       exn.throw(
@@ -1675,7 +1675,7 @@ _synthesize_types_impl :: (
         match(
           lvar_vars.last_cloned(),
           .Some(lvar_var) => {
-            lvar_var.set_value(value_cell_of(Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(giv_len.to_string())))));
+            lvar_var.*.set_value(value_cell_of(Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(giv_len.to_string())))));
           },
           .None => ()
         );
@@ -1769,7 +1769,7 @@ _synthesize_types_impl :: (
         pi = (pi + usize(1));
       });
       // Synthesize implicit params
-      _synthesize_implicit_params(&exp_it.items, &giv_it.items, &ee, &ge, checked, opts, exn);
+      _synthesize_implicit_params(&exp_it.*.items, &giv_it.*.items, &ee, &ge, checked, opts, exn);
       // Synthesize return type
       res := _synthesize_types_impl(&exp_ret, &ee, &giv_ret, &ge, checked, opts, exn);
       ee = Rc.clone(res.expected_env);

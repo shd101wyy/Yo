@@ -18,7 +18,7 @@ main :: (fn() -> unit)({
   wk := Rc.downgrade(&s);
   match(
     wk.upgrade(),
-    .Some(r) => r.peek({ s }() => {
+    .Some(r) => r.*.peek({ s }() => {
       drop(s);
     }),
     .None => println("OUT: gone")
@@ -28,7 +28,7 @@ main :: (fn() -> unit)({
   up := wk2.upgrade();
   match(
     &up,
-    .Some(r) => r.peek({ t }() => {
+    .Some(r) => r.*.*.peek({ t }() => {
       drop(t);
     }),
     .None => println("OUT: gone")

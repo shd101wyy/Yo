@@ -67,3 +67,16 @@ The regression test is the repro above, plus the `sink(self)` newtype case.
 ## Also: a tuple destructuring (2026-11-05)
 
 A tuple destructuring binds the same way: `(r, n) := (R(s : `ab`), i32(1)); take(r)` is E0901 "it is borrowed", and `{ _program : program } := c; program` is too (develop `ac14b5d50`). V5 part B (`vbd/v5-part-b-std`) worked around both. `HttpServer.serve` matches the `(stream, result)` tuple with a `match` pattern, and `NfaCompiler.compile` takes its program out with `std/mem`'s `replace`.
+
+## Resolution (2026-11-26, VERDICTS-76 Q2)
+
+A destructuring takes its source as a `match` takes its scrutinee. `{ a, b } := x` with `x` an owned local,
+a by-value parameter or an owned temporary of a type that is not implicitly copyable CONSUMES `x`
+(`decide_destructuring_consumes`, `src/evaluator/exprs/match.yo`): each name owns its field and drops at
+its own scope end, a part no name binds (`_`, a field left out) is dropped at the binding (hidden owning
+bindings, `register_arm_entry_drops` keyed by the `:=` node), and a later use of `x` is E0901, whose note
+names `{ … } := &x`. A `Copy` source is copied. `{ a, b } := &x`, `{ a, b } := &mut x` and
+`{ a, b } := r` (a reference binding) lend: each name is a local borrow of its field (`a := &x.a`), read
+with `a.*` (`_evaluate_lending_destructuring`, `src/evaluator/exprs/initialization-assignment.yo`). A
+field, an element or a dereference (`r.*`) by value, and a type with a user `Drop`, are E0901. Tests:
+`tests/destructuring-consumes.test.yo`, `tests/origins/unsound/v76-destructure-*.yo`.

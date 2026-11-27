@@ -1,0 +1,12 @@
+// expect: E0901
+// VERDICTS-76 Q2: `{ a, b } := r.*` destructures the referent by value, which the reference does not own;
+// before, the names were origin-less views of the referent that outlived nothing they were checked against.
+{ String } :: import("std/string");
+Pair :: struct(a : String, b : String);
+main :: (fn() -> unit)({
+  p := Pair(a : String.from("a"), b : String.from("b"));
+  r := &p;
+  { a, b } := r.*;
+  _n := a.len();
+});
+export(main);

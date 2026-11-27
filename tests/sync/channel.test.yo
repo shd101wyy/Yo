@@ -324,12 +324,12 @@ test("Channel send from pool task recv from main", {
   ch := Channel(i32).new(usize(10));
   wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
-  wg.add(i32(1));
+  wg.*.add(i32(1));
   spawn(&pool, { ch : ch.clone(), wg : Arc.clone(wg) }(io) => {
     _ := ch.send(i32(42));
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
+  wg.*.wait();
   val := ch.recv();
   assert(val.is_some(), "should receive value from worker");
   assert(val.unwrap() == i32(42), "value should be 42");
@@ -339,14 +339,14 @@ test("Channel pool task sends multiple values", {
   ch := Channel(i32).new(usize(20));
   wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
-  wg.add(i32(1));
+  wg.*.add(i32(1));
   spawn(&pool, { ch : ch.clone(), wg : Arc.clone(wg) }(io) => {
     _ := ch.send(i32(10));
     _ := ch.send(i32(20));
     _ := ch.send(i32(30));
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
+  wg.*.wait();
   mut(sum) := i32(0);
   mut(count) := i32(0);
   mut(val) := ch.try_recv();
@@ -624,18 +624,18 @@ test("a sender per thread: the last one to finish closes the channel", {
   // close until the main thread lets go of it too.
   rx := Channel(i32).receiver(usize(16));
   wg := Arc.new(WaitGroup.new());
-  wg.add(i32(2));
+  wg.*.add(i32(2));
   {
     keeper := rx.sender();
     w1 := Thread(unit).spawn({ tx : rx.sender(), wg : Arc.clone(wg) }(io) => {
       _a := tx.send(i32(4));
-      wg.done();
+      wg.*.done();
     });
     w2 := Thread(unit).spawn({ tx : rx.sender(), wg : Arc.clone(wg) }(io) => {
       _a := tx.send(i32(5));
-      wg.done();
+      wg.*.done();
     });
-    wg.wait();
+    wg.*.wait();
     assert(!rx.is_closed(), "the keeper holds the channel open while workers run");
     w1.join();
     w2.join();

@@ -140,7 +140,7 @@ impl(
   /// Accept an incoming connection, returning a new `UnixStream`.
   accept : (fn(self : &Self, io : Io) -> Impl(Future(UnixStream, IoExn)))(
     io.async({ self : &self.* }(e : IoExn) => {
-      fd := self._cell._sock._fd;
+      fd := self._cell.*._sock._fd;
       addr_buf := (*u8)(malloc(usize(128)).unwrap());
       addr_len := (*u32)(malloc(usize(4)).unwrap());
       addr_len.* = u32(128);
@@ -164,17 +164,17 @@ impl(
   ),
   /// The filesystem path this listener is bound to.
   local_path : (fn(self : &Self) -> &String)(
-    &self._cell._path
+    &self._cell.*._path
   ),
   /// Close the listener socket (the socket FILE stays — unlink it yourself).
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, io }(e : IoExn) => {
-      e.io.await(_close_unix(addr_of(self._cell._sock), io), e);
+      e.io.await(_close_unix(addr_of(self._cell.*._sock), io), e);
     })
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._cell._sock._fd
+    self._cell.*._sock._fd
   )
 );
 export(UnixListener);
@@ -222,14 +222,14 @@ impl(
   write_str : (fn(self : &Self, data : &str, io : Io) -> Impl(Future(usize, IoExn)))({
     s := String.from(data);
     io.async({ self : &self.*, s }(e : IoExn) => {
-      r := e.io.await(IO_unix.stream_write(self._cell._fd, s.ptr().unwrap(), s.len(), e.io), e.io);
+      r := e.io.await(IO_unix.stream_write(self._cell.*._fd, s.ptr().unwrap(), s.len(), e.io), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
   /// Write a `String` to the stream. Returns the number of bytes written.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len(), e.io), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -237,7 +237,7 @@ impl(
   /// Write raw bytes from an `ArrayList(u8)`. Returns the count written.
   write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
-      fd := self._cell._fd;
+      fd := self._cell.*._fd;
       r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len(), e.io), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -250,7 +250,7 @@ impl(
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._cell._fd
+    self._cell.*._fd
   )
 );
 export(UnixStream);
@@ -267,7 +267,7 @@ impl(
     /// defaults (`read_to_end`, `read_to_string`) or `BufReader(UnixStream)`.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size }(e : IoExn) => {
-        fd := self._cell._fd;
+        fd := self._cell.*._fd;
         r := e.io.await(IO_unix.recv(fd, buf, size, i32(0), e.io), e.io);
         usize(NetError.check(r, e.exn))
       })
@@ -284,7 +284,7 @@ impl(
     /// `write_string` are the safe spellings.
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ self : &self.*, buf, size }(e : IoExn) => {
-        fd := self._cell._fd;
+        fd := self._cell.*._fd;
         r := e.io.await(IO_unix.stream_write(fd, buf, size, e.io), e.io);
         usize(NetError.check(r, e.exn))
       })

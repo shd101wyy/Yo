@@ -36,20 +36,20 @@ test("a Box whose placed bit is set projects its payload", {
   h := unsafe(unsafe.cast(addr_of(b), *usize));
   _bl_set_placed(h);
   assert((h.* & usize(1)) == usize(1), "the handle carries the bit");
-  assert(b.x == i64(3), "an auto-deref field read");
+  assert(b.*.x == i64(3), "an auto-deref field read");
   assert(b.*.y == i64(4), "an explicit `b.*` field read");
-  assert(b.sum() == i64(7), "a `&Self` method through the box");
-  b.bump();
-  assert(b.x == i64(4), "a `&mut Self` method through the box");
+  assert(b.*.sum() == i64(7), "a `&Self` method through the box");
+  b.*.bump();
+  assert(b.*.x == i64(4), "a `&mut Self` method through the box");
   assert(_bl_read(&b.*) == i64(4), "`&b.*` lends the payload");
   _bl_write(&mut b.*);
-  assert(b.y == i64(7), "`&mut b.*` writes the payload");
+  assert(b.*.y == i64(7), "`&mut b.*` writes the payload");
   b.*.x = i64(10);
-  assert(b.x == i64(10), "an assignment through `b.*`");
+  assert(b.*.x == i64(10), "an assignment through `b.*`");
   p := addr_of(b.*);
   assert(unsafe(p.*.x) == i64(10), "`addr_of(b.*)` is the payload's address");
   _bl_clear_placed(h);
-  assert(b.sum() == i64(17), "the box reads the same once the bit is clear");
+  assert(b.*.sum() == i64(17), "the box reads the same once the bit is clear");
 });
 
 test("a Box pattern through a placed handle reads the payload", {

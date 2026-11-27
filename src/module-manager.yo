@@ -700,8 +700,8 @@ mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
         .Some(d) => {
           fresh_defs = (fresh_defs + usize(1));
           match(
-            stored_def_hash(walk_key.clone(), d.index, &d.name),
-            .Some(old_h) => if(!(old_h == d.src_hash()), {
+            stored_def_hash(walk_key.clone(), d.*.index, &d.*.name),
+            .Some(old_h) => if(!(old_h == d.*.src_hash()), {
               changed.push(d);
             }),
             .None => {
@@ -828,7 +828,7 @@ mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
 /// for another shape.
 _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
   match(
-    def.expr(),
+    def.*.*.expr(),
     Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(1)),
     Rc(.Atom(_, _)) => Option(AstExpr).None
   )
@@ -881,7 +881,7 @@ _def_is_per_def_able :: (fn(old : &PendingDef, fresh : &PendingDef) -> bool)({
     old_head,
     .Some(_oh) => match(
       fresh_head,
-      .Some(_fh) => (!old.is_impl && (old.members().len() == usize(0)) && (!fresh.is_impl && (fresh.members().len() == usize(0)))),
+      .Some(_fh) => (!old.*.*.is_impl && (old.*.*.members().len() == usize(0)) && (!fresh.*.*.is_impl && (fresh.*.*.members().len() == usize(0)))),
       .None => false
     ),
     .None => false
@@ -899,7 +899,7 @@ _expr_mentions :: (fn(e : &AstExpr, names : &ArrayList(String)) -> bool)(
         _,
         tok
       )
-    ) => names.contains(&tok.value.*),
+    ) => names.contains(&tok.*.*.value.*),
     Rc(
       .FnCall(
         _,
@@ -967,7 +967,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
                     arg,
                     Rc(.FnCall(_, _, Rc(pair), _, _)) => match(
                       pair.get_cloned(usize(1)),
-                      .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value.* == name.*), {
+                      .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).*.value.* == name.*), {
                         hit = true;
                       }),
                       .None => ()
@@ -1112,14 +1112,14 @@ _admit_closure_key :: (
     }
   );
   d := match(
-    w.by_index.get_cloned(&index),
+    w.*.by_index.get_cloned(&index),
     .Some(found) => found,
     .None => {
       fallbacks.push(module);
       return(false);
     }
   );
-  if(d.is_impl, {
+  if(d.*.is_impl, {
     fallbacks.push(module);
     return(false);
   });
@@ -1128,7 +1128,7 @@ _admit_closure_key :: (
     .Some(ns) => ns,
     .None => ArrayList(String).new()
   );
-  names.push(d.name.clone());
+  names.push(d.*.name.clone());
   _ := names_by_module.insert(module.clone(), names);
   closure_keys.push(key.clone());
   true
@@ -1152,9 +1152,9 @@ _reader_rebindable :: (fn(reader_module : &String, names : &ArrayList(String)) -
   imports := ArrayList(String).new();
   imports.push(String.from("import"));
   (i : usize) = usize(0);
-  while(i < rw.begin_exprs_len(), {
+  while(i < rw.*.begin_exprs_len(), {
     match(
-      rw.begin_expr_at(i),
+      rw.*.begin_expr_at(i),
       .Some(e) => if(
         classify_pending_def(&e, i).is_none() && !ast_expr_is_fn_call_of(&e, BK_EXPORT, .None),
         if(_expr_mentions(&e, names) && !_expr_mentions(&e, &imports), {
@@ -1184,11 +1184,11 @@ _defs_mentioning :: (fn(module : &String, names : &ArrayList(String)) -> ArrayLi
     finished_walk_for(module.clone()),
     .Some(w) => {
       (i : usize) = usize(0);
-      while(i < w.defs.len(), {
+      while(i < w.*.defs.len(), {
         match(
-          w.defs.get_cloned(i),
-          .Some(d) => if(_expr_mentions(&d.expr(), names), {
-            out.push(def_key(module.clone(), d.index, d.name.clone()));
+          w.*.defs.get_cloned(i),
+          .Some(d) => if(_expr_mentions(&d.*.expr(), names), {
+            out.push(def_key(module.clone(), d.*.index, d.*.name.clone()));
           }),
           .None => ()
         );
@@ -1240,7 +1240,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
             .Some(ix) => match(
               finished_walk_for(module.clone()),
               .Some(w) => match(
-                w.by_index.get_cloned(&ix),
+                w.*.by_index.get_cloned(&ix),
                 .Some(d) => {
                   names := match(
                     names_by_module.get_cloned(module.clone()),
@@ -1250,7 +1250,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
                       ArrayList(String).new()
                     }
                   );
-                  names.push(d.name.clone());
+                  names.push(d.*.name.clone());
                   _ := names_by_module.insert(module.clone(), names);
                 },
                 // Unresolvable keys are the admission's to send to the
@@ -1331,18 +1331,18 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   // A walk that released its evaluation context (a one-shot command — only
   // the watch modes retain it, `set_retain_walk_contexts`) cannot re-force
   // anything: the file-level reload is the only correct path.
-  (allowed : bool) = match(&walk, .Some(w) => w.has_ctx(), .None => false);
+  (allowed : bool) = match(&walk, .Some(w) => w.*.*.has_ctx(), .None => false);
   changed_names := ArrayList(String).new();
   (ci : usize) = usize(0);
   while((ci < diff.changed.len()) && allowed, {
     match(
       diff.changed.get_cloned(ci),
       .Some(fresh) => {
-        changed_names.push(fresh.name.clone());
+        changed_names.push(fresh.*.name.clone());
         match(
           &walk,
           .Some(w) => match(
-            w.by_index.get_cloned(&fresh.index),
+            w.*.*.by_index.get_cloned(&fresh.*.index),
             .Some(old) => {
               if(!_def_is_per_def_able(&old, &fresh), {
                 allowed = false;
@@ -1377,7 +1377,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   while(si < diff.changed.len(), {
     match(
       diff.changed.get_cloned(si),
-      .Some(d) => seeds.push(def_key(diff.module_key.clone(), d.index, d.name.clone())),
+      .Some(d) => seeds.push(def_key(diff.module_key.clone(), d.*.index, d.*.name.clone())),
       .None => ()
     );
     si = (si + usize(1));
@@ -1404,20 +1404,20 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
           match(
             finished_walk_for(module.clone()),
             .Some(w) => match(
-              w.by_index.get_cloned(match(index, .Some(ix) => ix, .None => usize(0))),
+              w.*.by_index.get_cloned(match(index, .Some(ix) => ix, .None => usize(0))),
               .Some(d) => {
                 // A walk that released its evaluation context (only the watch
                 // modes retain every walk; the LSP retains OPEN documents',
                 // `set_walk_context_retained`) cannot re-force in place: its
                 // module takes the file-level fallback.
-                def_ok = (!d.is_impl && w.has_ctx());
+                def_ok = (!d.*.is_impl && w.*.has_ctx());
                 if(def_ok, {
                   names := match(
                     names_by_module.get_cloned(module.clone()),
                     .Some(ns) => ns,
                     .None => ArrayList(String).new()
                   );
-                  names.push(d.name.clone());
+                  names.push(d.*.name.clone());
                   _ := names_by_module.insert(module.clone(), names);
                 });
               },
@@ -1521,7 +1521,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
           // per-def either.
           match(
             finished_walk_for(module.clone()),
-            .Some(w) => if(_ordered_stmts_mention(w.begin_exprs_snapshot(), names.clone()), {
+            .Some(w) => if(_ordered_stmts_mention(w.*.begin_exprs_snapshot(), names.clone()), {
               fallbacks.push(module);
             }),
             .None => ()
@@ -1600,7 +1600,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
           });
           match(
             finished_walk_for(module2.clone()),
-            .Some(w2) => if(_ordered_stmts_mention(w2.begin_exprs_snapshot(), names2.clone()), {
+            .Some(w2) => if(_ordered_stmts_mention(w2.*.begin_exprs_snapshot(), names2.clone()), {
               fallbacks.push(module2.clone());
             }),
             .None => ()
@@ -1666,7 +1666,7 @@ mm_revalidate_apply :: (
   while(ci < plan.changed.len(), {
     match(
       plan.changed.get_cloned(ci),
-      .Some(d) => _rev_add_index(&mut indexes_by_module, plan.module_key.clone(), d.index),
+      .Some(d) => _rev_add_index(&mut indexes_by_module, plan.module_key.clone(), d.*.index),
       .None => ()
     );
     ci = (ci + usize(1));
@@ -1713,8 +1713,8 @@ mm_revalidate_apply :: (
                         match(
                           finished_walk_for(m.clone()),
                           .Some(w) => match(
-                            w.by_index.get_cloned(&ix),
-                            .Some(d) => d.name.clone(),
+                            w.*.by_index.get_cloned(&ix),
+                            .Some(d) => d.*.name.clone(),
                             .None => String.new()
                           ),
                           .None => String.new()
@@ -1795,7 +1795,7 @@ mm_revalidate_apply :: (
               match(
                 idxs.get(pick),
                 .Some(ix) => match(
-                  walk.by_index.get_cloned(&ix),
+                  walk.*.by_index.get_cloned(&ix),
                   .Some(d) => defs.push(d),
                   .None => ()
                 ),
@@ -1817,7 +1817,7 @@ mm_revalidate_apply :: (
                 plan.changed.get_cloned(gi),
                 .Some(fresh) => if(module == plan.module_key, {
                   match(
-                    walk.by_index.get_cloned(&fresh.index),
+                    walk.*.by_index.get_cloned(&fresh.*.index),
                     .Some(d) => graft_pending_def(&walk, &d, &fresh),
                     .None => ()
                   );
@@ -1832,7 +1832,7 @@ mm_revalidate_apply :: (
               match(
                 plan.changed.get_cloned(ci3),
                 .Some(fresh) => if(module == plan.module_key, {
-                  _ := changed_indexes.insert(fresh.index);
+                  _ := changed_indexes.insert(fresh.*.index);
                 }),
                 .None => ()
               );
@@ -1842,10 +1842,10 @@ mm_revalidate_apply :: (
             while(di2 < defs.len(), {
               match(
                 defs.get_cloned(di2),
-                .Some(d) => if(!((module == plan.module_key) && changed_indexes.contains(&d.index)), {
-                  cloned := clone_expr_fresh_ids(&d.expr());
-                  d.set_expr(cloned.clone());
-                  walk.set_begin_expr(d.index, cloned);
+                .Some(d) => if(!((module == plan.module_key) && changed_indexes.contains(&d.*.index)), {
+                  cloned := clone_expr_fresh_ids(&d.*.expr());
+                  d.*.set_expr(cloned.clone());
+                  walk.*.set_begin_expr(d.*.index, cloned);
                 }),
                 .None => ()
               );
@@ -1870,7 +1870,7 @@ mm_revalidate_apply :: (
             if(reval_per_module_table, {
               reval_minted := specialization_recording_take(reval_mark);
               match(
-                walk.ctx_expr_info_table(),
+                walk.*.ctx_expr_info_table(),
                 .Some(wtable) => {
                   reval_values := ArrayList(EvalValue).new();
                   _push_non_generic_fn_values(_walk_def_values(&defs), &mut reval_values);
@@ -1879,7 +1879,7 @@ mm_revalidate_apply :: (
                     match(reval_minted.get_cloned(rmi), .Some(v) => reval_values.push(v), .None => ());
                     rmi = (rmi + usize(1));
                   });
-                  summarize_function_bodies(&reval_values, &wtable, &walk.env);
+                  summarize_function_bodies(&reval_values, &wtable, &walk.*.env);
                 },
                 .None => ()
               );
@@ -1903,18 +1903,18 @@ mm_revalidate_apply :: (
               match(
                 defs.get_cloned(bi),
                 .Some(d) => if(
-                  !d.is_impl && match(d.state(), .Done => true, _ => false),
+                  !d.*.is_impl && match(d.*.state(), .Done => true, _ => false),
                   match(
-                    d.variable(),
+                    d.*.variable(),
                     .Some(var) => match(
-                      update_module_cache_slot(module.clone(), d.name.clone(), &var),
+                      update_module_cache_slot(module.clone(), d.*.name.clone(), &var),
                       .None => (),
                       .Some(patched) => if(!patched, {
                         exprs := cond(
                           (module == plan.module_key) => plan.fresh_exprs.clone(),
-                          true => walk.begin_exprs_snapshot()
+                          true => walk.*.begin_exprs_snapshot()
                         );
-                        if(_export_aliases_name(&exprs, d.name.clone()), {
+                        if(_export_aliases_name(&exprs, d.*.name.clone()), {
                           fallbacks.push(module.clone());
                         });
                       })
@@ -1949,9 +1949,9 @@ mm_revalidate_apply :: (
                         while(fdi < defs.len(), {
                           match(
                             defs.get_cloned(fdi),
-                            .Some(d) => if(d.name == nm, {
+                            .Some(d) => if(d.*.name == nm, {
                               match(
-                                d.variable(),
+                                d.*.variable(),
                                 .Some(var) => {
                                   found = rebind_destructured_name(entry.reader_module.clone(), nm.clone(), &var);
                                 },
@@ -2280,14 +2280,14 @@ _scan_import_literals :: (
     e,
     Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func, Rc(args), _, _)) => {
-      is_import := match(func, Rc(.Atom(_, ft)) => (ft.value.* == BK_IMPORT), _ => false);
+      is_import := match(func, Rc(.Atom(_, ft)) => (ft.*.*.value.* == BK_IMPORT), _ => false);
       if(is_import && (args.len() == usize(1)), {
         match(
           args.get_cloned(usize(0)),
           .Some(arg) => match(
             arg,
             Rc(.Atom(_, at)) => {
-              raw := at.value.*.clone();
+              raw := at.*.value.*.clone();
               n := raw.len();
               if((n >= usize(2)) && raw.starts_with(String.from("\"")) && raw.ends_with(String.from("\"")), {
                 match(
@@ -2451,7 +2451,7 @@ _summarize_module_bodies :: (fn(abs : &String, minted : &ArrayList(EvalValue), e
   _push_non_generic_fn_values(type_trait_method_values_owned_by(abs.clone()), &mut values);
   match(
     finished_walk_for(abs),
-    .Some(walk) => _push_non_generic_fn_values(_walk_def_values(&walk.defs), &mut values),
+    .Some(walk) => _push_non_generic_fn_values(_walk_def_values(&walk.*.defs), &mut values),
     .None => ()
   );
   (mi : usize) = usize(0);
@@ -2469,8 +2469,8 @@ _walk_def_values :: (fn(defs : &ArrayList(PendingDef)) -> ArrayList(EvalValue))(
     match(
       defs.get_cloned(di),
       .Some(d) => match(
-        d.variable(),
-        .Some(var) => match(var.value().get(usize(0)), .Some(v) => out.push(v), .None => ()),
+        d.*.variable(),
+        .Some(var) => match(var.*.value().get(usize(0)), .Some(v) => out.push(v), .None => ()),
         .None => ()
       ),
       .None => ()
@@ -2628,7 +2628,7 @@ mm_load_prelude_file :: (
     _push_non_generic_fn_values(type_trait_method_values_owned_by(prelude_owner.clone()), &mut prelude_values);
     match(
       finished_walk_for(input_path.clone()),
-      .Some(pw) => _push_non_generic_fn_values(_walk_def_values(&pw.defs), &mut prelude_values),
+      .Some(pw) => _push_non_generic_fn_values(_walk_def_values(&pw.*.defs), &mut prelude_values),
       .None => ()
     );
     (pmi : usize) = usize(0);

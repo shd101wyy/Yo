@@ -337,7 +337,7 @@ comptime_expect_error({
 test("D4 canary: a closure over an atomic satisfies where(T <: Send), and Arc.new of it runs on a thread", {
   hits := Arc.new(AtomicI32.new(i32(0)));
   (bump : Impl(Fn() -> unit)) = ({ hits : Arc.clone(hits) }() => {
-    hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+    hits.*.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
   _needs_send(&bump);
   a := Arc.new(bump);
@@ -348,7 +348,7 @@ test("D4 canary: a closure over an atomic satisfies where(T <: Send), and Arc.ne
     ()
   });
   t.join();
-  assert(hits.load(MemoryOrder.Acquire) == i32(1), "the closure ran on the thread");
+  assert(hits.*.load(MemoryOrder.Acquire) == i32(1), "the closure ran on the thread");
 });
 // ============================================================================
 // D1 — module-level bindings
