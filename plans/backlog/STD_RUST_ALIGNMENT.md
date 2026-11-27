@@ -12,8 +12,15 @@ VERDICTS-70, -73, -74, -78; [`RUST_ADOPTION_CANDIDATES`](RUST_ADOPTION_CANDIDATE
 **Decided by the maintainer: `ArrayList` is not renamed to `Vec`** (a mathematical vector has a fixed size; this type grows).
 It is recorded in class D (§4) and applied to the names that follow it (`Deque`, `PriorityQueue`).
 
-**Progress.** S-0 (the compiler's Rust-name hints and the pack and docs class-D list) is the first PR; S-1 to S-6, L-1 and P-1 to
-P-4 are not started.
+**Progress.** S-0 (the compiler's Rust-name hints and the pack and docs class-D list) is the first PR. S-1 is built (branch
+`wip/v0281-s1`): §3.1's item modes and consuming receivers, with `Option.as_ref`/`as_mut` (the borrowing form the consuming
+receivers need); row 12; `IterPair` deleted for `Tuple`. The callbacks stay lent (`f : &mut Impl(FnMut(...))`, the iterator
+consumers' `f : &mut F`): a closure that holds a reference is E0909 at any by-value slot (decision 38 A), so §3.1's by-value
+`FnOnce` slot would reject `opt.inspect({ &mut seen }(v) => …)` and every closure reading a borrowed parameter. Which slot S-1
+ships is VERDICTS-93's question. Q3's rider (`FromIterator.Elem` → `Item`) is not taken: the
+assoc-type registry is keyed by (type, label) without the trait, so an `Item` there would alias `IntoIterator.Item` on every
+collection whose two element types differ (the reason `Elem` was chosen); it needs trait-keyed associated types first.
+S-2 to S-6, L-1 and P-1 to P-4 are not started.
 
 ## 1. Headline
 
