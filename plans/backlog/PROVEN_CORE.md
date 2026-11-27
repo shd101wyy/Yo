@@ -341,7 +341,7 @@ the same audit found them.
 1. **A proved result is capped by what it rests on.** Measured: a caller of a function
    whose `assumed()` contract is contradictory is reported `ok — 1 obligation(s) proved`
    with `vacuous: false`, and in `verify` mode the binary runs with no check. Filed as
-   `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`.
+   `issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`.
    The fix belongs with the vacuity gate of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md).
 2. **Every gate has a registered mutation that makes it fail.** The bugged-twin
    discipline covers fixtures, and the planned mutation gate covers `src/verifier/`.
