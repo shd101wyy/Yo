@@ -2794,7 +2794,13 @@ _find_specialization_cache :: (
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
   while((ei < n_entries) && result.is_none(), {
-    entry_opt := g_specialized_fn_caches.with(xs => xs.get_cloned(ei));
+    // Copy only the entry for `func_id`: compare each entry's id in place
+    // (an entry is a value, so a copy is its whole cache list).
+    entry_opt := if(
+      g_specialized_fn_caches.with({ func_id, ei }(xs) => (xs(ei).func_id == func_id.*)),
+      g_specialized_fn_caches.with(xs => xs.get_cloned(ei)),
+      Option(SpecializedFunctionCacheEntry).None
+    );
     match(
       entry_opt,
       .Some(entry) => {

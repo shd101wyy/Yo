@@ -6532,22 +6532,9 @@ evaluate_function_parameter_type_again :: (
 );
 // ---------------------------------------------------------------------------
 /// Has `cta_id` already been walked on this branch? Mirrors
-/// `_id_already_visited` in types/utils.yo (not exported, so re-stated here).
-_cta_seen :: (fn(cta_v : &ArrayList(String), cta_id : &String) -> bool)({
-  (cta_k : usize) = usize(0);
-  (cta_found : bool) = false;
-  while((cta_k < cta_v.len()) && !cta_found, {
-    match(
-      cta_v.get_cloned(cta_k),
-      .Some(cta_e) => if(cta_e == cta_id.*, {
-        cta_found = true;
-      }),
-      .None => ()
-    );
-    cta_k = (cta_k + usize(1));
-  });
-  cta_found
-});
+/// `_id_already_visited` in types/utils.yo (not exported, so re-stated here):
+/// compares in place, copying no id.
+_cta_seen :: (fn(cta_v : &ArrayList(String), cta_id : &String) -> bool)(cta_v.contains(cta_id));
 /// Collect the SomeTs that live ONLY in a generic instantiation's
 /// `type_arguments` (types/definitions.yo:212). `get_all_some_types` walks
 /// FIELD types only, yet `substitute()` DOES rewrite `type_arguments`
