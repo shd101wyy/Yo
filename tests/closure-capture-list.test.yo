@@ -243,7 +243,7 @@ test("capture list: a `&mut` binding's by-value entry moves the reference into t
   };
   {
     m := &mut x;
-    mut(bump) := ({ m }(i : i32) => {
+    (mut(bump) : Impl(FnMut(i : i32) -> unit)) = ({ m }(i : i32) => {
       m.* = (m.* + i);
     });
     _cl_each(i32(2), &mut bump);
@@ -251,7 +251,7 @@ test("capture list: a `&mut` binding's by-value entry moves the reference into t
   assert(x == i32(2), "the closure wrote through it");
   comptime_expect_error({
     m := &mut x;
-    _f := ({ m }() => m.*);
+    (_f : Impl(FnMut() -> i32)) = ({ m }() => m.*);
     m.* = i32(5);
   }, "use of moved value");
 });

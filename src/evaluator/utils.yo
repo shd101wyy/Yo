@@ -7376,6 +7376,9 @@ deref_exempt_take :: (fn(e : &AstExpr) -> bool)({
   });
   hit
 });
+/// `e` carries the exemption (`deref_exempt_mark`); the mark stays for the
+/// identifier evaluator to take.
+deref_exempt_marks :: (fn(e : &AstExpr) -> bool)(g_deref_exempt_armed && (g_deref_exempt_id == ast_expr_id(e)));
 /// A binding that holds a reference (decision 43 step 2 N1e-1): a `&T` or
 /// `&mut T` parameter (a fn's, a closure's, a receiver's), a local borrow
 /// `y := &place`, a projection's result, a capture-list borrow, a `for`
@@ -15072,6 +15075,7 @@ export(
   deref_exempt_mark,
   deref_exempt_clear,
   deref_exempt_take,
+  deref_exempt_marks,
   binder_read_mark,
   binder_read_clear,
   binder_read_take,

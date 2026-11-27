@@ -179,7 +179,8 @@
   bind_join_roots_for,
   variable_holder_roots,
   local_borrow_alias_statement,
-  reference_field_read_type
+  reference_field_read_type,
+  deref_exempt_marks
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1641,9 +1642,10 @@ is_reference_repoint_by_move :: (fn(expr : &AstExpr, env : &Environment, ctx : &
   if(!(ast_expr_is_atom(&lhs) && ast_expr_is_atom(&rhs)), {
     return(false);
   });
-  // A name a `r.*` was rewritten to (its token at the `*`) is the referent:
-  // `rp.* = ry` writes through `rp`, `a = m.*` copies the value.
-  if(is_reference_deref_site(ast_expr_token(&lhs)) || is_reference_deref_site(ast_expr_token(&rhs)), {
+  // `rp.* = ry` is evaluated as `rp = ry` with `rp` exempt (it writes the
+  // referent, exprs/assignment.yo), and a name a `m.*` was rewritten to (its
+  // token at the `*`) is the referent: neither is a re-point.
+  if(deref_exempt_marks(&lhs) || is_reference_deref_site(ast_expr_token(&lhs)) || is_reference_deref_site(ast_expr_token(&rhs)), {
     return(false);
   });
   if(!(deref_rule_applies(ast_expr_token(&lhs), ctx) && deref_rule_applies(ast_expr_token(&rhs), ctx)), {
