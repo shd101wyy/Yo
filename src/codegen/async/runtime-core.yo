@@ -53,6 +53,12 @@ static __thread __yo_continuation_t* __yo_cont_free_list = NULL;`
   // Per-thread flags. has_io is always true.
   emitter.emit_string_line(
     `
+// One heap cell of an I/O-class future (an operation, a park, a yield, a join
+// wait, a completed future), counted by YO_ASYNC_STATS.
+static inline void* __yo_io_cell_alloc(size_t size) {
+  __YO_ASYNC_STAT(__YO_AS_IO_CELLS);
+  return __yo_rc_alloc(size);
+}
 static ${thread_local} bool __yo_async_scheduler_initialized = false;
 static ${thread_local} size_t __yo_active_watch_count = 0;
 
@@ -763,7 +769,7 @@ static bool __yo_park_cancel(__yo_io_future_t* f) {
 
 // Create a park future: pending, with no backend registration.
 static __yo_io_future_t* __yo_async_park_start(void) {
-  __yo_io_future_t* f = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  __yo_io_future_t* f = (__yo_io_future_t*)__yo_io_cell_alloc(sizeof(__yo_io_future_t));
   memset(f, 0, sizeof(__yo_io_future_t));
   f->header.ref_count = 1;
   atomic_init(&f->state, 0);
@@ -1073,7 +1079,7 @@ static void __yo_waker_release(void* p) {
 // polling I/O (issues/fixed/build-smoke-hangs-registry-perturbation.md).
 // Create a yield future: pending now, completed by the next drain.
 static __yo_io_future_t* __yo_async_yield_start(void) {
-  __yo_io_future_t* f = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  __yo_io_future_t* f = (__yo_io_future_t*)__yo_io_cell_alloc(sizeof(__yo_io_future_t));
   memset(f, 0, sizeof(__yo_io_future_t));
   f->header.ref_count = 1;
   atomic_init(&f->state, 0);
@@ -1687,7 +1693,7 @@ generate_async_runtime_io_entries :: (
 // answers an operation it can answer at once with one; an await reads -1
 // and takes the inline fast path, so nothing ever schedules it.
 static __yo_io_future_t* __yo_io_future_completed(int32_t result) {
-  __yo_io_future_t* f = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  __yo_io_future_t* f = (__yo_io_future_t*)__yo_io_cell_alloc(sizeof(__yo_io_future_t));
   memset(f, 0, sizeof(__yo_io_future_t));
   f->header.ref_count = 1;
   atomic_init(&f->state, -1);
@@ -1705,6 +1711,8 @@ static void __yo_io_spawn_task(void* fut) {
   __yo_future_header_t* f = (__yo_future_header_t*)fut;
   if (f->state == 0 && f->vt && f->vt->resume) {
     __yo_incr_rc(fut);
+    __YO_ASYNC_STAT(__YO_AS_CELL_STARTS);
+    __YO_ASYNC_STAT(__YO_AS_SPAWNS);
     f->vt->resume(fut);
   }
 }
@@ -1717,6 +1725,8 @@ static void __yo_io_run_until(void* fut) {
   __yo_future_header_t* f = (__yo_future_header_t*)fut;
   if (f->state == 0 && f->vt && f->vt->resume) {
     __yo_incr_rc(fut);
+    __YO_ASYNC_STAT(__YO_AS_CELL_STARTS);
+    __YO_ASYNC_STAT(__YO_AS_ROOTS);
     f->vt->resume(fut);
   }
   while (f->state != -1 && f->state != -2) {

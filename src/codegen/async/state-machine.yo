@@ -1465,6 +1465,7 @@ _emit_await_suspension_core :: (
     // (issues/fixed/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md).
     context.base.emitter.emit_string_line(`${ind}if (future_state == 0) {  // 0 = cold (not started)`);
     context.base.emitter.emit_string_line(`${ind}  __yo_incr_rc((void*)${acc});  // running-task reference, released by its completion`);
+    context.base.emitter.emit_string_line(`${ind}  __YO_ASYNC_STAT(__YO_AS_CELL_STARTS);`);
     inner := ind.clone();
     inner.push_str("  ");
     emit_effect_injection_for_sm(effect_expr, acc.clone(), &inner, context);

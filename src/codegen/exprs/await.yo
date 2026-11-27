@@ -467,6 +467,8 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
         context.base.emitter.emit_string_line(`${indent.clone()}if (${pre_await_state_var.clone()} == 0 && ${sync_future_var.clone()}->vt && ${sync_future_var.clone()}->vt->resume) {`);
         emit_effect_injection_for_await(expr, sync_future_var.clone(), indent.clone(), context);
         context.base.emitter.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${sync_future_var.clone()});  // event loop reference`);
+        context.base.emitter.emit_string_line(`${indent.clone()}  __YO_ASYNC_STAT(__YO_AS_CELL_STARTS);`);
+        context.base.emitter.emit_string_line(`${indent.clone()}  __YO_ASYNC_STAT(__YO_AS_ROOTS);`);
         context.base.emitter.emit_string_line(`${indent.clone()}  ${sync_future_var.clone()}->vt->resume((void*)${sync_future_var.clone()});`);
         context.base.emitter.emit_string_line(`${indent.clone()}}`);
       });
