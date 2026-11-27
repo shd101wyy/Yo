@@ -268,6 +268,13 @@ test("iter.sum, iter.min, iter.max", {
   assert(my_range(i32(0), i32(0)).min().is_none(), "empty min");
   assert(my_range(i32(0), i32(0)).max().is_none(), "empty max");
 });
+test("iter.min and iter.max order floats by cmp: a NaN is the largest", {
+  z := f64(0.0);
+  nan := (z / z);
+  assert(ArrayList(f64).from([nan, f64(1.0), f64(2.0)]).into_iter().min().unwrap() == f64(1.0), "min skips the NaN");
+  mx := ArrayList(f64).from([f64(1.0), nan, f64(2.0)]).into_iter().max().unwrap();
+  assert(mx != mx, "max is the NaN");
+});
 // --- chunk 3: new combinators ------------------------------------------------
 test("iter.chain yields first then second", {
   it := my_range(i32(1), i32(3)).chain(my_range(i32(10), i32(12)));
