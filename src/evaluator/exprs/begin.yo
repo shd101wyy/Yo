@@ -1097,7 +1097,7 @@ _ic_merge_jumps :: (fn(acc : &mut _ICScan, sub : &_ICScan) -> unit)({
 });
 /// `tok` follows the site in the source.
 _ic_after_site :: (fn(tok : &Token, site : &ImplicitCopyPending) -> bool)(
-  (tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset)
+  (tok.*.*.module_path.* == site.module_path) && (tok.*.*.byte_offset > site.byte_offset)
 );
 _ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &mut _ICScan) -> unit)({
   acc.reads = (acc.reads + usize(1));

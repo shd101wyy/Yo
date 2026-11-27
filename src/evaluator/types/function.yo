@@ -2130,8 +2130,8 @@ _bound_insertion_repair :: (fn(sig : &SignatureSource, bound : &String) -> Optio
     p := sig.params(i).clone();
     if(ast_expr_is_fn_call_of(&p, BK_WHERE, Option(usize).None), {
       wt := ast_expr_token(&p);
-      w_input := wt.input.*.clone();
-      w_open := (usize(wt.byte_offset) + wt.value.*.len());
+      w_input := wt.*.input.*.clone();
+      w_open := (usize(wt.*.byte_offset) + wt.*.value.*.len());
       if((w_open >= w_input.len()) || (w_input.byte_at(w_open) != u8(40)), {
         return(Option(Tuple(Span, String)).None);
       });
@@ -2151,7 +2151,7 @@ _bound_insertion_repair :: (fn(sig : &SignatureSource, bound : &String) -> Optio
       ct := ast_expr_token(&cp);
       return(
         match(
-          source_span_from_anchor(&ct, usize(ct.byte_offset), usize(ct.byte_offset)),
+          source_span_from_anchor(&ct, usize(ct.*.byte_offset), usize(ct.*.byte_offset)),
           .Some(sp) => Option(Tuple(Span, String)).Some((sp, `where(${bound}), `)),
           .None => Option(Tuple(Span, String)).None
         )
@@ -2159,8 +2159,8 @@ _bound_insertion_repair :: (fn(sig : &SignatureSource, bound : &String) -> Optio
     });
   });
   head := match(&sig.head, .Some(h) => Rc.clone(h.*), .None => return(Option(Tuple(Span, String)).None));
-  input := head.input.*.clone();
-  open := (usize(head.byte_offset) + head.value.*.len());
+  input := head.*.input.*.clone();
+  open := (usize(head.*.byte_offset) + head.*.value.*.len());
   if((open >= input.len()) || (input.byte_at(open) != u8(40)), {
     return(Option(Tuple(Span, String)).None);
   });
@@ -2203,7 +2203,7 @@ throw_bound_in_kind_slot :: (
     _signature_has_bound(sig, label, rhs) => match(
       &operand,
       .Some(t) => match(
-        source_span_from_anchor(op, usize(op.byte_offset), t.2),
+        source_span_from_anchor(op, usize(op.*.*.byte_offset), t.2),
         .Some(sp) => Option(Tuple(Span, String, String)).Some((sp, String.from(": Type"), `give \`${binder}\` the kind \`Type\``)),
         .None => Option(Tuple(Span, String, String)).None
       ),

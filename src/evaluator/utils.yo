@@ -591,7 +591,7 @@ trait_constructor_params_of :: (fn(value : &Option(EvalValue), ty : &TypeValue) 
       t_refine_inner(ty),
       Rc(.Func({ result : tc_r })) => match(
         t_refine_inner(&t_slot_pointee(&tc_r)),
-        Rc(.TypeUni(tc_level)) => if(tc_level == usize(1), Option(ArrayList(String)).Some(tc_fvd.*.params.clone()), Option(ArrayList(String)).None),
+        Rc(.TypeUni(tc_level)) => if(tc_level == usize(1), Option(ArrayList(String)).Some(tc_fvd.*.*.params.clone()), Option(ArrayList(String)).None),
         _ => Option(ArrayList(String)).None
       ),
       _ => Option(ArrayList(String)).None
@@ -777,13 +777,13 @@ source_matching_paren_byte :: (fn(input : &String, open : usize) -> Option(usize
 /// or before `start`, whose row and column fix the coordinates), or `.None`
 /// when the range is out of order or crosses a line: a repair edits one line.
 source_span_from_anchor :: (fn(anchor : &Token, start : usize, end : usize) -> Option(Span))({
-  input := anchor.input.*.clone();
-  a := usize(anchor.byte_offset);
+  input := anchor.*.*.input.*.clone();
+  a := usize(anchor.*.*.byte_offset);
   if((start < a) || (end < start) || (end > input.len()), {
     return(Option(Span).None);
   });
-  (row : usize) = usize(anchor.row);
-  (col : usize) = usize(anchor.column);
+  (row : usize) = usize(anchor.*.*.row);
+  (col : usize) = usize(anchor.*.*.column);
   (i : usize) = a;
   while(i < start, i = (i + usize(1)), {
     b := input.byte_at(i);
@@ -807,14 +807,14 @@ source_span_from_anchor :: (fn(anchor : &Token, start : usize, end : usize) -> O
       len = (len + usize(1));
     });
   });
-  Option(Span).Some(Span(path : anchor.module_path.*.clone(), row : row, col : col, len : len))
+  Option(Span).Some(Span(path : anchor.*.*.module_path.*.clone(), row : row, col : col, len : len))
 });
 /// The text after the infix operator `op` up to the end of its right
 /// operand (`: (A, B)` gives `(A, B)`, the parentheses the AST drops kept), with
 /// its byte range; `.None` when it does not read back from the source.
 source_operand_after :: (fn(op : &Token) -> Option(Tuple(String, usize, usize)))({
-  input := op.input.*.clone();
-  (s : usize) = (usize(op.byte_offset) + op.value.*.len());
+  input := op.*.*.input.*.clone();
+  (s : usize) = (usize(op.*.*.byte_offset) + op.*.*.value.*.len());
   while((s < input.len()) && _is_ascii_space(input.byte_at(s)), {
     s = (s + usize(1));
   });

@@ -1906,7 +1906,7 @@ impl(
         recur(self, &cur_expr, cur_idx, exn)
       },
       // Infix operator
-      ((tok.*.kind == TokenKind.Operator) || ((tok.kind == TokenKind.Dot) && (has_ws_fwd == false))) => {
+      ((tok.*.kind == TokenKind.Operator) || ((tok.*.kind == TokenKind.Dot) && (has_ws_fwd == false))) => {
         self.reject_compound_assignment(primary_expr, &tok, idx, exn);
         rhs_start := self.skip_ws_fwd(idx + usize(1));
         rhs_pr := self.parse_expression(rhs_start, exn);
@@ -2079,13 +2079,13 @@ impl(
   /// `x = (x + 1)` when the target and the right operand each read back from
   /// the source and the edit stays on one line.
   reject_compound_assignment : (fn(self : &mut Self, target : &AstExpr, op : &Token, op_idx : usize, exn : Exception) -> unit)({
-    opv := op.value.*.clone();
+    opv := op.*.*.value.*.clone();
     if(!_is_compound_assignment_op(&opv), {
       return(());
     });
     adjacent_eq := match(
       self.tokens.get_cloned(op_idx + usize(1)),
-      .Some(t) => ((t.kind == TokenKind.Operator) && (t.value.* == "=")),
+      .Some(t) => ((t.*.kind == TokenKind.Operator) && (t.*.value.* == "=")),
       .None => false
     );
     if(!adjacent_eq, {
@@ -2104,7 +2104,7 @@ impl(
           Rc(.FnCall(_, rfb, _, ris_infix, _)) => (
             ris_infix && match(
               rfb,
-              Rc(.Atom(_, ft)) => (ft.kind != TokenKind.Dot),
+              Rc(.Atom(_, ft)) => (ft.*.kind != TokenKind.Dot),
               Rc(.FnCall(_, _, _, _, _)) => false
             )
           ),
@@ -2122,15 +2122,15 @@ impl(
     shown_rhs := cond((rhs_text.len() > usize(0)) => rhs_text.clone(), true => String.from("y"));
     written := `${shown_target} = (${shown_target} ${opv} ${shown_rhs})`;
     msg := `Yo has no compound assignment: \`${opv}=\` is an operator followed by \`=\`. Write the assignment out: \`${written}\`.`;
-    op_byte := usize(op.byte_offset);
+    op_byte := usize(op.*.*.byte_offset);
     one_line := (
-      (target_text.len() > usize(0)) && (rhs_text.len() > usize(0)) && (rhs_end_byte > op_byte) && (rhs_end_byte <= self.input_string.len()) && {
-        edited := self.input_string.substring(op_byte, rhs_end_byte);
+      (target_text.len() > usize(0)) && (rhs_text.len() > usize(0)) && (rhs_end_byte > op_byte) && (rhs_end_byte <= self.input_string.*.len()) && {
+        edited := self.input_string.*.substring(op_byte, rhs_end_byte);
         !(edited.contains("\n") || edited.contains("\r"))
       }
     );
     if(one_line, {
-      edited := self.input_string.substring(op_byte, rhs_end_byte);
+      edited := self.input_string.*.substring(op_byte, rhs_end_byte);
       (edited_runes : usize) = usize(0);
       (bi : usize) = usize(0);
       while(bi < edited.len(), bi = (bi + usize(1)), {
@@ -2145,7 +2145,7 @@ impl(
               op,
               &msg,
               Option(String).None,
-              Span(path : op.module_path.*.clone(), row : usize(op.row), col : usize(op.column), len : edited_runes),
+              Span(path : op.*.*.module_path.*.clone(), row : usize(op.*.*.row), col : usize(op.*.*.column), len : edited_runes),
               `= (${target_text} ${opv} ${rhs_text})`,
               `write \`${written}\``
             )
@@ -2167,7 +2167,7 @@ impl(
     while(stop > start, {
       is_trivia := match(
         self.tokens.get_cloned(stop - usize(1)),
-        .Some(lt) => ((lt.kind == TokenKind.Whitespace) || (lt.kind == TokenKind.SingleLineComment) || (lt.kind == TokenKind.MultiLineComment) || (lt.kind == TokenKind.DocLineComment) || (lt.kind == TokenKind.InnerDocLineComment) || (lt.kind == TokenKind.DocBlockComment) || (lt.kind == TokenKind.InnerDocBlockComment)),
+        .Some(lt) => ((lt.*.kind == TokenKind.Whitespace) || (lt.*.kind == TokenKind.SingleLineComment) || (lt.*.kind == TokenKind.MultiLineComment) || (lt.*.kind == TokenKind.DocLineComment) || (lt.*.kind == TokenKind.InnerDocLineComment) || (lt.*.kind == TokenKind.DocBlockComment) || (lt.*.kind == TokenKind.InnerDocBlockComment)),
         .None => false
       );
       if(!is_trivia, {
@@ -2179,7 +2179,7 @@ impl(
       (stop == start) => usize(0),
       true => match(
         self.tokens.get_cloned(stop),
-        .Some(nx) => usize(nx.byte_offset),
+        .Some(nx) => usize(nx.*.byte_offset),
         .None => usize(0)
       )
     )
@@ -2194,7 +2194,7 @@ impl(
     (found : bool) = false;
     while((si > usize(0)) && !found, {
       si = (si - usize(1));
-      found = match(self.tokens.get_cloned(si), .Some(t) => (t.byte_offset == first.byte_offset), .None => false);
+      found = match(self.tokens.get_cloned(si), .Some(t) => (t.*.byte_offset == first.*.byte_offset), .None => false);
     });
     if(!found, {
       return(String.new());
@@ -2219,7 +2219,7 @@ impl(
       (open_found : bool) = false;
       while((pi > usize(0)) && !open_found, {
         pi = (pi - usize(1));
-        k := match(self.tokens.get_cloned(pi), .Some(t) => t.kind, .None => TokenKind.Whitespace);
+        k := match(self.tokens.get_cloned(pi), .Some(t) => t.*.kind, .None => TokenKind.Whitespace);
         if(k == TokenKind.LParen, {
           open_found = true;
         }, {
