@@ -1,0 +1,26 @@
+// expect: E0911
+// VERDICTS-78 edge 7, the cursor in a field: `c.cur = &mut n.next` re-points a `&mut` reference field
+// through the arm binding of `match(&mut c.cur.*, …)`. Sound (Rust accepts it); E0911 today because the
+// VERDICTS-71 re-point exception is keyed on a local borrow, not on a place. A precision gap, not a
+// soundness one: issues/2026-11-25-a-cursor-held-in-a-reference-field-cannot-be-re-pointed-through-its-match-binding.md.
+// The fix makes this row a `-pos` twin.
+{ println } :: import("std/fmt");
+Node :: struct(v : i32, next : Option(Box(Self)));
+C :: struct(cur : &mut Option(Box(Node)), n : i32);
+main :: (fn() -> unit)({
+  mut(list) := Option(Box(Node)).Some(Box.new(Node(v : i32(1), next : .Some(Box.new(Node(v : i32(2), next : .None))))));
+  mut(c) := C(cur : &mut list, n : i32(0));
+  while(
+    c.cur.is_some(),
+    match(
+      &mut c.cur.*,
+      .Some(n) => {
+        c.cur = &mut n.next;
+      },
+      .None => ()
+    )
+  );
+  c.cur.* = .Some(Box.new(Node(v : i32(3), next : .None)));
+  println(`OUT: ${c.n.to_string()}`);
+});
+export(main);

@@ -1,225 +1,86 @@
 # Yo Roadmap
 
-**Statuses trued 2026-11-08** (after the 2026-11-07 audit of every plan). One
-line per item; the linked doc carries the detail and its own status. History
-lives in the docs, not here.
+**Updated 2026-11-27.** One line per item. The linked doc holds the detail,
+the status and the history. A PR that lands, starts, slips or adds an item
+updates its line here in the same PR.
 
 ## Positioning
 
-**Memory-safe without a collector or region lifetimes, verifies gradually,
-compiles to readable C11, designed for the LLM era.**
+Memory-safe without a collector or region lifetimes, verifies gradually,
+compiles to readable C11, designed for the LLM era. Yo takes Rust's ownership
+model (unique values, `Rc`/`Arc`/`Weak`, exclusivity-checked references whose
+origins name *what* is borrowed) and adds algebraic effects, comptime and a
+built-in verifier.
 
-Yo takes Rust's memory model:
-- values with unique ownership;
-- `Rc`/`Arc` for sharing, and `Weak`/`ArcWeak` for back edges;
-- no collector (VALUES_BY_DEFAULT decision 48);
-- first-class, exclusivity-checked references.
+## Now: VALUES_BY_DEFAULT finishes
 
-Its references `&(T, p)` are parameterized by origins, which name *what* is
-borrowed (a set of places) rather than *how long* (decision 43). The target is
-a borrow checker with Rust-parity expressiveness and no soundness holes
-(decision 50). "Rust-parity" stays a target, not a v0.2.80 fact: v0.2.80
-claims the language migration and a checker that is sound on what it accepts,
-and the parity claim is made when `DIVERGENCES.tsv` has no row "rejected
-pending a parity item"
-([`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) §1).
-
-On top of that Yo adds algebraic effects, comptime and a built-in verifier. It
-aims at two niches the incumbents leave open: humane verified systems
-programming, and a language designed for LLM authorship from day one.
-
-## Done
-
-- **Self-hosting.** The compiler is written in Yo, builds itself from the
-  previous release, and ships installers, release bundles and a Yo-native
-  LSP ([`archive/BOOTSTRAPPING.md`](archive/BOOTSTRAPPING.md)).
-- **Formal verification, V1–V7.** `requires`/`ensures`, loop invariants,
-  `decreases`, ghost code and laws, lowered to SMT-LIB and discharged by Z3.
-  `yo verify --strict` is a CI gate
-  ([`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md), the
-  verifier's design of record).
-- **Iteration speed.** An artifact cache, a resident `--watch` checker, and
-  chunked C emission with a `.o` cache
-  ([`reference/INCREMENTAL_COMPILATION.md`](reference/INCREMENTAL_COMPILATION.md),
-  [`reference/CHUNKED_C_EMISSION.md`](reference/CHUNKED_C_EMISSION.md)).
-- **Diagnostics.** Structured, coded errors; `yo explain`; `--error-format`;
-  `yo fix` applying structured repairs
-  ([`reference/ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md)).
-- **Build and dependencies.** `yo.toml`, `yo.lock`, a content-addressed
-  store, and `yo build` over a parallel DAG
-  ([`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md)).
-- **Targets.** macOS, Linux and Windows on x86_64 and arm64, plus
-  `wasm32-wasi` and emscripten, all in CI, and a portable single-file `yo.c`
-  ([`reference/WASM_SUPPORT.md`](reference/WASM_SUPPORT.md),
-  [`reference/PORTABLE_C_DISTRIBUTION.md`](reference/PORTABLE_C_DISTRIBUTION.md)).
-- **LLM-first toolchain.** Agent-oriented CLI and diagnostics, `yo init`
-  agent scaffolding, and `yo context`
-  ([`reference/YO_CONTEXT.md`](reference/YO_CONTEXT.md)).
-- **Parallelism soundness.** Data-race freedom for safe code (rules D1–D10,
-  with `Send`/`Sync` split as in Rust), enforced at `check`, with a TSan run as
-  the standing proof
-  ([`reference/PARALLELISM_RULES.md`](reference/PARALLELISM_RULES.md)).
-  **Known gap, 2026-11-13 (VERDICTS-58 decision 6):** two S1 holes in rule
-  D1's thread reach walk are open, so "data-race freedom for safe code" is
-  not yet a claim that holds: the walk does not see `Drop`, so a value
-  dropped on another thread races on a global
-  (`issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`,
-  audit A41), and it trusts every std body, including the user impls a std
-  generic calls
-  (`issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`,
-  audit A42). They belong to `PARALLELISM_RULES.md`, which VBD did not
-  change, so they are post-VBD lane A items ahead of scoped threads
-  ([`backlog/POST_VBD_PLAN.md`](backlog/POST_VBD_PLAN.md)).
-- **Real pattern matching**
-  ([`reference/MATCH_PATTERN_MATCHING.md`](reference/MATCH_PATTERN_MATCHING.md)),
-  and **`#line` debug info**
-  ([`reference/LINE_DIRECTIVES.md`](reference/LINE_DIRECTIVES.md)).
-- **Async.** The single-pass resumable state-machine lowering, await-site
-  fusion, a value `JoinHandle` and future-taking `timeout`/`select`
-  ([`reference/ASYNC_AWAIT_SITE_FUSION.md`](reference/ASYNC_AWAIT_SITE_FUSION.md),
-  [`archive/ASYNC_STATE_MACHINE_GENERATION.md`](archive/ASYNC_STATE_MACHINE_GENERATION.md)).
-- **Safe mode, phases 0a–5b.2.** Loud unwinds, bounds-checked indexing,
-  guarded division, overflow traps, saturating casts, and verifier-driven
-  guard elision ([`backlog/SAFE_MODE.md`](backlog/SAFE_MODE.md)).
-- **Inside VBD, landed:**
-  - `String` and the collections as values
-    ([`archive/STRING_VALUE_SEMANTICS.md`](archive/STRING_VALUE_SEMANTICS.md));
-  - `Rc`/`Arc` without a collector, with `Weak`
-    ([`archive/WEAK_AND_UNCOLLECTED_RC.md`](archive/WEAK_AND_UNCOLLECTED_RC.md));
-  - allocator placement by argument
-    ([`reference/ALLOCATOR_PLACEMENT.md`](reference/ALLOCATOR_PLACEMENT.md));
-  - static argument inference
-    ([`archive/STATIC_ARGUMENT_INFERENCE.md`](archive/STATIC_ARGUMENT_INFERENCE.md));
-  - the isolated-transfer type deleted;
-  - kebab-case package names;
-  - decision 43's reference checker N0–N3
-    ([`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)).
-
-## Now — only VALUES_BY_DEFAULT (v0.2.80 → v0.2.82)
-
-Every declared type is a value, `ref(...)`/`atomic(...)` leave the language,
-references carry origins, and the checker is sound on what it accepts
-([`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); release by release in
-[`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md), whose
-§1 names the two claims v0.2.80 makes; what each v0.2.79 PR retired
-and the claim's draft text are in
-[`handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md`](handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md)).
-What remains:
+[`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); each release's full scope is in
+[`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md).
 
 | Release | Content |
 | --- | --- |
-| **v0.2.77** | **Published 2026-11-13.** The `yo fix` migrations retire (every mode except `deref`); G2's borrowing collections (`impl(&C, IntoIterator)`); decision 49 S1 (`?Sized`, `str`, `[T]`, `Dyn`, compiler half) with `Box` layout L1; brace groups Generation A; the borrow-checker stack O-1…O-6, P3, P8, P9 and the audit's cut-gate fixes. The parser's `ref`/`atomic` drop moved to v0.2.79 |
-| **v0.2.78** | **Published 2026-11-16.** The audit's clusters 1–9 closed by rule or wall; brace groups Generation B; decision 49 S2's `Dyn` flip (`Box(Dyn)` over a fat `*Dyn`, `Box` layout L2) with the `unsized` sweep; the `deref` sweep's text; the borrow-program generator and the rustc differential corpus. Kebab-case module files (Part C) did not land |
-| **v0.2.79** | **Published 2026-11-20.** The parser drop (`ref`/`atomic` are E0009); `str` unsized; the `deref` flip; the three-tree retype; kebab-case std module files with `yo fix --module-names` |
-| **v0.2.80** (forecast ~2026-11-28 to 12-02; cut by 12-11) | **The claim release.** S3b-`str` (the value `str` alias deleted), P12 (`static` a checked origin), `yo fix --migrate` deleted, `Deref` member forwarding deleted (`.*` only), the std `Deref` impls, test 7. **The language migration is complete** (claim L) and the checker is sound on what it accepts (claim S) |
-| **v0.2.81** | Implicit dup deleted (VERDICTS-70 rows 6–14: `___dup`, the guard, `strong_count`), owned destructuring consumes its source (VERDICTS-76 Q2), IO-1b |
-| **v0.2.82** | Implicit drop deleted (VERDICTS-70 row 15: `drop_in_place` Generation B, `___drop` gone); VBD closes |
+| v0.2.80 | Published 2026-11-26. The language migration is complete. The soundness claim is not made while known S1s stay open |
+| v0.2.81 | Implicit dup deleted (VERDICTS-70 rows 7–14); owned destructuring consumes its source; `Deref` forwarding deleted; `Display`/`Debug` replace `ToString`; std's Rust alignment S-1–S-4 and S-6; IO-1b; variant patterns (VERDICTS-88); the spec/proof soundness rules ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md) PR 0, 1a, 1b); the async allocation baseline ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md) AFA-0) |
+| v0.2.82 | Implicit drop deleted (VERDICTS-70 row 15); VBD closes |
 
-## Next — after VBD (from v0.2.80)
+## Next: after VBD
 
-The concrete, release-mapped plan is
-[`backlog/POST_VBD_PLAN.md`](backlog/POST_VBD_PLAN.md). It runs six lanes,
-with at most four running at once:
+Six lanes, at most four at once
+([`backlog/POST_VBD_PLAN.md`](backlog/POST_VBD_PLAN.md)):
 
-- **A. Soundness and language completion.**
-  - The type-system soundness remainder
-    ([`backlog/TYPE_SYSTEM_SOUNDNESS.md`](backlog/TYPE_SYSTEM_SOUNDNESS.md)).
-  - The `Comptime` storage rule
-    ([`backlog/COMPTIME_METAPROGRAMMING_AUDIT.md`](backlog/COMPTIME_METAPROGRAMMING_AUDIT.md)).
-  - The walls VBD dropped, in order: N2c–N2f with P4 and P5, then the
-    thread reach walk's holes (A41/A42), then scoped threads (P6), then
-    lending iterators through a trait (P7).
-  - The borrow checker's standing gates.
-- **B. Runtime and platform.** In order:
-  1. `Io` becomes an interface value
-     ([`backlog/IO_INTERFACE_AND_STD_RUNTIME.md`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)).
-     Allocation-free async follows it: a future value is cold and movable,
-     a started future is a place that never moves, `Impl(Future)` is static
-     dispatch and the erased future is `BoxFuture` (decided 2026-11-25; the
-     plan lands in v0.2.81–82, code from v0.2.83;
-     [`backlog/ALLOCATION_FREE_ASYNC.md`](backlog/ALLOCATION_FREE_ASYNC.md)).
-  2. `ThreadPool` owns its workers and shares one queue
-     ([`reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](reference/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)): landed in v0.2.80 (TP-1).
-  3. The root `global_allocator`.
-  4. No libc by default, Zig's default
-     ([`backlog/NO_LIBC_BY_DEFAULT.md`](backlog/NO_LIBC_BY_DEFAULT.md)), with
-     the `std/heap` catalogue
-     ([`backlog/ZIG_STYLE_ALLOCATORS.md`](backlog/ZIG_STYLE_ALLOCATORS.md)).
-- **C. Performance.** VBD deferred all performance work, and memory grew 1.7×
-  during it. The lane re-baselines first, then:
-  - compiler memory and time
-    ([`backlog/EVALUATOR_MEMORY_REDUCTION.md`](backlog/EVALUATOR_MEMORY_REDUCTION.md),
-    [`backlog/CODEGEN_MEMORY_REDUCTION.md`](backlog/CODEGEN_MEMORY_REDUCTION.md),
-    [`backlog/PARALLEL_COMPILATION.md`](backlog/PARALLEL_COMPILATION.md));
-  - the generated code's gap to Rust
-    ([`backlog/CODEGEN_PERFORMANCE.md`](backlog/CODEGEN_PERFORMANCE.md)).
-- **D. Docs and the agent loop.**
-  - The docs teach only the finished language, with a type-check gate on
-    every block, and the skills are deleted
-    ([`backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md`](backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md)).
-  - The ownership and borrowing guide: promoted in v0.2.80 to
-    [`docs/en-US/OWNERSHIP_AND_BORROWING.md`](../docs/en-US/OWNERSHIP_AND_BORROWING.md).
-  - The evals corpus that measures agents writing Yo
-    ([`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
-    B4).
-- **E. Verification as the flagship.** It starts by verifying std bodies
-  instead of assuming them, which unblocks:
-  - imported-module guard elision and strict mode
-    ([`backlog/SAFE_MODE.md`](backlog/SAFE_MODE.md));
-  - the std lemma library
-    ([`backlog/THEOREM_PROVING_DIRECTION.md`](backlog/THEOREM_PROVING_DIRECTION.md));
-  - the compiler as the verifier's flagship user
-    ([`backlog/SELF_VERIFICATION.md`](backlog/SELF_VERIFICATION.md)).
+- **A. Soundness.** [`TYPE_SYSTEM_SOUNDNESS`](backlog/TYPE_SYSTEM_SOUNDNESS.md);
+  the walls VBD dropped in [`REFERENCES_AND_ORIGINS`](backlog/REFERENCES_AND_ORIGINS.md),
+  then the D1 thread-reach holes (A41/A42), scoped threads and lending iterators.
+- **B. Runtime.** The `Io` interface
+  ([`IO_INTERFACE_AND_STD_RUNTIME`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)),
+  then allocation-free async ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md)),
+  `global_allocator`, and no libc by default
+  ([`NO_LIBC_BY_DEFAULT`](backlog/NO_LIBC_BY_DEFAULT.md),
+  [`ZIG_STYLE_ALLOCATORS`](backlog/ZIG_STYLE_ALLOCATORS.md)).
+- **C. Performance.** Compiler memory and time
+  ([`EVALUATOR_MEMORY_REDUCTION`](backlog/EVALUATOR_MEMORY_REDUCTION.md),
+  [`CODEGEN_MEMORY_REDUCTION`](backlog/CODEGEN_MEMORY_REDUCTION.md),
+  [`PARALLEL_COMPILATION`](backlog/PARALLEL_COMPILATION.md)) and the generated
+  code ([`CODEGEN_PERFORMANCE`](backlog/CODEGEN_PERFORMANCE.md)).
+- **D. Docs and agents.** One source of truth for agents
+  ([`AGENT_KNOWLEDGE_CONSOLIDATION`](backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md))
+  and an evals corpus
+  ([`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)).
+- **E. Verification.** Verification on by default
+  ([`DEFAULT_ON_VERIFICATION`](backlog/DEFAULT_ON_VERIFICATION.md), first);
+  `logic` and `lemma` replace `ghost_fn`
+  ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md)); verified std bodies
+  ([`SAFE_MODE`](backlog/SAFE_MODE.md),
+  [`THEOREM_PROVING_DIRECTION`](backlog/THEOREM_PROVING_DIRECTION.md),
+  [`SELF_VERIFICATION`](backlog/SELF_VERIFICATION.md)); a proved core
+  ([`PROVEN_CORE`](backlog/PROVEN_CORE.md)).
+- **F. std and reach.** [`STD_RUST_ALIGNMENT`](backlog/STD_RUST_ALIGNMENT.md),
+  [`STABLE_C_ABI`](backlog/STABLE_C_ABI.md),
+  [`GITHUB_LINGUIST_SUPPORT`](backlog/GITHUB_LINGUIST_SUPPORT.md), a package
+  registry ([`PACKAGE_MANAGER_DISTRIBUTION`](backlog/PACKAGE_MANAGER_DISTRIBUTION.md)),
+  [`SEED_VERSION_AUTOMATION`](backlog/SEED_VERSION_AUTOMATION.md).
 
-  A separate track aims at end-to-end correctness: a core IR specified in
-  Lean, and a small proved checker that re-validates what the compiler
-  produced ([`backlog/PROVEN_CORE.md`](backlog/PROVEN_CORE.md), decided
-  2026-11-13, after VBD).
+## Done
 
-  Verification becomes the default in stages, and this is lane E's first
-  track after VBD (decided 2026-11-13,
-  [`backlog/DEFAULT_ON_VERIFICATION.md`](backlog/DEFAULT_ON_VERIFICATION.md)):
-  `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` first, and the
-  language default then flips from `runtime` in two steps (amended
-  2026-11-15): it reports first (proves what it can, fails on a refuted
-  contract, keeps every runtime check) once incremental verification and the
-  solver's distribution have landed, and it erases proved checks once std
-  bodies are proved.
-- **F. std and reach.**
-  - std's shapes against Rust's (closures by value, a read API on `str`, getters that lend, borrowing `iter()`, `&str`
-    text parameters) and the compiler's Rust-name hints, S-0..S-6 and P-1..P-4, plus the `try(expr)` builtin (L-1)
-    ([`backlog/STD_RUST_ALIGNMENT.md`](backlog/STD_RUST_ALIGNMENT.md); S-1 to S-6 in v0.2.81).
-  - HTTP keep-alive and `lines()`.
-  - Raw string literals.
-  - A package registry and `yo publish`
-    ([`backlog/PACKAGE_MANAGER_DISTRIBUTION.md`](backlog/PACKAGE_MANAGER_DISTRIBUTION.md)).
-  - Seed follow-ups
-    ([`backlog/SEED_VERSION_AUTOMATION.md`](backlog/SEED_VERSION_AUTOMATION.md)).
-  - An idiomatic example corpus for pretraining.
+- Self-hosting, from the previous release ([`archive/BOOTSTRAPPING.md`](archive/BOOTSTRAPPING.md)).
+- Formal verification V1–V7 with Z3 ([`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md)).
+- Incremental and chunked compilation ([`reference/INCREMENTAL_COMPILATION.md`](reference/INCREMENTAL_COMPILATION.md)).
+- Coded diagnostics, `yo explain`, `yo fix` ([`reference/ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md)).
+- `yo.toml`, `yo.lock` and `yo build` ([`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md)).
+- macOS, Linux, Windows, wasm and a portable `yo.c` ([`reference/WASM_SUPPORT.md`](reference/WASM_SUPPORT.md)).
+- `yo context` and agent scaffolding ([`reference/YO_CONTEXT.md`](reference/YO_CONTEXT.md)).
+- Parallelism rules D1–D10 ([`reference/PARALLELISM_RULES.md`](reference/PARALLELISM_RULES.md)); two D1 S1 holes are open (lane A).
+- Pattern matching ([`reference/MATCH_PATTERN_MATCHING.md`](reference/MATCH_PATTERN_MATCHING.md)).
+- Async state machines ([`reference/ASYNC_AWAIT_SITE_FUSION.md`](reference/ASYNC_AWAIT_SITE_FUSION.md)).
+- Safe mode phases 0a–5b.2 ([`backlog/SAFE_MODE.md`](backlog/SAFE_MODE.md)).
+- VBD through v0.2.80: values, `Rc`/`Arc`/`Weak` without a collector, origins.
 
 ## Non-goals
 
-- **Competing with Rust on zero-overhead abstractions, or with C on manual
-  control.** Unique ownership with counted sharing (`Rc`/`Arc`/`Weak`) is the
-  identity. Arenas come as values and as origins
-  ([`backlog/ZIG_STYLE_ALLOCATORS.md`](backlog/ZIG_STYLE_ALLOCATORS.md)), for
-  phase-structured data.
-- **Rust-style region lifetimes in the surface language.**
-  - An origin is a declared set of places. There are no abstract `'a`
-    regions or outlives bounds in signatures, conflict is set intersection,
-    and coercion is subset.
-  - Inside a body, the checker is NLL-shaped: flow-inferred origins plus
-    liveness ([`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)).
-  - The expressiveness target is Rust parity, and the Polonius-only cases are
-    a recorded divergence (decision 50).
-- **Runtime dependent types.** Runtime properties go through the verifier
-  ([`reference/DEPENDENT_TYPES_POSITION.md`](reference/DEPENDENT_TYPES_POSITION.md)).
-- **A native or LLVM backend.** Yo compiles to C, and compile-speed work stays
-  inside the C backend.
-- **A self-hosted prover.** SMT solvers are the backend. Yo owns obligation
-  generation and the gradual `VerifyOrAssert` experience.
-- **Migrating a started async task between threads.** Async is
-  single-threaded per thread. A `Send`-gated work-stealing executor is
-  deferred, not rejected
-  ([`backlog/IO_INTERFACE_AND_STD_RUNTIME.md`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)
-  §7).
+- Out-competing Rust's zero-overhead abstractions or C's manual control.
+- Region lifetimes in the surface language: an origin is a set of places
+  ([`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)).
+- Runtime dependent types ([`reference/DEPENDENT_TYPES_POSITION.md`](reference/DEPENDENT_TYPES_POSITION.md)).
+- A native or LLVM backend.
+- A self-hosted prover: SMT solvers are the backend.
+- Moving a started async task between threads.
