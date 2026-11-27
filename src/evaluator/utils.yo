@@ -297,6 +297,10 @@ derive(BorrowMatchSourceDecl, Clone);
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
+/// Field nodes `s.r` read through `s.r.*` (a reference field dereferenced),
+/// with the field's reference type: a local borrow `&mut s.r.*` reborrows
+/// through it (VERDICTS-76 row 12, `note_reference_field_deref`).
+(g_reference_field_derefs : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
 /// The targets `h.r` of the stores `h.r = e` being evaluated, by their field
 /// label's source position (`reference_field_store_mark`).
 (g_reference_field_stores : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -7251,6 +7255,17 @@ note_reference_field_read :: (fn(id : usize, ref_ty : &TypeValue) -> unit)({
   _old := g_reference_field_reads.with_mut({ id, ty : Rc.clone(ref_ty) }(m) => m.insert(id, Rc.clone(ty)));
   ()
 });
+/// The field node `id` (`s.r`) is dereferenced (`s.r.*`); `ref_ty` is the
+/// field's reference type.
+note_reference_field_deref :: (fn(id : usize, ref_ty : &TypeValue) -> unit)({
+  _old := g_reference_field_derefs.with_mut({ id, ty : Rc.clone(ref_ty) }(m) => m.insert(id, Rc.clone(ty)));
+  ()
+});
+/// The field's reference type when the node `id` is a dereferenced
+/// reference field (`note_reference_field_deref`).
+reference_field_deref_type :: (fn(id : usize) -> Option(TypeValue))(
+  if(g_reference_field_derefs.with(_c_len_2) == usize(0), Option(TypeValue).None, g_reference_field_derefs.with(m => m.get_cloned(&id)))
+);
 /// The field's reference type when the node `id` reads a reference field.
 reference_field_read_type :: (fn(id : usize) -> Option(TypeValue))(
   if(g_reference_field_reads.with(_c_len_2) == usize(0), Option(TypeValue).None, g_reference_field_reads.with(m => m.get_cloned(&id)))
@@ -15080,6 +15095,8 @@ export(
   is_reference_read,
   reference_binding_read_type,
   note_reference_field_read,
+  note_reference_field_deref,
+  reference_field_deref_type,
   is_reference_field_read,
   reference_field_read_mode,
   reference_field_read_type,

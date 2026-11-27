@@ -178,7 +178,8 @@
   LocalBorrowElidedOrigin,
   bind_join_roots_for,
   variable_holder_roots,
-  local_borrow_alias_statement
+  local_borrow_alias_statement,
+  reference_field_deref_type
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -507,15 +508,19 @@ _evaluate_inout_local_binding :: (
           // `&mut s.r.*` through a reference FIELD (VERDICTS-76 row 12)
           // reborrows what the field refers to: the holder owns the field,
           // and the reborrow freezes it and the field's places.
-          d_is_reference_field_deref := (((dk + usize(1)) < hops.len()) && t_slot_is_borrow(&d_recv_ty));
-          if(d_is_reference_field_deref && is_mut && !t_slot_is_mut_ref(&d_recv_ty), {
+          // The field's own reference type: its read `s.r` is typed as the
+          // pointee (`note_reference_field_deref`, exprs/property-access.yo).
+          d_field_ref_ty := if((dk + usize(1)) < hops.len(), reference_field_deref_type(ast_expr_id(&d_recv)), Option(TypeValue).None);
+          d_is_reference_field_deref := d_field_ref_ty.is_some();
+          d_field_is_mut := match(&d_field_ref_ty, .Some(fr) => t_slot_is_mut_ref(fr), .None => false);
+          if(d_is_reference_field_deref && is_mut && !d_field_is_mut, {
             exn.throw(
               dyn(
                 Box.new(
                   with_code(
                     format_error_message_with_help(
                       ast_expr_token(&dhop.field),
-                      `Cannot borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\`: \`${ast_expr_to_string(&d_recv)}\` is a \`&\` reference (\`${type_to_string(&d_recv_ty)}\`), which is read-only.`,
+                      `Cannot borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\`: \`${ast_expr_to_string(&d_recv)}\` is a \`&\` reference (\`${match(&d_field_ref_ty, .Some(fr) => type_to_string(fr), .None => type_to_string(&d_recv_ty))}\`), which is read-only.`,
                       Option(String).Some(`borrow it read-only: \`&${local_borrow_place_text(rhs)}\``)
                     ),
                     E_WRITE_THROUGH_BORROW

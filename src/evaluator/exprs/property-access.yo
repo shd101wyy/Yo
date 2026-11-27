@@ -65,7 +65,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_error, get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE, E_TRAIT_NOT_IMPLEMENTED } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted, is_reference_field_store_target } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_exempt_take, projection_call_mode_of, note_reference_field_read, note_reference_field_deref, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted, is_reference_field_store_target } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory-safety.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
@@ -134,6 +134,8 @@ _reference_field_read_place :: (fn(ft : &TypeValue, expr : &AstExpr, property_ex
             if(!exempt && deref_rule_applies(&rf_tok, ctx) && !reference_read_wanted(&rf_tok, false, ctx), {
               reject_reference_field_without_deref(&local_borrow_place_text(expr), &rf_tok.value.*, ft, &rf_tok, ctx, exn);
             });
+          }, {
+            note_reference_field_deref(ast_expr_id(expr), ft);
           });
           Rc.clone(rf_pointee)
         }
