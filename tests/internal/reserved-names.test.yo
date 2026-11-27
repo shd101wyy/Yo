@@ -24,9 +24,13 @@ _constants :: (fn() -> HashMap(String, String))({
         line.index_of(" :: \""),
         .Some(at) => {
           rest := line.substring(at + usize(5), line.len());
-          match(rest.index_of("\""), .Some(q) => {
-            out.insert(line.substring(usize(0), at), rest.substring(usize(0), q));
-          }, .None => ());
+          match(
+            rest.index_of("\""),
+            .Some(q) => {
+              out.insert(line.substring(usize(0), at), rest.substring(usize(0), q));
+            },
+            .None => ()
+          );
         },
         .None => ()
       );
@@ -61,9 +65,13 @@ _dispatch_heads :: (fn() -> ArrayList(String))({
   heads := ArrayList(String).new();
   (from : usize) = usize(0);
   while(true, {
-    at := match(body.index_of(needle, from), .Some(i) => i, .None => {
-      break;
-    });
+    at := match(
+      body.index_of(needle, from),
+      .Some(i) => i,
+      .None => {
+        break;
+      }
+    );
     arg_start := (at + needle.len());
     arg_end := match(body.index_of(",", arg_start), .Some(i) => i, .None => body.len());
     arg := body.substring(arg_start, arg_end);
