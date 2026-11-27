@@ -135,6 +135,10 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
 // O(distinct types on path) and is MORE precise than depth truncation (each
 // distinct type still gets a distinct key), so C-type identity is preserved.
 (g_tk_visited : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+/// `rec:` + declaration identity per enum id, the head of `_tk_enum_cut`'s
+/// rendering: a cut is the hottest string `type_key` builds, and this makes
+/// it one copy. An id gets its declaration once, when its definition starts.
+(g_tk_cut_heads : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Resolve a SomeT TYPE-ARGUMENT slot through its resolution chain
 /// (cycle-guarded) before keying. Bare-id keying of argument slots split one
 /// logical instantiation into two C types whenever two records held the same
@@ -287,6 +291,47 @@ _tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
     Rc(.OriginSet(_, _)) => String.from("origin"),
     _ => type_to_string(&t)
   )
+});
+/// How an enum instance renders where the key does not expand it: at a node
+/// the walk already expanded (the recursion cut) and past the depth cap.
+/// `rec:`, its declaration identity and the keys of its type arguments, never
+/// its id: a substituted copy keeps its definition-era id, the constructor's
+/// own instance carries a fresh one, and the two are one type
+/// (plans/reference/TYPE_IDENTITY.md; VERDICTS-77, I2). An id with no recorded
+/// declaration renders as the id.
+_tk_enum_cut :: (fn(eid : &String, rs : &TypeValue, depth : usize) -> String)({
+  out := match(
+    g_tk_cut_heads.with({ eid : &eid.* }(m) => m.get_cloned(eid)),
+    .Some(h) => h,
+    .None => match(
+      enum_decl_identity(eid),
+      .Some(decl) => {
+        h := String.from("rec:");
+        h.push_string(&decl);
+        hk := eid.clone();
+        hv := h.clone();
+        _ := g_tk_cut_heads.with_mut({ hk, hv }(m) => m.insert(hk, hv));
+        h
+      },
+      .None => {
+        return(eid.clone());
+      }
+    )
+  );
+  cut_tas := match(rs, Rc(.EnumT({ type_arguments : ctas })) => Rc.clone(ctas), _ => no_types());
+  (i : usize) = usize(0);
+  while(i < cut_tas.len(), {
+    match(
+      cut_tas.get(i),
+      .Some(cut_ta) => {
+        out.push_str("|");
+        out.push_string(_type_key_at(&_tk_resolve_arg_slot(&cut_ta), depth + usize(1)));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
 });
 _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
   match(
@@ -513,7 +558,8 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       e_is_ref := match(&rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs.*, _ => false);
       evfls := match(&rs, Rc(.EnumT({ variant_field_labels : rvfls })) => Rc.clone(rvfls), _ => no_label_lists());
       // Cycle guard (see g_tk_visited): an enum already on the expansion
-      // path renders id-only rather than re-expanding its variant fields. The
+      // path renders as its cut (`_tk_enum_cut`: declaration and arguments,
+      // no id) rather than re-expanding its variant fields. The
       // node is the id AND its type arguments' identities, as the Struct arm's:
       // substitution keeps an instance's def-era id, so a generic fn applied
       // to its own result (`wrap(wrap(x))`, `wrap : fn(U) -> Option(U)`) nests
@@ -524,7 +570,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       e_node_targs := match(&rs, Rc(.EnumT({ type_arguments : nd_tas })) => Rc.clone(nd_tas), _ => no_types());
       e_node := _tk_node_id(&eid, &e_node_targs);
       if((eid.len() > usize(0)) && _tk_seen(&e_node), {
-        return(eid.clone());
+        return(_tk_enum_cut(&eid, &rs, depth));
       });
       if(eid.len() > usize(0), {
         g_tk_visited.with_mut(xs => xs.push(e_node.clone()));
@@ -540,8 +586,10 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // AND still collapses the synthetic rendition with real `Option(T)`
       // instances (same sig). Only the DEPTH guard keeps the name-only shortcut
       // (recursion bound); empty-id enums are leaf-shaped here (no id-keyed
-      // cycle guard), so the depth bound suffices.
-      if(depth > usize(4), if(eid.len() > usize(0), eid.clone(), type_to_string(&rs)), {
+      // cycle guard), so the depth bound suffices. An enum with an id renders
+      // past the cap as its cut does (`_tk_enum_cut`), so a substituted copy
+      // and the constructor's instance agree there too.
+      if(depth > usize(4), if(eid.len() > usize(0), _tk_enum_cut(&eid, &rs, depth), type_to_string(&rs)), {
         // Build the per-field structural suffix ONCE (used in both the full key
         // and the structural signature).
         field_part := String.new();
