@@ -12,8 +12,8 @@ starts at v0.2.83 and ends around v0.2.87.** The fact base is `origin/develop`
 This plan answers one question: how does a Yo future stop being a separately
 allocated, reference-counted cell, without `Pin`, without immovable types and
 without a rule against borrowing a body local across an `await`? It also
-answers the open question
-[`issues/questions/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md`](../../issues/questions/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md):
+answers the design question
+[`issues/retired/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md`](../../issues/retired/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md):
 **retract** (B). `Impl(Future(T, E))` becomes static dispatch at every slot,
 and the erased future gets its own type, `BoxFuture(T, E)`.
 
@@ -375,12 +375,31 @@ column is the stage's acceptance number.
 
 | Measure | Baseline (VERDICTS-81 probes; AFA-0 re-measures on `async-chain`) | Target | Stage |
 | --- | --- | --- | --- |
-| instructions per `p2` iteration | 1,412 (~92 ns) | ≤ 400 (model `m1`: 160, ~8.5 ns) | AFA-3 |
+| instructions per `p2` iteration (`async-chain`, mode `chain`) | **1,416** (AFA-0, `perf stat`; the probe's callgrind figure was 1,412, ~92 ns) | ≤ 400 (model `m1`: 160, ~8.5 ns) | AFA-3 |
+| instructions per `select` of two no-await operands (mode `select`) | **1,795** | recorded; AFA-6's acceptance is cells, this is its cost | AFA-6 |
+| instructions per `timeout` of a no-await operand, one-second deadline (mode `timeout`) | **3,677** | recorded; AFA-6's acceptance names this bench | AFA-6 |
+| instructions per `io.spawn` of a no-await task plus its `join` (mode `spawn`) | **147** | recorded; AFA-4 keeps the block count at one | AFA-4 |
+| instructions per channel round trip, two tasks and two capacity-1 channels (mode `pingpong`) | **3,935** | recorded; AFA-8's acceptance is cells | AFA-8 |
 | cells per cold await at a static site | 1 | 0 | AFA-3 |
 | cells per `select` / `timeout` | **7 per `select`** of two no-await operands: 1 `select` future, 2 operand tasks, 2 join futures, 2 join waits. **9 per `timeout`** of a no-await operand: 1 `timeout` future, 1 operand task, 1 deadline task, 2 join futures, its timer future, 2 join waits and the wait on both (an `Rc` besides, which is not a future cell). Counted by `YO_ASYNC_STATS=1` on `scripts/bench/async-chain.yo` (AFA-0): 3 state machines + 2 sync futures + 2 I/O-class cells per `select`; 4 + 1 + 4 per `timeout` | 0 | AFA-6 |
 | cells per executor operation (`yield`, `park`, `sleep`, join wait, channel ping-pong, `Mutex.lock`) | 1 | 0 | AFA-8 |
 | mallocs per std I/O call | 1 | 0 | AFA-9 |
 | std I/O versus the raw operation (`std-vs-raw`) | 1.00–1.01 | no worse | every stage |
+
+How the instruction rows are measured (AFA-0, 2026-11-27, x86_64 WSL2, `-O2`,
+the tree-built compiler of develop `9b350465d` with its `std/`, 100,000 iterations):
+
+```bash
+YO=$(which yo) YO_STD=$PWD/std bash scripts/bench-async-chain.sh
+```
+
+Each mode runs at N = 0 and at N = 100,000; the figure is the difference
+over N. The counter is `perf stat -e instructions:u` (user-space
+instructions, a count and not a clock); where perf cannot count the script
+uses `valgrind --tool=callgrind` and says so on its first line (callgrind
+gives 1,425 for `chain`). One mode alone: `BENCH_MODE=select BENCH_COUNT=100000
+./bench`, with the binary from
+`yo compile scripts/bench/async-chain.yo --optimize 2 -o bench`.
 
 ## 6. Rejected
 
