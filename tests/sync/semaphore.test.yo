@@ -91,84 +91,84 @@ test("Semaphore never admits more holders than it has permits", {
   t1 := Thread(unit).spawn({ sem : Arc.clone(sem), inside : Arc.clone(inside), violations : Arc.clone(violations), saw_full : Arc.clone(saw_full), completed : Arc.clone(completed) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
-      sem.acquire();
-      now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
+      sem.*.acquire();
+      now := (inside.*.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
       cond(
         (now > i32(2)) => {
-          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+          violations.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         (now == i32(2)) => {
-          saw_full.fetch_add(i32(1), MemoryOrder.AcqRel);
+          saw_full.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
       sleep_blocking(Duration.from_millis(i64(1)));
-      inside.fetch_sub(i32(1), MemoryOrder.AcqRel);
-      sem.release();
-      completed.fetch_add(i32(1), MemoryOrder.AcqRel);
+      inside.*.fetch_sub(i32(1), MemoryOrder.AcqRel);
+      sem.*.release();
+      completed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       i = (i + i32(1));
     });
   });
   t2 := Thread(unit).spawn({ sem : Arc.clone(sem), inside : Arc.clone(inside), violations : Arc.clone(violations), saw_full : Arc.clone(saw_full), completed : Arc.clone(completed) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
-      sem.acquire();
-      now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
+      sem.*.acquire();
+      now := (inside.*.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
       cond(
         (now > i32(2)) => {
-          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+          violations.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         (now == i32(2)) => {
-          saw_full.fetch_add(i32(1), MemoryOrder.AcqRel);
+          saw_full.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
       sleep_blocking(Duration.from_millis(i64(1)));
-      inside.fetch_sub(i32(1), MemoryOrder.AcqRel);
-      sem.release();
-      completed.fetch_add(i32(1), MemoryOrder.AcqRel);
+      inside.*.fetch_sub(i32(1), MemoryOrder.AcqRel);
+      sem.*.release();
+      completed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       i = (i + i32(1));
     });
   });
   t3 := Thread(unit).spawn({ sem : Arc.clone(sem), inside : Arc.clone(inside), violations : Arc.clone(violations), saw_full : Arc.clone(saw_full), completed : Arc.clone(completed) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
-      sem.acquire();
-      now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
+      sem.*.acquire();
+      now := (inside.*.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
       cond(
         (now > i32(2)) => {
-          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+          violations.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         (now == i32(2)) => {
-          saw_full.fetch_add(i32(1), MemoryOrder.AcqRel);
+          saw_full.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
       sleep_blocking(Duration.from_millis(i64(1)));
-      inside.fetch_sub(i32(1), MemoryOrder.AcqRel);
-      sem.release();
-      completed.fetch_add(i32(1), MemoryOrder.AcqRel);
+      inside.*.fetch_sub(i32(1), MemoryOrder.AcqRel);
+      sem.*.release();
+      completed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       i = (i + i32(1));
     });
   });
   t4 := Thread(unit).spawn({ sem : Arc.clone(sem), inside : Arc.clone(inside), violations : Arc.clone(violations), saw_full : Arc.clone(saw_full), completed : Arc.clone(completed) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
-      sem.acquire();
-      now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
+      sem.*.acquire();
+      now := (inside.*.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
       cond(
         (now > i32(2)) => {
-          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+          violations.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         (now == i32(2)) => {
-          saw_full.fetch_add(i32(1), MemoryOrder.AcqRel);
+          saw_full.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
       sleep_blocking(Duration.from_millis(i64(1)));
-      inside.fetch_sub(i32(1), MemoryOrder.AcqRel);
-      sem.release();
-      completed.fetch_add(i32(1), MemoryOrder.AcqRel);
+      inside.*.fetch_sub(i32(1), MemoryOrder.AcqRel);
+      sem.*.release();
+      completed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       i = (i + i32(1));
     });
   });
@@ -176,11 +176,11 @@ test("Semaphore never admits more holders than it has permits", {
   t2.join();
   t3.join();
   t4.join();
-  assert(violations.load(MemoryOrder.Acquire) == i32(0), "never more than 2 threads inside a 2-permit region");
-  assert(completed.load(MemoryOrder.Acquire) == i32(100), "all 4 threads x 25 passes must complete");
-  assert(saw_full.load(MemoryOrder.Acquire) > i32(0), "the region must really have run 2 deep — otherwise this test proves nothing");
-  assert(inside.load(MemoryOrder.Acquire) == i32(0), "no thread is left inside");
-  assert(sem.available_permits() == i32(2), "every permit is returned");
+  assert(violations.*.load(MemoryOrder.Acquire) == i32(0), "never more than 2 threads inside a 2-permit region");
+  assert(completed.*.load(MemoryOrder.Acquire) == i32(100), "all 4 threads x 25 passes must complete");
+  assert(saw_full.*.load(MemoryOrder.Acquire) > i32(0), "the region must really have run 2 deep — otherwise this test proves nothing");
+  assert(inside.*.load(MemoryOrder.Acquire) == i32(0), "no thread is left inside");
+  assert(sem.*.available_permits() == i32(2), "every permit is returned");
 });
 
 // ============================================================================
@@ -198,46 +198,46 @@ test("Semaphore blocked acquirers are woken one per released permit", {
   arrived := Arc.new(AtomicI32.new(i32(0)));
   passed := Arc.new(AtomicI32.new(i32(0)));
   // The main thread drains both permits and keeps them for the whole window.
-  sem.acquire();
-  sem.acquire();
-  assert(sem.available_permits() == i32(0), "the semaphore is exhausted");
+  sem.*.acquire();
+  sem.*.acquire();
+  assert(sem.*.available_permits() == i32(0), "the semaphore is exhausted");
   t1 := Thread(unit).spawn({ sem : Arc.clone(sem), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
-    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-    sem.acquire();
-    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+    arrived.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+    sem.*.acquire();
+    passed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
   t2 := Thread(unit).spawn({ sem : Arc.clone(sem), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
-    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-    sem.acquire();
-    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+    arrived.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+    sem.*.acquire();
+    passed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
   t3 := Thread(unit).spawn({ sem : Arc.clone(sem), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
-    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-    sem.acquire();
-    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+    arrived.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+    sem.*.acquire();
+    passed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
-  while(arrived.load(MemoryOrder.Acquire) < i32(3), {
+  while(arrived.*.load(MemoryOrder.Acquire) < i32(3), {
     sleep_blocking(Duration.from_millis(i64(1)));
   });
   sleep_blocking(Duration.from_millis(i64(20)));
-  assert(passed.load(MemoryOrder.Acquire) == i32(0), "no acquirer may pass an exhausted semaphore");
+  assert(passed.*.load(MemoryOrder.Acquire) == i32(0), "no acquirer may pass an exhausted semaphore");
   // One permit back — exactly one waiter may take it.
-  sem.release();
+  sem.*.release();
   mut(waited) := i32(0);
-  while((passed.load(MemoryOrder.Acquire) < i32(1)) && (waited < i32(30000)), {
+  while((passed.*.load(MemoryOrder.Acquire) < i32(1)) && (waited < i32(30000)), {
     sleep_blocking(Duration.from_millis(i64(1)));
     waited = (waited + i32(1));
   });
-  assert(passed.load(MemoryOrder.Acquire) >= i32(1), "release must wake a blocked acquirer");
+  assert(passed.*.load(MemoryOrder.Acquire) >= i32(1), "release must wake a blocked acquirer");
   sleep_blocking(Duration.from_millis(i64(20)));
-  assert(passed.load(MemoryOrder.Acquire) == i32(1), "one permit may release exactly one waiter");
-  sem.release();
-  sem.release();
+  assert(passed.*.load(MemoryOrder.Acquire) == i32(1), "one permit may release exactly one waiter");
+  sem.*.release();
+  sem.*.release();
   t1.join();
   t2.join();
   t3.join();
-  assert(passed.load(MemoryOrder.Acquire) == i32(3), "every waiter is eventually admitted");
-  assert(sem.available_permits() == i32(0), "the three permits are held by the three threads");
+  assert(passed.*.load(MemoryOrder.Acquire) == i32(3), "every waiter is eventually admitted");
+  assert(sem.*.available_permits() == i32(0), "the three permits are held by the three threads");
 });
 
 // ============================================================================
@@ -251,13 +251,13 @@ test("Semaphore permit may be released by a thread that never acquired it", {
   signalled := Arc.new(AtomicI32.new(i32(0)));
   t := Thread(unit).spawn({ sem : Arc.clone(sem), signalled : Arc.clone(signalled) }(io) => {
     sleep_blocking(Duration.from_millis(i64(20)));
-    signalled.store(i32(1), MemoryOrder.Release);
-    sem.release();
+    signalled.*.store(i32(1), MemoryOrder.Release);
+    sem.*.release();
   });
-  sem.acquire(); // blocks until the other thread releases
-  assert(signalled.load(MemoryOrder.Acquire) == i32(1), "acquire must not return before the signalling store");
+  sem.*.acquire(); // blocks until the other thread releases
+  assert(signalled.*.load(MemoryOrder.Acquire) == i32(1), "acquire must not return before the signalling store");
   t.join();
-  assert(sem.available_permits() == i32(0), "the signalled permit was consumed");
+  assert(sem.*.available_permits() == i32(0), "the signalled permit was consumed");
 });
 test("Semaphore of one permit serializes a read-modify-write", {
   if(arch == Arch.Wasm32, return(()));
@@ -268,44 +268,44 @@ test("Semaphore of one permit serializes a read-modify-write", {
   t1 := Thread(unit).spawn({ sem : Arc.clone(sem), counter : Arc.clone(counter) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
-      sem.acquire();
-      v := counter.load(MemoryOrder.Relaxed);
+      sem.*.acquire();
+      v := counter.*.load(MemoryOrder.Relaxed);
       sleep_blocking(Duration.from_millis(i64(1)));
-      counter.store(v + i32(1), MemoryOrder.Relaxed);
-      sem.release();
+      counter.*.store(v + i32(1), MemoryOrder.Relaxed);
+      sem.*.release();
       i = (i + i32(1));
     });
   });
   t2 := Thread(unit).spawn({ sem : Arc.clone(sem), counter : Arc.clone(counter) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
-      sem.acquire();
-      v := counter.load(MemoryOrder.Relaxed);
+      sem.*.acquire();
+      v := counter.*.load(MemoryOrder.Relaxed);
       sleep_blocking(Duration.from_millis(i64(1)));
-      counter.store(v + i32(1), MemoryOrder.Relaxed);
-      sem.release();
+      counter.*.store(v + i32(1), MemoryOrder.Relaxed);
+      sem.*.release();
       i = (i + i32(1));
     });
   });
   t3 := Thread(unit).spawn({ sem : Arc.clone(sem), counter : Arc.clone(counter) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
-      sem.acquire();
-      v := counter.load(MemoryOrder.Relaxed);
+      sem.*.acquire();
+      v := counter.*.load(MemoryOrder.Relaxed);
       sleep_blocking(Duration.from_millis(i64(1)));
-      counter.store(v + i32(1), MemoryOrder.Relaxed);
-      sem.release();
+      counter.*.store(v + i32(1), MemoryOrder.Relaxed);
+      sem.*.release();
       i = (i + i32(1));
     });
   });
   t4 := Thread(unit).spawn({ sem : Arc.clone(sem), counter : Arc.clone(counter) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
-      sem.acquire();
-      v := counter.load(MemoryOrder.Relaxed);
+      sem.*.acquire();
+      v := counter.*.load(MemoryOrder.Relaxed);
       sleep_blocking(Duration.from_millis(i64(1)));
-      counter.store(v + i32(1), MemoryOrder.Relaxed);
-      sem.release();
+      counter.*.store(v + i32(1), MemoryOrder.Relaxed);
+      sem.*.release();
       i = (i + i32(1));
     });
   });
@@ -313,7 +313,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
   t2.join();
   t3.join();
   t4.join();
-  assert(counter.load(MemoryOrder.Acquire) == i32(100), "no update may be lost under a 1-permit semaphore");
+  assert(counter.*.load(MemoryOrder.Acquire) == i32(100), "no update may be lost under a 1-permit semaphore");
 });
 // ============================================================================
 // with_permit

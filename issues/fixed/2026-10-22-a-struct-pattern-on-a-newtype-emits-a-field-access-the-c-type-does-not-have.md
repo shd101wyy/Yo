@@ -12,7 +12,7 @@ no member `_b`.
 evaluator accepts:
 - `self._bytes` is "a field of another value" (no partial moves);
 - `{ _bytes } := self` binds a borrow
-  (`issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md`).
+  (`issues/fixed/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md`).
 
 With the pattern, every `tests/string/string.test.yo` batch that reaches
 `into_bytes` fails to compile, under the v0.2.68 seed and under develop

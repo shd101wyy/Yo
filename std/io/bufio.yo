@@ -118,15 +118,15 @@ impl(
   _state : (fn(self : &Self) -> *_BufReaderState)(addr_of(self._st.*)),
   /// Number of buffered bytes available without touching the inner reader.
   buffered : (fn(self : &Self) -> usize)(
-    self._st._filled - self._st._pos
+    self._st.*._filled - self._st.*._pos
   ),
   /// Refill the internal buffer from the inner reader. Resolves to the
   /// number of bytes now buffered; `0` means the inner reader hit EOF.
   _fill : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async({ self : &self.*, io }(e : IoExn) => {
       st := self._state();
-      p := match(self._st._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
-      n := e.io.await(self._inner.read(p, self._st._capacity, io), e);
+      p := match(self._st.*._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
+      n := e.io.await(self._inner.read(p, self._st.*._capacity, io), e);
       unsafe(consume(st.*._pos = usize(0)));
       unsafe(consume(st.*._filled = n));
       n
@@ -145,10 +145,10 @@ impl(
       (mut(hit_eof) : bool) = false;
       while(!found_newline && !hit_eof, {
         cond(
-          (self._st._pos < self._st._filled) => {
-            mut(scan) := self._st._pos;
-            while((scan < self._st._filled) && !found_newline, {
-              b := self._st._buf(scan);
+          (self._st.*._pos < self._st.*._filled) => {
+            mut(scan) := self._st.*._pos;
+            while((scan < self._st.*._filled) && !found_newline, {
+              b := self._st.*._buf(scan);
               cond(
                 (b == u8(10)) => {
                   found_newline = true;
@@ -188,9 +188,9 @@ impl(
       (mut(hit_eof) : bool) = false;
       while((result.len() < n) && !hit_eof, {
         cond(
-          (self._st._pos < self._st._filled) => {
-            while((result.len() < n) && (self._st._pos < self._st._filled), {
-              result.push(self._st._buf(self._st._pos));
+          (self._st.*._pos < self._st.*._filled) => {
+            while((result.len() < n) && (self._st.*._pos < self._st.*._filled), {
+              result.push(self._st.*._buf(self._st.*._pos));
               unsafe(consume(st.*._pos = (st.*._pos + usize(1))));
             });
           },
@@ -220,13 +220,13 @@ impl(
         (mut(out) : usize) = usize(0);
         (mut(done) : bool) = false;
         // Serve buffered bytes first.
-        available := (self._st._filled - self._st._pos);
+        available := (self._st.*._filled - self._st.*._pos);
         cond(
           (available > usize(0)) => {
             to_copy := cond((available < size) => available, true => size);
             (mut(i) : usize) = usize(0);
             while(i < to_copy, i = (i + usize(1)), {
-              (buf.add(i)).* = self._st._buf(self._st._pos + i);
+              (buf.add(i)).* = self._st.*._buf(self._st.*._pos + i);
             });
             unsafe(consume(st.*._pos = (st.*._pos + to_copy)));
             out = to_copy;
@@ -236,7 +236,7 @@ impl(
         );
         // Empty buffer + large read: bypass the buffer entirely.
         cond(
-          (!done && (size >= self._st._capacity)) => {
+          (!done && (size >= self._st.*._capacity)) => {
             out = e.io.await(self._inner.read(buf, size, io), e);
             done = true;
           },
@@ -249,7 +249,7 @@ impl(
             to_copy := cond((got < size) => got, true => size);
             (mut(j) : usize) = usize(0);
             while(j < to_copy, j = (j + usize(1)), {
-              (buf.add(j)).* = self._st._buf(j);
+              (buf.add(j)).* = self._st.*._buf(j);
             });
             unsafe(consume(st.*._pos = to_copy));
             out = to_copy;
@@ -289,7 +289,7 @@ impl(
   _state : (fn(self : &Self) -> *_BufWriterState)(addr_of(self._st.*)),
   /// Number of bytes currently buffered.
   buffered : (fn(self : &Self) -> usize)(
-    self._st._buf.len()
+    self._st.*._buf.len()
   ),
   /// Buffer a `String`'s bytes. The pointer-taking `write` is the trait's
   /// primitive; this is the form callers actually want, and the fd-based
@@ -328,9 +328,9 @@ impl(
     io.async({ self : &self.*, io }(e : IoExn) => {
       st := self._state();
       cond(
-        (self._st._buf.len() > usize(0)) => {
-          p := match(self._st._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
-          e.io.await(self._inner.write_all(p, self._st._buf.len(), io), e);
+        (self._st.*._buf.len() > usize(0)) => {
+          p := match(self._st.*._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
+          e.io.await(self._inner.write_all(p, self._st.*._buf.len(), io), e);
           unsafe(st.*._buf.clear());
         },
         true => ()
@@ -349,7 +349,7 @@ impl(
         st := self._state();
         (mut(src_pos) : usize) = usize(0);
         while(src_pos < size, {
-          space := (self._st._capacity - self._st._buf.len());
+          space := (self._st.*._capacity - self._st.*._buf.len());
           cond(
             (space == usize(0)) => {
               e.io.await(Self._flush_buf(self, io), e);

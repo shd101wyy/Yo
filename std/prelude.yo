@@ -691,8 +691,12 @@ export(not, !);
       generic(_Self : Type),
       self : _Self,
       where(_Self <: BitNot)
-    ) -> _Self
+    ) -> _Self.Output
   )(self.(~)());
+  // `comptime(_Self)` until the seed carries the fix for a generic function's
+  // `comptime(T.Output)` return coming back as the bare `Output`
+  // (issues/fixed/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
+  // Every `ComptimeNeg` and `ComptimeBitNot` impl in the prelude has `Output = Self`.
   comptime_bit_not :: (
     fn(
       generic(_Self : Type),
@@ -710,10 +714,14 @@ export(~);
       generic(_Self : Type),
       self : _Self,
       where(_Self <: Neg)
-    ) -> _Self
+    ) -> _Self.Output
   )({
     return(self.neg());
   });
+  // `comptime(_Self)` until the seed carries the fix for a generic function's
+  // `comptime(T.Output)` return coming back as the bare `Output`
+  // (issues/fixed/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
+  // Every `ComptimeNeg` and `ComptimeBitNot` impl in the prelude has `Output = Self`.
   comptime_neg :: (
     fn(
       generic(_Self : Type),
@@ -811,6 +819,12 @@ export(Ordering);
 /// derived from `<`/`==`, and types whose operators are only partial
 /// (floats: NaN is incomparable under IEEE `<`) OVERRIDE `cmp` with a
 /// total order instead of splitting the trait.
+///
+/// Code that needs a total order calls `cmp`; the operators are the type's
+/// own and are partial on floats. std's sorts, searches, `BTreeMap`,
+/// `PriorityQueue` and `Iterator.min`/`max` order by `cmp`, and every std impl
+/// over another `Ord` type (`Option`, `Result`, `Reverse`, arrays, a derived
+/// `Ord`) builds its `cmp` from the parts' `cmp`.
 Ord :: (
   fn(
     comptime(Rhs) : ?Sized
@@ -891,7 +905,8 @@ impl(
     (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value < lhs.value),
     (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value <= lhs.value),
     (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value > lhs.value),
-    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value >= lhs.value)
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value >= lhs.value),
+    cmp : (fn(lhs : &Self, rhs : &Self) -> Ordering)(T.cmp(&rhs.value, &lhs.value))
   )
 );
 export(Reverse);
@@ -1558,12 +1573,6 @@ impl(
 );
 impl(
   i8,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  i8,
   BitNot(
     Output : i8,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -1853,12 +1862,6 @@ impl(
 );
 impl(
   i16,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  i16,
   BitNot(
     Output : i16,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -2144,12 +2147,6 @@ impl(
   Shr(i32)(
     Output : i32,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
-  )
-);
-impl(
-  i32,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -2445,12 +2442,6 @@ impl(
 );
 impl(
   i64,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  i64,
   BitNot(
     Output : i64,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -2733,12 +2724,6 @@ impl(
 );
 impl(
   u8,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  u8,
   BitNot(
     Output : u8,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -3007,12 +2992,6 @@ impl(
   Shr(u16)(
     Output : u16,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
-  )
-);
-impl(
-  u16,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -3289,12 +3268,6 @@ impl(
 );
 impl(
   u32,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  u32,
   BitNot(
     Output : u32,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -3567,12 +3540,6 @@ impl(
 );
 impl(
   u64,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  u64,
   BitNot(
     Output : u64,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -3828,12 +3795,6 @@ impl(
 );
 impl(
   f32,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  f32,
   Eq(f32)(
     (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
     (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
@@ -4017,12 +3978,6 @@ impl(
   Neg(
     Output : f64,
     neg : (self -> __yo_op_neg(self))
-  )
-);
-impl(
-  f64,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -4227,12 +4182,6 @@ impl(
   Shr(isize)(
     Output : isize,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
-  )
-);
-impl(
-  isize,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -4514,12 +4463,6 @@ impl(
   Shr(usize)(
     Output : usize,
     (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
-  )
-);
-impl(
-  usize,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -5926,12 +5869,6 @@ impl(
 );
 impl(
   char,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  char,
   BitNot(
     Output : char,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -6037,12 +5974,6 @@ impl(
 );
 impl(
   int,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  int,
   BitNot(
     Output : int,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -6137,19 +6068,6 @@ impl(
   Rem(uint)(
     Output : uint,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
-  )
-);
-impl(
-  uint,
-  Neg(
-    Output : uint,
-    neg : (self -> __yo_op_neg(self))
-  )
-);
-impl(
-  uint,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -6259,12 +6177,6 @@ impl(
 );
 impl(
   short,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  short,
   BitNot(
     Output : short,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -6359,19 +6271,6 @@ impl(
   Rem(ushort)(
     Output : ushort,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
-  )
-);
-impl(
-  ushort,
-  Neg(
-    Output : ushort,
-    neg : (self -> __yo_op_neg(self))
-  )
-);
-impl(
-  ushort,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -6481,12 +6380,6 @@ impl(
 );
 impl(
   long,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  long,
   BitNot(
     Output : long,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -6581,19 +6474,6 @@ impl(
   Rem(ulong)(
     Output : ulong,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
-  )
-);
-impl(
-  ulong,
-  Neg(
-    Output : ulong,
-    neg : (self -> __yo_op_neg(self))
-  )
-);
-impl(
-  ulong,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -6703,12 +6583,6 @@ impl(
 );
 impl(
   longlong,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  longlong,
   BitNot(
     Output : longlong,
     (~) : (self -> __yo_op_bit_complement(self))
@@ -6803,19 +6677,6 @@ impl(
   Rem(ulonglong)(
     Output : ulonglong,
     (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
-  )
-);
-impl(
-  ulonglong,
-  Neg(
-    Output : ulonglong,
-    neg : (self -> __yo_op_neg(self))
-  )
-);
-impl(
-  ulonglong,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -6925,40 +6786,6 @@ impl(
 );
 impl(
   longdouble,
-  LogicalNot(
-    (!) : (self -> __yo_op_not(self))
-  )
-);
-impl(
-  longdouble,
-  BitNot(
-    Output : longdouble,
-    (~) : (self -> __yo_op_bit_complement(self))
-  )
-);
-impl(
-  longdouble,
-  BitAnd(longdouble)(
-    Output : longdouble,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
-  )
-);
-impl(
-  longdouble,
-  BitOr(longdouble)(
-    Output : longdouble,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
-  )
-);
-impl(
-  longdouble,
-  BitXor(longdouble)(
-    Output : longdouble,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
-  )
-);
-impl(
-  longdouble,
   Eq(longdouble)(
     (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
     (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
@@ -6970,7 +6797,23 @@ impl(
     (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
     (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
     (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
-    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
+    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs)),
+    // The total order of `f32`'s and `f64`'s `cmp`: NaNs equal each other
+    // and are greater than every number.
+    cmp : (
+      (lhs, rhs) -> {
+        l_nan := not(lhs.* == lhs.*);
+        r_nan := not(rhs.* == rhs.*);
+        cond(
+          (l_nan && r_nan) => Ordering.Equal,
+          l_nan => Ordering.Greater,
+          r_nan => Ordering.Less,
+          (lhs.* < rhs.*) => Ordering.Less,
+          (lhs.* == rhs.*) => Ordering.Equal,
+          true => Ordering.Greater
+        )
+      }
+    )
   )
 );
 impl(
@@ -7315,6 +7158,22 @@ impl(
         i = (i + usize(1));
       });
       return(true);
+    }),
+    // Lexicographic by the elements' `cmp`, so a float array's order is
+    // total.
+    cmp : (fn(lhs : &Self, rhs : &Self) -> Ordering)({
+      mut(i) := usize(0);
+      while(i < U, {
+        match(
+          T.cmp(&lhs(i), &rhs(i)),
+          .Equal => (),
+          o => {
+            return(o);
+          }
+        );
+        i = (i + usize(1));
+      });
+      return(Ordering.Equal);
     })
   )
 );
@@ -9028,11 +8887,40 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
 });
 derive_rule(Hash, __derive_hash);
 // --- derive_rule for Ord ---
+// Helper: the lexicographic `cmp` over a list of field operands, each one's
+// own `cmp` (`Ord`'s total order), so a float field orders the struct
+// totally. `lhs_of(i)` and `rhs_of(i)` spell the i-th pair of operands.
+__derive_ord_cmp_chain :: (
+  fn(
+    comptime(n) : usize,
+    comptime(lhs_of) : (fn(comptime(i) : usize) -> comptime(comptime_str)),
+    comptime(rhs_of) : (fn(comptime(i) : usize) -> comptime(comptime_str))
+  ) -> comptime(comptime_str)
+)(
+  __yo_comptime_fold_range(
+    n,
+    "",
+    (fn(comptime(acc) : comptime_str, comptime(k) : usize) -> comptime(comptime_str))({
+      i :: (n - k - 1);
+      one :: __s4(lhs_of(i), ".cmp(", rhs_of(i), ")");
+      cond(
+        (acc == "") => one,
+        true => __s5("match(", one, ", .Equal => ", acc, ", __o => __o)")
+      )
+    })
+  )
+);
 // Helper: generate lexicographic comparison for struct fields
 __derive_ord_struct_body :: (fn(comptime(T) : Type, comptime(op) : comptime_str) -> comptime(comptime_str))({
   fields :: Type.get_struct_fields(T);
   fc :: fields.len();
   cond(
+    (op == "cmp") =>
+      __derive_ord_cmp_chain(
+        fc,
+        (fn(comptime(i) : usize) -> comptime(comptime_str))(__s2("lhs.", fields.get(i).name)),
+        (fn(comptime(i) : usize) -> comptime(comptime_str))(__s2("&rhs.", fields.get(i).name))
+      ),
     (fc == 1) => {
       fname :: fields.get(0).name;
       __s5("(lhs.", fname, " ", op, __s3(" rhs.", fname, ")"))
@@ -9062,6 +8950,12 @@ __derive_ord_struct_body :: (fn(comptime(T) : Type, comptime(op) : comptime_str)
 // Helper: generate lexicographic comparison for enum variant bindings
 __derive_ord_variant_body :: (fn(comptime(v) : VariantInfo, comptime(op) : comptime_str) -> comptime(comptime_str))(
   cond(
+    (op == "cmp") =>
+      __derive_ord_cmp_chain(
+        v.fields.len(),
+        (fn(comptime(i) : usize) -> comptime(comptime_str))(__s2("__lhs_", v.fields.get(i).name)),
+        (fn(comptime(i) : usize) -> comptime(comptime_str))(__s2("__rhs_", v.fields.get(i).name))
+      ),
     (v.fields.len() == 1) => {
       fname :: v.fields.get(0).name;
       __s5("(__lhs_", fname, " ", op, __s3(" __rhs_", fname, ")"))
@@ -9102,7 +8996,8 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
                 (<) : ((lhs, rhs) -> false),
                 (<=) : ((lhs, rhs) -> true),
                 (>) : ((lhs, rhs) -> false),
-                (>=) : ((lhs, rhs) -> true)
+                (>=) : ((lhs, rhs) -> true),
+                cmp : ((lhs, rhs) -> Ordering.Equal)
               )
             )
           ),
@@ -9111,13 +9006,15 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
           le_body :: __derive_ord_struct_body(T, "<=");
           gt_body :: __derive_ord_struct_body(T, ">");
           ge_body :: __derive_ord_struct_body(T, ">=");
+          cmp_body :: __derive_ord_struct_body(T, "cmp");
           ctx.make_impl(
             quote(
               Ord(unquote_splicing(trait_params))(
                 (<) : ((lhs, rhs) -> unquote(lt_body.to_expr())),
                 (<=) : ((lhs, rhs) -> unquote(le_body.to_expr())),
                 (>) : ((lhs, rhs) -> unquote(gt_body.to_expr())),
-                (>=) : ((lhs, rhs) -> unquote(ge_body.to_expr()))
+                (>=) : ((lhs, rhs) -> unquote(ge_body.to_expr())),
+                cmp : ((lhs, rhs) -> unquote(cmp_body.to_expr()))
               )
             )
           )
@@ -9127,8 +9024,13 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
     info.is_enum() => {
       variants :: Type.get_enum_variants(T);
       vc :: variants.len();
-      // Generate one operator's match branches
+      // Generate one operator's match branches. Two different variants
+      // compare by declaration order; `cmp` spells that as an `Ordering`.
       __gen_op_branches :: (fn(comptime(op) : comptime_str, comptime(eq_val) : comptime_str) -> comptime(comptime_str))({
+        other_variant :: cond(
+          (op == "cmp") => "cond((i32(lhs) < i32(rhs)) => Ordering.Less, true => Ordering.Greater)",
+          true => __s3("(i32(lhs) ", op, " i32(rhs))")
+        );
         branches :: __yo_comptime_fold_range(
           vc,
           "",
@@ -9136,7 +9038,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
             v :: variants.get(vi);
             branch :: cond(
               (v.fields.len() == 0) =>
-                __s5(".", v.name, " => match(rhs, .", v.name, __s4(" => ", eq_val, ", _ => (i32(lhs) ", __s2(op, " i32(rhs)))"))),
+                __s5(".", v.name, " => match(rhs, .", v.name, __s5(" => ", eq_val, ", _ => ", other_variant, ")")),
               true => {
                 lhs_bindings :: __yo_comptime_fold_range(
                   v.fields.len(),
@@ -9166,7 +9068,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
                   lhs_bindings,
                   __s3(") => match(rhs, .", v.name, "("),
                   rhs_bindings,
-                  __s4(") => ", field_cmp, ", _ => (i32(lhs) ", __s2(op, " i32(rhs)))"))
+                  __s5(") => ", field_cmp, ", _ => ", other_variant, ")")
                 )
               }
             );
@@ -9182,13 +9084,15 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
       le_match :: __gen_op_branches("<=", "true");
       gt_match :: __gen_op_branches(">", "false");
       ge_match :: __gen_op_branches(">=", "true");
+      cmp_match :: __gen_op_branches("cmp", "Ordering.Equal");
       ctx.make_impl(
         quote(
           Ord(unquote_splicing(trait_params))(
             (<) : ((lhs, rhs) -> unquote(lt_match.to_expr())),
             (<=) : ((lhs, rhs) -> unquote(le_match.to_expr())),
             (>) : ((lhs, rhs) -> unquote(gt_match.to_expr())),
-            (>=) : ((lhs, rhs) -> unquote(ge_match.to_expr()))
+            (>=) : ((lhs, rhs) -> unquote(ge_match.to_expr())),
+            cmp : ((lhs, rhs) -> unquote(cmp_match.to_expr()))
           )
         )
       )
@@ -9200,7 +9104,8 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
             (<) : ((lhs, rhs) -> false),
             (<=) : ((lhs, rhs) -> true),
             (>) : ((lhs, rhs) -> false),
-            (>=) : ((lhs, rhs) -> true)
+            (>=) : ((lhs, rhs) -> true),
+            cmp : ((lhs, rhs) -> Ordering.Equal)
           )
         )
       )
@@ -9676,6 +9581,18 @@ impl(
             .Some(b) => (a.* >= b.*)
           )
         )
+    ),
+    cmp : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => match(rhs, .None => Ordering.Equal, .Some(_) => Ordering.Less),
+          .Some(a) => match(
+            rhs,
+            .None => Ordering.Greater,
+            .Some(b) => T.cmp(a, b)
+          )
+        )
     )
   )
 );
@@ -9821,6 +9738,22 @@ impl(
             rhs,
             .Ok(_) => true,
             .Err(b) => (a.* >= b.*)
+          )
+        )
+    ),
+    cmp : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => T.cmp(a, b),
+            .Err(_) => Ordering.Less
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => Ordering.Greater,
+            .Err(b) => E.cmp(a, b)
           )
         )
     )
@@ -13163,7 +13096,8 @@ impl(
     });
     acc
   }),
-  /// Return the smallest element (first of equals), or `None` when empty.
+  /// Return the smallest element by `cmp` (first of equals), or `None` when
+  /// empty.
   min : (
     fn(
       generic(A : Type),
@@ -13183,9 +13117,10 @@ impl(
           best = match(
             best,
             .None => Option(A).Some(item),
-            .Some(b) => cond(
-              (item < b) => Option(A).Some(item),
-              true => Option(A).Some(b)
+            .Some(b) => match(
+              A.cmp(&item, &b),
+              .Less => Option(A).Some(item),
+              _ => Option(A).Some(b)
             )
           );
         }
@@ -13193,7 +13128,8 @@ impl(
     });
     best
   }),
-  /// Return the largest element (last of equals), or `None` when empty.
+  /// Return the largest element by `cmp` (last of equals), or `None` when
+  /// empty.
   max : (
     fn(
       generic(A : Type),
@@ -13213,9 +13149,10 @@ impl(
           best = match(
             best,
             .None => Option(A).Some(item),
-            .Some(b) => cond(
-              (item < b) => Option(A).Some(b),
-              true => Option(A).Some(item)
+            .Some(b) => match(
+              A.cmp(&item, &b),
+              .Less => Option(A).Some(b),
+              _ => Option(A).Some(item)
             )
           );
         }

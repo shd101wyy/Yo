@@ -71,6 +71,7 @@
   ast_expr_is_align_of_call,
   ast_expr_is_type_id_call,
   ast_expr_is_address_of_call,
+  BK_BORROW_MUT,
   BF_DOWNCAST,
   BF_UPCAST,
   BK_WHILE,
@@ -466,7 +467,7 @@ _generate_io_spawn :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
 /// FuncVal's func_id up in the codegen function registry (populated by
 /// collection.yo's index_method_value pass).
 _index_method_call_by_name :: (fn(method_value : &EvalValue, recv_arg : &String, index_code : &String, context : &FunctionGenerationContext) -> String)({
-  fid := match(method_value, Rc(.FuncVal(__fvd1, _)) => __fvd1.func_id.clone(), _ => return(String.from("/* Error: Index method not a FuncVal */")));
+  fid := match(method_value, Rc(.FuncVal(__fvd1, _)) => __fvd1.*.*.func_id.clone(), _ => return(String.from("/* Error: Index method not a FuncVal */")));
   match(
     context.base.get_function_entry(&fid),
     .Some(e) => `${e.c_name.clone()}(${recv_arg}, ${index_code})`,
@@ -548,7 +549,7 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
     index_unchecked_twin_of(ast_expr_id(expr)),
     .Some(twin) => {
       tok := ast_expr_token(expr);
-      site := `${_idx_c_string_literal(&tok.module_path.*)}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
+      site := `${_idx_c_string_literal(&tok.*.module_path.*)}, ${(usize(tok.*.row) + usize(1)).to_string()}, ${(usize(tok.*.column) + usize(1)).to_string()}`;
       if(
         guard_site_is_proved(expr, "index-in-bounds"),
         `${_index_method_call_by_name(&twin, recv_arg.clone(), index_code.clone(), context)} /* __yo_cidx_elided(${site}) */`,
@@ -617,7 +618,7 @@ _materialize_owned_rc_comptime_value :: (
   vars := scope_variables(key, &ei.env(), var_name.clone());
   is_owning := match(
     vars.last_cloned(),
-    .Some(v) => v.is_owning_the_rc_value(),
+    .Some(v) => v.*.is_owning_the_rc_value(),
     .None => false
   );
   if(!is_owning, return(comptime_code.clone()));
@@ -677,7 +678,7 @@ _generate_comptime_binding :: (fn(expr : &AstExpr, indent : &String, context : &
     return(String.new());
   });
   env_opt := match(context.base.get_expr_info(expr), .Some(bei) => Option(Environment).Some(bei.env()), .None => Option(Environment).None);
-  name := get_variable_name_for_codegen_at(ast_expr_id(expr), ast_expr_token(&lhs).value.*, &env_opt);
+  name := get_variable_name_for_codegen_at(ast_expr_id(expr), ast_expr_token(&lhs).*.value.*, &env_opt);
   code := _call_generate_expr(&rhs, indent.clone(), context);
   if(code.trim().len() == usize(0), {
     return(String.new());
@@ -769,7 +770,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
       out.push_string(ast_expr_to_string(expr));
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         ftk := ast_expr_token(expr);
-        ceg_eprintln(`[fttmark] loc=${ftk.module_path.*}:${ftk.row.to_string()}:${ftk.column.to_string()} expr=${ast_expr_to_string(expr)}`);
+        ceg_eprintln(`[fttmark] loc=${ftk.*.module_path.*}:${ftk.*.row.to_string()}:${ftk.*.column.to_string()} expr=${ast_expr_to_string(expr)}`);
       });
       return(out);
     }
@@ -914,7 +915,9 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
   if(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), return(_store_result_temp_in_task(expr, generate_begin(expr, indent.clone(), context), indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), return(_store_result_temp_in_task(expr, generate_cond_expression(expr, indent.clone(), context), indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(_store_result_temp_in_task(expr, generate_match_expression(expr, indent.clone(), context), indent.clone(), context)));
-  if(ast_expr_is_address_of_call(expr, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
+  // A `&mut place` lend the evaluator keeps as a reference value (a store
+  // into a reference field, VERDICTS-78 Q1) is the place's address, as `&place` is.
+  if(ast_expr_is_address_of_call(expr, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), return(generate_anonymous_tuple(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r), .None => ()));
   // `Array(T, N)(a, b)` with RUNTIME elements. The array-literal form reaches
@@ -997,7 +1000,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
       out.push_string(ast_expr_to_string(expr));
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         ftk2 := ast_expr_token(expr);
-        ceg_eprintln(`[fttmark] loc=${ftk2.module_path.*}:${ftk2.row.to_string()}:${ftk2.column.to_string()} expr=${ast_expr_to_string(expr)}`);
+        ceg_eprintln(`[fttmark] loc=${ftk2.*.module_path.*}:${ftk2.*.row.to_string()}:${ftk2.*.column.to_string()} expr=${ast_expr_to_string(expr)}`);
       });
       out
     }
@@ -1123,7 +1126,7 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
     // (issues/fixed/2026-10-30-an-io-async-closure-that-returns-early-leaks-its-captures.md).
     // In a state machine the atom keeps its own completion path (atom.yo).
     Rc(.Atom(_, atok)) => if(
-      (atok.value.* == BK_RETURN) && context.in_async_state_machine.is_none(),
+      (atok.*.*.value.* == BK_RETURN) && context.in_async_state_machine.is_none(),
       generate_return(expr, indent.clone(), context),
       generate_atom(expr, context, indent)
     )

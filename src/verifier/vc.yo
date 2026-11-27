@@ -381,7 +381,7 @@ _list_elem_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t_refine_inner(t),
     Rc(.Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, type_arguments : ls_targs })) => cond(
-      ((ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls.items)) => ls_targs.get(usize(0)),
+      ((ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls.*.items)) => ls_targs.get(usize(0)),
       true => Option(TypeValue).None
     ),
     _ => Option(TypeValue).None
@@ -691,9 +691,9 @@ _guard_site :: (fn(e : &AstExpr, class : &String) -> Option(GuardSite))({
   Option(GuardSite).Some(
     GuardSite(
       node_id : ast_expr_id(e),
-      module : canonical_module_path(&tok.module_path.*),
-      row : usize(tok.row),
-      column : usize(tok.column),
+      module : canonical_module_path(&tok.*.module_path.*),
+      row : usize(tok.*.row),
+      column : usize(tok.*.column),
       class : class.clone()
     )
   )
@@ -2069,10 +2069,10 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     // unfolded where the position is runtime by definition — a `while`
     // condition, so the infinite-loop head of `while(true, { … break … })`
     // carries no comptime value — and the literal is no bound name.
-    if(tok.kind == TokenKind.Bool, {
-      return(Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(tok.value.* == "true"))));
+    if(tok.*.kind == TokenKind.Bool, {
+      return(Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(tok.*.value.* == "true"))));
     });
-    name := tok.value.*.clone();
+    name := tok.*.value.*.clone();
     return(
       match(
         ctx.vars.get_cloned(name.clone()),
@@ -6097,7 +6097,7 @@ _note_array_binding :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> 
 _is_unit_lit :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    Rc(.Atom(_, at)) => (at.value.* == "()"),
+    Rc(.Atom(_, at)) => (at.*.*.value.* == "()"),
     Rc(.FnCall(_, f, Rc(a), _, _)) => ((ast_expr_text(&f.*).* == BK_TUPLE) && (a.len() == usize(0)))
   )
 );
@@ -7814,7 +7814,7 @@ _call_callee_value :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(EvalVa
 _func_val_id :: (fn(v : &EvalValue) -> String)(
   match(
     v,
-    Rc(.FuncVal(fvd, _)) => fvd.func_id.clone(),
+    Rc(.FuncVal(fvd, _)) => fvd.*.*.func_id.clone(),
     _ => String.new()
   )
 );

@@ -15,7 +15,7 @@ test("read atomic object field is allowed", {
 test("read a custom struct's field through an Arc is allowed", {
   MyObj :: struct(value : i32);
   m := Arc.new(MyObj(i32(99)));
-  assert(m.value == i32(99), "read through custom field should work");
+  assert(m.*.value == i32(99), "read through custom field should work");
 });
 test("construct atomic object is allowed", {
   a := Arc.new(i32(7));
@@ -71,7 +71,7 @@ comptime_expect_error({
   _spawn_with_ref_struct :: (fn() -> unit)({
     cell := Rc.new(NotSendCell(v : i32(1)));
     t := Thread(unit).spawn(io => {
-      _v := cell.v;
+      _v := cell.*.v;
       ()
     });
     t.join();
@@ -85,7 +85,7 @@ comptime_expect_error({
     items := Rc.new(NotSendCell(v : i32(1)));
     (worker : Impl(Fn() -> unit)) = (
       () => {
-        _v := items.v;
+        _v := items.*.v;
       }
     );
     t := Thread(unit).spawn(io => worker());
@@ -137,7 +137,7 @@ comptime_expect_error({
     items := Rc.new(NotSendCell(v : i32(1)));
     (leaky : Impl(Fn() -> unit, Send)) = (
       () => {
-        _v := items.v;
+        _v := items.*.v;
       }
     );
     leaky();
@@ -163,13 +163,13 @@ _helper_with_send_captures :: (fn() -> unit)({
   h := Arc.clone(hits);
   (inner : Impl(Fn() -> unit)) = (
     () => {
-      h.fetch_add(i32(1), MemoryOrder.AcqRel);
+      h.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       ();
     }
   );
   _run_on_thread(() => {
     inner();
-    hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+    hits.*.fetch_add(i32(1), MemoryOrder.AcqRel);
     ();
   });
 });
@@ -178,7 +178,7 @@ comptime_expect_error({
   _helper_with_a_non_send_capture :: (fn() -> unit)({
     items := Rc.new(NotSendCell(v : i32(1)));
     _run_on_thread(() => {
-      _v := items.v;
+      _v := items.*.v;
     });
   });
   _helper_with_a_non_send_capture();
@@ -189,7 +189,7 @@ comptime_expect_error({
   _helper_with_a_non_send_capture_advice :: (fn() -> unit)({
     items := Rc.new(NotSendCell(v : i32(1)));
     _run_on_thread(() => {
-      _v := items.v;
+      _v := items.*.v;
     });
   });
   _helper_with_a_non_send_capture_advice();
@@ -200,7 +200,7 @@ comptime_expect_error({
     items := Rc.new(NotSendCell(v : i32(1)));
     (inner : Impl(Fn() -> unit)) = (
       () => {
-        _v := items.v;
+        _v := items.*.v;
       }
     );
     _run_on_thread(() => {
@@ -219,7 +219,7 @@ _arc_of_a_closure_over_a_closure_crosses_threads :: (fn() -> unit)({
   h := hits;
   (inner : Impl(Fn() -> unit)) = (
     () => {
-      h.fetch_add(i32(1), MemoryOrder.AcqRel);
+      h.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       ();
     }
   );

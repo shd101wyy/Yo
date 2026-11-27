@@ -195,12 +195,12 @@ _collect_anon_param_names :: (
   match(
     param_decl,
     Rc(.Atom(_, t)) => {
-      out.push(t.value.*.clone());
+      out.push(t.*.*.value.*.clone());
     },
     Rc(.FnCall(_, fb, Rc(args), _, _)) => match(
       fb,
       Rc(.Atom(_, ptok)) => cond(
-        (ptok.value.* == BK_TUPLE) => {
+        (ptok.*.*.value.* == BK_TUPLE) => {
           (i : usize) = usize(0);
           n := args.len();
           while(i < n, {
@@ -209,7 +209,7 @@ _collect_anon_param_names :: (
               .Some(a) => match(
                 Rc.clone(a),
                 Rc(.Atom(_, at)) => {
-                  out.push(at.value.*.clone());
+                  out.push(at.*.value.*.clone());
                 },
                 Rc(.FnCall(_, _, _, _, _)) => {
                   // Best-effort: use the first atom of the call (e.g.
@@ -219,7 +219,7 @@ _collect_anon_param_names :: (
                     Rc(.FnCall(_, _, Rc(ca), _, _)) => match(
                       ca.get_cloned(usize(0)),
                       .Some(Rc(.Atom(_, nt))) => {
-                        out.push(nt.value.*.clone());
+                        out.push(nt.*.value.*.clone());
                       },
                       .Some(Rc(.FnCall(_, _, _, _, _))) => (),
                       .None => ()
@@ -236,7 +236,7 @@ _collect_anon_param_names :: (
         true => {
           // Single non-tuple FnCall — treat as one param with the
           // function head's atom value if available.
-          out.push(ptok.value.*.clone());
+          out.push(ptok.*.*.value.*.clone());
         }
       ),
       Rc(.FnCall(_, _, _, _, _)) => ()
@@ -297,10 +297,10 @@ _is_unresolved_impl_future_type :: (fn(ty : &TypeValue) -> bool)(
 _get_anon_op :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
-    Rc(.Atom(_, t)) => t.value.*.clone(),
+    Rc(.Atom(_, t)) => t.*.*.value.*.clone(),
     Rc(.FnCall(_, fb, _, _, _)) => match(
       fb,
-      Rc(.Atom(_, t)) => t.value.*.clone(),
+      Rc(.Atom(_, t)) => t.*.*.value.*.clone(),
       Rc(.FnCall(_, _, _, _, _)) => String.from("<unknown>")
     )
   )
@@ -348,16 +348,16 @@ _reject_old_closure_params :: (fn(decl : &AstExpr, exn : Exception) -> unit)(
 _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> String)(
   match(
     param_expr,
-    Rc(.Atom(_, ptok)) => ptok.value.*.clone(),
+    Rc(.Atom(_, ptok)) => ptok.*.*.value.*.clone(),
     Rc(.FnCall(_, fb, Rc(args), _, _)) => match(
       fb,
       Rc(.Atom(_, fbtok)) => cond(
-        (fbtok.value.* == ":") => match(
+        (fbtok.*.*.value.* == ":") => match(
           args.get_cloned(usize(0)),
-          .Some(Rc(.Atom(_, ntok))) => ntok.value.*.clone(),
+          .Some(Rc(.Atom(_, ntok))) => ntok.*.value.*.clone(),
           // `x : &T` / `x : &mut T` is `__yo_imm(x) : T` / `__yo_mut(x) : T`
           // by now (`desugar_if_calls`): the written name is the head's argument.
-          .Some(pm) => if(ast_expr_is_capture_mode_entry(&pm), ast_expr_token(&_only_arg(&pm)).value.*.clone(), fallback.clone()),
+          .Some(pm) => if(ast_expr_is_capture_mode_entry(&pm), ast_expr_token(&_only_arg(&pm)).*.value.*.clone(), fallback.clone()),
           .None => fallback.clone()
         ),
         true => fallback.clone()
@@ -475,7 +475,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
         match(
           ss_found.get_cloned(ss_bi),
           .Some(sv) => match(
-            sv.value().get(usize(0)),
+            sv.*.value().get(usize(0)),
             .Some(Rc(.TypeVal(stv))) => if(!is_some_type(&stv), {
               ss_bound = Option(TypeValue).Some(Rc.clone(stv));
               ss_bi = usize(0);
@@ -655,15 +655,15 @@ _trial_eval_anon_body :: (
   // error path.
   if(_g_anon_dbg_swallow, {
     dbg_tok0 := ast_expr_token(body);
-    eprintln(`[anon-trial] ${dbg_tok0.module_path.*}:${dbg_tok0.row.to_string()}:${dbg_tok0.column.to_string()}`);
+    eprintln(`[anon-trial] ${dbg_tok0.*.module_path.*}:${dbg_tok0.*.row.to_string()}:${dbg_tok0.*.column.to_string()}`);
   });
   inner_exn := Exception(
     throw : (
       _err -> {
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
-          eprintln(`[anon-swallow] ${_err.to_string()}`);
+          eprintln(`[anon-swallow] ${_err.*.to_string()}`);
         });
-        _flag_anon_swallow(_err.to_string(), primary_diagnostic_code(&_err));
+        _flag_anon_swallow(_err.*.to_string(), primary_diagnostic_code(&_err));
         _flag_anon_swallow_diags(&_err);
         unwind(())
       }
@@ -848,12 +848,12 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                   while(vi < n_v, {
                     match(
                       frame.variable_at(vi),
-                      .Some(v) => if(v.name == k, {
+                      .Some(v) => if(v.*.name == k, {
                         // A binding of a `&` match is a pointer into the
                         // scrutinee, but an implicit capture copies its part
                         // (the field holds the value), as it did when the
                         // binding was a copy.
-                        if(v.is_ref() && !in_cap_frame && !v.is_borrow_match_binding(), {
+                        if(v.*.is_ref() && !in_cap_frame && !v.*.is_borrow_match_binding(), {
                           // A judged tree names the reference itself (VERDICTS-44
                           // R-CAP-1): `{ y }` copies a `&T`, `{ m : &mut m.* }`
                           // reborrows a `&mut T`. Compiler-synthesized code, which
@@ -869,7 +869,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                             `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is a local borrow (\`${k} := &place\`, \`${k} := &mut place\`), a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. ${how}`
                           );
                         });
-                        if(!v.is_compile_time_only() && type_is_control_bound(&variable_value_type(&v)), {
+                        if(!v.*.is_compile_time_only() && type_is_control_bound(&variable_value_type(&v)), {
                           _raise_capture_rejection(
                             ctx,
                             exn,
@@ -976,7 +976,7 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
       if(!ast_expr_is_atom(&fld), {
         return(Option(AstExpr).None);
       });
-      rev.push(ast_expr_token(&fld).value.*.clone());
+      rev.push(ast_expr_token(&fld).*.value.*.clone());
       cur = recv;
     }, {
       walking = false;
@@ -1039,7 +1039,7 @@ _evaluate_capture_list :: (
       _cap_list_error(ctx, exn, ast_expr_token(&label_e), `A capture-list entry is named by an identifier (\`x\`, \`y : &p\`, \`&mut z\`); got \`${ast_expr_to_string(&label_e)}\`.`);
     });
     name_tok := ast_expr_token(&name_e);
-    label := name_tok.value.*.clone();
+    label := name_tok.*.value.*.clone();
     (di : usize) = usize(0);
     while(di < out.len(), {
       if(match(out.get_cloned(di), .Some(pe) => (pe.label == label), .None => false), {
@@ -1063,7 +1063,7 @@ _evaluate_capture_list :: (
     (ref_copy_var : Option(Variable)) = Option(Variable).None;
     if(!is_borrow && ast_expr_is_atom(&init_e) && is_valid_variable_name(&init_e) && deref_rule_applies(ast_expr_token(&init_e), ctx) && !is_reference_deref_site(ast_expr_token(&init_e)), {
       match(
-        get_variables_from_env(env, ast_expr_token(&init_e).value.*.clone()).last_cloned(),
+        get_variables_from_env(env, ast_expr_token(&init_e).*.value.*.clone()).last_cloned(),
         .Some(rcv) => if(variable_is_reference_binding(&rcv), {
           ref_copy_var = Option(Variable).Some(rcv);
         }),
@@ -1082,20 +1082,20 @@ _evaluate_capture_list :: (
         }
       );
       root_tok := ast_expr_token(&root_atom);
-      root_vars := get_variables_from_env(env, root_tok.value.*.clone());
+      root_vars := get_variables_from_env(env, root_tok.*.value.*.clone());
       root_var := match(
         root_vars.last_cloned(),
         .Some(v) => v,
         .None => {
-          _cap_list_error(ctx, exn, &root_tok, `Variable "${root_tok.value.*}" is not defined.`);
+          _cap_list_error(ctx, exn, &root_tok, `Variable "${root_tok.*.value.*}" is not defined.`);
           return(out);
         }
       );
-      if(root_var.is_module_level(), {
-        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name the module-level binding \`${root_tok.value.*}\`: a module-level place has no owner the closure's borrow could be checked against (decision 18, rule 3). Read it inside the body, or capture a copy: \`${label} : ${ast_expr_to_string(&place_e)}\`.`);
+      if(root_var.*.is_module_level(), {
+        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name the module-level binding \`${root_tok.*.value.*}\`: a module-level place has no owner the closure's borrow could be checked against (decision 18, rule 3). Read it inside the body, or capture a copy: \`${label} : ${ast_expr_to_string(&place_e)}\`.`);
       });
-      if(root_var.is_compile_time_only(), {
-        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name \`${root_tok.value.*}\`: it is a compile-time value with no runtime storage.`);
+      if(root_var.*.is_compile_time_only(), {
+        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name \`${root_tok.*.value.*}\`: it is a compile-time value with no runtime storage.`);
       });
       // A borrow capture of a reference binding `r` (decision 43 step 2
       // N1e-1, VERDICTS-13 §11): `{ y : &r }` borrows the referent, spelled
@@ -1145,14 +1145,14 @@ _evaluate_capture_list :: (
           ctx,
           exn,
           ast_expr_token(&place_e),
-          `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(&place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ &${root_tok.value.*} }(...) => ${ast_expr_to_string(&place_e)}...\`.`
+          `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(&place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ &${root_tok.*.value.*} }(...) => ${ast_expr_to_string(&place_e)}...\`.`
         );
       });
       // §3.13 A2: a future keeps its own copy of a `&T` parameter it borrows
       // (C receives the parameter by value, in the frame the future may
       // outlive), so it borrows the parameter whole, not a place inside it.
-      if(ctx.is_inside_io_async_call && root_var.is_imm_borrow() && (fields.len() > usize(0)), {
-        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow what the parameter refers to whole, \`{ ${root_tok.value.*} : &${root_tok.value.*}.* }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
+      if(ctx.is_inside_io_async_call && root_var.*.is_imm_borrow() && (fields.len() > usize(0)), {
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.*.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow what the parameter refers to whole, \`{ ${root_tok.*.value.*} : &${root_tok.*.value.*}.* }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
       });
       if(is_mut, {
         // Decision 38 D: a `mut` capture's place must be writable.
@@ -1162,8 +1162,8 @@ _evaluate_capture_list :: (
         // `imm` capture are not. (A cell is never crossed, checked above.)
         // Decision 47 step 2: and its root binding is declared `mut(name)`.
         place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, true, env, ctx, exn);
-        if(!root_var.is_reassignable(), {
-          _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value.*} : &mut T\`.`);
+        if(!root_var.*.is_reassignable(), {
+          _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.*.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.*.value.*} : &mut T\`.`);
         });
       });
       // The entry is R-LEND of its place, taken when the literal is
@@ -1182,13 +1182,13 @@ _evaluate_capture_list :: (
           CaptureBorrow(
             label : label.clone(),
             is_mut : is_mut,
-            root_id : root_var.id(),
-            root_name : root_tok.value.*.clone(),
+            root_id : root_var.*.id(),
+            root_name : root_tok.*.value.*.clone(),
             path : fields.clone(),
-            root_is_value_param : root_var.is_imm_borrow(),
+            root_is_value_param : root_var.*.is_imm_borrow(),
             through_value : false,
             assumed : false,
-            site : `${name_tok.module_path.*}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()}`
+            site : `${name_tok.*.module_path.*}:${(name_tok.*.row + u32(1)).to_string()}:${(name_tok.*.column + u32(1)).to_string()}`
           )
         );
         {
@@ -1224,10 +1224,10 @@ _evaluate_capture_list :: (
           is_mut : is_mut,
           value_ty : place_ty,
           init : Rc.clone(ev_place),
-          root_id : root_var.id(),
-          root_name : root_tok.value.*.clone(),
+          root_id : root_var.*.id(),
+          root_name : root_tok.*.value.*.clone(),
           path : fields,
-          root_is_value_param : root_var.is_imm_borrow(),
+          root_is_value_param : root_var.*.is_imm_borrow(),
           outer : match(
             local_borrow_place_of(&ev_place, env, ctx),
             .Some(op) => Option(BorrowCaptureOuter).Some(BorrowCaptureOuter(outer : root_var.clone(), text : `${cap_label_text} : ${if(is_mut, String.from("&mut "), String.from("&"))}${op.text}`, place : op, is_mut : is_mut)),
@@ -1250,7 +1250,7 @@ _evaluate_capture_list :: (
           ctx,
           exn,
           ast_expr_token(&init_e),
-          `\`${rv.name}\` is a \`&mut\` reference, and the by-value entry \`${label}\` would move it into the closure, which cannot take it. Reborrow it for the closure's life with \`{ ${label} : &mut ${rv.name}.* }\`.`
+          `\`${rv.*.name}\` is a \`&mut\` reference, and the by-value entry \`${label}\` would move it into the closure, which cannot take it. Reborrow it for the closure's life with \`{ ${label} : &mut ${rv.*.name}.* }\`.`
         );
       });
       saved_rexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
@@ -1269,10 +1269,10 @@ _evaluate_capture_list :: (
           is_mut : false,
           value_ty : variable_value_type(&rv),
           init : ev_ref.clone(),
-          root_id : rv.id(),
-          root_name : rv.name.clone(),
+          root_id : rv.*.id(),
+          root_name : rv.*.name.clone(),
           path : ArrayList(String).new(),
-          root_is_value_param : rv.is_imm_borrow(),
+          root_is_value_param : rv.*.is_imm_borrow(),
           outer : Option(BorrowCaptureOuter).None,
           origin_borrows : ref_borrows,
           uses_origin_borrows : true
@@ -1337,18 +1337,18 @@ _capture_origin_borrows :: (
     r := roots(ri).clone();
     match(
       get_variables_from_env(env, r.place.root_name.clone()).last_cloned(),
-      .Some(rv) => if(!rv.is_compile_time_only() && (rv.token.module_path == r.place.root_decl.module_path) && (rv.token.byte_offset == r.place.root_decl.byte_offset), {
+      .Some(rv) => if(!rv.*.is_compile_time_only() && (rv.*.token.*.module_path == r.place.root_decl.*.module_path) && (rv.*.token.*.byte_offset == r.place.root_decl.*.byte_offset), {
         out.push(
           CaptureBorrow(
             label : label.clone(),
             is_mut : r.is_mut,
-            root_id : rv.id(),
+            root_id : rv.*.id(),
             root_name : r.place.root_name.clone(),
             path : r.place.steps.clone(),
-            root_is_value_param : rv.is_imm_borrow(),
+            root_is_value_param : rv.*.is_imm_borrow(),
             through_value : false,
             assumed : false,
-            site : `${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()}`
+            site : `${tok.*.*.module_path.*}:${(tok.*.*.row + u32(1)).to_string()}:${(tok.*.*.column + u32(1)).to_string()}`
           )
         );
       }),
@@ -1530,7 +1530,7 @@ evaluate_anonymous_function_implementation :: (
   // checking one against the other emitted C that calls a struct
   // (issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md).
   // The closure-carrying slot types are `Impl(Fn(...))` and `Dyn(Fn(...))`.
-  if(is_creating_closure && match(&expected_ty, Rc(.Func({ meta : bf_m })) => !(bf_m.is_control), _ => false), {
+  if(is_creating_closure && match(&expected_ty, Rc(.Func({ meta : bf_m })) => !(bf_m.*.*.is_control), _ => false), {
     exn.throw(
       dyn(
         Box.new(
@@ -1552,12 +1552,12 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     &function_type,
-    Rc(.Func({ meta : __fm1 })) => Rc.clone(__fm1.forall_labels),
+    Rc(.Func({ meta : __fm1 })) => Rc.clone(__fm1.*.*.forall_labels),
     _ => no_labels()
   );
   param_labels := match(
     &function_type,
-    Rc(.Func({ meta : __fm2 })) => Rc.clone(__fm2.param_labels),
+    Rc(.Func({ meta : __fm2 })) => Rc.clone(__fm2.*.*.param_labels),
     _ => no_labels()
   );
   (param_types : SharedList(TypeValue)) = match(
@@ -1587,7 +1587,7 @@ evaluate_anonymous_function_implementation :: (
   );
   implicit_labels := match(
     &function_type,
-    Rc(.Func({ meta : __fm4 })) => Rc.clone(__fm4.implicit_labels),
+    Rc(.Func({ meta : __fm4 })) => Rc.clone(__fm4.*.*.implicit_labels),
     _ => no_labels()
   );
   implicit_types := match(
@@ -1612,7 +1612,7 @@ evaluate_anonymous_function_implementation :: (
       Rc(.FnCall(_, fb2, Rc(decl_args), _, _)) => match(
         fb2,
         Rc(.Atom(_, ptok)) => cond(
-          (ptok.value.* == BK_TUPLE) => decl_args.clone(),
+          (ptok.*.value.* == BK_TUPLE) => decl_args.clone(),
           true => {
             single_list := ArrayList(AstExpr).new();
             single_list.push(Rc.clone(param_decl));
@@ -1746,7 +1746,7 @@ evaluate_anonymous_function_implementation :: (
                   while(ann_vi < ann_top.variables_len(), {
                     match(
                       ann_top.variable_at(ann_vi),
-                      .Some(av) => if(av.name == ann_nm, {
+                      .Some(av) => if(av.*.name == ann_nm, {
                         ann_found = true;
                       }),
                       .None => ()
@@ -1876,19 +1876,19 @@ evaluate_anonymous_function_implementation :: (
                 match(
                   &ce.outer,
                   .Some(bco) => {
-                    note_borrow_capture_outer(cv.id(), bco.clone());
-                    cap_borrow_ids.push(cv.id());
+                    note_borrow_capture_outer(cv.*.id(), bco.clone());
+                    cap_borrow_ids.push(cv.*.id());
                   },
                   .None => ()
                 );
               }, if(!ce_owned, {
-                mark_fn_capture_value_binding(cv.id());
+                mark_fn_capture_value_binding(cv.*.id());
               }));
               if(!ce.is_borrow, {
-                mark_capture_list_value_binding(cv.id());
+                mark_capture_list_value_binding(cv.*.id());
               });
               if(ce_fnmut_state, {
-                mark_fnmut_capture_value_binding(cv.id());
+                mark_fnmut_capture_value_binding(cv.*.id());
               });
             },
             .None => ()
@@ -1930,7 +1930,7 @@ evaluate_anonymous_function_implementation :: (
             cap_frame.variable_at(cap_vi),
             .Some(cv) => {
               cond(
-                !(cv.name == "__recur_fn") => (),
+                !(cv.*.name == "__recur_fn") => (),
                 true => {
                   if(cap_vi > cap_run_start, {
                     cap_slices.push(CaptureSlice(vars : cap_frame.variables(), start : cap_run_start, end : cap_vi));
@@ -2040,7 +2040,7 @@ evaluate_anonymous_function_implementation :: (
           match(
             _st_bind_vars.get_cloned(_st_bi),
             .Some(sv) => match(
-              sv.value().get(usize(0)),
+              sv.*.value().get(usize(0)),
               .Some(Rc(.TypeVal(stv))) => if(!is_some_type(&stv), {
                 _st_bound = Option(TypeValue).Some(Rc.clone(stv));
                 _st_bi = usize(0);
@@ -2082,11 +2082,11 @@ evaluate_anonymous_function_implementation :: (
       match(
         &rp_v_opt,
         .Some(rp_v_own) => {
-          rp_v_own.set_is_owning_the_rc_value(true);
+          rp_v_own.*.*.set_is_owning_the_rc_value(true);
           // A parameter, so the function-body pass over the parameters
           // frame (`_schedule_scope_end_drops`, params_only) drops it at
           // the end of the body, as it drops a `fn`'s by-value parameter.
-          rp_v_own.set_is_parameter(true);
+          rp_v_own.*.*.set_is_parameter(true);
         },
         .None => ()
       );
@@ -2112,7 +2112,7 @@ evaluate_anonymous_function_implementation :: (
           // Reassignable goes with ref:
           // assignment TO an `inout` param is
           // the write-through (`v = i32(99)` in with_lock's closure).
-          rp_v.set_is_reassignable(true);
+          rp_v.*.*.set_is_reassignable(true);
         },
         .None => ()
       );
@@ -2128,7 +2128,7 @@ evaluate_anonymous_function_implementation :: (
       match(
         rp_v_opt,
         .Some(rp_vp) => {
-          rp_vp.set_is_parameter(true);
+          rp_vp.*.set_is_parameter(true);
           if(fn_param_is_ptr_borrow(&function_type, rp_i), {
             variable_set_is_ref(&rp_vp, true);
           });
@@ -2164,7 +2164,7 @@ evaluate_anonymous_function_implementation :: (
             match(
               rpr_vars.get_cloned(rpr_vi),
               .Some(rv) => match(
-                rv.value().get(usize(0)),
+                rv.*.value().get(usize(0)),
                 .Some(Rc(.TypeVal(rvt))) => if(!is_some_type(&rvt), {
                   rpr_conc = true;
                   rpr_vi = usize(0);
@@ -2202,14 +2202,14 @@ evaluate_anonymous_function_implementation :: (
   // Os's body under VcOp's signature). The occurrence counter is per-position,
   // so ids still do not shift on unrelated edits.
   func_id := cond(
-    is_creating_closure => stable_func_id(String.from("closure_"), &tok.module_path.*, usize(tok.row), usize(tok.column)),
-    true => stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
+    is_creating_closure => stable_func_id(String.from("closure_"), &tok.*.module_path.*, usize(tok.*.row), usize(tok.*.column)),
+    true => stable_func_id(String.from("fn_"), &tok.*.module_path.*, usize(tok.*.row), usize(tok.*.column))
   );
   // Source-position identity: every re-eval generation of this source
   // closure registers under the same key so capture info can merge across
   // generations (see function-value.yo g_closure_fid_source).
   if(is_creating_closure, {
-    register_closure_fid_source(func_id.clone(), `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`);
+    register_closure_fid_source(func_id.clone(), `${tok.*.module_path.*}:${tok.*.row.to_string()}:${tok.*.column.to_string()}`);
     // Audit A46: the body may write an implicit capture only when the
     // closure owns its record (not a literal lent to a borrowing parameter)
     // and its call takes the record exclusively or consumes it.
@@ -2227,10 +2227,10 @@ evaluate_anonymous_function_implementation :: (
     EvalValueNode.FuncVal(
       Rc.new(
         FuncValData(
-          forall_names : forall_labels.items.clone(),
+          forall_names : forall_labels.*.items.clone(),
           params : actual_param_labels.clone(),
           param_type_names : param_type_names,
-          evidence_params : implicit_labels.items.clone(),
+          evidence_params : implicit_labels.*.items.clone(),
           body : proj_body,
           cap_names : ArrayList(String).new(),
           cap_tys : ArrayList(TypeValue).new(),
@@ -2277,7 +2277,7 @@ evaluate_anonymous_function_implementation :: (
   // emitted as a RUNTIME C parameter. `origin_id` is the channel for the same
   // thing and travels with the meta through the `.clone()` just above.
   match(
-    match(&corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.origin_id.clone(), _ => Option(String).None),
+    match(&corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.*.*.origin_id.clone(), _ => Option(String).None),
     .Some(_oid) => {
       copy_func_param_defaults(_oid.clone(), func_id.clone());
       copy_func_param_default_exprs(_oid.clone(), func_id.clone());
@@ -2478,7 +2478,7 @@ evaluate_anonymous_function_implementation :: (
   // failing body harmless.
   ctl_force := match(
     &function_type,
-    Rc(.Func({ meta : __fmc9 })) => __fmc9.is_control,
+    Rc(.Func({ meta : __fmc9 })) => __fmc9.*.*.is_control,
     _ => false
   );
   // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
@@ -2590,7 +2590,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // keep what its trial swallowed, for codegen to report if the body turns
     // out hollow (`lookup_hollow_body_error`).
     hb_tok := ast_expr_token(&body_for_def_eval);
-    hb_site := `${hb_tok.module_path.*}:${hb_tok.row.to_string()}:${hb_tok.column.to_string()}`;
+    hb_site := `${hb_tok.*.module_path.*}:${hb_tok.*.row.to_string()}:${hb_tok.*.column.to_string()}`;
     if(_anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
       record_hollow_body_error(&hb_site, _anon_swallow_message(), g_anon_swallow_diags.with(_c_clone_diags));
     }, {
@@ -2697,7 +2697,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // `unwind` is a type error. Closures are exempt.
     fn_type_is_control := match(
       &function_type,
-      Rc(.Func({ meta : __fm5 })) => __fm5.is_control,
+      Rc(.Func({ meta : __fm5 })) => __fm5.*.*.is_control,
       _ => false
     );
     match(
@@ -3024,7 +3024,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
                     Rc.new(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), t_slot_with_pointee(&_l4r, &body_ty), Rc.new(_l4nm), no_types()))
                   },
-                  _ => t_func_simple(actual_param_labels.clone(), param_types.items.clone(), &body_ty)
+                  _ => t_func_simple(actual_param_labels.clone(), param_types.*.items.clone(), &body_ty)
                 );
                 register_func_type(func_id.clone(), &rereg_ty);
                 // Record the CONCRETE def-evaluated body type by FuncVal id.
@@ -3144,7 +3144,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
               // shadow the real definition's (codegen emitted the trial clone).
               // Positional-occurrence like every fid — the throwaway
               // takes this position's next ordinal, distinct from the real one.
-              func_id : stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
+              func_id : stable_func_id(String.from("fn_"), &tok.*.module_path.*, usize(tok.*.row), usize(tok.*.column))
             )
           ),
           no_values()
@@ -3315,7 +3315,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   ty : if(ce.is_borrow, t_ptr(ce.value_ty.clone()), ce.value_ty.clone()),
                   value : Option(EvalValue).None,
                   is_effect_param : false,
-                  decl_site : `${ce.label_tok.module_path.*}:${ce.label_tok.row.to_string()}:${ce.label_tok.column.to_string()}`
+                  decl_site : `${ce.label_tok.*.module_path.*}:${ce.label_tok.*.row.to_string()}:${ce.label_tok.*.column.to_string()}`
                 )
               );
               cl_inits.push(CaptureFieldInit(label : ce.label.clone(), init : Rc.clone(ce.init), is_borrow : ce.is_borrow));
@@ -3384,7 +3384,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     root_is_value_param : ce.root_is_value_param,
                     through_value : false,
                     assumed : false,
-                    site : `${ce.label_tok.module_path.*}:${(ce.label_tok.row + u32(1)).to_string()}:${(ce.label_tok.column + u32(1)).to_string()}`
+                    site : `${ce.label_tok.*.module_path.*}:${(ce.label_tok.*.row + u32(1)).to_string()}:${(ce.label_tok.*.column + u32(1)).to_string()}`
                   )
                 );
               })),
