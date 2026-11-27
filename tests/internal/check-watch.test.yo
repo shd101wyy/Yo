@@ -7,7 +7,7 @@
 { EvalValue } :: import("../../src/value.yo");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
@@ -46,9 +46,7 @@ _round :: (
 test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -99,9 +97,7 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
 test("Phase 3a: mm_definitions_changed — comment/whitespace edits are no-ops, semantic edits are not", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -234,9 +230,7 @@ _P3B_APP :: "lib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x :=
 test("Phase 3b: a body edit re-evaluates only the changed def + its dependents", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -301,9 +295,7 @@ _DEREF_APP :: "{ walk } :: import(\"./lib.yo\");\n{ ArrayList } :: import(\"std/
 test("Phase 3b: a re-forced dependent reads its reference with .* as written", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -329,9 +321,7 @@ test("Phase 3b: a re-forced dependent reads its reference with .* as written", {
 test("Phase 3b: a signature edit takes the per-def path and the re-forced dependent fails on arity", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -373,9 +363,7 @@ test("Phase 3b: a signature edit takes the per-def path and the re-forced depend
 test("Phase 3b: a DIRECTORY check attributes destructured reads to the right module", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -446,9 +434,7 @@ test("Phase 3b: a DIRECTORY check attributes destructured reads to the right mod
 test("Phase 3b: a struct-field edit (type producer) falls back to file-level", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -552,9 +538,7 @@ _def_int_value :: (fn(module_key : &String, name : &String) -> String)(
 test("Phase 3 re-bind: a destructured importer is re-bound, not dropped, and its value is fresh", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -602,9 +586,7 @@ test("Phase 3 re-bind: a destructured importer is re-bound, not dropped, and its
 test("Phase 3 re-bind: an import RENAME falls back instead of re-binding", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -632,9 +614,7 @@ test("Phase 3 re-bind: an import RENAME falls back instead of re-binding", {
 test("Phase 3 re-bind: an ordered statement that computed with the old value falls back", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -671,9 +651,7 @@ _D1W_APP :: "{ Thread } :: import(\"std/thread\");\nlib_mod :: import(\"./lib.yo
 test("Phase 3b: rule D1 re-judges a re-forced body — the reach memo answers only for the body it walked", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -723,9 +701,7 @@ _SMC_D1_APP :: "lib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)(lib_mod
 test("Phase 3b: an edit re-judges the edited definition's same-module callers, transitively", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -774,9 +750,7 @@ test("Phase 3b: an edit re-judges the edited definition's same-module callers, t
 test("build --watch: invalidate_changed_files makes an edited import re-read on the next load", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -816,9 +790,7 @@ _IMS_APP_SHIFTED :: "P :: struct(_d : i32);\nimpl(\n  P,\n  a : (fn(x : i32) -> 
 test("watch: an edit that moves an inherent impl member to another line is not a duplicate method (E0612)", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);

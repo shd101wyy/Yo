@@ -10,7 +10,7 @@
 { String, StringBuilder } :: import("std/string");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { env } :: import("std/env");
 {
   mm_load_file,
@@ -49,9 +49,7 @@ _load_reports :: (
 )({
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `verifier_quantifiers: unexpected throw: ${err}`);
-      }
+      err -> panic(`verifier_quantifiers: unexpected throw: ${err}`)
     )
   );
   std_path := resolve_std_path();
@@ -166,9 +164,7 @@ test("==> outside ghost context is a compile error (solver-free)", {
 test("the encoding emits a raw-spelling SMT forall (solver-free)", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `verifier_quantifiers: unexpected throw: ${err}`);
-      }
+      err -> panic(`verifier_quantifiers: unexpected throw: ${err}`)
     )
   );
   std_path := resolve_std_path();

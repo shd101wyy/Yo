@@ -19,7 +19,7 @@
 { String, StringBuilder } :: import("std/string");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { env } :: import("std/env");
 {
   mm_load_file,
@@ -55,9 +55,7 @@ _have_z3 :: (fn() -> bool)(
 _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))({
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `verifier_negative: unexpected throw: ${err}`);
-      }
+      err -> panic(`verifier_negative: unexpected throw: ${err}`)
     )
   );
   std_path := resolve_std_path();

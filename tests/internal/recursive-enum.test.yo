@@ -12,7 +12,7 @@
 { String } :: import("std/string");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 {
   mm_load_file,
   mm_preload_prelude,
@@ -27,9 +27,7 @@ LoadOutcomePair :: struct(ok : bool, rendered : String);
 _load_fixture :: (fn(rel_path : &String, io : Io) -> LoadOutcomePair)({
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `recursive_enum: unexpected throw: ${err}`);
-      }
+      err -> panic(`recursive_enum: unexpected throw: ${err}`)
     )
   );
   std_path := resolve_std_path();

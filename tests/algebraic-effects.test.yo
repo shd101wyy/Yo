@@ -1,5 +1,5 @@
 pragma(Pragma.AllowUnsafe);
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { String } :: import("std/string"); // Let's use `String` instead of `str`
 { println } :: import("std/fmt");
 { Exception, AnyError } :: import("std/error");
@@ -2311,9 +2311,75 @@ test("a plain Exception handler cannot resume the throw with a value", {
     ),
     "This handler resumes the throw, but its resume type"
   );
-  // Unwinding is legal; falling through with `()` still is.
+  // Unwinding is legal.
   _unwinds := Exception(throw : (err -> unwind(())));
-  _falls := Exception(throw : (err -> ()));
+});
+// Nor may it reach its end: every path unwinds or diverges (VERDICTS-89 R2,
+// E0627). A handler that fell through aborted the process with no message
+// (issues/fixed/2026-11-27-a-generic-resume-handler-that-falls-through-aborts-the-process-with-no-message.md).
+test("a plain Exception handler that can reach its end is E0627", {
+  comptime_expect_error(
+    _unit := Exception(throw : (err -> ())),
+    "This handler can reach its end without unwinding"
+  );
+  comptime_expect_error(
+    _prints := Exception(
+      throw : (
+        err -> {
+          println(`swallowed`);
+        }
+      )
+    ),
+    "This handler can reach its end without unwinding"
+  );
+  comptime_expect_error(
+    _one_arm := Exception(
+      throw : (
+        err -> cond(
+          downcast(&err.*, String).is_some() => unwind(()),
+          true => ()
+        )
+      )
+    ),
+    "This handler can reach its end without unwinding"
+  );
+  // `assert` is not known to diverge: `assert(false, msg);` has type `()`.
+  comptime_expect_error(
+    _asserts := Exception(
+      throw : (
+        err -> {
+          assert(false, "x");
+        }
+      )
+    ),
+    "This handler can reach its end without unwinding"
+  );
+  // Every path unwinds or has type `never`.
+  _panics := Exception(throw : (err -> panic(`unexpected throw: ${err}`)));
+  _logs_then_panics := Exception(
+    throw : (
+      err -> {
+        println(`about to panic`);
+        panic(`unexpected throw: ${err}`)
+      }
+    )
+  );
+  _both_arms := Exception(
+    throw : (
+      err -> cond(
+        downcast(&err.*, String).is_some() => unwind(()),
+        true => panic("unlucky")
+      )
+    )
+  );
+  _unwinds_last := Exception(
+    throw : (
+      err -> {
+        println(`unwinding`);
+        unwind(());
+      }
+    )
+  );
 });
 // VERDICTS-89 R1: a `ctl` type parameter may only be the whole result type,
 // the operation that does not resume (E0627).

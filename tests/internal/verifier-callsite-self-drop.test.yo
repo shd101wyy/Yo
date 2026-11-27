@@ -18,7 +18,7 @@
 { String } :: import("std/string");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { env, temp_dir } :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
@@ -81,9 +81,7 @@ impl(
 _load_in_verify_mode :: (fn(path_str : &String, io : Io) -> bool)({
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `verifier_callsite_self_drop: unexpected throw: ${err}`);
-      }
+      err -> panic(`verifier_callsite_self_drop: unexpected throw: ${err}`)
     )
   );
   std_path := resolve_std_path();

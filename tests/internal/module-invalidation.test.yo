@@ -15,7 +15,7 @@
 { String } :: import("std/string");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
@@ -77,9 +77,7 @@ _analyze_app_ok :: (fn(app_path : &String, std_path : &String, io : Io) -> bool)
 test("B1: imported-file edit visible after overlay + invalidation", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -129,9 +127,7 @@ test("B1: imported-file edit visible after overlay + invalidation", {
 test("B2: repeated re-analysis keeps registry entry counts stable", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -192,9 +188,7 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
 test("B2: re-analysis keeps the memo and trait-default registries flat", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -225,9 +219,7 @@ test("B2: re-analysis keeps the memo and trait-default registries flat", {
 test("B3: only open documents keep their walk context", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -277,9 +269,7 @@ _retained_info_count :: (fn(doc_path : &String, text : &String, std_path : &Stri
 test("CTFE: an executed clone's metadata does not outlive the call", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -314,9 +304,7 @@ _overload_doc :: (fn(calls : usize) -> String)({
 test("overload trials: a trial's clones leave no metadata behind", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -349,9 +337,7 @@ test("captures: a specialization of a handle-backed FuncVal stores no flat captu
   // reads names/types through them (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.13).
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -376,9 +362,7 @@ test("captures: a handle-backed FuncVal keeps no capture value snapshot", {
   // read from the handles' cells (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.16).
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -428,9 +412,7 @@ test("owner logs: a one-shot command records none, an invalidating one does", {
   // §0.15); `yo lsp` and the watch modes keep the default, on.
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -461,9 +443,7 @@ test("match-arm registry: re-analysis keeps it flat", {
   /// doc's matches again).
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -493,9 +473,7 @@ test("match-arm registry: a command that neither generates code nor verifies rec
   /// adds none.
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);

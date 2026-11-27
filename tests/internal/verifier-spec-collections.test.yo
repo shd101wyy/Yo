@@ -6,7 +6,7 @@
 { String, StringBuilder } :: import("std/string");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { env } :: import("std/env");
 {
   mm_load_file,
@@ -40,9 +40,7 @@ _load_reports :: (
 )({
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `verifier_spec_collections: unexpected throw: ${err}`);
-      }
+      err -> panic(`verifier_spec_collections: unexpected throw: ${err}`)
     )
   );
   std_path := resolve_std_path();

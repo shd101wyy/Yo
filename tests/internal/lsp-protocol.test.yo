@@ -22,7 +22,7 @@
 { rune, String } :: import("std/string");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert, assert_eq } :: import("std/assert");
+{ assert, assert_eq, panic } :: import("std/assert");
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
 { Path } :: import("std/path");
@@ -113,9 +113,7 @@ _analyze :: (fn(doc_path : &String, text : &String, std_path : &String, io : Io)
 test("analysis state survives evaluation and parse errors", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -217,9 +215,7 @@ _hover_text :: (fn(h : &Option(JsonValue)) -> String)({
 test("hover shows contracts + verification status for a contracted function", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -331,9 +327,7 @@ test("rename_rejection: only legal binding names pass", {
 test("references honor context.includeDeclaration", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -376,9 +370,7 @@ test("references honor context.includeDeclaration", {
 test("documentSymbol lists typed top-level declarations", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -408,9 +400,7 @@ test("documentSymbol lists typed top-level declarations", {
 test("prepareRename answers on bindings, not on members or labels", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -458,9 +448,7 @@ test("prepareRename answers on bindings, not on members or labels", {
 test("documentHighlight: Write on the declaration, Text on uses, nothing on members", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -495,9 +483,7 @@ test("documentHighlight: Write on the declaration, Text on uses, nothing on memb
 test("typeDefinition: a value jumps to its type's binding; labels and fn-typed names answer nothing", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -546,9 +532,7 @@ test("typeDefinition: a value jumps to its type's binding; labels and fn-typed n
 test("a cursor at an identifier's end column still names it", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -577,9 +561,7 @@ test("a cursor at an identifier's end column still names it", {
 test("workspace/symbol lists the open documents' matching top-level symbols", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -612,9 +594,7 @@ test("workspace/symbol lists the open documents' matching top-level symbols", {
 test("an error's std-anchored note becomes relatedInformation, not a 0:0 entry", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -650,9 +630,7 @@ test("an error's std-anchored note becomes relatedInformation, not a 0:0 entry",
 test("semanticTokens: keywords, literals and comments from the lexer; identifiers from the analysis", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -688,9 +666,7 @@ test("semanticTokens: keywords, literals and comments from the lexer; identifier
 test("semanticTokens: string literals and numbers classify from the token", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -742,9 +718,7 @@ test("rune <-> utf-8 columns around an astral-plane rune", {
 test("semanticTokens columns and lengths are wire-encoded and source-exact", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -780,9 +754,7 @@ test("semanticTokens columns and lengths are wire-encoded and source-exact", {
 test("semanticTokens splits a multi-line comment into per-line segments", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -815,9 +787,7 @@ test("semanticTokens splits a multi-line comment into per-line segments", {
 test("includeDeclaration=false drops a :: declaration from the declaration itself", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -872,9 +842,7 @@ test("rename_rejection reserves the identifier-spelled call-heads", {
 test("documentSymbol: flat SymbolInformation for non-hierarchical clients", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -901,9 +869,7 @@ test("documentSymbol: flat SymbolInformation for non-hierarchical clients", {
 test("documentSymbol lists runtime and thread_local declarations", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -936,9 +902,7 @@ test("documentSymbol lists runtime and thread_local declarations", {
 test("implementation: a trait cursor lists this file's impls of it; a type cursor lists its impls", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);
@@ -978,9 +942,7 @@ test("implementation: a trait cursor lists this file's impls of it; a type curso
 test("documentLink: import paths link to the files they name", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);

@@ -18,7 +18,7 @@
 { String } :: import("std/string");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { env } :: import("std/env");
 {
   mm_load_file,
@@ -72,9 +72,7 @@ _arm :: (fn(rel_path : &String, std_path : &String) -> unit)({
 _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))({
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `verifier_law: unexpected throw: ${err}`);
-      }
+      err -> panic(`verifier_law: unexpected throw: ${err}`)
     )
   );
   std_path := resolve_std_path();
@@ -101,7 +99,7 @@ _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport)
 /// `Exception` handler is a capture-free `->` function and cannot record into a
 /// local, which the evaluator enforces.
 _expect_rejected :: (fn(rel_path : &String, needle : &String, io : Io) -> unit)({
-  exn := Exception(throw : (err -> ()));
+  exn := Exception(throw : (err -> panic(`verifier_law: unexpected throw: ${err}`)));
   std_path := resolve_std_path();
   _arm(rel_path.clone(), std_path.clone());
   mm_preload_prelude(std_path.clone(), true, io, exn);

@@ -25,7 +25,7 @@
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { Path } :: import("std/path");
 { write_string } :: import("std/fs/file");
 { create_dir_all } :: import("std/fs/dir");
@@ -84,9 +84,7 @@ _load_code :: (fn(path : &String, src : &String, std_path : &String, io : Io, ex
 test("every registry example reproduces its code, and every good example loads clean", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   ioexn := IoExn(io : io, exn : exn);

@@ -17,7 +17,7 @@
 { write_string, read, exists } :: import("std/fs/file");
 { create_dir_all } :: import("std/fs/dir");
 { TempDir } :: import("std/fs/temp");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { DocCommandOptions, run_doc } :: import("../../src/doc-command.yo");
 /// Write `text` to `<root>/<rel>`, creating parent directories.
 _put :: (fn(root : &String, rel : &String, text : &String, io : Io, exn : Exception) -> unit)({
@@ -80,9 +80,7 @@ test("a degraded module fails the run unless --allow-token-only is passed", {
   // not return one (a `ctl` handler cannot outlive its frame).
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err.to_string()}`);
-      }
+      err -> panic(`test io failed: ${err.to_string()}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
@@ -112,9 +110,7 @@ test("a degraded module fails the run unless --allow-token-only is passed", {
 test("--allow-token-only renders, with members on their types and no unexported items", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err.to_string()}`);
-      }
+      err -> panic(`test io failed: ${err.to_string()}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
@@ -141,9 +137,7 @@ test("--allow-token-only renders, with members on their types and no unexported 
 test("a fully loadable tree never needs the flag", {
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `a clean tree must not throw: ${err.to_string()}`);
-      }
+      err -> panic(`a clean tree must not throw: ${err.to_string()}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));

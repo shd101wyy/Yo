@@ -14,7 +14,7 @@
 { String } :: import("std/string");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array-list");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 { env } :: import("std/env");
 {
   mm_load_file,
@@ -57,9 +57,7 @@ _load_strip_tasks :: (fn(io : Io) -> ArrayList(VerifyTask))(
 _load_fixture_tasks :: (fn(rel : &String, io : Io) -> ArrayList(VerifyTask))({
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `verifier_strip: unexpected throw: ${err}`);
-      }
+      err -> panic(`verifier_strip: unexpected throw: ${err}`)
     )
   );
   std_path := resolve_std_path();

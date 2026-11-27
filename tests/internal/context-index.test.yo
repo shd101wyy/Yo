@@ -19,7 +19,7 @@
 { write_string, read } :: import("std/fs/file");
 { create_dir_all } :: import("std/fs/dir");
 { TempDir } :: import("std/fs/temp");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 {
   ContextIndexEntry,
   ContextIndexModule,
@@ -70,9 +70,7 @@ test("context_tree_key: stable, moves on a content edit, moves with the corpus n
   // not return one (a `ctl` handler cannot outlive its frame).
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
@@ -104,9 +102,7 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   // not return one (a `ctl` handler cannot outlive its frame).
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
@@ -179,9 +175,7 @@ test("a module the evaluator cannot load is marked degraded", {
   // not return one (a `ctl` handler cannot outlive its frame).
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
@@ -276,9 +270,7 @@ test("_search_entries: byte-identical rows collapse; a multi-word query matches"
   // signature demands them.
   exn := Exception(
     throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
+      err -> panic(`test io failed: ${err}`)
     )
   );
   // std/async/channel's shape: one `close` per receiver type, and every
