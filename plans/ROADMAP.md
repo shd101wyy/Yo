@@ -31,6 +31,10 @@ Six lanes, at most four at once
 - **A. Soundness.** [`TYPE_SYSTEM_SOUNDNESS`](backlog/TYPE_SYSTEM_SOUNDNESS.md);
   the walls VBD dropped in [`REFERENCES_AND_ORIGINS`](backlog/REFERENCES_AND_ORIGINS.md),
   then the D1 thread-reach holes (A41/A42), scoped threads and lending iterators.
+  `ctl`/`unwind` kept and made correct
+  ([`CAPABILITIES_AND_HANDLERS`](backlog/CAPABILITIES_AND_HANDLERS.md)): the
+  core K-items in v0.2.82–84, the error-style pilot in v0.2.83, the go/no-go
+  for real handlers (H-0) in v0.2.85–86, handlers on AFA frames in v0.2.87–90.
 - **B. Runtime.** The `Io` interface
   ([`IO_INTERFACE_AND_STD_RUNTIME`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)),
   then allocation-free async ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md)),

@@ -282,6 +282,15 @@ Cadence stays patch releases, as in VBD: a release cuts when develop's battery
 is green on the tip. A row is a target, not a gate. An item that is not ready
 slides to the next row, and nothing waits for it.
 
+**Capabilities and handlers (added 2026-11-28,
+[`CAPABILITIES_AND_HANDLERS.md`](CAPABILITIES_AND_HANDLERS.md)).** `ctl` and
+`unwind` are kept and made correct, beside the lanes above. The core
+(K-1–K-6, K-8, K-10) lands in v0.2.82–84, one lane for v0.2.82–83, with K-7 in
+lane A and K-8 inside AFA-3. The error-style pilot (STD_RUST_ALIGNMENT L-1 plus
+E-2) decides in v0.2.83 whether `std/` and `src/` move to `Result`. H-0, the
+go/no-go for real handlers, is in v0.2.85–86; H-1 to H-4 follow in v0.2.87–90
+if it says go.
+
 ## 5. Decisions the maintainer may want to make (with recommendations)
 
 1. **A `v0.3.0` milestone.**

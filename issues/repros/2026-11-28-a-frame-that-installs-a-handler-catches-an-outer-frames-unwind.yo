@@ -1,0 +1,43 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+Raise :: (ctl(msg : &String) -> i32);
+
+// calls whichever handler `which` picks
+leaf :: (fn(which : i32, a : Raise, b : Raise) -> i32)(
+  cond(
+    (which == i32(0)) => a(`a`),
+    (which == i32(1)) => b(`b`),
+    true => i32(7)
+  )
+);
+
+// installs B locally, receives A as a parameter
+inner :: (fn(which : i32, a : Raise) -> i32)({
+  (b : Raise) = (
+    msg -> {
+      unwind(i32(200));
+    }
+  );
+  r := leaf(which, a, b);
+  println(`inner: after leaf r=${r}`);
+  (r + i32(1))
+});
+
+outer :: (fn(which : i32) -> i32)({
+  (a : Raise) = (
+    msg -> {
+      unwind(i32(100));
+    }
+  );
+  r := inner(which, a);
+  println(`outer: after inner r=${r}`);
+  (r + i32(1000))
+});
+
+main :: (fn() -> unit)({
+  println(`which=0 -> ${outer(i32(0))}`);
+  println(`which=1 -> ${outer(i32(1))}`);
+  println(`which=2 -> ${outer(i32(2))}`);
+});
+export(main);
