@@ -49,10 +49,13 @@ comptime_expect_error({
 }, _RESERVED);
 // A parameter (p11), a closure parameter, a `:=` local, a typed `(x : T) =`.
 comptime_expect_error((fn(__yo_incr_rc : i32) -> i32)(__yo_incr_rc), _RESERVED);
-comptime_expect_error((fn() -> unit)({
-  xs := ArrayList(i32).new();
-  for(&xs, __yo_e => ());
-}), _RESERVED);
+comptime_expect_error(
+  (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    for(&xs, __yo_e => ());
+  }),
+  _RESERVED
+);
 comptime_expect_error({
   __yo_incr_rc := i32(3);
   __yo_incr_rc
