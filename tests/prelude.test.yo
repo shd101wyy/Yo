@@ -1,6 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { hash_one } :: import("std/hash");
+{ String } :: import("std/string");
 test("Test 'Rc'", {
   // test `Rc` Eq trait.
   {
@@ -21,7 +22,7 @@ test("Test TryFrom/TryInto traits", {
       try_from : (
         value ->
           cond(
-            ((value.* % 2) == 0) => .Ok(EvenNumber(value.*)),
+            ((value % 2) == 0) => .Ok(EvenNumber(value)),
             true => .Err("Only even numbers are allowed (i32)")
           )
       )
@@ -34,7 +35,7 @@ test("Test TryFrom/TryInto traits", {
       try_from : (
         value ->
           cond(
-            ((value.* % 2) == 0) => .Ok(EvenNumber(i32(value.*))),
+            ((value % 2) == 0) => .Ok(EvenNumber(i32(value))),
             true => .Err("Only even numbers are allowed (i64)")
           )
       )
@@ -396,6 +397,18 @@ test("From and Into widen integers and floats losslessly", {
   c := f32(2.5);
   assert(c.into(f64) == f64(2.5), "f32 into f64");
 });
+// From/Into take the source by value (STD_RUST_ALIGNMENT row 12): a non-`Copy`
+// source moves into the conversion instead of being cloned out of a borrow.
+_PreludeLabel :: struct(text : String);
+impl(_PreludeLabel, From(String)(from : (value -> _PreludeLabel(text : value))));
+impl(String, Into(_PreludeLabel)(into : ((self, _) -> _PreludeLabel(text : self))));
+test("From and Into move a non-Copy source", {
+  a := (_PreludeLabel <: From(String)).from(`moved`);
+  assert(a.text == `moved`, "from owns the String");
+  b := `into`.into(_PreludeLabel);
+  assert(b.text == `into`, "into consumes self");
+});
+
 test("Ord.cmp default derives a total order from < and ==", {
   less := match(i32(1).cmp(i32(2)), .Less => true, _ => false);
   assert(less, "1 cmp 2 is Less");
@@ -439,9 +452,9 @@ test("Option completion: expect, is_some_and, inspect, take, replace", {
   some := Option(i32).Some(i32(7));
   none := Option(i32).None;
   assert(some.expect("must be some") == i32(7), "expect returns the value");
-  assert(some.is_some_and(v => (v.* > i32(5))), "is_some_and true");
-  assert(!some.is_some_and(v => (v.* > i32(10))), "is_some_and false predicate");
-  assert(!none.is_some_and(v => (v.* > i32(0))), "is_some_and on None");
+  assert(some.is_some_and(v => (v > i32(5))), "is_some_and true");
+  assert(!some.is_some_and(v => (v > i32(10))), "is_some_and false predicate");
+  assert(!none.is_some_and(v => (v > i32(0))), "is_some_and on None");
   // Closures capture locals BY VALUE, so the closure borrows the list it
   // writes (`{ &mut seen }`).
   { ArrayList } :: import("std/collections/array-list");
@@ -462,10 +475,10 @@ test("Option completion: expect, is_some_and, inspect, take, replace", {
 test("Option zip and transpose", {
   a := Option(i32).Some(i32(1));
   b := Option(u8).Some(u8(2));
-  pair := a.zip(&b);
+  pair := a.zip(b);
   assert(pair.is_some(), "zip of two Somes is Some");
   p := pair.unwrap();
-  assert((p._0 == i32(1)) && (p._1 == u8(2)), "zip pairs both values");
+  assert((p.0 == i32(1)) && (p.1 == u8(2)), "zip pairs both values");
   assert(a.zip(Option(u8).None).is_none(), "zip with None is None");
   ok_inner := Option(Result(i32, u8)).Some(Result(i32, u8).Ok(i32(3)));
   transposed := ok_inner.transpose();

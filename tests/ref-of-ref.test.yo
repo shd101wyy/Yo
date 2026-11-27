@@ -99,9 +99,9 @@ test("a &mut &(T, p) parameter swaps two references", {
 });
 test("an adapter closure over a reference Item takes a &&T", {
   xs := rr_list();
-  n := rr_cursor(&xs).map(v => (v.*.* * i32(10))).filter(v => (v.* > i32(10))).count();
+  n := rr_cursor(&xs).map(v => (v.* * i32(10))).filter(v => (v.* > i32(10))).count();
   assert(n == usize(2), "map's item is &&i32, filter's &i32");
-  total := rr_cursor(&xs).fold(i32(0), (acc, v) => (acc.* + v.*.*));
+  total := rr_cursor(&xs).fold(i32(0), (acc, v) => (acc + v.*));
   assert(total == i32(6), "fold's item is &&i32");
   big := rr_cursor(&xs).filter(v => (v.*.* > i32(1))).count();
   assert(big == usize(2), "filter's item is &&i32 over a reference Item");

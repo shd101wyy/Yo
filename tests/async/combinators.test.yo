@@ -610,9 +610,9 @@ test("Test a consumer generic over Stream", {
   assert(n3 == usize(2), "and it takes a combinator chain, not only a source");
   total := io.await(_sum_i32(Countdown(_n : i32(3)), io), io);
   assert(total == i32(6), "a concrete-Item consumer sums a source");
-  chained := io.await(_sum_i32(Countdown(_n : i32(3)).map(x => (x.* * i32(2))), io), io);
+  chained := io.await(_sum_i32(Countdown(_n : i32(3)).map(x => (x * i32(2))), io), io);
   assert(chained == i32(12), "and it accepts a combinator chain, not just a source");
-  all := _collect_all(Countdown(_n : i32(3)).map(x => (x.* * i32(2))), io);
+  all := _collect_all(Countdown(_n : i32(3)).map(x => (x * i32(2))), io);
   assert(all.len() == usize(3), "a generic-Item consumer collects a chain");
   assert(all(usize(0)) == i32(6), "and keeps the values");
 });
@@ -621,14 +621,14 @@ test("Test a consumer generic over Stream", {
 // different inner stream is its own type. They were interned as one C type
 // (incompatible pointer types in the emitted C), two deep and deeper.
 test("Test the same combinator repeated in one chain", {
-  two := io.await(Countdown(_n : i32(3)).map(x => (x.* + i32(1))).map(x => (x.* + i32(2))).collect(io), io);
+  two := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).collect(io), io);
   assert(two.len() == usize(3), "two maps keep every item");
   assert(two(usize(0)) == i32(6), "two maps: 3 + 1 + 2");
-  three := io.await(Countdown(_n : i32(3)).map(x => (x.* + i32(1))).map(x => (x.* + i32(2))).map(x => (x.* + i32(3))).collect(io), io);
+  three := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).map(x => (x + i32(3))).collect(io), io);
   assert(three(usize(0)) == i32(9), "three maps: 3 + 1 + 2 + 3");
-  four := io.await(Countdown(_n : i32(3)).map(x => (x.* + i32(1))).map(x => (x.* + i32(2))).map(x => (x.* + i32(3))).map(x => (x.* + i32(4))).collect(io), io);
+  four := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).map(x => (x + i32(3))).map(x => (x + i32(4))).collect(io), io);
   assert(four(usize(0)) == i32(13), "four maps: 3 + 1 + 2 + 3 + 4");
-  alt := io.await(Countdown(_n : i32(3)).map(x => (x.* * i32(2))).take(usize(2)).map(x => (x.* + i32(1))).collect(io), io);
+  alt := io.await(Countdown(_n : i32(3)).map(x => (x * i32(2))).take(usize(2)).map(x => (x + i32(1))).collect(io), io);
   assert(alt.len() == usize(2), "map, take, map: the take applies");
   assert(alt(usize(1)) == i32(5), "and the outer map sees the inner one's values: 2 * 2 + 1");
 });
@@ -636,7 +636,7 @@ test("Test the same combinator repeated in one chain", {
 // S4. Each combinator, awaited from inside a spawned task
 // ---------------------------------------------------------------------------
 test("Test Stream map inside a spawned task", {
-  got := _bounded(Countdown(_n : i32(3)).map(x => (x.* * i32(10))), io);
+  got := _bounded(Countdown(_n : i32(3)).map(x => (x * i32(10))), io);
   assert(got.len() == usize(3), "map is length-preserving");
   assert(got(usize(0)) == i32(30), "first mapped");
   assert(got(usize(2)) == i32(10), "last mapped");
@@ -654,7 +654,7 @@ test("Test Stream filter that keeps nothing", {
 test("Test Stream filter_map inside a spawned task", {
   got := _bounded(
     Countdown(_n : i32(5)).filter_map(
-      x => cond((x.* > i32(3)) => Option(i32).Some(x.* + i32(100)), true => Option(i32).None)
+      x => cond((x > i32(3)) => Option(i32).Some(x + i32(100)), true => Option(i32).None)
     ),
     io
   );
@@ -690,7 +690,7 @@ test("Test Stream skip past the end of the stream", {
 // ---------------------------------------------------------------------------
 test("Test a Stream combinator chain", {
   // 10..1 -> evens (10 8 6 4 2) -> +1 (11 9 7 5 3) -> first two.
-  got := _bounded(Countdown(_n : i32(10)).filter(x => ((x.* % i32(2)) == i32(0))).map(x => (x.* + i32(1))).take(usize(2)), io);
+  got := _bounded(Countdown(_n : i32(10)).filter(x => ((x.* % i32(2)) == i32(0))).map(x => (x + i32(1))).take(usize(2)), io);
   assert(got.len() == usize(2), "the chain yields two items");
   assert(got(usize(0)) == i32(11), "first");
   assert(got(usize(1)) == i32(9), "second");
@@ -705,7 +705,7 @@ test("Test Stream for_each from main", {
   h := Rc.clone(seen);
   io.await(
     Countdown(_n : i32(3)).for_each({ h }(x) => {
-      h.*.with_mut(l => l.push(x.*));
+      h.*.with_mut(l => l.push(x));
     }, io),
     io
   );
@@ -719,7 +719,7 @@ test("Test Stream for_each inside a spawned task", {
   // (issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md).
   h := Rc.clone(seen);
   drain := Countdown(_n : i32(4)).for_each({ h }(x) => {
-    h.*.with_mut(l => l.push(x.*));
+    h.*.with_mut(l => l.push(x));
   }, io);
   r := io.await(timeout(drain, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_each finished inside the deadline");
@@ -936,7 +936,7 @@ test("Stream.for_each releases what its body closure captures", {
       Countdown(_n : i32(3)).for_each({ t, total : Rc.clone(total) }(x) => {
         k := t.n;
         total.*.with_mut(cur => {
-          cur.* = (cur.* + (x.* * k));
+          cur.* = (cur.* + (x * k));
         });
       }, io),
       io
@@ -973,9 +973,9 @@ impl(
   )
 );
 test("Test collect over chains of different shapes whose source holds an Rc", {
-  a := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x.* * i32(10))).map(x => (x.* + i32(1))).collect(io), io);
+  a := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).map(x => (x + i32(1))).collect(io), io);
   b := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).filter(x => (x.* > i32(1))).filter(x => (x.* < i32(4))).collect(io), io);
-  c := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x.* * i32(10))).filter(x => (x.* > i32(20))).collect(io), io);
+  c := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).filter(x => (x.* > i32(20))).collect(io), io);
   assert(a.len() == usize(4), "map then map keeps every item");
   assert(a(usize(0)) == i32(41), "and applies both maps: 4 * 10 + 1");
   assert(b.len() == usize(2), "filter then filter keeps 3 and 2");
@@ -1514,7 +1514,7 @@ _a4_bounded_k :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item :
   io.await(_a4_with_k(s.collect(io), i32(0), io), io)
 );
 test("A4: one combinator over the futures of two streams' collect gets two specializations", {
-  a := _a4_bounded_k(Countdown(_n : i32(3)).map(x => (x.* * i32(10))), io);
+  a := _a4_bounded_k(Countdown(_n : i32(3)).map(x => (x * i32(10))), io);
   b := _a4_bounded_k(Countdown(_n : i32(4)).take(usize(2)), io);
   assert(a.len() == usize(3), "the mapped stream");
   assert(b.len() == usize(2), "the taken stream");

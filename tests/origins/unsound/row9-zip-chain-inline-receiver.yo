@@ -1,13 +1,13 @@
 // expect: E0911
 // The 2026-11-18 zip chain: a copied zip item stored into an outer holder outlives xs/ys - the item's
-// IterPair(&String, &String) borrows both lists, and the read through o after the block goes to freed memory.
+// Tuple(&String, &String) borrows both lists, and the read through o after the block goes to freed memory.
 // The inline temporary receiver chain must root both lists at the binding
 // (issues/fixed/2026-11-18-origins-are-lost-through-an-inline-temporary-receiver-chain-so-a-copied-zip-item-escapes.md).
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
 main :: (fn() -> unit)({
-  mut(o) := Option(IterPair(&String, &String)).None;
+  mut(o) := Option(Tuple(&String, &String)).None;
   {
     mut(xs) := ArrayList(String).new();
     xs.push(String.from("alpha"));
@@ -22,6 +22,6 @@ main :: (fn() -> unit)({
       .None => ()
     );
   };
-  match(&o, .Some(p) => println(`OUT: ${(p.*._0).*}`), .None => println("none"));
+  match(&o, .Some(p) => println(`OUT: ${(p.*.0).*}`), .None => println("none"));
 });
 export(main);

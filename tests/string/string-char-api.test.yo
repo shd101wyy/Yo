@@ -167,32 +167,32 @@ test("String char_indices yields BYTE offsets, not character offsets", {
   match(
     it.next(),
     .Some(p) => {
-      assert(p._0 == usize(0), "'a' starts at byte 0");
-      assert(p._1.to_u32() == u32(0x61), "'a' is U+0061");
+      assert(p.0 == usize(0), "'a' starts at byte 0");
+      assert(p.1.to_u32() == u32(0x61), "'a' is U+0061");
     },
     .None => assert(false, "expected 'a'")
   );
   match(
     it.next(),
     .Some(p) => {
-      assert(p._0 == usize(1), "'é' starts at byte 1");
-      assert(p._1.to_u32() == u32(0xE9), "'é' is U+00E9");
+      assert(p.0 == usize(1), "'é' starts at byte 1");
+      assert(p.1.to_u32() == u32(0xE9), "'é' is U+00E9");
     },
     .None => assert(false, "expected 'é'")
   );
   match(
     it.next(),
     .Some(p) => {
-      assert(p._0 == usize(3), "'中' starts at byte 3, not 2");
-      assert(p._1.to_u32() == u32(0x4E2D), "'中' is U+4E2D");
+      assert(p.0 == usize(3), "'中' starts at byte 3, not 2");
+      assert(p.1.to_u32() == u32(0x4E2D), "'中' is U+4E2D");
     },
     .None => assert(false, "expected '中'")
   );
   match(
     it.next(),
     .Some(p) => {
-      assert(p._0 == usize(6), "'𝄞' starts at byte 6, not 3");
-      assert(p._1.to_u32() == u32(0x1D11E), "'𝄞' is U+1D11E");
+      assert(p.0 == usize(6), "'𝄞' starts at byte 6, not 3");
+      assert(p.1.to_u32() == u32(0x1D11E), "'𝄞' is U+1D11E");
     },
     .None => assert(false, "expected '𝄞'")
   );
@@ -209,7 +209,7 @@ test("String char_indices offsets are exactly the char boundaries", {
     match(
       it.next(),
       .Some(p) => {
-        offsets.push(p._0);
+        offsets.push(p.0);
       },
       .None => {
         break;
@@ -234,15 +234,15 @@ test("String char_indices walks in lockstep with chars()", {
     match(
       ci.next(),
       .Some(p) => {
-        assert(p._0 == expected_offset, "offset advances by the encoded width");
+        assert(p.0 == expected_offset, "offset advances by the encoded width");
         match(
           ch.next(),
-          .Some(r) => assert(p._1.to_u32() == r.to_u32(), "same rune from both iterators"),
+          .Some(r) => assert(p.1.to_u32() == r.to_u32(), "same rune from both iterators"),
           .None => assert(false, "chars() ended early")
         );
         seen = (seen + usize(1));
-        // The next rune starts at the next boundary strictly after `p._0`.
-        expected_offset = s.ceil_char_boundary(p._0 + usize(1));
+        // The next rune starts at the next boundary strictly after `p.0`.
+        expected_offset = s.ceil_char_boundary(p.0 + usize(1));
       },
       .None => {
         match(ch.next(), .Some(_) => assert(false, "chars() ran long"), .None => ());
@@ -323,8 +323,8 @@ test("String try_substring composes with floor/ceil to make any range safe", {
 // values the deleted methods returned.
 // ===========================================================================
 _rune_slice :: (fn(s : &String, start : usize, end : usize) -> String)({
-  start_b := match(s.clone().char_indices().nth(start), .Some(p) => p._0, .None => s.len());
-  end_b := match(s.clone().char_indices().nth(end), .Some(p) => p._0, .None => s.len());
+  start_b := match(s.clone().char_indices().nth(start), .Some(p) => p.0, .None => s.len());
+  end_b := match(s.clone().char_indices().nth(end), .Some(p) => p.0, .None => s.len());
   if(start_b >= end_b, {
     return(String.new());
   });
@@ -333,7 +333,7 @@ _rune_slice :: (fn(s : &String, start : usize, end : usize) -> String)({
 _truncate_runes :: (fn(s : &String, max_runes : usize) -> String)(
   match(
     s.clone().char_indices().nth(max_runes),
-    .Some(p) => s.substring(usize(0), p._0),
+    .Some(p) => s.substring(usize(0), p.0),
     .None => s.clone()
   )
 );

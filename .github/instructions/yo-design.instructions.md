@@ -403,10 +403,13 @@ do_map :: (
 
 ## Option and Result combinators
 
-`Option(T)` and `Result(T, E)` provide Rust-style combinators; callbacks are `Impl(Fn(...))`, the generic parameter is inferred, and `a => expr` lambdas infer their parameter types.
+`Option(T)` and `Result(T, E)` provide Rust's combinators with Rust's shapes: each consumes its receiver and takes its callback by value, `sink(f) : Impl(FnOnce(...))`, so the closure may move its captures out; the generic parameter is inferred, and `a => expr` lambdas infer their parameter types.
 
-- **Option**: `map`, `and_then`, `filter`, `or_else`, `flatten`, `map_or`, `map_or_else`, `ok_or`, `ok_or_else`, `and`, `or`, `unwrap_or_else`
-- **Result**: `map`, `map_err`, `and_then`, `or_else`, `and`, `or`, `ok`, `err`, `map_or`, `map_or_else`, `unwrap_or_else`
+- **Option**: `map`, `and_then`, `filter`, `or_else`, `flatten`, `map_or`, `map_or_else`, `ok_or`, `ok_or_else`, `and`, `or`, `unwrap_or_else`, `is_some_and`, `inspect`, `zip` (a `Tuple`), `as_ref`, `as_mut`
+- **Result**: `map`, `map_err`, `and_then`, `or_else`, `and`, `or`, `ok`, `err`, `map_or`, `map_or_else`, `unwrap_or_else`, `inspect`, `inspect_err`
+- The closure gets the payload by value (`a : T`); `filter`, `inspect` and `inspect_err` lend it (`a : &T`). The borrowing form is `opt.as_ref().map(a => …)`, where `a : &T`.
+- `Iterator` does the same per item: `map`, `for_each`, `fold` (accumulator and item), `any`, `all`, `position` and `filter_map` take the item by value; `filter`, `find`, `take_while` and `skip_while` lend it. Over a borrowed walk (`(&xs).into_iter()`) the item is `&T`, so `map(x => (x.* * 2))` is Rust's `|x| *x * 2`. `enumerate` and `zip` yield `Tuple(A, B)` (`p.0`, `p.1`).
+- `From.from(value : Source)`, `Into.into(self : Self, T)`, `TryFrom`/`TryInto` and `FromIterator.from_iter_add(acc, item : Self.Elem)` take their input by value.
 
 ```yo
 (x : Option(i32)) = .Some(i32(5));

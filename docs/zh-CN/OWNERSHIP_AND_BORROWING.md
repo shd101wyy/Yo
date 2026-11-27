@@ -709,7 +709,7 @@ main :: (fn() -> unit)({
   mut(total) := i32(0);
   k := i32(10);
   (i32(1) .. i32(4)).for_each({ &mut total }(x) => {
-    total.* = (total.* + x.*); // 写调用方的 total
+    total.* = (total.* + x); // 写调用方的 total
   });
   (add : Impl(Fn(x : i32) -> i32)) = ({ k }(x : i32) => (x + k)); // k 被拷贝进来
   assert((total == i32(6)) && (add(i32(1)) == i32(11)), "1 + 2 + 3，以及 1 + 10");
@@ -771,9 +771,9 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-- std 中不逃逸的回调（`for_each`、`retain`、`RefCell.with`、`Mutex.with_lock`、`Option` 与 `Result`
-  的组合子）接受 `&mut Impl(FnMut(…))`。闭包会逃逸进去的 API（`Thread.spawn`、`io.async` 的函数体）
-  按值接受 `FnOnce`。
+- std 中重复调用或借给调用的回调（`for_each`、`retain`、`RefCell.with`、`Mutex.with_lock`）接受
+  `&mut Impl(FnMut(…))`。至多调用闭包一次的 API（`Option` 与 `Result` 的组合子、`Thread.spawn`、
+  `io.async` 的函数体）按值接受 `FnOnce`。
 
 ## 堆与共享
 

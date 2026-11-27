@@ -817,7 +817,7 @@ main :: (fn() -> unit)({
   mut(total) := i32(0);
   k := i32(10);
   (i32(1) .. i32(4)).for_each({ &mut total }(x) => {
-    total.* = (total.* + x.*); // writes the caller's total
+    total.* = (total.* + x); // writes the caller's total
   });
   (add : Impl(Fn(x : i32) -> i32)) = ({ k }(x : i32) => (x + k)); // k is copied in
   assert((total == i32(6)) && (add(i32(1)) == i32(11)), "1 + 2 + 3, and 1 + 10");
@@ -888,10 +888,10 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-- std's non-escaping callbacks (`for_each`, `retain`, `RefCell.with`,
-  `Mutex.with_lock`, the `Option` and `Result` combinators) take
-  `&mut Impl(FnMut(…))`. APIs a closure escapes into (`Thread.spawn`, the
-  `io.async` body) take an `FnOnce` by value.
+- std's callbacks that run repeatedly or are lent (`for_each`, `retain`,
+  `RefCell.with`, `Mutex.with_lock`) take `&mut Impl(FnMut(…))`. APIs that
+  call a closure at most once (the `Option` and `Result` combinators,
+  `Thread.spawn`, the `io.async` body) take an `FnOnce` by value.
 
 ## Heap and sharing
 

@@ -164,9 +164,10 @@ run_once(add); // `Fn` 也能用于一次调用
   drop 它没有移出的捕获。从未被调用的闭包随其所有者一起 drop 其捕获。
 - **`Fn` 蕴含 `FnMut`，`FnMut` 蕴含 `FnOnce`。** 任何要求 `FnOnce(...)` 的地方都接受 `Fn(...)` 或
   `FnMut(...)` 闭包；在要求 `Fn(...)` 或 `FnMut(...)` 的地方传入 `FnOnce` 闭包是 E0913。
-- **只有闭包逃逸进去的 API 才能调用它一次。** 按值接收：`sink(f) : Impl(FnOnce(...))`；通过借用形参调用
-  `FnOnce` 闭包是 E0901。不逃逸的回调保持 `f : &Impl(Fn(...))`。与所有拥有的值一样，
-  在 `cond`/`match` 部分分支中被调用的 `sink` 闭包，会在其余分支末尾不经调用地被 drop。
+- **至多调用实参一次的 API 按值接收它**：`sink(f) : Impl(FnOnce(...))`，例如 `Option`/`Result` 组合子
+  （`map`、`and_then`、`unwrap_or_else` 等）、各种 spawn 以及 `io.async` 的函数体。通过借用形参调用
+  `FnOnce` 闭包是 E0901。与所有拥有的值一样，在 `cond`/`match` 部分分支中被调用的 `sink` 闭包，会在
+  其余分支末尾不经调用地被 drop。
 - **把捕获移出需要 `FnOnce` 和捕获列表。** `Fn(...)` 的调用借用捕获，以便闭包能再次运行，因此在其中移出
   捕获是 E0913，指向移出的那一行。隐式捕获也不能被移出（E0913 会给出捕获列表的写法）。
 - `Box(Dyn(FnOnce(...) -> R))` 可以容纳任何只调用一次的闭包；它的调用同样会消耗它。
@@ -214,10 +215,10 @@ twice({ n : i32(10) }() => {
 - **`Sync` 位置拒绝它。** `Impl(Fn(...), Sync)` 可能从多个线程同时调用闭包，因此写入 `&mut` 捕获或
   自身状态的闭包在那里被拒绝，错误会指出 `FnMut`。
 - **把持有 `&mut` 捕获的字面量传给 `Fn(...)` 位置是 E0913。** 持有 `&mut` 捕获的字面量仅凭其捕获
-  就是 `FnMut(...)`：std 的每个非逃逸回调——可重复调用的
-  （`for_each`、`retain`、`sort_by`、`with_lock` 的函数体）和单次调用的（`Option`/`Result` 组合子、
-  `RefCell.with`、`Once.call`、`*_lazy` 日志）——都接受 `f : &mut Impl(FnMut(...))`，写入因此改在
-  `FnMut` 位置通过捕获的指针进行。`Fn` 只在回调被共享、被存储超出调用、或从其他线程调用时保留。
+  就是 `FnMut(...)`：std 中借给调用的回调（`for_each`、`retain`、`sort_by`、`with_lock` 的函数体、
+  `RefCell.with`、`Once.call`、`*_lazy` 日志）都接受 `f : &mut Impl(FnMut(...))`，至多调用一次的回调
+  （`Option`/`Result` 组合子）接受 `sink(f) : Impl(FnOnce(...))`，写入因此改在 `FnMut` 或 `FnOnce`
+  位置通过捕获的指针进行。`Fn` 只在回调被共享、被存储超出调用、或从其他线程调用时保留。
 
 ## 闭包类型限制
 

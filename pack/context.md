@@ -338,7 +338,7 @@ main :: (fn() -> unit)({
 
   mut(total) := i32(0);
   (i32(1) .. i32(3)).for_each({ &mut total }(x) => {
-    total.* = (total.* + x.*); // a &mut capture writes the caller's local
+    total.* = (total.* + x); // a &mut capture writes the caller's local
   });
   assert(total == i32(3), "1 + 2");
 });
@@ -350,7 +350,13 @@ export(main);
   places stay frozen while the closure lives.
 - `Fn` reads its captures, `FnMut` writes them (call it through a `mut`
   binding or `&mut Impl(FnMut(...))`), `FnOnce` moves one out (`Thread.spawn`
-  and `io.async` bodies).
+  and `io.async` bodies, the `Option`/`Result` combinators).
+- Combinator closures take the item by value, as Rust's: `opt.map(v => …)`,
+  `res.map_err(e => …)`, `it.map(x => …)`, `fold((acc, x) => …)`, `for_each`,
+  `any`, `all`, `position`, `filter_map`. `filter` (and `Option.inspect`)
+  lend it (`x : &A`). The `Option`/`Result` combinators consume their
+  receiver; `opt.as_ref().map(v => …)` borrows. `zip` and `enumerate` yield a
+  `Tuple` (`p.0`, `p.1`).
 - Only `=>` closures capture, and one cannot fill a bare `fn(...)` slot
   (E0605): take `Impl(Fn(...))`.
 

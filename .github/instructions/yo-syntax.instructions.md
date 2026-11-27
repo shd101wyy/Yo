@@ -859,8 +859,8 @@ main :: (fn() -> unit)({
 ```yo
 main :: (fn() -> unit)({
   mut(total) := i32(0);
-  (i32(1) .. i32(4)).for_each({ &mut total }(x : &i32) => {
-    total.* = (total.* + x.*);
+  (i32(1) .. i32(4)).for_each({ &mut total }(x : i32) => {
+    total.* = (total.* + x);
   });
   k := i32(1);
   w := i32(2);
@@ -911,10 +911,13 @@ slot, is E0913. A closure literal takes the trait of its slot.
   E0913.
 - An `FnMut` closure (and `Dyn(FnMut(...))`) is move-only. A `Sync` slot (`Impl(Fn(...), Sync)`) rejects a
   closure that writes a `&mut` capture or its state.
-- Every std non-escaping callback takes `&mut Impl(FnMut(...))` (the `Option`/`Result` combinators,
-  `RefCell.with`, `with_lock` bodies, `Once.call`, the `*_lazy` loggers). `Fn` remains only where the
-  callback is shared, stored, or called from another thread (`thread.spawn_blocking`'s `sink(cb)`, the http
-  `handler`).
+- Every std callback that is lent to a call takes `&mut Impl(FnMut(...))` (`for_each`, `fold`, `retain`,
+  `RefCell.with`, `with_lock` bodies, `Once.call`, the `*_lazy` loggers); the `Option`/`Result` combinators
+  call theirs at most once and take `sink(f) : Impl(FnOnce(...))`. `Fn` remains only where the callback is
+  shared, stored, or called from another thread (`thread.spawn_blocking`'s `sink(cb)`, the http `handler`).
+- Combinator closures take the item by value, as Rust's (`opt.map(v => …)`, `it.map(x => …)`,
+  `fold((acc, x) => …)`, `for_each`, `any`, `all`, `position`, `filter_map`); `filter`, `find`,
+  `take_while`, `skip_while` and `Option.inspect` lend it (`&A`).
 
 ### Function-pointer slots
 

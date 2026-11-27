@@ -616,11 +616,11 @@ impl(
 );
 test("soundness canary: two .map chains at different Item types keep their own Item", {
   mut(out) := ArrayList(i32).new();
-  it := _SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x.* * i32(2)));
+  it := _SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x * i32(2)));
   it.for_each({ &mut out }(x) => {
-    out.push(x.*);
+    out.push(x);
   });
-  m := _SoundRange64(_cur : i64(-3), _end : i64(4)).map(x => (x.* * i64(2))).min();
+  m := _SoundRange64(_cur : i64(-3), _end : i64(4)).map(x => (x * i64(2))).min();
   assert(out.len() == usize(3), "the i32 chain");
   assert(match(m, .Some(v) => v, .None => i64(99)) == i64(-6), "the i64 chain's min");
 });
@@ -631,10 +631,10 @@ test("soundness canary: two .map chains at different Item types keep their own I
 // blanket combinators can be called on the parameter.
 // ---------------------------------------------------------------------------
 _sound_count :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> usize)(
-  it.fold(usize(0), (n, x) => (n.* + usize(1)))
+  it.fold(usize(0), (n, x) => (n + usize(1)))
 );
 _sound_sum :: (fn(generic(I : Type, A : Type), it : &I, zero : &A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
-  it.fold(zero.*, (acc, x) => (acc.* + x.*))
+  it.fold(zero.*, (acc, x) => (acc + x))
 );
 _sound_collect :: (fn(generic(I : Type, A : Type), it : &I, where(I <: Iterator(Item := A))) -> ArrayList(A))(
   it.collect(ArrayList(A))
@@ -648,7 +648,7 @@ _sound_sum_i32 :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := i3
 );
 test("soundness: a free fn binds an associated type from its where-clause", {
   assert(_sound_count(_SoundRange(_cur : i32(1), _end : i32(4))) == usize(3), "a source");
-  assert(_sound_count(_SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x.* * i32(2)))) == usize(3), "a chain");
+  assert(_sound_count(_SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x * i32(2)))) == usize(3), "a chain");
   assert(_sound_sum(_SoundRange(_cur : i32(1), _end : i32(4)), i32(0)) == i32(6), "A <: Add(A) at i32");
   assert(_sound_sum(_SoundRange64(_cur : i64(1), _end : i64(4)), i64(0)) == i64(6), "A <: Add(A) at i64");
   got := _sound_collect(_SoundRange(_cur : i32(1), _end : i32(4)));
