@@ -40,9 +40,9 @@ The stage-1 failure that found this (`f64(-1.0e400)` emitted as `double.__yo_v_N
 
 The binary-operator route's patch (~12006, "Resolve an associated-type return (`comptime(Self.Output)`) that came back as a bare SomeT") is a separate route (operator calls resolved against the receiver's registered associated types) and is left as is.
 
-## Workaround in the tree (until the seed carries the fix)
+## The prelude's comptime dispatchers (Generation B)
 
-The prelude's `comptime_neg` and `comptime_bit_not` (the `(-)` and `(~)` dispatchers) keep `-> comptime(_Self)`: CI builds stage 1 with the seed, whose evaluator has this bug. Every prelude `ComptimeNeg`/`ComptimeBitNot` impl has `Output = Self`.
+Until the seed carried this fix, the prelude's `comptime_neg` and `comptime_bit_not` (the `(-)` and `(~)` dispatchers) kept `-> comptime(_Self)`: CI builds stage 1 with the seed, whose evaluator had this bug. They return `comptime(_Self.Output)` since `wip/v0281-comptime-proj-genb`; its test, "comptime - and ~ return the trait's Output" in `tests/comptime-projection-return.test.yo`, covers a user `Output` that is not `Self` and `f64(-1.0e400) == f64.NEG_INFINITY`.
 
 ## Test
 
