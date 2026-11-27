@@ -1,0 +1,43 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+RaiseA :: (ctl(msg : &String) -> i32);
+RaiseB :: (ctl(msg : &String) -> i32);
+
+leaf :: (fn(which : i32, a : RaiseA, b : RaiseB) -> i32)(
+  cond(
+    (which == i32(0)) => a(`a`),
+    (which == i32(1)) => b(`b`),
+    true => i32(7)
+  )
+);
+
+// installs B locally (unwinds a String: inner returns String), receives A
+inner :: (fn(which : i32, a : RaiseA) -> String)({
+  (b : RaiseB) = (
+    msg -> {
+      unwind(`inner unwound`);
+    }
+  );
+  r := leaf(which, a, b);
+  `inner normal ${r}`
+});
+
+// installs A (unwinds an i32: outer returns i32)
+outer :: (fn(which : i32) -> i32)({
+  (a : RaiseA) = (
+    msg -> {
+      unwind(i32(100));
+    }
+  );
+  s := inner(which, a);
+  println(`outer: after inner s=${s}`);
+  i32(1000)
+});
+
+main :: (fn() -> unit)({
+  println(`which=2 -> ${outer(i32(2))}`);
+  println(`which=1 -> ${outer(i32(1))}`);
+  println(`which=0 -> ${outer(i32(0))}`);
+});
+export(main);
