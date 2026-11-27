@@ -94,7 +94,7 @@ bump_by_ten(c.*); // 错误：不能传递以原子对象 'c' 为根的 &mut 参
 
 局部副本是值，所以 `k := c.*; k.bump()` 没问题（它修改的是副本）；`Mutex.with_lock` 的 `v : &mut T` 是参数，所以闭包体可以通过 `v` 写入；只读的 `&mut self` 方法 —— `ToString` 的 `${c.*.n}`、`Sender.clone` —— 也没问题，因为编译器依据被调用者的函数体做决定（`plans/reference/PARALLELISM_RULES.md` D3），而不只看参数模式。
 
-要修改共享状态，请组合正确的原语：
+这阻止了最常见的数据竞争来源——两个线程在无同步的情况下写入同一块内存。要修改共享状态，请组合正确的原语：
 
 | 想要...           | 使用                                                  |
 | ----------------- | ----------------------------------------------------- |
@@ -186,9 +186,13 @@ compare-exchange 循环。该循环是无锁的，产生相同的返回值和相
 { Mutex } :: import("std/sync/mutex");
 
 counter := Mutex(i32).new(i32(0));
+
+// 通过 with_lock 进行线程安全的修改
 counter.with_lock(v => {
   v.* = (v.* + i32(1));
 });
+
+// 返回值通过 with_lock 传出
 new_value := counter.with_lock(v => (v.* + i32(1)));
 ```
 
@@ -208,9 +212,18 @@ t := Thread(unit).spawn({ mine }(io : Io) => {
 t.join();
 ```
 
-闭包接收 `v : &mut T` — 一个**二级引用**，不能逃逸闭包作用域。
+闭包接收 `v : &mut T` — 一个**二级引用**，它：
 
-解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都会释放锁，保证结构化解锁配对。**可重入锁定会 panic。** 同一线程在同一个互斥锁的 `with_lock` 内部再次调用 `with_lock`，会在所有平台上以 `Mutex: locked again by the thread that already holds it` panic（规则 D5），而 Rust 的 `std::sync::Mutex` 可能死锁或 panic。Yo 不提供可重入互斥锁。
+- 可以通过 `v` 读取和写入
+- 不能存入结构体字段
+- 不能从闭包中返回
+- 不能被 `Send` 闭包捕获
+
+这由编译器在结构上保证，因此锁的窗口不能逃逸闭包作用域。没有用户可见的守卫类型或生命周期需要管理。
+
+解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都会释放锁，保证结构化解锁配对。
+
+**可重入锁定会 panic。** 同一线程在同一个互斥锁的 `with_lock` 内部再次调用 `with_lock`，会在所有平台上以 `Mutex: locked again by the thread that already holds it` panic（规则 D5），而 Rust 的 `std::sync::Mutex` 可能死锁或 panic。Yo 不提供可重入互斥锁。
 
 在单个线程上，对应的闭包作用域类型是 `RefCell(T)`（`std/sync/refcell`）：`with` 和 `with_mut` 在运行时检查独占性，冲突时 panic 而不是阻塞。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝：跨线程请使用 `Arc(Mutex(T))`。
 
@@ -285,11 +298,29 @@ impl(MyHandle, !Send()); // MyHandle 不是 Send
 impl(MyHandle, !Sync()); // 也不是 Sync
 ```
 
-标准库中用于：**`JoinHandle(T)`**（异步任务句柄）和 **`Io`**（异步运行时），两者都声明了 `!(Send())` 和 `!(Sync())`。负向实现不需要 `pragma`。
+标准库用它来标记：
+
+- **`JoinHandle(T)`** — 异步任务句柄位于派生者的事件循环线程上
+- **`Io`** — 异步运行时是每线程一个
+
+两者都声明了 `!(Send())` 和 `!(Sync())`。负向实现**不**需要 `pragma(Pragma.AllowUnsafe)` —— 它们是限制性的（去掉一项能力），绝不是放宽性的。任何人都可以自由地声明 `impl(MyType, !(Send()))`。
 
 ## 字段可见性 — `_` 前缀约定
 
-名称以 `_` 开头的字段仅对定义类型的**文件和目录**私有。用户代码无法访问 `mutex._state`（`Mutex` 定义为 `struct(_state : Box(_MutexState(T)))`），因此也够不到其中的 `_value` 与 `_core`。同一目录内的访问是被允许的。
+名称以 `_` 开头的字段仅对定义类型的**文件和目录**私有：
+
+```yo
+// 在 std/sync/mutex.yo 中：
+Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  struct(_state : Box(_MutexState(T)))
+);
+```
+
+用户代码**无法**访问 `mutex._state`，因此也够不到其中的 `_value` 与 `_core` —— 编译器会拒绝跨目录的 `_` 前缀字段访问。这堵上了同步内部读取的漏洞（不获取锁就读取 `mutex._value`）。
+
+同一目录内的访问是被允许的 —— `std/sync/` 中的文件可以互相访问对方带 `_` 前缀的内部成员。
+
+不带 `_` 前缀的字段（如 `arc.*`）在安全代码中可读但不可写（见上文“安全代码中禁止原子字段修改”）。
 
 ## 信任边界
 
@@ -297,8 +328,8 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 | ---------------------------- | ------------------------------ | ----------------------------------- |
 | **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语；手动 Send 与 Sync 实现被拒绝；原子对象写入被拒绝（字段与索引赋值、`&mut` 参数、`&mut self` 接收者）；跨线程的函数值按其捕获与其代码触及的东西判断（D4、D9），裸 `fn` 字段或载荷不是 Send |
 | **`std/sync/`**（有 pragma） | 原语正确实现合约               | 手动 Send 与 Sync 需要 `// SAFETY:` 注释；每个 `std/sync` 类型（私有 `Box` 中的操作系统原语、C11 原子量或裸指针）以此选择加入；安全文件中的原子对象必须拥有 `Sync` 字段 |
-| **代码生成运行时**           | 原子 RC 操作使用正确的内存顺序 | C11 原子操作                        |
-| **`extern("c", ...)`**       | C 函数可重入安全               | 不在范围内                          |
+| **代码生成运行时**           | 原子 RC 操作使用正确的内存顺序 | 递增使用 C11 `atomic_fetch_add_explicit(..., relaxed)`，递减使用 `atomic_fetch_sub_explicit(..., acq_rel)`。 |
+| **`extern("c", ...)`**       | C 函数可重入安全               | 不在范围内 —— 与内存安全检查相同的审计边界。 |
 
 ## 尚未覆盖的内容
 
@@ -319,7 +350,8 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 
 ## 参见
 
-- `plans/archive/THREAD_SAFETY.md` — 完整设计文档
-- `docs/en-US/PARALLELISM.md` — Thread / ThreadPool / Channel API
 - `plans/reference/PARALLELISM_RULES.md` — 编译器强制执行的规则（D1–D9）
 - `plans/archive/PARALLELISM_SOUNDNESS.md` — 2026-09-25 的审计及其修复计划（已关闭）
+- `plans/archive/THREAD_SAFETY.md` — 最初的设计文档，含 27 个向量的清单（见其更正横幅）
+- `docs/en-US/PARALLELISM.md` — Thread、ThreadPool 与 Channel API
+- `docs/en-US/MEMORY_SAFETY.md` — 内存安全检查

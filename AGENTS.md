@@ -31,6 +31,7 @@ Detailed instructions live in `.github/instructions/`. Read the relevant file be
 | `escape`                                                                                                 | `unwind`                                                                                                |
 | the operator traits `Mod`, `Negate`, `BitLeftShift`, `BitRightShift` and their `Comptime*` twins           | `Rem`, `Neg`, `Shl`, `Shr` (`ComptimeRem`, …); members unchanged (`plans/backlog/STD_RUST_ALIGNMENT.md` §9) |
 | `plans/backlog/NON_ESCAPABLE_TYPES.md`, `FUTURE_ORIGINS.md`                                              | `plans/backlog/REFERENCES_AND_ORIGINS.md` (decision 43; "non-escapable" is O10's `Escapable` bound)     |
+| `BK_SUBTYPE_OF`, `src/evaluator/exprs/subtype-of.yo`, `evaluate_subtype_of`                               | `BK_IMPLEMENTS`, `src/evaluator/exprs/implements.yo`, `evaluate_implements` (`<:` is the bound operator, read *implements*; VERDICTS-85) |
 | `phase6*` tests; `macro_expansion`, `macro_registry`, `macro_def_*`, `try_macro_assign` tests            | `quote-macro-eval`, `ast-reflection`, `macro-helpers`; the rest were deleted with the user-macro fixtures |
 
 ---
@@ -166,7 +167,7 @@ A PR is admin-merged as soon as its Tier 1 passes; develop's battery is the full
   - fmt and `scripts/check-issue-refs.sh`, on the final rebased head.
   - Not Tier 1: the full language suite, `yo test ./std`, the fixpoint. **Never run the whole `tests/internal` directory locally**, for any purpose.
 - **Tier 2, the PR's battery**: not waited for; cancel it once the PR merges.
-- **Tier 3, develop's battery**: covers every merge since the last one. Watch it by run ID; on red, find the causing PR and fix forward in a `fix(develop): …` PR (merged on its own Tier 1).
+- **Tier 3, develop's battery**: two workflows on every develop push, together the full check: `test.yml` (the core battery, `merge-gate`) and `native.yml` (macOS, Windows and Linux arm64 legs, `native-gate`; PRs do not run it, `gh workflow run native.yml --ref <branch>` does). They cover every merge since their last run. Watch both by run ID; on red, find the causing PR and fix forward in a `fix(develop): …` PR (merged on its own Tier 1).
 - **A flaky job gets one rerun** (`gh run rerun <run-id> --failed`). A second failure is real: investigate and file an `issues/` doc, even if the job looks unrelated.
 
 ### Stacking
@@ -187,9 +188,9 @@ A PR is admin-merged as soon as its Tier 1 passes; develop's battery is the full
 The question is always: does the battery I am about to trust cover the code I am about to act on?
 
 - **Triggers.** A push to `develop` runs the full battery; the docs-only fast path (`code=false`) is PR-only. PRs run only when their base is `develop`. A skip count is not a diagnosis: read the `changes` job's log (`classification: code=…`). A PR with `mergeable=CONFLICTING` gets no runs: rebase. A `cancelled` PR run with no newer run means no verdict: `gh run rerun <id>`.
-- **The one required check is `merge-gate`** ("Merge gate (all checks)"): skipped dependencies satisfy it, failed or cancelled ones fail it. "Require branches up to date" is OFF: a PR green on its own head may merge behind develop. Add every new CI job to merge-gate's `needs:` in `test.yml`, not to the ruleset.
+- **The one required check is `merge-gate`** ("Merge gate (all checks)"): skipped dependencies satisfy it, failed or cancelled ones fail it. "Require branches up to date" is OFF: a PR green on its own head may merge behind develop. Add every new CI job to merge-gate's `needs:` in `test.yml` (a `native.yml` job to `native-gate`'s), not to the ruleset. Build jobs restore compiler binaries from a cache keyed on the compiler's inputs (`.github/actions/compiler-cache-key`); the repository variable `YO_CI_NO_BUILD_CACHE=1` turns it off.
 - **Do not merge to `develop` while a battery you are waiting on is in flight**: the push supersedes the pending run. Park work by pushing the branch without opening a PR (an open PR runs on every push, draft or not).
-- **Cancel runs a merge made pointless** (a squash-merged branch's runs gate nothing). Keep every open PR's runs, the newest running `develop` battery, **every `Release` run**, and every `ubsan.yml` and `fixpoint-arm64.yml` run (scheduled/dispatched on `develop`; 1–2 h to redo). Cancellation is asynchronous: re-list instead of cancelling twice. When in doubt about someone else's branch, leave it.
+- **Cancel runs a merge made pointless** (a squash-merged branch's runs gate nothing). Keep every open PR's runs, the newest running `develop` run of `test.yml` and of `native.yml`, **every `Release` run**, and every `ubsan.yml` and `fixpoint-arm64.yml` run (scheduled/dispatched on `develop`; 1–2 h to redo). Cancellation is asynchronous: re-list instead of cancelling twice. When in doubt about someone else's branch, leave it.
 
   ```bash
   # workflowName is NOT optional: a Release run's headBranch is `develop`.
@@ -203,7 +204,7 @@ The question is always: does the battery I am about to trust cover the code I am
 
 ### Releases
 
-- **Cut only when develop's battery is green on the exact tip.** Diff the code directories against the battery's head; do not reason from run ordering. Empty ⇒ covered; otherwise wait for a battery on the new tip:
+- **Cut only when develop's `test.yml` battery AND its `native.yml` run are green on the exact tip** (release.yml's gate checks both). Diff the code directories against each run's head; do not reason from run ordering. Empty ⇒ covered; otherwise wait for a battery on the new tip:
 
   ```bash
   git diff --stat <battery-head-sha>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo
