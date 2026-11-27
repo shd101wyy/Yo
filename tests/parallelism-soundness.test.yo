@@ -6,7 +6,6 @@
 { Deque } :: import("std/collections/deque");
 { RefCell } :: import("std/sync/refcell");
 { platform, Platform } :: import("std/process");
-{ __yo_async_blocking_begin } :: import("std/sys/externs.yo");
 { yield } :: import("std/async");
 /// The parallelism-soundness corpus (`plans/archive/PARALLELISM_SOUNDNESS.md`, Phase 0).
 ///
@@ -482,7 +481,7 @@ test("D1 canary: a value global written and read only on the main thread is lega
 // from a file without the pragma is rejected.
 comptime_expect_error({
   _d6_call_runtime_extern :: (fn() -> unit)({
-    __yo_async_blocking_begin();
+    _runtime_externs.__yo_async_blocking_begin();
   });
   _d6_call_runtime_extern();
 });

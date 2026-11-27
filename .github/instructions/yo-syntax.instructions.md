@@ -160,15 +160,21 @@ guards it; `plans/archive/FMT_PAREN_ELISION.md`). Write the bare forms directly.
   `comptime_read_file` `comptime_json_parse` `comptime_toml_parse` `requires` `ensures` `invariant`
   `decreases` `assumed` `___drop` `___dup` `dyn` `the` `as` `clone` `quote` `downcast` `upcast` `ref_count`
   `begin` `tuple` `array` `mut` `__yo_cell` `__yo_atomic_cell`. `std/prelude.yo` is exempt.
-- **`__yo_` is the compiler's namespace** (VERDICTS-72): an `extern(...)` member of either ABI, or a
-  `c_include(...)` member labelled with one, named `__yo_…` and declared outside the std tree is E0407;
-  `pragma(Pragma.AllowUnsafe)` does not unlock it, and `src/`/`tests/` are user code (errno is
-  `std/libc/errno`'s `last_errno()`, the I/O backend teardown `std/sys/process`'s `reset_io_backend()`; a
-  white-box runtime test lives beside its std module). Calling a builtin by name without declaring it is
-  legal. Other binders of the prefix (`::`, `:=`, parameters) are not rejected yet, apart from `__yo_cell` /
-  `__yo_atomic_cell` (`issues/2026-11-21-a-user-binding-named-in-the-yo-namespace-hijacks-or-is-hijacked.md`).
-  The rejection goes through `raise_flow_violation`: `yo compile` and `yo test` enforce it, while a plain
-  `yo check` whose only error is this one still exits 0.
+- **`__yo_` is the compiler's namespace** (VERDICTS-72): outside the std tree, E0407 rejects every binder a person
+  wrote with a name that starts with `__yo_`, and `pragma(Pragma.AllowUnsafe)` does not unlock it (`src/`,
+  `tests/` and fetched dependencies are user code). That is an `extern(...)` or `c_include(...)` member of either
+  ABI (`reject_reserved_ffi_member`), and every other binder: `::`, `:=`, a typed `(x : T) =`, a parameter
+  (closure parameters included), a pattern or destructuring binding, an import rename
+  (`reject_reserved_yo_binder`, `src/evaluator/memory-safety.yo`). A binder is judged by `TokenData.written`, the
+  lexer's mark on an identifier it made from source text: the compiler mints `__yo_tpl_N`, `__yo_self`,
+  `__yo_pat_s` and `__yo_contract_result` into user modules under the user's path, and a minted token is never
+  rejected (no list of minted names). A program the compiler synthesizes and lexes itself is
+  exempt (`auto-generated://`); the test runner's batch program prints each test's AST back to text, so it
+  names the `__yo_` identifiers the parser minted into it (`__yo_tpl_N`) in a last line,
+  `// yo-batch-minted: a b c `, and names its own binders `_yo_…` (`_yo_batch_env`, `_yo_test_idx`). Uses are legal: calling a builtin by name without
+  declaring it, or `externs.__yo_async_send_start(…)` through a module value; destructuring such a name into a
+  binding is not (`{ __yo_x } :: externs`). errno is `std/libc/errno`'s `last_errno()`, the I/O backend teardown
+  `std/sys/process`'s `reset_io_backend()`; a white-box runtime test lives beside its std module.
 - `size_of`, `align_of`, `type_of`, `type_id` are the only spellings (`sizeof` etc. were deleted).
 - Grammar words (`type`, `trait`, `match`, `fn`, `for`, …), `panic`, `assert`, `imm` are ordinary
   identifiers. `Origin` is a reserved type name like `Type`.

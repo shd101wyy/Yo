@@ -20,6 +20,11 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
 { type_to_string } :: import("../types/string.yo");
 { canonical_module_path } :: import("../utils.yo");
+{ Token } :: import("../token.yo");
+{ format_error_message_with_help } :: import("../error.yo");
+{ Exception } :: import("std/error");
+{ EvalContext } :: import("./context.yo");
+{ raise_flow_violation } :: import("../types/flowability.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
@@ -293,6 +298,38 @@ reserved_yo_name_message :: (fn(name : &String) -> String)(
 reserved_yo_name_help :: (fn() -> String)(
   String.from("delete it and call the std API for the facility, or give your own symbol its own name.")
 );
+/// Is `tok` an identifier the runner's batch program declares as minted? `yo
+/// test` prints each test's AST back to text, and the batch's lexer takes every
+/// identifier for one a person wrote. The runner therefore appends the `__yo_`
+/// names the parser minted into the printed AST (the atoms whose
+/// `TokenData.written` is false: `__yo_tpl_N`, ...) as a last line,
+/// `// yo-batch-minted: a b c `, and a binder named there is not a person's.
+_is_declared_minted_in_batch :: (fn(tok : &Token) -> bool)({
+  if(!tok.module_path.*.contains(String.from(".yo_selftest_batch_")), {
+    return(false);
+  });
+  match(
+    tok.input.*.last_index_of(String.from("\n// yo-batch-minted:")),
+    .Some(at) => tok.input.*.substring(at, tok.input.*.len()).contains(` ${tok.value.*} `),
+    .None => false
+  )
+});
+/// E0407 (VERDICTS-72 rule (b)): a binder written in source (`::`, `:=`, a
+/// typed `(x : T) =`, a parameter, a pattern or destructuring binding, an
+/// import rename) named in the `__yo_` namespace outside the std tree. The
+/// binder is judged by `TokenData.written`, the fact that the lexer made the
+/// token: the compiler mints `__yo_tpl_N`, `__yo_self`, `__yo_pat_s` and
+/// `__yo_contract_result` into user modules under the user's path, and those
+/// are never rejected. Uses stay legal.
+///
+/// Raised through `raise_flow_violation`, as the builtin-name gate beside it
+/// is: a closure parameter is bound while a call's argument is tried against
+/// the callee's signature, and a plain throw there is swallowed with the trial.
+reject_reserved_yo_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(tok.written && is_yo_namespace_name(&tok.value.*) && !may_bind_yo_namespace_name(&tok.module_path.*, &ctx.std_path) && !_is_declared_minted_in_batch(tok), {
+    raise_flow_violation(&format_error_message_with_help(tok, &reserved_yo_name_message(&tok.value.*), &Option(String).Some(reserved_yo_name_help())), ctx, exn);
+  });
+});
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
 /// the mutability rule for a binding below module level (a write to an
 /// unmarked local, pattern or compile-time binding, E0917) is enforced
@@ -502,5 +539,6 @@ export(
   may_bind_yo_namespace_name,
   reserved_yo_name_message,
   reserved_yo_name_help,
+  reject_reserved_yo_binder,
   _lex_abs_path
 );

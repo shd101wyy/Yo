@@ -14,11 +14,12 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("std/time/duration");
 { Channel } :: import("std/async/channel");
 { Mutex } :: import("std/async/mutex");
-{ __yo_async_socket_start, __yo_async_yield_start, __yo_join_wait_new, __yo_join_wait_add } :: import("std/sys/externs");
+_externs :: import("std/sys/externs");
 tcp :: import("std/sys/tcp");
 // The native Io's executor entries and IoFuture.completed
 // (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2, §3, IO-1a).
-{ IoFuture, __yo_io_future_completed, __yo_io_spawn_task, __yo_io_run_until, __yo_io_now_ns } :: import("std/sys/future");
+{ IoFuture } :: import("std/sys/future");
+_future :: import("std/sys/future");
 
 (mut(g_disposed) : i32) = i32(0);
 // A `Thing` is a shared handle (an `Rc`): copying a list of them clones each
@@ -41,8 +42,8 @@ impl(
 // built on, each holding the task as a raw pointer; the handle stays here.
 _wait_for_task :: (fn(task : *void, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    w := unsafe(__yo_join_wait_new());
-    unsafe(__yo_join_wait_add(&w, task));
+    w := unsafe(_externs.__yo_join_wait_new());
+    unsafe(_externs.__yo_join_wait_add(&w, task));
     _w := io.await(w, io);
     i32(1)
   })
@@ -272,13 +273,13 @@ test("a JoinHandle is awaited once: the await consumes it", {
 test("a JoinHandle of a raw I/O future reads its result and can abort it", {
   // A socket's result is its (non-zero) fd, which a handle reading the
   // state-machine layout used to miss.
-  h := io.spawn(unsafe(__yo_async_socket_start(i32(2), i32(1), i32(0))), io);
+  h := io.spawn(unsafe(_externs.__yo_async_socket_start(i32(2), i32(1), i32(0))), io);
   fd := match(h.await(io), .Some(v) => v, .None => i32(-99));
   assert(fd > i32(2), "the handle read the operation's fd");
   // Through the runtime: on Windows the fd is a SOCKET, and the CRT's
   // close() on it hits the invalid-parameter handler (abort, exit code 22).
   _c := io.await(tcp.close(fd), io);
-  h2 := io.spawn(unsafe(__yo_async_yield_start()), io);
+  h2 := io.spawn(unsafe(_externs.__yo_async_yield_start()), io);
   h2.abort();
   assert(h2.await(io).is_none(), "the aborted raw future reads .None");
 });
@@ -461,20 +462,20 @@ test("an error a task throws after an await is released", {
 // sync context and inside a task alike.
 _sm_await_completed :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    a := io.await(__yo_io_future_completed(i32(40)), io);
-    b := io.await(__yo_io_future_completed(i32(2)), io);
+    a := io.await(_future.__yo_io_future_completed(i32(40)), io);
+    b := io.await(_future.__yo_io_future_completed(i32(2)), io);
     (a + b)
   })
 );
 test("a future born completed resolves to its result without a tick", {
-  assert(io.await(__yo_io_future_completed(i32(-5)), io) == i32(-5), "a negative errno passes through");
+  assert(io.await(_future.__yo_io_future_completed(i32(-5)), io) == i32(-5), "a negative errno passes through");
   assert(io.await(_sm_await_completed(io), io) == i32(42), "awaited inside a task");
 });
 // The executor entries the native IoVTable calls: run_until drives this
 // thread's loop until the task is terminal, spawn leaves a task that is not
 // cold alone, and now is the monotonic clock in nanoseconds.
 test("the native executor entries drive and leave tasks as the table promises", {
-  t0 := __yo_io_now_ns();
+  t0 := _future.__yo_io_now_ns();
   h := io.spawn(
     io.async((io : Io) => {
       io.await(sleep(u64(2)), io);
@@ -483,10 +484,10 @@ test("the native executor entries drive and leave tasks as the table promises", 
     io
   );
   assert(!h.is_finished(), "the task is parked on its timer");
-  __yo_io_spawn_task(h.as_ptr());
-  __yo_io_run_until(h.as_ptr());
+  _future.__yo_io_spawn_task(h.as_ptr());
+  _future.__yo_io_run_until(h.as_ptr());
   assert(h.is_finished(), "run_until returned with the task terminal");
-  t1 := __yo_io_now_ns();
+  t1 := _future.__yo_io_now_ns();
   assert(t1 >= (t0 + u64(1000000)), `now advanced across the 2 ms timer (${t1 - t0} ns)`);
   assert(h.await(io) == Option(i32).Some(i32(9)), "the task completed once, with its result");
 });

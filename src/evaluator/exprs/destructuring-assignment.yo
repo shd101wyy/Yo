@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   alloc_global_expr_id
 } :: import("../../expr.yo");
-{ is_union_member_read_capable, union_member_read_error_message } :: import("../memory-safety.yo");
+{ is_union_member_read_capable, union_member_read_error_message, reject_reserved_yo_binder } :: import("../memory-safety.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, TokenKind, TokenData, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -171,6 +171,7 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
       exn
     );
   });
+  reject_reserved_yo_binder(at, ctx, exn);
   existing := get_variables_from_env(env, var_name.clone());
   n := existing.len();
   if(n == usize(0), {

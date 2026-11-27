@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array-list");
 { HashSet } :: import("std/collections/hash-set");
-{ AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BF_DOT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BF_DOT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr, collect_minted_yo_names } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, ExprInfo } :: import("./expr-info.yo");
 { Token, TokenKind } :: import("./token.yo");
 { parse, Parser } :: import("./parser.yo");
@@ -7550,6 +7550,9 @@ run_test :: (
     prog := batch_parser.get_program(exn);
     tests := ArrayList(TestDecl).new();
     non_test := ArrayList(String).new();
+    // The `__yo_` names the parser minted into the AST printed below, which
+    // the batch program declares (`reject_reserved_yo_binder`).
+    minted_names := ArrayList(String).new();
     (pi : usize) = usize(0);
     while(pi < prog.len(), {
       e := match(prog.get_cloned(pi), .Some(x) => x, .None => make_err_expr());
@@ -7566,6 +7569,7 @@ run_test :: (
           tbody := match(extract_test_body(&e), .Some(b) => b, .None => make_err_expr());
           keep := match(&name_regex, .Some(nre) => nre.is_match(tname.clone()), .None => true);
           if(keep, {
+            collect_minted_yo_names(&tbody, &mut minted_names);
             tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(&tbody)));
           });
         });
@@ -7574,6 +7578,7 @@ run_test :: (
         // batch defines and exports the `main` that runs the tests (in-file
         // tests in a module that is also a program — Rust binaries have them).
         if(!_is_main_definition(&e), {
+          collect_minted_yo_names(&e, &mut minted_names);
           match(
             _export_without_main(&e),
             .Some(stmt) => {
@@ -7630,7 +7635,7 @@ run_test :: (
           );
           ni = (ni + usize(1));
         });
-        prog_src.push_str("__yo_batch_env :: import(\"std/env\");\n");
+        prog_src.push_str("_yo_batch_env :: import(\"std/env\");\n");
         prog_src.push_str("main :: (fn() -> unit)({\n");
         prog_src.push_str("  io :: __yo_builtin_io;\n");
         // A test body need not name `io` (an implicit `using(io : Io)`
@@ -7638,14 +7643,14 @@ run_test :: (
         // keeps the unused-variable lint quiet for the batches that never
         // name it. `_`-prefixed names are exempt from the lint.
         prog_src.push_str("  _yo_batch_io :: io;\n");
-        prog_src.push_str("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
-        prog_src.push_str("    .Some(__yo_test_idx) => cond(\n");
+        prog_src.push_str("  match(_yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
+        prog_src.push_str("    .Some(_yo_test_idx) => cond(\n");
         // Arms are numbered RELATIVE to the batch (0..n-1), so YO_TEST_INDEX below
         // is the within-batch index, not the file-wide one.
         (ti : usize) = batch_start;
         while(ti < batch_end, {
           t := match(tests.get_cloned(ti), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
-          prog_src.push_str("      (__yo_test_idx == `");
+          prog_src.push_str("      (_yo_test_idx == `");
           prog_src.push_string((ti - batch_start).to_string());
           prog_src.push_str("`) => { ");
           prog_src.push_string(t.body_src.clone());
@@ -7663,6 +7668,23 @@ run_test :: (
         prog_src.push_str("  );\n");
         prog_src.push_str("});\n");
         prog_src.push_str("export(main);\n");
+        // The batch's lexer takes every identifier for one a person wrote, so
+        // the names the parser minted into the printed AST (`__yo_tpl_N`, ...)
+        // are declared here, after the program so no line number moves.
+        prog_src.push_str("// yo-batch-minted:");
+        (mn_i : usize) = usize(0);
+        while(mn_i < minted_names.len(), {
+          match(
+            minted_names.get_cloned(mn_i),
+            .Some(mn) => {
+              prog_src.push_str(" ");
+              prog_src.push_string(&mn);
+            },
+            .None => ()
+          );
+          mn_i = (mn_i + usize(1));
+        });
+        prog_src.push_str(" \n");
         // Write the batch program NEXT TO the test file —
         // the batch must inherit the test file's relative-import base, so a
         // /tmp placement breaks every `import("./...")` in non-test content.

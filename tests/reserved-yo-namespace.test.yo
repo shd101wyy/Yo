@@ -1,14 +1,19 @@
-//! VERDICTS-72 rule (a): a name that starts with `__yo_` is the compiler's
-//! namespace. An `extern(...)` member label (both ABIs) or a `c_include(...)`
+//! VERDICTS-72: a name that starts with `__yo_` is the compiler's namespace.
+//! Rule (a): an `extern(...)` member label (both ABIs) or a `c_include(...)`
 //! member label in that namespace, declared outside the std tree, is E0407,
-//! and `pragma(Pragma.AllowUnsafe)` (declared here) does not unlock it. Before
-//! the rule each declaration below was accepted and lost silently: a builtin
-//! the evaluator dispatches by spelling ran instead (`__yo_incr_rc`), or the
-//! call bound a runtime symbol whose signature the compiler owns.
+//! and `pragma(Pragma.AllowUnsafe)` (declared here) does not unlock it. Rule
+//! (b): so is every other binder a person wrote there (`::`, `:=`, a typed
+//! `(x : T) =`, a parameter, a closure parameter, a pattern binding, a
+//! destructuring or import rename). Before the rules each declaration below
+//! was accepted and lost silently: a builtin the evaluator dispatches by
+//! spelling ran instead (`__yo_incr_rc`), or codegen matched the name
+//! (`__yo_errno`).
 //! issues/fixed/2026-11-21-a-user-extern-member-named-like-a-compiler-builtin-is-silently-shadowed.md
+//! issues/fixed/2026-11-21-a-user-binding-named-in-the-yo-namespace-hijacks-or-is-hijacked.md
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array-list");
 // std's own declarations stay legal under the demand-loaded `file://`
 // spelling: `std/crypto/random` declares `__yo_errno` and `__yo_getrandom`.
 { random_u32 } :: import("std/crypto/random");
@@ -31,6 +36,79 @@ comptime_expect_error({
 extern("Yo", user_lib_add : (fn(a : i32, b : i32) -> i32));
 extern("c", getpid : (fn() -> i32));
 extern("Yo", __yox : (fn() -> i32), _yo_x : (fn() -> i32), __YO_X : (fn() -> i32));
+// Rule (b): every binder a person wrote in the namespace is E0407 too.
+// A `::` definition the evaluator would dispatch to a builtin (p2) or codegen
+// would match by name (p14).
+comptime_expect_error({
+  __yo_incr_rc :: (fn(x : i32) -> i32)(x + i32(1));
+  __yo_incr_rc(i32(1))
+}, _RESERVED);
+comptime_expect_error({
+  __yo_errno :: (fn() -> i64)(i64(7));
+  __yo_errno()
+}, _RESERVED);
+// A parameter (p11), a closure parameter, a `:=` local, a typed `(x : T) =`.
+comptime_expect_error((fn(__yo_incr_rc : i32) -> i32)(__yo_incr_rc), _RESERVED);
+comptime_expect_error(
+  (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    for(&xs, __yo_e => ());
+  }),
+  _RESERVED
+);
+comptime_expect_error({
+  __yo_incr_rc := i32(3);
+  __yo_incr_rc
+}, _RESERVED);
+comptime_expect_error({
+  (__yo_decr_rc : i32) = i32(4);
+  __yo_decr_rc
+}, _RESERVED);
+// A closure literal's parameters: bare, typed, in a tuple, and a capture
+// entry; and a labeled return.
+_apply :: (fn(g : Impl(Fn(a : i32) -> i32)) -> i32)(g(i32(1)));
+_apply2 :: (fn(g : Impl(Fn(a : i32, b : i32) -> i32)) -> i32)(g(i32(1), i32(2)));
+comptime_expect_error(_apply(__yo_a => __yo_a), _RESERVED);
+comptime_expect_error(_apply((__yo_a : i32) => __yo_a), _RESERVED);
+comptime_expect_error(_apply2((a, __yo_b) => a), _RESERVED);
+comptime_expect_error({
+  c := i32(2);
+  _apply({ __yo_c : c }(a) => a)
+}, _RESERVED);
+comptime_expect_error((fn(x : i32) -> (__yo_r : i32))(x), _RESERVED);
+// A pattern binding, in a variant payload and as an `(x := p)` name.
+comptime_expect_error(match(Option(i32).Some(i32(1)), .Some(__yo_x) => __yo_x, .None => i32(0)), _RESERVED);
+comptime_expect_error(match(i32(1), (__yo_n := _) => __yo_n), _RESERVED);
+// An import rename and a destructuring binder.
+comptime_expect_error({
+  { assert : __yo_assert } :: import("std/assert");
+  ()
+}, _RESERVED);
+comptime_expect_error({
+  { __yo_x } :: .{ __yo_x : i32(1) };
+  __yo_x
+}, _RESERVED);
+// The name is judged by its spelling: the other prefixes stay ordinary.
+test("a binder that is not spelled `__yo_` is an ordinary name", {
+  __yo := i32(1);
+  _yo_v := i32(2);
+  __YO_V := i32(3);
+  __y := i32(4);
+  assert((__yo + _yo_v + __YO_V + __y) == i32(10), "four ordinary binders");
+});
+// Canaries: the compiler mints `__yo_` names into this user module (the
+// template string's accumulator, the method receiver, the match subject
+// temporary, the contract result) and none of them is rejected.
+Point :: struct(x : i32, y : i32);
+impl(Point, sum : (fn(self : &Self) -> i32)(self.x + self.y));
+bounded :: (fn(a : i32, requires(a > i32(0)), ensures(r > a)) -> (r : i32))(a + i32(1));
+test("compiler-minted __yo_ names in a user module are accepted", {
+  p := Point(x : i32(1), y : i32(2));
+  s := `sum=${p.sum()} next=${bounded(i32(1))}`;
+  assert(s == "sum=3 next=2", "a template string, a method and a contract");
+  total := match(p, Point(x : a, y : b) => (a + b));
+  assert(total == i32(3), "a struct-pattern match");
+});
 test("calling a builtin by name without declaring it stays legal", {
   assert(__yo_op_add(i32(2), i32(3)) == i32(5), "the prelude's __yo_op_add");
 });

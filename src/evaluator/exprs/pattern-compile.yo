@@ -45,6 +45,7 @@
 { Token, TokenKind, TokenData } :: import("../../token.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set, struct_effective_ctor_fid } :: import("../../expr-info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ reject_reserved_yo_binder } :: import("../memory-safety.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { replace } :: import("std/mem");
 { EvalValue, EvalValueNode, is_unknown_val, ValueCell } :: import("../../value.yo");
@@ -988,6 +989,7 @@ _compile_variant :: (
     sub := cond(
       curly_bind => {
         bn := _atom_name(&sub_ast);
+        reject_reserved_yo_binder(ast_expr_token(&sub_ast), ctx, exn);
         pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : Rc.clone(sub_ast)));
         Pattern.Bind(name : bn, token : ast_expr_token(&sub_ast), atom : sub_ast)
       },
@@ -1257,6 +1259,7 @@ _compile_struct :: (
     sub := cond(
       bare_bind => {
         bn := _atom_name(&sub_ast);
+        reject_reserved_yo_binder(ast_expr_token(&sub_ast), ctx, exn);
         pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : Rc.clone(sub_ast)));
         Pattern.Bind(name : bn, token : ast_expr_token(&sub_ast), atom : sub_ast)
       },
@@ -1410,6 +1413,7 @@ compile_pattern :: (
       bcf2 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf })) => bcf.clone(), _ => String.from("-"));
       eprintln(`[tmint-bind] name=${nm} id=${bid2} n_ta=${bta2.to_string()} cfid=${bcf2} fields=${fs}`);
     });
+    reject_reserved_yo_binder(ast_expr_token(&name_expr), ctx, exn);
     pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*.clone(), atom : Rc.clone(name_expr)));
     // The self-calls that can throw are by NAME, not `recur`: seeds up to
     // v0.2.45 emit `recur` without the escape check, so a seed-built compiler
@@ -1450,6 +1454,7 @@ compile_pattern :: (
         bcf3 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf4 })) => bcf4.clone(), _ => String.from("-"));
         eprintln(`[tmint-bind] name=${nm} id=${bid3} n_ta=${bta3.to_string()} cfid=${bcf3} fields=${fs2}`);
       });
+      reject_reserved_yo_binder(ast_expr_token(e), ctx, exn);
       pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*.clone(), atom : Rc.clone(e.*)));
       return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : Rc.clone(e.*)));
     });
