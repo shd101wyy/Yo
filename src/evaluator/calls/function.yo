@@ -7366,7 +7366,7 @@ _fv_solved_slot :: (fn(resolved_param_types : &SharedList(TypeValue), ai : usize
       (k : usize) = usize(0);
       while(k < pre_names.len(), k = (k + usize(1)), {
         if(match(pre_names.get_cloned(k), .Some(n) => (n == b), .None => false), {
-          return(match(pre_vals.get_cloned(k), .Some(Rc(.TypeVal(t))) => t, _ => slot));
+          return(match(pre_vals.get_cloned(k), .Some(Rc(.TypeVal(t))) => Rc.clone(t), _ => slot));
         });
       });
       slot
