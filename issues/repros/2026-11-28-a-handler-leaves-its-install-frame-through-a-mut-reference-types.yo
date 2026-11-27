@@ -1,0 +1,30 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Raise :: (ctl(msg : &String) -> i32);
+
+stash :: (fn(slot : &mut Option(Raise)) -> Option(Box(i32)))({
+  (h : Raise) = (
+    msg -> {
+      unwind(.None);
+    }
+  );
+  slot.* = .Some(h);
+  .Some(Box.new(i32(1)))
+});
+// a later frame with its own handler and a different result type calls the dead handler
+later :: (fn(dead : Raise) -> String)({
+  (mine : Raise) = (
+    msg -> {
+      unwind(`mine`);
+    }
+  );
+  n := both(dead, mine);
+  `later saw ${n}`
+});
+both :: (fn(a : Raise, b : Raise) -> i32)(a(`x`));
+main :: (fn() -> unit)({
+  (mut(s) : Option(Raise)) = .None;
+  _ := stash(&mut s);
+  match(s, .Some(h) => println(later(h)), .None => println(`none`));
+});
+export(main);

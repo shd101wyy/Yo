@@ -26,21 +26,21 @@ test("lazy closures run only when the level admits them", {
   log.set_level(log.Level.Error);
   filtered := Rc.new(RefCell(bool).new(false));
   log.info_lazy({ &filtered }() => {
-    filtered.with_mut(cur => {
+    filtered.*.*.with_mut(cur => {
       cur.* = true;
     });
     `should not build`.to_string()
   });
-  skipped := filtered.with(cur => cur.clone());
+  skipped := filtered.*.with(cur => cur.clone());
   assert(!skipped, "below-level lazy closure is skipped");
   emitted := Rc.new(RefCell(bool).new(false));
   log.error_lazy({ &emitted }() => {
-    emitted.with_mut(cur => {
+    emitted.*.*.with_mut(cur => {
       cur.* = true;
     });
     `built`.to_string()
   });
-  ran := emitted.with(cur => cur.clone());
+  ran := emitted.*.with(cur => cur.clone());
   assert(ran, "at-or-above-level lazy closure runs");
 });
 test("generic ToString messages and targets compile and emit", {

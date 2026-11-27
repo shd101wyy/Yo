@@ -159,7 +159,7 @@ test("ref payload: an arrow method's receiver of an origin-carrying result", {
   v := match(c.peek(), .Some(r) => r.*, .None => i32(0));
   assert(v == i32(8), "c.peek()");
   (d : Box(Dyn(_Peek))) = dyn(Box.new(_Cell(n : i32(9))));
-  w := match(d.peek(), .Some(r) => r.*, .None => i32(0));
+  w := match(d.*.peek(), .Some(r) => r.*, .None => i32(0));
   assert(w == i32(9), "d.peek() through the vtable");
 });
 test("ref payload: a variant with a reference and a later operand", {
@@ -200,10 +200,10 @@ test("a reference to a later newtype, struct or enum is a valid payload", {
   o := Option(_Later).Some(_Later(n : i32(5), s : String.from("d")));
   xs := ArrayList(i32).new();
   assert(match(_name_of(&v), .Some(s) => (s.len() == usize(2)), .None => false), "Option(&String)");
-  assert(match(_boxed(&b), .Some(r) => (r.n == i32(4)), .None => false), "Option(&Box(_Later))");
+  assert(match(_boxed(&b), .Some(r) => (r.*.*.n == i32(4)), .None => false), "Option(&Box(_Later))");
   assert(match(_Refs.ToStruct(&v), .ToStruct(r) => (r.n == i32(3)), _ => false), "a struct referent");
   assert(match(_Refs.ToString(&v.s), .ToString(s) => (s.len() == usize(2)), _ => false), "a String referent");
-  assert(match(_Refs.ToBox(&b), .ToBox(r) => (r.n == i32(4)), _ => false), "a Box referent");
+  assert(match(_Refs.ToBox(&b), .ToBox(r) => (r.*.*.n == i32(4)), _ => false), "a Box referent");
   assert(match(_Refs.ToEnum(&o), .ToEnum(r) => r.is_some(), _ => false), "an enum referent");
   assert(match(_Refs.ToList(&xs), .ToList(r) => (r.len() == usize(0)), _ => false), "an ArrayList referent");
 });

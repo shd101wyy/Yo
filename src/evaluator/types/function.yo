@@ -11,7 +11,7 @@
 //! spread spelling was removed (2026-10-03) and is reported as an error.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ eprintln } :: import("std/fmt");
+{ eprintln, StringBuilder } :: import("std/fmt");
 {
   AstExpr,
   AstExprNode,
@@ -21,6 +21,7 @@ pragma(Pragma.AllowUnsafe);
   BF_DOT,
   ast_expr_id,
   ast_expr_to_string,
+  ast_expr_first_token,
   ast_expr_is_atom,
   ast_expr_is_atom_of,
   ast_expr_is_fn_call,
@@ -87,10 +88,10 @@ pragma(Pragma.AllowUnsafe);
   convert_comptime_type_to_runtime_type,
   convert_comptime_type_to_runtime_type_with_expected
 } :: import("../../types/env-lookup.yo");
-{ format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, with_code, YoError } :: import("../../error.yo");
+{ Span, E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES, E_TRAIT_BOUND_FORM } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_valid_variable_name, check_where_clause_form } :: import("../utils.yo");
+{ is_valid_variable_name, check_where_clause_form, throw_if_bound_rhs_is_not_a_trait, is_bare_trait_type, trait_constructor_params_of, trait_constructor_spelling, trait_as_value_type_error, source_matching_paren_byte, source_span_from_anchor, source_operand_after } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
 { type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target, is_escapable_trait } :: import("../trait-checking.yo");
 { Exception } :: import("std/error");
@@ -1166,7 +1167,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
     });
     return(());
   });
-  o_is_type := match(o_var.value().get(usize(0)), .Some(ov) => match(ov, Rc(.TypeVal(_)) => true, _ => false), .None => false);
+  o_is_type := match(o_var.*.value().get(usize(0)), .Some(ov) => match(ov, Rc(.TypeVal(_)) => true, _ => false), .None => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -1203,7 +1204,7 @@ evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalCo
 _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = e.clone();
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.*.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
   });
   if(ast_expr_is_atom(&cur) && is_valid_variable_name(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
 });
@@ -1300,7 +1301,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
     );
   });
   o_var := match(o_vars.get_cloned(o_n - usize(1)), .Some(v) => v, .None => return(()));
-  o_value := o_var.value().get(usize(0));
+  o_value := o_var.*.value().get(usize(0));
   o_is_type := match(o_value.clone(), .Some(Rc(.TypeVal(_))) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
   if(o_is_type, {
     exn.throw(
@@ -1331,7 +1332,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   // An origin parameter in scope, or a binding's place: both are named. A
   // place named in an origin is a use of its binding (the warnings
   // channel's read marker, D15).
-  o_var.set_was_read(true);
+  o_var.*.set_was_read(true);
   if(!_names_contain(out, &o_name), {
     out.push(o_name);
   });
@@ -1561,7 +1562,7 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
           )
         );
       });
-      ov.set_was_read(true);
+      ov.*.set_was_read(true);
       if(!_names_contain(out, &r_name), {
         out.push(r_name);
       });
@@ -1761,7 +1762,7 @@ _is_dots_atom :: (fn(expr : &AstExpr) -> bool)(
     false,
     begin(
       tok := ast_expr_token(expr),
-      tok.value.* == "..."
+      tok.*.value.* == "..."
     )
   )
 );
@@ -1821,7 +1822,7 @@ _is_contract_clause :: (fn(e : &AstExpr) -> bool)(
 _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    Rc(.Atom(_, at_tok)) => (at_tok.value.* == name.*),
+    Rc(.Atom(_, at_tok)) => (at_tok.*.*.value.* == name.*),
     Rc(.FnCall(_, f_box, Rc(f_args), _, _)) => cond(
       recur(&f_box.*, name.clone()) => true,
       true => {
@@ -1949,7 +1950,7 @@ _add_where_clause_constraint :: (
       present := _wcc_has_trait(&cond(is_negated => wcc_bounds.negative(), true => wcc_bounds.required()), trait_ty);
       if(!present, {
         wcc_trait := Rc.clone(trait_ty);
-        wcc_bounds.with_mut({ wcc_trait : Rc.clone(wcc_trait), is_negated }(b) => {
+        wcc_bounds.*.*.with_mut({ wcc_trait : Rc.clone(wcc_trait), is_negated }(b) => {
           if(is_negated, {
             b.negative.push(wcc_trait);
             b.negative_levels.push(usize(0));
@@ -2051,6 +2052,255 @@ _param_default_not_comptime_error :: (fn(label : &Option(String), param_type : &
   )
 });
 // ---------------------------------------------------------------------------
+// Bounds in a binder's kind slot (VERDICTS-84 §4)
+// ---------------------------------------------------------------------------
+/// What a bound-form repair reads from the signature a parameter sits in:
+/// the head token of its parameter list (`fn`, `ctl`, `unsafe_fn`, `Fn`,
+/// ...) and the list's entries.
+SignatureSource :: struct(head : Option(Token), params : ArrayList(AstExpr));
+/// One side of a bound as a comparison key: its text without whitespace and
+/// without parentheses enclosing the whole of it (the AST printer writes
+/// `Self.Item` as `(Self.Item)`).
+_bound_side_key :: (fn(text : &String) -> String)({
+  sb := StringBuilder.new();
+  (i : usize) = usize(0);
+  while(i < text.len(), i = (i + usize(1)), {
+    b := text.byte_at(i);
+    if((b != u8(32)) && (b != u8(9)) && (b != u8(10)) && (b != u8(13)), {
+      sb.write_byte(b);
+    });
+  });
+  (k : String) = sb.to_string();
+  while((k.len() >= usize(2)) && (k.byte_at(usize(0)) == u8(40)) && (k.byte_at(k.len() - usize(1)) == u8(41)), {
+    // Strip only when the first `(` closes at the end: `(A)(B)` is kept.
+    (depth : usize) = usize(0);
+    (closes_at_end : bool) = true;
+    (j : usize) = usize(0);
+    while(j < k.len(), j = (j + usize(1)), {
+      c := k.byte_at(j);
+      if(c == u8(40), {
+        depth = (depth + usize(1));
+      });
+      if(c == u8(41), {
+        depth = (depth - usize(1));
+        if((depth == usize(0)) && (j != (k.len() - usize(1))), {
+          closes_at_end = false;
+        });
+      });
+    });
+    if(!closes_at_end, {
+      break;
+    });
+    k = k.substring(usize(1), k.len() - usize(1));
+  });
+  k
+});
+/// Does a `where(...)` entry of `sig` already read `label <: rhs`? Compared
+/// on `_bound_side_key`, so spacing and enclosing parentheses do not matter.
+_signature_has_bound :: (fn(sig : &SignatureSource, label : &String, rhs : &AstExpr) -> bool)({
+  rhs_s := _bound_side_key(&ast_expr_to_string(rhs));
+  label_s := _bound_side_key(label);
+  (i : usize) = usize(0);
+  while(i < sig.params.len(), i = (i + usize(1)), {
+    p := sig.params(i).clone();
+    if(ast_expr_is_fn_call_of(&p, BK_WHERE, Option(usize).None), {
+      entries := _fn_call_args(&p);
+      (k : usize) = usize(0);
+      while(k < entries.len(), k = (k + usize(1)), {
+        e := entries(k).clone();
+        if(ast_expr_is_fn_call_of(&e, "<:", .Some(usize(2))), {
+          sides := _fn_call_args(&e);
+          if((_bound_side_key(&ast_expr_to_string(&sides(usize(0)))) == label_s) && (_bound_side_key(&ast_expr_to_string(&sides(usize(1)))) == rhs_s), {
+            return(true);
+          });
+        });
+      });
+    });
+  });
+  false
+});
+/// The edit that writes the bound `bound` (`T <: Clone`) into `sig`: inside
+/// its first `where(`, else as a new clause before its first contract clause
+/// (`requires`, `ensures`, `decreases`, `assumed`), else after its last
+/// parameter, where the clause order puts `where(...)`. `.None` when that
+/// place does not read back from the source.
+_bound_insertion_repair :: (fn(sig : &SignatureSource, bound : &String) -> Option(Tuple(Span, String)))({
+  (i : usize) = usize(0);
+  while(i < sig.params.len(), i = (i + usize(1)), {
+    p := sig.params(i).clone();
+    if(ast_expr_is_fn_call_of(&p, BK_WHERE, Option(usize).None), {
+      wt := ast_expr_token(&p);
+      w_input := wt.*.input.*.clone();
+      w_open := (usize(wt.*.byte_offset) + wt.*.value.*.len());
+      if((w_open >= w_input.len()) || (w_input.byte_at(w_open) != u8(40)), {
+        return(Option(Tuple(Span, String)).None);
+      });
+      return(
+        match(
+          source_span_from_anchor(&wt, w_open + usize(1), w_open + usize(1)),
+          .Some(sp) => Option(Tuple(Span, String)).Some((sp, `${bound}, `)),
+          .None => Option(Tuple(Span, String)).None
+        )
+      );
+    });
+  });
+  (ci : usize) = usize(0);
+  while(ci < sig.params.len(), ci = (ci + usize(1)), {
+    cp := sig.params(ci).clone();
+    if(_clause_zone(&cp) >= usize(3), {
+      ct := ast_expr_token(&cp);
+      return(
+        match(
+          source_span_from_anchor(&ct, usize(ct.*.byte_offset), usize(ct.*.byte_offset)),
+          .Some(sp) => Option(Tuple(Span, String)).Some((sp, `where(${bound}), `)),
+          .None => Option(Tuple(Span, String)).None
+        )
+      );
+    });
+  });
+  head := match(&sig.head, .Some(h) => Rc.clone(h.*), .None => return(Option(Tuple(Span, String)).None));
+  input := head.*.input.*.clone();
+  open := (usize(head.*.byte_offset) + head.*.value.*.len());
+  if((open >= input.len()) || (input.byte_at(open) != u8(40)), {
+    return(Option(Tuple(Span, String)).None);
+  });
+  close := match(source_matching_paren_byte(&input, open), .Some(c) => c, .None => return(Option(Tuple(Span, String)).None));
+  (e : usize) = close;
+  while((e > (open + usize(1))) && ((input.byte_at(e - usize(1)) == u8(32)) || (input.byte_at(e - usize(1)) == u8(9)) || (input.byte_at(e - usize(1)) == u8(10)) || (input.byte_at(e - usize(1)) == u8(13))), {
+    e = (e - usize(1));
+  });
+  if(e == (open + usize(1)), {
+    return(Option(Tuple(Span, String)).None);
+  });
+  // A line comment ending the last parameter's line would swallow the clause.
+  (ls : usize) = e;
+  while((ls > usize(0)) && (input.byte_at(ls - usize(1)) != u8(10)), {
+    ls = (ls - usize(1));
+  });
+  if(input.substring(ls, e).contains("//"), {
+    return(Option(Tuple(Span, String)).None);
+  });
+  match(
+    source_span_from_anchor(&head, e, e),
+    .Some(sp) => Option(Tuple(Span, String)).Some((sp, `, where(${bound})`)),
+    .None => Option(Tuple(Span, String)).None
+  )
+});
+/// E0624 at a type binder whose kind slot holds a bound: `generic(T : Tr)`,
+/// `comptime(T) : Tr`, `generic(T : (A, B))`, `generic(T <: Tr)`. `op` is the
+/// `:` or `<:` before `rhs`; `label` is the bound's left side and `binder`
+/// the name the kind belongs to (`Self.Item` and `Item` in a trait). The repair takes two passes of `yo fix`, one edit
+/// each (a repair edits one line): the first writes the bound into the
+/// signature's `where(...)`; the second, the bound now there, gives the binder
+/// the kind `Type`. `.None` repair when the source does not read back.
+throw_bound_in_kind_slot :: (
+  fn(msg : &String, anchor : &Token, op : &Token, label : &String, binder : &String, rhs : &AstExpr, sig : &SignatureSource, exn : Exception) -> unit
+)({
+  operand := source_operand_after(op);
+  bound_text := match(&operand, .Some(t) => t.0.clone(), .None => ast_expr_to_string(rhs));
+  bound := `${label} <: ${bound_text}`;
+  (repair : Option(Tuple(Span, String, String))) = cond(
+    _signature_has_bound(sig, label, rhs) => match(
+      &operand,
+      .Some(t) => match(
+        source_span_from_anchor(op, usize(op.*.*.byte_offset), t.2),
+        .Some(sp) => Option(Tuple(Span, String, String)).Some((sp, String.from(": Type"), `give \`${binder}\` the kind \`Type\``)),
+        .None => Option(Tuple(Span, String, String)).None
+      ),
+      .None => Option(Tuple(Span, String, String)).None
+    ),
+    true => match(
+      _bound_insertion_repair(sig, &bound),
+      .Some(r) => Option(Tuple(Span, String, String)).Some((r.0.clone(), r.1.clone(), `add the bound \`${bound}\``)),
+      .None => Option(Tuple(Span, String, String)).None
+    )
+  );
+  err := match(
+    &repair,
+    .Some(r) => format_error_message_with_repair_at(anchor, msg, &Option(String).None, &r.0, &r.1, &r.2),
+    .None => format_error_message(anchor, msg)
+  );
+  exn.throw(dyn(Box.new(with_code(&err, E_TRAIT_BOUND_FORM))));
+});
+/// `Eq(T)`: the trait constructor `name` applied to `arg` for each of its
+/// `n` parameters, the example a diagnostic shows.
+_applied_to :: (fn(name : &String, arg : &String, n : usize) -> String)({
+  args := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    args.push(arg.clone());
+  });
+  `${name}(${String.from(", ").join(&args)})`
+});
+/// The binder a kind-slot diagnostic tells the author to write.
+_kind_binder_spelling :: (fn(label : &String, in_generic : bool) -> String)(
+  if(in_generic, `generic(${label} : Type)`, `comptime(${label}) : Type`)
+);
+/// The name a diagnostic gives a trait or trait-constructor expression.
+_trait_expr_text :: (fn(e : &AstExpr) -> String)(ast_expr_to_string(e));
+/// `generic(T : (A, B))` (VERDICTS-84 §4, E0624): a tuple whose every
+/// element is a trait, in a binder's kind slot. Returns for any other kind.
+_reject_trait_tuple_kind :: (
+  fn(te : &AstExpr, label : &Option(String), colon_tok : &Option(Token), in_generic : bool, sig : &SignatureSource, env_mut : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit
+)({
+  if(!ast_expr_is_fn_call_of(te, BK_TUPLE, Option(usize).None), {
+    return(());
+  });
+  elems := _fn_call_args(te);
+  if(elems.len() == usize(0), {
+    return(());
+  });
+  (k : usize) = usize(0);
+  while(k < elems.len(), k = (k + usize(1)), {
+    all_traits := match(_eval_and_update_env(&elems(k), env_mut, ctx, exn), .Some(t) => is_trait_type(&t), .None => false);
+    if(!all_traits, {
+      return(());
+    });
+  });
+  op := match(colon_tok, .Some(t) => Rc.clone(t.*), .None => return(()));
+  l := match(label, .Some(s) => s.clone(), .None => String.from("?"));
+  text := match(source_operand_after(&op), .Some(t) => t.0.clone(), .None => ast_expr_to_string(te));
+  throw_bound_in_kind_slot(
+    &`\`${text}\` is a tuple of traits, not a kind. Write \`${_kind_binder_spelling(&l, in_generic)}\` and the bound \`where(${l} <: ${text})\`.`,
+    &ast_expr_first_token(te),
+    &op,
+    &l,
+    &l,
+    te,
+    sig,
+    exn
+  );
+});
+/// A trait constructor where a kind or a type is read: `generic(T : Eq)` is
+/// E0624, `a : Eq` E0625 (VERDICTS-84 §4). The constructor's arguments are
+/// the author's, so no repair. Returns when `te` is not a trait constructor.
+_reject_trait_constructor_as_type :: (
+  fn(te : &AstExpr, label : &Option(String), is_binder : bool, in_generic : bool, env_mut : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit
+)({
+  evaluated := evaluate_expression_raw(te, env_mut, ctx, exn);
+  info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(i) => Rc.clone(i), .None => return(()));
+  params := match(trait_constructor_params_of(&info.value(), &info.ty()), .Some(ps) => ps, .None => return(()));
+  name := _trait_expr_text(te);
+  l := match(label, .Some(s) => s.clone(), .None => String.from("?"));
+  applied := trait_constructor_spelling(&name, &params);
+  if(is_binder, {
+    exn.throw(
+      dyn(
+        Box.new(
+          with_code(
+            format_error_message(
+              &ast_expr_first_token(te),
+              `\`${name}\` is a trait constructor (\`${applied}\`), not a kind. Write \`${_kind_binder_spelling(&l, in_generic)}\` and a bound on the applied trait, such as \`where(${l} <: ${_applied_to(&name, &l, params.len())})\`.`
+            ),
+            E_TRAIT_BOUND_FORM
+          )
+        )
+      )
+    );
+  });
+  exn.throw(dyn(Box.new(trait_as_value_type_error(&ast_expr_first_token(te), &applied, &`the parameter \`${l}\``))));
+});
+// ---------------------------------------------------------------------------
 // evaluate_function_parameter
 // ---------------------------------------------------------------------------
 /// `imm(x)` / `mut(x)` / `inout(x)` / `own(x)` on a parameter label: the
@@ -2084,6 +2334,8 @@ evaluate_function_parameter :: (
     ctx : &mut EvalContext,
     is_parameter_comptime_by_default : bool,
     allow_shadowing : bool,
+    sig : &SignatureSource,
+    in_generic : bool,
     exn : Exception
   ) -> FuncParam
 )({
@@ -2147,8 +2399,12 @@ evaluate_function_parameter :: (
     lhs_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()));
     expr_mut = match(lhs_expr.clone(), .Some(e) => Rc.clone(e), .None => make_err_expr());
   });
+  // The `:` between the label and the type, for a kind-slot diagnostic's
+  // repair (`generic(T : Clone)`).
+  (colon_tok : Option(Token)) = Option(Token).None;
   // Parse label and type: (x: i32)
   if(ast_expr_is_fn_call_of(&expr_mut, ":", .Some(usize(2))), {
+    colon_tok = .Some(ast_expr_token(&expr_mut));
     lhs_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()));
     type_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
   }, {
@@ -2365,13 +2621,35 @@ evaluate_function_parameter :: (
           )
         );
       });
-      if(ast_expr_token(&lhs_mut).value.* == "mut", {
+      if(ast_expr_token(&lhs_mut).*.value.* == "mut", {
         exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&lhs_mut), reserved_builtin_binding_message(String.from("mut"))))));
       });
       reject_reserved_yo_binder(ast_expr_token(&lhs_mut), ctx, exn);
       label = .Some(ast_expr_text(&lhs_mut).*.clone());
       label_expr = .Some(lhs_mut);
     },
+    .None => ()
+  );
+  // `generic(T <: Tr)`: a bound in the binder (VERDICTS-84 §4, E0624).
+  match(
+    type_expr.clone(),
+    .Some(bte) => if(label.is_none() && ast_expr_is_fn_call_of(&bte, "<:", .Some(usize(2))), {
+      b_sides := _fn_call_args(&bte);
+      b_label := ast_expr_to_string(&b_sides(usize(0)));
+      b_rhs := b_sides(usize(1)).clone();
+      b_op := ast_expr_token(&bte);
+      b_text := match(source_operand_after(&b_op), .Some(t) => t.0.clone(), .None => ast_expr_to_string(&b_rhs));
+      throw_bound_in_kind_slot(
+        &`A bound is written in \`where(...)\`, not in the binder: write \`${_kind_binder_spelling(&b_label, in_generic)}\` and the bound \`where(${b_label} <: ${b_text})\`.`,
+        &b_op,
+        &b_op,
+        &b_label,
+        &b_label,
+        &b_rhs,
+        sig,
+        exn
+      );
+    }),
     .None => ()
   );
   // A label is required
@@ -2483,8 +2761,14 @@ evaluate_function_parameter :: (
     .Some(te) => if(is_maybe_sized_kind_spelling(&te), {
       param_type = .Some(t_maybe_sized_kind());
     }, {
+      // `generic(T : (A, B))`: a tuple of traits in the kind slot. A tuple
+      // value cannot hold types, so this is read before evaluating it.
+      if((is_compile_time_only && !is_parameter_comptime_by_default) || in_generic, {
+        _reject_trait_tuple_kind(&te, &label, &colon_tok, in_generic, sig, env_mut, ctx, exn);
+      });
       ty_opt := _eval_and_update_env(&te, env_mut, ctx, exn);
       if(ty_opt.is_none(), {
+        _reject_trait_constructor_as_type(&te, &label, (is_compile_time_only && !is_parameter_comptime_by_default) || in_generic, in_generic, env_mut, ctx, exn);
         exn.throw(
           dyn(
             Box.new(
@@ -2632,7 +2916,7 @@ evaluate_function_parameter :: (
   // pointer (`*[T]`, structs wrapping *(T), ...). The prelude's
   // `Allocator` passes as an opaque handle (plans/reference/ALLOCATOR_PLACEMENT.md A2).
   if(!ctx.unsafe_context &&
-    !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())) &&
+    !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).*.module_path.*.clone())) &&
       parameter_type_contains_raw_ptr(&final_param_type), {
     exn.throw(
       dyn(
@@ -2681,6 +2965,31 @@ evaluate_function_parameter :: (
       )
     );
   });
+  // A bare trait in the slot (VERDICTS-84 §4): a binder's kind is E0624,
+  // a value's type E0625.
+  if(is_bare_trait_type(&final_param_type), {
+    bt_te := match(type_expr.clone(), .Some(e) => e, .None => Rc.clone(expr.*));
+    bt_label := match(&label, .Some(l) => l.clone(), .None => String.from("?"));
+    bt_text := _trait_expr_text(&bt_te);
+    if((is_compile_time_only && !is_parameter_comptime_by_default) || in_generic, {
+      match(
+        &colon_tok,
+        .Some(ct) => throw_bound_in_kind_slot(
+          &`\`${bt_text}\` is a trait, not a kind. Write \`${_kind_binder_spelling(&bt_label, in_generic)}\` and the bound \`where(${bt_label} <: ${bt_text})\`.`,
+          &ast_expr_first_token(&bt_te),
+          ct,
+          &bt_label,
+          &bt_label,
+          &bt_te,
+          sig,
+          exn
+        ),
+        .None => ()
+      );
+    });
+    what := cond(is_parameter_comptime_by_default => `the implicit parameter \`${bt_label}\``, true => `the parameter \`${bt_label}\``);
+    exn.throw(dyn(Box.new(trait_as_value_type_error(&ast_expr_first_token(&bt_te), &bt_text, &what))));
+  });
   // Validate comptime + type compatibility
   if(is_compile_time_only &&
     !type_contains_some_type(&final_param_type) &&
@@ -2712,7 +3021,7 @@ evaluate_function_parameter :: (
   if(!is_compile_time_only && is_function_type(&final_param_type), {
     has_forall := match(
       &final_param_type,
-      Rc(.Func({ meta : __fm1 })) => (__fm1.forall_labels.len() > usize(0)),
+      Rc(.Func({ meta : __fm1 })) => (__fm1.*.*.forall_labels.len() > usize(0)),
       _ => false
     );
     if(has_forall, {
@@ -2772,37 +3081,6 @@ evaluate_function_parameter :: (
   if(!ctx.is_unsafe_function_type, {
     prohibit_void_type(&final_param_type, match(type_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)), exn);
   });
-  // Validate trait type must have receiver type already set (error if not)
-  if(is_trait_type(&final_param_type), {
-    has_receiver := match(
-      &final_param_type,
-      Rc(.TraitT(_, _, _, is_concrete, _, _)) => is_concrete.is_some(),
-      _ => true
-    );
-    if(!has_receiver, {
-      exn.throw(
-        dyn(
-          Box.new(
-            format_error_message(
-              match(type_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-              `Trait type without receiver type set cannot be used as function parameter type.
-        
-Please consider using "<:" to specify the receiver type for a trait type, for example:
-
-Id :: trait(id   : (fn(self : Self) -> Self)));
-
-use_id :: (fn(generic(T : Type),
-              val : T, 
-              where(T <: Id)
-          ) -> T)({
-  return(val.id());
-})`
-            )
-          )
-        )
-      );
-    });
-  });
   // The spelled origin of `x : &(T, o)`, kind-directed (an error unless `o`
   // names declared origin parameters).
   (spelled_origin : Option(TypeValue)) = match(
@@ -2844,7 +3122,7 @@ use_id :: (fn(generic(T : Type),
       }
     );
     match(
-      v.value().get(usize(0)),
+      v.*.value().get(usize(0)),
       .Some(ev) => {
         match(
           ev,
@@ -2879,7 +3157,7 @@ use_id :: (fn(generic(T : Type),
       )
     );
     top_frame_level := (env_mut.frames_len() - usize(1));
-    if(last_v.is_compile_time_only() && (last_v.frame_level == top_frame_level), {
+    if(last_v.*.is_compile_time_only() && (last_v.*.frame_level == top_frame_level), {
       existing_pre_var = .Some(last_v);
     });
   });
@@ -2889,7 +3167,7 @@ use_id :: (fn(generic(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value().get(usize(0)), .Some(ev) => match(ev, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+      existing_some_ty := match(wv.*.value().get(usize(0)), .Some(ev) => match(ev, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value.clone(),
@@ -2948,7 +3226,7 @@ use_id :: (fn(generic(T : Type),
         label_expr.clone(),
         .Some(le) => {
           le_info := new_expr_info(env_mut, &actual_param_type);
-          le_info.set_value(.Some(match(wv.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))));
+          le_info.set_value(.Some(match(wv.*.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
         },
         .None => ()
@@ -2964,7 +3242,7 @@ use_id :: (fn(generic(T : Type),
             label_expr.clone(),
             .Some(le) => {
               le_info := new_expr_info(env_mut, &actual_param_type);
-              le_info.set_value(pv.value().get(usize(0)));
+              le_info.set_value(pv.*.value().get(usize(0)));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
             },
             .None => ()
@@ -3004,7 +3282,7 @@ use_id :: (fn(generic(T : Type),
                     if(
                       match(
                         &final_param_type,
-                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.result_is_comptime_only && is_type_0(&t_slot_pointee(&result.*))),
+                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.*.result_is_comptime_only && is_type_0(&t_slot_pointee(&result.*))),
                         _ => false
                       ),
                       Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),
@@ -3177,6 +3455,7 @@ validate_concrete_type_constraints :: (
       }
     );
     env_adopt(&env_mut.*, &info.env());
+    throw_if_bound_rhs_is_not_a_trait(&t_expr, &info.value(), &info.ty(), &_bound_lhs_text(constraint_expr, concrete_type), exn);
     if(is_type_value(&info.value()), {
       tv := match(
         info.value(),
@@ -3323,6 +3602,11 @@ validate_concrete_type_constraints :: (
     j = (j + usize(1));
   });
 });
+/// The left side of the bound `constraint_expr` as written, for a
+/// diagnostic about its right side; the concrete type when it is not a call.
+_bound_lhs_text :: (fn(constraint_expr : &AstExpr, concrete_type : &TypeValue) -> String)(
+  match(_fn_call_args(constraint_expr).get_cloned(usize(0)), .Some(l) => ast_expr_to_string(&l), .None => type_to_string(concrete_type))
+);
 // ---------------------------------------------------------------------------
 // apply_single_trait_constraint
 // ---------------------------------------------------------------------------
@@ -3360,7 +3644,7 @@ apply_single_trait_constraint :: (
     });
     last_var := match(existing_vars.last_cloned(), .Some(v) => v, .None => return(false));
     match(
-      last_var.value().get(usize(0)),
+      last_var.*.value().get(usize(0)),
       .Some(ev) => {
         match(
           ev,
@@ -3427,6 +3711,7 @@ apply_single_trait_constraint :: (
       return(false);
     }
   );
+  throw_if_bound_rhs_is_not_a_trait(&unwrapped_trait_expr, &info_rhs.value(), &info_rhs.ty(), &ast_expr_to_string(lhs_expr), exn);
   if(!is_type_value(&info_rhs.value()), {
     return(false);
   });
@@ -3557,7 +3842,7 @@ parse_where_clause_constraints :: (
       if(existing_vars.len() > usize(0), {
         last_v := match(existing_vars.last_cloned(), .Some(v) => v, .None => return(pending_traits));
         match(
-          last_v.value().get(usize(0)),
+          last_v.*.value().get(usize(0)),
           .Some(ev) => {
             match(
               ev,
@@ -3758,6 +4043,7 @@ parse_where_clause_constraints :: (
       if(skip_iter, {
         continue;
       });
+      throw_if_bound_rhs_is_not_a_trait(&unwrapped_te, &trait_info.value(), &trait_info.ty(), &ast_expr_to_string(&lhs_expr), exn);
       if(!is_type_value(&trait_info.value()), {
         if(!collect_pending, {
           exn.throw(
@@ -4017,12 +4303,14 @@ _removed_effect_row_spread_message :: (fn(spread_expr : &AstExpr) -> String)(
 evaluate_function_parameters :: (
   fn(
     param_exprs : &ArrayList(AstExpr),
+    list_head : Option(Token),
     env_mut : &Environment,
     ctx : &mut EvalContext,
     exn : Exception
   ) -> FuncParamsResult
 )({
   env_mut.push_frame(false);
+  sig := SignatureSource(head : list_head, params : param_exprs.clone());
   params := ArrayList(FuncParam).new();
   forall_params := ArrayList(FuncParam).new();
   origin_params := ArrayList(String).new();
@@ -4057,7 +4345,7 @@ evaluate_function_parameters :: (
         if(_is_removed_row_spread(&tp_expr), {
           exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&tp_expr), _removed_effect_row_spread_message(&tp_expr)))));
         });
-        param := evaluate_function_parameter(&tp_expr, env_mut, ctx, true, true, exn);
+        param := evaluate_function_parameter(&tp_expr, env_mut, ctx, true, true, &sig, true, exn);
         // Duplicate check (over the type and the origin binders: one namespace)
         dup_found := _names_contain(&origin_params, &param.label);
         (di : usize) = usize(0);
@@ -4152,7 +4440,7 @@ evaluate_function_parameters :: (
           )
         );
       });
-      param := evaluate_function_parameter(&impl_expr, env_mut, ctx, true, true, exn);
+      param := evaluate_function_parameter(&impl_expr, env_mut, ctx, true, true, &sig, false, exn);
       if(is_origin_kind(&param.ty), {
         exn.throw(
           dyn(
@@ -4251,8 +4539,8 @@ evaluate_function_parameters :: (
                 break;
               }
             );
-            if(fv.name == param.label, {
-              fv.set_is_implicit(true);
+            if(fv.*.name == param.label, {
+              fv.*.set_is_implicit(true);
               fvi = frame.variables_len();
             });
             fvi = (fvi + usize(1));
@@ -4795,7 +5083,7 @@ evaluate_function_parameters :: (
           )
         );
       });
-      param := evaluate_function_parameter(&param_expr, env_mut, ctx, false, true, exn);
+      param := evaluate_function_parameter(&param_expr, env_mut, ctx, false, true, &sig, false, exn);
       // Duplicate check
       (dup_p : bool) = false;
       (dpi : usize) = usize(0);
@@ -4987,7 +5275,7 @@ evaluate_function_type :: (
   });
   // Evaluate parameters (pushes a new env frame, doesn't pop it)
   (env_mut : Environment) = Rc.clone(env);
-  params_result := evaluate_function_parameters(&arg_list, &env_mut, ctx, exn);
+  params_result := evaluate_function_parameters(&arg_list, Option(Token).Some(ast_expr_token(&arg_list_expr)), &env_mut, ctx, exn);
   // Restore context flag
   ctx.is_evaluating_function_type = prev_is_eval_fn_type;
   // Parse return type
@@ -5253,6 +5541,10 @@ evaluate_function_type :: (
       Rc.new(TypeValueNode.Unit)
     }
   );
+  // `-> Tr` (VERDICTS-84 §4, E0625): a result has one type.
+  if(!is_return_comptime_only && is_bare_trait_type(&ret_type_val), {
+    exn.throw(dyn(Box.new(trait_as_value_type_error(&ast_expr_first_token(&return_type_expr), &_trait_expr_text(&return_type_expr), &String.from("a function's result")))));
+  });
   // `-> &mut &T` (see the parameter rule): a reference to a reference is
   // N1e's.
   if(is_return_type_ref && t_slot_is_borrow(&ret_type_val), {
@@ -5435,7 +5727,7 @@ evaluate_function_type :: (
         match(
           ct_vars.last_cloned(),
           .Some(ct_var) => match(
-            ct_var.value().get(usize(0)),
+            ct_var.*.value().get(usize(0)),
             .Some(Rc(.TypeVal(ct_tb))) => _collect_where_constraints_from_some_t(&wpp.label, &ct_tb, &mut where_constraint_entries),
             .Some(_) => (),
             .None => ()
@@ -5639,7 +5931,7 @@ evaluate_function_type :: (
   // `auto-generated://` expansions inherit their caller's policy (see
   // is_macro_def_capable_file).
   if((quoted_param_indices.len() > usize(0)) || is_return_unquote, {
-    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())), {
+    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).*.module_path.*.clone())), {
       exn.throw(
         dyn(
           Box.new(
@@ -6545,6 +6837,7 @@ export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
 function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.with(_c_len_1) + g_macro_return_is_unquote.with(_c_len_2) + g_func_param_defaults.with(_c_len_3) + g_func_variadic_params.with(_c_len_4) + g_func_param_assigned_values.with(_c_len_3) + g_func_param_comptime.with(_c_len_5) + g_func_return_type_expr.with(_c_len_6) + g_func_param_default_exprs.with(_c_len_7) + g_func_param_type_exprs.with(_c_len_8) + g_func_where_constraints.with(_c_len_9) + g_func_where_clause_exprs.with(_c_len_10) + g_func_requires_exprs.with(_c_len_10) + g_func_ensures_exprs.with(_c_len_10) + g_func_decreases_expr.with(_c_len_6) + g_func_assumed_body.with(_c_len_2) + g_func_refined_params.with(_c_len_11) + g_func_return_label.with(_c_len_12));
 export(purge_function_side_tables, function_side_table_entry_count);
+export(SignatureSource, throw_bound_in_kind_slot);
 export(evaluate_function_parameters, is_origin_qualified_reference_expr, evaluate_reference_type, evaluate_origin_argument, reject_annotation_naming_its_binding, _type_origin_names_into);
 export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);

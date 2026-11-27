@@ -127,12 +127,17 @@ Needs the v0.2.80 seed.
   - V87-C: diagnostics for Rust-shaped spellings (`derive(P, PartialEq)`, a bare `Eq`/`Ord`, `!` at an integer slot, a moved
     operand of a unary operator);
   - V87-D: the `(-)`/`(~)` dispatchers return `_Self.Output`; `BitNot` leaves `longdouble`; the 22 numeric `LogicalNot` impls
-    deleted if the maintainer keeps the recommendation in `issues/questions/2026-11-26-should-bang-on-a-number-be-deleted.md`;
+    deleted if the maintainer keeps the recommendation in `issues/fixed/2026-11-26-should-bang-on-a-number-be-deleted.md`;
   - the false VERDICTS-82 sentence ("the compiler finds the operator traits by name") is fixed docs-only before the
     v0.2.80 tag; if that tag is cut first, the v0.2.81 notes carry it under `### Retracted claims`, with V87-A as the fix.
 - VERDICTS-77: a substituted recursive type's self-reference denotes the substituted type (`substitute` and the
   finals registries; `type_key` renders the recursion cut by declaration and arguments), two stacked PRs after
   the evalwork memo — fixes the generic `GKind(T)` impl-member S2 and its struct twin.
+- Adopted after this schedule was written (2026-11-26/27): `Deref` member forwarding deleted, F1 and F2 (moved from
+  v0.2.80); VERDICTS-88 (variant patterns: `.V(..)` matches any payload, parentheses exactly when the variant has
+  fields); VERDICTS-89 PR A (the `ctl` resume rule); VERDICTS-90 (infer-first for a free generic's binder slot);
+  [`ALLOCATION_FREE_ASYNC`](../backlog/ALLOCATION_FREE_ASYNC.md) AFA-0; [`SPEC_AND_PROOF`](../backlog/SPEC_AND_PROOF.md)
+  PR 0, 1a and 1b; reserved builtin names if ready, else v0.2.82.
 
 ## 5. v0.2.82 — implicit drop deleted; VBD closes
 

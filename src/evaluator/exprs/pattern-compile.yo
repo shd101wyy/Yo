@@ -106,19 +106,19 @@ _args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _func_of :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(e, Rc(.FnCall(_, f, _, _, _)) => Option(AstExpr).Some(Rc.clone(f.*)), Rc(.Atom(_, _)) => Option(AstExpr).None)
 );
-_atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.*.clone());
+_atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).*.value.*.clone());
 /// A token for a synthesized node, positioned at `base`.
 _synth_token :: (fn(base : &Token, kind : TokenKind, value : &String) -> Token)(
   Rc.new(
     TokenData(
       kind : kind,
       value : Rc.new(value.clone()),
-      row : base.row,
-      column : base.column,
-      character : base.character,
-      byte_offset : base.byte_offset,
-      module_path : Rc.clone(base.module_path),
-      input : Rc.clone(base.input)
+      row : base.*.*.row,
+      column : base.*.*.column,
+      character : base.*.*.character,
+      byte_offset : base.*.*.byte_offset,
+      module_path : Rc.clone(base.*.*.module_path),
+      input : Rc.clone(base.*.*.input)
     )
   )
 );
@@ -140,7 +140,7 @@ _synth_infix :: (fn(base : &Token, op : str, lhs : &AstExpr, rhs : &AstExpr) -> 
 /// True for an atom whose token is a literal kind (compared, never bound).
 _is_literal_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && match(
-    ast_expr_token(e).kind,
+    ast_expr_token(e).*.kind,
     .Bool => true,
     .Integer => true,
     .Float => true,
@@ -155,7 +155,7 @@ _is_negated_numeric_literal :: (fn(e : &AstExpr) -> bool)(
     _args_of(e).get_cloned(usize(0)),
     .Some(op) => (
       ast_expr_is_atom(&op) && match(
-        ast_expr_token(&op).kind,
+        ast_expr_token(&op).*.kind,
         .Integer => true,
         .Float => true,
         _ => false
@@ -171,7 +171,7 @@ _is_negated_numeric_literal :: (fn(e : &AstExpr) -> bool)(
 _is_classic_payload_literal :: (fn(e : &AstExpr) -> bool)(
   cond(
     ast_expr_is_atom(e) => match(
-      ast_expr_token(e).kind,
+      ast_expr_token(e).*.kind,
       .Bool => true,
       .Integer => true,
       .Float => true,
@@ -201,14 +201,14 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
     return(false);
   });
   v := match(vars.last_cloned(), .Some(x) => x, .None => return(false));
-  if(!v.is_compile_time_only(), {
+  if(!v.*.is_compile_time_only(), {
     return(false);
   });
-  if(v.value().len() == usize(0), {
+  if(v.*.value().len() == usize(0), {
     return(false);
   });
   match(
-    v.value().get(usize(0)),
+    v.*.value().get(usize(0)),
     .Some(Rc(.IntLit(_))) => true,
     .Some(Rc(.FloatLit(_))) => true,
     .Some(Rc(.BoolVal(_))) => true,
@@ -717,7 +717,7 @@ _compile_variant :: (
   });
   vns := _enum_variant_names(&enum_ty);
   vidx := match(
-    _find_str(&vns.items, vname.clone()),
+    _find_str(&vns.*.items, vname.clone()),
     .Some(i) => i,
     .None => {
       exn.throw(
@@ -850,7 +850,7 @@ _compile_variant :: (
       });
       lbl := _atom_name(&label_expr);
       fidx = match(
-        _find_str(&labels.items, lbl.clone()),
+        _find_str(&labels.*.items, lbl.clone()),
         .Some(i) => i,
         .None => {
           available := String.new();
@@ -875,7 +875,7 @@ _compile_variant :: (
                   format_error_message_with_help(
                     ast_expr_token(&label_expr),
                     `Label "${lbl}" not found in variant "${vname}". Available labels: ${available}`,
-                    _did_you_mean(lbl.clone(), &labels.items)
+                    _did_you_mean(lbl.clone(), &labels.*.items)
                   ),
                   E_FIELD_NOT_FOUND
                 )
@@ -938,7 +938,7 @@ _compile_variant :: (
           lbl := _atom_name(&param);
           curly_bind = true;
           fidx = match(
-            _find_str(&labels.items, lbl.clone()),
+            _find_str(&labels.*.items, lbl.clone()),
             .Some(i) => i,
             .None => {
               exn.throw(
@@ -948,7 +948,7 @@ _compile_variant :: (
                       format_error_message_with_help(
                         ast_expr_token(&param),
                         `Label "${lbl}" not found in variant "${vname}"`,
-                        _did_you_mean(lbl.clone(), &labels.items)
+                        _did_you_mean(lbl.clone(), &labels.*.items)
                       ),
                       E_FIELD_NOT_FOUND
                     )
@@ -1017,14 +1017,14 @@ _struct_type_in_scope :: (fn(name : &String, env : &Environment) -> Option(TypeV
     return(Option(TypeValue).None);
   });
   v := match(vars.last_cloned(), .Some(x) => x, .None => return(Option(TypeValue).None));
-  if(!v.is_compile_time_only(), {
+  if(!v.*.is_compile_time_only(), {
     return(Option(TypeValue).None);
   });
-  if(v.value().len() == usize(0), {
+  if(v.*.value().len() == usize(0), {
     return(Option(TypeValue).None);
   });
   match(
-    v.value().get(usize(0)),
+    v.*.value().get(usize(0)),
     .Some(val) => match(
       val,
       Rc(.TypeVal(t)) => cond(is_struct_type(&t) => Option(TypeValue).Some(Rc.clone(t)), true => Option(TypeValue).None),
@@ -1092,7 +1092,7 @@ _compile_tuple :: (
     subs.push(compile_pattern(&arg, &ety, &ev, pc, env, ctx, exn));
     i = (i + usize(1));
   });
-  Pattern.Tuple(subs : subs, elem_tys : elem_tys.items.clone())
+  Pattern.Tuple(subs : subs, elem_tys : elem_tys.*.items.clone())
 });
 /// Compile a struct pattern — named `Point(x : 0, y)` (callee names the
 /// struct) or anonymous `{x : p, y}` (the `_(…)` record form) — against a
@@ -1149,7 +1149,7 @@ _compile_struct :: (
       });
       lbl := _atom_name(&label_expr);
       fidx = match(
-        _find_str(&labels.items, lbl.clone()),
+        _find_str(&labels.*.items, lbl.clone()),
         .Some(i) => i,
         .None => {
           exn.throw(
@@ -1159,7 +1159,7 @@ _compile_struct :: (
                   format_error_message_with_help(
                     ast_expr_token(&label_expr),
                     `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
-                    _did_you_mean(lbl.clone(), &labels.items)
+                    _did_you_mean(lbl.clone(), &labels.*.items)
                   ),
                   E_FIELD_NOT_FOUND
                 )
@@ -1202,7 +1202,7 @@ _compile_struct :: (
         lbl := _atom_name(&param);
         bare_bind = true;
         fidx = match(
-          _find_str(&labels.items, lbl.clone()),
+          _find_str(&labels.*.items, lbl.clone()),
           .Some(i) => i,
           .None => {
             exn.throw(
@@ -1212,7 +1212,7 @@ _compile_struct :: (
                     format_error_message_with_help(
                       ast_expr_token(&param),
                       `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
-                      _did_you_mean(lbl.clone(), &labels.items)
+                      _did_you_mean(lbl.clone(), &labels.*.items)
                     ),
                     E_FIELD_NOT_FOUND
                   )
@@ -1314,12 +1314,12 @@ _wrapper_pattern_ctor :: (fn(e : &AstExpr, env : &Environment) -> Option(_Wrappe
   });
   vars := get_variables_from_env(env, &nm);
   v := match(vars.last_cloned(), .Some(x) => x, .None => return(.None));
-  if(!v.is_compile_time_only(), {
+  if(!v.*.is_compile_time_only(), {
     return(.None);
   });
   match(
-    v.value().get(usize(0)),
-    .Some(Rc(.FuncVal(data, _))) => .Some(_WrapperCtor(name : nm, func_id : data.func_id.clone())),
+    v.*.value().get(usize(0)),
+    .Some(Rc(.FuncVal(data, _))) => .Some(_WrapperCtor(name : nm, func_id : data.*.func_id.clone())),
     _ => .None
   )
 });

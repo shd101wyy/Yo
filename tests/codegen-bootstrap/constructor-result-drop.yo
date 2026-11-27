@@ -35,13 +35,13 @@ Tagged :: enum(Empty, One(a : Rc(Node)));
 
 // Borrowed param: the callee reads `f` and returns; the caller still owns the
 // argument it passed and must drop it.
-readx :: (fn(f : &Rc(Node)) -> i32)(f.x);
+readx :: (fn(f : &Rc(Node)) -> i32)(f.*.*.x);
 
 // Borrowed param whose callee keeps a ref (dups into Holder, dropped at scope
 // end); the caller must still drop the argument it passed.
 keep :: (fn(f : &Rc(Node)) -> i32)({
   b := Holder(n : Rc.clone(f));
-  b.n.x
+  b.n.*.x
 });
 
 // Constructs four references — a bare struct statement, a borrowed-read arg, a

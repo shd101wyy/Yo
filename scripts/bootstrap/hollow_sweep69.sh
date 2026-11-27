@@ -6,6 +6,10 @@
 #
 # Usage: BIN=/tmp/xxx_s1 OUT=/tmp/hsweep scratchpad/hollow_sweep69.sh
 # Resumable: files already in $OUT/results.txt are skipped.
+# SHARD=i/n sweeps the files whose index in the sorted list is i modulo n and
+# gates only the allowlist rows of those files (plus, on stripe 0, the rows
+# naming a file that no longer exists), so n stripes with i = 0..n-1 give the
+# unsharded verdict (test.yml's hollow-sweep job runs two).
 set -u
 BIN="${BIN:-/tmp/drop_s1}"
 OUT="${OUT:-/tmp/hsweep}"
@@ -18,7 +22,24 @@ touch "$RESULTS"
 # Each one compiles the whole compiler — minutes and gigabytes apiece — so without
 # this prune the sweep silently grows from the language corpus to ~4x the runtime.
 # Run them with scripts/bootstrap/ or `test ./tests/internal` deliberately instead.
-for t in $(find tests \( -path tests/internal -o -path tests/cli-cases \) -prune -o -name '*.test.yo' -print | sort); do
+shard_i=0
+shard_n=1
+if [ -n "${SHARD:-}" ]; then
+  if ! [[ "$SHARD" =~ ^([0-9]+)/([0-9]+)$ ]] || [ "${BASH_REMATCH[2]}" -lt 1 ] ||
+    [ "${BASH_REMATCH[1]}" -ge "${BASH_REMATCH[2]}" ]; then
+    echo "SHARD must be <index>/<count> with index < count, got '$SHARD'" >&2
+    exit 2
+  fi
+  shard_i=${BASH_REMATCH[1]}
+  shard_n=${BASH_REMATCH[2]}
+fi
+ALL_FILES="$OUT/all-files.txt"
+SHARD_FILES="$OUT/files.txt"
+find tests \( -path tests/internal -o -path tests/cli-cases \) -prune -o -name '*.test.yo' -print | LC_ALL=C sort > "$ALL_FILES"
+awk -v i="$shard_i" -v n="$shard_n" '(NR - 1) % n == i' "$ALL_FILES" > "$SHARD_FILES"
+[ -s "$SHARD_FILES" ] || { echo "FAIL: SHARD=${SHARD:-} selects no file"; exit 1; }
+[ "$shard_n" -eq 1 ] || echo "hollow sweep: stripe $shard_i/$shard_n, $(wc -l < "$SHARD_FILES") of $(wc -l < "$ALL_FILES") files"
+for t in $(cat "$SHARD_FILES"); do
   grep -q "^$t " "$RESULTS" && continue
   d=$(dirname "$t"); n=$(echo "$t" | tr '/' '_')
   # Remove STALE batch artifacts from the PREVIOUS file first — the marker
@@ -74,7 +95,11 @@ fi
 
 # Compare "<path>\t<verdict>" PAIRS, not bare paths, so a file that changes from
 # HOLLOW to RED (or back) is caught rather than silently tolerated.
-known=$(grep -vE '^\s*(#|$)' "$ALLOWLIST" 2>/dev/null | awk 'NF>=2 {print $1"\t"$2}' | sort -u)
+# This stripe's rows: its own files, and on stripe 0 the rows naming no
+# existing file (so a stale row still fails exactly once).
+known=$(grep -vE '^\s*(#|$)' "$ALLOWLIST" 2>/dev/null | awk 'NF>=2 {print $1"\t"$2}' |
+  awk -v i="$shard_i" 'FILENAME == ARGV[1] { mine[$1] = 1; next } FILENAME == ARGV[2] { all[$1] = 1; next }
+    ($1 in mine) || (i == 0 && !($1 in all))' "$SHARD_FILES" "$ALL_FILES" - | sort -u)
 actual=$(awk '$2 == "HOLLOW" || $2 == "RED" {print $1"\t"$2}' "$RESULTS" | sort -u)
 
 echo

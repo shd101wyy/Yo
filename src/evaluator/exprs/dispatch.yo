@@ -63,7 +63,7 @@ import("std/fmt");
   BK_TEST,
   BK_EXTERN,
   BK_C_INCLUDE,
-  BK_SUBTYPE_OF,
+  BK_IMPLEMENTS,
   BK_COLON,
   BK_ASSIGN,
   BK_INIT_ASSIGN,
@@ -271,7 +271,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_unwind } :: import("./unwind.yo");
 { evaluate_import } :: import("./import.yo");
-{ evaluate_subtype_of } :: import("./subtype-of.yo");
+{ evaluate_implements } :: import("./implements.yo");
 { evaluate_typeof } :: import("./typeof.yo");
 { evaluate_while } :: import("./while.yo");
 { evaluate_identifier_and_operator } :: import("./identifer-and-operator.yo");
@@ -433,7 +433,7 @@ is_comptime_numeric_fn_call :: (fn(e : &AstExpr) -> bool)(
     Rc(.FnCall(_, func_box, _, _, _)) => match(
       func_box,
       Rc(.Atom(_, ftok)) => {
-        v := ftok.value.*.clone();
+        v := ftok.*.*.value.*.clone();
         v.starts_with(`__yo_comptime_u8_`) ||
           v.starts_with(`__yo_comptime_i8_`) ||
             v.starts_with(`__yo_comptime_u16_`) ||
@@ -561,7 +561,7 @@ _evaluate_assert_ghost_args :: (
   // unreadable there — the escape error fires instead (otherwise codegen
   // would emit a runtime assert reading a name no C declaration carries).
   tok0 := ast_expr_token(expr);
-  if(!_is_verify_target(&tok0.module_path.*), {
+  if(!_is_verify_target(&tok0.*.module_path.*), {
     return(evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn));
   });
   prev_ghost := ctx.is_ghost_context;
@@ -625,17 +625,17 @@ _evaluate_expression :: (
     ast_expr_is_atom(expr) => {
       tok := ast_expr_token(expr);
       cond(
-        ((tok.kind == TokenKind.Identifier) || (tok.kind == TokenKind.Operator)) =>
+        ((tok.*.kind == TokenKind.Identifier) || (tok.*.kind == TokenKind.Operator)) =>
           evaluate_identifier_and_operator(expr, env, ctx, true, exn),
-        (tok.kind == TokenKind.Integer) =>
+        (tok.*.kind == TokenKind.Integer) =>
           evaluate_integer_literal(expr, env, ctx, exn),
-        (tok.kind == TokenKind.Float) =>
+        (tok.*.kind == TokenKind.Float) =>
           evaluate_float_literal(expr, env, ctx, exn),
-        (tok.kind == TokenKind.StringLit) =>
+        (tok.*.kind == TokenKind.StringLit) =>
           evaluate_string_literal(expr, env, ctx, exn),
-        (tok.kind == TokenKind.CharLit) =>
+        (tok.*.kind == TokenKind.CharLit) =>
           evaluate_char_literal(expr, env, ctx, exn),
-        (tok.kind == TokenKind.Bool) =>
+        (tok.*.kind == TokenKind.Bool) =>
           evaluate_boolean_literal(expr, env, ctx, exn),
         true => {
           exn.throw(
@@ -643,7 +643,7 @@ _evaluate_expression :: (
               Box.new(
                 format_error_message(
                   &tok,
-                  `(1) Evaluating the expression (token: ${tok.value.*}) is not implemented:\n${ast_expr_to_string(expr)}`
+                  `(1) Evaluating the expression (token: ${tok.*.value.*}) is not implemented:\n${ast_expr_to_string(expr)}`
                 )
               )
             )
@@ -666,7 +666,7 @@ _evaluate_expression :: (
         Rc(.FnCall(_, __dk_callee, _, _, _)) => match(
           __dk_callee,
           Rc(.Atom(_, __dk_tok)) => {
-            __dk_len = __dk_tok.value.*.len();
+            __dk_len = __dk_tok.*.*.value.*.len();
           },
           _ => ()
         ),
@@ -977,8 +977,8 @@ _evaluate_expression :: (
         // `ref_count` is nine bytes; a wrong length gate makes the arm dead.
         ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_REF_COUNT, .None)) =>
           evaluate_ref_count(expr, env, ctx, exn),
-        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .None)) =>
-          evaluate_subtype_of(expr, env, ctx, exn),
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_IMPLEMENTS, .None)) =>
+          evaluate_implements(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_THE, .None)) =>
           evaluate_the(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_IMPORT, .None)) =>
@@ -1573,7 +1573,7 @@ _evaluate_expression_raw_wrapper :: (
         is_runtime := match(ri.value(), .Some(v) => is_unknown_val(&v), .None => true);
         if(is_runtime && _surfaces_raw_pointer(&ri.ty()) && !_is_projection_result_value(&result, ctx), {
           tok := ast_expr_token(&result);
-          if(!is_pointer_value_capable_file(Option(String).Some(tok.module_path.*.clone()), ctx.std_path.clone()), {
+          if(!is_pointer_value_capable_file(Option(String).Some(tok.*.module_path.*.clone()), ctx.std_path.clone()), {
             exn.throw(
               dyn(
                 Box.new(

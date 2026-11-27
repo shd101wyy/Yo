@@ -126,7 +126,7 @@ The reasons:
 Only these methods get a vtable slot. Calling one of the others through a `Dyn` is error E0614
 (`yo explain E0614`), at the call. A trait with a by-value `self` method cannot be put behind a
 `Dyn` at all, for any payload: the operator traits that take their operand by value
-(`LogicalNot`, `Negate`, `Add`, ...) are among them.
+(`LogicalNot`, `Neg`, `Add`, ...) are among them.
 
 `Future` cannot be listed in a `Dyn` either, in any position (E0614 where the type is written). A
 future is one pointer to its state machine, and awaiting or spawning it consumes it

@@ -57,7 +57,7 @@ test("a field read is an argument like any other, for a static method and for de
   ls := _Lists(xs : ArrayList(String).new(), h : Rc.new(ArrayList(i32).new()));
   comptime_assert(Type.eq(type_of(_Wrap.of_list(&ls.xs)), _Wrap(String)), "the field's type binds T");
   Rc.make_mut(&mut ls.h).push(i32(2));
-  assert(ls.h.len() == usize(1), "the receiver is the field");
+  assert(ls.h.*.len() == usize(1), "the receiver is the field");
 });
 test("a binder nested in the parameter type: ArrayList(T), Option(T), *T and &T", {
   mut(xs) := ArrayList(String).new();

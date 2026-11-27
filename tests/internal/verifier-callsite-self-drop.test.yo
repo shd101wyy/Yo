@@ -82,7 +82,7 @@ _load_in_verify_mode :: (fn(path_str : &String, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `verifier_callsite_self_drop: unexpected throw: ${err}`);
+        assert(false, `verifier_callsite_self_drop: unexpected throw: ${err.*}`);
       }
     )
   );
@@ -114,7 +114,7 @@ test("a dropped callsite ensures clause does not clear Self for the next impl me
   mk := Exception(
     throw : (
       err -> {
-        assert(false, `fixture io failed: ${err}`);
+        assert(false, `fixture io failed: ${err.*}`);
         unwind(());
       }
     )

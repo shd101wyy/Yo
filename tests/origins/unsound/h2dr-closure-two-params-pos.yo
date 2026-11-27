@@ -11,7 +11,7 @@ each :: (fn(f : &Impl(Fn(v : &Rc(X), s : &mut Option(&Rc(X))) -> unit), out : &m
 main :: (fn() -> unit)({
   mut(slot) := Option(&Rc(X)).None;
   each((v : &Rc(X), s : &mut Option(&Rc(X))) => {
-    _ := v.*.s.len();
+    _ := v.*.*.s.len();
     s.* = .None;
   }, &mut slot);
   match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));

@@ -249,7 +249,7 @@ impl(
     to_string : (fn(self : &Self) -> String)({
       mut(out) := self.message.clone();
       out.push_str(": ");
-      out.push_string(self.cause.to_string());
+      out.push_string(self.cause.*.to_string());
       out
     })
   )
@@ -274,7 +274,7 @@ export(Exception);
 /// Creates a resumable exception effect record parameterized by the resume type.
 /// Unlike `Exception`, the handler can return a value to resume the computation.
 /// `throw` is still `ctl(...)` because the handler MAY choose to unwind;
-/// regular `fn` returns are also valid via subtyping `fn <: ctl`.
+/// a regular `fn` is also accepted where this `ctl` is expected.
 ResumableException :: (fn(comptime(ResumeType) : Type) -> comptime(Type))(
   struct(
     throw : (ctl(error : AnyError) -> ResumeType)
@@ -307,7 +307,7 @@ root_cause :: (fn(err : &AnyError) -> AnyError)({
   (mut(walking) : bool) = true;
   while(walking, {
     match(
-      cur.source(),
+      cur.*.source(),
       .Some(next) => {
         cur = next;
       },
@@ -363,7 +363,7 @@ impl(
       match(
         self._cur.take(),
         .Some(cur) => {
-          self._cur = match(cur.source(), .Some(nx) => Option(AnyError).Some(nx), .None => Option(AnyError).None);
+          self._cur = match(cur.*.source(), .Some(nx) => Option(AnyError).Some(nx), .None => Option(AnyError).None);
           Option(AnyError).Some(cur)
         },
         .None => Option(AnyError).None

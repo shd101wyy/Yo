@@ -957,6 +957,72 @@ _expect_e0003 :: (fn(src : &String, want : &String) -> unit)({
     });
   });
 });
+// ─── E0010: compound assignment ─────────────────────────────────────────────
+// issues/fixed/2026-11-25-compound-assignment-is-reported-as-a-paren-less-call.md
+/// The replacement of the thrown diagnostic's repair: "<no repair>" when it
+/// has none, "<parsed>" when `src` parses.
+_parse_error_repair :: (fn(src : &String) -> String)({
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(&err.*, YoError),
+          .Some(ye) => unwind(
+            match(
+              ye.diagnostics.get_cloned(usize(0)),
+              .Some(d) => match(&d.repair, .Some(r) => r.replacement.clone(), .None => String.from("<no repair>")),
+              .None => String.from("<no diagnostic>")
+            )
+          ),
+          .None => unwind(String.from("<not a YoError>"))
+        );
+      }
+    )
+  );
+  parse(src, `test.yo`, exn);
+  String.from("<parsed>")
+});
+/// `src` is E0010 written out as `written`, repaired by `repair`.
+_expect_e0010 :: (fn(src : String, written : String, repair : String) -> unit)({
+  s := _parse_error_text(&src);
+  if(!(s.contains("E0010") && s.contains(`Yo has no compound assignment`) && s.contains(`Write the assignment out: \`${written}\``)), {
+    println(`E0010 mismatch for ${src}: ${s}`);
+    assert(false, "expected E0010 naming the written-out assignment");
+  });
+  got := _parse_error_repair(&src);
+  assert_str_eq(&got, &repair, "E0010 repair");
+});
+test("E0010: every compound assignment names the written-out assignment and repairs to it", {
+  _expect_e0010(`x += 1;`, `x = (x + 1)`, `= (x + 1)`);
+  _expect_e0010(`x |= i32(1);`, `x = (x | i32(1))`, `= (x | i32(1))`);
+  _expect_e0010(`x <<= i32(1);`, `x = (x << i32(1))`, `= (x << i32(1))`);
+  _expect_e0010(`x >>= n;`, `x = (x >> n)`, `= (x >> n)`);
+  _expect_e0010(`x -= 1;`, `x = (x - 1)`, `= (x - 1)`);
+  _expect_e0010(`x *= 2;`, `x = (x * 2)`, `= (x * 2)`);
+  _expect_e0010(`x /= 2;`, `x = (x / 2)`, `= (x / 2)`);
+  _expect_e0010(`x %= 2;`, `x = (x % 2)`, `= (x % 2)`);
+  _expect_e0010(`x &= m;`, `x = (x & m)`, `= (x & m)`);
+  _expect_e0010(`x ^= m;`, `x = (x ^ m)`, `= (x ^ m)`);
+  _expect_e0010(`flags |= (u32(1) << u32(3));`, `flags = (flags | (u32(1) << u32(3)))`, `= (flags | (u32(1) << u32(3)))`);
+});
+test("E0010: an operator right operand is parenthesized and a place target is kept whole", {
+  _expect_e0010(`x -= a - b;`, `x = (x - (a - b))`, `= (x - (a - b))`);
+  _expect_e0010(`self.n += 1;`, `self.n = (self.n + 1)`, `= (self.n + 1)`);
+  _expect_e0010(`p.*.count += 1;`, `p.*.count = (p.*.count + 1)`, `= (p.*.count + 1)`);
+  _expect_e0010(`xs(i) += 1;`, `xs(i) = (xs(i) + 1)`, `= (xs(i) + 1)`);
+});
+test("E0010: a right operand spanning lines gets the text but no repair", {
+  src := String.from("x += foo(\n  1\n);");
+  s := _parse_error_text(&src);
+  assert(s.contains("E0010"), "a multi-line compound assignment is still E0010");
+  got := _parse_error_repair(&src);
+  assert_str_eq(&got, &String.from("<no repair>"), "no one-line repair");
+});
+test("E0010 keys on the adjacent `=`: `|-`, `<=` and `>=` still parse", {
+  assert_str_eq(&_parse_error_repair(&String.from("c := (a |- b);")), &String.from("<parsed>"), "`|` then a prefix minus");
+  assert_str_eq(&_parse_error_repair(&String.from("c := (a <= b);")), &String.from("<parsed>"), "`<=` is one token");
+  assert_str_eq(&_parse_error_repair(&String.from("c := (a >= b);")), &String.from("<parsed>"), "`>=` is one token");
+});
 test("E0003 names the wrap-the-right-side grouping for a binding operator", {
   _expect_e0003(`x := 1 + 2;`, `Wrap the right-hand side in parentheses: name := (1 + 2).`);
 });
@@ -981,6 +1047,15 @@ test("E0003 does not group inside a condition with two computational operators",
 test("E0003 names the annotated-binding grouping for a typed assignment", {
   // `x : i32 = v` groups on the LEFT — `(x : i32) = v`, never `x : (i32 = v)`.
   _expect_e0003(`x : i32 = 5;`, `Parenthesize the annotated binding: (name : Type) = value.`);
+});
+test("E0003 names the tuple for Rust's `T <: A + B`", {
+  _expect_e0003(`f :: (fn(generic(T : Type), a : &T, where(T <: Clone + Hash)) -> unit)(());`, `Several bounds on one type are a tuple: T <: (Clone, Hash).`);
+});
+test("E0003 names the grouped function trait for `F <: Fn(x : A) -> B`", {
+  _expect_e0003(
+    `g :: (fn(generic(F : Type), f : F, where(F <: Fn(x : i32) -> i32)) -> i32)(f(i32(1)));`,
+    `Group the function trait: F <: (Fn(x : i32) -> i32).`
+  );
 });
 test("E0003 stays hint-free when both groupings are real programs", {
   // `1 + 2 * 3` has two legitimate groupings (LLM authoring audit §3.1).
@@ -1149,11 +1224,11 @@ _d47_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
 );
 _d47_marked :: (fn(name : &AstExpr) -> bool)({
   t := ast_expr_token(name);
-  is_mut_binding(&t, &t.value.*)
+  is_mut_binding(&t, &t.*.value.*)
 });
 _d47_thread_local :: (fn(name : &AstExpr) -> bool)({
   t := ast_expr_token(name);
-  is_thread_local_binding(&t, &t.value.*)
+  is_thread_local_binding(&t, &t.*.value.*)
 });
 test("decision 47: a binder's mut(name) is stripped at desugar", {
   assert_str_eq(_d42(`mut(x) := 1`), _d42(`x := 1`), "mut(x) := v");
@@ -1291,16 +1366,16 @@ test("every token of a parse shares the module's source and path cells", {
     _tokens_of(&prog(i), &mut toks);
   });
   first := Rc.clone(toks(usize(0)));
-  src_cell := Rc.clone(first.input);
-  path_cell := Rc.clone(first.module_path);
+  src_cell := Rc.clone(first.*.input);
+  path_cell := Rc.clone(first.*.module_path);
   assert(src_cell.* == source, "the first token carries the source text");
   (mut(shared) : usize) = usize(0);
   (mut(j) : usize) = usize(0);
   while(j < toks.len(), j = (j + usize(1)), {
     t := Rc.clone(toks(j));
-    t_src := Rc.clone(t.input);
-    t_path := Rc.clone(t.module_path);
-    if(t.value.* == `b`, {
+    t_src := Rc.clone(t.*.input);
+    t_path := Rc.clone(t.*.module_path);
+    if(t.*.value.* == `b`, {
       assert(unsafe(__yo_ptr_eq(&t_src, &src_cell)), "an interpolation body's token shares the enclosing source cell");
       assert(unsafe(__yo_ptr_eq(&t_path, &path_cell)), "an interpolation body's token shares the enclosing path cell");
     });
@@ -1340,8 +1415,8 @@ test("a template's lowered tokens sit at the template, not at the start of the m
     (mut(k) : usize) = usize(0);
     while(k < toks.len(), k = (k + usize(1)), {
       t := Rc.clone(toks(k));
-      if((t.value.* == `y`) || ((t.value.* == `z`) || (t.value.* == `w`)), {
-        start = .Some(t.character);
+      if((t.*.value.* == `y`) || ((t.*.value.* == `z`) || (t.*.value.* == `w`)), {
+        start = .Some(t.*.character);
       });
     });
     match(
@@ -1350,8 +1425,8 @@ test("a template's lowered tokens sit at the template, not at the start of the m
         (mut(j) : usize) = usize(0);
         while(j < toks.len(), j = (j + usize(1)), {
           t := Rc.clone(toks(j));
-          if(t.character < c0, {
-            println(`token "${t.value.*}" at character ${t.character} precedes its statement at ${c0}`);
+          if(t.*.character < c0, {
+            println(`token "${t.*.value.*}" at character ${t.*.character} precedes its statement at ${c0}`);
             assert(false, "a template's lowered token precedes the template");
           });
         });
@@ -1374,8 +1449,8 @@ _value_cells_of :: (fn(toks : &ArrayList(Token), text : str) -> ArrayList(Rc(Str
   (mut(i) : usize) = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     t := Rc.clone(toks(i));
-    if(t.value.* == text, {
-      out.push(Rc.clone(t.value));
+    if(t.*.value.* == text, {
+      out.push(Rc.clone(t.*.value));
     });
   });
   out

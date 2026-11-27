@@ -230,11 +230,11 @@ test("Arc.make_mut clones a shared payload and writes a unique one in place", {
   a := Arc.new(_ArcPair(a : i32(1), b : i32(2)));
   b := Arc.clone(a);
   Arc.make_mut(&mut b).a = i32(10);
-  assert(a.a == i32(1), "the other handle does not see the write");
-  assert(b.a == i32(10), "the write landed in b's own cell");
+  assert(a.*.a == i32(1), "the other handle does not see the write");
+  assert(b.*.a == i32(10), "the write landed in b's own cell");
   assert((ref_count(a) == 1) && (ref_count(b) == 1), "two cells, one handle each");
   Arc.make_mut(&mut a).b = i32(20);
-  assert((a.b == i32(20)) && (b.b == i32(2)), "a was unique: written in place");
+  assert((a.*.b == i32(20)) && (b.*.b == i32(2)), "a was unique: written in place");
 });
 test("Arc.get_mut on the only handle writes the payload in place", {
   h := Arc.new(_ArcPair(a : i32(1), b : i32(2)));
@@ -245,7 +245,7 @@ test("Arc.get_mut on the only handle writes the payload in place", {
     },
     .None => assert(false, "the only handle is unique")
   );
-  assert(h.a == i32(10), "the write landed");
+  assert(h.*.a == i32(10), "the write landed");
   assert(ref_count(h) == 1, "no clone: still one handle");
 });
 test("Arc.get_mut is None while another handle or an ArcWeak shares the cell", {
@@ -275,7 +275,7 @@ test("Arc.get_mut against an ArcWeak upgrade on another thread", {
     t := Thread(i32).spawn({ w }(io) => {
       h := w.upgrade();
       consume(w);
-      match(h, .Some(p) => (p.a + p.b), .None => i32(-1))
+      match(h, .Some(p) => (p.*.a + p.*.b), .None => i32(-1))
     });
     match(
       Arc.get_mut(&mut a),
@@ -337,7 +337,7 @@ test("the last Arc dropped on another thread leaves the cell to the last ArcWeak
     a := Arc.new(_ArcWeakProbe(n : i32(1)), alloc : .Some(heap));
     w0 := Arc.downgrade(&a);
     t := Thread(unit).spawn({ a : Arc.clone(a) }(io) => {
-      assert(a.n == i32(1), "the worker holds the last Arc");
+      assert(a.*.n == i32(1), "the worker holds the last Arc");
     });
     consume(a);
     t.join();
@@ -360,7 +360,7 @@ test("ArcWeak handles upgraded and dropped on several threads while the last Arc
     t1 := Thread(unit).spawn({ w1 }(io) => {
       (mut(i) : i32) = i32(0);
       while(i < i32(2000), {
-        match(w1.upgrade(), .Some(h) => assert(h.n == i32(3), "an upgraded handle reads the payload"), .None => ());
+        match(w1.upgrade(), .Some(h) => assert(h.*.n == i32(3), "an upgraded handle reads the payload"), .None => ());
         c := ArcWeak.clone(&w1);
         consume(c);
         i = (i + i32(1));
@@ -369,7 +369,7 @@ test("ArcWeak handles upgraded and dropped on several threads while the last Arc
     t2 := Thread(unit).spawn({ w2 }(io) => {
       (mut(i) : i32) = i32(0);
       while(i < i32(2000), {
-        match(w2.upgrade(), .Some(h) => assert(h.n == i32(3), "an upgraded handle reads the payload"), .None => ());
+        match(w2.upgrade(), .Some(h) => assert(h.*.n == i32(3), "an upgraded handle reads the payload"), .None => ());
         i = (i + i32(1));
       });
     });
@@ -387,7 +387,7 @@ test("Arc.make_mut on the only Arc with an ArcWeak alive moves to a fresh cell",
   w := Arc.downgrade(&a);
   before := addr_of(a.*);
   Arc.make_mut(&mut a).a = i32(10);
-  assert(a.a == i32(10), "the write landed");
+  assert(a.*.a == i32(10), "the write landed");
   assert(addr_of(a.*) != before, "an ArcWeak shared the cell: a moved to a fresh one");
   t := Thread(unit).spawn({ w }(io) => {
     assert(w.upgrade().is_none(), "the ArcWeak upgrades to .None on another thread");
@@ -420,11 +420,11 @@ test("a locked Arc cell refuses ArcWeak.upgrade on another thread, and its weak 
   assert(__yo_arc_weak_count_raw(cell) == usize(1), "the worker's ArcWeak went while the cell was locked");
   assert(w.upgrade().is_none(), "an upgrade on this thread refuses it too");
   assert(!__yo_arc_lock_unique(cell), "a locked cell does not lock twice");
-  a.a = i32(10);
+  a.*.a = i32(10);
   __yo_arc_unlock_unique(cell);
   assert(ref_count(a) == usize(1), "the unlock gives the count of 1 back");
   w3 := ArcWeak.clone(&w);
-  t2 := Thread(i32).spawn({ w3 }(io) => match(w3.upgrade(), .Some(h) => h.a, .None => i32(0)));
+  t2 := Thread(i32).spawn({ w3 }(io) => match(w3.upgrade(), .Some(h) => h.*.a, .None => i32(0)));
   assert(t2.join() == i32(10), "after the unlock an upgrade on another thread sees the write made under the lock");
   h := w.upgrade();
   assert(!__yo_arc_lock_unique(cell), "a cell an upgraded handle shares does not lock");
@@ -499,7 +499,7 @@ test("Arc.make_mut with an ArcWeak live on another thread moves the payload, not
   });
   before := addr_of(a.*);
   Arc.make_mut(&mut a).n = i32(10);
-  assert(a.n == i32(10), "the write landed");
+  assert(a.*.n == i32(10), "the write landed");
   assert(addr_of(a.*) != before, "the write landed in a fresh cell");
   assert(g_arc_mm_clones == clones, "no Clone ran");
   assert(g_arc_mm_drops == drops, "no payload drop ran");
@@ -524,19 +524,19 @@ test("Arc.make_mut and Arc.try_unwrap against an ArcWeak upgrade on another thre
     t := Thread(i32).spawn({ w }(io) => {
       h := w.upgrade();
       consume(w);
-      match(h, .Some(p) => (p.a + p.b), .None => i32(0))
+      match(h, .Some(p) => (p.*.a + p.*.b), .None => i32(0))
     });
     Arc.make_mut(&mut a).a = i32(1);
     Arc.make_mut(&mut a).b = i32(1);
     assert(t.join() == i32(0), "the worker never sees make_mut's writes");
-    assert((a.a + a.b) == i32(2), "the writes landed in a's cell");
+    assert((a.*.a + a.*.b) == i32(2), "the writes landed in a's cell");
     b := Arc.new(_ArcPair(a : i32(2), b : i32(3)));
     w2 := Arc.downgrade(&b);
-    t2 := Thread(i32).spawn({ w2 }(io) => match(w2.upgrade(), .Some(p) => (p.a + p.b), .None => i32(0)));
+    t2 := Thread(i32).spawn({ w2 }(io) => match(w2.upgrade(), .Some(p) => (p.*.a + p.*.b), .None => i32(0)));
     n := match(
       Arc.try_unwrap(b),
       .Ok(p) => (p.a + p.b),
-      .Err(h) => (h.a + h.b)
+      .Err(h) => (h.*.a + h.*.b)
     );
     assert(n == i32(5), "the payload came out whole, or the handle came back");
     m := t2.join();
@@ -553,11 +553,11 @@ test("an ArcWeak parent pointer in a recursive payload upgrades on another threa
   root := Arc.new(_ArcWeakNode(parent : ArcWeak(_ArcWeakNode).new(), tag : i32(1)));
   leaf := Arc.new(_ArcWeakNode(parent : Arc.downgrade(&root), tag : i32(2)));
   t := Thread(unit).spawn({ leaf : Arc.clone(leaf) }(io) => {
-    n := match(leaf.parent.upgrade(), .Some(p) => p.tag, .None => i32(0));
+    n := match(leaf.*.parent.upgrade(), .Some(p) => p.*.tag, .None => i32(0));
     assert(n == i32(1), "the leaf reaches its parent");
   });
   t.join();
-  assert(root.parent.upgrade().is_none(), "the root has no parent");
+  assert(root.*.parent.upgrade().is_none(), "the root has no parent");
 });
 // Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Arc` needs
 // `.clone()`, as in Rust.
