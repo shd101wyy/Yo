@@ -346,6 +346,10 @@ derive(BorrowMatchSourceDecl, Clone);
 /// blocks' bindings in between, and with one slot the outer binding lost its
 /// range and froze nothing past its own statement.
 (g_lb_lookaheads : RefCell(ArrayList(_LbLookahead))) = RefCell(ArrayList(_LbLookahead)).new(ArrayList(_LbLookahead).new());
+/// A binding the evaluator builds for a statement (a lending destructuring's
+/// `a := &x.a`, VERDICTS-76 Q2) has no node in the block: it reads the
+/// look-ahead of the statement it stands for (`local_borrow_alias_statement`).
+(g_lb_statement_aliases : RefCell(HashMap(usize, usize))) = RefCell(HashMap(usize, usize)).new(HashMap(usize, usize).new());
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `src/utils.yo`.
@@ -355,6 +359,9 @@ derive(BorrowMatchSourceDecl, Clone);
 /// The scrutinee tokens of the consuming `match`es (see
 /// `note_consuming_match_scrutinee`).
 (g_consuming_match_scrutinees : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The source tokens of the consuming destructurings (see
+/// `note_consuming_destructure_source`).
+(g_consuming_destructure_sources : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Attach a generated temp variable to `expr`'s ExprInfo for RC drop-tracking.
 ///
 /// Steps:
@@ -1216,6 +1223,15 @@ note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
   (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
 );
+/// A destructuring `{ a, b } := x` consumed `x` at `tok` (VERDICTS-76 Q2):
+/// the E0901 for a later use of `x` names the borrow that keeps it.
+note_consuming_destructure_source :: (fn(tok : &Token) -> unit)({
+  cd_key := _consuming_match_key(tok);
+  g_consuming_destructure_sources.with_mut({ cd_key }(s) => s.insert(cd_key));
+});
+consuming_destructure_source_at :: (fn(tok : &Token) -> bool)(
+  (g_consuming_destructure_sources.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_destructure_sources.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
+);
 /// The type an E0901 for the moved binding `v` names: a reference binding's
 /// own reference type (a moved `&mut`), any other binding's value type.
 moved_value_type :: (fn(v : &Variable) -> TypeValue)(
@@ -1230,7 +1246,11 @@ use_of_moved_value_error :: (fn(name : &String, ty : &TypeValue, use_tok : &Toke
   entries.push(
     TokenAndError(
       token : Rc.clone(moved_tok.*),
-      error_message : cond(by_match => String.from("value moved here: a `match` takes its scrutinee by value"), true => String.from("value moved here"))
+      error_message : cond(
+        by_match => String.from("value moved here: a `match` takes its scrutinee by value"),
+        consuming_destructure_source_at(moved_tok) => String.from("value moved here: a destructuring takes its source by value"),
+        true => String.from("value moved here")
+      )
     )
   );
   with_code(format_error_messages_with_help(&entries, moved_value_help(name, ty, moved_tok)), E_USE_OF_MOVED_VALUE)
@@ -1242,6 +1262,9 @@ moved_value_help :: (fn(name : &String, ty : &TypeValue, moved_tok : &Token) -> 
   cond(
     consuming_match_scrutinee_at(moved_tok) => Option(String).Some(
       `a \`match\` consumes an owned scrutinee (plans/VALUES_BY_DEFAULT.md decision 26): match through a borrow to keep using \`${name}\`, \`match(&${name}, …)\`, or \`match(&mut ${name}, …)\` to write through the bindings`
+    ),
+    consuming_destructure_source_at(moved_tok) => Option(String).Some(
+      `a destructuring consumes an owned source, as a \`match\` does: destructure a borrow to keep using \`${name}\`, \`{ … } := &${name}\`, or \`{ … } := &mut ${name}\` to write through the names`
     ),
     true => move_only_help(name, ty)
   )
@@ -7542,6 +7565,12 @@ local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt :
     xs.push(frame);
   });
 });
+/// The binding `binding_id`, built by the evaluator for the statement
+/// `stmt_id`, takes that statement's look-ahead: its live range runs to the
+/// last use of its name after the statement.
+local_borrow_alias_statement :: (fn(binding_id : usize, stmt_id : usize) -> unit)({
+  _old := g_lb_statement_aliases.with_mut({ binding_id, stmt_id }(m) => m.insert(binding_id, stmt_id));
+});
 /// One pending look-ahead (`local_borrow_set_lookahead`).
 _LbLookahead :: struct(id : usize, index : usize, stmts : ArrayList(AstExpr));
 derive(_LbLookahead, Clone);
@@ -8964,7 +8993,8 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token, 
   // bindings (in a function body the right-hand side evaluated) armed their
   // own frames in between. Without a frame the binding keeps its
   // statement-local range.
-  bid := ast_expr_id(binding);
+  own_id := ast_expr_id(binding);
+  bid := match(g_lb_statement_aliases.with({ own_id }(m) => m.get(&own_id)), .Some(sid) => sid, .None => own_id);
   match(
     g_lb_lookaheads.with({ bid }(xs) => match(_lb_lookahead_index_of(xs, bid), .Some(fi) => xs.get_cloned(fi), .None => Option(_LbLookahead).None)),
     .Some(frame) => {
@@ -15000,7 +15030,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   out
 });
 export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, is_computed_reference_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, _static_module_level, _static_slot_param, _static_offending_root, _static_origin_reject, _static_join_subset_check, _static_offending_root_of, _static_value_offense, _static_value_roots, byvalue_param_origin_names);
-export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
+export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, note_consuming_destructure_source, consuming_destructure_source_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
   LocalBorrowInfo,
@@ -15060,6 +15090,7 @@ export(
   local_borrow_is_mut_binding_stmt,
   local_borrow_is_typed_decl_stmt,
   local_borrow_set_lookahead,
+  local_borrow_alias_statement,
   local_borrow_place_of,
   local_borrow_place_of_variable,
   local_borrow_value_place_of,
