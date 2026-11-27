@@ -1,0 +1,76 @@
+name: "Stage 1 (seed `yo build`, cached on the compiler's inputs)"
+description: >-
+  Build the self-hosted compiler from this checkout with the bootstrap seed
+  (`yo build --std-path ./std`, the canonical builder: build.yo's ReleaseSafe +
+  mimalloc flags) into ./yo-stage1, unless the build cache already holds the
+  binary for exactly these inputs (.github/actions/compiler-cache-key). Shared
+  by test.yml's `stage1` job and native.yml's two stage-1 builds, so a hit in
+  one workflow serves the other. The caller provides the checkout (with
+  submodules), swap and the OpenSSL headers.
+  --std-path ./std is LOAD-BEARING: without it the seed compiles against its
+  OWN bundled std (see test.yml's `stage1` job).
+
+inputs:
+  seed-version:
+    description: "Published release tag used as the bootstrap seed"
+    required: true
+  disable-cache:
+    description: "'1' skips the cache (pass vars.YO_CI_NO_BUILD_CACHE)"
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: "'true' when the binary came from the cache"
+    value: ${{ steps.restore.outputs.cache-hit == 'true' }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: key
+      uses: ./.github/actions/compiler-cache-key
+      with:
+        kind: stage1
+        recipe: .github/actions/stage1-cached/action.yml
+        seed-version: ${{ inputs.seed-version }}
+        disable: ${{ inputs.disable-cache }}
+
+    - id: restore
+      if: steps.key.outputs.enabled == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: yo-stage1
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Install the seed compiler (previous release)
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: ./.github/actions/install-seed
+      with:
+        version: ${{ inputs.seed-version }}
+
+    - name: Fetch the project's Yo dependencies (seed)
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: ./.github/actions/install-deps
+
+    - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+        cp "$(ls yo-out/*/bin/yo | head -1)" yo-stage1
+
+    - name: Save stage 1 to the build cache
+      if: steps.restore.outputs.cache-hit != 'true' && steps.key.outputs.enabled == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: yo-stage1
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Stage 1 runs (fail fast on a broken build or a bad cache entry)
+      shell: bash
+      run: |
+        chmod +x yo-stage1
+        if [ "${{ steps.restore.outputs.cache-hit }}" = "true" ]; then
+          echo "stage 1 restored from the build cache (${{ steps.key.outputs.key }})"
+        fi
+        YO_STD="$PWD/std" ./yo-stage1 check std/assert.yo

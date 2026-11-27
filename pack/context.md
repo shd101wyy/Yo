@@ -71,7 +71,8 @@ export(main);
 - Parenthesize wherever two different operators meet, including the right side
   of `:=`, `=`, a field's `:` and an arm's or closure's `=>` (`x := (a + b);`,
   `.{ x : (a + b) }`, `.Some(q) => (q != u8(0))`), or it is E0003. The
-  operator set is closed: `**x` is two `*`s (a power is `x.pow(n)`).
+  operator set is closed: `**x` is two `*`s (a power is `x.pow(n)`). Yo has no
+  compound assignment: `x += 1` is E0010, written `x = (x + 1)`.
 - A bare `{ ... }` in expression position is a block (`{}` is unit); a `,` or
   `label : value` inside one is E0007. `(a, b)` is a tuple, `Tuple(A, B)` its
   type, `t.0` its first field; tuples are positional (`(lo : a, hi : b)` is an
@@ -130,10 +131,13 @@ export(main);
   `std/error`).
 - `impl(...)` statements end with `;`. A generic impl:
   `impl(generic(T : Type), where(T <: ToString), Box(T), ...)`.
-- A bound is `where(T <: Tr)`, several `T <: (A, B)`; read it "implements". A
-  name's `:` takes a type or a kind, never a trait: `where(T : Tr)` is E0624
-  (`yo fix` rewrites it). Rust's `T: A + B` is
-  `generic(T : Type), where(T <: (A, B))`.
+- `<:` is the bound operator, read *implements*: `where(T <: Tr)`, several
+  `T <: (A, B)`, a function trait grouped `F <: (Fn(x : A) -> B)`. A name's `:`
+  takes a type or a kind, never a trait: `where(T : Tr)` and
+  `generic(T : Tr)` are E0624 (`yo fix` rewrites them), and a value is
+  `x : Impl(Tr)` or `x : &Dyn(Tr)` (`a : Tr` is E0625). Rust's `T: A + B` is
+  `generic(T : Type), where(T <: (A, B))`. Yo has no subtyping: `dyn(&x)` makes
+  the `&Dyn(Tr)`, and `Type.impls(T, Tr)` is the compile-time test.
 - A generic type is a compile-time function, used as `Pair(i32)`:
   `Pair :: (fn(comptime(A) : Type) -> comptime(Type))(struct(a : A, b : A));`
 - A function returning a compile-time value (`-> comptime(T)`, `-> Type`)
@@ -213,6 +217,10 @@ export(main);
   only from parameter `s`; `generic(p : Origin)` declares one, and a struct
   holding a reference takes `comptime(p) : Origin`. No reference may live in a
   collection element, a heap cell, a global or another thread.
+- **Reference fields**: `h.r.*` reads the referent; `h.r = &y` re-points the
+  field (checked as writing the whole holder: `y` must outlive `h`), and
+  `&mut h.r` lends the field itself to a `&mut &T` slot. `h.r = v` with a
+  value `v` is E0926 (write the referent with `h.r.* = v` on a `&mut` field).
 
 ```yo
 { assert } :: import("std/assert");
@@ -545,7 +553,7 @@ name that does not resolve (E0401) gets a help line naming the Yo spelling.
 | `VecDeque`, `BinaryHeap`, `PathBuf` | `Deque`, `PriorityQueue`, `Path` (one owned type) |
 | `char` | `rune` (`char` is C's 8-bit type) |
 | `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` |
-| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot`/`BitNot` |
+| `Not` | `LogicalNot`/`BitNot` |
 | `collect::<Vec<_>>()`, `parse::<i32>()`, `into()` | `it.collect(ArrayList(i32))`, `s.parse(i32)`, `x.into(i64)`: the type is an argument |
 | `m.lock()`, `c.borrow_mut()`, `Cell` | `m.with_lock(v => ..)`, `c.with_mut(v => ..)` on `RefCell`; no guards |
 | `thread::spawn`, `JoinHandle<T>` | `Thread(T).spawn((io : Io) => ..)`, `t.join()` |

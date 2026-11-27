@@ -55,7 +55,6 @@ pragma(Pragma.AllowUnsafe);
   has_any_control_flow,
   expr_info_capture_type,
   expr_info_set_capture_type,
-  expr_info_deferred_dup_expressions,
   expr_info_set_deferred_dup_expressions,
   CaptureFieldInit,
   expr_info_set_capture_field_inits,
@@ -148,12 +147,11 @@ pragma(Pragma.AllowUnsafe);
   record_closure_capture_verdicts
 } :: import("../utils/closure.yo");
 { extract_fn_trait_from_type, type_implements_fn, type_contains_some_type_for_codegen_param } :: import("../trait-checking.yo");
-{ generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression, audit_judge_arm_copies } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr-traversal.yo");
-{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
+{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled, future_view_error } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
@@ -1294,40 +1292,12 @@ _evaluate_capture_list :: (
       if(type_carries_origin(&val_ty), {
         _capture_origin_borrows(&label, &origin_of(&ev_val, env, ctx), &name_tok, env, &mut val_borrows);
       });
-      // The field must OWN its reference. An owning temp is consumed by the
-      // call above (the store moves it) and a move-only atom read moves at
-      // the read; but an ATOM read of an RC-typed binding has no temp, so
-      // `set_expr_as_needs_to_call_dup` no-ops, and a NON-owning temp
-      // records its dup on the initializer's own ExprInfo. That recorded dup
-      // MUST stay attached to the initializer: the capture field's codegen
-      // (`expr_info_capture_field_inits` in src/codegen/exprs/closures.yo)
-      // runs it through `emit_deferred_dup_or_code`, the shared dup-on-store
-      // choke point, which MATERIALIZES the initializer call first — reusing
-      // the dup expression as the field initializer instead emitted
-      // `__yo_incr_rc(<eval-time temp>)` for a temp no generated code ever
-      // declared ("use of undeclared identifier", the round-2 defect; the
-      // initializer call itself vanished with it). An atom's dup targets a
-      // declared local, so it renders inline: build it here, exactly as
-      // `generate_captured_variable_dup_expressions` does for the ordinary
-      // implicit-capture path.
-      (field_init : AstExpr) = Rc.clone(ev_val);
-      if(type_contains_rc_type(&val_ty) && !type_requires_explicit_copy(&val_ty), {
-        recorded_dup := match(
-          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)),
-          .Some(fi_ei) => match(
-            expr_info_deferred_dup_expressions(&fi_ei),
-            .Some(fi_ds) => (fi_ds.len() > usize(0)),
-            .None => false
-          ),
-          .None => false
-        );
-        if(!recorded_dup && ast_expr_is_atom(&init_e), {
-          saved_fdexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
-          fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(&init_e).value.*.clone()})`, exn);
-          field_init = evaluate_expression_raw(&fd_dup, env, ctx, exn);
-          ctx.expected_type = saved_fdexp;
-        });
-      });
+      // The field owns its value: the store above decided it (an owning temp
+      // or a value that is not implicitly copyable moves, any other value
+      // that holds a count records its dup on the initializer's own
+      // ExprInfo). The capture field's codegen (`expr_info_capture_field_inits`
+      // in src/codegen/exprs/closures.yo) runs the initializer through
+      // `emit_deferred_dup_or_code`, the shared dup-on-store choke point.
       out.push(
         _CapListEntry(
           label : label,
@@ -1335,7 +1305,7 @@ _evaluate_capture_list :: (
           is_borrow : false,
           is_mut : false,
           value_ty : val_ty,
-          init : field_init,
+          init : ev_val,
           root_id : usize(0),
           root_name : String.new(),
           path : ArrayList(String).new(),

@@ -694,7 +694,7 @@ cond(
 | `char` | `rune` | `char` 是 C 的 8 位类型，FFI 需要它。 |
 | `Path`、`PathBuf` | 一个拥有所有权的 `Path` | 没有无大小的路径视图。 |
 | `PartialEq`/`Eq`、`PartialOrd`/`Ord` | `Eq(T)`、`Ord(T)` | 浮点数带有全序的 `cmp`，因此不做拆分。 |
-| `Neg`、`Rem`、`Shl`、`Shr`、`Not` | `Negate`、`Mod`、`BitLeftShift`、`BitRightShift`、`LogicalNot` / `BitNot` | Yo 自己的名称。`Not` 对应两个运算符：`!` 是 `LogicalNot`，结果为 `bool`；`~` 是 `BitNot`。 |
+| `Not` | `LogicalNot` / `BitNot` | Rust 的一个运算符在 Yo 中是两个：`!` 是 `LogicalNot`，只用于 `bool`（数值判零写 `x == 0`）；`~` 是 `BitNot`。 |
 | `collect::<Vec<_>>()`、`parse::<i32>()`、`into()` | `it.collect(ArrayList(i32))`、`s.parse(i32)`、`x.into(i64)` | 类型是一个参数：Yo 不会根据结果类型推断。 |
 | `lock()`、`borrow()` / `borrow_mut()`、`Cell` | `m.with_lock(v => ..)`，`RefCell` 的 `c.with(v => ..)` / `c.with_mut(v => ..)` | 访问限定在闭包内；没有守卫，也没有锁中毒。 |
 | `io::Result<T>`、`thread::spawn`、`JoinHandle<T>` | `exn : Exception` 与 `io : Io`、`Thread(T).spawn((io : Io) => ..)`、`t.join()` | I/O 和线程是效应。 |

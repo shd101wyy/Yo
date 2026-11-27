@@ -62,7 +62,23 @@ notify2 :: (fn(generic(T : Type), item : &mut T, where(T <: Display)) -> unit)({
 });
 ```
 
-约束写作 `T <: Trait`，读作“`T` 实现了 `Trait`”；同一类型上的多个约束写成元组 `T <: (Clone, Hash)`。所有 `where(...)` 都使用同一写法：函数、类型构造器、trait、impl 和 derive 的 `where`。`where(T : Trait)` 是错误 E0624，在子句定义处报告（`:` 给名字指定类型或种类），`yo fix` 会把它改写为 `<:`。
+### 约束
+
+`<:` 是约束运算符：`T <: Trait` 读作“`T` 实现了 `Trait`”。同一类型上的多个约束写成元组 `T <: (Clone, Hash)`，函数 trait 需要加括号分组，写作 `F <: (Fn(x : i32) -> i32)`。所有 `where(...)` 都使用同一写法：函数、类型构造器、trait、impl 和 derive 的 `where`。在 trait 中，`where(Self <: Shape)` 声明超 trait，`where(Self.Item <: Clone)` 约束关联类型；impl 的 `where(...)` 只约束该 impl 自己的 `generic(...)` 绑定者。
+
+名字的 `:` 给它指定类型或种类，从不指定 trait。绑定者的种类是 `Type`、`?Sized`、`Type.Struct`、`Origin`、`Trait` 或类型构造器的种类，它的约束写在 `where(...)` 中：Rust 的 `T: Clone + Hash` 写作 `generic(T : Type), where(T <: (Clone, Hash))`。值的类型只指定一种类型，因此 trait 要通过 `Impl(...)` 或 `Dyn(...)` 出现在那里：
+
+| 目的 | 写法 |
+| --- | --- |
+| 要求某类型实现某 trait | `where(T <: Trait)` |
+| 询问它是否实现（编译期 `bool`） | `Type.impls(T, Trait)` |
+| 调用某类型对某 trait 的 impl | `(T <: Trait).m(a)` |
+| 接受某一种实现类型的值 | `x : Impl(Trait)` |
+| 把值的类型擦除为该 trait | `dyn(&x)` 得到 `&Dyn(Trait)`；`dyn(Box.new(x))` 得到 `Box(Dyn(Trait))` |
+
+Yo 没有子类型。约束从不让 `T` 出现在需要 `Dyn(Trait)` 的位置：转换由 `dyn(&x)` 写明。`<:` 从不关联两个类型或两个 trait。
+
+错误写法在书写处即报错。种类位置上的约束是 E0624：`where(T : Trait)`、`generic(T : Trait)`、`generic(T : (A, B))`、`generic(T <: Trait)`、`trait(Item : Trait, ...)`，以及右侧不是 trait 的约束（`T <: Circle`，其中 `Circle` 是结构体）。`yo fix` 会把 `where(T : Trait)` 改写为 `<:`，并分两遍把约束移出绑定者的种类位置：先把约束写入签名的 `where(...)`，再把种类改为 `Type`。把 trait 当作值的类型是 E0625：`a : Trait`、`a : &Trait`、`-> Trait`、`(x : Trait) = v`、`struct(v : Trait)`。trait 构造器要写出实参，即 `where(T <: Eq(T))`；`where(T <: Eq)` 是 E0603。
 
 ### 静态 trait 方法
 
@@ -132,7 +148,7 @@ Pullable :: trait(
 
 - 第二个 `impl(P, Summary(...))`，无论在同一模块还是其他模块；
 - 被导入的模块或 prelude 已经为该类型实现过的 trait，再写一个 impl，例如 `impl(i32, ToString(...))`；
-- 一揽子 impl（`impl(generic(T), where(T <: Bound), T, Summary(...))`）与某个满足 `Bound` 的类型的 `Summary` 具体 impl 同时存在，无论注册顺序。
+- 一揽子 impl（`impl(generic(T : Type), where(T <: Bound), T, Summary(...))`）与某个满足 `Bound` 的类型的 `Summary` 具体 impl 同时存在，无论注册顺序。
 
 Yo 没有特化，更具体的 impl 不会覆盖更一般的 impl；在此规则之前，先注册的 impl 会静默胜出，另一个成为死代码。泛型 trait 的两个实例是不同的 trait（`Eq(String)` 与 `Eq(str)`），约束互不重叠的一揽子 impl 也没有问题。
 
