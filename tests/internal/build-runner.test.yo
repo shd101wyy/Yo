@@ -88,7 +88,7 @@ _deps1 :: (fn(a : &String) -> ArrayList(String))({
 _resolve_default_or_error :: (fn(io : Io) -> Result(String, String))({
   catch_exn := Exception(
     throw : (
-      err -> unwind(Result(String, String).Err(err.to_string()))
+      err -> unwind(Result(String, String).Err(err.*.to_string()))
     )
   );
   Result(String, String).Ok(_resolve_c_compiler(&Option(String).None, io, catch_exn))
@@ -313,7 +313,7 @@ test("artifact stamp: a different compiler binary is a different stamp", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `test io failed: ${err}`);
+        assert(false, `test io failed: ${err.*}`);
       }
     )
   );
@@ -378,7 +378,7 @@ test("the build's default C compiler is probed, not the literal clang", {
   io_exn := Exception(
     throw : (
       err -> {
-        assert(false, `test io failed: ${err.to_string()}`);
+        assert(false, `test io failed: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -386,7 +386,7 @@ test("the build's default C compiler is probed, not the literal clang", {
   loud_cc_exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error while resolving the default cc: ${err.to_string()}`);
+        assert(false, `unexpected error while resolving the default cc: ${err.*.to_string()}`);
         unwind(());
       }
     )

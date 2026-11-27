@@ -962,7 +962,7 @@ _State :: struct(
 );
 /// The index of the package named `name`.
 _find_package :: (fn(state : &Rc(_State), name : &String) -> Option(usize))(
-  state.packages.with({ name : &name.* }(ps) => {
+  state.*.*.packages.with({ name : &name.* }(ps) => {
     (i : usize) = usize(0);
     while(i < ps.len(), {
       if(ps(i).name == name.*, {
@@ -1030,7 +1030,7 @@ _add_requirement :: (
   match(
     _find_package(state, dep.name.clone()),
     .Some(pi) => {
-      existing := state.packages.with(ps => ps(pi).clone());
+      existing := state.*.*.packages.with(ps => ps(pi).clone());
       same := cond(
         (existing.is_path != is_path) => false,
         is_path => (existing.dir == dir),
@@ -1042,7 +1042,7 @@ _add_requirement :: (
         exn.throw(dyn(Box.new(`Error: dependency name "${dep.name}" refers to two different packages: ${existing_text} (via ${first_via}) and ${_source_text(dep)} (via ${requirer}). One import name means one package.`)));
       });
       rq := requirer.clone();
-      state.packages.with_mut({ pi, rq, req }(ps) => _replace_requirement(&mut ps(pi).requirements, &rq, req));
+      state.*.*.packages.with_mut({ pi, rq, req }(ps) => _replace_requirement(&mut ps(pi).requirements, &rq, req));
     },
     .None => {
       reqs := ArrayList(Requirement).new();
@@ -1062,14 +1062,14 @@ _add_requirement :: (
         dependencies : ArrayList(String).new(),
         expanded_dir : String.new()
       );
-      state.packages.with_mut({ pkg }(ps) => ps.push(pkg));
+      state.*.*.packages.with_mut({ pkg }(ps) => ps.push(pkg));
     }
   );
 });
 /// Drop every requirement `requirer` contributed (before it is re-expanded).
 _drop_requirements_of :: (fn(state : &Rc(_State), requirer : &String) -> unit)({
   rq := requirer.clone();
-  state.packages.with_mut({ rq }(ps) => {
+  state.*.*.packages.with_mut({ rq }(ps) => {
     for(&mut ps, p => {
       kept := ArrayList(Requirement).new();
       for(replace(&mut p.requirements, ArrayList(Requirement).new()), r => {
@@ -1091,10 +1091,10 @@ _expand_package :: (
     exn : Exception
   ) -> unit
 )({
-  pkg_name := state.packages.with(ps => ps(pi).name.clone());
-  pkg_dir := state.packages.with(ps => ps(pi).dir.clone());
+  pkg_name := state.*.*.packages.with(ps => ps(pi).name.clone());
+  pkg_dir := state.*.*.packages.with(ps => ps(pi).dir.clone());
   _drop_requirements_of(state, pkg_name.clone());
-  state.packages.with_mut({ pi }(ps) => {
+  state.*.*.packages.with_mut({ pi }(ps) => {
     ps(pi).dependencies = ArrayList(String).new();
   });
   manifest_path := abs_under(pkg_dir.clone(), String.from(MANIFEST_FILENAME));
@@ -1104,7 +1104,7 @@ _expand_package :: (
       .Ok(m) => m,
       .Err(msg) => {
         exn.throw(dyn(Box.new(`Error: dependency "${pkg_name}": ${msg}`)));
-        state.manifest.clone()
+        state.*.*.manifest.clone()
       }
     );
     (i : usize) = usize(0);
@@ -1112,13 +1112,13 @@ _expand_package :: (
       d := dep_manifest.dependencies(i).clone();
       if(!d.dev, {
         dep_name := d.name.clone();
-        state.packages.with_mut({ pi, dep_name }(ps) => ps(pi).dependencies.push(dep_name));
-        _add_requirement(state, pkg_name.clone(), &d, dep_manifest.dir.clone(), state.manifest.dir.clone(), exn);
+        state.*.*.packages.with_mut({ pi, dep_name }(ps) => ps(pi).dependencies.push(dep_name));
+        _add_requirement(state, pkg_name.clone(), &d, dep_manifest.dir.clone(), state.*.*.manifest.dir.clone(), exn);
       });
       i = (i + usize(1));
     });
   });
-  state.packages.with_mut({ pi, pkg_dir }(ps) => {
+  state.*.*.packages.with_mut({ pi, pkg_dir }(ps) => {
     ps(pi).expanded_dir = pkg_dir;
   });
 });
@@ -1132,7 +1132,7 @@ _locked_choice :: (fn(ref : &String) -> ChosenRef)(
 /// Is `name` one `yo update` re-resolves?
 _refresh_requested :: (fn(state : &Rc(_State), name : &String) -> bool)(
   match(
-    &state.options.mode,
+    &state.*.*.options.mode,
     .Install => false,
     .UpdateAll => true,
     .Update(names) => {
@@ -1159,10 +1159,10 @@ _cached_text :: (fn(keys : &ArrayList(String), values : &ArrayList(String), key 
   Option(String).None
 });
 _cached_tags :: (fn(state : &Rc(_State), url : &String) -> Option(String))(
-  state.remote.with({ url : &url.* }(r) => _cached_text(&r.tag_urls, &r.tag_texts, url))
+  state.*.*.remote.with({ url : &url.* }(r) => _cached_text(&r.tag_urls, &r.tag_texts, url))
 );
 _cached_branch :: (fn(state : &Rc(_State), url : &String) -> Option(String))(
-  state.remote.with({ url : &url.* }(r) => _cached_text(&r.branch_urls, &r.branch_names, url))
+  state.*.*.remote.with({ url : &url.* }(r) => _cached_text(&r.branch_urls, &r.branch_names, url))
 );
 /// Resolve and fetch package `pi` for this round. Returns true when the
 /// package's state changed (a new ref, a fetch, an expansion) — the driver
@@ -1178,8 +1178,8 @@ _resolve_package :: (
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async({ state : Rc.clone(state), pi }(e : IoExn) => {
-    pkg := state.packages.with(ps => ps(pi).clone());
-    verbose := state.options.verbose;
+    pkg := state.*.packages.with(ps => ps(pi).clone());
+    verbose := state.*.options.verbose;
     // A path package: its directory is fixed; expand once (or again if the
     // requirements changed nothing about it — the manifest is live, so it is
     // read every run anyway).
@@ -1199,7 +1199,7 @@ _resolve_package :: (
     // ONE match on the entry decides everything the awaits below need (the
     // seed compiler redeclares a matched local's C copy per match —
     // issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
-    old_entry := find_lock_entry(&state.old_lock, pkg.name.clone());
+    old_entry := find_lock_entry(&state.*.old_lock, pkg.name.clone());
     (reuse : bool) = false;
     (old_ref : String) = String.new();
     (old_commit : String) = String.new();
@@ -1239,28 +1239,28 @@ _resolve_package :: (
     fetch_tags := (tags_needed && cached_tags.is_none());
     // What git is given: a local path made absolute against the root
     // manifest's directory (git resolves paths against the child's cwd).
-    remote := git_remote_url(state.manifest.dir.clone(), pkg.url.clone());
+    remote := git_remote_url(state.*.manifest.dir.clone(), pkg.url.clone());
     // Under --offline the tag list is the index's last answer for this
     // remote, or nothing; online it is fetched once per run and recorded.
     (indexed : Option(String)) = Option(String).None;
-    if(fetch_tags && state.options.offline, {
-      from_index := e.io.await(read_tags_index(state.cache_root.clone(), remote.clone(), e.io, e.exn), e);
+    if(fetch_tags && state.*.options.offline, {
+      from_index := e.io.await(read_tags_index(state.*.cache_root.clone(), remote.clone(), e.io, e.exn), e);
       indexed = from_index;
     });
-    if(fetch_tags && state.options.offline && indexed.is_none(), {
+    if(fetch_tags && state.*.options.offline && indexed.is_none(), {
       e.exn.throw(
         dyn(Box.new(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${pkg.name}" needs the tags of ${pkg.url}, and the cache has no tag list for it`)))
       );
     });
-    if(fetch_tags && state.options.offline, {
+    if(fetch_tags && state.*.options.offline, {
       t_url := pkg.url.clone();
       t_text := match(&indexed, .Some(t) => t.clone(), .None => String.new());
-      state.remote.with_mut({ t_url, t_text }(r) => {
+      state.*.remote.with_mut({ t_url, t_text }(r) => {
         r.tag_urls.push(t_url);
         r.tag_texts.push(t_text);
       });
     });
-    if(fetch_tags && !state.options.offline, {
+    if(fetch_tags && !state.*.options.offline, {
       if(verbose, {
         println(`  ${pkg.name}: listing the tags of ${pkg.url}...`);
       });
@@ -1273,9 +1273,9 @@ _resolve_package :: (
           String.new()
         }
       );
-      e.io.await(write_tags_index(state.cache_root.clone(), remote.clone(), text.clone(), e.io, e.exn), e);
+      e.io.await(write_tags_index(state.*.cache_root.clone(), remote.clone(), text.clone(), e.io, e.exn), e);
       l_url := pkg.url.clone();
-      state.remote.with_mut({ l_url, text }(r) => {
+      state.*.remote.with_mut({ l_url, text }(r) => {
         r.tag_urls.push(l_url);
         r.tag_texts.push(text);
       });
@@ -1315,7 +1315,7 @@ _resolve_package :: (
     });
     cached_branch := _cached_branch(&state, pkg.url.clone());
     resolve_branch := (is_default && (ref_text.len() == usize(0)) && cached_branch.is_none());
-    if(resolve_branch && state.options.offline, {
+    if(resolve_branch && state.*.options.offline, {
       e.exn.throw(
         dyn(Box.new(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving the default branch of ${pkg.url} ("${pkg.name}") needs the network`)))
       );
@@ -1323,7 +1323,7 @@ _resolve_package :: (
     if(resolve_branch, {
       branch := e.io.await(resolve_default_branch(remote.clone(), e.io, e.exn), e);
       b_url := pkg.url.clone();
-      state.remote.with_mut({ b_url, branch }(r) => {
+      state.*.remote.with_mut({ b_url, branch }(r) => {
         r.branch_urls.push(b_url);
         r.branch_names.push(branch);
       });
@@ -1344,14 +1344,14 @@ _resolve_package :: (
     expected_integrity := if(from_lock, Option(String).Some(old_integrity.clone()), Option(String).None);
     fetched := e.io.await(
       fetch_package(
-        state.cache_root.clone(),
+        state.*.cache_root.clone(),
         pkg.name.clone(),
         remote.clone(),
         ref_text.clone(),
         &locked_commit,
         &expected_integrity,
         refresh && chosen.is_branch(),
-        state.options.offline,
+        state.*.options.offline,
         verbose,
         e.io,
         e.exn
@@ -1365,7 +1365,7 @@ _resolve_package :: (
     w_ref := ref_text.clone();
     w_commit := fetched.commit.clone();
     w_integrity := fetched.integrity.clone();
-    state.packages.with_mut({ pi, chosen, w_ref, w_commit, w_integrity, new_dir }(ps) => {
+    state.*.packages.with_mut({ pi, chosen, w_ref, w_commit, w_integrity, new_dir }(ps) => {
       ps(pi).chosen = Option(ChosenRef).Some(chosen);
       ps(pi).ref_text = w_ref;
       ps(pi).commit = w_commit;
@@ -1389,7 +1389,7 @@ _resolve_round :: (
     (i : usize) = usize(0);
     // `packages` may grow during the round (expansion adds packages); the
     // loop re-reads the length so new entries are visited this round.
-    while(i < state.packages.with(_packages_len), {
+    while(i < state.*.packages.with(_packages_len), {
       pi := i;
       i = (i + usize(1));
       step := e.io.await(_resolve_package(Rc.clone(state), pi, e.io, e.exn), e);
@@ -1428,7 +1428,7 @@ _vh_lock_of_packages :: (fn(ps : &ArrayList(_Package)) -> LockFile)({
 });
 /// The lock the resolved graph corresponds to: one entry per package that
 /// still has a requirer, sorted by the writer.
-_build_lock :: (fn(state : &Rc(_State)) -> LockFile)(state.packages.with(_vh_lock_of_packages));
+_build_lock :: (fn(state : &Rc(_State)) -> LockFile)(state.*.*.packages.with(_vh_lock_of_packages));
 /// Does the lock name at least one store tree (a git package with an
 /// integrity hash)?
 _lock_uses_store :: (fn(lock : &LockFile) -> bool)({
@@ -1510,8 +1510,8 @@ resolve_and_fetch :: (
     );
     // The root's requirements (its dev-dependencies included).
     (di : usize) = usize(0);
-    while(di < state.manifest.dependencies.len(), {
-      _add_requirement(&state, String.from("<root>"), &state.manifest.dependencies(di), root_dir.clone(), root_dir.clone(), e.exn);
+    while(di < state.*.manifest.dependencies.len(), {
+      _add_requirement(&state, String.from("<root>"), &state.*.manifest.dependencies(di), root_dir.clone(), root_dir.clone(), e.exn);
       di = (di + usize(1));
     });
     // Rounds until a fixpoint: a later requirer may move an earlier choice,

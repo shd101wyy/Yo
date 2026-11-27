@@ -71,10 +71,10 @@ impl(
 );
 test("boxed receiver: the same defaults", {
   mut(r) := Box.new(RefCounterVal(state : u64(0)));
-  r.twice(u64(3));
-  r.direct(u64(1));
-  assert(r.state == u64(7), "boxed receiver: 3+3+1");
-  assert(r.ro() == u64(7), "boxed receiver ro");
+  r.*.twice(u64(3));
+  r.*.direct(u64(1));
+  assert(r.*.state == u64(7), "boxed receiver: 3+3+1");
+  assert(r.*.ro() == u64(7), "boxed receiver ro");
 });
 // A default whose receiver is BY VALUE owns it, as a provided method's does:
 // it may move a move-only receiver into a sibling that consumes it. Before the

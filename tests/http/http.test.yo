@@ -142,7 +142,7 @@ test("fetch still refuses an unsupported scheme", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         assert(msg.contains(`Unsupported scheme`), `expected UnsupportedScheme, got: ${msg}`);
         unwind(());
       }
@@ -162,7 +162,7 @@ test("fetch over https returns a real response (mandatory under CI)", {
   exn := Exception(
     throw : (
       err -> {
-        detail := err.to_string();
+        detail := err.*.to_string();
         cond(
           (_network_required() && !_is_dns_failure(&err)) => {
             // eprintln, not println: a buffered println is lost when the
@@ -179,17 +179,17 @@ test("fetch over https returns a real response (mandatory under CI)", {
     )
   );
   resp := io.await(fetch(`https://example.com`.to_string(), io), IoExn(io : io, exn : exn));
-  reached.with_mut(cur => {
+  reached.*.with_mut(cur => {
     cur.* = true;
   });
   status_ok := (resp.status == StatusCode.OK());
   body_ok := (resp.body.len() > usize(0));
   good := (status_ok && body_ok);
-  ok.with_mut(cur => {
+  ok.*.with_mut(cur => {
     cur.* = good;
   });
   cond(
-    reached.with(cur => cur.*) => assert(ok.with(cur => cur.*), `expected a 200 with a body over https, got ${resp.status}`),
+    reached.*.with(cur => cur.*) => assert(ok.*.with(cur => cur.*), `expected a 200 with a body over https, got ${resp.status}`),
     true => assert(true, "skipped: no network")
   );
 });
@@ -263,7 +263,7 @@ _serve_scripted :: (
     while(k < responses.len(), {
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_read_request(&s, e.io), e);
-      seen.with_mut(xs => xs.push(req.clone()));
+      seen.*.with_mut(xs => xs.push(req.clone()));
       // `write_string`'s future borrows its argument, which therefore
       // cannot be an element of a list: copy it out first.
       reply := responses(k).clone();
@@ -284,7 +284,7 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -300,17 +300,17 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   resp := io.await(fetch_with(`http://127.0.0.1:19960/dir/start`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.OK(), `final status should be 200, got ${resp.status}`);
   assert(resp.body == "done", `final body should be the last hop's, got "${resp.body}"`);
-  assert(seen.with(xs => xs.len()) == usize(3), `three requests should have been made, saw ${seen.with(xs => xs.len())}`);
-  assert(seen.with(xs => (xs(usize(0))).clone()).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${seen.with(xs => (xs(usize(0))).clone())}`);
-  assert(seen.with(xs => (xs(usize(1))).clone()).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${seen.with(xs => (xs(usize(1))).clone())}`);
-  assert(seen.with(xs => (xs(usize(2))).clone()).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${seen.with(xs => (xs(usize(2))).clone())}`);
+  assert(seen.*.with(xs => xs.len()) == usize(3), `three requests should have been made, saw ${seen.*.with(xs => xs.len())}`);
+  assert(seen.*.with(xs => (xs(usize(0))).clone()).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${seen.*.with(xs => (xs(usize(0))).clone())}`);
+  assert(seen.*.with(xs => (xs(usize(1))).clone()).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${seen.*.with(xs => (xs(usize(1))).clone())}`);
+  assert(seen.*.with(xs => (xs(usize(2))).clone()).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${seen.*.with(xs => (xs(usize(2))).clone())}`);
   server.await(io);
 });
 test("fetch throws TooManyRedirects past max_redirects", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         assert(msg.contains(`Too many redirects`), `expected TooManyRedirects, got: ${msg}`);
         unwind(());
       }
@@ -333,7 +333,7 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -348,14 +348,14 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
   resp := io.await(fetch_with(`http://127.0.0.1:19962/start`, &opts, io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.FOUND(), `the 3xx itself should come back, got ${resp.status}`);
   assert(match(resp.get_header(`Location`), .Some(l) => (l == "/elsewhere"), .None => false), "Location header should be preserved");
-  assert(seen.with(xs => xs.len()) == usize(1), "exactly one request");
+  assert(seen.*.with(xs => xs.len()) == usize(1), "exactly one request");
   server.await(io);
 });
 test("fetch throws ResponseTooLarge past max_response_bytes", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         assert(msg.contains(`Response too large`), `expected ResponseTooLarge, got: ${msg}`);
         unwind(());
       }
@@ -400,7 +400,7 @@ test("fetch throws Timeout when the server never answers", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         assert(msg.contains(`timed out`), `expected Timeout, got: ${msg}`);
         unwind(());
       }
@@ -446,7 +446,7 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -482,7 +482,7 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -505,7 +505,7 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   outcome := client.await(io);
   server.await(io);
   assert(match(outcome, .None => true, .Some(r) => false), `a non-hex chunk size must throw (task unwound → None)`);
-  assert(seen.with(xs => xs.len()) == usize(1), "the server saw exactly one request");
+  assert(seen.*.with(xs => xs.len()) == usize(1), "the server saw exactly one request");
 });
 // A garbage status line surfaces as `HttpError.Other("Invalid status line")`.
 // Also the production pin for
@@ -519,7 +519,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -545,7 +545,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   };
   server.await(io);
   assert(match(outcome, .None => true, .Some(r) => false), `a garbage status line must throw (task unwound → None)`);
-  assert(seen.with(xs => xs.len()) == usize(1), "the server saw exactly one request");
+  assert(seen.*.with(xs => xs.len()) == usize(1), "the server saw exactly one request");
 });
 // `body : String` is a byte-transparent buffer (String is unvalidated bytes;
 // len()/substring are byte-indexed since D4), so HTTP bodies may carry
@@ -556,7 +556,7 @@ test("fetch round-trips a binary body byte-for-byte", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -635,7 +635,7 @@ test("a kept-alive response is framed by a Content-Length written without OWS", 
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -646,7 +646,7 @@ test("a kept-alive response is framed by a Content-Length written without OWS", 
   report_exn := Exception(
     throw : (
       err -> {
-        println(`  [no-OWS client] ${err.to_string()}`);
+        println(`  [no-OWS client] ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -677,7 +677,7 @@ test("only a real Content-Length field line frames a kept-alive response", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -686,7 +686,7 @@ test("only a real Content-Length field line frames a kept-alive response", {
   report_exn := Exception(
     throw : (
       err -> {
-        println(`  [X-CL client] ${err.to_string()}`);
+        println(`  [X-CL client] ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -723,7 +723,7 @@ test("bytes after a Content-Length body are not part of the body", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -732,7 +732,7 @@ test("bytes after a Content-Length body are not part of the body", {
   report_exn := Exception(
     throw : (
       err -> {
-        println(`  [smuggle client] ${err.to_string()}`);
+        println(`  [smuggle client] ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -759,7 +759,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -768,7 +768,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   bad_cl_exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         assert(msg.contains(`Malformed Content-Length`), `expected MalformedContentLength, got: ${msg}`);
         unwind(());
       }
@@ -792,7 +792,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   assert(match(o1, .None => true, .Some(r) => false), `"abc" is not a length and must throw (task unwound → None)`);
   assert(match(o2, .None => true, .Some(r) => false), `a negative Content-Length must throw`);
   assert(match(o3, .None => true, .Some(r) => false), `two Content-Length lines that disagree must throw`);
-  assert(seen.with(xs => xs.len()) == usize(3), `the server saw three requests, not ${seen.with(xs => xs.len())}`);
+  assert(seen.*.with(xs => xs.len()) == usize(3), `the server saw three requests, not ${seen.*.with(xs => xs.len())}`);
 });
 // ============================================================================
 // StatusCode
@@ -1070,18 +1070,18 @@ _ka_conn :: (fn(stream : &TcpStream, mode : i32, stats : _KaStats, io : Io) -> I
           open = false;
         },
         true => {
-          stats.with_mut(st => {
+          stats.*.with_mut(st => {
             st.requests = (st.requests + usize(1));
           });
           cond(
             raw.to_lowercase().contains(`connection: close`) => {
-              stats.with_mut(st => {
+              stats.*.with_mut(st => {
                 st.saw_close = true;
               });
             },
             true => ()
           );
-          answer = _ka_response(mode, stats.with(st => st.requests), raw.starts_with(`HEAD `));
+          answer = _ka_response(mode, stats.*.with(st => st.requests), raw.starts_with(`HEAD `));
         }
       );
       cond(
@@ -1130,7 +1130,7 @@ _ka_serve :: (
     mut(n) := usize(0);
     while(n < max_conns, {
       stream := e.io.await(listener.accept(e.io), e);
-      stats.with_mut(st => {
+      stats.*.with_mut(st => {
         st.accepts = (st.accepts + usize(1));
       });
       n = (n + usize(1));
@@ -1162,7 +1162,7 @@ test("HttpClient: a second request runs on the pooled connection, with no reconn
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1180,9 +1180,9 @@ test("HttpClient: a second request runs on the pooled connection, with no reconn
   // the proof of reuse; the accept count states it directly.
   b := io.await(client.fetch(`http://127.0.0.1:19840/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(1), `one accept for two requests, got ${stats.with(st => st.accepts)}`);
-  assert(stats.with(st => st.requests) == usize(2), `the server framed two requests, got ${stats.with(st => st.requests)}`);
-  assert(!stats.with(st => st.saw_close), "a pooled request does not announce Connection: close");
+  assert(stats.*.with(st => st.accepts) == usize(1), `one accept for two requests, got ${stats.*.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.requests) == usize(2), `the server framed two requests, got ${stats.*.with(st => st.requests)}`);
+  assert(!stats.*.with(st => st.saw_close), "a pooled request does not announce Connection: close");
   assert(client.idle_count() == usize(1), "and it is pooled again");
   client.close_idle();
   assert(client.idle_count() == usize(0), "close_idle empties the pool");
@@ -1192,7 +1192,7 @@ test("HttpClient: the free fetch stays one-shot — it announces Connection: clo
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1203,19 +1203,19 @@ test("HttpClient: the free fetch stays one-shot — it announces Connection: clo
   task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, Rc.clone(&stats), io), e);
   a := io.await(fetch(`http://127.0.0.1:19841/one`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
-  assert(stats.with(st => st.saw_close), "the one-shot fetch sent Connection: close");
+  assert(stats.*.with(st => st.saw_close), "the one-shot fetch sent Connection: close");
   // A second one-shot fetch opens its own connection — there is no hidden
   // global pool behind `fetch`.
   b := io.await(fetch_with(`http://127.0.0.1:19841/two`, FetchOptions.new(), io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(2), `two one-shot fetches, two accepts, got ${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(2), `two one-shot fetches, two accepts, got ${stats.*.with(st => st.accepts)}`);
   task.await(io);
 });
 test("HttpClient: Connection: close retires the connection", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1230,7 +1230,7 @@ test("HttpClient: Connection: close retires the connection", {
   assert(client.idle_count() == usize(0), `Connection: close is not pooled, idle=${client.idle_count()}`);
   b := io.await(client.fetch(`http://127.0.0.1:19842/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(2), `each request got its own connection, accepts=${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(2), `each request got its own connection, accepts=${stats.*.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1238,7 +1238,7 @@ test("HttpClient: an HTTP/1.0 response without Connection: keep-alive retires th
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1258,7 +1258,7 @@ test("HttpClient: an HTTP/1.0 response WITH Connection: keep-alive is reused", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1273,7 +1273,7 @@ test("HttpClient: an HTTP/1.0 response WITH Connection: keep-alive is reused", {
   assert(client.idle_count() == usize(1), `an explicit keep-alive opts in, idle=${client.idle_count()}`);
   b := io.await(client.fetch(`http://127.0.0.1:19844/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(1), `one accept, got ${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(1), `one accept, got ${stats.*.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1281,7 +1281,7 @@ test("HttpClient: a response of unknown length is close-delimited and retires th
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1303,7 +1303,7 @@ test("HttpClient: a connection the server closed while idle is retried once on a
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1321,7 +1321,7 @@ test("HttpClient: a connection the server closed while idle is retried once on a
   assert(client.idle_count() == usize(1), `pooled, idle=${client.idle_count()}`);
   b := io.await(client.fetch(`http://127.0.0.1:19846/two`, io), e);
   assert(b.body == `n=2`, `the retried request succeeded: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(2), `the retry opened a fresh connection, accepts=${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(2), `the retry opened a fresh connection, accepts=${stats.*.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1329,7 +1329,7 @@ test("HttpClient: the idle cap is respected", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1347,7 +1347,7 @@ test("HttpClient: the idle cap is respected", {
   assert(client.idle_count() == usize(0), `nothing pooled at cap 0, idle=${client.idle_count()}`);
   b := io.await(client.fetch(`http://127.0.0.1:19847/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(2), `each request connected, accepts=${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(2), `each request connected, accepts=${stats.*.with(st => st.accepts)}`);
   assert(client.idle_count() == usize(0), "still nothing pooled");
   task.await(io);
 });
@@ -1355,7 +1355,7 @@ test("HttpClient: the idle age limit closes a connection instead of reusing it",
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1373,7 +1373,7 @@ test("HttpClient: the idle age limit closes a connection instead of reusing it",
   io.await(sleep(Duration.from_millis(i64(20)), io), io);
   b := io.await(client.fetch(`http://127.0.0.1:19848/two`, io), e);
   assert(b.body == `n=2`, `second response: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(2), `the expired connection was not reused, accepts=${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(2), `the expired connection was not reused, accepts=${stats.*.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1400,7 +1400,7 @@ test("HttpClient: dispose closes every idle connection", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1440,7 +1440,7 @@ test("HttpClient: the pool never crosses ports", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1458,12 +1458,12 @@ test("HttpClient: the pool never crosses ports", {
   // be handed over — it is wired to another peer.
   b := io.await(client.fetch(`http://127.0.0.1:19851/b`, io), e);
   assert(b.body == `n=2`, `second server: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(2), `each port got its own connection, accepts=${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(2), `each port got its own connection, accepts=${stats.*.with(st => st.accepts)}`);
   assert(client.idle_count() == usize(2), `both are pooled, idle=${client.idle_count()}`);
   // And the first target's connection is still the one reused for it.
   c := io.await(client.fetch(`http://127.0.0.1:19850/c`, io), e);
   assert(c.body == `n=3`, `back to the first server: ${c.body}`);
-  assert(stats.with(st => st.accepts) == usize(2), `still two accepts, got ${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(2), `still two accepts, got ${stats.*.with(st => st.accepts)}`);
   client.close_idle();
   t1.await(io);
   t2.await(io);
@@ -1490,7 +1490,7 @@ test("HttpClient: the pool never crosses hosts", {
         // locals, but it can call a module-level binding, #396).
         assert(
           _iso_phase() == i32(1),
-          `unexpected exception before the isolation request: ${err.to_string()}`
+          `unexpected exception before the isolation request: ${err.*.to_string()}`
         );
         unwind(());
       }
@@ -1527,7 +1527,7 @@ test("HttpClient: a 204 ends at its headers, whatever its Content-Length says", 
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1547,8 +1547,8 @@ test("HttpClient: a 204 ends at its headers, whatever its Content-Length says", 
   assert(client.idle_count() == usize(1), `pooled, idle=${client.idle_count()}`);
   b := io.await(client.fetch_with(`http://127.0.0.1:19853/two`, &opts, io), e);
   assert(b.status.as_u16() == u16(204), `second status ${b.status.as_u16()}`);
-  assert(stats.with(st => st.accepts) == usize(1), `one accept, got ${stats.with(st => st.accepts)}`);
-  assert(stats.with(st => st.requests) == usize(2), `two requests framed, got ${stats.with(st => st.requests)}`);
+  assert(stats.*.with(st => st.accepts) == usize(1), `one accept, got ${stats.*.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.requests) == usize(2), `two requests framed, got ${stats.*.with(st => st.requests)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1556,7 +1556,7 @@ test("HttpClient: a HEAD response ends at its headers and the connection is reus
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1576,7 +1576,7 @@ test("HttpClient: a HEAD response ends at its headers and the connection is reus
   get := FetchOptions.new().with_timeout(Duration.from_secs(i64(10)));
   b := io.await(client.fetch_with(`http://127.0.0.1:19854/two`, &get, io), e);
   assert(b.body == `n=2`, `the GET after a HEAD is framed correctly: ${b.body}`);
-  assert(stats.with(st => st.accepts) == usize(1), `one accept, got ${stats.with(st => st.accepts)}`);
+  assert(stats.*.with(st => st.accepts) == usize(1), `one accept, got ${stats.*.with(st => st.accepts)}`);
   client.close_idle();
   task.await(io);
 });
@@ -1629,7 +1629,7 @@ test("wire: a 204 followed by another response in one read carries the tail", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1646,7 +1646,7 @@ test("wire: a 204 followed by another response in one read carries the tail", {
     }
   );
   assert(raw1 == String.from(_P204), `the 204 is framed at its header section, got ${raw1.len()} bytes`);
-  assert(carry.with(c => c.len()) == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.with(c => c.len())})`);
+  assert(carry.*.with(c => c.len()) == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.*.with(c => c.len())})`);
   reads_before := r.state.with(st => st.reads);
   raw2 := match(
     io.await(_wire.read_http_message_buffered(&r, usize(0), _wire.MessageKind.Response, &carry, io), e),
@@ -1664,7 +1664,7 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -1681,7 +1681,7 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
     }
   );
   assert(raw1 == String.from(_PHEAD), `the HEAD response is framed at its headers, got ${raw1.len()} bytes`);
-  assert(carry.with(c => c.len()) == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.with(c => c.len())})`);
+  assert(carry.*.with(c => c.len()) == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.*.with(c => c.len())})`);
   // The same bytes read as a plain Response would swallow the next response's
   // first three bytes as this one's body — which is exactly the smuggling the
   // kind parameter exists to prevent.
@@ -1729,7 +1729,7 @@ test("an aborted HttpClient fetch takes its exchange down with it", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )

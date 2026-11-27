@@ -141,7 +141,7 @@ _get_or_create_some_ty_for_trait :: (
         }
       );
       match(
-        last_v.value().get(usize(0)),
+        last_v.*.value().get(usize(0)),
         .Some(ev) => {
           match(
             ev,
@@ -344,7 +344,7 @@ _apply_single_constraint_for_trait :: (
       trait_ty,
       Rc(.TraitT(_, sc_body, _, _, _, _)) => {
         sc_trait := Rc.clone(trait_ty2);
-        sc_body.with_mut({ sc_trait : Rc.clone(sc_trait), is_negated }(b) => {
+        sc_body.*.*.with_mut({ sc_trait : Rc.clone(sc_trait), is_negated }(b) => {
           if(is_negated, {
             b.neg_self_constraints.push(sc_trait);
           }, {
@@ -532,7 +532,7 @@ _parse_trait_where_clauses :: (
           trait_ty,
           Rc(.TraitT(_, sc_body, _, _, _, _)) => {
             sc_trait := Rc.clone(trait_ty2);
-            sc_body.with_mut({ sc_trait : Rc.clone(sc_trait), is_neg }(b) => {
+            sc_body.*.*.with_mut({ sc_trait : Rc.clone(sc_trait), is_neg }(b) => {
               if(is_neg, {
                 b.neg_self_constraints.push(sc_trait);
               }, {
@@ -1056,7 +1056,7 @@ _evaluate_trait_field :: (
         existing_vars.last_cloned(),
         .Some(last_v) => {
           match(
-            last_v.value().get(usize(0)),
+            last_v.*.value().get(usize(0)),
             .Some(ev) => {
               match(
                 ev,
@@ -1125,7 +1125,7 @@ evaluate_trait_type :: (
   // unique per mint like the `random_id` it replaces, but an edit in another
   // module cannot renumber it.
   decl_tok := ast_expr_token(expr);
-  trait_id := stable_type_id(String.from("trait_"), &decl_tok.module_path.*, usize(decl_tok.row), usize(decl_tok.column));
+  trait_id := stable_type_id(String.from("trait_"), &decl_tok.*.module_path.*, usize(decl_tok.*.row), usize(decl_tok.*.column));
   // The trait's node is minted before its body is evaluated: the body names
   // the trait itself (`SelfTrait`, `Self.X` through `ctx.self_trait_type`, a
   // member typed over `Dyn(SelfTrait)`). Its members and `where(Self <: X)`
@@ -1270,7 +1270,7 @@ evaluate_trait_type :: (
     );
     // Check for duplicate labels
     dup_label := field_result.label.clone();
-    is_duplicate := trait_body.with({ dup_label }(b) => b.field_labels.contains(&dup_label));
+    is_duplicate := trait_body.*.with({ dup_label }(b) => b.field_labels.contains(&dup_label));
     if(is_duplicate, {
       exn.throw(
         dyn(
@@ -1286,7 +1286,7 @@ evaluate_trait_type :: (
     member_label := field_result.label.clone();
     member_ty := Rc.clone(field_result.ty);
     member_is_assoc := field_result.assoc_some_ty.is_some();
-    trait_body.with_mut({ member_label, member_ty : Rc.clone(member_ty), member_is_assoc }(b) => {
+    trait_body.*.with_mut({ member_label, member_ty : Rc.clone(member_ty), member_is_assoc }(b) => {
       b.field_labels.push(member_label.clone());
       b.field_types.push(member_ty);
       if(member_is_assoc, {
@@ -1305,7 +1305,7 @@ evaluate_trait_type :: (
             existing_vars.last_cloned(),
             .Some(last_v) => {
               match(
-                last_v.value().get(usize(0)),
+                last_v.*.value().get(usize(0)),
                 .Some(ev) => {
                   match(
                     ev,

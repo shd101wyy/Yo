@@ -163,7 +163,7 @@ impl(
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
-      while(!self.stopped.with(_c_clone_bool), {
+      while(!self.stopped.*.with(_c_clone_bool), {
         got := e.io.await(self._accept_request(e.io), e);
         match(
           got,
@@ -178,7 +178,7 @@ impl(
   /// Writes the flag every clone shares, so a handle kept beside a running
   /// `serve` (or the handler's own capture) stops it.
   stop : (fn(self : &Self) -> unit)({
-    self.stopped.replace(true);
+    self.stopped.*.replace(true);
   }),
   /// Close the listening socket.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({

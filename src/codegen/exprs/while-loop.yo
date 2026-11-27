@@ -216,7 +216,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
                     get_deferred_drop_target_atom_name(&de),
                     .Some(nm) => {
                       cn := sanitize_for_c_identifier(&nm, false);
-                      (is_temp_variable_name(match(&ei_opt, .Some(e2) => e2.env().module_path().*.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with({ &cn }(dn_s) => dn_s.contains(&cn.*))
+                      (is_temp_variable_name(match(&ei_opt, .Some(e2) => e2.env().module_path().*.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.with({ &cn }(dn_s) => dn_s.contains(&cn.*))
                     },
                     .None => false
                   );
@@ -338,7 +338,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       body_expr := match(args.get_cloned(usize(1)), .Some(b) => b, .None => Rc.clone(expr.*));
       saved_loop := replace(&mut context.base.current_loop_label, Option(String).None);
       loop_tok := ast_expr_token(expr);
-      loop_label := stable_label_id(String.from("loop_"), &loop_tok.module_path.*, usize(loop_tok.row), usize(loop_tok.column));
+      loop_label := stable_label_id(String.from("loop_"), &loop_tok.*.module_path.*, usize(loop_tok.*.row), usize(loop_tok.*.column));
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
       context.loop_body_drops_baseline_count = Option(usize).Some(match(&context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
@@ -362,8 +362,8 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       saved_loop := replace(&mut context.base.current_loop_label, Option(String).None);
       saved_continue := replace(&mut context.base.current_continue_label, Option(String).None);
       loop3_tok := ast_expr_token(expr);
-      loop_label := stable_label_id(String.from("loop_"), &loop3_tok.module_path.*, usize(loop3_tok.row), usize(loop3_tok.column));
-      continue_label := stable_label_id(String.from("continue_"), &loop3_tok.module_path.*, usize(loop3_tok.row), usize(loop3_tok.column));
+      loop_label := stable_label_id(String.from("loop_"), &loop3_tok.*.module_path.*, usize(loop3_tok.*.row), usize(loop3_tok.*.column));
+      continue_label := stable_label_id(String.from("continue_"), &loop3_tok.*.module_path.*, usize(loop3_tok.*.row), usize(loop3_tok.*.column));
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       context.base.current_continue_label = Option(String).Some(continue_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;

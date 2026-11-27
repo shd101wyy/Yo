@@ -48,21 +48,21 @@ test("Barrier holds every party until the last one arrives", {
   arrived := Arc.new(AtomicI32.new(i32(0)));
   passed := Arc.new(AtomicI32.new(i32(0)));
   t1 := Thread(unit).spawn({ b : Arc.clone(b), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
-    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-    b.wait();
-    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+    arrived.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+    b.*.wait();
+    passed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
   t2 := Thread(unit).spawn({ b : Arc.clone(b), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
-    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-    b.wait();
-    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+    arrived.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+    b.*.wait();
+    passed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
   t3 := Thread(unit).spawn({ b : Arc.clone(b), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
-    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-    b.wait();
-    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+    arrived.*.fetch_add(i32(1), MemoryOrder.AcqRel);
+    b.*.wait();
+    passed.*.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
-  while(arrived.load(MemoryOrder.Acquire) < i32(3), {
+  while(arrived.*.load(MemoryOrder.Acquire) < i32(3), {
     sleep_blocking(Duration.from_millis(i64(1)));
   });
   // `arrived` only says the three threads reached the fetch_add; wait for the
@@ -72,23 +72,23 @@ test("Barrier holds every party until the last one arrives", {
   // resets `_count` before it is ever observed at 3) failing on the assertions
   // instead of hanging here.
   mut(settle) := i32(0);
-  while((b.waiting() < i32(3)) && (settle < i32(5000)), {
+  while((b.*.waiting() < i32(3)) && (settle < i32(5000)), {
     sleep_blocking(Duration.from_millis(i64(1)));
     settle = (settle + i32(1));
   });
   sleep_blocking(Duration.from_millis(i64(30)));
-  assert(passed.load(MemoryOrder.Acquire) == i32(0), "no party may pass a 4-party barrier while only 3 have arrived");
-  assert(b.waiting() == i32(3), "all three are parked in the current generation");
-  assert(b.generation() == i64(0), "the barrier has not tripped yet");
+  assert(passed.*.load(MemoryOrder.Acquire) == i32(0), "no party may pass a 4-party barrier while only 3 have arrived");
+  assert(b.*.waiting() == i32(3), "all three are parked in the current generation");
+  assert(b.*.generation() == i64(0), "the barrier has not tripped yet");
   // The main thread is the fourth and last party.
-  is_leader := b.wait();
+  is_leader := b.*.wait();
   assert(is_leader, "the party that trips the barrier is the leader");
   t1.join();
   t2.join();
   t3.join();
-  assert(passed.load(MemoryOrder.Acquire) == i32(3), "every parked party is released when the barrier trips");
-  assert(b.generation() == i64(1), "one trip, one generation");
-  assert(b.waiting() == i32(0), "the count is reset for the next round");
+  assert(passed.*.load(MemoryOrder.Acquire) == i32(3), "every parked party is released when the barrier trips");
+  assert(b.*.generation() == i64(1), "one trip, one generation");
+  assert(b.*.waiting() == i32(0), "the count is reset for the next round");
 });
 
 // ============================================================================
@@ -115,16 +115,16 @@ test("Barrier reused across generations releases exactly one leader per round", 
   }(io) => {
     mut(r) := i32(0);
     while(r < i32(5), {
-      arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
+      arrivals.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       cond(
-        b.wait() => {
-          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        b.*.wait() => {
+          leaders.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
       cond(
-        (arrivals.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
-          early.fetch_add(i32(1), MemoryOrder.AcqRel);
+        (arrivals.*.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
+          early.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
@@ -139,16 +139,16 @@ test("Barrier reused across generations releases exactly one leader per round", 
   }(io) => {
     mut(r) := i32(0);
     while(r < i32(5), {
-      arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
+      arrivals.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       cond(
-        b.wait() => {
-          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        b.*.wait() => {
+          leaders.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
       cond(
-        (arrivals.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
-          early.fetch_add(i32(1), MemoryOrder.AcqRel);
+        (arrivals.*.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
+          early.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
@@ -163,16 +163,16 @@ test("Barrier reused across generations releases exactly one leader per round", 
   }(io) => {
     mut(r) := i32(0);
     while(r < i32(5), {
-      arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
+      arrivals.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       cond(
-        b.wait() => {
-          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        b.*.wait() => {
+          leaders.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
       cond(
-        (arrivals.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
-          early.fetch_add(i32(1), MemoryOrder.AcqRel);
+        (arrivals.*.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
+          early.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
@@ -187,16 +187,16 @@ test("Barrier reused across generations releases exactly one leader per round", 
   }(io) => {
     mut(r) := i32(0);
     while(r < i32(5), {
-      arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
+      arrivals.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       cond(
-        b.wait() => {
-          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        b.*.wait() => {
+          leaders.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
       cond(
-        (arrivals.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
-          early.fetch_add(i32(1), MemoryOrder.AcqRel);
+        (arrivals.*.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
+          early.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
@@ -207,11 +207,11 @@ test("Barrier reused across generations releases exactly one leader per round", 
   t2.join();
   t3.join();
   t4.join();
-  assert(arrivals.load(MemoryOrder.Acquire) == i32(20), "4 threads x 5 rounds must all arrive");
-  assert(early.load(MemoryOrder.Acquire) == i32(0), "no party may leave a round before all four arrived");
-  assert(leaders.load(MemoryOrder.Acquire) == i32(5), "exactly one leader per generation");
-  assert(b.generation() == i64(5), "five rounds, five generations");
-  assert(b.waiting() == i32(0), "no party is left parked");
+  assert(arrivals.*.load(MemoryOrder.Acquire) == i32(20), "4 threads x 5 rounds must all arrive");
+  assert(early.*.load(MemoryOrder.Acquire) == i32(0), "no party may leave a round before all four arrived");
+  assert(leaders.*.load(MemoryOrder.Acquire) == i32(5), "exactly one leader per generation");
+  assert(b.*.generation() == i64(5), "five rounds, five generations");
+  assert(b.*.waiting() == i32(0), "no party is left parked");
 });
 
 // ============================================================================
@@ -233,28 +233,28 @@ test("Barrier survives a party re-entering before its partner leaves", {
     mut(i) := i32(0);
     while(i < i32(500), {
       cond(
-        b.wait() => {
-          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        b.*.wait() => {
+          leaders.*.fetch_add(i32(1), MemoryOrder.AcqRel);
         },
         true => ()
       );
-      rounds.fetch_add(i32(1), MemoryOrder.AcqRel);
+      rounds.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       i = (i + i32(1));
     });
   });
   mut(i) := i32(0);
   while(i < i32(500), {
     cond(
-      b.wait() => {
-        leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+      b.*.wait() => {
+        leaders.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       },
       true => ()
     );
-    rounds.fetch_add(i32(1), MemoryOrder.AcqRel);
+    rounds.*.fetch_add(i32(1), MemoryOrder.AcqRel);
     i = (i + i32(1));
   });
   t.join();
-  assert(rounds.load(MemoryOrder.Acquire) == i32(1000), "both parties must complete all 500 rounds");
-  assert(leaders.load(MemoryOrder.Acquire) == i32(500), "exactly one leader in each of the 500 generations");
-  assert(b.generation() == i64(500), "the generation counter matches the rounds run");
+  assert(rounds.*.load(MemoryOrder.Acquire) == i32(1000), "both parties must complete all 500 rounds");
+  assert(leaders.*.load(MemoryOrder.Acquire) == i32(500), "exactly one leader in each of the 500 generations");
+  assert(b.*.generation() == i64(500), "the generation counter matches the rounds run");
 });

@@ -478,10 +478,10 @@ _once_holder :: (fn() -> _OnceCbHolder)({
 });
 _OnceOuter :: struct(h : _OnceCbHolder);
 _once_eat_outer :: (fn(sink(w) : _OnceOuter) -> i32)(_once_log(w.h.tag + i32(1)));
-_once_eat_rc_holder :: (fn(sink(h) : Rc(_OnceCbHolder)) -> i32)(_once_log(h.tag + i32(1)));
+_once_eat_rc_holder :: (fn(sink(h) : Rc(_OnceCbHolder)) -> i32)(_once_log(h.*.tag + i32(1)));
 _OnceGen :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F, tag : i32));
 _OnceFp :: struct(f : (fn(x : i32) -> i32), tag : i32);
-_once_eat_fp :: (fn(sink(h) : Rc(_OnceFp)) -> i32)(_once_log(h.tag + i32(1)));
+_once_eat_fp :: (fn(sink(h) : Rc(_OnceFp)) -> i32)(_once_log(h.*.tag + i32(1)));
 test("FnOnce: a closure-field call as an operand runs before a later argument consumes the holder", {
   before := g_once_disposed;
   {
@@ -538,7 +538,7 @@ test("FnOnce: a closure-field call through a nested field, an Rc holder or a gen
   {
     g_once_order = i32(0);
     h := Rc.new(_once_holder());
-    assert(h.cb1(i32(1)) < _once_eat_rc_holder(h), "Rc holder");
+    assert(h.*.cb1(i32(1)) < _once_eat_rc_holder(h), "Rc holder");
     assert(g_once_order == i32(12), "h.cb1(1) ran before eat(h)");
   };
   {
@@ -555,7 +555,7 @@ test("FnOnce: a closure-field call through a nested field, an Rc holder or a gen
 test("FnOnce: a fn-pointer field call on an Rc holder runs before a later argument releases the holder", {
   g_once_order = i32(0);
   h := Rc.new(_OnceFp(f : _once_log, tag : i32(1)));
-  assert(h.f(i32(1)) < _once_eat_fp(h), "1 < 2");
+  assert(h.*.f(i32(1)) < _once_eat_fp(h), "1 < 2");
   assert(g_once_order == i32(12), "h.f(1) ran before eat(h)");
 });
 // A closure-field call's OWNED result used as a `&self` receiver is a temp the
@@ -584,7 +584,7 @@ test("FnOnce: a closure-field call lends the holder to its own arguments", {
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
     h := Rc.new(_once_holder());
-    h.cb1(_once_eat_rc_holder(h))
+    h.*.cb1(_once_eat_rc_holder(h))
   }, "an earlier argument of the same call lends to it");
 });
 test("FnOnce: a method call's result as an operand lends nothing of the receiver", {

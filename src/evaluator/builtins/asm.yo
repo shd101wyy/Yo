@@ -87,7 +87,7 @@ _is_valid_asm_operand_type :: (fn(t : &TypeValue) -> bool)(
   is_integer_type(t) || is_float_type(t) || is_pointer_type(t) || is_bool_type(t)
 );
 _atom_value :: (fn(e : &AstExpr) -> String)(
-  match(e, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""))
+  match(e, Rc(.Atom(_, tok)) => tok.*.*.value.*.clone(), _ => String.from(""))
 );
 _is_register_class_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && _str_in(_register_classes(), _atom_value(e))
@@ -337,12 +337,12 @@ _parse_operand :: (
           variables.last_cloned(),
           .Some(variable) => {
             is_type_var = match(
-              variable.value().get(usize(0)),
+              variable.*.value().get(usize(0)),
               .Some(vv) => match(vv, Rc(.TypeVal(_)) => true, _ => false),
               .None => false
             );
             var_type = variable_value_type(&variable);
-            var_initialized = variable.initialized_at_token().is_some();
+            var_initialized = variable.*.initialized_at_token().is_some();
           },
           .None => ()
         );
@@ -685,7 +685,7 @@ evaluate_asm :: (
 )({
   tok := ast_expr_token(expr);
   // Phase C privilege gate.
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.*.module_path.*.clone())), {
     exn.throw(
       dyn(
         Box.new(
@@ -898,9 +898,9 @@ evaluate_asm :: (
               match(
                 variables.last_cloned(),
                 .Some(variable) => match(
-                  variable.initialized_at_token(),
+                  variable.*.initialized_at_token(),
                   .None => {
-                    variable.set_initialized_at_token(Option(Token).Some(Rc.clone(tok)));
+                    variable.*.set_initialized_at_token(Option(Token).Some(Rc.clone(tok)));
                   },
                   .Some(_) => ()
                 ),
@@ -1009,7 +1009,7 @@ evaluate_global_asm :: (
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.*.module_path.*.clone())), {
     exn.throw(
       dyn(
         Box.new(

@@ -62,14 +62,14 @@ _emit_unbound_rhs :: (fn(code : String, indent : &String, context : &mut Functio
 _last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get_cloned(m - usize(1)), .Some(v) => v.is_compile_time_only(), .None => false))
+  if(m == usize(0), false, match(vars.get_cloned(m - usize(1)), .Some(v) => v.*.is_compile_time_only(), .None => false))
 });
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
 _last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get_cloned(m - usize(1)), .Some(v) => v.is_module_level(), .None => false))
+  if(m == usize(0), false, match(vars.get_cloned(m - usize(1)), .Some(v) => v.*.is_module_level(), .None => false))
 });
 /// Tuple positional index for a label, or -1-sentinel (== len) if not found.
 _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))(
@@ -133,7 +133,7 @@ _binding_atom_key :: (fn(pattern : &AstExpr, name : &String) -> ExprId)({
     cur := match(stack.pop(), .Some(x) => x, .None => Rc.clone(pattern.*));
     match(
       Rc.clone(cur),
-      Rc(.Atom(_, _)) => if(ast_expr_token(&cur).value.* == name.*, {
+      Rc(.Atom(_, _)) => if(ast_expr_token(&cur).*.value.* == name.*, {
         return(ast_expr_id(&cur));
       }),
       Rc(.FnCall(_, _, Rc(args), _, _)) => {
@@ -242,7 +242,7 @@ _sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Op
   match(
     &context.state_machine_variables,
     .Some(smv) => {
-      id := v.id().to_string();
+      id := v.*.*.id().to_string();
       canon := match(&context.variable_id_remapping, .Some(rm) => match(rm.get_cloned(id.clone()), .Some(m) => m, .None => id), .None => id);
       match(
         smv.get_cloned(&canon),
@@ -269,7 +269,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   name_ei := match(
     context.base.get_expr_info(&name_expr),
     .Some(e) => e,
-    .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(&name_expr).value.*}`))
+    .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(&name_expr).*.value.*}`))
   );
   var_name := ast_expr_text(&name_expr).*.clone();
   place_type := resolve_some_type_to_concrete(&name_ei.ty());
@@ -284,7 +284,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     lookup_local_borrow_step_pin(ast_expr_id(lhs)),
     .Some(sp) => if(!is_unit_type(&variable_value_type(&sp)), {
       mut(sp_decl) := indent.clone();
-      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&variable_value_type(&sp), sp.name.clone(), &mut context.base)));
+      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&variable_value_type(&sp), sp.*.name.clone(), &mut context.base)));
       sp_decl.push_str(" = NULL;");
       context.base.emitter.emit_string_line(&sp_decl);
     }),
@@ -300,7 +300,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
         .Some(pin_expr) => {
           pin_code := _call_generate_expr(&pin_expr, indent.clone(), context);
           mut(pin_decl) := indent.clone();
-          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&variable_value_type(&pin_var), pin_var.name.clone(), &mut context.base)));
+          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&variable_value_type(&pin_var), pin_var.*.name.clone(), &mut context.base)));
           pin_decl.push_str(" = ");
           pin_decl.push_string(generate_dup_code_for_value(&pin_code, &variable_value_type(&pin_var), context));
           pin_decl.push_str(";");
@@ -419,9 +419,9 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
       .Some(sp) => match(
         expr_info_macro_expansion(&lhs_ei),
         .Some(cell_expr) => {
-          sp_slot := match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => sanitize_for_c_identifier(sp.name.clone(), false));
+          sp_slot := match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => sanitize_for_c_identifier(sp.*.name.clone(), false));
           cell_code := _call_generate_expr(&cell_expr, indent.clone(), context);
-          tmp := `${sanitize_for_c_identifier(sp.name.clone(), false)}_step`;
+          tmp := `${sanitize_for_c_identifier(sp.*.name.clone(), false)}_step`;
           context.base.emitter.emit_string_line(`${indent}{`);
           emit_text1 := `${indent}  ${get_variable_type_string(&variable_value_type(&sp), tmp.clone(), &mut context.base)} = ${generate_dup_code_for_value(&cell_code, &variable_value_type(&sp), context)};`;
           context.base.emitter.emit_string_line(&emit_text1);
@@ -439,7 +439,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
   // The pointer: `cur`'s reads are `(*cur)`, so its C lvalue is inside.
   name_code := _call_generate_expr(&name_expr, indent.clone(), context);
   if(!(name_code.starts_with("(*") && name_code.ends_with(")")), {
-    return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).value.*}": the borrow lowered to ${name_code}, not a pointer read`));
+    return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).*.value.*}": the borrow lowered to ${name_code}, not a pointer read`));
   });
   ptr := name_code.substring(usize(2), name_code.len() - usize(1));
   place_code := _call_generate_expr(&rhs, indent.clone(), context);
@@ -448,7 +448,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
     if(!_is_c_lvalue_chain(&place_code), {
-      return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).value.*}": place lowered to a non-lvalue C expression: ${place_code}`));
+      return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).*.value.*}": place lowered to a non-lvalue C expression: ${place_code}`));
     });
     addr = `(&(${place_code}))`;
   });
@@ -533,7 +533,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         // iteration and a discarded pass has no type info). Kept a comment,
         // not an error; the harmful case is the `__yo_user_main` gate in
         // codegen/functions/generation.yo.
-        Option(String).Some(`// Error: No type information for variable ${ast_expr_token(&lhs).value.*}`)
+        Option(String).Some(`// Error: No type information for variable ${ast_expr_token(&lhs).*.value.*}`)
       )
     );
     var_name := match(&lhs_ei.variable_name(), .Some(vn) => vn.clone(), .None => ast_expr_text(&lhs).*.clone());
@@ -680,7 +680,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
           .Some(tvn) => {
             temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn.*, Option(Environment).Some(rei.env()));
             // Same name as the binding, or a bare atom already named — no temp.
-            rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value.*, Option(Environment).Some(rei.env()))));
+            rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).*.value.*, Option(Environment).Some(rei.env()))));
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
               effective_type := match(expr_info_converted_runtime_type(&rei), .Some(crt) => crt, .None => Rc.clone(rei.ty()));

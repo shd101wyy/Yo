@@ -40,8 +40,8 @@ test("a waker fired from another OS thread resumes its task on the owning loop",
   h := io.spawn(
     io.async({ p, resumed_on : Arc.clone(resumed_on), stamped : Arc.clone(stamped) }(io : Io) => {
       io.await(p.wait(io), io);
-      resumed_on.store(get_thread_id(), MemoryOrder.Release);
-      _a := stamped.fetch_add(i32(100), MemoryOrder.AcqRel);
+      resumed_on.*.store(get_thread_id(), MemoryOrder.Release);
+      _a := stamped.*.fetch_add(i32(100), MemoryOrder.AcqRel);
       i32(0)
     }),
     io
@@ -51,14 +51,14 @@ test("a waker fired from another OS thread resumes its task on the owning loop",
     // runnable task for these 50 ms, so it must wait rather than conclude
     // it has nothing left to do.
     sleep_blocking(Duration.from_millis(i64(50)));
-    _b := stamped.fetch_add(i32(7), MemoryOrder.AcqRel);
+    _b := stamped.*.fetch_add(i32(7), MemoryOrder.AcqRel);
     w.wake();
     ()
   });
   _r := h.await(io);
-  assert(stamped.load(MemoryOrder.Acquire) == i32(107), "the worker ran and the task resumed");
+  assert(stamped.*.load(MemoryOrder.Acquire) == i32(107), "the worker ran and the task resumed");
   assert(
-    resumed_on.load(MemoryOrder.Acquire) == main_tid,
+    resumed_on.*.load(MemoryOrder.Acquire) == main_tid,
     "the task resumed on the loop that owns it, not on the thread that woke it"
   );
   t.join();
@@ -75,9 +75,9 @@ test("two parks woken from two different threads", {
     io.async({ p1, main_tid, both_on_main : Arc.clone(both_on_main), order : Arc.clone(order) }(io : Io) => {
       io.await(p1.wait(io), io);
       if(get_thread_id() == main_tid, {
-        _x := both_on_main.fetch_add(i32(1), MemoryOrder.AcqRel);
+        _x := both_on_main.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       });
-      _a := order.fetch_add(i32(1), MemoryOrder.AcqRel);
+      _a := order.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       i32(0)
     }),
     io
@@ -86,9 +86,9 @@ test("two parks woken from two different threads", {
     io.async({ p2, main_tid, both_on_main : Arc.clone(both_on_main), order : Arc.clone(order) }(io : Io) => {
       io.await(p2.wait(io), io);
       if(get_thread_id() == main_tid, {
-        _y := both_on_main.fetch_add(i32(1), MemoryOrder.AcqRel);
+        _y := both_on_main.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       });
-      _b := order.fetch_add(i32(10), MemoryOrder.AcqRel);
+      _b := order.*.fetch_add(i32(10), MemoryOrder.AcqRel);
       i32(0)
     }),
     io
@@ -105,8 +105,8 @@ test("two parks woken from two different threads", {
   });
   _r1 := h1.await(io);
   _r2 := h2.await(io);
-  assert(order.load(MemoryOrder.Acquire) == i32(11), "both wakes arrived");
-  assert(both_on_main.load(MemoryOrder.Acquire) == i32(2), "both tasks resumed on the owning loop");
+  assert(order.*.load(MemoryOrder.Acquire) == i32(11), "both wakes arrived");
+  assert(both_on_main.*.load(MemoryOrder.Acquire) == i32(2), "both tasks resumed on the owning loop");
   t1.join();
   t2.join();
 });
@@ -126,13 +126,13 @@ test("a wake that arrives BEFORE the task suspends is not lost", {
   h := io.spawn(
     io.async({ p, ran : Arc.clone(ran) }(io : Io) => {
       io.await(p.wait(io), io);
-      _a := ran.fetch_add(i32(1), MemoryOrder.AcqRel);
+      _a := ran.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       i32(0)
     }),
     io
   );
   _r := h.await(io);
-  assert(ran.load(MemoryOrder.Acquire) == i32(1), "the early wake was observed rather than lost");
+  assert(ran.*.load(MemoryOrder.Acquire) == i32(1), "the early wake was observed rather than lost");
 });
 test("a wake posted before the owner drops its waker handle still resumes the park", {
   // REGRESSION (issues/fixed/a-foreign-wake-queued-before-the-owner-drops-its-waker-is-lost.md).
@@ -204,13 +204,13 @@ test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outl
   while(i < i32(2000), {
     t := Thread(unit).spawn({ total : Arc.clone(total) }(io : Io) => {
       v := io.await(spawn_blocking(() => i32(1), io), io);
-      _n := total.fetch_add(v, MemoryOrder.AcqRel);
+      _n := total.*.fetch_add(v, MemoryOrder.AcqRel);
       ()
     });
     t.join();
     i = (i + i32(1));
   });
-  assert(total.load(MemoryOrder.Acquire) == i32(2000), "every spawned thread received its blocking result");
+  assert(total.*.load(MemoryOrder.Acquire) == i32(2000), "every spawned thread received its blocking result");
 });
 // §3.13 A5: a `Waker` is move-only, and a clone is another handle on the same
 // token. The token is one live waker for the loop until its LAST handle is
