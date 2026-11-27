@@ -53,3 +53,7 @@ store (E0923 against the holder's declared origin, E0911 against `y`'s scope)?
 Admit it: the whole-holder store already runs the same checks, so the field form adds no unchecked path, and it
 spells at the use site what the whole-holder rewrite hides (explicit over implicit). Until then, word the diagnostics for what the code does (a re-point of a
 reference field is not admitted; write the whole holder).
+
+## Fixed (v0.2.81)
+
+Admitted by VERDICTS-78 Q1: `h.r = &y` and `&mut h.r` on a `&` field re-point the field, checked as the field write `h.o = .Some(&y)` is. The fix is recorded in `issues/fixed/2026-11-23-a-reference-field-cannot-be-re-pointed-in-place.md`.

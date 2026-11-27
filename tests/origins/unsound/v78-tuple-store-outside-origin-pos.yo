@@ -1,16 +1,14 @@
-// expect: E0911
+// expect: accept
+// VERDICTS-78 Q1 edge 9: `t.0 = &z` stores a reference into the element (within its origin).
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 X :: struct(s : String);
 mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
 main :: (fn() -> unit)({
   z := mk();
   mut(t) := (&z, i32(0));
-  {
-    y := mk();
-    t = (&y, t.1);
-  };
+  t.0 = &z;
   println(`OUT: ${t.0.*.*.s.len().to_string()}`);
-  ()
 });
 export(main);

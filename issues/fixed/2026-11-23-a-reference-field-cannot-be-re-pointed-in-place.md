@@ -2,7 +2,7 @@
 
 **Severity:** S3: a missing spelling with a workaround. Storing a reference into a field of reference type (`h.r = &y`, `t.0 = &y`) is E0926 and lending the field itself (`&mut h.r`, `setp(&mut h.r, &y)`) is E0908; writing the whole holder, `h = H(r : &y, n : h.n)`, is accepted and checked on every route. Rust accepts both spellings.
 
-Status: OPEN by design for v0.2.80. VERDICTS-78 Q1 (Fable, adopted 2026-11-23) admits the field store in v0.2.81 (one PR, after VERDICTS-76's Q1 fix); v0.2.80 only rewords the two diagnostics so they say what the code does and how to write it today (branch `v0280/v78-diag`). No new program is accepted in v0.2.80.
+Status: FIXED in v0.2.81 (VERDICTS-78 Q1, branch `wip/v0281-v78-q1`). It was open by design for v0.2.80, which only reworded the two diagnostics (#2059).
 
 ## Reproducer
 
@@ -60,3 +60,14 @@ The rule text, edge cases, test rows and the "must not" list are in VERDICTS-78 
 ## Test
 
 `tests/borrow-spelling.test.yo` pins the v0.2.80 wording (the reworded E0926 on a struct field, a tuple element and through a `&mut` holder; the reworded E0908 at `&mut v.at`; the unchanged value-store E0926 and `v.at.* = …` E0908). In v0.2.81 the store rows flip to positives (the respell manifest's rows for this issue too).
+
+## Fixed (v0.2.81)
+
+- **The target.** The left side `h.r` of a store is the field itself: `reference_field_store_mark` (`src/evaluator/utils.yo`) records its label, and `_reference_field_read_place` (`src/evaluator/exprs/property-access.yo`) types it as the field's reference type and marks it a reference self place, whose C is the field's own storage (`generate_field_access`, `src/codegen/exprs/property-access.yo`). No E0926 at the target.
+- **The right side.** `&place` / `&mut place` is a reference value `&(T, place)` whose marker stays in the tree (`_evaluate_reference_field_store_lend`, `src/evaluator/exprs/assignment.yo`); a `&mut` lend needs a writable place and is an exclusive access. A reference binding is read as the reference. A value (`h.r = v`) is E0926 "stores a value into the reference field", whose help names `h.r.* = v` and `h.r = &place`.
+- **The checks.** The store then runs the field write's own checks, the ones `h.o = .Some(&y)` already ran: `mut(h)` (E0917), a write through a `&H` parameter (E0908), no live borrow of `h`, of `h.r` or of a place reached through it (E0911), and the place-write join that charges the stored origin to the root holder, through a local `&mut` borrow or a `&mut` parameter included, checking a declared origin (E0923) and the lent place's scope (E0911). It is a union: the old target stays held.
+- **`&mut h.r`** on a `&` field, at a call argument and in `p := &mut h.r`, lends the field itself as a `&mut &(T, p)`; `lend_through` fixes `p` exactly (invariance), and its write-back now reaches a field place's root holder (`issues/fixed/2026-11-25-a-mut-lend-of-a-holders-field-does-not-write-back-what-the-callee-stores.md`, the same gap for every field). `p.* = &y` through such a `p` (or any `&mut &T`) stores the lend; the store through the reference GENs into the target holder, never treated as a re-point of `p`. A `&mut` field's `&mut h.r` still lends the place it refers to (`issues/questions/2026-11-25-does-mut-h-r-on-a-mut-reference-field-lend-its-slot-or-its-referent.md`).
+- **Tuples** follow the rule, so `t.0 = &y` is E0923 where the whole-tuple store `t = (&y, t.1)` is: a tuple local of lends names its places in its type (`issues/2026-11-25-a-tuple-local-of-lends-cannot-be-re-pointed-to-another-place.md`, S3, open).
+- **The cursor in a field** (the verdict's edge 7) is E0911: `c.cur = &mut n.next` through the arm binding of `match(&mut c.cur.*, …)` is a write of the place the binding borrows (`issues/2026-11-25-a-cursor-held-in-a-reference-field-cannot-be-re-pointed-through-its-match-binding.md`, S3, open; `tests/origins/unsound/v78-field-cursor-walk.yo`).
+
+Tests: `tests/borrow-spelling.test.yo` (the positives, run, and the E0926/E0917/E0908 rows) and the G-B rows `tests/origins/unsound/v78-*.yo` with their `-pos` twins under ASan.

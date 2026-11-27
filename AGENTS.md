@@ -144,6 +144,7 @@ yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o te
 - Docs under `docs/` are written in both `docs/en-US/` and `docs/zh-CN/`. Plans go in `plans/` (`plans/README.md`).
 - Review `git diff` before calling work done: debug leftovers, unused imports, cross-file consistency.
 - After a change, update what it made stale: `.github/instructions/`, `pack/context.md`, plans, docs. **A fact about Yo learned by trial and error goes immediately into the pack, the manual or `.github/instructions/`**, whichever is its home (`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md` D2).
+- **Keep `plans/ROADMAP.md` current**: a PR that lands, starts, slips, adds or drops a roadmap item (a release's scope, a plan adopted or finished) edits that item's one line in the same PR. Detail goes in the linked doc, never in the roadmap.
 - **Heavy steps take a slot of the machine-wide FIFO lock**: `source scripts/heavy-lock.sh; heavy_take "<who>: <job>"` … `heavy_drop` (`testing.instructions.md`, "The heavy lock").
 - **Sub-agents**: ping each idle sub-agent every 40 minutes (its prompt cache lives 1 h) for a one- or two-line reply with no tool calls. Never message an agent inside a Workflow run: that resumes a duplicate writing the same worktree.
 
