@@ -583,7 +583,7 @@ comptime_expect_error(
 // as the named form `{ r := &x; bs_id(r) }` does.
 BsTagger :: struct(k : i32);
 impl(BsTagger, tag : (fn(generic(U : Type), self : &Self, v : U) -> U)(v));
-bs_show :: (fn(v : Impl(ToString)) -> usize)(v.to_string().len());
+bs_show :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> usize)(v.to_string().len());
 bs_mx :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> T)(cond((a >= b) => a, true => b));
 bs_apply :: (fn(generic(T : Type, U : Type), f : Impl(Fn(v : T) -> U), v : T) -> U)(f(v));
 bs_pair :: (fn(generic(T : Type), a : T, b : T) -> unit)(());
@@ -619,12 +619,12 @@ test("a lend at a parameter typed by a binder makes the binder a reference", {
   t2 := h.tag(rx);
   assert(t2.*.n == i32(4), "the named form");
   i := i32(12);
-  assert(bs_show(&i) == usize(2), "`Impl(ToString)` at `&i32`, through the blanket `ToString(&T)`");
+  assert(bs_show(&i) == usize(2), "`where(T <: ToString)` at `T := &i32`, through the blanket `ToString(&T)`");
   a := i32(1);
   b := i32(2);
   mxr := bs_mx(&a, &b);
   assert(mxr.* == i32(2), "`where(T <: Ord(T))` at `T := &i32`, through the blanket `Ord(&T)`");
-  assert(bs_apply((p) => p.*.n, &x) == i32(4), "a closure sees `T := &BsLent`");
+  assert(bs_apply(p => p.*.n, &x) == i32(4), "a closure sees `T := &BsLent`");
   rr := bs_id(&rx);
   assert(rr.*.*.n == i32(4), "`&rx` lends `rx` itself: `T := & &BsLent`");
   rb := bs_id(&rx.*);
@@ -672,7 +672,7 @@ comptime_expect_error(
     q := bs_id(&x);
     q
   }),
-  "E0912"
+  "Cannot return a value holding `x`"
 );
 comptime_expect_error(
   bs_binder_lend_through_holder :: (fn(slot : &mut Option(&BsLent)) -> unit)({
@@ -694,28 +694,28 @@ comptime_expect_error(
     x := BsLent(n : i32(1));
     bs_two(&x, x);
   }),
-  "E0910"
+  "which an earlier argument of the same call lends to it"
 );
 comptime_expect_error(
   bs_binder_move_then_lend :: (fn() -> unit)({
     x := BsLent(n : i32(1));
     bs_two(x, &x);
   }),
-  "E0901"
+  "use of moved value: `x`"
 );
 comptime_expect_error(
   bs_binder_lend_mut_and_shared :: (fn() -> unit)({
     mut(x) := BsLent(n : i32(1));
     bs_two(&mut x, &x);
   }),
-  "E0910"
+  "lends `x` exclusively (a `&mut` argument) and also lends `x`"
 );
 comptime_expect_error(
   bs_binder_lend_mut_needs_mut :: (fn() -> unit)({
     x := BsLent(n : i32(1));
     _q := bs_id(&mut x);
   }),
-  "mut"
+  "Cannot lend `&mut` (a `&mut` argument) `x`"
 );
 // The blame rule (VERDICTS-90 §2): two arguments disagree on a binder and one
 // of them is a lend that solved it, so the error is E0914 at the lend,
@@ -775,6 +775,12 @@ comptime_expect_error(
   }),
   "lends a temporary"
 );
+comptime_expect_error(
+  bs_t9_ctor_lend_temporary :: (fn() -> unit)({
+    _o := Option(&BsLent).Some(&bs_mk());
+  }),
+  "`&bs_mk()` lends a temporary, and parameter \"value\" would hold that reference by value"
+);
 // A bound or a wall that fails at a binder a lend solved says so (§5).
 BsDefaulted :: struct(n : i32);
 bs_nd :: (fn(generic(T : Type), v : T, where(T <: Default)) -> unit)(());
@@ -792,6 +798,17 @@ comptime_expect_error(
     _b := Rc.new(&x);
   }),
   "because the argument `&x` is a lend"
+);
+// A reference binding at a static call infers the reference
+// (issues/fixed/2026-11-27-a-static-call-with-inferred-type-arguments-reads-a-reference-binding-as-its-referent.md):
+// `Box.new(r)` is `Box(&BsLent)`, which the cell wall names.
+comptime_expect_error(
+  bs_binding_box_wall :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    r := &x;
+    _b := Box.new(r);
+  }),
+  "A value of `Box(&BsLent)` carries an origin"
 );
 comptime_expect_error(
   bs_field_undeclared_origin :: (fn() -> unit)({

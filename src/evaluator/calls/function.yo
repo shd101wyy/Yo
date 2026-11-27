@@ -2286,6 +2286,32 @@ _infer_unapplied_ctor_receiver :: (
   });
   uc_decided
 });
+/// The wall a written `G(A…).m` meets at its member access
+/// (`exprs/property-access.yo`), for a receiver static-argument inference
+/// bound: a type holding a reference beyond N2b (a container or a cell,
+/// decision 43 step 3) is named but not built. `Box.new(&x)` and
+/// `Box.new(r)` infer `Box(&X)` and stop here, before `Box.new`'s std body
+/// is specialized for it, exactly as `Box(&X).new(&x)` does; the error notes
+/// a lend that solved the binder (VERDICTS-90 §5).
+_sai_reject_walled_receiver :: (fn(callee : &AstExpr, call : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(is_std_module_path(&ast_expr_token(callee).module_path.*, ctx.std_path.clone()), {
+    return(());
+  });
+  recv_args := match(callee, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(()));
+  recv := match(recv_args.get_cloned(usize(0)), .Some(r) => r, .None => return(()));
+  prop := match(recv_args.get_cloned(usize(1)), .Some(p) => p, .None => return(()));
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
+    .Some(ri) => match(
+      ri.value(),
+      .Some(Rc(.TypeVal(rt))) => if(origin_beyond_n2b(rt), {
+        exn.throw(_with_lend_binder_notes(dyn(Box.new(origin_beyond_n2b_error(rt, &ast_expr_token(&prop)))), call));
+      }),
+      _ => ()
+    ),
+    .None => ()
+  );
+});
 /// The place an argument evaluates as for inference: the value under a
 /// label (`self : x`), the place under a call-site borrow marker
 /// (`Rc.make_mut(&mut h)`). Labels are positional, so argument matching
@@ -7422,70 +7448,139 @@ _forall_len_conflict_message :: (fn(label : &String, first : &String, first_from
 );
 /// "argument N" (1-based) for a conflict message.
 _forall_arg_phrase :: (fn(i : usize) -> String)(`argument ${(i + usize(1)).to_string()}`);
-/// VERDICTS-90 §2's blame rule. Two arguments bound one binder to types that
-/// disagree (`later` is the second); when exactly one of them is a lend that
-/// solved the binder (`binder_lends`), the error is R3's E0914 at that lend,
-/// judged against the other argument's type, whichever came first:
-/// `pair(&x, y)` and `pair(y, &x)` both report `&x`. Two lends that disagree
+/// VERDICTS-90 §2's blame rule. The argument `conflict_i` bound a binder to
+/// a type that disagrees with an earlier binding; when one side of the
+/// disagreement is a lend that solved the binder (`binder_lends`) and the
+/// other an argument that is no lend, the error is R3's E0914 at the lend,
+/// judged against the type the other argument gives the binder, whichever
+/// came first: `pair(&x, y)` and `pair(y, &x)` both report `&x`, and so does
+/// `keep(&mut slot, &x2)` with `slot : Option(X)`. Two lends that disagree
 /// (`pair(&x, &mut y)`), and a conflict no lend made, keep the conflict's
 /// E0601, which the caller raises when this returns.
 _fv_blame_binder_lend :: (
   fn(
-    later : usize,
+    conflict_i : usize,
     binder_lends : &ArrayList(usize),
-    param_type_names : &ArrayList(String),
+    declared : &SharedList(TypeValue),
     args : &ArrayList(AstExpr),
     infos : &ArrayList(ExprInfo),
-    bound_names : &ArrayList(String),
-    bound_types : &ArrayList(TypeValue),
+    info_args : &ArrayList(usize),
     labels : &SharedList(String),
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
   ) -> unit
 )({
-  binder := match(param_type_names.get_cloned(later), .Some(n) => n, .None => return(()));
-  (first : Option(usize)) = Option(usize).None;
-  (k : usize) = usize(0);
-  while((k < param_type_names.len()) && first.is_none(), k = (k + usize(1)), {
-    if((k != later) && match(param_type_names.get_cloned(k), .Some(n) => (n == binder), .None => false), {
-      first = Option(usize).Some(k);
-    });
-  });
-  first_i := match(first, .Some(f) => f, .None => return(()));
-  later_lends := binder_lends.contains(&later);
-  if(later_lends == binder_lends.contains(&first_i), {
+  if(binder_lends.len() == usize(0), {
     return(());
   });
-  lend_i := if(later_lends, later, first_i);
-  other_i := if(later_lends, first_i, later);
-  // The type the other argument gives the binder: the first binding as
-  // inference recorded it, or the later argument's own (a literal at its
-  // runtime type).
-  (other_ty : TypeValue) = cond(
-    !later_lends => convert_comptime_type_to_runtime_type(&match(infos.get_cloned(other_i), .Some(oi) => oi.ty(), .None => return(())), env),
-    true => {
-      (bt : Option(TypeValue)) = Option(TypeValue).None;
-      (bk : usize) = usize(0);
-      while((bk < bound_names.len()) && bt.is_none(), bk = (bk + usize(1)), {
-        if(match(bound_names.get_cloned(bk), .Some(n) => (n == binder), .None => false), {
-          bt = bound_types.get_cloned(bk);
-        });
+  // The lend and the other argument: the conflicting argument is one of
+  // them; the other is the first argument of the other kind that mentions
+  // the lend's binder and gives it a type.
+  (lend_i : Option(usize)) = Option(usize).None;
+  (other_i : Option(usize)) = Option(usize).None;
+  (other_ty : Option(TypeValue)) = Option(TypeValue).None;
+  if(binder_lends.contains(&conflict_i), {
+    lend_i = Option(usize).Some(conflict_i);
+    b := match(_fv_lend_binder_name(declared, conflict_i), .Some(n) => n, .None => return(()));
+    (k : usize) = usize(0);
+    while((k < args.len()) && other_i.is_none(), k = (k + usize(1)), {
+      if((k != conflict_i) && !binder_lends.contains(&k), {
+        match(
+          _fv_binder_from_argument(&b, declared, k, infos, info_args, env),
+          .Some(t) => {
+            other_i = Option(usize).Some(k);
+            other_ty = Option(TypeValue).Some(t);
+          },
+          .None => ()
+        );
       });
-      match(bt, .Some(t) => t, .None => return(()))
-    }
-  );
-  place := _unlabeled_argument(match(args.get_cloned(lend_i), .Some(a) => a, .None => return(())));
+    });
+  }, {
+    other_i = Option(usize).Some(conflict_i);
+    (li : usize) = usize(0);
+    while((li < binder_lends.len()) && lend_i.is_none(), li = (li + usize(1)), {
+      l := match(binder_lends.get(li), .Some(v) => v, .None => usize(0));
+      match(
+        _fv_lend_binder_name(declared, l),
+        .Some(b) => match(
+          _fv_binder_from_argument(&b, declared, conflict_i, infos, info_args, env),
+          .Some(t) => {
+            lend_i = Option(usize).Some(l);
+            other_ty = Option(TypeValue).Some(t);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+  });
+  li2 := match(lend_i, .Some(a) => a, .None => return(()));
+  oi2 := match(other_i, .Some(a) => a, .None => return(()));
+  ot2 := match(other_ty, .Some(t) => t, .None => return(()));
+  // A reference the other argument gives the binder is judged too: one of
+  // the other mode is the T9 mismatch.
+  b_name := match(_fv_lend_binder_name(declared, li2), .Some(n) => n, .None => return(()));
+  place := _unlabeled_argument(match(args.get_cloned(li2), .Some(a) => a, .None => return(())));
   marker := match(peeled_lend_marker(ast_expr_id(&place)), .Some(m) => m, .None => return(()));
   place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&place)), .Some(pi) => pi.ty(), .None => return(()));
   _j := judge_lend_at_solved_slot(
     &marker,
-    &match(labels.get_cloned(lend_i), .Some(l) => l, .None => String.new()),
-    &other_ty,
+    &match(labels.get_cloned(li2), .Some(l) => l, .None => String.new()),
+    &ot2,
     &place_ty,
-    &Option(LendSlotSource).Some(LendSlotSource(binder : binder, from : _forall_arg_phrase(other_i))),
+    &Option(LendSlotSource).Some(LendSlotSource(binder : b_name, from : _forall_arg_phrase(oi2))),
     exn
   );
+});
+/// The binder a lend at parameter `i` solved: the bare binder its declared
+/// type is (`v : T`).
+_fv_lend_binder_name :: (fn(declared : &SharedList(TypeValue), i : usize) -> Option(String))(
+  match(slot_pointee_at(declared, i), .Some(Rc(.SomeT({ name : n }))) => Option(String).Some(n.clone()), _ => Option(String).None)
+);
+/// The type argument `k` gives the binder `b`: its declared type (its slot's
+/// pointee, `Option(T)` for `dst : &mut Option(T)`) matched against the
+/// argument's type, a literal at its runtime type. `.None` when the
+/// parameter does not mention `b`, the argument has no recorded info, or the
+/// two do not match.
+_fv_binder_from_argument :: (
+  fn(b : &String, declared : &SharedList(TypeValue), k : usize, infos : &ArrayList(ExprInfo), info_args : &ArrayList(usize), env : &Environment) -> Option(TypeValue)
+)({
+  pattern := match(slot_pointee_at(declared, k), .Some(t) => t, .None => return(Option(TypeValue).None));
+  somes := get_all_some_types(&pattern);
+  names := ArrayList(String).new();
+  binders := ArrayList(TypeValue).new();
+  (si : usize) = usize(0);
+  while(si < somes.len(), si = (si + usize(1)), {
+    match(
+      somes.get_cloned(si),
+      .Some(st) => match(
+        &st,
+        Rc(.SomeT({ name : sn })) => if((sn.clone() == b.clone()) && (names.len() == usize(0)), {
+          names.push(sn.clone());
+          binders.push(Rc.clone(&st));
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
+  if(names.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  (p : Option(usize)) = Option(usize).None;
+  (ii : usize) = usize(0);
+  while((ii < info_args.len()) && p.is_none(), ii = (ii + usize(1)), {
+    if(match(info_args.get(ii), .Some(a) => (a == k), .None => false), {
+      p = Option(usize).Some(ii);
+    });
+  });
+  given := match(p, .Some(pi) => match(infos.get_cloned(pi), .Some(inf) => convert_comptime_type_to_runtime_type(&inf.ty(), env), .None => return(Option(TypeValue).None)), .None => return(Option(TypeValue).None));
+  match(
+    synthesize_impl_binders(&names, &binders, &pattern, &given, env),
+    .Some(got) => match(got.get_cloned(usize(0)), .Some(.Some(t)) => Option(TypeValue).Some(t), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
 });
 /// A VALUE binder's concrete binding in a structural-inference scratch env
 /// (the synthesizer's Array-length arm binds `generic(N : usize)` to an
@@ -15186,7 +15281,7 @@ Fix: wrap the call:
         );
         if(fv_forall_conflicts.len() > usize(0), {
           fc_arg := match(fv_forall_conflict_args.get(usize(0)), .Some(i) => i, .None => usize(0));
-          _fv_blame_binder_lend(fc_arg, &fv_binder_lends, &param_type_names, &fv_args, &evaled_arg_infos, &fa_bound_names, &fa_bound_types, &fv_param_labels, env, ctx, exn);
+          _fv_blame_binder_lend(fc_arg, &fv_binder_lends, &fv_param_types, &fv_args, &evaled_arg_infos, &fv_eai_idx, &fv_param_labels, env, ctx, exn);
           fc_tok := match(fv_args.get_cloned(fc_arg), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
           exn.throw(dyn(Box.new(format_error_message(&fc_tok, match(fv_forall_conflicts.get_cloned(usize(0)), .Some(m) => m, .None => String.new())))));
         });
@@ -16395,6 +16490,9 @@ Fix: wrap the call:
       // `G.m(x, ...)` through an unapplied type constructor: the receiver
       // becomes `G(A, ...)`, inferred from `x` (decision 32).
       uc_inf := _infer_unapplied_ctor_receiver(&evaluated_callee, &args, &callee_env, ctx, exn);
+      if(uc_inf.bound, {
+        _sai_reject_walled_receiver(&evaluated_callee, expr, ctx, exn);
+      });
       if(_structural_clone_precedes_lookup(&evaluated_callee, args.len(), ctx), {
         match(
           _try_structural_copy_clone(expr, &evaluated_callee, args.len(), &callee_env, ctx, exn),

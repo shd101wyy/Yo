@@ -47,3 +47,16 @@ and the free-function path (`id(r)`) read the slot type and bind `T := &X`.
 
 Accepted, `T := &X`, `x` lent while `w` (and `b`) live, as for `W(&X).make(r)`. The E0901 text, where it does
 fire for a reference binding, names the binding's real mode.
+
+## Fix (2026-11-28, VERDICTS-90 PR B)
+
+Static-argument inference reads a by-value parameter typed by a bare binder at the argument's own type
+(`_sai_binder_arg_type`, `src/evaluator/calls/function.yo`): a lend `&x` is `&X`, and a reference binding passed
+bare is the reference its slot holds, with its node evaluated again against the slot that made a reference. So
+`W.make(r)` is `W(&X)` and lends `x`, as `W(&X).make(r)` does. A receiver inferred to a type holding a reference
+beyond N2b meets the wall a written `G(A…).m` meets at its member access (`_sai_reject_walled_receiver`):
+`Box.new(r)` is E0909 "A value of `Box(&X)` carries an origin", as `Box(&X).new(&x)` is, instead of an E0911 raised
+inside `Box.new`'s std body.
+
+Tests: `tests/borrow-spelling.test.yo`, "a lend at a parameter typed by a binder makes the binder a reference"
+(`BsW.make(rx)`) and the row `bs_binding_box_wall`.

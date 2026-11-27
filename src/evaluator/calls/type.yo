@@ -43,7 +43,9 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr-info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { Environment, Variable, env_adopt } :: import("../../env.yo");
-{ TypeValue, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, t_slot_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ lend_needs_place_error } :: import("./helper.yo");
+{ is_comptime_string_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_error } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -298,6 +300,7 @@ try_to_call_type_with_arguments :: (
     // place after evaluation.
     t9_is_mut_marker := ast_expr_is_fn_call_of(&actual_arg_expr, BK_BORROW_MUT, Option(usize).Some(usize(1)));
     t9_is_amp_marker := ast_expr_is_fn_call_of(&actual_arg_expr, BF_ADDRESS_OF, Option(usize).Some(usize(1)));
+    t9_marker_written := actual_arg_expr.clone();
     if(t9_is_mut_marker || t9_is_amp_marker, {
       match(
         &member_element.ty,
@@ -392,6 +395,12 @@ try_to_call_type_with_arguments :: (
       ),
       _ => ()
     );
+    // R4 (VERDICTS-90): what a reference field takes is a lend of a place;
+    // `Option(&X).Some(&mk())` lends a temporary
+    // (issues/fixed/2026-11-27-a-temporary-lent-to-a-by-value-reference-slot-is-e0601-not-a-place-error.md).
+    if((t9_is_mut_marker || t9_is_amp_marker) && t9_field_is_reference && t9w_lend_ty.is_none() && !t_slot_is_borrow(&arg_info.ty()) && !is_comptime_string_type(&arg_info.ty()), {
+      lend_needs_place_error(&t9_marker_written, &member_element.label, ctx, exn);
+    });
     // VERDICTS-57 §3.1: a `&mut` field given a `&mut` reference VALUE (the
     // lend, or a `&mut` reference read stored) makes a `&mut` reference of
     // the place: a write of it (E0911 against a live borrow), and in a

@@ -52,3 +52,17 @@ when `_lend_place_root_name` finds a place root. A call result has none, so the 
 
 VERDICTS-90 R4's text at the lend: "`&mk()` lends a temporary, and parameter `value` would hold that reference by
 value: bind the value to a local and lend the local, or pass `mk()` itself".
+
+## Fix (2026-11-28, VERDICTS-90 PR B)
+
+A peeled marker whose operand is no place (`lend_needs_place_error`, `src/evaluator/calls/helper.yo`) is E0914
+with R4's text wherever the slot it meets is a by-value reference: the method/helper path
+(`check_if_function_parameter_matches_argument`), the inline `FuncVal` arm (`src/evaluator/calls/function.yo`) and
+the constructor path (`src/evaluator/calls/type.yo`):
+
+```text
+error[E0914]: `&mk()` lends a temporary, and parameter "value" would hold that reference by value: bind the value to a local and lend the local, or pass `mk()` itself.
+```
+
+Tests: `tests/borrow-spelling.test.yo` rows `bs_binder_lend_temporary` (`bs_id(&bs_mk())`),
+`bs_t9_lend_temporary` (`slot.replace(&bs_mk())`) and `bs_t9_ctor_lend_temporary` (`Option(&BsLent).Some(&bs_mk())`).

@@ -66,7 +66,9 @@ test("&x to a by-value parameter is an error naming x and x.clone()", {
   comptime_expect_error(_ao_take(&s), "`s.clone()` to keep `s`");
   comptime_expect_error(_ao_sink(&s), "takes its argument by value");
   (n : i32) = i32(1);
-  comptime_expect_error(_ao_own(&n), "takes its argument by value");
+  // A by-value parameter typed by a binder takes the lend: `T := &i32`.
+  rn := _ao_own(&n);
+  assert(rn.* == i32(1), "`_ao_own(&n)` lends `n`");
   assert(s.len() == usize(3), "s stays usable");
 });
 
