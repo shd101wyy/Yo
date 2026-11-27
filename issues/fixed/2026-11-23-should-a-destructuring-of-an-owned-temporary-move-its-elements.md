@@ -46,3 +46,16 @@ Should a destructuring whose right-hand side is an owned temporary consume it th
 Option 1 for now: it is sound, explicit at the use site (the copy is spelled `.clone()`), and
 matches how a `&` match treats the same binding. Revisit option 2 only if real code needs a
 `mut` owned part out of a temporary often enough that the `match` spelling reads as a workaround.
+
+## Resolution (2026-11-26, VERDICTS-76 Q2)
+
+A destructuring takes its source as a `match` takes its scrutinee. `{ a, b } := x` with `x` an owned local,
+a by-value parameter or an owned temporary of a type that is not implicitly copyable CONSUMES `x`
+(`decide_destructuring_consumes`, `src/evaluator/exprs/match.yo`): each name owns its field and drops at
+its own scope end, a part no name binds (`_`, a field left out) is dropped at the binding (hidden owning
+bindings, `register_arm_entry_drops` keyed by the `:=` node), and a later use of `x` is E0901, whose note
+names `{ … } := &x`. A `Copy` source is copied. `{ a, b } := &x`, `{ a, b } := &mut x` and
+`{ a, b } := r` (a reference binding) lend: each name is a local borrow of its field (`a := &x.a`), read
+with `a.*` (`_evaluate_lending_destructuring`, `src/evaluator/exprs/initialization-assignment.yo`). A
+field, an element or a dereference (`r.*`) by value, and a type with a user `Drop`, are E0901. Tests:
+`tests/destructuring-consumes.test.yo`, `tests/origins/unsound/v76-destructure-*.yo`.

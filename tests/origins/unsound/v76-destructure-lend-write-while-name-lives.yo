@@ -1,0 +1,11 @@
+// expect: E0911
+// VERDICTS-76 Q2: a name of `{ a } := &p` borrows `p.a`; writing `p` while it lives would change what it reads.
+{ String } :: import("std/string");
+Pair :: struct(a : String, b : i32);
+main :: (fn() -> unit)({
+  mut(p) := Pair(a : String.from("a"), b : i32(1));
+  { a } := &p;
+  p = Pair(a : String.from("x"), b : i32(2));
+  _n := a.*.len();
+});
+export(main);

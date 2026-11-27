@@ -372,7 +372,7 @@ binary built from `95162303d`, and each still fails the same way under both
 | `issues/fixed/2026-10-23-an-early-return-in-a-derive-generated-body-skips-the-drop-of-a-value-local.md` | S1 (filed S2, raised in review) | every `derive(FromJson)` error path skips its decoded fields' drops (and their `Drop` side effects) |
 | `issues/fixed/2026-10-22-the-raw-view-gate-rejects-a-generic-buffer-owning-value-parameter.md` | S2 | blocks safe generic `ArrayList(T)` code at stage 1 (probe: pragma on `std/rand.yo`) |
 | `issues/fixed/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md` | S2 | 9 std false positives |
-| `issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md` | S2 | `{ _bytes } := self` cannot move a field out |
+| `issues/fixed/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md` | S2 | `{ _bytes } := self` cannot move a field out |
 | `issues/fixed/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md` | S2 | invalid C; `into_bytes` must clone |
 | `issues/fixed/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md` | S2 | an extra copy, then E0901 |
 | `issues/fixed/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md` | S2 | spurious borrow-flag panic |
