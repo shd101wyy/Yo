@@ -47,7 +47,7 @@ _have_z3 :: (fn() -> bool)(
 _load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))({
   exn := Exception(
     throw : (
-      err -> panic(`verifier_loops: unexpected throw: ${err}`)
+      err -> panic(`verifier_loops: unexpected throw: ${err.*}`)
     )
   );
   std_path := resolve_std_path();
@@ -263,7 +263,7 @@ test("a wrong loop invariant is REFUTED at the iterate obligation", {
 test("the SMT encoding of a loop query havocs the assigned names (solver-free)", {
   exn := Exception(
     throw : (
-      err -> panic(`verifier_loops: unexpected throw: ${err}`)
+      err -> panic(`verifier_loops: unexpected throw: ${err.*}`)
     )
   );
   std_path := resolve_std_path();
@@ -371,7 +371,7 @@ test("a zero-iteration exit is NOT the body's output (pin_exit REFUTED)", {
 test("the exit encoding re-havocs and selects break states (solver-free)", {
   exn := Exception(
     throw : (
-      err -> panic(`verifier_loops: unexpected throw: ${err}`)
+      err -> panic(`verifier_loops: unexpected throw: ${err.*}`)
     )
   );
   std_path := resolve_std_path();

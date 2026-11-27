@@ -213,7 +213,7 @@ test("UDP bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         unsafe(printf("  bind(2001:db8::1) correctly failed: %s\n", msg.to_cstr().ptr().unwrap()));
         unwind(());
       }
@@ -232,7 +232,7 @@ test("UdpSocket.bind to port 0 reports the kernel-assigned port", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -250,7 +250,7 @@ test("UdpSocket.connect makes send and recv usable", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )

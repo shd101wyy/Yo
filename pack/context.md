@@ -126,6 +126,8 @@ export(main);
   (`enum(Leaf, Node(v : i32))`) and built or matched with one (`.Some(v)`). A
   type names itself `Self` in its definition (`next : Option(Box(Self))`).
 - No overloading; operators are trait methods (`Eq`, `Ord`, `Add`, ...).
+  `Ord`'s `cmp` is a total order (a float NaN is greater than every number);
+  code that needs a total order calls `cmp`, since `<` on floats is partial.
 - Derivable: `Copy` (with `Clone`), `Clone`, `Eq(T)`, `Ord(T)`, `Hash`,
   `Default`, `ToString` and `Debug` (import `std/fmt` first), `Error` (import
   `std/error`).
@@ -153,7 +155,8 @@ export(main);
 - **The last use moves.** `y := x`, a by-value argument, a store, a capture
   and a return move a non-`Copy` value; a later use is E0901, whose help names
   the repair. There are no partial moves: copy the field, borrow it, or move
-  the whole value through a `match` struct pattern.
+  the whole value apart (`{ a, b } := x` consumes an owned `x`, as
+  `match(x, …)` does; `{ a, b } := &x` lends each field, read with `a.*`).
 - **Bindings are immutable** unless declared `mut(x) := v` /
   `(mut(x) : T) = v` (module-level ones too). Reassigning, lending `&mut`,
   calling a `&mut self` method or writing a field of an unmarked binding is
@@ -214,6 +217,10 @@ export(main);
   only from parameter `s`; `generic(p : Origin)` declares one, and a struct
   holding a reference takes `comptime(p) : Origin`. No reference may live in a
   collection element, a heap cell, a global or another thread.
+- **Reference fields**: `h.r.*` reads the referent; `h.r = &y` re-points the
+  field (checked as writing the whole holder: `y` must outlive `h`), and
+  `&mut h.r` lends the field itself to a `&mut &T` slot. `h.r = v` with a
+  value `v` is E0926 (write the referent with `h.r.* = v` on a `&mut` field).
 
 ```yo
 { assert } :: import("std/assert");

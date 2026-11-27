@@ -95,7 +95,7 @@ test("capture list: a by-value capture of an RC value retains it", {
   t := Rc.new(_ClRc(v : i32(7)));
   s := String.from("abcd");
   {
-    (f : Impl(Fn() -> i32)) = ({ c : Rc.clone(&t) }() => c.v);
+    (f : Impl(Fn() -> i32)) = ({ c : Rc.clone(&t) }() => c.*.v);
     // A `String` is a value (B8): the renamed capture takes a clone, so the
     // source stays usable.
     (g : Impl(Fn() -> usize)) = ({ n : s.clone() }() => n.len());
@@ -103,7 +103,7 @@ test("capture list: a by-value capture of an RC value retains it", {
     assert(g() == usize(4), "a renamed by-value String capture");
     assert(g_cl_rc_disposed == i32(0), "nothing is disposed while the owners live");
   };
-  assert(t.v == i32(7), "the source handle is still alive after the closure's scope");
+  assert(t.*.v == i32(7), "the source handle is still alive after the closure's scope");
   assert(s.len() == usize(4), "the source string is still alive");
 });
 test("capture list: a by-value capture of a NON-OWNING temp of an RC value", {

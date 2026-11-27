@@ -1,0 +1,22 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Raise :: (ctl(msg : &String) -> i32);
+
+Slot :: struct(h : Raise, n : i32);
+fallback :: (fn(msg : &String) -> i32)(i32(0));
+stash :: (fn(slot : &mut Slot) -> i32)({
+  (h : Raise) = (
+    msg -> {
+      unwind(i32(5));
+    }
+  );
+  slot.h = h;
+  i32(1)
+});
+main :: (fn() -> unit)({
+  mut(s) := Slot(h : fallback, n : i32(0));
+  _ := stash(&mut s);
+  println(`r=${s.h(`x`)}`);
+  println(`after (a handler whose frame is dead was called)`);
+});
+export(main);

@@ -62,7 +62,7 @@ test("two pipelined responses in one read: the first is framed exactly, the seco
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error: ${err}`);
+        assert(false, `unexpected error: ${err.*}`);
         unwind(());
       }
     )
@@ -81,7 +81,7 @@ test("two pipelined responses in one read: the first is framed exactly, the seco
     }
   );
   assert(raw1 == String.from(_R1), `the first message is framed at its Content-Length, got ${raw1.len()} bytes`);
-  assert(carry.with(c => c.len()) == String.from(_R2).len(), `the second response's bytes are carried, not swallowed (carry=${carry.with(c => c.len())})`);
+  assert(carry.*.with(c => c.len()) == String.from(_R2).len(), `the second response's bytes are carried, not swallowed (carry=${carry.*.with(c => c.len())})`);
   // The second message is already in hand: reading it must cost no read at all.
   reads_before := r.reads.with(k => k.*);
   second := io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e);
@@ -95,7 +95,7 @@ test("two pipelined responses in one read: the first is framed exactly, the seco
   );
   assert(raw2 == String.from(_R2), `the second message is framed from the carried bytes, got ${raw2.len()} bytes`);
   assert(r.reads.with(k => k.*) == reads_before, "a message already carried costs no read");
-  assert(carry.with(c => c.len()) == usize(0), "nothing is left after the second message");
+  assert(carry.*.with(c => c.len()) == usize(0), "nothing is left after the second message");
   // Both parse, and both keep their own status and version.
   p1 := parse_response(&raw1).unwrap();
   p2 := parse_response(&raw2).unwrap();
@@ -112,7 +112,7 @@ test("one-byte reads frame the same two messages", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error: ${err}`);
+        assert(false, `unexpected error: ${err.*}`);
         unwind(());
       }
     )
@@ -147,7 +147,7 @@ test("a chunked response followed by another response carries the tail", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error: ${err}`);
+        assert(false, `unexpected error: ${err.*}`);
         unwind(());
       }
     )
@@ -166,7 +166,7 @@ test("a chunked response followed by another response carries the tail", {
   );
   p1 := parse_response(&raw1).unwrap();
   assert(p1.body == `hello`, `the chunked body is decoded: ${p1.body}`);
-  assert(carry.with(c => c.len()) == String.from(_R2).len(), `the following response is carried (carry=${carry.with(c => c.len())})`);
+  assert(carry.*.with(c => c.len()) == String.from(_R2).len(), `the following response is carried (carry=${carry.*.with(c => c.len())})`);
   raw2 := match(
     io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e),
     .Ok(x) => x,
@@ -186,7 +186,7 @@ test("read_http_message frames the first message and discards the rest", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error: ${err}`);
+        assert(false, `unexpected error: ${err.*}`);
         unwind(());
       }
     )
@@ -211,7 +211,7 @@ test("a close-delimited response consumes everything", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error: ${err}`);
+        assert(false, `unexpected error: ${err.*}`);
         unwind(());
       }
     )
@@ -229,7 +229,7 @@ test("a close-delimited response consumes everything", {
     }
   );
   assert(raw == String.from(body), "a close-delimited response is every byte read");
-  assert(carry.with(c => c.len()) == usize(0), "and leaves nothing to carry");
+  assert(carry.*.with(c => c.len()) == usize(0), "and leaves nothing to carry");
   p := parse_response(&raw).unwrap();
   assert(p.version == `HTTP/1.0`, `the version is kept as received: ${p.version}`);
 });
@@ -265,7 +265,7 @@ test("a 204 is framed at its headers at every chunk size, Content-Length notwith
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error: ${err}`);
+        assert(false, `unexpected error: ${err.*}`);
         unwind(());
       }
     )
@@ -313,7 +313,7 @@ test("a body-less response leaves the next message in the carry, and reading it 
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error: ${err}`);
+        assert(false, `unexpected error: ${err.*}`);
         unwind(());
       }
     )
@@ -331,8 +331,8 @@ test("a body-less response leaves the next message in the carry, and reading it 
     "the 204 is exactly its header section"
   );
   assert(
-    carry.with(c => c.len()) == String.from(_R1).len(),
-    `the following response is carried whole (carry=${carry.with(c => c.len())}, expected ${String.from(_R1).len()})`
+    carry.*.with(c => c.len()) == String.from(_R1).len(),
+    `the following response is carried whole (carry=${carry.*.with(c => c.len())}, expected ${String.from(_R1).len()})`
   );
   reads_before := r.reads.with(k => k.*);
   second := io.await(wire.read_http_message_buffered(&r, usize(0), wire.MessageKind.Response, &carry, io), e);

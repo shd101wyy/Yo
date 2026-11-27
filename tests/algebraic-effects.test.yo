@@ -168,7 +168,7 @@ test("may-unwind call in a bare cond arm releases its argument temp exactly once
     (raise : RaiseUe) = (
       arg -> {
         g_ue_keep.with_mut({ a : Rc.clone(arg) }(l) => l.push(a));
-        unwind(arg.tag * i32(10))
+        unwind(arg.*.*.tag * i32(10))
       }
     );
     step(n, raise)
@@ -209,7 +209,7 @@ test("may-unwind call in an if condition releases an Option-typed argument temp 
           arg,
           .Some(a) => {
             g_ue_keep.with_mut({ k : Rc.clone(a) }(l) => l.push(k));
-            (a.tag % i32(2)) == i32(0)
+            (a.*.*.tag % i32(2)) == i32(0)
           },
           .None => false
         );
@@ -300,17 +300,17 @@ test("Test while loop calling fn with resume", {
         return(i32(10));
       }
     );
-    while(counter.with(cur => cur.*) < i32(5), {
+    while(counter.*.with(cur => cur.*) < i32(5), {
       result := raise(`msg1`, `msg2`);
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
     });
-    assert(counter.with(cur => cur.*) == i32(5), "counter should be 5");
-    assert(sum.with(cur => cur.*) == i32(50), "sum should be 5*10 = 50");
+    assert(counter.*.with(cur => cur.*) == i32(5), "counter should be 5");
+    assert(sum.*.with(cur => cur.*) == i32(50), "sum should be 5*10 = 50");
   });
   run_test();
 });
@@ -327,17 +327,17 @@ test("Test while loop with break after fn resume", {
     );
     while(true, {
       result := raise(`msg1`, `msg2`);
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
       cond(
-        (counter.with(cur => cur.*) >= i32(3)) => {
+        (counter.*.with(cur => cur.*) >= i32(3)) => {
           break;
         },
         true => ()
       );
     });
-    assert(counter.with(cur => cur.*) == i32(3), "counter should be 3 after break");
+    assert(counter.*.with(cur => cur.*) == i32(3), "counter should be 3 after break");
   });
   run_test();
 });
@@ -353,10 +353,10 @@ test("Test while loop with continue after fn resume", {
         return(i32(1));
       }
     );
-    while(counter.with(cur => cur.*) < i32(10), {
+    while(counter.*.with(cur => cur.*) < i32(10), {
       raise(`msg1`, `msg2`);
-      i := counter.with(cur => cur.*);
-      counter.with_mut(cur => {
+      i := counter.*.with(cur => cur.*);
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       cond(
@@ -365,12 +365,12 @@ test("Test while loop with continue after fn resume", {
         },
         true => ()
       );
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + i);
       });
     });
-    assert(counter.with(cur => cur.*) == i32(10), "counter should be 10");
-    assert(sum.with(cur => cur.*) == i32(20), "sum of even numbers 0+2+4+6+8 = 20");
+    assert(counter.*.with(cur => cur.*) == i32(10), "counter should be 10");
+    assert(sum.*.with(cur => cur.*) == i32(20), "sum of even numbers 0+2+4+6+8 = 20");
   });
   run_test();
 });
@@ -389,21 +389,21 @@ test("Test break from cond after fn resume", {
     );
     while(true, {
       raise(`msg1`, `msg2`);
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       cond(
-        (counter.with(cur => cur.*) >= i32(5)) => {
+        (counter.*.with(cur => cur.*) >= i32(5)) => {
           break;
         },
         true => ()
       );
-      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
-        cur_.* = (cur_.* + counter.with(cur => cur.*));
+      sum.*.with_mut({ counter : Rc.clone(counter) }(cur_) => {
+        cur_.* = (cur_.* + counter.*.with(cur => cur.*));
       });
     });
-    assert(counter.with(cur => cur.*) == i32(5), "counter should be 5 after break");
-    assert(sum.with(cur => cur.*) == i32(10), "sum should be 1+2+3+4 = 10");
+    assert(counter.*.with(cur => cur.*) == i32(5), "counter should be 5 after break");
+    assert(sum.*.with(cur => cur.*) == i32(10), "sum should be 1+2+3+4 = 10");
   });
   run_test();
 });
@@ -420,19 +420,19 @@ test("Test break drops local allocations after fn resume", {
       }
     );
     while(true, {
-      temp := Rc(i32).new(counter.with(cur => cur.*));
+      temp := Rc(i32).new(counter.*.with(cur => cur.*));
       raise(`msg1`, `msg2`);
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (temp.* + 1);
       });
       cond(
-        (counter.with(cur => cur.*) >= i32(3)) => {
+        (counter.*.with(cur => cur.*) >= i32(3)) => {
           break;
         },
         true => ()
       );
     });
-    assert(counter.with(cur => cur.*) == i32(3), "counter should be 3 after break");
+    assert(counter.*.with(cur => cur.*) == i32(3), "counter should be 3 after break");
   });
   run_test();
 });
@@ -449,28 +449,28 @@ test("Test mixed continue then break after fn resume", {
       }
     );
     while(true, {
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       raise(`msg1`, `msg2`);
       cond(
-        (counter.with(cur => cur.*) <= i32(2)) => {
+        (counter.*.with(cur => cur.*) <= i32(2)) => {
           continue;
         },
         true => ()
       );
       cond(
-        (counter.with(cur => cur.*) >= i32(5)) => {
+        (counter.*.with(cur => cur.*) >= i32(5)) => {
           break;
         },
         true => ()
       );
-      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
-        cur_.* = (cur_.* + counter.with(cur => cur.*));
+      sum.*.with_mut({ counter : Rc.clone(counter) }(cur_) => {
+        cur_.* = (cur_.* + counter.*.with(cur => cur.*));
       });
     });
-    assert(counter.with(cur => cur.*) == i32(5), "counter should stop at 5");
-    assert(sum.with(cur => cur.*) == i32(7), "sum should be 3+4 = 7");
+    assert(counter.*.with(cur => cur.*) == i32(5), "counter should stop at 5");
+    assert(sum.*.with(cur => cur.*) == i32(7), "sum should be 3+4 = 7");
   });
   run_test();
 });
@@ -485,20 +485,20 @@ test("Test early return inside loop after fn resume", {
         return(i32(1));
       }
     );
-    while(i.with(cur => cur.*) < i32(10), {
-      i.with_mut(cur => {
+    while(i.*.with(cur => cur.*) < i32(10), {
+      i.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       raise(`msg1`, `msg2`);
       cond(
-        ((i.with(cur => cur.*) % i32(2)) == i32(0)) => {
+        ((i.*.with(cur => cur.*) % i32(2)) == i32(0)) => {
           continue;
         },
         true => ()
       );
       cond(
-        (i.with(cur => cur.*) >= i32(5)) => {
-          return(i.with(cur => cur.*));
+        (i.*.with(cur => cur.*) >= i32(5)) => {
+          return(i.*.with(cur => cur.*));
         },
         true => ()
       );
@@ -515,7 +515,7 @@ test("Test two different fn types in same scope (Log + Raise)", {
   (log : Log) = (
     (msg, counter) -> {
       println(msg);
-      counter.with_mut(cur => {
+      counter.*.*.with_mut(cur => {
         cur.* = (cur.* + i32(1));
       });
       return(());
@@ -530,7 +530,7 @@ test("Test two different fn types in same scope (Log + Raise)", {
   log(`first log`, &log_count);
   log(`second log`, &log_count);
   result := raise(`error!`);
-  assert(log_count.with(cur => cur.*) == i32(2), "log_count should be 2");
+  assert(log_count.*.with(cur => cur.*) == i32(2), "log_count should be 2");
   assert(result == i32(42), "result should be 42");
 });
 test("Test single-level effect propagation via using parameter", {
@@ -922,17 +922,17 @@ test("Test closure with using() effect - resume", {
   (closure : Impl(Fn(v : i32, msg : &String) -> i32)) =
     ({ log, x : Rc.clone(x) }(v, msg) => {
       log(msg);
-      x.with_mut(cur => {
+      x.*.with_mut(cur => {
         cur.* = (cur.* + v);
       });
-      return(x.with(cur => cur.*));
+      return(x.*.with(cur => cur.*));
     });
   result1 := closure(1, `hello`);
   assert(result1 == 1, "closure+effect resume: expected result1 to be 1");
-  assert(x.with(cur => cur.*) == 1, "closure+effect resume: expected x to be 1");
+  assert(x.*.with(cur => cur.*) == 1, "closure+effect resume: expected x to be 1");
   result2 := closure(2, `world`);
   assert(result2 == 3, "closure+effect resume: expected result2 to be 3");
-  assert(x.with(cur => cur.*) == 3, "closure+effect resume: expected x to be 3");
+  assert(x.*.with(cur => cur.*) == 3, "closure+effect resume: expected x to be 3");
 });
 test("Test closure with using() effect - unwind", {
   // Closures cannot capture ctl-typed values (they could outlive the install
@@ -948,10 +948,10 @@ test("Test closure with using() effect - unwind", {
     );
     apply :: (fn(v : i32, msg : &String, b : &Rc(RefCell(i32)), lg : Log) -> i32)({
       lg(msg);
-      b.with_mut(cur => {
+      b.*.*.with_mut(cur => {
         cur.* = (cur.* + v);
       });
-      return(b.with(cur => cur.*));
+      return(b.*.*.with(cur => cur.*));
     });
     result := apply(1, `hello`, &x, log);
     assert(false, "closure+effect unwind: should not reach here");
@@ -996,11 +996,11 @@ test("Effect row polymorphism with E : Type.Struct spread", {
     e.log(v);
     result := e.yield(v);
     assert(result == v, "effect row: yield should return the value");
-    sum.with_mut(cur => {
+    sum.*.with_mut(cur => {
       cur.* = (cur.* + result);
     });
   }, Eff(yield, log));
-  assert(sum.with(cur => cur.*) == 10, "effect row: sum should be 10");
+  assert(sum.*.with(cur => cur.*) == 10, "effect row: sum should be 10");
 });
 test("Effect row inline typed declaration name : Type", {
   Yield :: (fn(v : i32) -> i32);
@@ -1039,11 +1039,11 @@ test("Effect row inline typed declaration name : Type", {
     e.log(v);
     result := e.yield(v);
     assert(result == v, "inline typed: yield should return the value");
-    sum.with_mut(cur => {
+    sum.*.with_mut(cur => {
       cur.* = (cur.* + result);
     });
   }, Eff(yield, log));
-  assert(sum.with(cur => cur.*) == 10, "inline typed: sum should be 10");
+  assert(sum.*.with(cur => cur.*) == 10, "inline typed: sum should be 10");
 });
 test("Mixed unwind and return in effect handler", {
   Yield :: (ctl(v : i32) -> i32);
@@ -1086,7 +1086,7 @@ test("Mixed unwind and return in effect handler", {
     e.log(v);
     result := e.yield(v);
     assert(result == v, "mixed handler: yield should return the value");
-    sum.with_mut(cur => {
+    sum.*.with_mut(cur => {
       cur.* = (cur.* + result);
     });
 
@@ -1107,21 +1107,21 @@ test("Transitive SM while loop with break", {
     counter := Rc.new(RefCell(i32).new(0));
     sum := Rc.new(RefCell(i32).new(0));
     while(true, {
-      result := e.yield(counter.with(cur => cur.*));
-      sum.with_mut(cur => {
+      result := e.yield(counter.*.with(cur => cur.*));
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       cond(
-        (counter.with(cur => cur.*) >= limit) => {
+        (counter.*.with(cur => cur.*) >= limit) => {
           break;
         },
         true => ()
       );
     });
-    return(sum.with(cur => cur.*));
+    return(sum.*.with(cur => cur.*));
   });
   (yield : Yield) =
     (
@@ -1144,9 +1144,9 @@ test("Transitive SM while loop with continue", {
   )({
     counter := Rc.new(RefCell(i32).new(0));
     sum := Rc.new(RefCell(i32).new(0));
-    while(counter.with(cur => cur.*) < i32(8), {
-      result := e.yield(counter.with(cur => cur.*));
-      counter.with_mut(cur => {
+    while(counter.*.with(cur => cur.*) < i32(8), {
+      result := e.yield(counter.*.with(cur => cur.*));
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       cond(
@@ -1155,11 +1155,11 @@ test("Transitive SM while loop with continue", {
         },
         true => ()
       );
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
     });
-    return(sum.with(cur => cur.*));
+    return(sum.*.with(cur => cur.*));
   });
   (yield : Yield) =
     (
@@ -1184,27 +1184,27 @@ test("Transitive SM while loop with mixed continue and break", {
     counter := Rc.new(RefCell(i32).new(0));
     sum := Rc.new(RefCell(i32).new(0));
     while(true, {
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
-      e.yield(counter.with(cur => cur.*));
+      e.yield(counter.*.with(cur => cur.*));
       cond(
-        (counter.with(cur => cur.*) <= i32(2)) => {
+        (counter.*.with(cur => cur.*) <= i32(2)) => {
           continue;
         },
         true => ()
       );
       cond(
-        (counter.with(cur => cur.*) >= i32(5)) => {
+        (counter.*.with(cur => cur.*) >= i32(5)) => {
           break;
         },
         true => ()
       );
-      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
-        cur_.* = (cur_.* + counter.with(cur => cur.*));
+      sum.*.with_mut({ counter : Rc.clone(counter) }(cur_) => {
+        cur_.* = (cur_.* + counter.*.with(cur => cur.*));
       });
     });
-    return(sum.with(cur => cur.*));
+    return(sum.*.with(cur => cur.*));
   });
   (yield : Yield) =
     (
@@ -1226,21 +1226,21 @@ test("Transitive SM while loop with step expr and continue", {
   )({
     i := Rc.new(RefCell(i32).new(0));
     sum := Rc.new(RefCell(i32).new(0));
-    while(i.with(cur => cur.*) < i32(6), i.with_mut(cur => {
+    while(i.*.with(cur => cur.*) < i32(6), i.*.with_mut(cur => {
       cur.* = (cur.* + 1);
     }), {
-      result := e.yield(i.with(cur => cur.*));
+      result := e.yield(i.*.with(cur => cur.*));
       cond(
         ((result % i32(2)) != i32(0)) => {
           continue;
         },
         true => ()
       );
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
     });
-    return(sum.with(cur => cur.*));
+    return(sum.*.with(cur => cur.*));
   });
   (yield : Yield) =
     (
@@ -1262,10 +1262,10 @@ test("Transitive SM while loop with early return", {
     ) -> i32
   )({
     i := Rc.new(RefCell(i32).new(0));
-    while(i.with(cur => cur.*) < i32(10), i.with_mut(cur => {
+    while(i.*.with(cur => cur.*) < i32(10), i.*.with_mut(cur => {
       cur.* = (cur.* + 1);
     }), {
-      result := e.yield(i.with(cur => cur.*));
+      result := e.yield(i.*.with(cur => cur.*));
       cond(
         (result >= threshold) => {
           return(result);
@@ -1349,23 +1349,23 @@ test("Struct-record effect with a fixed resume type — resume in while loop", {
         }
       )
     );
-    while(counter.with(cur => cur.*) < i32(5), {
+    while(counter.*.with(cur => cur.*) < i32(5), {
       // arr = [2, 0, 3, 0, 1] pattern inlined
       divisor := cond(
-        ((counter.with(cur => cur.*) == i32(1)) || (counter.with(cur => cur.*) == i32(3))) => i32(0),
-        true => (counter.with(cur => cur.*) + i32(1))
+        ((counter.*.with(cur => cur.*) == i32(1)) || (counter.*.with(cur => cur.*) == i32(3))) => i32(0),
+        true => (counter.*.with(cur => cur.*) + i32(1))
       );
       result := safe_divide(i32(10), divisor, exn);
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
     });
-    assert(counter.with(cur => cur.*) == i32(5), "counter should reach 5");
+    assert(counter.*.with(cur => cur.*) == i32(5), "counter should reach 5");
     // 10/1=10, 10/0→resume(7)=7, 10/3=3, 10/0→resume(7)=7, 10/5=2 => sum = 29
-    assert(sum.with(cur => cur.*) == i32(29), "sum should be 29");
+    assert(sum.*.with(cur => cur.*) == i32(29), "sum should be 29");
   });
   run_test();
 });
@@ -1392,23 +1392,23 @@ test("Struct-record effect with a fixed resume type — break after resume in wh
       )
     );
     while(true, {
-      result := safe_op(counter.with(cur => cur.*) - i32(2), exn);
-      sum.with_mut(cur => {
+      result := safe_op(counter.*.with(cur => cur.*) - i32(2), exn);
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       cond(
-        (counter.with(cur => cur.*) >= i32(5)) => {
+        (counter.*.with(cur => cur.*) >= i32(5)) => {
           break;
         },
         true => ()
       );
     });
-    assert(counter.with(cur => cur.*) == i32(5), "break after struct-record resume: counter should be 5");
+    assert(counter.*.with(cur => cur.*) == i32(5), "break after struct-record resume: counter should be 5");
     // -2→100, -1→100, 0, 1, 2 => sum = 203
-    assert(sum.with(cur => cur.*) == i32(203), "break after struct-record resume: sum should be 203");
+    assert(sum.*.with(cur => cur.*) == i32(203), "break after struct-record resume: sum should be 203");
   });
   run_test();
 });
@@ -1434,9 +1434,9 @@ test("Struct-record effect with a fixed resume type — continue after resume in
         }
       )
     );
-    while(counter.with(cur => cur.*) < i32(6), {
-      i := counter.with(cur => cur.*);
-      counter.with_mut(cur => {
+    while(counter.*.with(cur => cur.*) < i32(6), {
+      i := counter.*.with(cur => cur.*);
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       result := safe_op(i - i32(2), exn);
@@ -1447,13 +1447,13 @@ test("Struct-record effect with a fixed resume type — continue after resume in
         },
         true => ()
       );
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
     });
-    assert(counter.with(cur => cur.*) == i32(6), "continue after struct-record resume: counter should be 6");
+    assert(counter.*.with(cur => cur.*) == i32(6), "continue after struct-record resume: counter should be 6");
     // sum = 50 + 50 + 1 + 2 + 3 = 106
-    assert(sum.with(cur => cur.*) == i32(106), "continue after struct-record resume: sum should be 106");
+    assert(sum.*.with(cur => cur.*) == i32(106), "continue after struct-record resume: sum should be 106");
   });
   run_test();
 });
@@ -1479,17 +1479,17 @@ test("Struct-record effect with a fixed resume type — early return after resum
         }
       )
     );
-    while(counter.with(cur => cur.*) < i32(10), {
-      result := safe_op(counter.with(cur => cur.*) - i32(3), exn);
-      sum.with_mut(cur => {
+    while(counter.*.with(cur => cur.*) < i32(10), {
+      result := safe_op(counter.*.with(cur => cur.*) - i32(3), exn);
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + result);
       });
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       cond(
         (result > i32(0)) => {
-          return((result * i32(1000)) + sum.with(cur => cur.*));
+          return((result * i32(1000)) + sum.*.with(cur => cur.*));
         },
         true => ()
       );
@@ -1517,24 +1517,24 @@ test("Test break in Option match arm after fn resume", {
     );
     while(true, {
       get_value();
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       opt := cond(
-        (counter.with(cur => cur.*) > i32(5)) => Option(i32).None,
-        true => Option(i32).Some(counter.with(cur => cur.*))
+        (counter.*.with(cur => cur.*) > i32(5)) => Option(i32).None,
+        true => Option(i32).Some(counter.*.with(cur => cur.*))
       );
       val := match(
         opt,
         .Some(v) => v,
         .None => break
       );
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + val);
       });
     });
-    assert(counter.with(cur => cur.*) == i32(6), "counter should be 6 when None triggers break");
-    assert(sum.with(cur => cur.*) == i32(15), "sum should be 1+2+3+4+5 = 15");
+    assert(counter.*.with(cur => cur.*) == i32(6), "counter should be 6 when None triggers break");
+    assert(sum.*.with(cur => cur.*) == i32(15), "sum should be 1+2+3+4+5 = 15");
   });
   run_test();
 });
@@ -1552,27 +1552,27 @@ test("Test continue in Option match arm after fn resume", {
         return(i32(1));
       }
     );
-    while(counter.with(cur => cur.*) < i32(6), {
+    while(counter.*.with(cur => cur.*) < i32(6), {
       get_value();
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       // Skip even numbers via Option match
       opt := cond(
-        ((counter.with(cur => cur.*) % i32(2)) == i32(0)) => Option(i32).None,
-        true => Option(i32).Some(counter.with(cur => cur.*))
+        ((counter.*.with(cur => cur.*) % i32(2)) == i32(0)) => Option(i32).None,
+        true => Option(i32).Some(counter.*.with(cur => cur.*))
       );
       val := match(
         opt,
         .Some(v) => v,
         .None => continue
       );
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + val);
       });
     });
-    assert(counter.with(cur => cur.*) == i32(6), "counter should reach 6");
-    assert(sum.with(cur => cur.*) == i32(9), "sum should be 1+3+5 = 9 (even numbers skipped)");
+    assert(counter.*.with(cur => cur.*) == i32(6), "counter should reach 6");
+    assert(sum.*.with(cur => cur.*) == i32(9), "sum should be 1+3+5 = 9 (even numbers skipped)");
   });
   run_test();
 });
@@ -1592,30 +1592,30 @@ test("Test mixed break and continue in Option match after fn resume", {
     );
     while(true, {
       get_value();
-      counter.with_mut(cur => {
+      counter.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
       // None means break, Some(0) means continue, Some(v) means accumulate
       opt := cond(
-        (counter.with(cur => cur.*) > i32(7)) => Option(i32).None,
-        ((counter.with(cur => cur.*) % i32(3)) == i32(0)) => Option(i32).Some(i32(0)),
-        true => Option(i32).Some(counter.with(cur => cur.*))
+        (counter.*.with(cur => cur.*) > i32(7)) => Option(i32).None,
+        ((counter.*.with(cur => cur.*) % i32(3)) == i32(0)) => Option(i32).Some(i32(0)),
+        true => Option(i32).Some(counter.*.with(cur => cur.*))
       );
       val := match(
         opt,
         .Some(v) => cond((v == i32(0)) => continue, true => v),
         .None => break
       );
-      sum.with_mut(cur => {
+      sum.*.with_mut(cur => {
         cur.* = (cur.* + val);
       });
     });
-    assert(counter.with(cur => cur.*) == i32(8), "counter should be 8 when None triggers break");
+    assert(counter.*.with(cur => cur.*) == i32(8), "counter should be 8 when None triggers break");
     // Iterations: 1→Some(1)→sum, 2→Some(2)→sum, 3→Some(0)→continue,
     // 4→Some(4)→sum, 5→Some(5)→sum, 6→Some(0)→continue,
     // 7→Some(7)→sum, 8→None→break
     // sum = 1+2+4+5+7 = 19
-    assert(sum.with(cur => cur.*) == i32(19), "sum should be 1+2+4+5+7 = 19");
+    assert(sum.*.with(cur => cur.*) == i32(19), "sum should be 1+2+4+5+7 = 19");
   });
   run_test();
 });
@@ -1817,18 +1817,18 @@ test("Test effect handler conditional resume or unwind based on argument", {
     );
     sum := Rc.new(RefCell(i32).new(0));
     q1 := safe_divide(10, 0, i32(1), raise);
-    sum.with_mut(cur => {
+    sum.*.with_mut(cur => {
       cur.* = (cur.* + q1);
     });
     q2 := safe_divide(20, 0, i32(2), raise);
-    sum.with_mut(cur => {
+    sum.*.with_mut(cur => {
       cur.* = (cur.* + q2);
     });
     q3 := safe_divide(30, 0, i32(3), raise);
-    sum.with_mut(cur => {
+    sum.*.with_mut(cur => {
       cur.* = (cur.* + q3);
     });
-    return(sum.with(cur => cur.*));
+    return(sum.*.with(cur => cur.*));
   });
   result := run_test();
   assert(result == i32(-1), "conditional resume/unwind: third call escapes with -1");
@@ -1957,19 +1957,19 @@ test("Test transitive SM with struct-record effect in while loop", {
     sum := Rc.new(RefCell(i32).new(0));
     i := Rc.new(RefCell(i32).new(0));
     c := Rc.new(RefCell(i32).new(0));
-    while(i.with(cur => cur.*) < limit, {
-      next_c := counter.increment(c.with(cur => cur.*));
-      c.with_mut(cur => {
+    while(i.*.with(cur => cur.*) < limit, {
+      next_c := counter.increment(c.*.with(cur => cur.*));
+      c.*.with_mut(cur => {
         cur.* = next_c;
       });
-      sum.with_mut({ c : Rc.clone(c) }(cur_) => {
-        cur_.* = (cur_.* + c.with(cur => cur.*));
+      sum.*.with_mut({ c : Rc.clone(c) }(cur_) => {
+        cur_.* = (cur_.* + c.*.with(cur => cur.*));
       });
-      i.with_mut(cur => {
+      i.*.with_mut(cur => {
         cur.* = (cur.* + 1);
       });
     });
-    return(sum.with(cur => cur.*));
+    return(sum.*.with(cur => cur.*));
   });
   (counter : Counter) = Counter(
     increment :
@@ -2354,13 +2354,14 @@ test("a plain Exception handler that can reach its end is E0627", {
     ),
     "This handler can reach its end without unwinding"
   );
-  // Every path unwinds or has type `never`.
-  _panics := Exception(throw : (err -> panic(`unexpected throw: ${err}`)));
+  // Every path unwinds or diverges.
+  _panics := Exception(throw : (err -> panic(`unexpected throw: ${err.*}`)));
+  _builtin_panics := Exception(throw : (err -> __yo_panic("unexpected throw")));
   _logs_then_panics := Exception(
     throw : (
       err -> {
         println(`about to panic`);
-        panic(`unexpected throw: ${err}`)
+        panic(`unexpected throw: ${err.*}`)
       }
     )
   );
@@ -2800,7 +2801,7 @@ _uw_local_operand :: (fn() -> i32)({
 });
 _uw_fail :: (fn(exn : Exception) -> i32)(exn.throw(dyn(Box.new(String.from("a fairly long error message to allocate")))));
 _uw_error_operand :: (fn() -> String)({
-  exn := Exception(throw : (e -> unwind(e.to_string())));
+  exn := Exception(throw : (e -> unwind(e.*.to_string())));
   _x := _uw_fail(exn);
   String.from("no")
 });
@@ -2812,7 +2813,7 @@ _uw_trap :: (fn() -> Option(AnyError))({
 test("an unwind operand reads a handler local and the handler's error before they are released", {
   assert(_uw_local_operand() == i32(42), "the operand read the handler local x");
   assert(_uw_error_operand() == "a fairly long error message to allocate", "the operand read the thrown error");
-  kept := match(_uw_trap(), .Some(k) => k.to_string(), .None => String.from("none"));
+  kept := match(_uw_trap(), .Some(k) => k.*.to_string(), .None => String.from("none"));
   assert(kept == "a fairly long error message to allocate", "a trap moved the thrown error out");
 });
 // A `ctl` operation returning a reference into its own parameter

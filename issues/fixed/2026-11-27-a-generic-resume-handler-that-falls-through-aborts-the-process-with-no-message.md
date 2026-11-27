@@ -46,3 +46,20 @@ The handler is emitted as `void* fn(int32_t err)`. Its body ends with a statemen
 Before the trap existed, the fall-through resumed with a zeroed `ResumeType`: a null `Rc` or `Box` in safe code. Restoring that ordering is therefore not the fix.
 
 The fix is VERDICTS-89 R2's second half. A handler of a `ctl(generic(R : Type), ...) -> R` does not resume, so every path must end in `unwind(value)` or in an expression of type `never`. Falling off the end is an error at the handler. `docs/en-US/ERROR_HANDLING.md` ("must `unwind`, diverge, or fall through with `()`") and `tests/algebraic-effects.test.yo`'s `_falls` line are corrected with it. The test that fails before and passes after is a `comptime_expect_error` row for `err -> { println(...); }` in `tests/algebraic-effects.test.yo`.
+
+## Fix
+
+VERDICTS-89 PR B. `src/evaluator/values/anonymous-function.yo` rejects a handler of a `ctl(generic(R : Type), ...) -> R` whose body can reach its end, with E0627 at the body's last statement. The body must either carry the `Unwind` flow, which a block, `cond` or `match` carries only when every path unwinds, or diverge. A diverging body has type `never` (`panic(msg)`) or the resume type `R` itself. No value has type `R`, so only an expression that does not return takes it on: `__yo_panic` adopts the expected type. The reproducer above is now:
+
+```text
+error[E0627]: This handler can reach its end without unwinding, but the operation does not resume: its resume type `ResumeType` is chosen by each throw site.
+```
+
+- **Rejected:** `err -> ()`, `err -> { println(...); }`, `cond(c => unwind(v), true => ())` and `{ assert(false, msg); }`. `assert` is not known to diverge, so the block has type `()`.
+- **Accepted:** `err -> panic(msg)`, `{ log; panic(msg) }`, `err -> __yo_panic(msg)`, `unwind(v)` with or without a `;`, and a `cond` whose arms all unwind or panic.
+
+The sweep rewrote 88 handlers. Each ended in `{ assert(false, msg); }` and is now `panic(msg)`: 87 in `tests/internal`, 1 in `tests/`. It also rewrote:
+- `tests/internal/verifier-law.test.yo`'s `err -> ()`, now a `panic`;
+- `std/allocator.test.yo`'s `{ __yo_panic(msg); }`, whose `;` made it fall through.
+
+`tests/algebraic-effects.test.yo`, "a plain Exception handler that can reach its end is E0627", holds the rejected and accepted rows.

@@ -323,7 +323,7 @@ derive(_PmFlag, Copy, Clone);
 impl(_PmFlag, LogicalNot((!) : (fn(self : Self) -> bool)(!self.on)));
 _PmNamed :: struct(name : Rc(String));
 derive(_PmNamed, Clone);
-impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.len() == usize(0))));
+impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.*.len() == usize(0))));
 _PmHeld :: struct(n : i32);
 impl(
   _PmHeld,
@@ -1050,7 +1050,7 @@ test("a by-value operand is read before a later &mut argument writes it", {
   assert((p.a - p.b) == i32(2), "value-struct constructor");
   x = i32(3);
   o := Rc.new(_PmSeqObj(a : x, b : _pm_seq_bump(&mut x)));
-  assert((o.a - o.b) == i32(2), "Rc-struct constructor");
+  assert((o.*.a - o.*.b) == i32(2), "Rc-struct constructor");
   x = i32(3);
   e := _PmSeqE.P(a : x, b : _pm_seq_bump(&mut x));
   assert(match(e, .P(a, b) => (a - b), .Q => i32(-1)) == i32(2), "enum constructor");

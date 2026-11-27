@@ -195,7 +195,7 @@ evaluate_comptime_expect_error :: (
           while(sfc_j < sfc_f.variables_len(), {
             match(
               sfc_f.variable_at(sfc_j),
-              .Some(sfc_v) => frame_marks.push(match(sfc_v.consumed_at_token(), .Some(sfc_ct) => Option(Token).Some(sfc_ct), .None => Option(Token).None)),
+              .Some(sfc_v) => frame_marks.push(match(sfc_v.*.consumed_at_token(), .Some(sfc_ct) => Option(Token).Some(sfc_ct), .None => Option(Token).None)),
               .None => frame_marks.push(Option(Token).None)
             );
             sfc_j = (sfc_j + usize(1));
@@ -323,7 +323,7 @@ evaluate_comptime_expect_error :: (
         saved_frames.get_cloned(rf_i),
         .Some(rf) => {
           env_frames_for_write(env);
-          env.with_mut({ rf : Rc.clone(rf) }(d) => {
+          env.*.*.with_mut({ rf : Rc.clone(rf) }(d) => {
             Rc.make_mut(&mut d.frames).push(rf);
           });
         },
@@ -370,7 +370,7 @@ evaluate_comptime_expect_error :: (
               .Some(rfc_v) => match(
                 rfc_marks.get_cloned(rfc_j),
                 .Some(rfc_mark) => {
-                  rfc_v.set_consumed_at_token(rfc_mark);
+                  rfc_v.*.set_consumed_at_token(rfc_mark);
                 },
                 .None => ()
               ),

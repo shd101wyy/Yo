@@ -11,10 +11,10 @@ main :: (fn() -> unit)({
   state := Rc.new(RefCell(i32).new(i32(1)));
   (closure : Rc(Dyn(Fn(y : i32) -> i32))) = dyn(
     Rc.new(y => {
-      state.with_mut(v => {
+      state.*.with_mut(v => {
         v.* = (v.* + y);
       });
-      return(state.with(v => v.*));
+      return(state.*.with(v => v.*));
     })
   );
   // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the

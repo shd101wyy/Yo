@@ -463,14 +463,14 @@ test("an early return from a shadowing arm in an async body drops each value onc
         _sh_find_cargo(),
         .Some(parsed) => {
           if(flag, {
-            return(parsed.tag + i32(100));
+            return(parsed.*.tag + i32(100));
           });
-          parsed.tag
+          parsed.*.tag
         },
         .None => i32(0)
       );
       aio.await(yield(aio), aio);
-      parsed.tag + inner
+      parsed.*.tag + inner
     })
   );
   assert(io.await(drive(true, io), io) == i32(110), "the early path");
@@ -497,9 +497,9 @@ test("a shadowing nullable-pointer arm binding in an async body is dropped once"
     rio.async((aio : Io) => {
       parsed := Rc.new(_ShV(tag : i32(1)));
       aio.await(yield(aio), aio);
-      inner := match(_sh_find_cargo(), .Some(parsed) => parsed.tag, .None => i32(0));
+      inner := match(_sh_find_cargo(), .Some(parsed) => parsed.*.tag, .None => i32(0));
       aio.await(yield(aio), aio);
-      parsed.tag + inner
+      parsed.*.tag + inner
     })
   );
   assert(io.await(drive(io), io) == i32(11), "each binding reads its own value");

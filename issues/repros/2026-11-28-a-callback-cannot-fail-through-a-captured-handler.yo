@@ -1,0 +1,38 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+Raise :: (ctl(msg : &String) -> i32);
+
+each :: (fn(xs : &ArrayList(i32), f : &mut Impl(FnMut(x : i32) -> unit)) -> unit)({
+  mut(i) := usize(0);
+  while(i < xs.len(), {
+    f(xs.get(i).unwrap_or(i32(0)));
+    i = (i + usize(1));
+  });
+});
+
+// the everyday higher-order use: fail from inside the callback
+sum_positive :: (fn(xs : &ArrayList(i32), raise : Raise) -> i32)({
+  mut(sum) := i32(0);
+  (mut(f) : Impl(FnMut(x : i32) -> unit)) = ({ &mut sum }(x : i32) => {
+    if(x < i32(0), {
+      _ := raise(`negative`);
+    });
+    sum.* = (sum.* + x);
+  });
+  each(xs, &mut f);
+  sum
+});
+
+main :: (fn() -> unit)({
+  (raise : Raise) = (
+    msg -> {
+      unwind(());
+    }
+  );
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(-2));
+  println(`sum=${sum_positive(&xs, raise)}`);
+});
+export(main);

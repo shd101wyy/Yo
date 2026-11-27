@@ -334,7 +334,7 @@ _ok_v6 :: (fn(s : &String) -> IpAddr)({
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  parse_v6 rejected a valid address: ${err}`);
+        eprintln(`  parse_v6 rejected a valid address: ${err.*}`);
         assert(false, "parse_v6 must accept this");
         // Unreachable past the assert, but an `unwind` value is the enclosing
         // fn's result type — this fn returns an IpAddr, not unit.
@@ -457,7 +457,7 @@ test("IpAddr.parse dispatches on the presence of a colon", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  parse rejected a valid address: ${err}`);
+        eprintln(`  parse rejected a valid address: ${err.*}`);
         assert(false, "must accept");
         unwind(());
       }
@@ -550,7 +550,7 @@ test("SocketAddr.parse takes host:port and requires brackets for V6", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  rejected a valid socket address: ${err}`);
+        eprintln(`  rejected a valid socket address: ${err.*}`);
         assert(false, "must accept");
         unwind(());
       }

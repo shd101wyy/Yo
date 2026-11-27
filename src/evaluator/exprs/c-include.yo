@@ -119,7 +119,7 @@ _adoptable_type_binding :: (fn(env : &Environment, name : &String) -> Option(Typ
     return(Option(TypeValue).None);
   });
   v := match(vars.get_cloned(n - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
-  val := match(v.value().get(usize(0)), .Some(x) => x, .None => return(Option(TypeValue).None));
+  val := match(v.*.value().get(usize(0)), .Some(x) => x, .None => return(Option(TypeValue).None));
   ty := match(val, Rc(.TypeVal(t)) => Rc.clone(t), _ => return(Option(TypeValue).None));
   match(type_decl_id(&ty), .Some(_) => Option(TypeValue).Some(ty), .None => Option(TypeValue).None)
 });
@@ -138,7 +138,7 @@ _c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String)
   });
   cargs := match(Rc.clone(rhs), Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   spelling_atom := match(cargs.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(rhs));
-  raw := ast_expr_token(&spelling_atom).value.*.clone();
+  raw := ast_expr_token(&spelling_atom).*.value.*.clone();
   rn := raw.len();
   (spelling : String) = if(
     (cargs.len() == usize(1)) && ast_expr_is_atom(&spelling_atom) && (rn >= usize(2)) && raw.starts_with(String.from("\"")),
@@ -173,7 +173,7 @@ evaluate_c_include :: (
         Box.new(
           format_error_message(
             ast_expr_token(expr),
-            `Expected c_include, got ${ast_expr_token(expr).value.*}`
+            `Expected c_include, got ${ast_expr_token(expr).*.value.*}`
           )
         )
       )
@@ -185,7 +185,7 @@ evaluate_c_include :: (
   // call-site gate in `function.yo` catches actual calls, but type-level
   // uses (an imported extern Type in a field/trait bound) would slip
   // through.
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).*.module_path.*.clone())), {
     exn.throw(
       dyn(
         Box.new(
@@ -306,7 +306,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       .Some(_) => EvalModuleFieldResult(
         label : match(
           match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
-          .Some(l) => ast_expr_token(&l).value.*.clone(),
+          .Some(l) => ast_expr_token(&l).*.value.*.clone(),
           .None => String.new()
         ),
         field_type : t_type(),
@@ -378,14 +378,14 @@ User code should normally call stdlib wrappers (e.g. functions in
           Rc.clone(ret),
           Rc.new(
             FuncMeta(
-              forall_labels : m.forall_labels.clone(),
-              param_labels : m.param_labels.clone(),
-              implicit_labels : m.implicit_labels.clone(),
-              result_is_comptime_only : m.result_is_comptime_only,
-              has_variadic : m.has_variadic,
+              forall_labels : m.*.*.forall_labels.clone(),
+              param_labels : m.*.*.param_labels.clone(),
+              implicit_labels : m.*.*.implicit_labels.clone(),
+              result_is_comptime_only : m.*.*.result_is_comptime_only,
+              has_variadic : m.*.*.has_variadic,
               is_extern : Option(String).Some(String.from("c")),
               extern_name : Option(String).Some(result.label.clone()),
-              is_control : m.is_control,
+              is_control : m.*.*.is_control,
               variadic_label : Option(String).None,
               variadic_comptime : false
             )

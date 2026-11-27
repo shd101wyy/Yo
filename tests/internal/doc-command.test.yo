@@ -68,7 +68,7 @@ _run_doc_catching :: (fn(options : &DocCommandOptions, io : Io) -> Option(String
   exn := Exception(
     throw : (
       err -> {
-        unwind(Option(String).Some(err.to_string()));
+        unwind(Option(String).Some(err.*.to_string()));
       }
     )
   );
@@ -80,7 +80,7 @@ test("a degraded module fails the run unless --allow-token-only is passed", {
   // not return one (a `ctl` handler cannot outlive its frame).
   exn := Exception(
     throw : (
-      err -> panic(`test io failed: ${err.to_string()}`)
+      err -> panic(`test io failed: ${err.*.to_string()}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
@@ -110,7 +110,7 @@ test("a degraded module fails the run unless --allow-token-only is passed", {
 test("--allow-token-only renders, with members on their types and no unexported items", {
   exn := Exception(
     throw : (
-      err -> panic(`test io failed: ${err.to_string()}`)
+      err -> panic(`test io failed: ${err.*.to_string()}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
@@ -137,7 +137,7 @@ test("--allow-token-only renders, with members on their types and no unexported 
 test("a fully loadable tree never needs the flag", {
   exn := Exception(
     throw : (
-      err -> panic(`a clean tree must not throw: ${err.to_string()}`)
+      err -> panic(`a clean tree must not throw: ${err.*.to_string()}`)
     )
   );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
