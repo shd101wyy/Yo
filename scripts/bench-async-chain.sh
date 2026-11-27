@@ -53,7 +53,7 @@ done
 
 stat() { # <mode> <count> <key>: one counter of the YO_ASYNC_STATS line of a run
   YO_ASYNC_STATS=1 BENCH_MODE="$1" BENCH_COUNT="$2" "${OUT}/bench" 2>&1 >/dev/null |
-    sed -n 's/^yo: async-stats .*[ ]'"$3"'=\([0-9]*\).*/\1/p'
+    sed -n 's/^yo: async-stats.* '"$3"'=\([0-9]*\).*/\1/p'
 }
 if [ -z "$(stat chain 0 sm_cells)" ]; then
   echo "this compiler emits no YO_ASYNC_STATS report; the cells table is skipped"
