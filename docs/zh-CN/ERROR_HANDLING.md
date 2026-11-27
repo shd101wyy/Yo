@@ -110,14 +110,16 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   )
 );
 
-result := safe_divide(6, 3); // result = 2
+result := safe_divide(6, 3, exn); // result = 2
 safe_divide(10, 0, exn); // 处理器触发，unwind — 之后的代码不会执行
 ```
 
-`Exception` 的处理器不能带着值恢复 throw。`throw` 的恢复类型是一个由每个
-throw 点各自选定的类型变量，所以处理器只能 `unwind`、发散，或以 `()` 结束。
-`return` 的处理器（带值，如 `err -> { return(i32(7)); }`，或带 `()`）
-是 E0627，错误信息会指向 `ResumableException`。
+`Exception` 的处理器不会恢复 throw。`throw` 的恢复类型是一个由每个
+throw 点各自选定的类型变量，所以处理器的每条路径都必须 `unwind(value)`
+或发散（`panic(msg)`）。`return` 的处理器（带值，如
+`err -> { return(i32(7)); }`，或带 `()`）是 E0627，能执行到末尾的处理器
+也是：`err -> ()`，或以 `assert(false, msg);` 结尾的块，它的类型是 `()`。
+错误信息会指向 `ResumableException`。
 
 ## ResumableException
 

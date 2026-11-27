@@ -70,7 +70,7 @@ The checker did not agree with codegen. The 2026-10-01 verdict (`issues/fixed/ma
 VERDICTS-89 (option 1 widened; specializing the handler per throw site was rejected: a handler is a run-time value, so there is nothing to specialize against).
 
 - **R1.** A `ctl` type parameter may appear only as the whole result type: `ctl(generic(R : Type), ps) -> R`, an operation that does not resume. Any other use is E0627 where the type is written (`src/evaluator/types/function.yo`).
-- **R2, the `return` half.** In a handler of such a `ctl`, every `return(...)` is E0627, `return(())` included. So is a tail of a concrete type (`src/evaluator/values/anonymous-function.yo`). Falling through with `()` is still accepted. Making it an error is VERDICTS-89 PR B; see `issues/2026-11-27-a-generic-resume-handler-that-falls-through-aborts-the-process-with-no-message.md`.
+- **R2, the `return` half.** In a handler of such a `ctl`, every `return(...)` is E0627, `return(())` included. So is a tail of a concrete type (`src/evaluator/values/anonymous-function.yo`). Falling through with `()` is still accepted. Making it an error is VERDICTS-89 PR B; see `issues/fixed/2026-11-27-a-generic-resume-handler-that-falls-through-aborts-the-process-with-no-message.md`.
 - **R3.** To resume with a value, the resume type is fixed when the record is built (`comptime(R)` on the type constructor, as `ResumableException(T)` does). There the handler is checked at a concrete type, and `return(fallback.*)` of a value that needs a drop is E0901.
 - **Tests** (`tests/algebraic-effects.test.yo`):
   - Tests 43–46 resume through `MyException(i32, i32)` with nonzero resume values.
