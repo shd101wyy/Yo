@@ -2575,20 +2575,20 @@ _match_arm_conditioned_ir :: (
   test_opt := _arm_ir_bind(&arm.pattern, scrut, e_ty, ctx, &mut saved_names, &mut saved_vals);
   result := match(
     test_opt,
-    .Some(test) => {
+    .Some(test_) => {
       full_test := match(
         arm.guard.clone(),
         .Some(g) => match(
           _expr_term(ctx, &g),
           .Some(g_t) => {
             conj := ArrayList(VcTerm).new();
-            conj.push(Rc.clone(test));
+            conj.push(Rc.clone(test_));
             conj.push(g_t);
             Option(VcTerm).Some(vc_and(&conj))
           },
           .None => Option(VcTerm).None
         ),
-        .None => Option(VcTerm).Some(Rc.clone(test))
+        .None => Option(VcTerm).Some(Rc.clone(test_))
       );
       match(
         full_test,
@@ -2677,14 +2677,14 @@ _match_phi_reset :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi) -> unit)({
 });
 /// Record one walked arm: its test, the arm-written names' terms now, and
 /// whether its walk exited the loop (the next arm walks from a live path).
-_match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi, test : VcTerm) -> unit)({
+_match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi, test_ : VcTerm) -> unit)({
   post := ArrayList(Option(VcTerm)).new();
   (ni : usize) = usize(0);
   while(ni < ph.names.len(), {
     post.push(ctx.vars.get_cloned(ph.names.get_cloned(ni).unwrap().clone()));
     ni = (ni + usize(1));
   });
-  ph.tests.push(test);
+  ph.tests.push(test_);
   ph.posts.push(post);
   ph.dead.push(ctx.path_dead);
   ph.ends.push(ctx.path.len());
@@ -2809,8 +2809,8 @@ _restore_vars :: (
       .Some(sv) => {
         match(
           sv,
-          .Some(old) => {
-            ctx.vars.insert(sn.clone(), old);
+          .Some(old_) => {
+            ctx.vars.insert(sn.clone(), old_);
           },
           .None => {
             ctx.vars.remove(sn.clone());
@@ -2990,8 +2990,8 @@ _pattern_subject_name :: (fn(p : &Pattern) -> String)(
 _pattern_test_ast :: (fn(p : &Pattern) -> AstExpr)(
   match(
     p,
-    .Const(_, _, _, _, test) => Rc.clone(test.*),
-    .Range(_, _, test, _, _, _, _) => Rc.clone(test.*),
+    .Const(_, _, _, _, test_) => Rc.clone(test_.*),
+    .Range(_, _, test_, _, _, _, _) => Rc.clone(test_.*),
     _ => make_err_expr()
   )
 );
@@ -3127,14 +3127,14 @@ _and_terms :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
 });
 /// The condition under which an arm of a first-match chain (`cond`,
 /// `match`) runs: its own `test` and none of the `earlier` arms' tests.
-_arm_taken_term :: (fn(earlier : &ArrayList(VcTerm), test : &VcTerm) -> VcTerm)({
+_arm_taken_term :: (fn(earlier : &ArrayList(VcTerm), test_ : &VcTerm) -> VcTerm)({
   parts := ArrayList(VcTerm).new();
   (i : usize) = usize(0);
   while(i < earlier.len(), {
     parts.push(_app1(VcOp.NotOp, earlier.get_cloned(i).unwrap()));
     i = (i + usize(1));
   });
-  parts.push(Rc.clone(test));
+  parts.push(Rc.clone(test_));
   _and_terms(&parts)
 });
 /// Disjoin a non-empty term list with OrOp (single terms pass through).
@@ -3542,9 +3542,9 @@ _continue_obligations :: (fn(ctx : &mut VcCtx, at : &AstExpr) -> bool)({
 /// own, a list constructor (a popped list) or an `ite` over bindings (a
 /// branch that pushed) has the sort of what it builds, and anything else
 /// keeps the term's bit width (width 1 = bool).
-_havoc_binding_sort :: (fn(old : &VcTerm) -> VcSort)(
+_havoc_binding_sort :: (fn(old_ : &VcTerm) -> VcSort)(
   match(
-    old,
+    old_,
     Rc(.Var(_, s)) => Rc.clone(s),
     Rc(.Ctor(cn, _)) => match(
       _list_sort_of_ctor(&cn.*),
@@ -3557,7 +3557,7 @@ _havoc_binding_sort :: (fn(old : &VcTerm) -> VcSort)(
       .None => Rc.new(VcSortNode.BoolS)
     ),
     _ => cond(
-      (_term_width(old) > usize(1)) => Rc.new(VcSortNode.BvS(width : _term_width(old))),
+      (_term_width(old_) > usize(1)) => Rc.new(VcSortNode.BvS(width : _term_width(old_))),
       true => Rc.new(VcSortNode.BoolS)
     )
   )
@@ -3627,7 +3627,7 @@ _havoc_assigned :: (fn(ctx : &mut VcCtx, assigned : &ArrayList(String)) -> unit)
     name := assigned.get_cloned(ai).unwrap();
     srt := match(
       ctx.vars.get_cloned(name.clone()),
-      .Some(old) => _binding_sort(ctx, &name, &old),
+      .Some(old_) => _binding_sort(ctx, &name, &old_),
       .None => match(ctx.array_sorts.get_cloned(name.clone()), .Some(asrt) => asrt, .None => Rc.new(VcSortNode.BoolS))
     );
     hv := `__yo_hv${ctx.havoc.to_string()}_${name.clone()}`;
@@ -4229,8 +4229,8 @@ _quant_term :: (
           .Some(sv) => {
             match(
               sv,
-              .Some(old) => {
-                ctx.vars.insert(sn.clone(), old);
+              .Some(old_) => {
+                ctx.vars.insert(sn.clone(), old_);
               },
               .None => {
                 _ := ctx.vars.remove(sn.clone());
@@ -5666,8 +5666,8 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
           .Some(pre) => {
             match(
               pre,
-              .Some(old) => {
-                ctx.vars.insert(nm.clone(), old);
+              .Some(old_) => {
+                ctx.vars.insert(nm.clone(), old_);
               },
               .None => {
                 ctx.vars.remove(nm.clone());
@@ -6674,8 +6674,8 @@ _ghost_fn_inline_term :: (
           .Some(sv) => {
             match(
               sv,
-              .Some(old) => {
-                ctx.vars.insert(sn.clone(), old);
+              .Some(old_) => {
+                ctx.vars.insert(sn.clone(), old_);
               },
               .None => {
                 _ := ctx.vars.remove(sn.clone());
@@ -7180,8 +7180,8 @@ _callee_call_term :: (
           .Some(sv) => {
             match(
               sv,
-              .Some(old) => {
-                ctx.vars.insert(sn.clone(), old);
+              .Some(old_) => {
+                ctx.vars.insert(sn.clone(), old_);
               },
               .None => {
                 ctx.vars.remove(sn.clone());

@@ -867,21 +867,21 @@ choose_ref :: (
 /// version tag must fit every range; an exact pin must be the recorded ref.
 locked_entry_satisfies :: (fn(entry : &LockEntry, url : &String, reqs : &ArrayList(Requirement)) -> bool)({
   if(!entry.is_git() || (entry.url() != url.*), return(false));
-  ref := entry.ref();
+  ref_ := entry.ref();
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     fits := match(
       &reqs(i).requirement.clone(),
       .Version(text) => match(
         parse_version_req(text.clone()),
-        .Ok(req) => match(parse_semver(ref.clone()), .Some(sv) => version_req_matches(&req, &sv), .None => false),
+        .Ok(req) => match(parse_semver(ref_.clone()), .Some(sv) => version_req_matches(&req, &sv), .None => false),
         .Err(_) => false
       ),
-      .Tag(t) => (t.* == ref),
-      .Rev(sha) => (sha.* == ref),
-      .Branch(b) => (b.* == ref),
+      .Tag(t) => (t.* == ref_),
+      .Rev(sha) => (sha.* == ref_),
+      .Branch(b) => (b.* == ref_),
       // A bare `git` follows whatever branch the lock recorded.
-      .DefaultBranch => (ref.len() > usize(0))
+      .DefaultBranch => (ref_.len() > usize(0))
     );
     if(!fits, return(false));
     i = (i + usize(1));
@@ -1126,8 +1126,8 @@ _expand_package :: (
 /// it parses as one (so the lock keeps its `version`), else as an exact ref
 /// (a tag that is not a version, a commit, or a branch name whose commit the
 /// lock pins).
-_locked_choice :: (fn(ref : &String) -> ChosenRef)(
-  match(parse_semver(ref.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref.clone()))
+_locked_choice :: (fn(ref_ : &String) -> ChosenRef)(
+  match(parse_semver(ref_.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref_.clone()))
 );
 /// Is `name` one `yo update` re-resolves?
 _refresh_requested :: (fn(state : &Rc(_State), name : &String) -> bool)(
@@ -1442,18 +1442,18 @@ _lock_uses_store :: (fn(lock : &LockFile) -> bool)({
   false
 });
 /// Names whose entries differ between `old` and `new` — the `--locked` report.
-_lock_diff :: (fn(old : &LockFile, new : &LockFile) -> String)({
+_lock_diff :: (fn(old_ : &LockFile, new : &LockFile) -> String)({
   out := String.new();
   for(&new.packages, n => {
     match(
-      find_lock_entry(old, n.name.clone()),
+      find_lock_entry(old_, n.name.clone()),
       .None => out.push_string(`\n  + ${n.name} ${n.source}`),
       .Some(o) => if((o.source != n.source) || (o.commit != n.commit) || (o.integrity != n.integrity), {
         out.push_string(`\n  ~ ${n.name}: ${o.source} @ ${o.commit} → ${n.source} @ ${n.commit}`);
       })
     );
   });
-  for(&old.packages, o => {
+  for(&old_.packages, o => {
     if(find_lock_entry(new, o.name.clone()).is_none(), {
       out.push_string(`\n  - ${o.name} ${o.source}`);
     });
