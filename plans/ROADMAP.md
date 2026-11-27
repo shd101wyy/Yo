@@ -48,7 +48,7 @@ Six lanes, at most four at once
   ([`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)).
 - **E. Verification.** Verification on by default
   ([`DEFAULT_ON_VERIFICATION`](backlog/DEFAULT_ON_VERIFICATION.md), first);
-  `spec_fn` and `lemma` replace `ghost_fn`
+  `logic` and `lemma` replace `ghost_fn`
   ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md)); verified std bodies
   ([`SAFE_MODE`](backlog/SAFE_MODE.md),
   [`THEOREM_PROVING_DIRECTION`](backlog/THEOREM_PROVING_DIRECTION.md),
