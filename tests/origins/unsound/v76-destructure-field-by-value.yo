@@ -1,0 +1,11 @@
+// expect: E0901
+// VERDICTS-76 Q2: a field destructured by value would be a partial move of its holder (decision 19).
+{ String } :: import("std/string");
+Pair :: struct(a : String, b : String);
+Outer :: struct(p : Pair, n : i32);
+main :: (fn() -> unit)({
+  o := Outer(p : Pair(a : String.from("a"), b : String.from("b")), n : i32(1));
+  { a, b } := o.p;
+  _n := (a.len() + o.p.a.len());
+});
+export(main);

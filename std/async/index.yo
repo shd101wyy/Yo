@@ -275,8 +275,6 @@ _settle :: (
 /// would have completed.
 race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
   assert(handles.len() > usize(0), "race_first: empty handle list");
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   io.async({ handles }(io : Io) => match(io.await(race(handles, io), io), (w, hs) => io.await(_settle(hs, Option(usize).Some(w), io), io)))
 });
 /// Resolve to the first handle to COMPLETE and abort the rest — `any` with

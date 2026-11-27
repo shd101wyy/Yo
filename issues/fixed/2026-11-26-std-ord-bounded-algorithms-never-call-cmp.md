@@ -126,3 +126,11 @@ VERDICTS-87 PR B (`plans/backlog/STD_RUST_ALIGNMENT.md` §9): std only. Every `O
 ## Test to add with the fix
 
 In the collection tests (`tests/collections/array-list.test.yo`, `tests/collections/btree-map.test.yo`, `tests/collections/priority-queue.test.yo`): a NaN row for each algorithm. `sort`/`sort_unstable` of `[3, NaN, 1, 2, NaN, 0.5]` is `0.5 1 2 3 NaN NaN`; a `BTreeMap(f64, i32)` with two NaN inserts holds one NaN key and `len` equals the number of distinct keys under `cmp`; a `PriorityQueue(f64)` pops the NaNs first; `binary_search` and `min`/`max` agree. Each fails before the fix.
+
+## Fixed (2026-11-26, VERDICTS-87 PR B)
+
+std only. Every `Ord`-bounded algorithm orders by `cmp`: `ArrayList.sort`, `sort_unstable`, `sort_by_key` and `binary_search` (`std/collections/array-list.yo`), `BTreeMap._find` (`std/collections/btree-map.yo`), the `PriorityQueue` sift up and down (`std/collections/priority-queue.yo`), and `Iterator.min`/`max` (`std/prelude.yo`). The std impls over another `Ord` type now build `cmp` from the parts' `cmp` instead of inheriting the operator-derived default, which is not total on floats: `Reverse(T)` (the documented min-heap idiom), `Option(T)`, `Result(T, E)`, `Array(T, U)`, and `derive(Ord(…))` on structs and enums. `longdouble` gains the total `cmp` override `f32` and `f64` already had. The `Ord` doc comment and the docs' Rust-names row state the rule: code that needs a total order calls `cmp`; the operators are the type's own and are partial on floats.
+
+The three programs above now print `0.5 1 2 3 NaN NaN`; `len 4` with the NaN key holding `8`; and `NaN NaN 5 4 2 1`.
+
+Tests (each fails on develop's std): `tests/collections/array-list.test.yo` (`sort`, `sort_unstable`, `sort_by_key`, `binary_search`, and a composite-key sort over `Option(f64)`, `Reverse(f64)` and a derived `Ord`), `tests/collections/btree-map.test.yo` (the NaN key), `tests/collections/priority-queue.test.yo` (a max-heap and a `Reverse` min-heap of floats), `tests/iterator-combinators.test.yo` (`min`/`max`).

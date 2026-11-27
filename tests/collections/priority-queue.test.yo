@@ -297,3 +297,36 @@ test("clone is a deep copy: the clone's writes never reach the source (B10)", {
   assert((c.len() == usize(3)) && (c.pop().unwrap() == i32(9)), "the clone saw the push");
   assert(q.peek().unwrap() == i32(5), "the source's order is untouched");
 });
+// ===== Ord's total `cmp` (VERDICTS-87 PR B) =====
+test("a max-heap of floats pops the NaNs first, then the numbers in order", {
+  z := f64(0.0);
+  nan := (z / z);
+  mut(q) := PriorityQueue(f64).new();
+  q.push(f64(2.0));
+  q.push(nan);
+  q.push(f64(5.0));
+  q.push(f64(1.0));
+  q.push(nan);
+  q.push(f64(4.0));
+  a := q.pop().unwrap();
+  b := q.pop().unwrap();
+  assert((a != a) && (b != b), "NaN NaN");
+  assert(q.pop().unwrap() == f64(5.0), "then 5");
+  assert(q.pop().unwrap() == f64(4.0), "then 4");
+  assert(q.pop().unwrap() == f64(2.0), "then 2");
+  assert(q.pop().unwrap() == f64(1.0), "then 1");
+});
+test("a Reverse min-heap of floats pops the numbers in order, then the NaN", {
+  z := f64(0.0);
+  nan := (z / z);
+  mut(q) := PriorityQueue(Reverse(f64)).new();
+  q.push(Reverse(f64)(f64(2.0)));
+  q.push(Reverse(f64)(nan));
+  q.push(Reverse(f64)(f64(1.0)));
+  q.push(Reverse(f64)(f64(4.0)));
+  assert(q.pop().unwrap().value == f64(1.0), "1");
+  assert(q.pop().unwrap().value == f64(2.0), "2");
+  assert(q.pop().unwrap().value == f64(4.0), "4");
+  last := q.pop().unwrap().value;
+  assert(last != last, "the NaN last");
+});

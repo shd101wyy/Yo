@@ -1,0 +1,20 @@
+// expect: E0923
+// static-generic-fn-store with the holder a local: the block local `x` ends
+// while `slot`, declared over `static`, still holds its reference.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+keep :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&(X, static)).None;
+  {
+    x := X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+    r := &x;
+    keep(&mut slot, r);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

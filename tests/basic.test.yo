@@ -281,24 +281,25 @@ test("Test destructuring", {
   {
     Point :: struct(x : i32, y : f64);
     point := Point(3, 4.5);
+    // A destructuring of a borrow lends each field; of the value, consumes it.
     {
-      { x, y } := point;
-      assert(x == 3);
-      assert(y == 4.5);
+      { x, y } := &point;
+      assert(x.* == 3);
+      assert(y.* == 4.5);
     };
     {
-      { y, x } := point;
-      assert(x == 3);
-      assert(y == 4.5);
+      { y, x } := &point;
+      assert(x.* == 3);
+      assert(y.* == 4.5);
     };
     {
-      _(x : a, y : b) := point;
-      assert(a == 3);
-      assert(b == 4.5);
+      _(x : a, y : b) := &point;
+      assert(a.* == 3);
+      assert(b.* == 4.5);
     };
     {
-      { x : another_x } := point;
-      assert(another_x == 3);
+      { x : another_x } := &point;
+      assert(another_x.* == 3);
     };
     {
       { x : another_x, ... } := point;
@@ -814,8 +815,8 @@ test("Test 'struct'", {
     (p5 : Point) = .{ x, y };
     (p6 : Point) = .{ y, x };
     {
-      { x : another_x, y : a } := p;
-      a;
+      { x : another_x, y : a } := &p;
+      a.*;
     };
     {
       { x : a, y : b } := p;
@@ -2166,8 +2167,8 @@ test("Test whole-struct destructuring statements", {
   {
     Point :: struct(x : i32, y : i32);
     calculate :: (fn(p : &Point) -> i32)({
-      { x, y } := p.*;
-      x + y
+      { x, y } := p;
+      x.* + y.*
     });
     result := calculate(Point(7, 3));
     assert(result == i32(10));
