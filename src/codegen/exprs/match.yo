@@ -2054,14 +2054,14 @@ _emit_pattern_chain :: (
         shadows.push(cname);
       });
     },
-    .Const(_, _, _, subject, test) => {
+    .Const(_, _, _, subject, test_) => {
       if(emit_tests, {
         cname := sanitize_for_c_identifier(subject.clone(), false);
         subject_c := shadow_binding_decl_name(context, &cname);
         _emit_pattern_binding_decl(context, indent.clone(), subject_c.clone(), ty, path.clone());
         _shadow_add(context, &cname, &subject_c, Option(Token).None);
         shadows.push(cname);
-        test_code := _call_generate_expr(&test.*, indent.clone(), context);
+        test_code := _call_generate_expr(&test_.*, indent.clone(), context);
         line := indent.clone();
         line.push_str("if (!(");
         line.push_string(&test_code);
@@ -2071,14 +2071,14 @@ _emit_pattern_chain :: (
         context.base.emitter.emit_string_line(&line);
       });
     },
-    .Range(_, subject, test, _, _, _, _) => {
+    .Range(_, subject, test_, _, _, _, _) => {
       if(emit_tests, {
         cname := sanitize_for_c_identifier(subject.clone(), false);
         subject_c := shadow_binding_decl_name(context, &cname);
         _emit_pattern_binding_decl(context, indent.clone(), subject_c.clone(), ty, path.clone());
         _shadow_add(context, &cname, &subject_c, Option(Token).None);
         shadows.push(cname);
-        test_code := _call_generate_expr(&test.*, indent.clone(), context);
+        test_code := _call_generate_expr(&test_.*, indent.clone(), context);
         line := indent.clone();
         line.push_str("if (!(");
         line.push_string(&test_code);

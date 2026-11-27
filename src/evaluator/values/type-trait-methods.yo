@@ -588,7 +588,7 @@ get_type_trait_methods_for_type :: (
   fn(type_id_ : &String) -> ArrayList(MethodEntry)
 )(
   match(
-    _type_trait_methods.with({ type_id : &type_id_.* }(m) => m.get_cloned(type_id_)),
+    _type_trait_methods.with({ type_id_ : &type_id_.* }(m) => m.get_cloned(type_id_)),
     .Some(list) => list,
     .None => ArrayList(MethodEntry).new()
   )
@@ -674,7 +674,7 @@ get_provisional_trait_methods_by_name :: (
 )({
   result := ArrayList(MethodEntry).new();
   match(
-    _provisional_trait_methods.with({ type_id : &type_id_.* }(m) => m.get_cloned(type_id_)),
+    _provisional_trait_methods.with({ type_id_ : &type_id_.* }(m) => m.get_cloned(type_id_)),
     .Some(all) => {
       n := all.len();
       (i : usize) = usize(0);
@@ -871,7 +871,7 @@ note_trait_impl_site :: (fn(type_id_ : &String, trait_key : &String, site : &Str
 /// The site of the impl of trait `trait_key` for the type `type_id`, if one
 /// is registered (`note_trait_impl_site`), without recording anything.
 trait_impl_site_of :: (fn(type_id_ : &String, trait_key : &String) -> Option(String))(
-  _trait_impl_sites.with({ type_id : &type_id_.*, trait_key : &trait_key.* }(m) => m.get_cloned(`${type_id_}\n${trait_key}`))
+  _trait_impl_sites.with({ type_id_ : &type_id_.*, trait_key : &trait_key.* }(m) => m.get_cloned(`${type_id_}\n${trait_key}`))
 );
 /// Drop the trait-impl site recorded for (`type_id`, `trait_key`) when it was
 /// recorded FROM `site` — the undo of `note_trait_impl_site` for an impl whose
