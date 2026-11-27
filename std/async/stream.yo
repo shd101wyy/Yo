@@ -149,7 +149,7 @@ StreamMap :: (fn(comptime(S) : Type, comptime(B) : Type, comptime(F) : Type) -> 
 );
 impl(
   generic(S : Type, A : Type, B : Type, F : Type),
-  where(S <: Stream(Item := A), F <: (FnMut(item : &A) -> B)),
+  where(S <: Stream(Item := A), F <: (FnMut(item : A) -> B)),
   StreamMap(S, B, F),
   Stream(
     Item : B,
@@ -158,7 +158,7 @@ impl(
         nx := io.await(self._inner.next(io), io);
         match(
           nx,
-          .Some(item) => Option(B).Some((self._f)(&item)),
+          .Some(item) => Option(B).Some((self._f)(item)),
           .None => Option(B).None
         )
       })
@@ -170,8 +170,8 @@ export(StreamMap);
 // StreamFilter
 // ---------------------------------------------------------------------------
 /// Lazy stream that keeps only the items for which the predicate holds.
-/// Created by `.filter(pred)`. The predicate takes the item BY VALUE,
-/// symmetric with `map`.
+/// Created by `.filter(pred)`. The predicate reads each item through a
+/// reference (`&A`), as `Iterator.filter`'s does.
 StreamFilter :: (fn(comptime(S) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : S, _f : F)
 );
@@ -217,7 +217,7 @@ StreamFilterMap :: (fn(comptime(S) : Type, comptime(B) : Type, comptime(F) : Typ
 );
 impl(
   generic(S : Type, A : Type, B : Type, F : Type),
-  where(S <: Stream(Item := A), F <: (FnMut(item : &A) -> Option(B))),
+  where(S <: Stream(Item := A), F <: (FnMut(item : A) -> Option(B))),
   StreamFilterMap(S, B, F),
   Stream(
     Item : B,
@@ -230,7 +230,7 @@ impl(
           match(
             nx,
             .Some(item) => {
-              mapped := (self._f)(&item);
+              mapped := (self._f)(item);
               if(mapped.is_some(), {
                 out = mapped;
                 searching = false;
@@ -340,7 +340,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       f : F,
-      where(Self <: Stream(Item := A), F <: (FnMut(item : &A) -> B))
+      where(Self <: Stream(Item := A), F <: (FnMut(item : A) -> B))
     ) -> StreamMap(Self, B, F)
   )(
     StreamMap(Self, B, F)(_inner : self, _f : f)
@@ -363,7 +363,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       f : F,
-      where(Self <: Stream(Item := A), F <: (FnMut(item : &A) -> Option(B)))
+      where(Self <: Stream(Item := A), F <: (FnMut(item : A) -> Option(B)))
     ) -> StreamFilterMap(Self, B, F)
   )(
     StreamFilterMap(Self, B, F)(_inner : self, _f : f)
@@ -399,7 +399,7 @@ impl(
       sink(self) : Self,
       f : F,
       io : Io,
-      where(Self <: Stream(Item := A), F <: (FnMut(item : &A) -> unit))
+      where(Self <: Stream(Item := A), F <: (FnMut(item : A) -> unit))
     ) -> Impl(Future(unit, Io))
   )(
     io.async({ self, f }(io : Io) => {
@@ -414,7 +414,7 @@ impl(
         match(
           nx,
           .Some(item) => {
-            g(&item);
+            g(item);
           },
           .None => {
             draining = false;

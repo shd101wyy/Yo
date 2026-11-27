@@ -155,8 +155,8 @@ _is_alpha_numeric :: (fn(c : rune) -> bool)(
 // file `.unwrap()`ed it). And the O(n) rune walk that every `at(i)` performed
 // happens once instead of per character.
 // ---------------------------------------------------------------------------
-_char_table :: (fn(s : &String) -> ArrayList(IterPair(usize, rune)))({
-  mut(out) := ArrayList(IterPair(usize, rune)).new();
+_char_table :: (fn(s : &String) -> ArrayList(Tuple(usize, rune)))({
+  mut(out) := ArrayList(Tuple(usize, rune)).new();
   mut(it) := s.clone().char_indices();
   while(true, {
     match(
@@ -175,11 +175,11 @@ _char_table :: (fn(s : &String) -> ArrayList(IterPair(usize, rune)))({
 // `index` is at or past the end. Both are rune boundaries, so `try_substring`
 // between any two of them always succeeds.
 _byte_offset_of :: (
-  fn(table : &ArrayList(IterPair(usize, rune)), index : usize, total_bytes : usize) -> usize
+  fn(table : &ArrayList(Tuple(usize, rune)), index : usize, total_bytes : usize) -> usize
 )(
   match(
     table.get(index),
-    .Some(p) => p._0,
+    .Some(p) => p.0,
     .None => total_bytes
   )
 );
@@ -187,7 +187,7 @@ _byte_offset_of :: (
 // result the character-indexed `substring` gives today, and independent of
 // which basis `substring` itself uses.
 _slice_runes :: (
-  fn(s : &String, table : &ArrayList(IterPair(usize, rune)), start : usize, end : usize) -> String
+  fn(s : &String, table : &ArrayList(Tuple(usize, rune)), start : usize, end : usize) -> String
 )({
   if(start >= end, {
     return(String.new());
@@ -224,7 +224,7 @@ decode :: (fn(input : &String) -> String)({
   (mut(result) : String) = String.with_capacity(input.len());
   (mut(i) : usize) = usize(0);
   while(i < len, {
-    c := table(i)._1;
+    c := table(i).1;
     if(c != rune(u32('&')), {
       // Not an entity start, just append the character
       _a := result.push_string(from_code_point(i32(c.to_u32())));
@@ -236,21 +236,21 @@ decode :: (fn(input : &String) -> String)({
       if(i >= len, {
         _a := result.push_str("&");
       }, {
-        next := table(i)._1;
+        next := table(i).1;
         if(next == rune(u32('#')), {
           // Numeric entity: &#N; or &#xN;
           i = (i + usize(1));
           if(i >= len, {
             _a := result.push_str("&#");
           }, {
-            hex_char := table(i)._1;
+            hex_char := table(i).1;
             if((hex_char == rune(u32('x'))) || (hex_char == rune(u32('X'))), {
               // Hex: &#xHH;
               (digit_start : usize) = (i + usize(1));
               (mut(digit_end) : usize) = digit_start;
               (mut(scanning) : bool) = true;
               while(scanning && (digit_end < len), {
-                dc := table(digit_end)._1;
+                dc := table(digit_end).1;
                 if(((dc >= rune(u32('0'))) && (dc <= rune(u32('9')))) || ((dc >= rune(u32('a'))) && (dc <= rune(u32('f')))) || ((dc >= rune(u32('A'))) && (dc <= rune(u32('F')))), {
                   digit_end = (digit_end + usize(1));
                 }, {
@@ -261,7 +261,7 @@ decode :: (fn(input : &String) -> String)({
                 hex_str := _slice_runes(input, &table, digit_start, digit_end);
                 (code : i32) = _parse_hex(&hex_str);
                 // Check for semicolon
-                if((digit_end < len) && (table(digit_end)._1 == rune(u32(';'))), {
+                if((digit_end < len) && (table(digit_end).1 == rune(u32(';'))), {
                   i = (digit_end + usize(1));
                 }, {
                   i = digit_end;
@@ -285,7 +285,7 @@ decode :: (fn(input : &String) -> String)({
               (mut(digit_end) : usize) = digit_start;
               (mut(scanning) : bool) = true;
               while(scanning && (digit_end < len), {
-                dc := table(digit_end)._1;
+                dc := table(digit_end).1;
                 if((dc >= rune(u32('0'))) && (dc <= rune(u32('9'))), {
                   digit_end = (digit_end + usize(1));
                 }, {
@@ -296,7 +296,7 @@ decode :: (fn(input : &String) -> String)({
                 dec_str := _slice_runes(input, &table, digit_start, digit_end);
                 (code : i32) = _parse_dec(&dec_str);
                 // Check for semicolon
-                if((digit_end < len) && (table(digit_end)._1 == rune(u32(';'))), {
+                if((digit_end < len) && (table(digit_end).1 == rune(u32(';'))), {
                   i = (digit_end + usize(1));
                 }, {
                   i = digit_end;
@@ -320,7 +320,7 @@ decode :: (fn(input : &String) -> String)({
           (mut(name_end) : usize) = name_start;
           (mut(scanning) : bool) = true;
           while(scanning && (name_end < len), {
-            nc := table(name_end)._1;
+            nc := table(name_end).1;
             if(_is_alpha_numeric(nc), {
               name_end = (name_end + usize(1));
             }, {
@@ -330,7 +330,7 @@ decode :: (fn(input : &String) -> String)({
           });
           name_str := _slice_runes(input, &table, name_start, name_end);
           // Check for semicolon at name_end
-          (has_semi : bool) = ((name_end < len) && (table(name_end)._1 == rune(u32(';'))));
+          (has_semi : bool) = ((name_end < len) && (table(name_end).1 == rune(u32(';'))));
           if(has_semi, {
             // Try exact match with semicolon
             match(
