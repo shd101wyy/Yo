@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 /// `SEED_VERSION` carries the ref-spill fix.
 /// `HashMap(String, u8)` (1 use)
 _c_len_1 :: (fn(m : &HashMap(String, u8)) -> usize)(m.len());
-/// `HashSet(String)` (2 uses)
+/// `HashSet(String)` (3 uses)
 _c_len_2 :: (fn(s : &HashSet(String)) -> usize)(s.len());
 /// `HashMap(ExprId, AstExpr)` (2 uses)
 _c_len_3 :: (fn(m : &HashMap(ExprId, AstExpr)) -> usize)(m.len());
@@ -489,6 +489,154 @@ BK_IMM :: "__yo_imm";
 /// The call-site `&mut x` marker (decision 33): ONE prefix token, lexed by
 /// `tokenize` when `&` is directly followed by the word `mut`.
 BK_BORROW_MUT :: "&mut";
+/// The parse-time heads: `desugar_if_calls` rewrites `if(c, a, b)` into
+/// `cond(...)` and `for(xs, f)` into its loop before any evaluation, and
+/// `begin` blocks read `continue` as a statement like `return`/`break`.
+BK_IF :: "if";
+BK_FOR :: "for";
+BK_CONTINUE :: "continue";
+/// The call heads the compiler reaches by SPELLING before it looks at any
+/// binding, so a user binding of one could never be what a call `name(...)`
+/// reaches (E0407; issues/fixed/builtin-name-shadows-user-definition.md, the
+/// maintainer's decision of 2026-11-27):
+///
+/// - every identifier-spelled head of `_evaluate_expression`'s dispatch
+///   (src/evaluator/exprs/dispatch.yo) outside the `__yo_` namespace (that
+///   whole namespace is reserved by `is_yo_namespace_name`). Two arms are
+///   left out because they reach the binding: `assert` evaluates the ordinary
+///   call (only its ghost arguments are marked) and `exists` is the
+///   quantifier only in ghost context. `_` is the anonymous-record head and
+///   the wildcard, not a name;
+/// - the parse-time and statement heads (`if`, `for`, `return`, `break`,
+///   `continue`);
+/// - the two heads the mutation summary reads as pure structure, `clone` and
+///   `as` (src/evaluator/effects/mutation-summary.yo): a user function of
+///   either name would be summarized as mutating nothing.
+///
+/// Words that are keywords only in one position (`fn`, `ctl`, `unsafe_fn`,
+/// `Fn`, `FnMut`, `FnOnce`, `generic`, `given`, `where`, `comptime`, `own`,
+/// `sink`, `using`, `thread_local`, `export`) are not here: a call elsewhere
+/// reaches the binding. tests/internal/reserved-names.test.yo reads the
+/// dispatch and fails when one of its heads is missing from this list.
+builtin_call_head_names :: (fn() -> ArrayList(String))({
+  names := ArrayList(String).new();
+  // `_evaluate_expression`'s dispatch, in its order.
+  names.push(String.from(BF_RECUR));
+  names.push(String.from(BF_RUNTIME));
+  names.push(String.from(BK_EXTERN));
+  names.push(String.from(BK_C_INCLUDE));
+  names.push(String.from(BK_TEST));
+  names.push(String.from(BK_COND));
+  names.push(String.from(BK_MATCH));
+  names.push(String.from(BK_TUPLE));
+  names.push(String.from(BK_ARRAY_VAL));
+  names.push(String.from(BK_COMPTIME_LIST_VAL));
+  names.push(String.from(BK_DYN_LOWER));
+  names.push(String.from(BK_ATOMIC));
+  names.push(String.from(BK_REF));
+  names.push(String.from(BK_STRUCT));
+  names.push(String.from(BK_NEWTYPE));
+  names.push(String.from(BK_ENUM));
+  names.push(String.from(BK_UNION));
+  names.push(String.from(BK_BEGIN));
+  names.push(String.from(BK_TRAIT));
+  names.push(String.from(BK_IMPL_UPPER));
+  names.push(String.from(BK_IMPL_LOWER));
+  names.push(String.from(BF_TYPE_OF));
+  names.push(String.from(BF_SIZE_OF));
+  names.push(String.from(BF_UNSAFE));
+  names.push(String.from(BF_PRAGMA));
+  names.push(String.from(BF_REQUIRES));
+  names.push(String.from(BF_ENSURES));
+  names.push(String.from(BF_INVARIANT));
+  names.push(String.from(BF_DECREASES));
+  names.push(String.from(BF_ASSUMED));
+  names.push(String.from(BF_REFINE));
+  names.push(String.from(BF_GHOST));
+  names.push(String.from(BF_GHOST_FN));
+  names.push(String.from(BF_OLD));
+  names.push(String.from(BF_LAW));
+  names.push(String.from(BF_FORALL));
+  names.push(String.from(BF_SEQ_UNIT));
+  names.push(String.from(BF_SEQ_OF));
+  names.push(String.from(BF_PRODUCED));
+  names.push(String.from(BF_DISTINCT));
+  names.push(String.from(BF_SEQ_APPEND));
+  names.push(String.from(BF_SEQ_LEN));
+  names.push(String.from(BF_SEQ_NTH));
+  names.push(String.from(BF_STR_BYTES));
+  names.push(String.from(BF_MS_SINGLE));
+  names.push(String.from(BF_MS_ADD));
+  names.push(String.from(BF_MS_COUNT));
+  names.push(String.from(BF_MS_OF));
+  names.push(String.from(BF_SET_SINGLE));
+  names.push(String.from(BF_SET_ADD));
+  names.push(String.from(BF_SET_CONTAINS));
+  names.push(String.from(BF_ALIGN_OF));
+  names.push(String.from(BF_SIZE_OF_VAL));
+  names.push(String.from(BF_ALIGN_OF_VAL));
+  names.push(String.from(BF_UNSIZE));
+  names.push(String.from(BF_TYPE_ID));
+  names.push(String.from(BF_DOWNCAST));
+  names.push(String.from(BF_UPCAST));
+  names.push(String.from(BF_REF_COUNT));
+  names.push(String.from(BF_THE));
+  names.push(String.from(BK_IMPORT));
+  names.push(String.from(BF_ADDR_OF));
+  names.push(String.from(BK_TUPLE_TYPE));
+  names.push(String.from(BK_ARRAY));
+  names.push(String.from(BK_SLICE));
+  names.push(String.from(BK_COMPTIME_LIST_TYPE));
+  names.push(String.from(BK_FUTURE));
+  names.push(String.from(BK_CONCRETE));
+  names.push(String.from(BK_DYN_UPPER));
+  names.push(String.from(BF_COMPTIME_EXPECT_ERROR));
+  names.push(String.from(BF_COMPTIME_ASSERT));
+  names.push(String.from(BF_COMPTIME_FN));
+  names.push(String.from(BF_COMPTIME_PRINT));
+  names.push(String.from(BF_COMPTIME_READ_FILE));
+  names.push(String.from(BF_COMPTIME_JSON_PARSE));
+  names.push(String.from(BF_COMPTIME_TOML_PARSE));
+  names.push(String.from(BF_ASM));
+  names.push(String.from(BF_GLOBAL_ASM));
+  names.push(String.from(BF_MACRO_EXPAND));
+  names.push(String.from(BF_UNWIND));
+  names.push(String.from(BF_CONSUME));
+  names.push(String.from(BF_DROP));
+  names.push(String.from(BF_DUP));
+  names.push(String.from(BK_QUOTE));
+  names.push(String.from(BK_GENSYM));
+  names.push(String.from(BF_COMPTIME_EVAL));
+  names.push(String.from(BF_DERIVE_RULE));
+  names.push(String.from(BF_DERIVE));
+  names.push(String.from(BK_WHILE));
+  names.push(String.from(BF_VA_START));
+  // The parse-time and statement heads.
+  names.push(String.from(BK_IF));
+  names.push(String.from(BK_FOR));
+  names.push(String.from(BK_RETURN));
+  names.push(String.from(BK_BREAK));
+  names.push(String.from(BK_CONTINUE));
+  // The mutation summary's pure-structure heads.
+  names.push(String.from("clone"));
+  names.push(String.from("as"));
+  names
+});
+(g_builtin_call_heads : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// Is `name` one of `builtin_call_head_names`?
+is_builtin_call_head_name :: (fn(name : &String) -> bool)({
+  if(g_builtin_call_heads.with(_c_len_2) == usize(0), {
+    all := builtin_call_head_names();
+    (i : usize) = usize(0);
+    while(i < all.len(), {
+      head := all(i).clone();
+      g_builtin_call_heads.with_mut({ head }(s) => s.insert(head));
+      i = (i + usize(1));
+    });
+  });
+  key := name.clone();
+  g_builtin_call_heads.with(s => s.contains(&key))
+});
 /// A stable identifier for an AST expression node. Assigned during parsing.
 ExprId :: usize;
 /// An AST expression node. There are exactly two kinds:
@@ -958,13 +1106,14 @@ export(BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
 export(BF_SIZE_OF, BF_ALIGN_OF, BF_SIZE_OF_VAL, BF_ALIGN_OF_VAL, BF_UNSIZE, BF_SLICE_LEN, BF_SLICE_PTR, BF_SLICE_FROM_RAW_PARTS, BF_TYPE_OF, BF_TYPE_ID, BF_ADDR_OF, BK_MUT, BK_IMM, BK_BORROW_MUT);
 export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH, BK_THREAD_LOCAL);
 export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
-export(BK_EXTERN, BK_C_INCLUDE, BK_IMPLEMENTS, BK_WHERE);
+export(BK_EXTERN, BK_C_INCLUDE, BK_IMPLEMENTS, BK_WHERE, BK_IF, BK_FOR, BK_CONTINUE);
+export(builtin_call_head_names, is_builtin_call_head_name);
 /// Append to `out` the name of every identifier in `e` that starts with `__yo_`
 /// and that the lexer did NOT make from source text (`TokenData.written`): the
 /// parser's template accumulators `__yo_tpl_N` and its `__yo_imm` / `__yo_mut`
 /// borrow heads. `yo test` prints an AST back to text for its batch program,
 /// and the batch's lexer takes every identifier for one a person wrote, so the
-/// runner declares these names in the batch (`reject_reserved_yo_binder`,
+/// runner declares these names in the batch (`reject_reserved_binder`,
 /// src/evaluator/memory-safety.yo).
 collect_minted_yo_names :: (fn(e : &AstExpr, out : &mut ArrayList(String)) -> unit)(
   match(
@@ -1933,7 +2082,7 @@ _is_borrow_spelling_target :: (fn(e : &AstExpr) -> bool)(
       _bs_is_infix_of(e, BK_ASSIGN) => (
         _bs_is_sigil(_bs_arg(e, usize(1))) && (_bs_is_name(_bs_arg(e, usize(0))) || (_bs_is_infix_of(_bs_arg(e, usize(0)), BK_COLON) && _bs_is_name(_bs_arg(_bs_arg(e, usize(0)), usize(0))) && (_bs_is_sigil(_bs_arg(_bs_arg(e, usize(0)), usize(1))) || _bs_is_origin_sigil(_bs_arg(_bs_arg(e, usize(0)), usize(1))))))
       ),
-      ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2))) => _bs_is_sigil(_bs_arg(e, usize(0))),
+      ast_expr_is_fn_call_of(e, BK_FOR, Option(usize).Some(usize(2))) => _bs_is_sigil(_bs_arg(e, usize(0))),
       true => false
     )
   )
@@ -2061,7 +2210,7 @@ _borrow_spelling_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))({
     .None => ()
   );
   // `for(&xs, …)` / `for(&mut xs, …)`: the borrowed `for`.
-  if(ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2))), {
+  if(ast_expr_is_fn_call_of(e, BK_FOR, Option(usize).Some(usize(2))), {
     fa := _bs_args(e);
     match(
       _borrow_sigil_of(match(fa.get_cloned(usize(0)), .Some(c) => c, .None => make_err_expr())),
@@ -2328,7 +2477,7 @@ _contains_desugar_target :: (fn(e : &AstExpr) -> bool)(
         return(false);
       });
       n_args := args.len();
-      if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
+      if(ast_expr_is_fn_call_of(e, BK_IF, .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
         return(true);
       });
       if(_is_extern_decl_call(e), {
@@ -2472,7 +2621,7 @@ for_desugar_site_of :: (fn(tok : &Token) -> Option(AstExpr))(
 export(for_desugar_site_of, is_for_desugar_target);
 /// A two-argument `for(...)` call: the desugar's target.
 is_for_desugar_target :: (fn(e : &AstExpr) -> bool)(
-  ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2)))
+  ast_expr_is_fn_call_of(e, BK_FOR, Option(usize).Some(usize(2)))
 );
 _fd_atom :: (fn(kind : TokenKind, value : &(str, static), at : &Token) -> AstExpr)(
   Rc.new(AstExprNode.Atom(alloc_global_expr_id(), _synth_desugar_tok(kind, value, at)))
@@ -2772,7 +2921,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
         return(recur(&_desugar_for_call(e)));
       });
       n_args := args.len();
-      if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
+      if(ast_expr_is_fn_call_of(e, BK_IF, .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
         cond_arg := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
         then_opt := _unwrap_if_label(
           match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),

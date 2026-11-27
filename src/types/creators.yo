@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { HashMap } :: import("std/collections/hash-map");
-{ some_t_bounds, trait_t_body, TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee, t_slot_with_pointee, t_origin_elided } :: import("./definitions.yo");
+{ some_t_bounds, trait_t_body, TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee, t_slot_with_pointee, t_origin_elided, t_origin_kind } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
@@ -1133,11 +1133,118 @@ resolve_some_binder_kind :: (fn(name : &String, lvl : usize) -> Option(TypeValue
     .None => Option(TypeValue).None
   )
 );
+/// The builtin type names, resolved by `evaluate_identifier_and_operator`
+/// (src/evaluator/exprs/identifer-and-operator.yo) BEFORE any environment
+/// lookup. Grouped by LENGTH: one numeric gate first, then at most 9
+/// compares in the worst bucket (a hashed map was MEASURED 26% slower
+/// end-to-end: hashing every identifier costs more than length-first
+/// rejections).
+builtin_type_keyword :: (fn(name : &String) -> Option(TypeValue))({
+  id_len := name.len();
+  cond(
+    (id_len == usize(3)) => cond(
+      (name.* == "str") => Option(TypeValue).Some(t_str()),
+      (name.* == "i32") => Option(TypeValue).Some(t_i32()),
+      (name.* == "u32") => Option(TypeValue).Some(t_u32()),
+      (name.* == "u64") => Option(TypeValue).Some(t_u64()),
+      (name.* == "i64") => Option(TypeValue).Some(t_i64()),
+      (name.* == "u16") => Option(TypeValue).Some(t_u16()),
+      (name.* == "i16") => Option(TypeValue).Some(t_i16()),
+      (name.* == "f32") => Option(TypeValue).Some(t_f32()),
+      (name.* == "f64") => Option(TypeValue).Some(t_f64()),
+      (name.* == "int") => Option(TypeValue).Some(t_c_int()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(4)) => cond(
+      (name.* == "Type") => Option(TypeValue).Some(t_type()),
+      (name.* == "unit") => Option(TypeValue).Some(t_unit()),
+      (name.* == "bool") => Option(TypeValue).Some(t_bool()),
+      (name.* == "char") => Option(TypeValue).Some(t_c_char()),
+      (name.* == "uint") => Option(TypeValue).Some(t_c_uint()),
+      (name.* == "long") => Option(TypeValue).Some(t_c_long()),
+      (name.* == "void") => Option(TypeValue).Some(t_void()),
+      (name.* == "Expr") => Option(TypeValue).Some(t_expr_t()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(5)) => cond(
+      (name.* == "usize") => Option(TypeValue).Some(t_usize()),
+      (name.* == "isize") => Option(TypeValue).Some(t_isize()),
+      (name.* == "Trait") => Option(TypeValue).Some(t_type_1()),
+      (name.* == "short") => Option(TypeValue).Some(t_c_short()),
+      (name.* == "never") => Option(TypeValue).Some(t_never()),
+      (name.* == "ulong") => Option(TypeValue).Some(t_c_ulong()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(2)) => cond(
+      (name.* == "u8") => Option(TypeValue).Some(t_u8()),
+      (name.* == "i8") => Option(TypeValue).Some(t_i8()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(6)) => cond(
+      (name.* == "ushort") => Option(TypeValue).Some(t_c_ushort()),
+      // The `Origin` kind (decision 43 step 2): `generic(p : Origin)`.
+      (name.* == "Origin") => Option(TypeValue).Some(t_origin_kind()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(8)) => cond(
+      (name.* == "longlong") => Option(TypeValue).Some(t_c_longlong()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(9)) => cond(
+      (name.* == "ulonglong") => Option(TypeValue).Some(t_c_ulonglong()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(10)) => cond(
+      (name.* == "longdouble") => Option(TypeValue).Some(t_c_longdouble()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(12)) => cond(
+      (name.* == "comptime_int") => Option(TypeValue).Some(t_comptime_int()),
+      (name.* == "comptime_str") => Option(TypeValue).Some(t_comptime_string()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(14)) => cond(
+      (name.* == "comptime_float") => Option(TypeValue).Some(t_comptime_float()),
+      true => Option(TypeValue).None
+    ),
+    true => Option(TypeValue).None
+  )
+});
+/// A LOCAL MAY SHADOW A C-INTEROP TYPE NAME.
+///
+/// `builtin_type_keyword` resolves builtin type names before any env lookup, so a
+/// binding called `long`, `int`, `char`, `short`, `uint` or `void` used to be
+/// unreachable: every use resolved to the TYPE, and the diagnostic pointed at
+/// the method ("No matching call found ... (long.push)") rather than at the
+/// shadowing, so it read as "ArrayList has no push"
+/// (issues/fixed/local-named-after-a-prelude-c-type-is-not-shadowed.md).
+///
+/// Only the C interop vocabulary is exempted — those are ordinary English
+/// words that people do name variables. Yo's own spellings (`i32`, `str`,
+/// `bool`, `usize`, `Type`, …) keep resolving as types unconditionally: nobody
+/// names a local `i32`, and `bool` in particular is also re-exported by the
+/// prelude as a NAME (`export(bool : _boolean)`), so consulting the env for it
+/// would change what an existing binding resolves to. A binding named by one of
+/// those is E0407 (`reserved_binding_kind`, src/evaluator/memory-safety.yo).
+is_env_first_c_type_name :: (fn(name : &String) -> bool)({
+  id_len := name.len();
+  cond(
+    (id_len == usize(3)) => (name.* == "int"),
+    (id_len == usize(4)) => ((name.* == "char") || (name.* == "uint") || (name.* == "long") || (name.* == "void")),
+    (id_len == usize(5)) => ((name.* == "short") || (name.* == "ulong")),
+    (id_len == usize(6)) => (name.* == "ushort"),
+    (id_len == usize(8)) => (name.* == "longlong"),
+    (id_len == usize(9)) => (name.* == "ulonglong"),
+    (id_len == usize(10)) => (name.* == "longdouble"),
+    true => false
+  )
+});
 export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(UNFRAMED_BINDER_LEVEL);
 export(stamp_enum_final_type_arguments, enum_phantom_positions, register_ctor_phantom_positions, ctor_phantom_flags);
 export(register_struct_final, resolve_struct_shell);
 export(register_type_binding_name, type_binding_name, clear_type_binding_names);
+export(builtin_type_keyword, is_env_first_c_type_name);
 export(
   generate_some_type_id,
   t_dyn_payload_wrapper,

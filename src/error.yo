@@ -170,14 +170,11 @@ _classify_message :: (fn(error_message : &String) -> Option(String))({
   if(msg.contains(String.from("is private")), {
     return(_coded(E_PRIVATE_MEMBER));
   });
-  // A binder named by a reserved word: the three texts of
-  // `reserved_builtin_binding_message` (src/token.yo) and the `__yo_`
-  // namespace (`reserved_yo_name_message`, src/evaluator/memory-safety.yo).
-  if(msg.contains(String.from("names a builtin: every call with this name dispatches to the builtin")) ||
-    (
-      msg.starts_with(String.from("\"mut\" is reserved:")) ||
-        (msg.starts_with(String.from("\"Origin\" is reserved:")) || msg.contains(String.from("the compiler's namespace: a name there is a compiler builtin")))
-    ), {
+  // An `extern`/`c_include` member or a binder in the `__yo_` namespace
+  // (`reserved_yo_name_message`, src/evaluator/memory-safety.yo). A binder
+  // named by a reserved word carries its code from the raise site
+  // (`reject_reserved_binder`).
+  if(msg.contains(String.from("the compiler's namespace: a name there is a compiler builtin")), {
     return(_coded(E_RESERVED_NAME));
   });
   // No "not found" substring rule: E0401 is named by its raise sites

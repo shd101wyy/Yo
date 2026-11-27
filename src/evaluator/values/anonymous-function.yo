@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ reject_reserved_yo_binder } :: import("../memory-safety.yo");
+{ reject_reserved_binder } :: import("../memory-safety.yo");
 { ArrayList } :: import("std/collections/array-list");
 { HashMap } :: import("std/collections/hash-map");
 {
@@ -379,7 +379,7 @@ _reject_reserved_param_name :: (fn(param_expr : &AstExpr, ctx : &EvalContext, ex
     },
     true => Rc.clone(param_expr.*)
   );
-  reject_reserved_yo_binder(ast_expr_token(&name_expr), ctx, exn);
+  reject_reserved_binder(ast_expr_token(&name_expr), ctx, exn);
 });
 /// Helper: build a Func TypeValue from a FnTraitT TypeValue.
 /// Extracts `call_param_labels`, `call_param_types`, `call_result` from FnTraitT
@@ -1876,7 +1876,7 @@ evaluate_anonymous_function_implementation :: (
           // the body drops the rest when the call ends.
           // An `FnMut` body's by-value entries are writable: its call borrows
           // the record exclusively, so a write persists (VERDICTS-15 Q1).
-          reject_reserved_yo_binder(&ce.label_tok, ctx, exn);
+          reject_reserved_binder(&ce.label_tok, ctx, exn);
           ce_owned := (closure_owns_captures && !ce.is_borrow);
           ce_fnmut_state := (closure_is_fnmut && !ce.is_borrow);
           ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, (ce.is_borrow && ce.is_mut) || ce_fnmut_state, ce_owned, false, ce.label_tok.clone());

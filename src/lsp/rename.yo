@@ -16,7 +16,8 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { Exception } :: import("std/error");
-{ Token, TokenKind, is_reserved_builtin_binding_name } :: import("../token.yo");
+{ Token, TokenKind } :: import("../token.yo");
+{ is_reserved_binding_name } :: import("../evaluator/memory-safety.yo");
 { tokenize } :: import("../lexer.yo");
 { parse } :: import("../parser.yo");
 { AstExpr, ast_expr_is_fn_call_of } :: import("../expr.yo");
@@ -110,9 +111,9 @@ rename_rejection :: (fn(new_name : &String) -> Option(String))({
       Option(String).Some(`"${new_name}" is a keyword`)
     );
   });
-  if(is_reserved_builtin_binding_name(new_name.clone()), {
+  if(is_reserved_binding_name(new_name), {
     return(
-      Option(String).Some(`"${new_name}" is reserved for a builtin binding — a user binding of that name is silently hijacked`)
+      Option(String).Some(`"${new_name}" is reserved: a binding of that name is E0407 (\`yo explain E0407\`)`)
     );
   });
   Option(String).None

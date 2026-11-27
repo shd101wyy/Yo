@@ -24,9 +24,8 @@ import("std/fmt");
   BK_COLON,
   make_err_expr
 } :: import("../../expr.yo");
-{ TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
-{ reject_reserved_yo_binder } :: import("../memory-safety.yo");
-{ raise_flow_violation } :: import("../../types/flowability.yo");
+{ TokenKind, is_reserved_operator_name } :: import("../../token.yo");
+{ reject_reserved_binder } :: import("../memory-safety.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr-info.yo");
 { Environment, add_variable_to_env, get_variables_from_env, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, in_def_time_trial } :: import("../context.yo");
@@ -320,22 +319,7 @@ evaluate_binding :: (
       )
     );
   });
-  // Twin of the operator rule for plain-named BUILTINS: a binding of
-  // `consume`/`runtime`/`recur`/`dyn` can never be called — every call site
-  // spelled with the name dispatches to the builtin, silently. Reject the
-  // binding instead (the `consume` arm leaked the argument's reference before
-  // this gate: issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md).
-  if(is_reserved_builtin_binding_name(res_tok.value.*.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
-    raise_flow_violation(
-      format_error_message(
-        &res_tok,
-        reserved_builtin_binding_message(res_tok.value.*.clone())
-      ),
-      ctx,
-      exn
-    );
-  });
-  reject_reserved_yo_binder(&res_tok, ctx, exn);
+  reject_reserved_binder(&res_tok, ctx, exn);
   // `(x : Tr) = v`, `(x : Tr);` (VERDICTS-84 §4, E0625): a binding has
   // one type. `(P : Tr)` with `P` a type means the impl, `(P <: Tr)`.
   if(!is_compile_time_only && is_bare_trait_type(&user_defined_type), {

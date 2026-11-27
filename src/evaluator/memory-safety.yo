@@ -21,7 +21,10 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../types/string.yo");
 { canonical_module_path } :: import("../utils.yo");
 { Token } :: import("../token.yo");
-{ format_error_message_with_help } :: import("../error.yo");
+{ format_error_message_with_help, with_code } :: import("../error.yo");
+{ E_RESERVED_NAME } :: import("../diagnostics.yo");
+{ is_builtin_call_head_name } :: import("../expr.yo");
+{ builtin_type_keyword, is_env_first_c_type_name } :: import("../types/creators.yo");
 { Exception } :: import("std/error");
 { EvalContext } :: import("./context.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
@@ -314,21 +317,97 @@ _is_declared_minted_in_batch :: (fn(tok : &Token) -> bool)({
     .None => false
   )
 });
-/// E0407 (VERDICTS-72 rule (b)): a binder written in source (`::`, `:=`, a
-/// typed `(x : T) =`, a parameter, a pattern or destructuring binding, an
-/// import rename) named in the `__yo_` namespace outside the std tree. The
-/// binder is judged by `TokenData.written`, the fact that the lexer made the
-/// token: the compiler mints `__yo_tpl_N`, `__yo_self`, `__yo_pat_s` and
+/// Words the language reserves ahead of their builtin: SPEC_AND_PROOF PR 2
+/// (plans/backlog/SPEC_AND_PROOF.md, VERDICTS-92) makes `logic` and `lemma`
+/// builtins, and a program that binds either now keeps compiling then.
+/// They are reserved, not dispatched: no `BF_` constant names them.
+is_reserved_ahead_name :: (fn(name : &String) -> bool)(
+  (name.* == "logic") || (name.* == "lemma")
+);
+/// The E0407 text for a binder named `name` outside the `__yo_` namespace,
+/// `.None` when the name may be bound. The reserved set is read from the
+/// compiler, not listed here: the call heads its dispatch reaches by spelling
+/// (`is_builtin_call_head_name`, src/expr.yo), the builtin type names
+/// identifier resolution answers before any binding (`builtin_type_keyword`
+/// minus `is_env_first_c_type_name`, src/types/creators.yo), `mut` (it
+/// follows `&` in a borrow) and the words reserved ahead of their builtin
+/// (`is_reserved_ahead_name`).
+reserved_binding_message :: (fn(name : &String) -> Option(String))(
+  cond(
+    (name.* == "mut") => Option(String).Some(String.from("\"mut\" is reserved: it follows `&` in a borrow (`x : &mut T`, `y := &mut place`, `f(&mut x)`), so it cannot name a binding.")),
+    (name.* == "Origin") => Option(String).Some(String.from("\"Origin\" is reserved: it is the kind of an origin (`generic(p : Origin)`), as `Type` is the kind of a type, so it cannot name a binding.")),
+    is_builtin_call_head_name(name) => Option(String).Some(`"${name}" names a builtin: a call \`${name}(...)\` reaches the builtin before any binding, so this binding could never be what it calls.`),
+    (builtin_type_keyword(name).is_some() && !is_env_first_c_type_name(name)) => Option(String).Some(`"${name}" names a builtin type: \`${name}\` resolves to the type before any binding, so this binding could never be read.`),
+    is_reserved_ahead_name(name) => Option(String).Some(`"${name}" is a reserved word: the language reserves it for a builtin, so it cannot name a binding.`),
+    true => Option(String).None
+  )
+);
+/// The E0407 help line for `reserved_binding_message`.
+reserved_binding_help :: (fn(name : &String) -> String)({
+  what := cond(
+    (is_reserved_ahead_name(name) || (name.* == "mut") || (name.* == "Origin")) => "a reserved word",
+    is_builtin_call_head_name(name) => "a builtin",
+    true => "a builtin type"
+  );
+  `\`${name}\` is ${what}; rename the binding (e.g. \`${name}_\`)`
+});
+/// Is `name` reserved for every binder outside std's own definitions
+/// (`reject_reserved_binder`)? The LSP's rename refuses such a new name.
+is_reserved_binding_name :: (fn(name : &String) -> bool)(
+  is_yo_namespace_name(name) || reserved_binding_message(name).is_some()
+);
+/// Is `mp` std's prelude, the one module that defines builtin-named things
+/// (its `unsafe :: impl(...)` namespace)? Absolutized as `_is_std_module_path`
+/// is, and anchored at the std root: a project file `x/std/prelude.yo` is not it.
+_is_std_prelude :: (fn(mp : &String, std_path : &String) -> bool)({
+  (sp : String) = std_path.clone();
+  while(sp.ends_with(`/`), {
+    sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
+  });
+  (sp.len() > usize(0)) && (_lex_abs_path(mp) == `${_lex_abs_path(&sp)}/prelude.yo`)
+});
+/// E0407: a binder written in source (`::`, `:=`, a typed `(x : T) =`, a
+/// parameter (a closure's included), a closure capture entry, a labeled
+/// return, a pattern or destructuring binding, an import rename) named by a
+/// reserved word.
+///
+/// - A name in the `__yo_` namespace (VERDICTS-72 rule (b)) is reserved
+///   outside the std tree.
+/// - A name `reserved_binding_message` reserves (the maintainer's decision
+///   of 2026-11-27 on issues/fixed/builtin-name-shadows-user-definition.md)
+///   is reserved everywhere but std's prelude, which defines builtin-named
+///   things on purpose.
+///
+/// The binder is judged by `TokenData.written`, the fact that the lexer made
+/// the token: the compiler mints `__yo_tpl_N`, `__yo_self`, `__yo_pat_s` and
 /// `__yo_contract_result` into user modules under the user's path, and those
 /// are never rejected. Uses stay legal.
 ///
-/// Raised through `raise_flow_violation`, as the builtin-name gate beside it
-/// is: a closure parameter is bound while a call's argument is tried against
-/// the callee's signature, and a plain throw there is swallowed with the trial.
-reject_reserved_yo_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(tok.written && is_yo_namespace_name(&tok.value.*) && !may_bind_yo_namespace_name(&tok.module_path.*, &ctx.std_path) && !_is_declared_minted_in_batch(tok), {
-    raise_flow_violation(&format_error_message_with_help(tok, &reserved_yo_name_message(&tok.value.*), &Option(String).Some(reserved_yo_name_help())), ctx, exn);
+/// Raised through `raise_flow_violation`: a closure parameter is bound while
+/// a call's argument is tried against the callee's signature, and a plain
+/// throw there is swallowed with the trial.
+reject_reserved_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!tok.written || tok.module_path.*.starts_with(String.from("auto-generated://")), {
+    return(());
   });
+  name := tok.value.*.clone();
+  if(is_yo_namespace_name(&name), {
+    if(!may_bind_yo_namespace_name(&tok.module_path.*, &ctx.std_path) && !_is_declared_minted_in_batch(tok), {
+      raise_flow_violation(&format_error_message_with_help(tok, &reserved_yo_name_message(&name), &Option(String).Some(reserved_yo_name_help())), ctx, exn);
+    });
+    return(());
+  });
+  match(
+    reserved_binding_message(&name),
+    .Some(msg) => if(!_is_std_prelude(&tok.module_path.*, &ctx.std_path), {
+      raise_flow_violation(
+        &with_code(&format_error_message_with_help(tok, &msg, &Option(String).Some(reserved_binding_help(&name))), E_RESERVED_NAME),
+        ctx,
+        exn
+      );
+    }),
+    .None => ()
+  );
 });
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
 /// the mutability rule for a binding below module level (a write to an
@@ -539,6 +618,10 @@ export(
   may_bind_yo_namespace_name,
   reserved_yo_name_message,
   reserved_yo_name_help,
-  reject_reserved_yo_binder,
+  reject_reserved_binder,
+  reserved_binding_message,
+  reserved_binding_help,
+  is_reserved_binding_name,
+  is_reserved_ahead_name,
   _lex_abs_path
 );

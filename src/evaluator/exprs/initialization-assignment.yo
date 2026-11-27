@@ -112,8 +112,7 @@
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code, YoError } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH, E_BORROW_OF_NON_PLACE } :: import("../../diagnostics.yo");
 { _type_origin_names_into } :: import("../types/function.yo");
-{ Token, TokenKind, TokenData, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
-{ raise_flow_violation } :: import("../../types/flowability.yo");
+{ Token, TokenKind, TokenData, is_reserved_operator_name } :: import("../../token.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait-checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { reject_dyn_place_by_value, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, binding_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled, _static_module_level, _static_origin_reject } :: import("../utils.yo");
@@ -180,7 +179,7 @@
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ is_implicitly_unsafe_capable_file, reject_reserved_yo_binder } :: import("../memory-safety.yo");
+{ is_implicitly_unsafe_capable_file, reject_reserved_binder } :: import("../memory-safety.yo");
 { is_io_async_call } :: import("../async/await-analysis.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -2152,21 +2151,7 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
         )
       );
     });
-    // Twin of the operator rule for plain-named BUILTINS (see binding.yo's
-    // gate): `consume`/`runtime`/`recur`/`dyn` are call-dispatch names — a
-    // user binding is silently hijacked and can never run. This covers `::`
-    // definitions (including bare functions), typed `(x : T) =` and `:=`.
-    if(is_reserved_builtin_binding_name(res_tok.value.*.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
-      raise_flow_violation(
-        format_error_message(
-          &res_tok,
-          reserved_builtin_binding_message(res_tok.value.*.clone())
-        ),
-        ctx,
-        exn
-      );
-    });
-    reject_reserved_yo_binder(&res_tok, ctx, exn);
+    reject_reserved_binder(&res_tok, ctx, exn);
     effective_is_compile_time_only := (is_implicit || is_compile_time_only);
     effective_should_convert_to_runtime := (!is_implicit && should_convert_to_runtime_type);
     // Determine the LHS type.

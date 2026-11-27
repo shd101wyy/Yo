@@ -24,9 +24,9 @@
 { Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note, variable_value_type, variable_slot_type } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition, is_unlabeled_ensures_atom }
 :: import("../context.yo");
-{ TypeValue, t_origin_kind, t_slot_is_mut_ref, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, t_slot_is_mut_ref, t_refine_inner } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ t_str, t_unit, t_bool, t_void, t_never, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
+{ t_unit, t_type, builtin_type_keyword, is_env_first_c_type_name } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_str_reference_type } :: import("../../types/guards.yo");
 { type_key } :: import("../../types/type-key.yo");
 { is_type_hierarchy_type } :: import("../../types/guards.yo");
@@ -64,111 +64,16 @@ evaluate_identifier_and_operator :: (
   // `str` view used for all literal comparisons; token.value (String) used for APIs.
   identifier := token.value.*.clone();
   // ------------------------------------------------------------------
-  // Built-in type keywords
-  // Match identifier to a TypeValue. If matched, build the ExprInfo
-  // (value = TypeVal(ty), meta-type = Type(0)) and return immediately.
-  // PERF: grouped by LENGTH — the former flat 33-arm chain issued up to
-  // 33 `String == str` CALLS on EVERY identifier eval (nearly always
-  // all-miss; a top self-time entry of the stage2-emit `sample`). One
-  // numeric len() gate first, then at most 9 compares in the worst
-  // bucket. (A hashed map was tried and MEASURED 26% SLOWER end-to-end:
-  // hashing every identifier costs more than length-first rejections —
-  // see the handoff perf section.)
+  // Built-in type keywords (`builtin_type_keyword`, src/types/creators.yo).
+  // If matched, build the ExprInfo (value = TypeVal(ty), meta-type =
+  // Type(0)) and return immediately.
   // ------------------------------------------------------------------
-  id_len := identifier.len();
-  type_kw_opt := cond(
-    (id_len == usize(3)) => cond(
-      (identifier == "str") => Option(TypeValue).Some(t_str()),
-      (identifier == "i32") => Option(TypeValue).Some(t_i32()),
-      (identifier == "u32") => Option(TypeValue).Some(t_u32()),
-      (identifier == "u64") => Option(TypeValue).Some(t_u64()),
-      (identifier == "i64") => Option(TypeValue).Some(t_i64()),
-      (identifier == "u16") => Option(TypeValue).Some(t_u16()),
-      (identifier == "i16") => Option(TypeValue).Some(t_i16()),
-      (identifier == "f32") => Option(TypeValue).Some(t_f32()),
-      (identifier == "f64") => Option(TypeValue).Some(t_f64()),
-      (identifier == "int") => Option(TypeValue).Some(t_c_int()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(4)) => cond(
-      (identifier == "Type") => Option(TypeValue).Some(t_type()),
-      (identifier == "unit") => Option(TypeValue).Some(t_unit()),
-      (identifier == "bool") => Option(TypeValue).Some(t_bool()),
-      (identifier == "char") => Option(TypeValue).Some(t_c_char()),
-      (identifier == "uint") => Option(TypeValue).Some(t_c_uint()),
-      (identifier == "long") => Option(TypeValue).Some(t_c_long()),
-      (identifier == "void") => Option(TypeValue).Some(t_void()),
-      (identifier == "Expr") => Option(TypeValue).Some(t_expr_t()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(5)) => cond(
-      (identifier == "usize") => Option(TypeValue).Some(t_usize()),
-      (identifier == "isize") => Option(TypeValue).Some(t_isize()),
-      (identifier == "Trait") => Option(TypeValue).Some(t_type_1()),
-      (identifier == "short") => Option(TypeValue).Some(t_c_short()),
-      (identifier == "never") => Option(TypeValue).Some(t_never()),
-      (identifier == "ulong") => Option(TypeValue).Some(t_c_ulong()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(2)) => cond(
-      (identifier == "u8") => Option(TypeValue).Some(t_u8()),
-      (identifier == "i8") => Option(TypeValue).Some(t_i8()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(6)) => cond(
-      (identifier == "ushort") => Option(TypeValue).Some(t_c_ushort()),
-      // The `Origin` kind (decision 43 step 2): `generic(p : Origin)`.
-      (identifier == "Origin") => Option(TypeValue).Some(t_origin_kind()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(8)) => cond(
-      (identifier == "longlong") => Option(TypeValue).Some(t_c_longlong()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(9)) => cond(
-      (identifier == "ulonglong") => Option(TypeValue).Some(t_c_ulonglong()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(10)) => cond(
-      (identifier == "longdouble") => Option(TypeValue).Some(t_c_longdouble()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(12)) => cond(
-      (identifier == "comptime_int") => Option(TypeValue).Some(t_comptime_int()),
-      (identifier == "comptime_str") => Option(TypeValue).Some(t_comptime_string()),
-      true => Option(TypeValue).None
-    ),
-    (id_len == usize(14)) => cond(
-      (identifier == "comptime_float") => Option(TypeValue).Some(t_comptime_float()),
-      true => Option(TypeValue).None
-    ),
-    true => Option(TypeValue).None
-  );
-  // A LOCAL MAY SHADOW A C-INTEROP TYPE NAME.
-  //
-  // The table above resolves builtin type names before any env lookup, so a
-  // binding called `long`, `int`, `char`, `short`, `uint` or `void` used to be
-  // unreachable: every use resolved to the TYPE, and the diagnostic pointed at
-  // the method ("No matching call found ... (long.push)") rather than at the
-  // shadowing, so it read as "ArrayList has no push"
-  // (issues/fixed/local-named-after-a-prelude-c-type-is-not-shadowed.md).
-  //
-  // Only the C interop vocabulary is exempted — those are ordinary English
-  // words that people do name variables. Yo's own spellings (`i32`, `str`,
-  // `bool`, `usize`, `Type`, …) keep resolving as types unconditionally: nobody
-  // names a local `i32`, and `bool` in particular is also re-exported by the
-  // prelude as a NAME (`export(bool : _boolean)`), so consulting the env for it
-  // would change what an existing binding resolves to.
-  c_type_shadowable := cond(
-    (id_len == usize(3)) => (identifier == "int"),
-    (id_len == usize(4)) => ((identifier == "char") || (identifier == "uint") || (identifier == "long") || (identifier == "void")),
-    (id_len == usize(5)) => ((identifier == "short") || (identifier == "ulong")),
-    (id_len == usize(6)) => (identifier == "ushort"),
-    (id_len == usize(8)) => (identifier == "longlong"),
-    (id_len == usize(9)) => (identifier == "ulonglong"),
-    (id_len == usize(10)) => (identifier == "longdouble"),
-    true => false
-  );
+  type_kw_opt := builtin_type_keyword(&identifier);
+  // A LOCAL MAY SHADOW A C-INTEROP TYPE NAME (`is_env_first_c_type_name`,
+  // src/types/creators.yo): every other builtin type name resolves to the
+  // type before any binding, so a binding of one is E0407
+  // (`reserved_binding_kind`, src/evaluator/memory-safety.yo).
+  c_type_shadowable := is_env_first_c_type_name(&identifier);
   shadowed_by_binding := cond(
     c_type_shadowable => (get_variables_from_env(env, identifier.clone()).len() > usize(0)),
     true => false
