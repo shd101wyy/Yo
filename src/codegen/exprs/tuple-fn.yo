@@ -13,6 +13,7 @@
 { is_chain_ref_binding_leaf } :: import("../../expr-info.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
+{ atom_read_is_referent_place } :: import("./atom.yo");
 { type_key, get_variable_type_string } :: import("../utils/index.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { TypeValue, no_types, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -69,8 +70,11 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
         // reference VALUE (a by-value `&U` binding, a call's result: R3) is
         // the pointer itself. A reference binding read as the reference
         // (R-TAIL's tuple component, `note_chain_ref_leaves`) is typed `&U`
-        // but emitted as its place `(*k)`: its address is the pointer.
-        e_leaf_place := (ast_expr_is_atom(&arg) && is_chain_ref_binding_leaf(ast_expr_token(&arg)));
+        // but emitted as its place `(*k)`: its address is the pointer. So is
+        // a binding whose C storage is the pointer (`atom_read_is_referent_place`:
+        // a match binding of an `Option(&U)` payload, a by-ref binding), the
+        // `(a, b)` that `IterZip.next` builds at `A := &U`.
+        e_leaf_place := (ast_expr_is_atom(&arg) && (is_chain_ref_binding_leaf(ast_expr_token(&arg)) || atom_read_is_referent_place(&arg, context)));
         e_is_ref := (match(elem_types.get(i), .Some(et) => t_slot_is_borrow(&et), .None => false) && (e_leaf_place || !reference_operand_is_value(&arg, context)));
         // Sequenced against the later elements (`sequence_operand`,
         // other-fn-call.yo): C leaves initializers unordered, and a later

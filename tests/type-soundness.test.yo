@@ -640,7 +640,7 @@ _sound_collect :: (fn(generic(I : Type, A : Type), it : &I, where(I <: Iterator(
   it.collect(ArrayList(A))
 );
 // `J` is fixed only by `F <: (Fn(item : A) -> J)` and the closure's body.
-_sound_map_all :: (fn(generic(I : Type, A : Type, J : Type, F : Type), it : &I, f : &F, where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> J))) -> ArrayList(J))(
+_sound_map_all :: (fn(generic(I : Type, A : Type, J : Type, F : Type), it : &I, f : &F, where(I <: Iterator(Item := A), F <: (Fn(item : A) -> J))) -> ArrayList(J))(
   it.map(f.*).collect(ArrayList(J))
 );
 _sound_sum_i32 :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := i32))) -> i32)(
@@ -653,7 +653,7 @@ test("soundness: a free fn binds an associated type from its where-clause", {
   assert(_sound_sum(_SoundRange64(_cur : i64(1), _end : i64(4)), i64(0)) == i64(6), "A <: Add(A) at i64");
   got := _sound_collect(_SoundRange(_cur : i32(1), _end : i32(4)));
   assert(got.len() == usize(3), "a blanket combinator on the parameter");
-  wide := _sound_map_all(_SoundRange(_cur : i32(1), _end : i32(4)), x => i64(x.*));
+  wide := _sound_map_all(_SoundRange(_cur : i32(1), _end : i32(4)), x => i64(x));
   assert(match(wide.get(usize(2)), .Some(v) => v, .None => i64(0)) == i64(3), "J from the closure body");
   comptime_expect_error(_sound_sum_i32(_SoundRange64(_cur : i64(1), _end : i64(4))), "its associated type Item is i64, not i32");
   // The self-referential bound is still judged, at the candidate.

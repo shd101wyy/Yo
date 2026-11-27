@@ -222,7 +222,7 @@ test("iter.skip then take then count", {
   assert(n == usize(15), "15");
 });
 test("iter.filter then map then count", {
-  square :: (fn(x : &i32) -> i32)(x.* * x.*);
+  square :: (fn(x : i32) -> i32)(x * x);
   is_even :: (fn(x : &i32) -> bool)((x.* % i32(2)) == i32(0));
   n := my_range(i32(0), i32(10)).filter(is_even).map(square).count();
   assert(n == usize(5), "5 evens");
@@ -242,7 +242,7 @@ test("ArrayList.into_iter combinators", {
   assert(even_sum == i32(6), "2+4=6");
   even_count := make_list().into_iter().filter(p => ((p.* % i32(2)) == i32(0))).count();
   assert(even_count == usize(2), "2 evens");
-  double :: (fn(x : &i32) -> i32)(x.* * i32(2));
+  double :: (fn(x : i32) -> i32)(x * i32(2));
   doubled_count := make_list().into_iter().map(double).count();
   assert(doubled_count == usize(5), "5 mapped");
 });
@@ -769,4 +769,32 @@ test("over a borrowed walk the item is one reference", {
   assert(doubled(usize(1)) == i32(4), "x is &i32");
   big := (&xs).into_iter().filter(x => (x.*.* > i32(1))).count();
   assert(big == usize(1), "filter lends the &i32 item");
+});
+// A tuple literal of match bindings whose payload is a reference (`.Some(a)`
+// over `Option(&String)`) holds the references: `IterZip.next` builds `(a, b)`
+// at `A := &String`
+// (issues/fixed/2026-11-28-a-tuple-literal-of-reference-match-bindings-emits-their-referents.md).
+_ic_pair_up :: (fn(generic(A : Type), x : Option(A), y : Option(A)) -> Option(Tuple(A, A)))(
+  match(
+    x,
+    .Some(a) => match(
+      y,
+      .Some(b) => .Some((a, b)),
+      .None => .None
+    ),
+    .None => .None
+  )
+);
+test("a tuple of reference match bindings holds the references", {
+  s := String.from("ab");
+  t := String.from("cde");
+  p := _ic_pair_up(Option(&String).Some(&s), Option(&String).Some(&t));
+  n := match(p, .Some(q) => (q.0.len() + q.1.len()), .None => usize(0));
+  assert(n == usize(5), "both references read through the tuple");
+  mut(xs) := ArrayList(String).new();
+  xs.push(`x`);
+  mut(ys) := ArrayList(String).new();
+  ys.push(`yy`);
+  z := (&xs).into_iter().zip((&ys).into_iter()).map(p => (p.0.len() + p.1.len())).collect(ArrayList(usize));
+  assert(z(usize(0)) == usize(3), "zip of borrowed walks");
 });

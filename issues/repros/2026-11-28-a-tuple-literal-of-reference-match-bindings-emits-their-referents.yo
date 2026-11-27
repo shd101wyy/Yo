@@ -1,0 +1,20 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+pair_up :: (fn(generic(A : Type), x : Option(A), y : Option(A)) -> Option(Tuple(A, A)))(
+  match(
+    x,
+    .Some(a) => match(
+      y,
+      .Some(b) => .Some((a, b)),
+      .None => .None
+    ),
+    .None => .None
+  )
+);
+main :: (fn() -> unit)({
+  s := String.from("ab");
+  t := String.from("cde");
+  p := pair_up(Option(&String).Some(&s), Option(&String).Some(&t));
+  match(p, .Some(q) => println(`${q.0.len()} ${q.1.len()}`), .None => println("none"));
+});
+export(main);
