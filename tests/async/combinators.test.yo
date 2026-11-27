@@ -79,8 +79,6 @@ test("Test race picks the fastest", {
   // the 40ms/5ms version of this test failed on macos-latest (PR #341).
   handles.push(io.spawn(sleepy(i32(1), u64(500), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   match(
     io.await(race(handles, io), io),
     (w, back) => {
@@ -99,8 +97,6 @@ test("Test race hands the list back: the losers can still be aborted", {
   handles.push(io.spawn(sleepy(i32(1), u64(500), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
   handles.push(io.spawn(sleepy(i32(3), u64(500), io), io));
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   match(
     io.await(race(handles, io), io),
     (w, back) => {
@@ -124,8 +120,6 @@ test("Test any skips aborted handles", {
   handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(10), io), io));
   handles(usize(0)).abort();
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   match(
     io.await(any(handles, io), io),
     (w, back) => {
@@ -146,8 +140,6 @@ test("Test any with all aborted", {
   handles.push(io.spawn(sleepy(i32(2), u64(30), io), io));
   handles(usize(0)).abort();
   handles(usize(1)).abort();
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   match(
     io.await(any(handles, io), io),
     (w, back) => {
@@ -241,7 +233,7 @@ test("Test timeout aborts on deadline", {
   ran := Rc.new(RefCell(bool).new(false));
   fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(100)), io);
-    ran.with_mut(cur => {
+    ran.*.with_mut(cur => {
       cur.* = true;
     });
     return(i32(1));
@@ -253,7 +245,7 @@ test("Test timeout aborts on deadline", {
   );
   // Outlive the aborted task's timer so its completion fires the entry guard.
   io.await(sleep(u64(120)), io);
-  assert(!ran.with(cur => cur.*), "the timed-out body must not resume past its suspension point");
+  assert(!ran.*.with(cur => cur.*), "the timed-out body must not resume past its suspension point");
 });
 // ---------------------------------------------------------------------------
 // race_first / any_first — the cleanup done for you
@@ -268,7 +260,7 @@ test("Test timeout aborts on deadline", {
 sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(RefCell(bool)), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ value, ms, ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(ms), io);
-    ran.with_mut(r => {
+    ran.*.with_mut(r => {
       r.* = true;
     });
     value
@@ -285,8 +277,8 @@ test("Test race_first returns the fastest task's value", {
   assert(match(r, .Some(v) => (v == i32(20)), .None => false), "the 1 ms task wins");
   // Both losers were aborted and joined: neither runs past its sleep.
   io.await(sleep(u64(100)), io);
-  assert(!ran0.with(r => r.*), "loser 0 was aborted, not left running");
-  assert(!ran2.with(r => r.*), "loser 2 was aborted, not left running");
+  assert(!ran0.*.with(r => r.*), "loser 0 was aborted, not left running");
+  assert(!ran2.*.with(r => r.*), "loser 2 was aborted, not left running");
 });
 test("Test race_first with a single handle", {
   mut(handles) := ArrayList(JoinHandle(i32)).new();
@@ -302,7 +294,7 @@ test("Test any_first returns the first COMPLETED value and aborts the rest", {
   r := io.await(any_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(2)), .None => false), "the fast task's value comes back");
   io.await(sleep(u64(100)), io);
-  assert(!ran0.with(r => r.*), "the loser was aborted");
+  assert(!ran0.*.with(r => r.*), "the loser was aborted");
 });
 test("Test any_first is None when every handle was aborted", {
   mut(handles) := ArrayList(JoinHandle(i32)).new();
@@ -450,7 +442,7 @@ test("Test aborting the joining task leaves the joined task running", {
   done := Rc.new(RefCell(bool).new(false));
   worker := io.async({ done : Rc.clone(done) }(io : Io) => {
     io.await(sleep(u64(20)), io);
-    done.with_mut(cur => {
+    done.*.with_mut(cur => {
       cur.* = true;
     });
     return(i32(1));
@@ -467,7 +459,7 @@ test("Test aborting the joining task leaves the joined task running", {
   assert(match(r, .Some(_) => false, .None => true), "the joiner was aborted");
   // The aborted join dropped the handle, which detached the worker.
   io.await(sleep(u64(60)), io);
-  assert(done.with(cur => cur.*), "the joined task still ran to the end");
+  assert(done.*.with(cur => cur.*), "the joined task still ran to the end");
 });
 // ===========================================================================
 // Stream — the async analogue of `Iterator`
@@ -713,12 +705,12 @@ test("Test Stream for_each from main", {
   h := Rc.clone(seen);
   io.await(
     Countdown(_n : i32(3)).for_each({ h }(x) => {
-      h.with_mut(l => l.push(x.*));
+      h.*.with_mut(l => l.push(x.*));
     }, io),
     io
   );
-  assert(seen.with(l => l.len()) == usize(3), "the body ran once per item");
-  assert(seen.with(l => l(usize(0))) == i32(3), "in order");
+  assert(seen.*.with(l => l.len()) == usize(3), "the body ran once per item");
+  assert(seen.*.with(l => l(usize(0))) == i32(3), "in order");
 });
 test("Test Stream for_each inside a spawned task", {
   seen := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
@@ -727,11 +719,11 @@ test("Test Stream for_each inside a spawned task", {
   // (issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md).
   h := Rc.clone(seen);
   drain := Countdown(_n : i32(4)).for_each({ h }(x) => {
-    h.with_mut(l => l.push(x.*));
+    h.*.with_mut(l => l.push(x.*));
   }, io);
   r := io.await(timeout(drain, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_each finished inside the deadline");
-  assert(seen.with(l => l.len()) == usize(4), "every item reached the body");
+  assert(seen.*.with(l => l.len()) == usize(4), "every item reached the body");
 });
 // ---------------------------------------------------------------------------
 // S7. The hand-written consumer loop with a `done` flag
@@ -899,8 +891,8 @@ test("Test a stream loop suspends its task between items", {
       match(
         n,
         .Some(_) => {
-          now := ticks.with(cur => cur.*);
-          seen.with_mut(l => l.push(now));
+          now := ticks.*.with(cur => cur.*);
+          seen.*.with_mut(l => l.push(now));
         },
         .None => {
           break;
@@ -911,7 +903,7 @@ test("Test a stream loop suspends its task between items", {
   h := io.spawn(task, io);
   (mut(i) : i32) = i32(0);
   while(i < i32(20), {
-    ticks.with_mut(cur => {
+    ticks.*.with_mut(cur => {
       cur.* = (cur.* + i32(1));
     });
     io.await(yield(io), io);
@@ -919,10 +911,10 @@ test("Test a stream loop suspends its task between items", {
   });
   r := io.await(timeout(h.join(io), Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "the task finished");
-  assert(seen.with(l => l.len()) == usize(3), "one entry per item");
+  assert(seen.*.with(l => l.len()) == usize(3), "one entry per item");
   // A blocking await would run the whole loop inside the spawn, before main
   // ticks once, and record 0 0 0.
-  assert(seen.with(l => (l(usize(2)) > l(usize(0)))), "main ran between the task's items");
+  assert(seen.*.with(l => (l(usize(2)) > l(usize(0)))), "main ran between the task's items");
 });
 // issues/fixed/an-io-async-body-never-releases-a-closure-parameter-bound-by-a-type-variable.md
 (mut(g_fe_disposed) : i32) = i32(0);
@@ -943,13 +935,13 @@ test("Stream.for_each releases what its body closure captures", {
     io.await(
       Countdown(_n : i32(3)).for_each({ t, total : Rc.clone(total) }(x) => {
         k := t.n;
-        total.with_mut(cur => {
+        total.*.with_mut(cur => {
           cur.* = (cur.* + (x.* * k));
         });
       }, io),
       io
     );
-    assert(total.with(cur => cur.*) > i32(0), "the body ran");
+    assert(total.*.with(cur => cur.*) > i32(0), "the body ran");
   };
   assert((g_fe_disposed - before) == i32(1), `the captured value was released once, released ${g_fe_disposed - before}`);
 });
@@ -968,10 +960,10 @@ impl(
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
       io.async({ self : &mut self.* }(io : Io) =>
         cond(
-          (self._n.with(n => n.*) <= i32(0)) => Option(i32).None,
+          (self._n.*.with(n => n.*) <= i32(0)) => Option(i32).None,
           true => {
-            v := self._n.with(n => n.*);
-            self._n.with_mut(n => {
+            v := self._n.*.with(n => n.*);
+            self._n.*.with_mut(n => {
               n.* = (n.* - i32(1));
             });
             Option(i32).Some(v)
@@ -1576,7 +1568,7 @@ _ar_holder :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     (b : Box(Dyn(_ArSp))) = dyn(Box.new(_ArObj(n : i32(7))));
     io.await(sleep(u64(30)), io);
-    b.ar_sp()
+    b.*.ar_sp()
   })
 );
 test("an aborted task that owns a Box(Dyn) drops it once", {

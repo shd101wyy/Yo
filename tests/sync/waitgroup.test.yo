@@ -93,21 +93,21 @@ test("WaitGroup count reflects current state", {
 test("WaitGroup threads call done then main waits", {
   if(arch == Arch.Wasm32, return(()));
   wg := Arc.new(WaitGroup.new());
-  wg.add(i32(3));
+  wg.*.add(i32(3));
   t1 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(10)));
-    wg.done();
+    wg.*.done();
   });
   t2 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(20)));
-    wg.done();
+    wg.*.done();
   });
   t3 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(30)));
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
-  assert(wg.count() == i32(0), "count should be 0 after all threads done");
+  wg.*.wait();
+  assert(wg.*.count() == i32(0), "count should be 0 after all threads done");
   t1.join();
   t2.join();
   t3.join();
@@ -115,24 +115,24 @@ test("WaitGroup threads call done then main waits", {
 test("WaitGroup add before spawn done in thread", {
   if(arch == Arch.Wasm32, return(()));
   wg := Arc.new(WaitGroup.new());
-  wg.add(i32(5));
+  wg.*.add(i32(5));
   t1 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   t2 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   t3 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   t4 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   t5 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
-  assert(wg.count() == i32(0), "count should be 0 after 5 threads done");
+  wg.*.wait();
+  assert(wg.*.count() == i32(0), "count should be 0 after 5 threads done");
   t1.join();
   t2.join();
   t3.join();
@@ -143,33 +143,33 @@ test("WaitGroup reuse across thread groups", {
   if(arch == Arch.Wasm32, return(()));
   wg := Arc.new(WaitGroup.new());
   // First group
-  wg.add(i32(2));
+  wg.*.add(i32(2));
   t1 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   t2 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
+  wg.*.wait();
   t1.join();
   t2.join();
-  assert(wg.count() == i32(0), "count should be 0 after first group");
+  assert(wg.*.count() == i32(0), "count should be 0 after first group");
   // Second group
-  wg.add(i32(3));
+  wg.*.add(i32(3));
   t3 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   t4 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   t5 := Thread(unit).spawn({ wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
+  wg.*.wait();
   t3.join();
   t4.join();
   t5.join();
-  assert(wg.count() == i32(0), "count should be 0 after second group");
+  assert(wg.*.count() == i32(0), "count should be 0 after second group");
 });
 // ============================================================================
 // ThreadPool integration (the same `Arc` sharing; the pool itself is still a
@@ -179,36 +179,36 @@ test("WaitGroup with pool tasks", {
   if(arch == Arch.Wasm32, return(()));
   wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
-  wg.add(i32(3));
+  wg.*.add(i32(3));
   spawn(&pool, { wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   spawn(&pool, { wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
   spawn(&pool, { wg : Arc.clone(wg) }(io) => {
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
-  assert(wg.count() == i32(0), "count should be 0 after workers done");
+  wg.*.wait();
+  assert(wg.*.count() == i32(0), "count should be 0 after workers done");
 });
 test("WaitGroup with pool tasks and sleep", {
   if(arch == Arch.Wasm32, return(()));
   wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
-  wg.add(i32(3));
+  wg.*.add(i32(3));
   spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(10)));
-    wg.done();
+    wg.*.done();
   });
   spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(20)));
-    wg.done();
+    wg.*.done();
   });
   spawn(&pool, { wg : Arc.clone(wg) }(io) => {
     sleep_blocking(Duration.from_millis(i64(30)));
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
-  assert(wg.count() == i32(0), "count should be 0 after workers with sleep done");
+  wg.*.wait();
+  assert(wg.*.count() == i32(0), "count should be 0 after workers with sleep done");
 });

@@ -350,7 +350,7 @@ test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)",
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         unsafe(printf("  bind(2001:db8::1) correctly failed: %s\n", msg.to_cstr().ptr().unwrap()));
         unwind(());
       }
@@ -520,7 +520,7 @@ _d6_scripted_server :: (
       eprintln(`  server: accept ${k} pending`);
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_d6_read_headers(&s, e.io), e);
-      seen.with_mut(xs => xs.push(req.clone()));
+      seen.*.with_mut(xs => xs.push(req.clone()));
       _w := e.io.await(s.write_str("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok", e.io), e);
       e.io.await(s.close(e.io), e);
       eprintln(`  server: round ${k} done`);
@@ -553,8 +553,8 @@ test("accept pending in a spawned task before the client connects", {
   assert(body.len() == usize(59), "the whole response, then EOF from the server's close");
   io.await(client.close(io), ioe);
   server.await(io);
-  assert(seen.with(xs => xs.len()) == usize(1), "one request seen");
-  assert(seen.with(xs => (xs(usize(0))).clone()).starts_with(`GET /one`), "the request line");
+  assert(seen.*.with(xs => xs.len()) == usize(1), "one request seen");
+  assert(seen.*.with(xs => (xs(usize(0))).clone()).starts_with(`GET /one`), "the request line");
 });
 test("three request/response rounds against a spawned scripted server", {
   exn := Exception(
@@ -582,7 +582,7 @@ test("three request/response rounds against a spawned scripted server", {
     round = (round + 1);
   });
   server.await(io);
-  assert(seen.with(xs => xs.len()) == usize(3), "three requests seen");
+  assert(seen.*.with(xs => xs.len()) == usize(3), "three requests seen");
 });
 test("TCP local_addr is this end, and it is the peer's peer_addr", {
   exn := Exception(
@@ -710,10 +710,10 @@ test("a consumer loop over incoming serves each connection in turn", {
             c,
             .Ok(st) => {
               fd := st.fd();
-              task_fds.with_mut(l => l.push(fd));
+              task_fds.*.with_mut(l => l.push(fd));
             },
             .Err(_) => {
-              task_fds.with_mut(l => l.push(i32(-1)));
+              task_fds.*.with_mut(l => l.push(i32(-1)));
             }
           );
         },
@@ -729,9 +729,9 @@ test("a consumer loop over incoming serves each connection in turn", {
   client2 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
   r := io.await(timeout(h.join(io), Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "the loop finished when take(2) ended the stream");
-  assert(fds.with(l => l.len()) == usize(2), "the body ran once per connection");
-  assert(fds.with(l => l(usize(0))) >= i32(0), "first connection was accepted, not an error item");
-  assert(fds.with(l => l(usize(1))) >= i32(0), "second too");
+  assert(fds.*.with(l => l.len()) == usize(2), "the body ran once per connection");
+  assert(fds.*.with(l => l(usize(0))) >= i32(0), "first connection was accepted, not an error item");
+  assert(fds.*.with(l => l(usize(1))) >= i32(0), "second too");
   io.await(client1.close(io), ioe);
   io.await(client2.close(io), ioe);
   // `incoming()` took the listener; it closes when the stream drops.
@@ -802,7 +802,7 @@ _tcp_write_until_error :: (fn(s : &TcpStream, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  write failed: ${err}`);
+        eprintln(`  write failed: ${err.*}`);
         unwind(true);
       }
     )

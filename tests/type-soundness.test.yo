@@ -925,7 +925,7 @@ test("soundness: a Dyn is neither downcast nor upcast", {
   assert(!_p38_both_into_a, "no upcast in the relation");
   assert(!_p38_a_into_both, "no downcast in the relation");
   assert(_p38_takes_both(&both.*) == i32(2), "the exact trait set flows");
-  assert(one.da() == i32(5), "the value itself is fine");
+  assert(one.*.da() == i32(5), "the value itself is fine");
 });
 // issues/fixed/recursive-type-definitions-have-no-indirection-check.md: a
 // value struct that reaches itself by value — directly or through a
@@ -988,13 +988,13 @@ impl(
     })
   )
 );
-_p5_sink :: (fn(sink(b) : _P5Box) -> i32)(b.tag);
+_p5_sink :: (fn(sink(b) : _P5Box) -> i32)(b.*.tag);
 _p5_early_return :: (fn(c : bool) -> i32)({
   b := _p5_box(i32(5));
   if(c, {
     return(_p5_sink(b));
   });
-  b.tag + i32(1)
+  b.*.tag + i32(1)
 });
 test("soundness: a move in an arm that returns does not reach the code after the branch", {
   before := g_p5_disposed;
@@ -1012,7 +1012,7 @@ _p5_early_return_kept :: (fn(c : bool, keep : &mut ArrayList(_P5Box)) -> i32)({
   if(c, {
     return(_p5_sink(b));
   });
-  b.tag + i32(1)
+  b.*.tag + i32(1)
 });
 test("soundness: the returning arm releases its moved value once", {
   mut(keep) := ArrayList(_P5Box).new();
@@ -1075,38 +1075,38 @@ test("soundness: a sibling arm's return still releases the value the tail moves"
 // to its own path (issues/fixed/own-param-leaks-when-a-conditional-return-is-not-taken.md,
 // fixed by #925's per-path move state). A and D are the over-drop controls.
 _p5_ret_a :: (fn(h : _P5Box) -> _P5Box)({
-  if(h.tag > i32(0), {
+  if(h.*.tag > i32(0), {
     return(h);
   });
   h
 });
 _p5_ret_b :: (fn(h : _P5Box) -> _P5Box)({
-  if(h.tag < i32(0), {
+  if(h.*.tag < i32(0), {
     return(h);
   });
   h
 });
 _p5_ret_c :: (fn(h : _P5Box) -> _P5Box)({
-  if(h.tag < i32(0), {
+  if(h.*.tag < i32(0), {
     return(h);
   });
-  if(h.tag > i32(0), {
+  if(h.*.tag > i32(0), {
     return(h);
   });
   h
 });
 _p5_ret_d :: (fn(sink(h) : _P5Box) -> _P5Box)({
-  (x : i32) = h.tag;
+  (x : i32) = h.*.tag;
   if(x > i32(0), {
     return(h);
   });
   h
 });
 _p5_ret_f :: (fn(sink(h) : _P5Box) -> _P5Box)({
-  if(h.tag < i32(0), {
+  if(h.*.tag < i32(0), {
     return(h);
   });
-  if(h.tag < i32(0), {
+  if(h.*.tag < i32(0), {
     return(h);
   });
   h
@@ -1119,7 +1119,7 @@ test("Phase 5: an owning parameter returned from an untaken conditional is dropp
     r_c := _p5_ret_c(_p5_box(i32(1)));
     r_d := _p5_ret_d(_p5_box(i32(1)));
     r_f := _p5_ret_f(_p5_box(i32(1)));
-    assert((r_a.tag + r_b.tag + r_c.tag + (r_d.tag + r_f.tag)) == i32(5), "every shape returned its box");
+    assert((r_a.*.tag + r_b.*.tag + r_c.*.tag + (r_d.*.tag + r_f.*.tag)) == i32(5), "every shape returned its box");
   };
   assert(g_p5_disposed == (before + i32(5)), `each box released exactly once, got ${(g_p5_disposed - before).to_string()}`);
 });

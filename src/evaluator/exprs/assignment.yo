@@ -305,23 +305,23 @@ make_variable_with_value :: (
   ) -> Variable
 )(
   make_variable(
-    id : v.id(),
-    name : v.name.clone(),
+    id : v.*.*.id(),
+    name : v.*.*.name.clone(),
     bound_ty : variable_value_type(v),
-    frame_level : v.frame_level,
+    frame_level : v.*.*.frame_level,
     value : value_cell_of(new_value),
-    is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as(),
-    token : Rc.clone(v.token),
-    initialized_at_token : v.initialized_at_token(),
-    consumed_at_token : v.consumed_at_token(),
-    rare : v.rare(),
-    is_compile_time_only : v.is_compile_time_only(),
-    is_owning_the_rc_value : v.is_owning_the_rc_value(),
-    is_reassignable : v.is_reassignable(),
-    is_implicit : v.is_implicit(),
-    is_created_from_destructuring_atom_variable : v.is_created_from_destructuring_atom_variable(),
-    is_effect_param : v.is_effect_param(),
-    is_module_level : v.is_module_level(),
+    is_owning_the_same_rc_value_as : v.*.*.is_owning_the_same_rc_value_as(),
+    token : Rc.clone(v.*.*.token),
+    initialized_at_token : v.*.*.initialized_at_token(),
+    consumed_at_token : v.*.*.consumed_at_token(),
+    rare : v.*.*.rare(),
+    is_compile_time_only : v.*.*.is_compile_time_only(),
+    is_owning_the_rc_value : v.*.*.is_owning_the_rc_value(),
+    is_reassignable : v.*.*.is_reassignable(),
+    is_implicit : v.*.*.is_implicit(),
+    is_created_from_destructuring_atom_variable : v.*.*.is_created_from_destructuring_atom_variable(),
+    is_effect_param : v.*.*.is_effect_param(),
+    is_module_level : v.*.*.is_module_level(),
     is_ref : false,
     is_parameter : false
   )
@@ -367,7 +367,7 @@ _borrowed_root_walk :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContex
       // place it names, except an `imm` capture of a closure's capture list,
       // the one `is_ref` binding that is not reassignable: it is a read-only
       // borrow (decision 35).
-      (v.is_owning_the_rc_value() || (v.is_ref() && v.is_reassignable()) || v.is_compile_time_only() || v.is_module_level()) => Option(Variable).None,
+      (v.*.is_owning_the_rc_value() || (v.*.is_ref() && v.*.is_reassignable()) || v.*.is_compile_time_only() || v.*.is_module_level()) => Option(Variable).None,
       true => Option(Variable).Some(v)
     ),
     .None => Option(Variable).None
@@ -413,7 +413,7 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
   if(!ast_expr_is_atom(&cur), {
     return(Option(Variable).None);
   });
-  get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last_cloned()
+  get_variables_from_env(env, ast_expr_token(&cur).*.value.*.clone()).last_cloned()
 });
 /// The `x : &T` parameter (of a `fn` or a closure) whose borrowed value the
 /// place `place` writes into, walking only the steps that stay inside that
@@ -430,7 +430,7 @@ shared_borrow_param_root_of_place :: (fn(place : &AstExpr, env : &Environment, c
     .Some(v) => cond(
       // A by-value parameter re-bound in a specialized body owns its value:
       // its `is_imm_borrow` is ownership bookkeeping, not a `&T` parameter.
-      (v.is_imm_borrow() && !v.is_value_rebind() && !v.is_compile_time_only()) => Option(Variable).Some(v),
+      (v.*.is_imm_borrow() && !v.*.is_value_rebind() && !v.*.is_compile_time_only()) => Option(Variable).Some(v),
       true => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -438,7 +438,7 @@ shared_borrow_param_root_of_place :: (fn(place : &AstExpr, env : &Environment, c
 });
 /// The way out E0908 offers for a write through the `&T` parameter `v`.
 _shared_borrow_param_fix :: (fn(v : &Variable) -> String)(
-  `declare it \`${v.name} : &mut T\` to write the caller's value, take it by value (\`${v.name} : T\`, without \`&\`) to own and write a copy, or copy it into a local first (\`q := ${v.name}.*;\`) and write the copy`
+  `declare it \`${v.*.*.name} : &mut T\` to write the caller's value, take it by value (\`${v.*.*.name} : T\`, without \`&\`) to own and write a copy, or copy it into a local first (\`q := ${v.*.*.name}.*;\`) and write the copy`
 );
 /// E0908: a write through the `&T` parameter `v`; `what` names it
 /// (`write \`p.n\``).
@@ -447,7 +447,7 @@ reject_write_through_shared_borrow_param :: (fn(v : &Variable, what : &String, t
     with_code(
       format_error_message_with_help(
         tok,
-        `Cannot ${what}: \`${v.name}\` is a \`&T\` parameter, a read-only borrow of the caller's value.`,
+        `Cannot ${what}: \`${v.*.*.name}\` is a \`&T\` parameter, a read-only borrow of the caller's value.`,
         Option(String).Some(_shared_borrow_param_fix(v))
       ),
       E_WRITE_THROUGH_BORROW
@@ -477,18 +477,18 @@ reject_write_through_shared_borrow_param :: (fn(v : &Variable, what : &String, t
 _reject_runtime_write_of_comptime_binding :: (
   fn(v : &Variable, write_tok : &Token, rhs_is_runtime : bool, ctx : &EvalContext, exn : Exception) -> unit
 )({
-  if(!v.is_compile_time_only() || ctx.force_compile_time_bindings || ctx.is_analyzing_ctfe_capability || (ctx.ctfe_depth > usize(0)) || fn_ctx_returns_comptime(ctx) || in_compile_time_fn_body(ctx), {
+  if(!v.*.*.is_compile_time_only() || ctx.force_compile_time_bindings || ctx.is_analyzing_ctfe_capability || (ctx.ctfe_depth > usize(0)) || fn_ctx_returns_comptime(ctx) || in_compile_time_fn_body(ctx), {
     return(());
   });
   sub := match(&ctx.is_evaluating_function_body_or_async_block, .Some(s) => s.clone(), .None => return(()));
   // A function body's own parameters sit in the top frame of its `eval_env`;
   // an async or test block has none (as in `_captured_root_of_place`).
   own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count() - usize(1)), _ => sub.eval_env.frame_count());
-  outside := (v.frame_level < own_floor);
+  outside := (v.*.*.frame_level < own_floor);
   if(!outside && !rhs_is_runtime, {
     return(());
   });
-  name := v.name.clone();
+  name := v.*.*.name.clone();
   // A compile-time binding never carries `is_module_level` (that flag marks
   // the runtime globals emitted as C statics), so the definition label below
   // is what shows where it lives.
@@ -499,7 +499,7 @@ _reject_runtime_write_of_comptime_binding :: (
   help := `declare it as a mutable runtime binding instead (\`mut(${name}) := ...;\`, at module level for a global), which the program can write`;
   entries := ArrayList(TokenAndError).new();
   entries.push(TokenAndError(token : Rc.clone(write_tok.*), error_message : first));
-  entries.push(TokenAndError(token : Rc.clone(v.token), error_message : `"${name}" is defined here:`));
+  entries.push(TokenAndError(token : Rc.clone(v.*.*.token), error_message : `"${name}" is defined here:`));
   raise_flow_violation(
     with_code(format_error_messages_with_help(&entries, Option(String).Some(help)), E_COMPTIME_BINDING_RUNTIME_WRITE),
     ctx,
@@ -522,7 +522,7 @@ _captured_root_of_place :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalCo
         // `eval_env`; an async block has none (track_variable_usage_resolved).
         own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count() - usize(1)), _ => sub.eval_env.frame_count());
         cond(
-          (v.is_ref() || v.is_compile_time_only() || v.is_module_level() || (v.frame_level >= own_floor)) => Option(Variable).None,
+          (v.*.is_ref() || v.*.is_compile_time_only() || v.*.is_module_level() || (v.*.frame_level >= own_floor)) => Option(Variable).None,
           true => Option(Variable).Some(v)
         )
       },
@@ -578,7 +578,7 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
       }
     );
   });
-  root_vars := get_variables_from_env(env, ast_expr_token(&cur).value.*.clone());
+  root_vars := get_variables_from_env(env, ast_expr_token(&cur).*.value.*.clone());
   match(
     root_vars.last_cloned(),
     .Some(rv) => {
@@ -592,19 +592,19 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
       // (issues/fixed/2026-11-05-a-cell-write-through-a-projection-s-self-is-e0908.md).
       // A `&` match's binding is one too, and the same check judges its
       // writes.
-      if(rv.is_ref() && !rv.is_reassignable() && !(rv.is_parameter() && rv.is_imm_borrow()) && !rv.is_borrow_match_binding(), {
+      if(rv.*.is_ref() && !rv.*.is_reassignable() && !(rv.*.is_parameter() && rv.*.is_imm_borrow()) && !rv.*.is_borrow_match_binding(), {
         raise_flow_violation(
           with_code(
             format_error_message_with_help(
               tok,
               cond(
-                ref_payload_source(rv.id()).is_some() => `Cannot write through \`${rv.name}\`: it binds a \`&T\` payload, a read-only borrow of the place the reference names.`,
-                true => `Cannot write through \`${rv.name}\`: it is a \`&\` capture, a read-only borrow of the place the closure was given.`
+                ref_payload_source(rv.*.id()).is_some() => `Cannot write through \`${rv.*.name}\`: it binds a \`&T\` payload, a read-only borrow of the place the reference names.`,
+                true => `Cannot write through \`${rv.*.name}\`: it is a \`&\` capture, a read-only borrow of the place the closure was given.`
               ),
               Option(String).Some(
                 cond(
-                  ref_payload_source(rv.id()).is_some() => String.from("produce a `&mut T` payload to write the place, or write a local copy"),
-                  true => `capture it \`${rv.name} : &mut ...\` to write the place (a non-escaping closure only), or write a local copy`
+                  ref_payload_source(rv.*.id()).is_some() => String.from("produce a `&mut T` payload to write the place, or write a local copy"),
+                  true => `capture it \`${rv.*.name} : &mut ...\` to write the place (a non-escaping closure only), or write a local copy`
                 )
               )
             ),
@@ -621,8 +621,8 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
 /// The way out E0908 offers for a write into the borrowed binding `bv`.
 _write_through_borrow_fix :: (fn(bv : &Variable) -> String)(
   cond(
-    bv.is_parameter() => `take it by value (\`${bv.name} : T\`, without \`&\`) to own and write it, or as \`${bv.name} : &mut T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name}.*;\`) and write the copy`,
-    true => `copy it into a local first (\`q := ${bv.name}.*;\`) and write the copy; to write a \`for\` element in place, loop with \`for(&mut xs, ${bv.name} => ...)\``
+    bv.*.*.is_parameter() => `take it by value (\`${bv.*.*.name} : T\`, without \`&\`) to own and write it, or as \`${bv.*.*.name} : &mut T\` to write the caller's value, or copy it into a local first (\`q := ${bv.*.*.name}.*;\`) and write the copy`,
+    true => `copy it into a local first (\`q := ${bv.*.*.name}.*;\`) and write the copy; to write a \`for\` element in place, loop with \`for(&mut xs, ${bv.*.*.name} => ...)\``
   )
 );
 /// The place as written (`p.inner.m`), not the printer's parenthesized
@@ -697,7 +697,7 @@ _join_through_mut_self_lend :: (fn(lender : &Variable, rhs : &AstExpr, env : &En
     // sets grow (`store_through_mut_join`, A25), a whole reference binding's
     // is replaced (§7 P3).
     .Some(js_info) => if(js_info.is_mut, {
-      _ := store_through_mut_join(&variable_holder_roots(lender), &lender.name, rhs, env, ctx, exn);
+      _ := store_through_mut_join(&variable_holder_roots(lender), &lender.*.*.name, rhs, env, ctx, exn);
     }),
     .None => ()
   )
@@ -709,7 +709,7 @@ _index_place_root :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext)
     (!ast_expr_is_atom(lhs) && !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))) && call_is_index_place(lhs, env, ctx)) => match(
       lhs,
       Rc(.FnCall(_, ip_callee, _, _, _)) => cond(
-        ast_expr_is_atom(&ip_callee.*) => get_variables_from_env(env, ast_expr_token(&ip_callee.*).value.*.clone()).last_cloned(),
+        ast_expr_is_atom(&ip_callee.*) => get_variables_from_env(env, ast_expr_token(&ip_callee.*).*.value.*.clone()).last_cloned(),
         true => _place_root_variable(&ip_callee.*, env, ctx, true)
       ),
       Rc(.Atom(_, _)) => Option(Variable).None
@@ -731,7 +731,7 @@ _via_root_name :: (fn(via : &AstExpr) -> String)({
       Rc(.Atom(_, _)) => return(String.new())
     );
   });
-  ast_expr_token(&cur).value.*.clone()
+  ast_expr_token(&cur).*.value.*.clone()
 });
 /// `rpp.*.* = v` where `rpp := &mut rp` and `rp := &mut r` re-borrow the
 /// reference binding `r` (a chain of k ≥ 2 `.*` over `&mut` re-borrows of
@@ -750,7 +750,7 @@ _join_through_reborrow_chain :: (fn(lhs : &AstExpr, rhs : &AstExpr, env : &Envir
     return(());
   });
   jc_base := match(deref_chain_atom(lhs), .Some(b) => b, .None => return(()));
-  jc_start := match(get_variables_from_env(env, ast_expr_token(&jc_base).value.*.clone()).last_cloned(), .Some(v) => v, .None => return(()));
+  jc_start := match(get_variables_from_env(env, ast_expr_token(&jc_base).*.value.*.clone()).last_cloned(), .Some(v) => v, .None => return(()));
   if(!variable_is_reference_binding(&jc_start) || !t_slot_is_borrow(&variable_value_type(&jc_start)), {
     return(());
   });
@@ -775,7 +775,7 @@ _join_through_reborrow_chain :: (fn(lhs : &AstExpr, rhs : &AstExpr, env : &Envir
   while(ci < jc_chain.len(), {
     match(
       jc_chain.get_cloned(ci),
-      .Some(link) => if(!link.holder.is_module_level() && !link.holder.is_compile_time_only(), {
+      .Some(link) => if(!link.holder.*.is_module_level() && !link.holder.*.is_compile_time_only(), {
         cond(
           ((link.depth == jc_k) && (n_targets == usize(1)) && !jc_is_lend) => bind_join(&link.holder, rhs, env, ctx, exn),
           ((link.depth == jc_k) && (n_targets == usize(1))) => place_write_join(&link.holder, rhs, env, ctx, exn),
@@ -943,7 +943,7 @@ require_no_inout_write_through_borrow :: (
       // object, an `Rc`, a std collection: `h.xs.push(v)`) is lent to a
       // callee that writes the storage the handle shares, which the caller
       // sees, until the V2b flip makes the collections values.
-      (is_auto_generated : bool) = ast_expr_token(&arg).module_path.*.starts_with(String.from("auto-generated://"));
+      (is_auto_generated : bool) = ast_expr_token(&arg).*.module_path.*.starts_with(String.from("auto-generated://"));
       (is_shared_param_write : bool) = false;
       if(!is_auto_generated && !type_contains_rc_type(&arg_ty), {
         match(
@@ -958,11 +958,11 @@ require_no_inout_write_through_borrow :: (
                 place : Rc.clone(arg),
                 how : String.from("write through a `&T` parameter"),
                 noun : String.from("a `&T` parameter"),
-                root_text : sbv.name.clone(),
+                root_text : sbv.*.name.clone(),
                 root_type : type_to_string(&arg_ty),
                 global : Option(Variable).None,
                 borrow_error : Option(String).Some(
-                  `Cannot pass \`${_place_source_text(&arg)}\` as ${sb_target}: \`${sbv.name}\` is a \`&T\` parameter, a read-only borrow of the caller's value, and the callee writes it. To change it, ${_shared_borrow_param_fix(&sbv)}.`
+                  `Cannot pass \`${_place_source_text(&arg)}\` as ${sb_target}: \`${sbv.*.name}\` is a \`&T\` parameter, a read-only borrow of the caller's value, and the callee writes it. To change it, ${_shared_borrow_param_fix(&sbv)}.`
                 )
               )
             );
@@ -977,7 +977,7 @@ require_no_inout_write_through_borrow :: (
         match(
           _borrowed_root_walk(&arg, env, ctx, _g_audit_inout_borrow),
           .Some(bv) => if(is_judged || !_is_dispose_receiver(&bv, ast_expr_token(&arg)), {
-            what := cond(bv.is_parameter() => "a `&T` parameter", true => "a `match` or `for` binding");
+            what := cond(bv.*.is_parameter() => "a `&T` parameter", true => "a `match` or `for` binding");
             label := match(param_labels.get_cloned(i), .Some(l) => l, .None => String.from("?"));
             target := cond((label == "self") => String.from("the `self : &mut Self` receiver"), true => `the \`&mut\` parameter \`${label}\``);
             pending.push(
@@ -986,11 +986,11 @@ require_no_inout_write_through_borrow :: (
                 place : Rc.clone(arg),
                 how : String.from("write through a borrowed value"),
                 noun : String.from(what),
-                root_text : bv.name.clone(),
+                root_text : bv.*.name.clone(),
                 root_type : type_to_string(&arg_ty),
                 global : Option(Variable).None,
                 borrow_error : Option(String).Some(
-                  `Cannot pass \`${_place_source_text(&arg)}\` as ${target}: \`${bv.name}\` is ${what}, which borrows its value, and holds data (${type_to_string(&arg_ty)}) that its owner still holds. The callee writes it, and the write would land in the borrowed copy alone. To change it, ${_write_through_borrow_fix(&bv)}.`
+                  `Cannot pass \`${_place_source_text(&arg)}\` as ${target}: \`${bv.*.name}\` is ${what}, which borrows its value, and holds data (${type_to_string(&arg_ty)}) that its owner still holds. The callee writes it, and the write would land in the borrowed copy alone. To change it, ${_write_through_borrow_fix(&bv)}.`
                 )
               )
             );
@@ -1005,7 +1005,7 @@ require_no_inout_write_through_borrow :: (
                     place : arg,
                     how : String.from("write through a captured value"),
                     noun : String.from(_CAPTURE_NOUN),
-                    root_text : cv.name.clone(),
+                    root_text : cv.*.name.clone(),
                     root_type : type_to_string(&arg_ty),
                     global : Option(Variable).None,
                     borrow_error : Option(String).Some(String.from("captured"))
@@ -1082,11 +1082,11 @@ _d3_unlabeled_arg :: (fn(arg : AstExpr) -> AstExpr)(
 /// generic trial evaluates the body under a placeholder function value, so
 /// neither names the function.)
 _is_dispose_receiver :: (fn(v : &Variable, tok : &Token) -> bool)({
-  if(!(v.is_parameter() && (v.name == "self")), {
+  if(!(v.*.*.is_parameter() && (v.*.*.name == "self")), {
     return(false);
   });
-  lines := tok.input.*.split(String.from("\n"));
-  (row : usize) = usize(tok.row);
+  lines := tok.*.*.input.*.split(String.from("\n"));
+  (row : usize) = usize(tok.*.*.row);
   (steps : usize) = usize(0);
   while(steps < usize(400), {
     match(
@@ -1189,7 +1189,7 @@ _module_global_root_var :: (
     return(Option(Variable).None);
   });
   tok := ast_expr_token(root_expr);
-  var_name := tok.value.*.clone();
+  var_name := tok.*.value.*.clone();
   if(var_name.is_empty(), {
     return(Option(Variable).None);
   });
@@ -1199,7 +1199,7 @@ _module_global_root_var :: (
   });
   match(
     variables.last_cloned(),
-    .Some(v) => if(v.is_module_level() && !v.is_compile_time_only() && !is_thread_local(&tok.module_path.*, var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
+    .Some(v) => if(v.*.is_module_level() && !v.*.is_compile_time_only() && !is_thread_local(&tok.*.module_path.*, var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
     .None => Option(Variable).None
   )
 });
@@ -1210,18 +1210,18 @@ _module_global_root_var :: (
 _d1_record_write :: (
   fn(gv : &Variable, write_tok : &Token, how : &String, note : &String, exn : Exception) -> unit
 )({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(write_tok.module_path.*.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(write_tok.*.*.module_path.*.clone())), {
     return(());
   });
   match(
-    d1_record_global_write(&gv.token, gv.name.clone(), write_tok),
+    d1_record_global_write(&gv.*.*.token, gv.*.*.name.clone(), write_tok),
     .Some(reach_loc) => {
       exn.throw(
         dyn(
           Box.new(
             format_error_message(
               write_tok,
-              `Cannot ${how} module-level global '${gv.name}' (type ${type_to_string(&variable_value_type(gv))})${note}: a closure that runs on another thread reads it (at ${reach_loc}). A module-level binding is one static shared by every thread, so a mutable one may only be touched by one thread. Use thread_local(${gv.name}) for per-thread state, or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state.`
+              `Cannot ${how} module-level global '${gv.*.*.name}' (type ${type_to_string(&variable_value_type(gv))})${note}: a closure that runs on another thread reads it (at ${reach_loc}). A module-level binding is one static shared by every thread, so a mutable one may only be touched by one thread. Use thread_local(${gv.*.*.name}) for per-thread state, or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state.`
             )
           )
         )
@@ -1238,7 +1238,7 @@ _d1_record_write :: (
 d3_record_inout_place :: (
   fn(pending : &mut ArrayList(D3PendingInout), param_index : usize, param_label : &String, place : &AstExpr, env : &Environment) -> unit
 )({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.*.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).*.module_path.*.clone())), {
     return(());
   });
   root_expr := get_root_expr_of_place(place);
@@ -1317,7 +1317,7 @@ _d3_judge_borrow_errors :: (
                 true => "inout-borrow"
               );
               at := ast_expr_token(&entry.place);
-              eprintln(`[${tag}] ${at.module_path.*}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(&entry.place)} -> ${callee_fid} (${entry.root_text}: ${entry.noun}, ${entry.root_type})`);
+              eprintln(`[${tag}] ${at.*.module_path.*}:${(at.*.row + u32(1)).to_string()}:${(at.*.column + u32(1)).to_string()} ${_place_source_text(&entry.place)} -> ${callee_fid} (${entry.root_text}: ${entry.noun}, ${entry.root_type})`);
             }, {
               raise_flow_violation(with_code(format_error_message(ast_expr_token(&entry.place), &berr.*), E_WRITE_THROUGH_BORROW), ctx, exn);
             });
@@ -1544,7 +1544,7 @@ d3_check_pending :: (
 throw_if_write_through_atomic_root :: (
   fn(place : &AstExpr, env : &Environment, how : &String, exn : Exception) -> unit
 )({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.*.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).*.module_path.*.clone())), {
     return(());
   });
   root_expr := get_root_expr_of_place(place);
@@ -1588,7 +1588,7 @@ _throw_if_atomic_object_root :: (
 throw_if_mut_lend_through_atomic_object :: (
   fn(ev_place : &AstExpr, env : &Environment, how : String, ctx : &EvalContext, exn : Exception) -> unit
 )({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ev_place).module_path.*.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ev_place).*.module_path.*.clone())), {
     return(());
   });
   bare := ast_expr_strip_borrow_marker(ev_place);
@@ -1604,7 +1604,7 @@ throw_if_mut_lend_through_atomic_object :: (
 /// (`s.a.* = v`, `t.0.*.n = v`, `r.*.*.n = v`) is the same write as one rooted
 /// in the `Arc` (issues/fixed/2026-10-14-d3-misses-a-write-through-an-arc-that-is-not-the-place-root.md).
 _throw_if_write_through_atomic_hop :: (fn(ev_place : &AstExpr, how : String, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ev_place).module_path.*.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ev_place).*.module_path.*.clone())), {
     return(());
   });
   match(
@@ -1677,11 +1677,11 @@ _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &
   rw_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   rw_recv := match(rw_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   rw_field := match(rw_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
-  if(!ast_expr_is_atom(&rw_recv) || !ast_expr_is_atom(&rw_field) || (ast_expr_token(&rw_field).value.* != "*"), {
+  if(!ast_expr_is_atom(&rw_recv) || !ast_expr_is_atom(&rw_field) || (ast_expr_token(&rw_field).*.value.* != "*"), {
     return(Option(AstExpr).None);
   });
   match(
-    get_variables_from_env(env, ast_expr_token(&rw_recv).value.*.clone()).last_cloned(),
+    get_variables_from_env(env, ast_expr_token(&rw_recv).*.value.*.clone()).last_cloned(),
     .Some(rw_v) => if(variable_is_reference_binding(&rw_v) && deref_rule_applies(ast_expr_token(&rw_recv), ctx), Option(AstExpr).Some(rw_recv), Option(AstExpr).None),
     .None => Option(AstExpr).None
   )
@@ -1863,8 +1863,8 @@ evaluate_assignment :: (
     gw_root := get_root_expr_of_place(&evaluated_lhs);
     if(ast_expr_is_atom(&gw_root), {
       match(
-        get_variables_from_env(&env, ast_expr_token(&gw_root).value.*.clone()).last_cloned(),
-        .Some(gw_v) => if(gw_v.is_module_level() && !gw_v.is_compile_time_only(), {
+        get_variables_from_env(&env, ast_expr_token(&gw_root).*.value.*.clone()).last_cloned(),
+        .Some(gw_v) => if(gw_v.*.is_module_level() && !gw_v.*.is_compile_time_only(), {
           gw_path := global_place_path(&evaluated_lhs, ctx);
           gw_tok := ast_expr_token(&lhs);
           if(gw_path.through_handle, {
@@ -1971,7 +1971,7 @@ evaluate_assignment :: (
     // field refers to).
     if(rfs_store && !t_slot_is_borrow(&prop_rhs_info.ty()) && !is_comptime_string_type(&prop_rhs_info.ty()), {
       rfs_tok := match(&rfs_label, .Some(t) => Rc.clone(t), .None => ast_expr_token(&lhs));
-      reject_reference_field_value_store(&_place_source_text(&lhs), &ast_expr_to_string(&rhs), &rfs_tok.value.*, &expected_ty, &rfs_tok, ctx, exn);
+      reject_reference_field_value_store(&_place_source_text(&lhs), &ast_expr_to_string(&rhs), &rfs_tok.*.value.*, &expected_ty, &rfs_tok, ctx, exn);
     });
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(&prop_rhs, &env, ctx, exn);
@@ -2014,16 +2014,16 @@ evaluate_assignment :: (
     // a `ref` param / enclosing-scope local / parameter / comptime is
     // accepted. Throws directly
     // (this path runs at module/test level — not behind the def-eval swallow).
-    if(type_representation_contains_raw_ptr(&expected_ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&lhs).module_path.*.clone())), {
+    if(type_representation_contains_raw_ptr(&expected_ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&lhs).*.module_path.*.clone())), {
       prop_root_expr := get_root_expr_of_field_access(&lhs);
       (container_frame_level : i64) = i64(-1);
       if(ast_expr_is_atom(&prop_root_expr), {
-        prop_root_vars := get_variables_from_env(&env, ast_expr_token(&prop_root_expr).value.*.clone());
+        prop_root_vars := get_variables_from_env(&env, ast_expr_token(&prop_root_expr).*.value.*.clone());
         if(prop_root_vars.len() > usize(0), {
           match(
             prop_root_vars.last_cloned(),
             .Some(rv) => {
-              container_frame_level = i64(rv.frame_level);
+              container_frame_level = i64(rv.*.frame_level);
             },
             .None => ()
           );
@@ -2067,14 +2067,14 @@ evaluate_assignment :: (
         // so the walk cannot tell a local from a borrowed binding there.
         .Some(abv) => if(type_contains_rc_type(&variable_value_type(&abv)) && !_is_dispose_receiver(&abv, ast_expr_token(&lhs)), {
           at := ast_expr_token(&lhs);
-          anoun := cond(abv.is_parameter() => "a `&T` parameter", true => "a `match` or `for` binding");
-          eprintln(`[inout-borrow] ${at.module_path.*}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(&lhs)} = (${abv.name}: ${anoun}, ${type_to_string(&expected_ty)})`);
+          anoun := cond(abv.*.is_parameter() => "a `&T` parameter", true => "a `match` or `for` binding");
+          eprintln(`[inout-borrow] ${at.*.module_path.*}:${(at.*.row + u32(1)).to_string()}:${(at.*.column + u32(1)).to_string()} ${_place_source_text(&lhs)} = (${abv.*.name}: ${anoun}, ${type_to_string(&expected_ty)})`);
         }),
         .None => match(
           _captured_root_of_place(&evaluated_lhs, &env, ctx),
           .Some(acv) => if(type_contains_rc_type(&variable_value_type(&acv)), {
             at := ast_expr_token(&lhs);
-            eprintln(`[inout-borrow-capture] ${at.module_path.*}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(&lhs)} = (${acv.name}: ${_CAPTURE_NOUN}, ${type_to_string(&expected_ty)})`);
+            eprintln(`[inout-borrow-capture] ${at.*.module_path.*}:${(at.*.row + u32(1)).to_string()}:${(at.*.column + u32(1)).to_string()} ${_place_source_text(&lhs)} = (${acv.*.name}: ${_CAPTURE_NOUN}, ${type_to_string(&expected_ty)})`);
           }),
           .None => ()
         )
@@ -2084,14 +2084,14 @@ evaluate_assignment :: (
       match(
         borrowed_value_root_of_place(&evaluated_lhs, &env, ctx),
         .Some(bv) => {
-          what := cond(bv.is_parameter() => "a `&T` parameter", true => "a `match` or `for` binding");
+          what := cond(bv.*.is_parameter() => "a `&T` parameter", true => "a `match` or `for` binding");
           place_text := _place_source_text(&lhs);
           fix := _write_through_borrow_fix(&bv);
           raise_flow_violation(
             with_code(
               format_error_message(
                 ast_expr_token(&lhs),
-                `Cannot write \`${place_text}\`: \`${bv.name}\` is ${what}, which borrows its value, and the old value holds data (${type_to_string(&expected_ty)}) that its owner still holds. Writing it would release that data. To change it, ${fix}.`
+                `Cannot write \`${place_text}\`: \`${bv.*.name}\` is ${what}, which borrows its value, and the old value holds data (${type_to_string(&expected_ty)}) that its owner still holds. Writing it would release that data. To change it, ${fix}.`
               ),
               E_WRITE_THROUGH_BORROW
             ),
@@ -2142,7 +2142,7 @@ evaluate_assignment :: (
           // An element of a user `IndexMut` type (`s(i) = v`) lies in the
           // receiver, which `index_mut` lends `&mut` (A11).
           match(_place_root_variable(&evaluated_lhs, &env, ctx, true), .Some(pr) => Option(Variable).Some(pr), .None => _index_place_root(&evaluated_lhs, &env, ctx)),
-          .Some(pj_root) => if(!pj_root.is_module_level() && !pj_root.is_compile_time_only(), {
+          .Some(pj_root) => if(!pj_root.*.is_module_level() && !pj_root.*.is_compile_time_only(), {
             place_write_join(&pj_root, &prop_rhs, &env, ctx, exn);
           }),
           .None => ()
@@ -2226,8 +2226,8 @@ evaluate_assignment :: (
             .Some(v) => v,
             .None => make_err_variable(&env)
           );
-          if(pc_var.is_compile_time_only() && pc_var.value().get(usize(0)).is_some(), {
-            pc_cur_val := match(pc_var.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
+          if(pc_var.*.is_compile_time_only() && pc_var.*.value().get(usize(0)).is_some(), {
+            pc_cur_val := match(pc_var.*.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
             if(prop_rhs_info.value().is_some(), {
               is_comptime_only_prop = true;
             });
@@ -2286,19 +2286,19 @@ evaluate_assignment :: (
                       // Avoid && short-circuit with match on RHS to prevent codegen
                       // scope bug (temp declared in if-block, dropped outside).
                       (is_same_val : bool) = false;
-                      if(av.is_compile_time_only(), {
+                      if(av.*.is_compile_time_only(), {
                         is_same_val = match(
-                          av.value().get(usize(0)),
+                          av.*.value().get(usize(0)),
                           .Some(avv) => eval_value_eq(&avv, &pc_cur_val),
                           .None => false
                         );
                       });
                       if(is_same_val, {
                         new_ref_opt := match(
-                          av.value().get(usize(0)),
+                          av.*.value().get(usize(0)),
                           .Some(Rc(.StructVal(tn, fnames, fvals))) => Option(EvalValue).Some(Rc.new(EvalValueNode.StructVal(tn.clone(), Rc.clone(fnames), value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))))),
-                          .Some(_) => av.value().get(usize(0)),
-                          .None => av.value().get(usize(0))
+                          .Some(_) => av.*.value().get(usize(0)),
+                          .None => av.*.value().get(usize(0))
                         );
                         update_existing_variable(&env, &av, make_variable_with_value(&av, &new_ref_opt));
                       });
@@ -2312,14 +2312,14 @@ evaluate_assignment :: (
                           pc_cur_val,
                           Rc(.StructVal(tn, fnames, fvals)) =>
                             Option(EvalValue).Some(Rc.new(EvalValueNode.StructVal(tn.clone(), Rc.clone(fnames), value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))))),
-                          _ => pc_var.value().get(usize(0))
+                          _ => pc_var.*.value().get(usize(0))
                         ),
                       true =>
                         match(
                           pc_cur_val,
                           Rc(.TupleVal(fvals)) =>
                             Option(EvalValue).Some(Rc.new(EvalValueNode.TupleVal(value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))))),
-                          _ => pc_var.value().get(usize(0))
+                          _ => pc_var.*.value().get(usize(0))
                         )
                     );
                     update_existing_variable(&env, &pc_var, make_variable_with_value(&pc_var, &new_vs_opt));
@@ -2337,9 +2337,9 @@ evaluate_assignment :: (
                       cond(
                         (arr_idx_us < elems.len()) =>
                           Option(EvalValue).Some(Rc.new(EvalValueNode.ArrayVal(value_cell_new(rebuild_list_with_index(&elems, arr_idx_us, &pc_rhs_arr))))),
-                        true => pc_var.value().get(usize(0))
+                        true => pc_var.*.value().get(usize(0))
                       ),
-                    _ => pc_var.value().get(usize(0))
+                    _ => pc_var.*.value().get(usize(0))
                   );
                   update_existing_variable(&env, &pc_var, make_variable_with_value(&pc_var, &new_arr_opt));
                 });
@@ -2455,7 +2455,7 @@ evaluate_assignment :: (
       );
       if(bvn.len() == usize(0), false, {
         bvars := get_variables_from_env(&env, &bvn);
-        if(bvars.len() == usize(0), false, match(bvars.last_cloned(), .Some(v) => v.is_compile_time_only(), .None => false))
+        if(bvars.len() == usize(0), false, match(bvars.last_cloned(), .Some(v) => v.*.is_compile_time_only(), .None => false))
       })
     };
     if(!is_comptime_only_prop && lhs_info.value().is_some() && prop_rhs_info.value().is_some() && base_var_is_comptime, {
@@ -2487,7 +2487,7 @@ evaluate_assignment :: (
       // Simple identifier: x = rhs
       // For a plain identifier we just read the name from its token.
       // (Full evaluateIdentifierAndOperator is a Phase 3 concern.)
-      variable_name = ast_expr_token(&lhs).value.*.clone();
+      variable_name = ast_expr_token(&lhs).*.value.*.clone();
     },
     true => {
       // Typed binding: (x : T) = rhs — defer the generic-fn-type check to
@@ -2520,7 +2520,7 @@ evaluate_assignment :: (
   // will reuse, not a temporary shim.
   // -----------------------------------------------------------------------
   lr_tok := ast_expr_token(&lhs_resolved);
-  if(is_typed_binding_lhs && is_thread_local_binding(&lr_tok, &lr_tok.value.*), {
+  if(is_typed_binding_lhs && is_thread_local_binding(&lr_tok, &lr_tok.*.value.*), {
     tl_tok := ast_expr_token(&lhs_resolved);
     tl_vars := get_variables_from_env(&env, variable_name.clone());
     if(tl_vars.len() == usize(0), {
@@ -2542,7 +2542,7 @@ evaluate_assignment :: (
       .Some(v) => v,
       .None => make_err_variable(&env)
     );
-    if(!tl_var.is_module_level(), {
+    if(!tl_var.*.is_module_level(), {
       exn.throw(
         dyn(
           Box.new(
@@ -2566,19 +2566,19 @@ evaluate_assignment :: (
         )
       );
     });
-    register_thread_local(&tl_tok.module_path.*, variable_name.clone());
+    register_thread_local(&tl_tok.*.module_path.*, variable_name.clone());
   });
   // §4 escape boundary 2 for the typed form `(g : T) = init` at module level
   // (the `:=` form is checked in initialization-assignment.yo): a module-level
   // binding outlives every call frame, so it cannot hold a `ctl` handler —
   // one invoked later would unwind into a frame that no longer exists
   // (issues/fixed/module-level-control-bound-binding-not-rejected.md).
-  if(is_typed_binding_lhs && is_mut_binding(&lr_tok, &lr_tok.value.*), {
+  if(is_typed_binding_lhs && is_mut_binding(&lr_tok, &lr_tok.*.value.*), {
     mut_tok := ast_expr_token(&lhs_resolved);
     match(
       get_variables_from_env(&env, variable_name.clone()).last_cloned(),
       .Some(mut_v) => cond(
-        (mut_v.is_module_level() && !mut_v.is_compile_time_only()) => register_mut_global(&mut_tok.module_path.*, variable_name.clone()),
+        (mut_v.*.is_module_level() && !mut_v.*.is_compile_time_only()) => register_mut_global(&mut_tok.*.module_path.*, variable_name.clone()),
         true => ()
       ),
       .None => ()
@@ -2588,7 +2588,7 @@ evaluate_assignment :: (
     mcb_vars := get_variables_from_env(&env, variable_name.clone());
     match(
       mcb_vars.last_cloned(),
-      .Some(mcb_v) => if(mcb_v.is_module_level() && type_carries_origin(&variable_value_type(&mcb_v)), {
+      .Some(mcb_v) => if(mcb_v.*.is_module_level() && type_carries_origin(&variable_value_type(&mcb_v)), {
         exn.throw(
           dyn(
             Box.new(
@@ -2602,7 +2602,7 @@ evaluate_assignment :: (
             )
           )
         );
-      }, if(mcb_v.is_module_level() && type_is_control_bound(&variable_value_type(&mcb_v)), {
+      }, if(mcb_v.*.is_module_level() && type_is_control_bound(&variable_value_type(&mcb_v)), {
         exn.throw(
           dyn(
             Box.new(
@@ -2662,8 +2662,8 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // (`a := r`, VERDICTS-76 Q1) it is E0901, never a store that revives it.
   if(is_deref_write && variable_is_reference_binding(&variable), {
     match(
-      variable.consumed_at_token(),
-      .Some(dw_moved_at) => raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &moved_value_type(&variable), ast_expr_token(&lhs_resolved), variable_move_note(&variable, &dw_moved_at)), ctx, exn),
+      variable.*.consumed_at_token(),
+      .Some(dw_moved_at) => raise_flow_violation(use_of_moved_value_error(variable.*.name.clone(), &moved_value_type(&variable), ast_expr_token(&lhs_resolved), variable_move_note(&variable, &dw_moved_at)), ctx, exn),
       .None => ()
     );
   });
@@ -2677,8 +2677,8 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // itself guards on the body-evaluation context, the outer-frame threshold,
   // and compile-time-only variables.
   track_variable_usage(
-    &variable.name,
-    variable.frame_level,
+    &variable.*.name,
+    variable.*.frame_level,
     CaptureUsage.Own,
     ast_expr_token(&lhs_resolved),
     ctx
@@ -2689,17 +2689,17 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // value (`x : i32;`) holds nothing to copy or release: assigning it is its
   // initialization, which the gate below judges ("defined outside the
   // function body"; issues/fixed/2026-11-14-an-uninitialized-binding-assigned-in-a-closure-reports-e0913-instead-of-the-initialization-error.md).
-  if(variable.initialized_at_token().is_some(), {
+  if(variable.*.initialized_at_token().is_some(), {
     reject_implicit_capture_write(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), &env, ctx, exn);
   });
   // Check reassignability. A pattern or destructuring binding is immutable
   // unless declared `mut(name)` there (decision 47): E0917 names the marker.
-  if(!variable.is_reassignable() && !variable.is_parameter() && !variable.is_implicit(), {
+  if(!variable.*.is_reassignable() && !variable.*.is_parameter() && !variable.*.is_implicit(), {
     binding_require_mut(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), ctx, exn);
   });
   // `r.* = v` through a `&` reference binding (a parameter, a `&` match or `for`
   // payload): the referent is read-only, not the binding re-assigned (E0908).
-  if(is_deref_write && !variable.is_reassignable() && variable_is_reference_binding(&variable), {
+  if(is_deref_write && !variable.*.is_reassignable() && variable_is_reference_binding(&variable), {
     match(
       variable_slot_type(&variable),
       Rc(.Reference(_, false, _)) => {
@@ -2719,16 +2719,16 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
       _ => ()
     );
   });
-  if(!variable.is_reassignable(), {
+  if(!variable.*.is_reassignable(), {
     exn.throw(
       dyn(
         Box.new(
           format_error_message_with_help(
             ast_expr_token(&lhs_resolved),
-            `Cannot reassign "${variable_name}": it is ${if(variable.is_parameter(), "a parameter", "an immutable binding")}, which cannot be reassigned.`,
+            `Cannot reassign "${variable_name}": it is ${if(variable.*.is_parameter(), "a parameter", "an immutable binding")}, which cannot be reassigned.`,
             Option(String).Some(
               if(
-                variable.is_parameter(),
+                variable.*.is_parameter(),
                 `rebind it to a mutable local and assign that (\`mut(${variable_name}_m) := ${variable_name};\`, plans/VALUES_BY_DEFAULT.md decision 47), or take \`${variable_name} : &mut T\` and write through it if the caller's value should change`,
                 String.from("bind a new name instead")
               )
@@ -2743,12 +2743,12 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // `(g : T) = init` reaches this arm too, as the initialization of the
   // binding at its own declaration token — that is not a write.
   d1_lhs_tok := ast_expr_token(&lhs_resolved);
-  d1_is_decl_init := ((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column) && (d1_lhs_tok.module_path == variable.token.module_path));
-  if(variable.is_module_level() && !variable.is_compile_time_only() && !d1_is_decl_init && !is_thread_local(&d1_lhs_tok.module_path.*, variable_name.clone()), {
+  d1_is_decl_init := ((d1_lhs_tok.*.row == variable.*.token.*.row) && (d1_lhs_tok.*.column == variable.*.token.*.column) && (d1_lhs_tok.*.module_path == variable.*.token.*.module_path));
+  if(variable.*.is_module_level() && !variable.*.is_compile_time_only() && !d1_is_decl_init && !is_thread_local(&d1_lhs_tok.*.module_path.*, variable_name.clone()), {
     _d1_record_write(&variable, ast_expr_token(&lhs_resolved), String.from("assign to"), String.new(), exn);
   });
   // Decision 47: reassigning a module-level binding needs `mut(name)`.
-  if(variable.is_module_level() && !variable.is_compile_time_only() && !d1_is_decl_init, {
+  if(variable.*.is_module_level() && !variable.*.is_compile_time_only() && !d1_is_decl_init, {
     global_require_mut(&variable, &d1_lhs_tok, &String.from("assign to"), ctx, exn);
   });
   // Evaluate the RHS.
@@ -2791,12 +2791,12 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // binding). The first assignment of a binding declared without a value
   // (`(x : T);`) is its initialization, not a write, on each branch that
   // makes it (`has_dominating_branch_init`).
-  if(!variable.is_module_level() && !d1_is_decl_init, {
-    rb_inited_at_decl := match(variable.initialized_at_token(), .Some(it) => ((it.row == variable.token.row) && ((it.column == variable.token.column) && (it.module_path == variable.token.module_path))), .None => false);
+  if(!variable.*.is_module_level() && !d1_is_decl_init, {
+    rb_inited_at_decl := match(variable.*.initialized_at_token(), .Some(it) => ((it.*.row == variable.*.token.*.row) && ((it.*.column == variable.*.token.*.column) && (it.*.module_path == variable.*.token.*.module_path))), .None => false);
     rb_is_write := cond(
       rb_inited_at_decl => true,
-      variable.initialized_at_token().is_none() => false,
-      true => has_dominating_branch_init(variable.id())
+      variable.*.initialized_at_token().is_none() => false,
+      true => has_dominating_branch_init(variable.*.id())
     );
     if(rb_is_write, {
       binding_require_mut(&variable, &d1_lhs_tok, &String.from("assign to"), ctx, exn);
@@ -2808,7 +2808,7 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // generic'd return through the C fn pointer, so the ABI mismatch the rule
   // guards against is moot (the `Exception { throw : ctl(generic(ResumeType),
   // …) }` shape as a local binding; async_await "unwind in async closure").
-  if(!variable.is_compile_time_only() && (is_function_type(&variable_value_type(&variable)) && is_function_type_generic(&variable_value_type(&variable))), {
+  if(!variable.*.is_compile_time_only() && (is_function_type(&variable_value_type(&variable)) && is_function_type_generic(&variable_value_type(&variable))), {
     (dgc_proven : bool) = false;
     match(
       rhs_info.value(),
@@ -2852,12 +2852,12 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // what those files declare. Same rule as at the binding site, but
   // `:=` is always innermost so only `=` reassignment
   // can invert scope.
-  if(type_representation_contains_raw_ptr(&variable_value_type(&variable)) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&rhs).module_path.*.clone())), {
+  if(type_representation_contains_raw_ptr(&variable_value_type(&variable)) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&rhs).*.module_path.*.clone())), {
     assign_flow_opts := FlowOptions(
       allow_same_frame_local : true,
       allow_parameter_source : true,
       allow_comptime_source : true,
-      max_local_frame_level : Option(usize).Some(variable.frame_level)
+      max_local_frame_level : Option(usize).Some(variable.*.frame_level)
     );
     if(!is_flowable_expr(&rhs_evaled, ctx, &assign_flow_opts), {
       viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(&variable_value_type(&variable))}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(&rhs)}`;
@@ -2879,7 +2879,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     cond(
       (cvars.len() > usize(0)) => match(
         cvars.last_cloned(),
-        .Some(lv) => lv.consumed_at_token().is_some(),
+        .Some(lv) => lv.*.consumed_at_token().is_some(),
         .None => false
       ),
       true => false
@@ -2902,25 +2902,25 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // A lend stored through the reference (`p.* = &y`) is no re-point of `p`
   // (`bind_join` leaves a bare lend to the re-point's machinery): it is a
   // place write, which checks the subset a spelled `p` names and GENs.
-  if(!variable.is_module_level() && !variable.is_compile_time_only() && !is_typed_binding_lhs && ctx.is_evaluating_function_body_or_async_block.is_some() && (type_carries_origin(&variable_value_type(&variable)) || type_spells_checked_static(&variable_value_type(&variable))), {
+  if(!variable.*.is_module_level() && !variable.*.is_compile_time_only() && !is_typed_binding_lhs && ctx.is_evaluating_function_body_or_async_block.is_some() && (type_carries_origin(&variable_value_type(&variable)) || type_spells_checked_static(&variable_value_type(&variable))), {
     if(dw_lend, place_write_join(&variable, &rhs_evaled, &env, ctx, exn), bind_join(&variable, &rhs_evaled, &env, ctx, exn));
   });
   // A typed declaration `(h : T) = v` binds `h` as `h := v` does: N2b's
   // binding freeze registers what `v` lends, live to `h`'s last use.
-  if(is_typed_binding_lhs && !variable.is_module_level() && !variable.is_compile_time_only() && ctx.is_evaluating_function_body_or_async_block.is_some() && (type_carries_origin(&variable_value_type(&variable)) || type_spells_checked_static(&variable_value_type(&variable))), {
-    bind(expr, &rhs_evaled, &variable_name, &variable.token, &env, ctx, exn);
+  if(is_typed_binding_lhs && !variable.*.is_module_level() && !variable.*.is_compile_time_only() && ctx.is_evaluating_function_body_or_async_block.is_some() && (type_carries_origin(&variable_value_type(&variable)) || type_spells_checked_static(&variable_value_type(&variable))), {
+    bind(expr, &rhs_evaled, &variable_name, &variable.*.token, &env, ctx, exn);
   });
   // VERDICTS-74 rule 2 at the typed declaration `(l : &(T, static)) = v`
   // with a VALUE right-hand side (the place-lend spelling is checked in
   // initialization-assignment.yo): the empty origin accepts only values
   // that borrow no place.
-  if(is_typed_binding_lhs && !variable.is_module_level() && !variable.is_compile_time_only() && type_spells_checked_static(&variable_slot_type(&variable)), {
+  if(is_typed_binding_lhs && !variable.*.is_module_level() && !variable.*.is_compile_time_only() && type_spells_checked_static(&variable_slot_type(&variable)), {
     (mut(td_roots) : ArrayList(OriginRootPlace)) = ArrayList(OriginRootPlace).new();
     _static_value_roots(&rhs_evaled, &env, ctx, &mut td_roots, u32(0));
     td_pv := byvalue_param_origin_names(&rhs_evaled, &env, ctx);
     _static_join_subset_check(&variable, &variable_slot_type(&variable), &td_roots, &td_pv, &rhs_evaled, &env, ctx, exn);
   });
-  if(!variable.is_compile_time_only() && type_carries_origin(&variable_value_type(&variable)), {
+  if(!variable.*.is_compile_time_only() && type_carries_origin(&variable_value_type(&variable)), {
     if(is_typed_binding_lhs, {
       audit_origin_totality_elided("typed-declaration", &rhs_evaled, ctx);
     }, {
@@ -2935,7 +2935,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   set_expr_as_needs_to_call_dup(&rhs_evaled, ctx, exn, "assign");
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs_evaled)),
-    .Some(sc_ri) => if(!variable.is_module_level(), {
+    .Some(sc_ri) => if(!variable.*.is_module_level(), {
       note_second_class_binding(&variable, &sc_ri.ty(), ast_expr_token(&lhs_resolved), &env, ctx, exn);
     }),
     .None => ()
@@ -2955,7 +2955,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   if(!lhs_consumed_by_rhs, {
     lhs_consumed_by_rhs = match(
       get_variables_from_env(&env, &variable_name).last_cloned(),
-      .Some(lv2) => lv2.consumed_at_token().is_some(),
+      .Some(lv2) => lv2.*.consumed_at_token().is_some(),
       .None => false
     );
   });
@@ -2970,7 +2970,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // Resolve the RHS type.
   (rhs_type : TypeValue) = Rc.clone(rhs_info.ty());
   // Convert comptime types to runtime types when the variable is not comptime-only.
-  if(!variable.is_compile_time_only(), {
+  if(!variable.*.is_compile_time_only(), {
     // Expected-type-aware (passing `expectedType: variable.type`):
     // a `comptime_str` assigned to a
     // `*(u8)` / `*(char)` variable becomes that pointer type, not `str`.
@@ -3007,7 +3007,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     .None => make_err_variable(&env)
   );
   // Determine whether this is initialisation (first assignment) or reassignment.
-  is_mutating_defined_variable := updated_variable.initialized_at_token().is_some();
+  is_mutating_defined_variable := updated_variable.*.initialized_at_token().is_some();
   // Impl(...) reassignment rule: a SomeType
   // variable whose concrete type is already fixed (Impl uses static dispatch)
   // cannot be reassigned. It runs BEFORE the type-compatibility check: two
@@ -3022,7 +3022,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // (sibling arms must not count).
   if(is_mutating_defined_variable, {
     impl_resolved := some_resolution(&variable_value_type(&updated_variable)).is_some();
-    if(impl_resolved && has_dominating_branch_init(updated_variable.id()), {
+    if(impl_resolved && has_dominating_branch_init(updated_variable.*.id()), {
       ra_entries := ArrayList(TokenAndError).new();
       ra_entries.push(
         TokenAndError(
@@ -3032,7 +3032,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       );
       ra_entries.push(
         TokenAndError(
-          token : match(updated_variable.initialized_at_token(), .Some(t) => t, .None => Rc.clone(updated_variable.token)),
+          token : match(updated_variable.*.initialized_at_token(), .Some(t) => t, .None => Rc.clone(updated_variable.*.token)),
           error_message : String.from("First assigned here:")
         )
       );
@@ -3133,7 +3133,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     match(
       &ctx.is_evaluating_loop_body,
       .Some(loop_ctx) => {
-        if(updated_variable.frame_level < loop_ctx.entry_frame_count, {
+        if(updated_variable.*.frame_level < loop_ctx.entry_frame_count, {
           wl_entries := ArrayList(TokenAndError).new();
           wl_entries.push(
             TokenAndError(
@@ -3143,7 +3143,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
           );
           wl_entries.push(
             TokenAndError(
-              token : Rc.clone(updated_variable.token),
+              token : Rc.clone(updated_variable.*.token),
               error_message : String.from("Defined here:")
             )
           );
@@ -3157,7 +3157,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       .Some(of_ctx) => match(
         of_ctx.kind,
         .FunctionBody => {
-          if(updated_variable.frame_level < of_ctx.eval_env.frames_len(), {
+          if(updated_variable.*.frame_level < of_ctx.eval_env.frames_len(), {
             of_entries := ArrayList(TokenAndError).new();
             of_entries.push(
               TokenAndError(
@@ -3167,7 +3167,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
             );
             of_entries.push(
               TokenAndError(
-                token : Rc.clone(updated_variable.token),
+                token : Rc.clone(updated_variable.*.token),
                 error_message : String.from("Defined here:")
               )
             );
@@ -3189,16 +3189,16 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // first-per-branch assignment reads as a "reassignment" here. The merge
   // keeps the LAST record per (arm window, var id).
   record_branch_init(
-    updated_variable.id(),
+    updated_variable.*.id(),
     &rhs_type,
     expr_info_capture_type(&rhs_info),
     ast_expr_token(&lhs_resolved),
-    &updated_variable.initialized_at_token(),
-    match(updated_variable.consumed_at_token(), .Some(uct) => Option(Token).Some(uct), .None => Option(Token).None)
+    &updated_variable.*.initialized_at_token(),
+    match(updated_variable.*.consumed_at_token(), .Some(uct) => Option(Token).Some(uct), .None => Option(Token).None)
   );
   // Store the RHS value for comptime-only variables; runtime vars don't carry a value.
   value_to_store := cond(
-    updated_variable.is_compile_time_only() => rhs_info.value(),
+    updated_variable.*.is_compile_time_only() => rhs_info.value(),
     true => Option(EvalValue).None
   );
   // A store into a moved variable revives it, and `consumed_at_token` is
@@ -3211,10 +3211,10 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // (issues/fixed/2026-10-23-an-exit-between-a-move-and-a-reassignment-drops-the-moved-value.md).
   if(is_mutating_defined_variable, {
     match(
-      updated_variable.consumed_at_token(),
+      updated_variable.*.consumed_at_token(),
       .Some(moved_at) => {
         revived_at := _last_token_of(&rhs, ast_expr_token(&lhs_resolved));
-        if((moved_at.module_path == revived_at.module_path) && (moved_at.input == revived_at.input) && (moved_at.character < revived_at.character), {
+        if((moved_at.*.module_path == revived_at.*.module_path) && (moved_at.*.input == revived_at.*.input) && (moved_at.*.character < revived_at.*.character), {
           window := UndoneMove(moved_at : moved_at, until : revived_at, inclusive : true);
           if(!variable_has_undone_move(&updated_variable, &window), {
             variable_record_undone_move(&updated_variable, &window);
@@ -3235,23 +3235,23 @@ comptime(${variable_name}) : ${dgc_ty_str}
     true => Rc.clone(rhs_type)
   );
   new_variable := make_variable(
-    id : updated_variable.id(),
-    name : updated_variable.name.clone(),
+    id : updated_variable.*.id(),
+    name : updated_variable.*.name.clone(),
     // The rebuilt binding keeps `is_ref` alone of the reference flags, so a
     // reference binding stays a `&mut` one over the new value type, at its
     // origin (decision 43 step 2 N1e-2b).
     bound_ty : cond(
-      updated_variable.is_ref() => match(
+      updated_variable.*.is_ref() => match(
         variable_slot_type(&updated_variable),
         Rc(.Reference(_, _, nv_origin)) => t_reference_with_origin(&nv_value_ty, true, &nv_origin),
         _ => t_reference(&nv_value_ty, true)
       ),
       true => nv_value_ty
     ),
-    frame_level : updated_variable.frame_level,
+    frame_level : updated_variable.*.frame_level,
     value : value_cell_of(&value_to_store),
     is_owning_the_same_rc_value_as : Option(Variable).None,
-    token : Rc.clone(updated_variable.token),
+    token : Rc.clone(updated_variable.*.token),
     // First initialization stamps the token; a REASSIGNMENT must preserve it.
     // A reassignment also writes `initializedAtToken: lhs.token`, but exprs
     // BEFORE the reassignment must keep seeing the original
@@ -3262,31 +3262,31 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // _synthesize_types_impl's anti-circularity early return.
     initialized_at_token : if(
       is_mutating_defined_variable,
-      updated_variable.initialized_at_token(),
+      updated_variable.*.initialized_at_token(),
       Option(Token).Some(ast_expr_token(&lhs_resolved))
     ),
     consumed_at_token : Option(Token).None,
-    rare : updated_variable.rare(),
-    is_compile_time_only : updated_variable.is_compile_time_only(),
+    rare : updated_variable.*.rare(),
+    is_compile_time_only : updated_variable.*.is_compile_time_only(),
     // A `ref` binding/parameter NEVER owns: writing through the borrow
     // stores into the OWNER's storage (`isRef ? false :
     // typeContainsRcType(...)`) — flipping a
     // borrow to owning generated a spurious scope-end drop / double free
     // (issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
     is_owning_the_rc_value : cond(
-      updated_variable.is_ref() => false,
+      updated_variable.*.is_ref() => false,
       true => type_contains_rc_type(&rhs_type)
     ),
-    is_reassignable : updated_variable.is_reassignable(),
-    is_implicit : updated_variable.is_implicit(),
-    is_created_from_destructuring_atom_variable : updated_variable.is_created_from_destructuring_atom_variable(),
-    is_effect_param : updated_variable.is_effect_param(),
-    is_module_level : updated_variable.is_module_level(),
+    is_reassignable : updated_variable.*.is_reassignable(),
+    is_implicit : updated_variable.*.is_implicit(),
+    is_created_from_destructuring_atom_variable : updated_variable.*.is_created_from_destructuring_atom_variable(),
+    is_effect_param : updated_variable.*.is_effect_param(),
+    is_module_level : updated_variable.*.is_module_level(),
     // Preserve the borrow/parameter flags across reassignment — the previous
     // `false` literals DROPPED
     // is_ref on write-through, silently disabling the ref-aware gates.
-    is_ref : updated_variable.is_ref(),
-    is_parameter : updated_variable.is_parameter()
+    is_ref : updated_variable.*.is_ref(),
+    is_parameter : updated_variable.*.is_parameter()
   );
   update_existing_variable(&env, &updated_variable, &new_variable);
   // A comptime fn-typed variable just received its FuncVal — a FORWARD
@@ -3295,7 +3295,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // valueless (function-type.yo's pending table, via context.yo's hook) so
   // their call-site ExprInfos record the FuncVal before codegen reads them
   // (fn arm 14's mutual recursion).
-  if(updated_variable.is_compile_time_only() && is_function_type(&variable_value_type(&updated_variable)), {
+  if(updated_variable.*.is_compile_time_only() && is_function_type(&variable_value_type(&updated_variable)), {
     if(match(value_to_store, .Some(vts) => match(vts, Rc(.FuncVal(_, _)) => true, _ => false), .None => false), {
       match(
         call_rerun_pending_def_evals(&env, ctx),
@@ -3322,16 +3322,16 @@ comptime(${variable_name}) : ${dgc_ty_str}
   //   (issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md).
   if(!is_mutating_defined_variable || lhs_consumed_by_rhs, {
     expr_info := new_expr_info(&env, t_unit());
-    if(variable.is_compile_time_only(), {
+    if(variable.*.is_compile_time_only(), {
       expr_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
     });
-    expr_info_set_is_compile_time_only_assignment(&expr_info, .Some(variable.is_compile_time_only()));
+    expr_info_set_is_compile_time_only_assignment(&expr_info, .Some(variable.*.is_compile_time_only()));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   }, {
     // NOTE: This should return the original value of lhs.
     expr_info := new_expr_info(&env, &variable_value_type(&variable));
-    expr_info.set_value(variable.value().get(usize(0)));
-    expr_info_set_is_compile_time_only_assignment(&expr_info, .Some(variable.is_compile_time_only()));
+    expr_info.set_value(variable.*.value().get(usize(0)));
+    expr_info_set_is_compile_time_only_assignment(&expr_info, .Some(variable.*.is_compile_time_only()));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
     // This temp variable is used to hold the old value of lhs.
     // (attach_temp_variable_to_expr takes no
