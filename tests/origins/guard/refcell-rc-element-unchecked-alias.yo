@@ -1,9 +1,10 @@
-// expect: accept
-// guard-off: DIRTY heap-use-after-free
+// expect: DIRTY heap-use-after-free
 // tests/sync/refcell.test.yo's keep-alive rows: `with_mut`, `with` and
 // `replace_with` on a `RefCell` reached through an `Rc` element, whose body
 // empties the list through the unchecked second name of
-// tests/fixtures/cell-handles.yo (`talias`/`tclear`, unsafe-capable code).
+// tests/fixtures/cell-handles.yo (`talias`/`tclear`, unsafe-capable code,
+// outside claim (S)). Nothing keeps the cell alive: no count is taken for a
+// lend.
 { ArrayList } :: import("std/collections/array-list");
 { RefCell } :: import("std/sync/refcell");
 { println } :: import("std/fmt");

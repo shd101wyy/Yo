@@ -1,18 +1,15 @@
-//! Aliasing Stage 1 — per-callee MUTATION SUMMARIES.
+//! Per-callee MUTATION SUMMARIES, read by the evaluator's call-site rules.
 //!
-//! See issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md for
-//! the full design rationale.
+//! - PARAM-STORAGE: which of a function's parameters have storage it may
+//!   (transitively) mutate (`function_param_mutation_mask`; E0908, D3, the
+//!   borrowed-`for` and decision-18 global-lend rules).
+//! - GLOBAL-REACH: whether a function reaches a non-`Send` global (rule D1).
+//! - `YO_AUDIT_RC_WRITE`: decision 46's census of writes through a cell.
 //!
-//! Answers: "may a call to this function (transitively) mutate RC container
-//! storage reachable from its parameters, captures, or globals?" A borrowed
-//! RC PROJECTION argument only dangles when the callee reassigns the aliased
-//! storage during the call — for the read-only majority of callees the
-//! Stage-0 `+1` dup is pure overhead and is elided.
-//!
-//! The walk runs over EVALUATED bodies: macro heads are followed through
+//! The walks run over EVALUATED bodies: macro heads are followed through
 //! `macro_expansion`; nested callees are resolved through the func node's
 //! ExprInfo value (plain calls) or the method-callee side-table (method
-//! calls). It is a MAY-analysis: anything unresolvable answers "mutates".
+//! calls). They are MAY-analyses: anything unresolvable answers "mutates".
 //!
 //! Cycle handling: a call edge back into a function currently
 //! being walked contributes nothing (least-fixpoint optimism — sound because
@@ -88,27 +85,10 @@
 /// `SEED_VERSION` carries the ref-spill fix.
 /// `ArrayList(String)` (3 uses)
 _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
-/// `HashMap(String, _MsMemo)` (1 use)
-_c_len_2 :: (fn(m : &HashMap(String, _MsMemo)) -> usize)(m.len());
 _c_len_3 :: (fn(m : &HashMap(String, _MspMemo)) -> usize)(m.len());
 _c_len_4 :: (fn(m : &HashMap(String, _GrMemo)) -> usize)(m.len());
 _c_len_5 :: (fn(m : &HashMap(String, HashMap(String, String))) -> usize)(m.len());
 _c_len_6 :: (fn(m : &HashMap(String, HashSet(String))) -> usize)(m.len());
-/// func_id → may-mutate verdict (true = may mutate), with the id of the body
-/// it was computed from.
-///
-/// A func id does NOT name one body for the life of the process: definition
-/// ids are `stable_func_id(module, row, column)`, so a definition that
-/// `check --watch` / the LSP re-evaluates after an edit keeps its id and gets
-/// a new body (fresh AST ids). Every memo in this file therefore answers only
-/// for the body it walked (the stored `body_id`); a different body is a
-/// miss and is walked afresh
-/// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
-_MsMemo :: struct(body_id : ExprId, mutates : bool);
-derive(_MsMemo, Copy, Clone);
-(g_ms_summary_by_fid : RefCell(HashMap(String, _MsMemo))) = RefCell(HashMap(String, _MsMemo)).new(HashMap(String, _MsMemo).new());
-/// func_ids whose bodies are currently being walked (cycle guard).
-(g_ms_in_progress : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Builtin heads that are pure structure/control flow: walk the arguments,
 /// the head itself mutates nothing.
 _ms_head_is_safe_recurse :: (fn(h : &String) -> bool)(
@@ -252,97 +232,11 @@ _ms_body_dups_first_param :: (fn(fid : &String, body : &AstExpr) -> bool)(
     _ => false
   )
 );
-/// Namespace struct for the mutually recursive summary/walk pair —
-/// module-level bindings are define-before-use, so the mutual recursion
-/// (summary_for → walk → summary_for) needs the impl-block forward-decl
-/// shell machinery (see tests/forward-ref-impl-block.test.yo).
+/// Namespace struct for the call helpers the parameter-storage walk
+/// (`_MsP`) reads.
 _MsW :: struct(_d : i32);
 impl(
   _MsW,
-  summary_for : (
-    fn(
-      fid : &String,
-      body : &AstExpr,
-      table : &ExprInfoTable,
-      touched : &mut ArrayList(String)
-    ) -> bool
-  )({
-    match(
-      g_ms_summary_by_fid.with({ fid : &fid.* }(m) => m.get_cloned(fid.clone())),
-      .Some(m) => if(m.body_id == ast_expr_id(body), {
-        return(m.mutates);
-      }),
-      .None => ()
-    );
-    if(_ms_body_dups_first_param(fid, body), {
-      return(false);
-    });
-    if(g_ms_in_progress.with({ fid : &fid.* }(m) => m.get(fid.clone())).is_some(), {
-      _ms_touched_add(touched, fid.clone());
-      return(false);
-    });
-    // A body with no ExprInfo has not been evaluated (definition in progress
-    // or a raw generic original): conservative, and NOT memoized.
-    if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
-      return(true);
-    });
-    fid_owned := fid.clone();
-    g_ms_in_progress.with_mut({ fid_owned }(m) => m.insert(fid_owned.clone(), true));
-    local_touched := ArrayList(String).new();
-    mutates := _MsW.walk(body, table, &mut local_touched);
-    fid_owned2 := fid.clone();
-    g_ms_in_progress.with_mut({ fid_owned2 }(m) => m.remove(fid_owned2.clone()));
-    // Remove the self edge (pure self-recursion does not poison memoization).
-    (li : usize) = usize(0);
-    filtered_touched := ArrayList(String).new();
-    while(li < local_touched.len(), {
-      match(
-        local_touched.get_cloned(li),
-        .Some(t) => if(!(t == fid.*), {
-          filtered_touched.push(t.clone());
-        }),
-        .None => ()
-      );
-      li = (li + usize(1));
-    });
-    if(mutates || (filtered_touched.len() == usize(0)), {
-      fid_owned3 := fid.clone();
-      g_ms_summary_by_fid.with_mut({ fid_owned3, mutates : mutates.clone(), body : body.clone() }(m) => m.insert(fid_owned3.clone(), _MsMemo(body_id : ast_expr_id(&body), mutates : mutates)));
-    });
-    (ti : usize) = usize(0);
-    while(ti < filtered_touched.len(), {
-      match(
-        filtered_touched.get_cloned(ti),
-        .Some(t) => _ms_touched_add(touched, t.clone()),
-        .None => ()
-      );
-      ti = (ti + usize(1));
-    });
-    mutates
-  }),
-  /// Walk every argument; true as soon as one may mutate.
-  walk_args : (
-    fn(
-      args : &ArrayList(AstExpr),
-      table : &ExprInfoTable,
-      touched : &mut ArrayList(String)
-    ) -> bool
-  )({
-    (i : usize) = usize(0);
-    n := args.len();
-    (found : bool) = false;
-    while((i < n) && !found, {
-      match(
-        args.get_cloned(i),
-        .Some(a) => if(_MsW.walk(&a, table, touched), {
-          found = true;
-        }),
-        .None => ()
-      );
-      i = (i + usize(1));
-    });
-    found
-  }),
   /// Resolve the callee FuncVal of a call: the func node's ExprInfo value
   /// (plain calls), falling back to the method-callee side-table (method
   /// calls — the dot node is not stamped with the resolved FuncVal).
@@ -371,318 +265,8 @@ impl(
   /// async/await-analysis.yo.
   is_io_builtin_call : (fn(e : &AstExpr) -> bool)(
     is_io_async_call(e) || is_io_await_call(e) || is_io_state_call(e) || is_io_spawn_call(e) || is_join_handle_await_call(e)
-  ),
-  walk : (
-    fn(e : &AstExpr, table : &ExprInfoTable, touched : &mut ArrayList(String)) -> bool
-  )({
-    info_opt := expr_info_table_get(table, ast_expr_id(e));
-    match(
-      &info_opt,
-      .Some(info) => {
-        // A macro call's raw arguments are not what executes — the expansion is.
-        match(
-          expr_info_macro_expansion(&info.*),
-          .Some(mx) => {
-            // A local borrow: a `&mx` argument to this method's own recursive
-            // call is rejected while the method is still being evaluated.
-            mx_ref := &mx;
-            return(_MsW.walk(mx_ref, table, touched));
-          },
-          .None => ()
-        );
-        // A cond/match arm the evaluator proved unexecuted is never emitted.
-        match(
-          expr_info_case_executed(&info.*),
-          .Some(ce) => if(!ce, {
-            return(false);
-          }),
-          .None => ()
-        );
-        // A function/closure DEFINITION does not run its body here.
-        match(
-          expr_info_is_anonymous_function_definition(&info.*),
-          .Some(an) => if(an, {
-            return(false);
-          }),
-          .None => ()
-        );
-        if(expr_info_closure_function_value(&info.*).is_some(), {
-          return(false);
-        });
-      },
-      .None => ()
-    );
-    if(ast_expr_is_atom(e), {
-      return(false);
-    });
-    (func_expr : AstExpr) = Rc.clone(e.*);
-    (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-    match(
-      e,
-      Rc(.FnCall(_, f, Rc(a), _, _)) => {
-        func_expr = Rc.clone(f.*);
-        args = a.clone();
-      },
-      Rc(.Atom(_, _)) => ()
-    );
-    (head : String) = String.new();
-    match(
-      Rc.clone(func_expr),
-      Rc(.Atom(_, ht)) => {
-        head = ht.*.value.*.clone();
-      },
-      _ => ()
-    );
-    // Assignment: the aliasing hole is a store that DROPS an RC-typed old
-    // value. Non-RC stores free nothing; recurse both sides.
-    if((head == "=") && (args.len() == usize(2)), {
-      lhs := match(args.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(e.*));
-      // The typed declaration `(name : T) = init` is a declaration, not a
-      // store: its lhs is a colon pair, and only the initializer runs.
-      // (Misreading it as a store rooted at the atom `:` made every method
-      // with a typed local — `ArrayList.index_of` — "mutating": a false
-      // invalidation panic inside a borrowed `for`.)
-      if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
-        rhs0 := match(args.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(e.*));
-        return(_MsW.walk(&rhs0, table, touched));
-      });
-      lhs_info := expr_info_table_get(table, ast_expr_id(&lhs));
-      match(
-        lhs_info,
-        .Some(li) => {
-          if(type_contains_rc_type(&li.ty()), {
-            return(true);
-          });
-        },
-        .None => {
-          return(true);
-        }
-      );
-      return(_MsW.walk_args(args, table, touched));
-    });
-    // Declarations create a fresh local — only the initializer runs.
-    if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
-      rhs := match(args.get_cloned(usize(1)), .Some(r) => r, .None => Rc.clone(e.*));
-      return(_MsW.walk(&rhs, table, touched));
-    });
-    // match arms are `pattern => body`: the pattern side binds, it never
-    // executes runtime calls (Yo has no match guards) and its variant
-    // constructors have no resolvable callee. Walk the scrutinee and arm
-    // BODIES only.
-    if(head == "match", {
-      match(
-        args.get_cloned(usize(0)),
-        .Some(scrut) => if(_MsW.walk(&scrut, table, touched), {
-          return(true);
-        }),
-        .None => ()
-      );
-      (mi : usize) = usize(1);
-      while(mi < args.len(), {
-        match(
-          args.get_cloned(mi),
-          .Some(arm) => {
-            arm_case_off := match(
-              expr_info_table_get(table, ast_expr_id(&arm)),
-              .Some(ai) => match(
-                expr_info_case_executed(&ai),
-                .Some(ce) => !ce,
-                .None => false
-              ),
-              .None => false
-            );
-            if(!arm_case_off, {
-              (arm_body : Option(AstExpr)) = Option(AstExpr).None;
-              match(
-                Rc.clone(arm),
-                Rc(.FnCall(_, af, Rc(aargs), _, _)) => match(
-                  af,
-                  Rc(.Atom(_, at)) => if(((at.*.value.* == "=>") || (at.*.value.* == "->")) && (aargs.len() == usize(2)), {
-                    arm_body = aargs.get_cloned(usize(1));
-                  }),
-                  _ => ()
-                ),
-                Rc(.Atom(_, _)) => ()
-              );
-              match(
-                arm_body,
-                .Some(ab) => if(_MsW.walk(&ab, table, touched), {
-                  return(true);
-                }),
-                .None => if(_MsW.walk(&arm, table, touched), {
-                  return(true);
-                })
-              );
-            });
-          },
-          .None => ()
-        );
-        mi = (mi + usize(1));
-      });
-      return(false);
-    });
-    // An explicit RC decrement can release the container-held reference the
-    // borrowed projection depends on. Tested BEFORE the safe/pure head lists
-    // so a decrement can never be whitelisted by accident.
-    if((head.len() > usize(0)) && _ms_head_is_rc_decrement(head.clone()), {
-      return(true);
-    });
-    if((head.len() > usize(0)) && _ms_head_is_safe_recurse(head.clone()), {
-      return(_MsW.walk_args(&args, table, touched));
-    });
-    // A compile-time-known result is inlined by codegen — the call never runs
-    // at runtime, so nothing inside it can mutate.
-    //
-    // This MUST stay below the structural forms above. Every statement-shaped
-    // expression (an assignment, a declaration) carries a compile-time UNIT
-    // value simply because that is its type — not because it was folded away.
-    // Checking earlier made the walk skip `t = poke(w);` whole, never visiting
-    // the mutating call on its right-hand side, and report a mutating function
-    // as read-only.
-    match(
-      &info_opt,
-      .Some(vinfo) => match(
-        vinfo.value(),
-        .Some(v) => if(_msp_value_is_folded(&v), {
-          return(false);
-        }),
-        .None => ()
-      ),
-      .None => ()
-    );
-    // io builtins yield to the event loop — other tasks run mid-call.
-    if(_MsW.is_io_builtin_call(e), {
-      return(true);
-    });
-    // General call: classify the callee. An index-trait call `xs(i)` carries
-    // no callee value on its func expr (that is the COLLECTION); the evaluator
-    // records the specialized `index` method on the call's own ExprInfo
-    // (`index_method_value`, the value codegen calls). Without this route the
-    // call was opaque and every method that READS an element by index was
-    // "mutating" (issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md).
-    index_callee := match(
-      info_opt,
-      .Some(ci) => match(
-        expr_info_index_method_value(&ci),
-        .Some(imv) => match(Rc.clone(imv), Rc(.FuncVal(_, _)) => Option(EvalValue).Some(Rc.clone(imv)), _ => Option(EvalValue).None),
-        .None => Option(EvalValue).None
-      ),
-      .None => Option(EvalValue).None
-    );
-    callee_opt := match(index_callee.clone(), .Some(_) => index_callee.clone(), .None => _MsW.callee_value(e, &func_expr, table));
-    match(
-      callee_opt,
-      .Some(callee) => match(
-        callee,
-        Rc(.TypeVal(_)) => {
-          // Type application: a cast or a struct/enum construction —
-          // allocates a fresh value, mutates nothing pre-existing.
-          if(_MsW.walk(&func_expr, table, touched), {
-            return(true);
-          });
-          return(_MsW.walk_args(&args, table, touched));
-        },
-        Rc(.FuncVal(fvd, _)) => {
-          fid := fvd.*.func_id.clone();
-          if(is_control_fn(fid.clone()), {
-            // Effect handler / ctl body — caller-side code runs mid-call.
-            return(true);
-          });
-          callee_ty := get_func_type(fid.clone());
-          (callee_extern : Option(String)) = Option(String).None;
-          (callee_ptypes : SharedList(TypeValue)) = no_types();
-          (callee_vtypes : SharedList(TypeValue)) = no_types();
-          match(
-            callee_ty,
-            Rc(.Func({ param_types : cpt, meta : cm, variadic_types : cvt })) => {
-              callee_extern = cm.*.extern_name.clone();
-              callee_ptypes = Rc.clone(cpt);
-              callee_vtypes = Rc.clone(cvt);
-            },
-            _ => ()
-          );
-          match(
-            callee_extern,
-            .Some(en) => {
-              if(_ms_extern_may_mutate(&en, &callee_ptypes, &callee_vtypes), {
-                return(true);
-              });
-            },
-            .None => {
-              if(_MsW.summary_for(fid.clone(), &fvd.*.body, table, touched), {
-                return(true);
-              });
-            }
-          );
-          if(_MsW.walk(&func_expr, table, touched), {
-            return(true);
-          });
-          return(_MsW.walk_args(&args, table, touched));
-        },
-        _ => {
-          return(true);
-        }
-      ),
-      .None => ()
-    );
-    // Primitive builtins with dedicated evaluator paths: pure computations,
-    // reads, and aborts are safe.
-    if((head.len() > usize(0)) && _ms_head_is_pure_builtin(head.clone()), {
-      return(_MsW.walk_args(&args, table, touched));
-    });
-    // Callee value unresolved but a resolved callee TYPE exists (extern C
-    // declarations resolve this way).
-    (type_only : Option(TypeValue)) = match(
-      expr_info_table_get(table, ast_expr_id(&func_expr)),
-      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty())),
-      .None => Option(TypeValue).None
-    );
-    (type_only2 : Option(TypeValue)) = match(
-      type_only,
-      .Some(t0) => if(
-        is_function_type(&t0),
-        Option(TypeValue).Some(Rc.clone(t0)),
-        lookup_method_callee_type(ast_expr_id(e))
-      ),
-      .None => lookup_method_callee_type(ast_expr_id(e))
-    );
-    match(
-      type_only2,
-      .Some(t2) => match(
-        t2,
-        Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => {
-          match(
-            &tm.*.extern_name,
-            .Some(ten) => {
-              if(_ms_extern_may_mutate(&ten.*, &tpt, &tvt), {
-                return(true);
-              });
-              if(_MsW.walk(&func_expr, table, touched), {
-                return(true);
-              });
-              return(_MsW.walk_args(&args, table, touched));
-            },
-            .None => ()
-          );
-        },
-        _ => ()
-      ),
-      .None => ()
-    );
-    // Unresolved callee: runtime closure, dyn dispatch, fn pointer, ctl
-    // parameter — arbitrary code may run.
-    true
-  })
+  )
 );
-/// Public entry: may the function `fid` (with evaluated `body`)
-/// transitively mutate RC container storage reachable from its parameters,
-/// captures, or globals?
-function_may_mutate_rc_storage :: (
-  fn(fid : &String, body : &AstExpr, ctx : &EvalContext) -> bool
-)({
-  touched := ArrayList(String).new();
-  _MsW.summary_for(fid, body, &ctx.expr_info_table, &mut touched)
-});
 // ===========================================================================
 // PARAM-STORAGE mode — per-parameter mutation masks
 // (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 C5, refined per §9 third pass).
@@ -1454,8 +1038,15 @@ _msp_debug_all_reason :: (fn(why : &String) -> unit)({
 /// A function's analysis: its parameter mask and the root of what it returns
 /// (`PARAM(j)` = storage reachable from its j-th argument).
 _MspAnalysis :: struct(mask : ParamMutationMask, ret : _MspRoot);
-/// The memoized analysis and the body it was computed from (a func id can
-/// name a new body after a watch re-evaluation — see `_MsMemo`).
+/// The memoized analysis and the body it was computed from.
+///
+/// A func id does NOT name one body for the life of the process: definition
+/// ids are `stable_func_id(module, row, column)`, so a definition that
+/// `check --watch` / the LSP re-evaluates after an edit keeps its id and gets
+/// a new body (fresh AST ids). Every memo in this file therefore answers only
+/// for the body it walked (the stored `body_id`); a different body is a
+/// miss and is walked afresh
+/// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
 _MspMemo :: struct(body_id : ExprId, analysis : _MspAnalysis);
 derive(_MspMemo, Clone);
 (g_msp_by_fid : RefCell(HashMap(String, _MspMemo))) = RefCell(HashMap(String, _MspMemo)).new(HashMap(String, _MspMemo).new());
@@ -1594,10 +1185,9 @@ impl(
     });
     Option(ArrayList(AstExpr)).None
   }),
-  /// Analyse `fid`: mask + returned root. Memoized with the same cycle
-  /// discipline as `_MsW.summary_for` (optimistic on in-progress edges,
-  /// memoized only when no such edge was crossed — or when the verdict is
-  /// already `all`).
+  /// Analyse `fid`: mask + returned root. Memoized with a least-fixpoint
+  /// cycle discipline (optimistic on in-progress edges, memoized only when no
+  /// such edge was crossed — or when the verdict is already `all`).
   analyze : (
     fn(fid : &String, body : &AstExpr, table : &ExprInfoTable, touched : &mut ArrayList(String)) -> _MspAnalysis
   )({
@@ -3809,7 +3399,7 @@ audit_rc_writes :: (fn(fid : &String, body : &AstExpr, table : &ExprInfoTable) -
 // and are not descended into (std/log's globals are under a mutex, std's
 // html tables under a lock). `thread_local` globals are per-thread and fine.
 // ===========================================================================
-/// A memoized reach verdict and the body it was computed from (see `_MsMemo`).
+/// A memoized reach verdict and the body it was computed from (see `_MspMemo`).
 _GrMemo :: struct(body_id : ExprId, reach : Option(String));
 (g_gr_by_fid : RefCell(HashMap(String, _GrMemo))) = RefCell(HashMap(String, _GrMemo)).new(HashMap(String, _GrMemo).new());
 // Cycle discipline. A recursive call to a function whose walk is in progress
@@ -4420,7 +4010,6 @@ purge_mutation_summaries :: (fn(fids : &ArrayList(String)) -> unit)({
     match(
       fids.get_cloned(i),
       .Some(f) => {
-        _a := g_ms_summary_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
         _b := g_msp_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
         _c := g_gr_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
         _d := g_gr_reads_by_fid.with_mut({ f : f.clone() }(m) => m.remove(&f));
@@ -4433,7 +4022,7 @@ purge_mutation_summaries :: (fn(fids : &ArrayList(String)) -> unit)({
 });
 /// Total memo entries (the LSP plateau probe).
 mutation_summary_entry_count :: (fn() -> usize)(
-  g_ms_summary_by_fid.with(_c_len_2) + g_msp_by_fid.with(_c_len_3) + g_gr_by_fid.with(_c_len_4) + g_gr_reads_by_fid.with(_c_len_5) + g_gr_callees_by_fid.with(_c_len_6)
+  g_msp_by_fid.with(_c_len_3) + g_gr_by_fid.with(_c_len_4) + g_gr_reads_by_fid.with(_c_len_5) + g_gr_callees_by_fid.with(_c_len_6)
 );
 /// The memoized reach verdict of function `fid`, if one was computed: the
 /// closure's own, taken with its DEFINING env (a closure literal is walked
@@ -4442,4 +4031,4 @@ mutation_summary_entry_count :: (fn() -> usize)(
 d1_reach_memo :: (fn(fid : &String) -> Option(Option(String)))(
   match(g_gr_by_fid.with({ fid : &fid.* }(m) => m.get_cloned(fid)), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
 );
-export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_lends_mut, param_mutation_mask_is_empty, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);
+export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_lends_mut, param_mutation_mask_is_empty, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);
