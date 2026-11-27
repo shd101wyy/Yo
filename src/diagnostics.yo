@@ -479,7 +479,10 @@ Label :: struct(
 Repair :: struct(
   span : Span,
   replacement : String,
-  description : String
+  description : String,
+  /// The same replacement at these spans too, in the span's file: a
+  /// rename edits a binder and every use of it as one repair (E0407).
+  (also_at : ArrayList(Span)) ?= ArrayList(Span).new()
 );
 
 /// ── Color (P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md — D14) ──────────────────
@@ -1027,6 +1030,22 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
               rv.push(JsonValue.Str(value : r.replacement.clone()));
               rk.push(String.from("description"));
               rv.push(JsonValue.Str(value : r.description.clone()));
+              if(r.also_at.len() > usize(0), {
+                more := ArrayList(JsonValue).new();
+                for(&r.also_at, sp => {
+                  sk := ArrayList(String).new();
+                  sv := ArrayList(JsonValue).new();
+                  sk.push(String.from("row"));
+                  sv.push(JsonValue.Number(value : f64(sp.row)));
+                  sk.push(String.from("col"));
+                  sv.push(JsonValue.Number(value : f64(sp.col)));
+                  sk.push(String.from("end_col"));
+                  sv.push(JsonValue.Number(value : f64(sp.col + sp.len)));
+                  more.push(JsonValue.Object(keys : sk, values : sv));
+                });
+                rk.push(String.from("also_at"));
+                rv.push(JsonValue.Array(items : more));
+              });
               JsonValue.Object(keys : rk, values : rv)
             },
             .None => JsonValue.Null
@@ -1207,6 +1226,19 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
                 values : rvals
               )
             );
+            for(&r.also_at, sp => {
+              mk := ArrayList(String).new();
+              mv := ArrayList(JsonValue).new();
+              mk.push(String.from("deletedRegion"));
+              mv.push(_sarif_region(sp));
+              mic_k := ArrayList(String).new();
+              mic_v := ArrayList(JsonValue).new();
+              mic_k.push(String.from("text"));
+              mic_v.push(JsonValue.Str(value : r.replacement.clone()));
+              mk.push(String.from("insertedContent"));
+              mv.push(JsonValue.Object(keys : mic_k, values : mic_v));
+              changes.push(JsonValue.Object(keys : mk, values : mv));
+            });
             achkeys := ArrayList(String).new();
             achvals := ArrayList(JsonValue).new();
             achkeys.push(String.from("artifactLocation"));

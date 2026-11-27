@@ -409,6 +409,28 @@ format_error_message_with_repair_at :: (
   );
   _yo_error_of(&d)
 });
+/// Like `format_error_message_with_repair`, for a rename: `replacement`
+/// goes at the anchor token and at every span of `also_at` (the binder's
+/// uses), as one repair `yo fix` applies whole.
+format_error_message_with_rename :: (
+  fn(
+    token : &Token,
+    error_message : &String,
+    help : &Option(String),
+    replacement : &String,
+    repair_description : &String,
+    also_at : &ArrayList(Span)
+  ) -> YoError
+)({
+  d := _diagnostic_of_token(token, Severity.Error, error_message);
+  if(help.is_some(), {
+    d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
+  });
+  d.repair = Option(Repair).Some(
+    Repair(span : _span_of_token(token), replacement : replacement.clone(), description : repair_description.clone(), also_at : also_at.clone())
+  );
+  _yo_error_of(&d)
+});
 format_error_message_with_help :: (
   fn(token : &Token, error_message : &String, help : &Option(String)) -> YoError
 )({

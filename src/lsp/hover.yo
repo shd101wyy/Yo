@@ -19,7 +19,7 @@
 //! **Atom roles.** Not every identifier atom is a variable reference: the
 //! name after a `.` (`p.x`, `String.from`, `.Some`) is a MEMBER, and the name
 //! before a `:` in a call that introduces no binding (`Point(x : 1)`,
-//! `impl(T, m : …)`, `struct(x : i32)`) is a LABEL. `classify_atom_roles`
+//! `impl(T, m : …)`, `struct(x : i32)`) is a LABEL. `classify_atom_roles` (src/expr.yo)
 //! walks the program once and marks both; hover reads a member's type
 //! WITHOUT the env refinement (which resolved `p.x` to a same-named local),
 //! definition answers nothing for them, and references/rename skip them
@@ -27,11 +27,10 @@
 { String } :: import("std/string");
 { StringBuilder } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
-{ HashSet } :: import("std/collections/hash-set");
 { Exception } :: import("std/error");
 { Token, TokenKind, is_reserved_operator_name } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
-{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_text, ast_expr_to_string } :: import("../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_to_string } :: import("../expr.yo");
 { ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_doc_comment } :: import("../expr-info.yo");
 { get_variables_from_env, Variable, variable_doc_comment, variable_value_type } :: import("../env.yo");
 { type_to_string } :: import("../types/string.yo");
@@ -267,155 +266,6 @@ _select_best_variable :: (
     .None => vars.last_cloned()
   )
 });
-
-// ---------------------------------------------------------------------------
-// Atom roles
-/// Expression ids of the atoms that are member names or labels (see the
-/// module header).
-AtomRoles :: struct(
-  members : HashSet(usize),
-  labels : HashSet(usize)
-);
-/// Callees whose `name : T` arguments INTRODUCE `name` as a binding —
-/// parameters and typed declarations. Every other call's colon pairs are
-/// labels (struct literals, labelled arguments, `impl` methods, `struct` /
-/// `enum` field declarations).
-_is_declaring_callee :: (fn(callee : &String) -> bool)(
-  (callee.* == "fn") || (callee.* == "unsafe_fn") || (callee.* == "ctl") ||
-    (callee.* == "Fn") || (callee.* == "FnMut") || (callee.* == "FnOnce") || (callee.* == "generic") || (callee.* == "given") ||
-      (callee.* == "=") || (callee.* == ":=") || (callee.* == "?=")
-);
-/// Mark the member position `a` of a `.` call: a bare atom (`p.x`, `.Red`)
-/// or a call whose callee is the member (`p.dist()`, `.Some(v)`) — the
-/// call's ARGUMENTS are ordinary expressions and are classified normally.
-_mark_member :: (fn(a : &AstExpr, roles : &mut AtomRoles) -> unit)({
-  match(
-    a,
-    Rc(.Atom(id, _)) => {
-      roles.members.insert(id.*);
-    },
-    Rc(.FnCall(_, func_box, Rc(cargs), _, _)) => {
-      match(
-        func_box,
-        Rc(.Atom(fid, _)) => {
-          roles.members.insert(fid.*);
-        },
-        Rc(.FnCall(_, _, _, _, _)) => _classify_roles(&func_box.*, roles)
-      );
-      (i : usize) = usize(0);
-      while(i < cargs.len(), {
-        match(
-          cargs.get_cloned(i),
-          .Some(ca) => _classify_roles(&ca, roles),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-    }
-  );
-});
-_classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
-  match(
-    e,
-    Rc(.Atom(_, _)) => (),
-    Rc(.FnCall(_, func_box, Rc(args), is_infix, _)) => {
-      callee := match(
-        func_box,
-        Rc(.Atom(_, _)) => ast_expr_text(&func_box.*).*.clone(),
-        Rc(.FnCall(_, _, _, _, _)) => String.new()
-      );
-      cond(
-        (callee == ".") => {
-          // infix `a.b`: args[0] is the receiver, the rest are members;
-          // prefix `.Variant`: every arg is a member.
-          (start : usize) = usize(0);
-          if(is_infix.*, {
-            match(
-              args.get_cloned(usize(0)),
-              .Some(receiver) => recur(&receiver, roles),
-              .None => ()
-            );
-            start = usize(1);
-          });
-          (i : usize) = start;
-          while(i < args.len(), {
-            match(
-              args.get_cloned(i),
-              .Some(a) => _mark_member(&a, roles),
-              .None => ()
-            );
-            i = (i + usize(1));
-          });
-        },
-        true => {
-          declaring := _is_declaring_callee(&callee);
-          recur(&func_box.*, roles);
-          (j : usize) = usize(0);
-          while(j < args.len(), {
-            match(
-              args.get_cloned(j),
-              .Some(a) => {
-                (handled : bool) = false;
-                if(!declaring, {
-                  match(
-                    Rc.clone(a),
-                    Rc(.FnCall(_, pair_fn, Rc(pair_args), pair_infix, _)) => {
-                      is_pair := (pair_infix && match(pair_fn, Rc(.Atom(_, pt)) => (pt.value.* == ":"), Rc(.FnCall(_, _, _, _, _)) => false));
-                      if(is_pair && (pair_args.len() == usize(2)), {
-                        handled = true;
-                        match(
-                          pair_args.get_cloned(usize(0)),
-                          .Some(lhs) => match(
-                            Rc.clone(lhs),
-                            Rc(.Atom(lid, _)) => {
-                              roles.labels.insert(lid);
-                            },
-                            Rc(.FnCall(_, _, _, _, _)) => recur(&lhs, roles)
-                          ),
-                          .None => ()
-                        );
-                        match(
-                          pair_args.get_cloned(usize(1)),
-                          .Some(rhs) => recur(&rhs, roles),
-                          .None => ()
-                        );
-                      });
-                    },
-                    Rc(.Atom(_, _)) => ()
-                  );
-                });
-                if(!handled, {
-                  recur(&a, roles);
-                });
-              },
-              .None => ()
-            );
-            j = (j + usize(1));
-          });
-        }
-      );
-    }
-  );
-});
-/// Classify every atom of the program (see the module header).
-classify_atom_roles :: (fn(exprs : &ArrayList(AstExpr)) -> AtomRoles)({
-  roles := AtomRoles(members : HashSet(usize).new(), labels : HashSet(usize).new());
-  (i : usize) = usize(0);
-  while(i < exprs.len(), {
-    match(
-      exprs.get_cloned(i),
-      .Some(e) => _classify_roles(&e, &mut roles),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  roles
-});
-/// True iff atom `id` is a member name or a label — not a variable
-/// reference.
-atom_is_member_or_label :: (fn(roles : &AtomRoles, id : usize) -> bool)(
-  roles.members.contains(&id) || roles.labels.contains(&id)
-);
 
 /// The innermost `.` call whose member position holds an atom at `target`
 /// — the type of THAT call is the accessed member's type (`p.x` → the field
@@ -661,9 +511,6 @@ handle_hover :: (
 });
 export(
   handle_hover,
-  AtomRoles,
-  classify_atom_roles,
-  atom_is_member_or_label,
   _find_member_access,
   _find_token_at,
   _collect_candidates,

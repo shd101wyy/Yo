@@ -152,20 +152,26 @@ guards it; `plans/archive/FMT_PAREN_ELISION.md`). Write the bare forms directly.
 
 ## Reserved and discard names
 
-- **Builtin-dispatch names cannot be bound** at any binding site (`::`, `:=`, `(x : T) =`, a destructuring
-  rename): E0407 "… names a builtin: every call with this name dispatches to the builtin, so a user binding
-  could never run". The set is `is_reserved_builtin_binding_name` (`src/token.yo`): `type_of` `size_of`
-  `align_of` `type_id` `addr_of` `runtime` `unwind` `recur` `consume` `unsafe` `pragma` `asm` `global_asm`
-  `macro_expand` `va_start` `comptime_assert` `comptime_fn` `comptime_print` `comptime_eval`
-  `comptime_read_file` `comptime_json_parse` `comptime_toml_parse` `requires` `ensures` `invariant`
-  `decreases` `assumed` `___drop` `___dup` `dyn` `the` `as` `clone` `quote` `downcast` `upcast` `ref_count`
-  `begin` `tuple` `array` `mut` `__yo_cell` `__yo_atomic_cell`. `std/prelude.yo` is exempt.
+- **Builtin-first names cannot be bound** (maintainer, 2026-11-27; `issues/fixed/builtin-name-shadows-user-definition.md`).
+  Every binder a person wrote (`::`, `:=`, `(x : T) =`, a parameter or closure parameter, a capture entry, a
+  labeled return, a pattern or destructuring binding, an import rename) named by a reserved word is E0407 with
+  the help "`` `law` is a builtin; rename the binding (e.g. `law_`) ``" (`reject_reserved_binder`,
+  `src/evaluator/memory-safety.yo`; `std/prelude.yo` is exempt). The set is read from the compiler, not
+  listed: `builtin_call_head_names` (`src/expr.yo`: every identifier-spelled head of `_evaluate_expression`'s
+  dispatch except `assert`/`exists`/`_`, plus `if` `for` `return` `break` `continue` `clone` `as`;
+  `tests/internal/reserved-names.test.yo` fails when a dispatch arm is missing), the builtin type names
+  identifier resolution answers first (`builtin_type_keyword` minus `is_env_first_c_type_name`,
+  `src/types/creators.yo`), `mut`, and `logic`/`lemma` (`is_reserved_ahead_name`, reserved ahead of
+  SPEC_AND_PROOF PR 2). The C interop type names (`int`, `short`, `char`, …) stay bindable: a local shadows
+  the type. The repair renames the binder and every use its syntactic scope gives it (`scoped_atoms_of`,
+  `src/expr.yo`) to `name_`, one `Repair` with `also_at` spans; there is none when a use heads a call, is a
+  brace pun, the binder is an exported top-level name or a type name, or `name_` is taken.
 - **`__yo_` is the compiler's namespace** (VERDICTS-72): outside the std tree, E0407 rejects every binder a person
   wrote with a name that starts with `__yo_`, and `pragma(Pragma.AllowUnsafe)` does not unlock it (`src/`,
   `tests/` and fetched dependencies are user code). That is an `extern(...)` or `c_include(...)` member of either
   ABI (`reject_reserved_ffi_member`), and every other binder: `::`, `:=`, a typed `(x : T) =`, a parameter
   (closure parameters included), a pattern or destructuring binding, an import rename
-  (`reject_reserved_yo_binder`, `src/evaluator/memory-safety.yo`). A binder is judged by `TokenData.written`, the
+  (`reject_reserved_binder`, `src/evaluator/memory-safety.yo`). A binder is judged by `TokenData.written`, the
   lexer's mark on an identifier it made from source text: the compiler mints `__yo_tpl_N`, `__yo_self`,
   `__yo_pat_s` and `__yo_contract_result` into user modules under the user's path, and a minted token is never
   rejected (no list of minted names). A program the compiler synthesizes and lexes itself is
@@ -176,8 +182,8 @@ guards it; `plans/archive/FMT_PAREN_ELISION.md`). Write the bare forms directly.
   binding is not (`{ __yo_x } :: externs`). errno is `std/libc/errno`'s `last_errno()`, the I/O backend teardown
   `std/sys/process`'s `reset_io_backend()`; a white-box runtime test lives beside its std module.
 - `size_of`, `align_of`, `type_of`, `type_id` are the only spellings (`sizeof` etc. were deleted).
-- Grammar words (`type`, `trait`, `match`, `fn`, `for`, …), `panic`, `assert`, `imm` are ordinary
-  identifiers. `Origin` is a reserved type name like `Type`.
+- Positional words (`fn`, `generic`, `where`, `comptime`, `sink`, `using`, `thread_local`, `export`, …),
+  `panic`, `assert`, `exists`, `imm` and `type` are ordinary identifiers. `Origin` is a reserved type name like `Type`.
 - `___` (discard) cannot be bound twice in one scope (no shadowing). Prefer the bare call `foo();` when
   the result is unused. Keep a discard binding only where it is load-bearing: drop/borrow fixtures that
   count `ref_count(...)` or test the discard's scope-end drop, and compile-error fixtures whose diagnostic

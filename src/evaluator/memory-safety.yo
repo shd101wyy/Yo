@@ -21,9 +21,11 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../types/string.yo");
 { canonical_module_path } :: import("../utils.yo");
 { Token } :: import("../token.yo");
-{ format_error_message_with_help, with_code } :: import("../error.yo");
-{ E_RESERVED_NAME } :: import("../diagnostics.yo");
-{ is_builtin_call_head_name } :: import("../expr.yo");
+{ format_error_message_with_help, format_error_message_with_rename, with_code } :: import("../error.yo");
+{ E_RESERVED_NAME, Span } :: import("../diagnostics.yo");
+{ parse } :: import("../parser.yo");
+{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_fn_call_of, BK_ANON_STRUCT, BK_EXPORT, is_builtin_call_head_name, classify_atom_roles, atom_is_member_or_label, scoped_atoms_of } :: import("../expr.yo");
+{ HashSet } :: import("std/collections/hash-set");
 { builtin_type_keyword, is_env_first_c_type_name } :: import("../types/creators.yo");
 { Exception } :: import("std/error");
 { EvalContext } :: import("./context.yo");
@@ -366,6 +368,142 @@ _is_std_prelude :: (fn(mp : &String, std_path : &String) -> bool)({
   });
   (sp.len() > usize(0)) && (_lex_abs_path(mp) == `${_lex_abs_path(&sp)}/prelude.yo`)
 });
+/// What a rename of `name` to `renamed` must know about a whole file
+/// (`_rename_facts`): the atoms that are a call's head, the atoms a brace
+/// group names by pun (`.{ x }`, `{ x } := v`, a capture list), whether an
+/// `export(...)` names it, and whether `renamed` is already spelled anywhere.
+_RenameFacts :: struct(callees : HashSet(usize), puns : HashSet(usize), exported : bool, taken : bool);
+_rename_facts :: (fn(e : &AstExpr, name : &String, renamed : &String, in_export : bool, facts : &mut _RenameFacts) -> unit)(
+  match(
+    e,
+    Rc(.Atom(_, t)) => {
+      if(t.value.* == renamed.*, {
+        facts.taken = true;
+      });
+      if(in_export && (t.value.* == name.*), {
+        facts.exported = true;
+      });
+    },
+    Rc(.FnCall(_, callee, Rc(args), _, _)) => {
+      match(
+        callee,
+        Rc(.Atom(cid, ct)) => if(ct.value.* == name.*, {
+          facts.callees.insert(cid.*);
+        }),
+        Rc(.FnCall(_, _, _, _, _)) => ()
+      );
+      is_brace := ast_expr_is_fn_call_of(e, BK_ANON_STRUCT, Option(usize).None);
+      sub_export := (in_export || ast_expr_is_fn_call_of(e, BK_EXPORT, Option(usize).None));
+      recur(&callee.*, name, renamed, sub_export, facts);
+      for(&args, a => {
+        if(is_brace, {
+          match(
+            a,
+            Rc(.Atom(aid, at)) => if(at.value.* == name.*, {
+              facts.puns.insert(aid.*);
+            }),
+            Rc(.FnCall(_, _, _, _, _)) => ()
+          );
+        });
+        recur(a, name, renamed, sub_export, facts);
+      });
+    }
+  )
+);
+/// A local exception for a parse that may fail: the file already lexed and
+/// parsed once, but the repair must never be what raises.
+_parse_for_rename :: (fn(src : &String, module_path : &String, out : &mut ArrayList(ArrayList(AstExpr))) -> bool)({
+  local_exn := Exception(throw : (_err -> unwind(false)));
+  out.push(parse(src, module_path, local_exn));
+  true
+});
+_same_position :: (fn(a : &Token, b : &Token) -> bool)((a.row == b.row) && (a.column == b.column));
+/// The uses of the binder `tok` (a name `reserved_binding_message`
+/// reserves), for E0407's rename repair to `name_`: every atom its syntactic
+/// scope gives that binder (`scoped_atoms_of`, src/expr.yo), member names and
+/// labels left out. A binder at the top of the module has the module as its
+/// scope, unless an `export(...)` names it (an importer's uses are out of
+/// reach). `.None`, and so no repair, when the uses are not resolvable:
+///
+/// - a builtin type name (a use cannot be told from the type it shadows);
+/// - a binder whose scope the syntax does not show (a destructuring rename's
+///   value side, a capture entry);
+/// - a use that heads a call (`name(...)` may mean the builtin) or that a
+///   brace group spells by pun (`.{ name }` would rename the field);
+/// - an atom the compiler minted, or a file that already spells `name_`.
+_reserved_rename_uses :: (fn(tok : &Token) -> Option(ArrayList(Span)))({
+  name := tok.value.*.clone();
+  if(builtin_type_keyword(&name).is_some(), {
+    return(Option(ArrayList(Span)).None);
+  });
+  parsed := ArrayList(ArrayList(AstExpr)).new();
+  if(!_parse_for_rename(&tok.input.*, &tok.module_path.*, &mut parsed), {
+    return(Option(ArrayList(Span)).None);
+  });
+  exprs := parsed(usize(0)).clone();
+  renamed := `${name}_`;
+  facts := _RenameFacts(callees : HashSet(usize).new(), puns : HashSet(usize).new(), exported : false, taken : false);
+  for(&exprs, e => {
+    _rename_facts(e, &name, &renamed, false, &mut facts);
+  });
+  if(facts.taken, {
+    return(Option(ArrayList(Span)).None);
+  });
+  scoped := scoped_atoms_of(&exprs, &name);
+  // The binder's own atom and the declaration its scope gives it: itself
+  // for a local, none for a binder at the top of the module.
+  (found : bool) = false;
+  (top_level : bool) = false;
+  (own_scope : bool) = false;
+  for(&scoped, sa => {
+    if(_same_position(&ast_expr_token(&sa.atom), tok), {
+      found = true;
+      match(
+        &sa.scope,
+        .Some(d) => {
+          own_scope = _same_position(d, tok);
+        },
+        .None => {
+          top_level = true;
+        }
+      );
+    });
+  });
+  if(!found || (!top_level && !own_scope), {
+    return(Option(ArrayList(Span)).None);
+  });
+  if(top_level && facts.exported, {
+    return(Option(ArrayList(Span)).None);
+  });
+  roles := classify_atom_roles(&exprs);
+  uses := ArrayList(Span).new();
+  seen := HashSet(String).new();
+  for(&scoped, sa => {
+    t := ast_expr_token(&sa.atom);
+    same_binding := match(&sa.scope, .Some(d) => (!top_level && _same_position(d, tok)), .None => top_level);
+    if(same_binding && !_same_position(&t, tok) && !atom_is_member_or_label(&roles, ast_expr_id(&sa.atom)), {
+      id := ast_expr_id(&sa.atom);
+      if(!t.written || facts.callees.contains(&id) || facts.puns.contains(&id), {
+        return(Option(ArrayList(Span)).None);
+      });
+      at := `${t.row.to_string()}:${t.column.to_string()}`;
+      if(!seen.contains(&at), {
+        seen.insert(at);
+        uses.push(Span(path : t.module_path.*.clone(), row : usize(t.row), col : usize(t.column), len : name.chars().count()));
+      });
+    });
+  });
+  if(facts.puns.len() > usize(0), {
+    // The binder itself may be a pun (`{ name } := v`): the edit would rename
+    // the field it picks.
+    for(&scoped, sa => {
+      if(_same_position(&ast_expr_token(&sa.atom), tok) && facts.puns.contains(&ast_expr_id(&sa.atom)), {
+        return(Option(ArrayList(Span)).None);
+      });
+    });
+  });
+  Option(ArrayList(Span)).Some(uses)
+});
 /// E0407: a binder written in source (`::`, `:=`, a typed `(x : T) =`, a
 /// parameter (a closure's included), a closure capture entry, a labeled
 /// return, a pattern or destructuring binding, an import rename) named by a
@@ -400,11 +538,13 @@ reject_reserved_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception)
   match(
     reserved_binding_message(&name),
     .Some(msg) => if(!_is_std_prelude(&tok.module_path.*, &ctx.std_path), {
-      raise_flow_violation(
-        &with_code(&format_error_message_with_help(tok, &msg, &Option(String).Some(reserved_binding_help(&name))), E_RESERVED_NAME),
-        ctx,
-        exn
+      help := Option(String).Some(reserved_binding_help(&name));
+      err := match(
+        _reserved_rename_uses(tok),
+        .Some(uses) => format_error_message_with_rename(tok, &msg, &help, &`${name}_`, &`rename \`${name}\` to \`${name}_\` here and at its ${uses.len().to_string()} use(s)`, &uses),
+        .None => format_error_message_with_help(tok, &msg, &help)
       );
+      raise_flow_violation(&with_code(&err, E_RESERVED_NAME), ctx, exn);
     }),
     .None => ()
   );

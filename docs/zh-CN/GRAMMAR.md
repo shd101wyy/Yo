@@ -161,6 +161,17 @@ TableOperator ::= ;; 三字符（最先匹配）
 ;; 因此 `a `add` b` 是语法错误。
 ```
 
+### 保留名
+
+绑定不能使用编译器在查看任何绑定之前就解析的名字。每种绑定位置都会检查：`::`、`:=`、带类型的 `(x : T) = v`、参数（包括闭包参数）、闭包捕获项、带标签的返回值、模式绑定、解构绑定以及导入重命名。这样的绑定是错误 E0407，其帮助信息会指出该词并建议改名（`law_`）；当文件中能找到全部用法时，`yo fix` 会重命名该绑定及其所有用法。保留名包括：
+
+- 每个按名字调用的内建：`consume`、`the`、`size_of`、`type_of`、`requires`、`ensures`、`old`、`law`、`ghost`、`forall`、`begin`、`tuple`、`array`、`struct`、`enum`、`trait`、`impl`、`import`、`match`、`cond`、`while`、`quote`、`derive` 等（见 `yo explain E0407`），以及调用头 `if`、`for`、`return`、`break`、`continue`、`clone` 和 `as`；
+- 内建类型名：`i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64` `f32` `f64` `usize` `isize` `bool` `str` `unit` `never` `Type` `Trait` `Expr` `Origin` `comptime_int` `comptime_str` `comptime_float`；
+- `mut`，以及为验证内建保留的词 `logic` 和 `lemma`；
+- 所有以 `__yo_` 开头的名字，即编译器的命名空间。
+
+C 互操作类型名（`int`、`char`、`short`、`long`、`void` 等）不是保留名：同名绑定会遮蔽该类型。只在某个位置才是关键字的词（`fn`、`generic`、`where`、`comptime`、`sink`、`using`、`thread_local`、`export` 等）、`assert`、`exists` 和 `panic` 都是普通名字。结构体字段、方法和具名参数可以使用任何名字：`p.law` 和 `P(law : 1)` 都不是绑定。
+
 ## 复合表达式
 
 ```abnf

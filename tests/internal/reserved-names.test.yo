@@ -1,0 +1,106 @@
+/// The reserved binder names (E0407) are the compiler's own builtin-first
+/// names, not a hand list: every identifier-spelled call head of
+/// `_evaluate_expression`'s dispatch (src/evaluator/exprs/dispatch.yo) is in
+/// `builtin_call_head_names` (src/expr.yo), and every name there outside the
+/// parse-time, statement and mutation-summary heads is a head of that dispatch.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
+{ Exception } :: import("std/error");
+{ assert, panic } :: import("std/assert");
+{ builtin_call_head_names, is_builtin_call_head_name } :: import("../../src/expr.yo");
+{ builtin_type_keyword, is_env_first_c_type_name } :: import("../../src/types/creators.yo");
+{ read_file_sync } :: import("../../src/manifest.yo");
+_read :: (fn(path : str) -> String)(
+  String.from_bytes(read_file_sync(String.from(path), Exception(throw : (err -> panic(`reading ${path} failed: ${err.to_string()}`)))))
+);
+/// The `BF_`/`BK_` constants of src/expr.yo, by name: `BF_LAW :: "law";`.
+_constants :: (fn() -> HashMap(String, String))({
+  out := HashMap(String, String).new();
+  for(&_read("src/expr.yo").split("\n"), line => {
+    if(line.starts_with("BF_") || line.starts_with("BK_"), {
+      match(
+        line.index_of(" :: \""),
+        .Some(at) => {
+          rest := line.substring(at + usize(5), line.len());
+          match(rest.index_of("\""), .Some(q) => {
+            out.insert(line.substring(usize(0), at), rest.substring(usize(0), q));
+          }, .None => ());
+        },
+        .None => ()
+      );
+    });
+  });
+  out
+});
+_is_identifier :: (fn(s : &String) -> bool)({
+  bytes := s.as_bytes();
+  if(bytes.len() == usize(0), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < bytes.len(), i = (i + usize(1)), {
+    b := bytes(i);
+    ok := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || (b == u8(95)) || ((i > usize(0)) && ((b >= u8(48)) && (b <= u8(57)))));
+    if(!ok, {
+      return(false);
+    });
+  });
+  true
+});
+/// The identifier-spelled heads `_evaluate_expression` dispatches on, outside
+/// the `__yo_` namespace.
+_dispatch_heads :: (fn() -> ArrayList(String))({
+  consts := _constants();
+  src := _read("src/evaluator/exprs/dispatch.yo");
+  start := match(src.index_of("\n_evaluate_expression :: ("), .Some(i) => i, .None => panic("no _evaluate_expression in dispatch.yo"));
+  end := match(src.index_of("\n_bridge_expr_info :: (", start), .Some(i) => i, .None => src.len());
+  body := src.substring(start, end);
+  needle := "ast_expr_is_fn_call_of(expr, ";
+  heads := ArrayList(String).new();
+  (from : usize) = usize(0);
+  while(true, {
+    at := match(body.index_of(needle, from), .Some(i) => i, .None => {
+      break;
+    });
+    arg_start := (at + needle.len());
+    arg_end := match(body.index_of(",", arg_start), .Some(i) => i, .None => body.len());
+    arg := body.substring(arg_start, arg_end);
+    value := if(arg.starts_with("\""), arg.substring(usize(1), arg.len() - usize(1)), match(consts.get(&arg), .Some(v) => v.clone(), .None => panic(`no constant ${arg} in src/expr.yo`)));
+    if(_is_identifier(&value) && !value.starts_with("__yo_") && !heads.contains(&value), {
+      heads.push(value);
+    });
+    from = arg_end;
+  });
+  heads
+});
+/// The dispatch heads that reach the binding: `assert` evaluates the ordinary
+/// call, `exists` is the quantifier only in ghost context, and `_` is the
+/// record head and the wildcard.
+_env_first :: (fn(name : &String) -> bool)((name.* == "assert") || (name.* == "exists") || (name.* == "_"));
+/// The reserved heads that are not dispatch arms: parse-time (`if`, `for`),
+/// statement (`return`, `break`, `continue`) and mutation-summary (`clone`,
+/// `as`) heads.
+_not_a_dispatch_arm :: (fn(name : &String) -> bool)(
+  (name.* == "if") || (name.* == "for") || (name.* == "return") || (name.* == "break") || (name.* == "continue") || (name.* == "clone") || (name.* == "as")
+);
+test("every identifier-spelled dispatch head is a reserved builtin call head", {
+  heads := _dispatch_heads();
+  assert(heads.len() > usize(80), `the dispatch scan found ${heads.len().to_string()} heads`);
+  for(&heads, h => {
+    assert(_env_first(h) || is_builtin_call_head_name(h), `the dispatch reaches \`${h}(...)\` by spelling, but builtin_call_head_names does not list it`);
+    assert(!(_env_first(h) && is_builtin_call_head_name(h)), `\`${h}\` reaches the binding, so it is not reserved`);
+  });
+});
+test("every reserved builtin call head is a dispatch head, or a parse-time, statement or mutation-summary head", {
+  heads := _dispatch_heads();
+  for(&builtin_call_head_names(), n => {
+    assert(_not_a_dispatch_arm(n) || heads.contains(n), `\`${n}\` is reserved, but no dispatch arm reaches it`);
+  });
+});
+test("a builtin type name is reserved unless identifier resolution reads a binding first", {
+  assert(builtin_type_keyword(&String.from("i32")).is_some() && !is_env_first_c_type_name(&String.from("i32")), "i32 resolves to the type first");
+  assert(builtin_type_keyword(&String.from("short")).is_some() && is_env_first_c_type_name(&String.from("short")), "a local `short` shadows the C type");
+  assert(builtin_type_keyword(&String.from("String")).is_none(), "String is a prelude binding, not a builtin type");
+});

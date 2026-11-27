@@ -2041,6 +2041,10 @@ run_fix :: (
                   description : r.description.clone()
                 )
               );
+              // A rename's other edits (E0407): the uses of the binder.
+              for(&r.also_at, sp => {
+                pending.push(_PendingFix(row : sp.row, col : sp.col, len : sp.len, replacement : r.replacement.clone(), description : r.description.clone()));
+              });
             }),
             .None => ()
           ),

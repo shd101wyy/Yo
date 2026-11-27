@@ -174,6 +174,17 @@ TableOperator ::= ;; three-character (matched first)
 ;; string, so `a `add` b` is a syntax error.
 ```
 
+### Reserved names
+
+A binding cannot take a name the compiler resolves before it looks at any binding. Every binder is checked: `::`, `:=`, a typed `(x : T) = v`, a parameter (a closure's included), a closure capture entry, a labeled return, a pattern binding, a destructuring binding and an import rename. Such a binding is error E0407, whose help names the word and suggests a rename (`law_`); `yo fix` renames the binder and its uses when every use can be found in the file. The reserved names are:
+
+- every builtin called by name: `consume`, `the`, `size_of`, `type_of`, `requires`, `ensures`, `old`, `law`, `ghost`, `forall`, `begin`, `tuple`, `array`, `struct`, `enum`, `trait`, `impl`, `import`, `match`, `cond`, `while`, `quote`, `derive`, … (`yo explain E0407`), and the heads `if`, `for`, `return`, `break`, `continue`, `clone` and `as`;
+- the builtin type names: `i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64` `f32` `f64` `usize` `isize` `bool` `str` `unit` `never` `Type` `Trait` `Expr` `Origin` `comptime_int` `comptime_str` `comptime_float`;
+- `mut`, and the words reserved for verification builtins, `logic` and `lemma`;
+- every name that starts with `__yo_`, the compiler's namespace.
+
+The C interop type names (`int`, `char`, `short`, `long`, `void`, …) are not reserved: a binding of one shadows the type. Words that are keywords only in one position (`fn`, `generic`, `where`, `comptime`, `sink`, `using`, `thread_local`, `export`, …), `assert`, `exists` and `panic` are ordinary names. A struct field, a method or a named argument may use any name: `p.law` and `P(law : 1)` are not bindings.
+
 ## Composite Expressions
 
 ```abnf

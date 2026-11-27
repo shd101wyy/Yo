@@ -1057,6 +1057,9 @@ _handle_message :: (
                       edits.push(
                         jb().put("range", j_range_in(&st.lines, r.span.row, r.span.col, r.span.row, r.span.col + r.span.len)).put("newText", jstr(r.replacement.clone())).obj()
                       );
+                      for(&r.also_at, sp => {
+                        edits.push(jb().put("range", j_range_in(&st.lines, sp.row, sp.col, sp.row, sp.col + sp.len)).put("newText", jstr(r.replacement.clone())).obj());
+                      });
                       ck := ArrayList(String).new();
                       cv := ArrayList(JsonValue).new();
                       ck.push(uri.clone());
