@@ -1,0 +1,112 @@
+//! A binding cannot take a name the compiler resolves before any binding
+//! (E0407; the maintainer's decision of 2026-11-27 on
+//! issues/fixed/builtin-name-shadows-user-definition.md): a builtin called by
+//! name, a builtin type name, `mut`, or a word reserved ahead of its builtin
+//! (`logic`, `lemma`). Before the rule each binding below was accepted and
+//! lost: a call `law(f)` ran the contract builtin, a local `i32` was read as
+//! the type (`i32.is_some()` was E0610), and a function named `consume` never
+//! ran (the builtin marked its argument consumed instead).
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+_BUILTIN :: "names a builtin: a call";
+_TYPE :: "names a builtin type";
+_WORD :: "is a reserved word";
+// A builtin called by name, at every binder.
+comptime_expect_error({
+  law :: (fn(x : i32) -> i32)(x + i32(1));
+  law(i32(1))
+}, _BUILTIN);
+comptime_expect_error({
+  old := i32(3);
+  old
+}, _BUILTIN);
+comptime_expect_error({
+  (ghost : i32) = i32(4);
+  ghost
+}, _BUILTIN);
+comptime_expect_error((fn(consume : i32) -> i32)(consume), _BUILTIN);
+_apply :: (fn(g : Impl(Fn(a : i32) -> i32)) -> i32)(g(i32(1)));
+comptime_expect_error(_apply(the => the), _BUILTIN);
+comptime_expect_error(_apply((refine : i32) => refine), _BUILTIN);
+comptime_expect_error({
+  c := i32(2);
+  _apply({ requires : c }(a) => a)
+}, _BUILTIN);
+comptime_expect_error((fn(x : i32) -> (ensures : i32))(x), _BUILTIN);
+comptime_expect_error(match(Option(i32).Some(i32(1)), .Some(forall) => forall, .None => i32(0)), _BUILTIN);
+comptime_expect_error(match(i32(1), (begin := _) => begin), _BUILTIN);
+comptime_expect_error({
+  { assert : match } :: import("std/assert");
+  ()
+}, _BUILTIN);
+comptime_expect_error({
+  { size_of } :: .{ size_of : i32(1) };
+  size_of
+}, _BUILTIN);
+comptime_expect_error(
+  (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    for(&xs, derive => ());
+  }),
+  _BUILTIN
+);
+// The parse-time, statement and mutation-summary heads.
+comptime_expect_error({
+  if := i32(1);
+  if
+}, _BUILTIN);
+comptime_expect_error({
+  clone := i32(1);
+  clone
+}, _BUILTIN);
+// A builtin type name: identifier resolution reads the type first.
+comptime_expect_error({
+  i32 := Option(i32).Some(i32(1));
+  i32.is_some()
+}, _TYPE);
+comptime_expect_error((fn(usize : i32) -> i32)(usize), _TYPE);
+comptime_expect_error({
+  bool := i32(1);
+  bool
+}, _TYPE);
+// `mut`, and the words reserved ahead of their verification builtins.
+comptime_expect_error({
+  mut := i32(1);
+  mut
+}, "\"mut\" is reserved");
+comptime_expect_error({
+  logic := i32(1);
+  logic
+}, _WORD);
+comptime_expect_error((fn(lemma : i32) -> i32)(lemma), _WORD);
+// What stays legal.
+P :: struct(law : i32, ghost : i32);
+impl(P, refine : (fn(self : &Self) -> i32)(self.law + self.ghost));
+test("a field, a method and a named argument may use a builtin's name", {
+  p := P(law : i32(1), ghost : i32(2));
+  assert(p.law == i32(1), "a field label");
+  assert(p.refine() == i32(3), "a method");
+});
+test("a local named after a C interop type shadows it, as a method receiver too", {
+  // issues/repros/local-named-short-not-usable-as-receiver.yo
+  short := Option(i32).Some(i32(1));
+  assert(short.is_none() == false, "a local `short` is the receiver");
+  int := i32(2);
+  long := (int + i32(1));
+  assert(long == i32(3), "`int` and `long` are locals");
+});
+test("positional keywords and env-first builtins are ordinary names", {
+  where := i32(1);
+  generic := i32(2);
+  sink := i32(3);
+  using := i32(4);
+  assert((where + generic + sink + using) == i32(10), "four ordinary locals");
+  assert(true, "`assert` is std's function, imported by name above");
+});
+test("a name that only starts with a reserved word is ordinary", {
+  law_ := i32(1);
+  old_value := i32(2);
+  i32s := i32(3);
+  logical := i32(4);
+  assert((law_ + old_value + i32s + logical) == i32(10), "four ordinary locals");
+});
