@@ -12,11 +12,13 @@
 pragma(Pragma.Verify);
 
 // A lemma whose body never terminates: partial correctness proves any ensures.
-bogus :: ghost_fn((fn(x : i32, ensures(x > x)) -> unit)({
-  while(true, {
-    invariant(true);
-  });
-}));
+bogus :: ghost_fn(
+  (fn(x : i32, ensures(x > x)) -> unit)({
+    while(true, {
+      invariant(true);
+    });
+  })
+);
 
 // `yo verify --strict` proves r == 42 for every x.
 wrong :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))({
@@ -28,8 +30,8 @@ wrong :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))({
 `yo verify --strict issues/repros/2026-11-27-a-looping-lemma-proves-anything.yo` exits 0:
 
 ```
-  ok       fn@2026-11-27-a-looping-lemma-proves-anything.yo:3 [verify] — 3 obligation(s) proved
-  ok       fn@2026-11-27-a-looping-lemma-proves-anything.yo:10 [verify] — 1 obligation(s) proved
+  ok       fn@2026-11-27-a-looping-lemma-proves-anything.yo:4 [verify] — 3 obligation(s) proved
+  ok       fn@2026-11-27-a-looping-lemma-proves-anything.yo:12 [verify] — 1 obligation(s) proved
 verify: 2 ok, 0 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (0 of the ok vacuous)
 ```
 
