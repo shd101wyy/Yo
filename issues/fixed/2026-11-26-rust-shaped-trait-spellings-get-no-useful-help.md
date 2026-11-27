@@ -160,3 +160,12 @@ VERDICTS-87 PR C (`plans/backlog/STD_RUST_ALIGNMENT.md` §9): `derive` consults 
 ## Tests to add with the fix
 
 Cli-case goldens (`tests/cli-cases/`, one per spelling, recorded with `scripts/cli-diff-test.sh --record` after reading each GOLDEN-DIFF) pinning the new messages, and `tests/internal/diagnostics-registry.test.yo` if a code is added. Each fails before the fix: the current output is the one quoted above.
+
+## Fixed (2026-11-26, VERDICTS-87 PR C), item 3 split out
+
+Item 3 (`where(T <: Ord)`) belongs to the bound sites that lane v81-v84-pr2 owns; it is split into `issues/fixed/2026-11-26-a-bare-trait-constructor-in-a-where-bound-is-uncoded.md`, which that lane fixes. The other four are fixed here, each pinned by a cli-case that fails on develop:
+
+1. `derive(P, PartialEq, …)`: a derive trait with no rule whose name is bound nowhere is E0401 at the derive argument, with the Rust-name table's help (`src/evaluator/builtins/derive.yo`, `process_trait_arg`). A bound trait without a rule keeps the derive_rule() advice. Case `a-rust-derive-trait-name-is-e0401-with-its-yo-name`.
+2. `derive(P, Eq, …)`: a derive argument that is a bare trait constructor is E0603 at the user's argument, "`Eq` is a trait constructor taking 1 argument(s) and names no trait on its own", with the repair `Eq(P)` (`_check_derive_trait_constructor_applied`). The error no longer points into the prelude. Case `a-bare-comparison-trait-in-a-derive-is-e0603-naming-its-argument`.
+4. `flags & !mask`: when no candidate of the `!` operator module matches and the operand's type has `BitNot`, the E0610 help says "`!` is logical not and yields `bool`; the bitwise complement of `mask` is `~mask`" (`_overload_miss_help`, `src/evaluator/calls/function.yo`). Case `bang-at-an-integer-slot-names-the-tilde-complement`.
+5. A unary operator on a moved value: the overload trials now hand back the error each candidate raised. When none matches and a trial raised E0901 in user code, that error is re-raised (through the flow-violation channel) instead of E0610 (`_moved_operand_trial_error`). It covers `-`, `!` and `~` alike, since all three are operator modules; the case uses `!` on a user `LogicalNot` impl so it does not name a trait the V87-A rename touches. Case `a-unary-operator-on-a-moved-value-is-e0901`.
