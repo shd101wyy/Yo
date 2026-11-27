@@ -1,17 +1,19 @@
-// expect: E0911
+// expect: accept
+// VERDICTS-78 Q1 edge 4: through `h : &mut Hp(p)`, a `&(T, p)` is stored.
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 X :: struct(s : String);
 mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
 H :: struct(r : &Rc(X), n : i32);
+Hp :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p), n : i32));
+store :: (fn(generic(p : Origin), h : &mut Hp(p), y : &(Rc(X), p)) -> unit)({
+  h.r = y;
+});
 main :: (fn() -> unit)({
   z := mk();
-  mut(h) := H(r : &z, n : i32(0));
-  {
-    y := mk();
-    h = H(r : &y, n : h.n);
-  };
+  y := mk();
+  mut(h) := Hp((z, y))(r : &z, n : i32(0));
+  store(&mut h, &y);
   println(`OUT: ${h.r.*.*.s.len().to_string()}`);
-  ()
 });
 export(main);
