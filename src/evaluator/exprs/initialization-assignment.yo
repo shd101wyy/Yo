@@ -1704,7 +1704,7 @@ _lending_destructure_source :: (fn(rhs : &AstExpr, env : &Environment, ctx : &Ev
     // binding (its value, `deref_rule_applies`): the derived `___dispose`'s
     // `{ f : a } := self` destructures the referent.
     (ast_expr_is_atom(rhs) && deref_rule_applies(ast_expr_token(rhs), ctx)) => match(
-      get_variables_from_env(env, ast_expr_token(rhs).value.*.clone()).last_cloned(),
+      get_variables_from_env(env, ast_expr_token(rhs).*.value.*.clone()).last_cloned(),
       .Some(lv) => cond(
         variable_is_reference_binding(&lv) => Option(_LendSource).Some(_LendSource(place : Rc.clone(rhs.*), is_mut : variable_is_mut_borrow(&lv), is_sigil : false)),
         true => Option(_LendSource).None
@@ -1716,7 +1716,7 @@ _lending_destructure_source :: (fn(rhs : &AstExpr, env : &Environment, ctx : &Ev
 );
 /// An atom `name` at `at`'s position.
 _lend_atom :: (fn(name : &String, kind : TokenKind, at : &Token) -> AstExpr)(
-  Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : kind, value : Rc.new(name.clone()), row : at.row, column : at.column, character : at.character, byte_offset : at.byte_offset, module_path : Rc.clone(at.module_path), input : Rc.clone(at.input)))))
+  Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : kind, value : Rc.new(name.clone()), row : at.*.*.row, column : at.*.*.column, character : at.*.*.character, byte_offset : at.*.*.byte_offset, module_path : Rc.clone(at.*.*.module_path), input : Rc.clone(at.*.*.input)))))
 );
 /// `name := &place` (`&mut` when `is_mut`), in the shape the parse-time
 /// rewrite gives it (`__yo_imm(name) := place`), with `bind`'s `:=` head.
@@ -1771,7 +1771,7 @@ _evaluate_lending_destructuring :: (fn(expr : &AstExpr, lhs : &AstExpr, rhs : &A
       match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_place)), .Some(pi) => Rc.clone(pi.ty()), .None => t_unit())
     },
     true => match(
-      get_variables_from_env(env, rtok.value.*.clone()).last_cloned(),
+      get_variables_from_env(env, rtok.*.value.*.clone()).last_cloned(),
       .Some(sv) => variable_value_type(&sv),
       .None => t_unit()
     )
@@ -1799,7 +1799,7 @@ _evaluate_lending_destructuring :: (fn(expr : &AstExpr, lhs : &AstExpr, rhs : &A
       ntok := ast_expr_token(&name_atom);
       // `a := &x.a`: the field of the lent place itself, so the borrow is
       // of `x`; through a reference binding `r`, `a := &r.a` reborrows.
-      src_place := cond(ls.is_sigil => Rc.clone(ls.place), true => _lend_atom(&rtok.value.*, TokenKind.Identifier, &rtok));
+      src_place := cond(ls.is_sigil => Rc.clone(ls.place), true => _lend_atom(&rtok.*.value.*, TokenKind.Identifier, &rtok));
       place := _lend_field(&src_place, &rd.label, &ntok);
       b_bind := _lend_binding(expr, ls.is_mut, &name_atom, &place);
       local_borrow_alias_statement(ast_expr_id(&b_bind), ast_expr_id(expr));

@@ -735,10 +735,10 @@ _throw_unmovable_destructure_source :: (fn(src : &AstExpr, ty : &TypeValue, why 
   rd := ast_rewritten_node(src);
   is_reference_deref := (ast_expr_is_fn_call_of(src, ".", Option(usize).Some(usize(2))) && ast_expr_is_atom(&rd));
   if(is_reference_deref, {
-    text = `${ast_expr_token(&rd).value.*}.*`;
+    text = `${ast_expr_token(&rd).*.value.*}.*`;
   });
   help := cond(
-    is_reference_deref => `destructure through the reference: \`{ … } := ${ast_expr_token(&rd).value.*}\` binds each name as a borrow of its field`,
+    is_reference_deref => `destructure through the reference: \`{ … } := ${ast_expr_token(&rd).*.value.*}\` binds each name as a borrow of its field`,
     // `&` lends a place: a call's or a literal's value is bound first.
     is_place_expression(src, env) => `destructure a borrow: \`{ … } := &${text}\` (\`&mut ${text}\` to write through the names), or a copy, \`{ … } := ${text}.clone()\``,
     true => `bind it first and destructure a borrow of the binding: \`t := ${text};\` then \`{ … } := &t\`, or a copy, \`{ … } := ${text}.clone()\``
@@ -793,7 +793,7 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info 
     match(
       root,
       .Some(rv) => cond(
-        rv.is_module_level() => {
+        rv.*.is_module_level() => {
           _throw_unmovable_destructure_source(src, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), env, ctx, exn);
           return(false);
         },
@@ -801,7 +801,7 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info 
           _throw_unmovable_destructure_source(src, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), env, ctx, exn);
           return(false);
         },
-        rv.is_compile_time_only() => {
+        rv.*.is_compile_time_only() => {
           return(false);
         },
         _scrutinee_moves_through_param_shadow(&rv, &ty, env) => {
@@ -831,9 +831,9 @@ decide_destructuring_consumes :: (fn(src : &AstExpr, evaluated : &AstExpr, info 
     .Some(tname) => match(
       find_variable_in_env(&info.env(), tname.clone()),
       .Some(tv) => if(is_temp_variable_name(&env.module_path().*, &tname.*), {
-        if(tv.is_owning_the_rc_value(), {
-          if(tv.consumed_at_token().is_none(), {
-            tv.set_consumed_at_token(Option(Token).Some(stok));
+        if(tv.*.is_owning_the_rc_value(), {
+          if(tv.*.consumed_at_token().is_none(), {
+            tv.*.set_consumed_at_token(Option(Token).Some(stok));
           });
         }, {
           _throw_unmovable_destructure_source(src, &ty, String.from("it is borrowed from the value that holds it (an element, or a binding into another value)."), env, ctx, exn);
