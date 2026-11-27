@@ -1,0 +1,34 @@
+//! YO_ASYNC_STATS=1 makes a compiled program print what its async lowering
+//! built and started (plans/backlog/ALLOCATION_FREE_ASYNC.md, AFA-0). The
+//! program below touches every counter: a no-await future (a sync cell), a
+//! two-await state machine, a fused one-await wrapper, a spawned task, a
+//! channel (I/O-class cells) and the sync-context awaits that root each task.
+{ assert } :: import("std/assert");
+{ Channel } :: import("std/async/channel");
+
+one :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async({ n }(io : Io) => (n + i32(1))));
+wrap :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ n }(io : Io) => {
+    a := io.await(one(n, io), io);
+    a + i32(1)
+  })
+);
+two :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ n }(io : Io) => {
+    a := io.await(wrap(n, io), io);
+    b := io.await(wrap(a, io), io);
+    a + b
+  })
+);
+
+test("an await chain, a spawn and a channel", {
+  r := io.await(two(i32(1), io), io);
+  assert(r == i32(8), "two(1)");
+  h := io.spawn(one(i32(5), io), io);
+  s := h.await(io);
+  assert(match(s, .Some(v) => (v == i32(6)), .None => false), "spawned task");
+  ch := Channel(i32).new(usize(1));
+  _sent := io.await(ch.send(i32(9), io), io);
+  got := io.await(ch.recv(io), io);
+  assert(match(got, .Some(v) => (v == i32(9)), .None => false), "channel");
+});

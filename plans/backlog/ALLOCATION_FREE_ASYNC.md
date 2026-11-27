@@ -377,7 +377,7 @@ column is the stage's acceptance number.
 | --- | --- | --- | --- |
 | instructions per `p2` iteration | 1,412 (~92 ns) | ≤ 400 (model `m1`: 160, ~8.5 ns) | AFA-3 |
 | cells per cold await at a static site | 1 | 0 | AFA-3 |
-| cells per `select` / `timeout` | counted by AFA-0 (a task cell per operand, a join-wait cell per wait, two join futures; `timeout` adds a deadline task, its timer and an `Rc`) | 0 | AFA-6 |
+| cells per `select` / `timeout` | **7 per `select`** of two no-await operands: 1 `select` future, 2 operand tasks, 2 join futures, 2 join waits. **9 per `timeout`** of a no-await operand: 1 `timeout` future, 1 operand task, 1 deadline task, 2 join futures, its timer future, 2 join waits and the wait on both (an `Rc` besides, which is not a future cell). Counted by `YO_ASYNC_STATS=1` on `scripts/bench/async-chain.yo` (AFA-0): 3 state machines + 2 sync futures + 2 I/O-class cells per `select`; 4 + 1 + 4 per `timeout` | 0 | AFA-6 |
 | cells per executor operation (`yield`, `park`, `sleep`, join wait, channel ping-pong, `Mutex.lock`) | 1 | 0 | AFA-8 |
 | mallocs per std I/O call | 1 | 0 | AFA-9 |
 | std I/O versus the raw operation (`std-vs-raw`) | 1.00–1.01 | no worse | every stage |
