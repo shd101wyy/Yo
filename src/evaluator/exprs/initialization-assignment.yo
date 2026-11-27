@@ -726,6 +726,8 @@ _evaluate_inout_local_binding :: (
     },
     .None => ()
   );
+  // The reborrow-through-a-field join below (row 12) reads the binding too.
+  fd_bound_opt := bound_opt.clone();
   match(
     bound_opt,
     .Some(bound) => {
@@ -766,7 +768,7 @@ _evaluate_inout_local_binding :: (
   // a reference binding keeps `m`'s.
   if(field_deref_recvs.len() > usize(0), {
     match(
-      &bound_opt,
+      &fd_bound_opt,
       .Some(fd_bound) => for(&field_deref_recvs, fd_recv => {
         bind_join_roots_for(&fd_bound.*, &origin_of(fd_recv, env, ctx), &name_tok, env, ctx, exn, kill : false, holder_may_drop : false);
       }),
