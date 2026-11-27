@@ -62,6 +62,7 @@ pragma(Pragma.AllowUnsafe);
   requires_enforced_flags,
   VerifyTask,
   register_verify_task,
+  record_assumed_fn_site,
   record_verify_task_def_eval_failure,
   evaluated_for_verify,
   prepare_callsite_contracts,
@@ -1642,6 +1643,11 @@ Result type: ${type_to_string(&result_box)}`
           copy_macro_registration(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
           copy_func_where_constraints(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
           copy_func_contract_exprs(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          // S2: a caller's report names the assumed contracts its proofs
+          // rest on by the id the callee's own report carries.
+          if(has_func_assumed_body(fn_val_id.clone()), {
+            record_assumed_fn_site(&fn_val_id, &`fn@${display_module_path(&tok.module_path.*)}:${tok.row.to_string()}`);
+          });
         },
         Rc(.Atom(_, _)) => ()
       );
