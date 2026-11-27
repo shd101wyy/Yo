@@ -1,0 +1,12 @@
+pragma(Pragma.Verify);
+
+// Termination is proved under requires(n > 0); the self call's own requires
+// (0 > 0) is not checked, and the definitional axiom is unconditional:
+//   forall n : u8. bad(n) == bad(0) + 1     -- false at n = 0
+bad :: ghost_fn(
+  (fn(n : u8, requires(n > u8(0)), decreases(n)) -> u32)(bad(u8(0)) + u32(1))
+);
+
+// `yo verify --strict` proves r == 42 for every x (the requires is a tautology
+// that only mentions `bad`, which brings the inconsistent axiom in).
+wrong :: (fn(x : i32, requires(bad(u8(0)) == bad(u8(0))), ensures(r == i32(42))) -> (r : i32))(x);

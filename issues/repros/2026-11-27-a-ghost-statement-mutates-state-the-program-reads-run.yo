@@ -1,0 +1,16 @@
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+
+// The verifier walks the push; codegen erases it.
+// `yo verify --strict` proves r == 1.
+wrong :: (fn(ensures(r == usize(1))) -> (r : usize))({
+  mut(xs) := ArrayList(i32).new();
+  ghost(xs.push(i32(7)));
+  xs.len()
+});
+
+main :: (fn() -> unit)({
+  println(wrong());
+});
+export(main);
