@@ -1633,8 +1633,9 @@ impl(
   generic(T : Type),
   where(T <: Ord(T)),
   ArrayList(T),
-  /// Sort ascending by `Ord`. STABLE (D17): equal elements keep their input
-  /// order, as `sort` does in Rust, Python, Java and Go.
+  /// Sort ascending by `Ord`'s total `cmp` (a float NaN sorts after every
+  /// number). STABLE (D17): equal elements keep their input order, as `sort`
+  /// does in Rust, Python, Java and Go.
   ///
   /// O(n log n) with one `usize` index array plus scratch allocated for the
   /// merge — `sort_unstable` is the allocation-free heapsort for when order
@@ -1645,12 +1646,12 @@ impl(
       true =>
         match(
           self._ptr,
-          .Some(_ptr) => _stable_sort_by(_ptr, self._length, (a, b) => (a.* < b.*)),
+          .Some(_ptr) => _stable_sort_by(_ptr, self._length, (a, b) => match(T.cmp(a, b), .Less => true, _ => false)),
           .None => ()
         )
     );
   }),
-  /// Sort ascending by `Ord` WITHOUT preserving the order of equal elements
+  /// Sort ascending by `Ord`'s total `cmp` WITHOUT preserving the order of equal elements
   /// — Rust's `sort_unstable`. Heapsort: O(n log n) worst case, in place, no
   /// allocation, no recursion (see `_heapsort_by`).
   sort_unstable : (fn(self : &mut Self) -> unit)({
@@ -1659,7 +1660,7 @@ impl(
       true =>
         match(
           self._ptr,
-          .Some(_ptr) => _heapsort_by(_ptr, self._length, (a, b) => (a.* < b.*)),
+          .Some(_ptr) => _heapsort_by(_ptr, self._length, (a, b) => match(T.cmp(a, b), .Less => true, _ => false)),
           .None => ()
         )
     );
@@ -1878,8 +1879,9 @@ impl(
       )
     );
   }),
-  /// Sort ascending by a KEY extracted from each element — Rust's
-  /// `sort_by_key`. Stable, like `sort_by`, which it delegates to.
+  /// Sort ascending by a KEY extracted from each element, ordered by the
+  /// key's total `cmp` — Rust's `sort_by_key`. Stable, like `sort_by`, which
+  /// it delegates to.
   ///
   /// The key type is a method-level `generic(K : Type)`, which the clause
   /// order requires to come BEFORE `self`; it is inferred from the closure at
@@ -1892,7 +1894,11 @@ impl(
       where(K <: Ord(K))
     ) -> unit
   )(
-    self.sort_by({ key : &mut key.* }(a, b) => (key(a) < key(b)))
+    self.sort_by({ key : &mut key.* }(a, b) => {
+      ka := key(a);
+      kb := key(b);
+      match(K.cmp(&ka, &kb), .Less => true, _ => false)
+    })
   ),
   /// Binary search over a list ordered by `cmp` — Rust's `binary_search_by`.
   ///
@@ -2144,7 +2150,7 @@ impl(
   generic(T : Type),
   where(T <: Ord(T)),
   ArrayList(T),
-  /// Binary search over a SORTED list (ascending, `sort`'s order):
+  /// Binary search over a SORTED list (ascending by `cmp`, `sort`'s order):
   /// `.Ok(index)` of a matching element (any one of an equal run), or
   /// `.Err(insertion_index)` where the value would keep the order.
   binary_search : (fn(self : &Self, value : &T) -> Result(usize, usize))({
@@ -2154,14 +2160,15 @@ impl(
     while((lo < hi) && found.is_none(), {
       mid := (lo + ((hi - lo) / usize(2)));
       // Compared in place: a copy of the element would clone it.
-      cond(
-        (self(mid) < value.*) => {
+      match(
+        T.cmp(&self(mid), value),
+        .Less => {
           lo = (mid + usize(1));
         },
-        (value.* < self(mid)) => {
+        .Greater => {
           hi = mid;
         },
-        true => {
+        .Equal => {
           found = Option(usize).Some(mid);
         }
       );

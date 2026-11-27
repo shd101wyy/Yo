@@ -414,3 +414,20 @@ test("clone clones every value in: a list value of the clone is its own (B10)", 
   assert(m(i32(1)).len() == usize(1), "and its own list value");
   assert((c.len() == usize(2)) && (c(i32(1)).len() == usize(0)), "the clone's writes stay in the clone");
 });
+// ===== Ord's total `cmp` (VERDICTS-87 PR B) =====
+test("a NaN key is one key, ordered after every number, and aliases no other key", {
+  z := f64(0.0);
+  nan := (z / z);
+  mut(m) := BTreeMap(f64, i32).new();
+  m.insert(f64(2.0), i32(2));
+  m.insert(nan, i32(9));
+  m.insert(f64(1.0), i32(1));
+  m.insert(nan, i32(8));
+  m.insert(f64(3.0), i32(3));
+  assert(m.len() == usize(4), "four distinct keys under cmp");
+  assert(m.get(&f64(1.0)) == .Some(i32(1)), "1 keeps its value");
+  assert(m.get(&f64(2.0)) == .Some(i32(2)), "2 keeps its value");
+  assert(m.get(&f64(3.0)) == .Some(i32(3)), "3 keeps its value");
+  assert(m.get(&nan) == .Some(i32(8)), "the second NaN insert replaced the first");
+  assert(match(m.pop_last(), .Some(e) => (e.key != e.key), .None => false), "the NaN key is the last");
+});
