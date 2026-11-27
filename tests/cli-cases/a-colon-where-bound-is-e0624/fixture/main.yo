@@ -1,0 +1,10 @@
+Probe :: trait(probe : (fn(self : &Self) -> i32));
+Marker :: trait();
+W :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), where(T : Probe), W(T), Marker());
+need_marker :: (fn(generic(X : Type), x : &X, where(X <: Marker)) -> i32)(i32(7));
+main :: (fn() -> unit)({
+  w := W(i32)(v : i32(1));
+  _n := need_marker(&w);
+});
+export(main);

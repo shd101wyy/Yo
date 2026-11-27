@@ -249,7 +249,7 @@ sz_tree :: size_of(Tree); // == size_of(*u8)   —— NULL 即 Empty
 
 所有权、移动与拷贝、`&T`/`&mut T` 引用及其来源，以及编译器检查的借用规则，见 [OWNERSHIP_AND_BORROWING.md](OWNERSHIP_AND_BORROWING.md)。
 
-Yo 的安全模型是分层的（设计计划见 [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)）：
+Yo 的安全模型是分层的（设计计划见 `plans/reference/MEMORY_SAFETY.md`）：
 
 - **`Rc(T)`** 是引用计数的单元，在最后一个句柄处自动释放（环会泄漏，除非用 `Weak` 打破），从构造上保证内存安全。
 - **`Arc(T)`** 提供跨线程的原子 RC 共享所有权；`Send` 值通过移动转移到另一个线程。

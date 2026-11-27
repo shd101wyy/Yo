@@ -181,3 +181,91 @@ test("where-clause bounds accept the types that satisfy them", {
   m.insert(String.from("k"), i32(1));
   assert(m.len() == usize(1), "String satisfies (Eq(K), Hash)");
 });
+// A `where(...)` entry is a bound `L <: R`. `L : R` is E0624 at the clause's
+// definition, at every reader: an impl or a derive used to drop it and register
+// an unbounded impl, a function's was reported only when it was called
+// (issues/fixed/2026-11-25-a-colon-spelled-where-bound-on-an-impl-or-derive-is-silently-dropped.md).
+FormProbe :: trait(probe : (fn(self : &Self) -> i32));
+FormMarker :: trait();
+FormBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+comptime_expect_error({
+  impl(generic(T : Type), where(T : FormProbe), FormBox(T), FormMarker());
+}, "A trait bound is written `T <: FormProbe`");
+comptime_expect_error({
+  impl(generic(T : Type), FormBox(T), where(T : FormProbe), FormMarker());
+}, "A trait bound is written `T <: FormProbe`");
+comptime_expect_error({
+  FormPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+  derive(generic(T : Type), where(T : Clone), FormPair(T), Clone);
+}, "A trait bound is written `T <: Clone`");
+comptime_expect_error({
+  _form_uncalled :: (fn(generic(T : Type), a : &T, b : &T, where(T : Eq(T))) -> bool)(a == b);
+}, "A trait bound is written `T <: Eq(T)`");
+comptime_expect_error({
+  FormCtor :: (fn(comptime(T) : Type, where(T : FormProbe)) -> comptime(Type))(struct(v : T));
+}, "A trait bound is written `T <: FormProbe`");
+comptime_expect_error({
+  FormSub :: trait(sub_probe : (fn(self : &Self) -> i32), where(Self : FormProbe));
+}, "A trait bound is written `Self <: FormProbe`");
+// Any other shape is the form error at definition too.
+comptime_expect_error({
+  impl(generic(T : Type), where(T), FormBox(T), FormMarker());
+}, "Expected constraint in the form");
+// The bound the impl spells with `<:` is applied: `FormBox(i32)` is not a
+// `FormMarker`, `FormBox(FormImpl)` is.
+FormImpl :: struct(n : i32);
+impl(FormImpl, FormProbe(probe : (fn(self : &Self) -> i32)(self.n)));
+impl(generic(T : Type), where(T <: FormProbe), FormBox(T), FormMarker());
+comptime_assert(Type.impls(FormBox(FormImpl), FormMarker), "FormBox(FormImpl) is a FormMarker");
+comptime_assert(Type.impls(FormBox(i32), FormMarker) == false, "FormBox(i32) is not a FormMarker: i32 has no FormProbe");
+// A bound in a binder's kind slot is E0624 at the definition: a binder's `:`
+// takes a kind, and its bounds go in `where(...)` (VERDICTS-84 §4, PR 2).
+comptime_expect_error({
+  _kind_trait :: (fn(generic(T : FormProbe), a : &T) -> i32)(a.probe());
+}, "`FormProbe` is a trait, not a kind. Write `generic(T : Type)` and the bound `where(T <: FormProbe)`.");
+comptime_expect_error({
+  _kind_tuple :: (fn(generic(T : (FormProbe, Clone)), a : &T) -> i32)(a.probe());
+}, "`(FormProbe, Clone)` is a tuple of traits, not a kind.");
+comptime_expect_error({
+  _kind_bound :: (fn(generic(T <: FormProbe), a : &T) -> i32)(a.probe());
+}, "A bound is written in `where(...)`, not in the binder: write `generic(T : Type)` and the bound `where(T <: FormProbe)`.");
+comptime_expect_error({
+  _kind_ctor :: (fn(generic(T : Eq), a : &T, b : &T) -> bool)(a == b);
+}, "`Eq` is a trait constructor (`Eq(Rhs)`), not a kind. Write `generic(T : Type)` and a bound on the applied trait, such as `where(T <: Eq(T))`.");
+comptime_expect_error({
+  FormKindCtor :: (fn(comptime(T) : FormProbe) -> comptime(Type))(struct(v : i32));
+}, "Write `comptime(T) : Type` and the bound `where(T <: FormProbe)`.");
+comptime_expect_error({
+  FormAssocBound :: trait(Item : Clone, next_item : (fn(self : &mut Self) -> Option(Self.Item)));
+}, "An associated type is declared `Item : Type`, and a bound on it is written in the trait's `where(Self.Item <: Clone)`.");
+// A bound's right side is a trait: a trait constructor names its arguments
+// (E0603), and a type that is not a trait bounds nothing (E0624, VERDICTS-85 §6).
+comptime_expect_error({
+  _rhs_ctor :: (fn(generic(T : Type), a : &T, b : &T, where(T <: Eq)) -> bool)(a == b);
+}, "`Eq` takes one type argument, `Eq(Rhs)`, and none was given: a bound names the trait applied, as in `T <: Eq(T)`.");
+comptime_expect_error({
+  _rhs_struct :: (fn(generic(T : Type), a : &T, where(T <: FormImpl)) -> i32)(i32(1));
+}, "`<:` says a type implements a trait, and `FormImpl` is not a trait.");
+comptime_expect_error({
+  _w := (FormProbe <: FormMarker);
+}, "A supertrait is declared in the trait itself");
+// An impl's `where(...)` bounds its own binders; a bound on anything else
+// would be dropped and the impl would hold for every type
+// (issues/fixed/2026-11-26-an-impl-where-bound-whose-left-side-is-not-a-binder-is-silently-dropped.md).
+comptime_expect_error({
+  impl(generic(T : Type), where(FormBox(T) <: FormProbe), FormBox(T), FormMarker());
+}, "and `FormBox(T)` is not one of them (its binders are `T`)");
+// A trait is not a value's type (E0625): the value is `Impl(Tr)`,
+// `&Dyn(Tr)` or `Box(Dyn(Tr))`.
+comptime_expect_error({
+  _val_param :: (fn(a : FormProbe) -> i32)(i32(1));
+}, "`FormProbe` is a trait, not a type, so it cannot be the type of the parameter `a`.");
+comptime_expect_error({
+  _val_ref :: (fn(a : &FormProbe) -> i32)(i32(1));
+}, "cannot be the type of the parameter `a`");
+comptime_expect_error({
+  _val_result :: (fn(x : i32) -> FormProbe)(FormImpl(n : x));
+}, "cannot be the type of a function's result");
+comptime_expect_error({
+  FormField :: struct(v : FormProbe);
+}, "`FormProbe` is a trait, not a type, so it cannot be the type of the field `v`.");

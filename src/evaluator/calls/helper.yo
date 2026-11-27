@@ -1316,6 +1316,11 @@ apply_call_site_borrow_markers :: (
       _pl := g_peeled_lend_ids.with_mut({ id : ast_expr_id(&place) }(m) => m.insert(id));
       // `&r` / `&mut r` over a bare name: on a reference binding it lends
       // `r`'s own storage (§7 P3), which the identifier evaluator decides.
+      // `&mut h.r` over a `&` reference field lends the field itself, a
+      // `&mut &T` (VERDICTS-78 Q1), which the field access decides.
+      if(is_mut_marker && ast_expr_is_fn_call_of(&place, BF_DOT, Option(usize).Some(usize(2))), {
+        note_self_lend_operand(ast_expr_id(&place), true);
+      });
       if(ast_expr_is_atom(&place), {
         note_self_lend_operand(ast_expr_id(&place), is_mut_marker);
         // A slot that takes a reference to a reference (`&A` with `A` a

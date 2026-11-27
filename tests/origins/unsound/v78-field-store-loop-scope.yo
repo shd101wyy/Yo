@@ -1,0 +1,19 @@
+// expect: E0911
+// VERDICTS-78 Q1 edge 9: a store in a loop body of a place the body owns outlives the iteration.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+main :: (fn() -> unit)({
+  z := mk();
+  mut(h) := H(r : &z, n : i32(0));
+  mut(i) := i32(0);
+  while(i < i32(2), {
+    y := mk();
+    h.r = &y;
+    i = (i + i32(1));
+  });
+  println(`OUT: ${h.r.*.*.s.len().to_string()}`);
+});
+export(main);

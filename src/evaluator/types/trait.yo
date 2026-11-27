@@ -24,6 +24,7 @@ import("std/fmt");
   ast_expr_text,
   ast_expr_id,
   ast_expr_to_string,
+  ast_expr_first_token,
   ast_expr_is_atom,
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
@@ -52,10 +53,11 @@ import("std/fmt");
 { find_some_type_missing_comptime_constraint } :: import("../trait-checking.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ is_valid_variable_name } :: import("../utils.yo");
+{ is_valid_variable_name, check_where_clause_form, throw_if_bound_rhs_is_not_a_trait, is_bare_trait_type } :: import("../utils.yo");
 { Exception } :: import("std/error");
+{ Token } :: import("../../token.yo");
 { evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
-{ _add_where_clause_constraint, _trait_has_receiver, get_func_requires_exprs, get_func_ensures_exprs, get_func_return_label } :: import("./function.yo");
+{ _add_where_clause_constraint, _trait_has_receiver, get_func_requires_exprs, get_func_ensures_exprs, get_func_return_label, SignatureSource, throw_bound_in_kind_slot } :: import("./function.yo");
 { ArrayList } :: import("std/collections/array-list");
 { stable_type_id } :: import("../../utils.yo");
 { register_trait_default, register_trait_method_contracts } :: import("../values/type-trait-methods.yo");
@@ -476,6 +478,7 @@ _parse_trait_where_clauses :: (
           new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
         }
       );
+      throw_if_bound_rhs_is_not_a_trait(&unwrapped_te, &te_info.value(), &te_info.ty(), &ast_expr_to_string(&lhs_expr), exn);
       if(!is_type_value(&te_info.value()), {
         if(collect_pending, {
           pending_traits.push(_PendingTraitConstraint(Rc.clone(lhs_expr), trait_expr_item, Rc.clone(constraint_expr)));
@@ -1167,6 +1170,7 @@ evaluate_trait_type :: (
           )
         );
       });
+      check_where_clause_form(&last_arg, exn);
       where_clause_exprs_opt = .Some(w_args);
     });
   });
@@ -1238,6 +1242,23 @@ evaluate_trait_type :: (
       exn
     );
     field_index = (field_index + usize(1));
+    // `trait(Item : Tr, ...)` (VERDICTS-84 §4, E0624): an associated type's
+    // kind is `Type`, and a bound on it is the trait's `where(Self.Item <: Tr)`.
+    if(field_result.assigned_value_opt.is_none() && is_bare_trait_type(&field_result.ty) && ast_expr_is_fn_call_of(&arg, ":", .Some(usize(2))), {
+      at_rhs := _fn_call_args(&arg)(usize(1)).clone();
+      at_label := `Self.${field_result.label}`;
+      at_text := ast_expr_to_string(&at_rhs);
+      throw_bound_in_kind_slot(
+        &`An associated type is declared \`${field_result.label} : Type\`, and a bound on it is written in the trait's \`where(${at_label} <: ${at_text})\`.`,
+        &ast_expr_first_token(&at_rhs),
+        &ast_expr_token(&arg),
+        &at_label,
+        &field_result.label,
+        &at_rhs,
+        &SignatureSource(head : Option(Token).Some(ast_expr_token(expr)), params : args.clone()),
+        exn
+      );
+    });
     // Record a `?=` default method value so a type implementing this trait
     // WITHOUT overriding the method can fall back to it (TraitT itself stores no
     // per-field defaults — divergence). Keyed by trait_id + label; read by
