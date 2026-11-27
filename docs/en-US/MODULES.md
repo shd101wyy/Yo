@@ -11,10 +11,10 @@ names are in [SYNTAX.md](./SYNTAX.md#naming-convention).
 // module1.yo
 { println } :: import("std/fmt");
 
-test :: (fn() -> unit)({
+demo :: (fn() -> unit)({
   println("Hello, world!");
 });
-export(test);
+export(demo);
 
 // module2.yo
 // Export the type
@@ -30,8 +30,8 @@ export(Maybe);
 ```yo
 { ... } :: import("./module1.yo"); // Import everything from module1.yo
 test_module :: import("./module1.yo"); // Import everything from module1.yo and put it in the test_module namespace
-{ test } :: import("./module1.yo"); // Import test function from module1.yo
-{ test : test2 } :: import("./module1.yo"); // Import test function from module1.yo and rename it to test2
+{ demo } :: import("./module1.yo"); // Import the demo function from module1.yo
+{ demo : demo2 } :: import("./module1.yo"); // Import the demo function from module1.yo and rename it to demo2
 { Maybe } :: import("./module2.yo"); // Import Maybe type from module2.yo
 ```
 

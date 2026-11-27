@@ -372,7 +372,7 @@ double_both :: (fn(x : &mut i32, y : &mut i32) -> unit)({
 Yo manages memory automatically: an owned value is dropped at its owner's scope end, and a counted cell (`Rc`, `Arc`) is freed when its reference count reaches zero.
 
 ```yo
-test :: (fn() -> unit)({
+demo :: (fn() -> unit)({
   x := String.from("World!"); // RC = 1
   // ... use x ...
   // At end of scope, RC is decremented

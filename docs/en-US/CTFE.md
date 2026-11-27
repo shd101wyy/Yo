@@ -132,14 +132,14 @@ Use `comptime` to require compile-time known parameters:
 
 ```yo
 // T must be known at compile-time for monomorphization
-Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
+FixedArray :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
     data : [T ; N]
   )
 );
 
 // Create a fixed-size array type
-IntArray5 :: Array(i32, 5);
+IntArray5 :: FixedArray(i32, 5);
 ```
 
 ### Reading a file at compile time: `comptime_read_file`

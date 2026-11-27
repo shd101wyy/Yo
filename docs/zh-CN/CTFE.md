@@ -131,14 +131,14 @@ comptime_assert(fib10 == 55, "fib(10) = 55");
 
 ```yo
 // T 必须在编译期已知，以便单态化
-Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
+FixedArray :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
     data : [T ; N]
   )
 );
 
 // 创建一个固定大小的数组类型
-IntArray5 :: Array(i32, 5);
+IntArray5 :: FixedArray(i32, 5);
 ```
 
 ### 编译期读取文件：`comptime_read_file`

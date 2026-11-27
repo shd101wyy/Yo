@@ -10,10 +10,10 @@
 // module1.yo
 { println } :: import("std/fmt");
 
-test :: (fn() -> unit)({
+demo :: (fn() -> unit)({
   println("Hello, world!");
 });
-export(test);
+export(demo);
 
 // module2.yo
 // 导出类型
@@ -29,8 +29,8 @@ export(Maybe);
 ```yo
 { ... } :: import("./module1.yo"); // 从 module1.yo 导入所有内容
 test_module :: import("./module1.yo"); // 从 module1.yo 导入所有内容并放入 test_module 命名空间
-{ test } :: import("./module1.yo"); // 从 module1.yo 导入 test 函数
-{ test : test2 } :: import("./module1.yo"); // 从 module1.yo 导入 test 函数并重命名为 test2
+{ demo } :: import("./module1.yo"); // 从 module1.yo 导入 demo 函数
+{ demo : demo2 } :: import("./module1.yo"); // 从 module1.yo 导入 demo 函数并重命名为 demo2
 { Maybe } :: import("./module2.yo"); // 从 module2.yo 导入 Maybe 类型
 ```
 

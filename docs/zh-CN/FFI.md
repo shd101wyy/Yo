@@ -354,7 +354,7 @@ double_both :: (fn(x : &mut i32, y : &mut i32) -> unit)({
 Yo 自动管理内存：拥有所有权的值在其所有者的作用域结束时被 drop，计数单元（`Rc`、`Arc`）在引用计数降为零时被释放。
 
 ```yo
-test :: (fn() -> unit)({
+demo :: (fn() -> unit)({
   x := String.from("World!"); // RC = 1
   // ... 使用 x ...
   // 作用域结束时，RC 递减

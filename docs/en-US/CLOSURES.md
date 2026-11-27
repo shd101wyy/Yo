@@ -331,7 +331,7 @@ make_incrementer :: (fn(start : Rc(RefCell(i32))) -> Impl(Fn() -> i32))({
   });
 });
 
-test :: (fn() -> unit)({
+demo :: (fn() -> unit)({
   counter := Rc.new(RefCell(i32).new(0));
   inc := make_incrementer(Rc.clone(counter));
 
