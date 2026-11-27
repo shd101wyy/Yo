@@ -44,9 +44,9 @@ replace :: (fn(generic(T : Type), dst : &mut T, v : T) -> T)({
   // moves in, so the place holds exactly one owned value when the call
   // returns and the old one is owned by the result: nothing is copied and
   // nothing is dropped. For a zero-sized `T` (`unit`) both moves are no-ops.
-  old := unsafe(__yo_ptr_read(p));
+  old_ := unsafe(__yo_ptr_read(p));
   unsafe(__yo_ptr_write(p, v));
-  old
+  old_
 });
 /// Store `T`'s default in `dst` and return the value it replaces — Rust's
 /// `mem::take`.
@@ -66,9 +66,9 @@ take :: (fn(generic(T : Type), dst : &mut T, where(T <: Default)) -> T)({
   // v0.2.68 seed builds it too: there, a generic body whose tail is a call
   // to another generic function fails to compile when `T` is `unit`
   // (issues/fixed/2026-10-24-a-generic-tail-call-forwarding-t-fails-to-transpile-for-unit.md).
-  old := unsafe(__yo_ptr_read(p));
+  old_ := unsafe(__yo_ptr_read(p));
   unsafe(__yo_ptr_write(p, (T <: Default).default()));
-  old
+  old_
 });
 /// Exchange the values of `a` and `b` — Rust's `mem::swap`. Neither value is
 /// copied or dropped.

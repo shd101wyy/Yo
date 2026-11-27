@@ -866,9 +866,9 @@ _def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
 ///     either mints a type identity whose registrations the per-def path
 ///     cannot retire, or is a comptime VALUE that dependents inline at
 ///     def-time — the slot patch updates later readers, not folded copies.
-_def_is_per_def_able :: (fn(old : &PendingDef, fresh : &PendingDef) -> bool)({
+_def_is_per_def_able :: (fn(old_ : &PendingDef, fresh : &PendingDef) -> bool)({
   old_head := match(
-    _def_rhs(old),
+    _def_rhs(old_),
     .Some(r) => _def_fn_head(&r),
     .None => Option(AstExpr).None
   );
@@ -881,7 +881,7 @@ _def_is_per_def_able :: (fn(old : &PendingDef, fresh : &PendingDef) -> bool)({
     old_head,
     .Some(_oh) => match(
       fresh_head,
-      .Some(_fh) => (!old.is_impl && (old.members().len() == usize(0)) && (!fresh.is_impl && (fresh.members().len() == usize(0)))),
+      .Some(_fh) => (!old_.is_impl && (old_.members().len() == usize(0)) && (!fresh.is_impl && (fresh.members().len() == usize(0)))),
       .None => false
     ),
     .None => false
@@ -1343,8 +1343,8 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
           &walk,
           .Some(w) => match(
             w.by_index.get_cloned(&fresh.index),
-            .Some(old) => {
-              if(!_def_is_per_def_able(&old, &fresh), {
+            .Some(old_) => {
+              if(!_def_is_per_def_able(&old_, &fresh), {
                 allowed = false;
               });
             },

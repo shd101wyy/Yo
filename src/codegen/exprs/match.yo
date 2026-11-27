@@ -2305,7 +2305,7 @@ _emit_pattern_chain :: (
       // destructuring binds it.
       ptrish := _position_is_ptrish(ty);
       flabels := _struct_pattern_labels(&struct_ty.*);
-      newtype := (is_newtype_type(&struct_ty.*) && (flabels.len() == usize(1)));
+      newtype_ := (is_newtype_type(&struct_ty.*) && (flabels.len() == usize(1)));
       ftys := _struct_pattern_field_tys(&struct_ty.*);
       (i : usize) = usize(0);
       while(i < subs.len(), {
@@ -2313,8 +2313,8 @@ _emit_pattern_chain :: (
         flabel := match(flabels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
         fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         fcode := cond(
-          (newtype && ptrish) => `(*${path})`,
-          newtype => path.clone(),
+          (newtype_ && ptrish) => `(*${path})`,
+          newtype_ => path.clone(),
           true => {
             f := path.clone();
             f.push_str(cond(ptrish => "->", true => "."));

@@ -469,17 +469,17 @@ generate_future_effect_setter :: (
           last_seg := if(parts.len() > usize(0), match(parts.last_cloned(), .Some(p) => p, .None => m.effect_label.clone()), m.effect_label.clone());
           cap_last := _capitalize_last_segment(m.effect_label.clone());
           // Build the OR'd strcmp condition over the unique aliases.
-          mut(cond) := String.from("");
-          cond.push_string(`strcmp(field, ${_c_string_literal(m.effect_label.clone())}) == 0`);
+          mut(cond_) := String.from("");
+          cond_.push_string(`strcmp(field, ${_c_string_literal(m.effect_label.clone())}) == 0`);
           if(last_seg != m.effect_label, {
-            cond.push_str(" || ");
-            cond.push_string(`strcmp(field, ${_c_string_literal(last_seg.clone())}) == 0`);
+            cond_.push_str(" || ");
+            cond_.push_string(`strcmp(field, ${_c_string_literal(last_seg.clone())}) == 0`);
           });
           if((cap_last != m.effect_label) && (cap_last != last_seg), {
-            cond.push_str(" || ");
-            cond.push_string(`strcmp(field, ${_c_string_literal(&cap_last)}) == 0`);
+            cond_.push_str(" || ");
+            cond_.push_string(`strcmp(field, ${_c_string_literal(&cap_last)}) == 0`);
           });
-          context.base.emitter.emit_declaration_string_line(`  ${keyword} (${cond}) {`);
+          context.base.emitter.emit_declaration_string_line(`  ${keyword} (${cond_}) {`);
           context.base.emitter.emit_declaration_string_line(`    sm->${m.access_path} = value;`);
           context.base.emitter.emit_declaration_string_line(`  }`);
         },

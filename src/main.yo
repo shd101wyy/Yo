@@ -1514,20 +1514,20 @@ _run_module_names :: (
   claimed := HashMap(String, String).new();
   (mut(ri) : usize) = usize(0);
   while(ri < ren_order.len(), ri = (ri + usize(1)), {
-    old := ren_order(ri).clone();
-    nm := ren.get_cloned(&old).unwrap();
-    sibling := `${_mn_parent(&old)}/${nm}`;
-    case_only := (_mn_base(&old).to_lowercase() == nm);
+    old_ := ren_order(ri).clone();
+    nm := ren.get_cloned(&old_).unwrap();
+    sibling := `${_mn_parent(&old_)}/${nm}`;
+    case_only := (_mn_base(&old_).to_lowercase() == nm);
     if(nm.is_empty(), {
-      conflicts.push(`fix: ${_mn_display(&old)} has no kebab-case spelling; rename it by hand`);
+      conflicts.push(`fix: ${_mn_display(&old_)} has no kebab-case spelling; rename it by hand`);
     }, if(!case_only && file_exists_sync(sibling.clone()), {
-      conflicts.push(`fix: ${_mn_display(&old)} cannot be renamed: ${_mn_display(&sibling)} already exists`);
+      conflicts.push(`fix: ${_mn_display(&old_)} cannot be renamed: ${_mn_display(&sibling)} already exists`);
     }));
     match(
       claimed.get_cloned(&sibling),
-      .Some(other) => conflicts.push(`fix: ${_mn_display(&old)} and ${_mn_display(&other)} both become ${_mn_display(&sibling)}`),
+      .Some(other) => conflicts.push(`fix: ${_mn_display(&old_)} and ${_mn_display(&other)} both become ${_mn_display(&sibling)}`),
       .None => {
-        claimed.insert(sibling.clone(), old.clone());
+        claimed.insert(sibling.clone(), old_.clone());
       }
     );
   });
@@ -1726,12 +1726,12 @@ _run_module_names :: (
   (mut(rk) : usize) = usize(0);
   (mut(n_dirs) : usize) = usize(0);
   while(rk < ren_order.len(), rk = (rk + usize(1)), {
-    old := ren_order(rk).clone();
+    old_ := ren_order(rk).clone();
     slash := if(ren_is_dir(rk), String.from("/"), String.new());
     if(ren_is_dir(rk), {
       n_dirs = (n_dirs + usize(1));
     });
-    map_lines.push(`fix: rename ${_mn_display(&old)}${slash} -> ${_mn_display(&_mn_new_path(&old, &ren))}${slash}`);
+    map_lines.push(`fix: rename ${_mn_display(&old_)}${slash} -> ${_mn_display(&_mn_new_path(&old_, &ren))}${slash}`);
   });
   map_lines.sort();
   (mut(pk) : usize) = usize(0);
@@ -1784,16 +1784,16 @@ _run_module_names :: (
     });
     (mut(rn) : usize) = usize(0);
     while(rn < order.len(), rn = (rn + usize(1)), {
-      old := order(rn).clone();
-      nm := ren.get_cloned(&old).unwrap();
-      dst := `${_mn_parent(&old)}/${nm}`;
-      if(_mn_base(&old).to_lowercase() == nm, {
+      old_ := order(rn).clone();
+      nm := ren.get_cloned(&old_).unwrap();
+      dst := `${_mn_parent(&old_)}/${nm}`;
+      if(_mn_base(&old_).to_lowercase() == nm, {
         // Two steps, so a case-insensitive filesystem sees a real move.
         tmp := `${dst}.yo-rename-tmp`;
-        io.await(rename(&Path.new(old.clone()), &Path.new(tmp.clone()), io), IoExn(io : io, exn : exn));
+        io.await(rename(&Path.new(old_.clone()), &Path.new(tmp.clone()), io), IoExn(io : io, exn : exn));
         io.await(rename(&Path.new(&tmp), &Path.new(&dst), io), IoExn(io : io, exn : exn));
       }, {
-        io.await(rename(&Path.new(old.clone()), &Path.new(&dst), io), IoExn(io : io, exn : exn));
+        io.await(rename(&Path.new(old_.clone()), &Path.new(&dst), io), IoExn(io : io, exn : exn));
       });
     });
     // Every rewritten import must reach the renamed file from the renamed

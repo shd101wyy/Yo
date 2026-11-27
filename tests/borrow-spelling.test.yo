@@ -447,8 +447,8 @@ test("a lend to a method's by-value reference parameter keeps a move-only place"
   x := BsLent(n : i32(1));
   x2 := BsLent(n : i32(2));
   mut(slot) := Option(&BsLent).Some(&x);
-  old := slot.replace(&x2);
-  assert(match(old, .Some(r) => (r.*.n == i32(1)), .None => false), "the old lend comes back");
+  old_ := slot.replace(&x2);
+  assert(match(old_, .Some(r) => (r.*.n == i32(1)), .None => false), "the old lend comes back");
   assert(match(slot, .Some(r) => (r.*.n == i32(2)), .None => false), "the slot holds the new lend");
   assert(x2.n == i32(2), "`x2` was lent, not moved");
   mut(h) := BsHolder(&BsLent)(v : .None);

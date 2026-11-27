@@ -1576,16 +1576,16 @@ ast_expr_is_old_mode_spelling :: (fn(e : &AstExpr) -> Option(String))(
 );
 /// The error for a deleted mode spelling (see `ast_expr_is_old_mode_spelling`):
 /// `old` is the word written. Raised with E0009.
-old_mode_spelling_message :: (fn(old : &String) -> String)(
+old_mode_spelling_message :: (fn(old_ : &String) -> String)(
   cond(
-    (old.* == "imm") => `\`imm(x)\` was deleted: a read-only borrow is spelled \`x : &T\` (a receiver \`self : &Self\`, a local one \`y := &place\`, the borrowed loop \`for(&xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42).`,
-    (old.* == "own") => `\`own(x)\` is spelled \`sink(x)\`: the \`own\` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b).`,
-    true => `\`${old}(x)\` was deleted: an exclusive borrow is spelled \`x : &mut T\` (a receiver \`self : &mut Self\`, a local one \`y := &mut place\`, the borrowed loop \`for(&mut xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42).`
+    (old_.* == "imm") => `\`imm(x)\` was deleted: a read-only borrow is spelled \`x : &T\` (a receiver \`self : &Self\`, a local one \`y := &place\`, the borrowed loop \`for(&xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42).`,
+    (old_.* == "own") => `\`own(x)\` is spelled \`sink(x)\`: the \`own\` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b).`,
+    true => `\`${old_}(x)\` was deleted: an exclusive borrow is spelled \`x : &mut T\` (a receiver \`self : &mut Self\`, a local one \`y := &mut place\`, the borrowed loop \`for(&mut xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42).`
   )
 );
 /// E0009 for the deleted mode spelling `old` written at `tok`.
-deleted_mode_spelling_error :: (fn(tok : &Token, old : &String) -> YoError)(
-  with_code(format_error_message(tok, old_mode_spelling_message(old)), E_DELETED_SPELLING)
+deleted_mode_spelling_error :: (fn(tok : &Token, old_ : &String) -> YoError)(
+  with_code(format_error_message(tok, old_mode_spelling_message(old_)), E_DELETED_SPELLING)
 );
 /// Throw E0009 when `e` is a deleted mode spelling (`imm(x)`, `mut(x)`,
 /// `inout(x)`, `own(x)`): every slot that holds a mode calls this on what it
@@ -1593,7 +1593,7 @@ deleted_mode_spelling_error :: (fn(tok : &Token, old : &String) -> YoError)(
 reject_old_mode_spelling :: (fn(e : &AstExpr, exn : Exception) -> unit)(
   match(
     ast_expr_is_old_mode_spelling(e),
-    .Some(old) => exn.throw(dyn(Box.new(deleted_mode_spelling_error(ast_expr_token(e), &old)))),
+    .Some(old_) => exn.throw(dyn(Box.new(deleted_mode_spelling_error(ast_expr_token(e), &old_)))),
     .None => ()
   )
 );

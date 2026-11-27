@@ -258,9 +258,9 @@ test("a payload that exists only at compile time is rejected", {
 });
 test("__yo_cell and __yo_atomic_cell are reserved builtin names", {
   // A binding of either name would be hijacked by the type builtin at every
-  // call.
-  comptime_expect_error(__yo_cell := 1, "names a builtin");
-  comptime_expect_error(__yo_atomic_cell :: (fn(x : i32) -> i32)(x), "names a builtin");
+  // call; both are in the compiler's `__yo_` namespace.
+  comptime_expect_error(__yo_cell := 1, "the compiler's namespace");
+  comptime_expect_error(__yo_atomic_cell :: (fn(x : i32) -> i32)(x), "the compiler's namespace");
 });
 // A projection whose `self : &Self` is passed by pointer writes into a cell
 // it reaches, as a by-value `&Self` method does: the write lands in the

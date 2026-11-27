@@ -358,16 +358,6 @@ reserved_binding_help :: (fn(name : &String) -> String)({
 is_reserved_binding_name :: (fn(name : &String) -> bool)(
   is_yo_namespace_name(name) || reserved_binding_message(name).is_some()
 );
-/// Is `mp` std's prelude, the one module that defines builtin-named things
-/// (its `unsafe :: impl(...)` namespace)? Absolutized as `_is_std_module_path`
-/// is, and anchored at the std root: a project file `x/std/prelude.yo` is not it.
-_is_std_prelude :: (fn(mp : &String, std_path : &String) -> bool)({
-  (sp : String) = std_path.clone();
-  while(sp.ends_with(`/`), {
-    sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
-  });
-  (sp.len() > usize(0)) && (_lex_abs_path(mp) == `${_lex_abs_path(&sp)}/prelude.yo`)
-});
 /// What a rename of `name` to `renamed` must know about a whole file
 /// (`_rename_facts`): the atoms that are a call's head, the atoms a brace
 /// group names by pun (`.{ x }`, `{ x } := v`, a capture list), whether an
@@ -514,8 +504,8 @@ _reserved_rename_uses :: (fn(tok : &Token) -> Option(ArrayList(Span)))({
 ///   outside the std tree.
 /// - A name `reserved_binding_message` reserves (the maintainer's decision
 ///   of 2026-11-27 on issues/fixed/builtin-name-shadows-user-definition.md)
-///   is reserved everywhere but std's prelude, which defines builtin-named
-///   things on purpose.
+///   is reserved everywhere, except for a std module's own top-level
+///   definitions (`reject_reserved_definition`).
 ///
 /// The binder is judged by `TokenData.written`, the fact that the lexer made
 /// the token: the compiler mints `__yo_tpl_N`, `__yo_self`, `__yo_pat_s` and
@@ -538,7 +528,7 @@ reject_reserved_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception)
   });
   match(
     reserved_binding_message(&name),
-    .Some(msg) => if(!_is_std_prelude(&tok.module_path.*, &ctx.std_path), {
+    .Some(msg) => {
       help := Option(String).Some(reserved_binding_help(&name));
       err := match(
         _reserved_rename_uses(tok),
@@ -546,9 +536,22 @@ reject_reserved_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception)
         .None => format_error_message_with_help(tok, &msg, &help)
       );
       raise_flow_violation(&with_code(&err, E_RESERVED_NAME), ctx, exn);
-    }),
+    },
     .None => ()
   );
+});
+/// `reject_reserved_binder` for a statement binder (`name :: v`, `name := v`,
+/// `(name : T) = v`). A std module's own top-level definition is exempt: std
+/// defines builtin-named things on purpose (the prelude's `unsafe` namespace,
+/// std/build.yo's `test`, reached as `build.test(...)`), and the exemption is
+/// keyed on the resolved std root (`is_std_module_path`), never on a path
+/// suffix (issues/fixed/2026-11-27-the-reserved-name-exemption-is-keyed-on-a-path-suffix.md).
+/// A std function's parameters and locals are checked like any other.
+reject_reserved_definition :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(ctx.is_evaluating_function_body_or_async_block.is_none() && is_std_module_path(&tok.module_path.*, &ctx.std_path), {
+    return(());
+  });
+  reject_reserved_binder(tok, ctx, exn);
 });
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
 /// the mutability rule for a binding below module level (a write to an
@@ -760,6 +763,7 @@ export(
   reserved_yo_name_message,
   reserved_yo_name_help,
   reject_reserved_binder,
+  reject_reserved_definition,
   reserved_binding_message,
   reserved_binding_help,
   is_reserved_binding_name,

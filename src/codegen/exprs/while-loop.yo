@@ -297,13 +297,13 @@ _emit_while_cond_break :: (fn(cond_expr : &AstExpr, indent : &String, context : 
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cnd_drops, &cnd_prev));
   cc := _call_generate_expr(cond_expr, indent.clone(), context);
   context.pending_deferred_drops = cnd_prev;
-  test := if(has_pending_emittable_drop(cond_expr, context), {
+  test_ := if(has_pending_emittable_drop(cond_expr, context), {
     cv := fresh_local_name(String.from("__yo_while_"), &context.base.current_function_name);
     _emit_line(&mut context.base.emitter, indent.clone(), `bool ${cv.clone()} = ${cc};`);
     generate_deferred_drop_expressions(cond_expr, indent.clone(), context);
     cv
   }, cc);
-  _emit_line(&mut context.base.emitter, indent.clone(), `if (!(${test})) {`);
+  _emit_line(&mut context.base.emitter, indent.clone(), `if (!(${test_})) {`);
   _emit_line(&mut context.base.emitter, indent.clone(), String.from("  break;"));
   _emit_line(&mut context.base.emitter, indent.clone(), String.from("}"));
 });

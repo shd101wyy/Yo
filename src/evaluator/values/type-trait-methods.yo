@@ -431,7 +431,7 @@ owner_visible_from_current :: (fn(owner : &String) -> bool)({
 /// created on demand. The owner tag is read from the module-loader's
 /// loading stack HERE so registration call sites stay unchanged.
 register_type_trait_method :: (
-  fn(type_id : &String, entry : &MethodEntry) -> unit
+  fn(type_id_ : &String, entry : &MethodEntry) -> unit
 )({
   owner := _registration_owner.clone();
   mut(owned_entry) := entry.clone();
@@ -442,15 +442,15 @@ register_type_trait_method :: (
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   // Owned captures (`with_mut`'s callback is a sink parameter): the key
   // clones once per lookup and once per store-back.
-  tm_key := type_id.clone();
+  tm_key := type_id_.clone();
   list := match(_type_trait_methods.with_mut({ tm_key }(m) => m.remove(&tm_key)), .Some(l) => l, .None => ArrayList(MethodEntry).new());
   list.push(owned_entry);
-  tm_key2 := type_id.clone();
+  tm_key2 := type_id_.clone();
   _type_trait_methods.with_mut({ tm_key2, list }(m) => m.insert(tm_key2, list));
-  to_key := type_id.clone();
+  to_key := type_id_.clone();
   olist := match(_type_trait_method_owners.with_mut({ to_key }(m) => m.remove(&to_key)), .Some(l) => l, .None => ArrayList(String).new());
   olist.push(owner);
-  to_key2 := type_id.clone();
+  to_key2 := type_id_.clone();
   _type_trait_method_owners.with_mut({ to_key2, olist }(m) => m.insert(to_key2, olist));
 });
 /// Drop every method entry registered by `owner` (a `file://` abs module
@@ -585,10 +585,10 @@ type_trait_methods_entry_count :: (fn() -> usize)({
 /// Return all method entries registered for `type_id`, or an empty
 /// list when nothing has been registered.
 get_type_trait_methods_for_type :: (
-  fn(type_id : &String) -> ArrayList(MethodEntry)
+  fn(type_id_ : &String) -> ArrayList(MethodEntry)
 )(
   match(
-    _type_trait_methods.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id)),
+    _type_trait_methods.with({ type_id : &type_id_.* }(m) => m.get_cloned(type_id_)),
     .Some(list) => list,
     .None => ArrayList(MethodEntry).new()
   )
@@ -612,12 +612,12 @@ get_type_trait_methods_for_type :: (
 /// returns, so provisional and final entries never coexist.
 (_provisional_trait_methods : RefCell(HashMap(String, ArrayList(MethodEntry)))) = RefCell(HashMap(String, ArrayList(MethodEntry))).new(HashMap(String, ArrayList(MethodEntry)).new());
 register_provisional_trait_method :: (
-  fn(type_id : &String, entry : &MethodEntry) -> unit
+  fn(type_id_ : &String, entry : &MethodEntry) -> unit
 )({
-  type_id_own____ := type_id.clone();
+  type_id_own____ := type_id_.clone();
   list := match(_provisional_trait_methods.with_mut({ type_id_own____ }(m) => m.remove(type_id_own____.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
   list.push(entry.clone());
-  type_id_own_____ := type_id.clone();
+  type_id_own_____ := type_id_.clone();
   _provisional_trait_methods.with_mut({ type_id_own_____, list : list.clone() }(m) => m.insert(type_id_own_____.clone(), list.clone()));
 });
 /// Update IN PLACE the registered entry whose `value` names `match_fid`:
@@ -627,10 +627,10 @@ register_provisional_trait_method :: (
 /// are values, so the list is taken out, updated and stored back. Returns
 /// whether an entry was updated.
 update_type_trait_method_entry :: (
-  fn(registry_provisional : bool, type_id : &String, match_fid : &String, ty : &TypeValue, value : &EvalValue, source_trait_id : &String) -> bool
+  fn(registry_provisional : bool, type_id_ : &String, match_fid : &String, ty : &TypeValue, value : &EvalValue, source_trait_id : &String) -> bool
 )({
   (updated : bool) = false;
-  take_key := type_id.clone();
+  take_key := type_id_.clone();
   src := cond(
     registry_provisional => _provisional_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key)),
     true => _type_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key))
@@ -662,7 +662,7 @@ update_type_trait_method_entry :: (
     );
     i = (i + usize(1));
   });
-  put_key := type_id.clone();
+  put_key := type_id_.clone();
   cond(
     registry_provisional => _provisional_trait_methods.with_mut({ put_key, rebuilt : rebuilt.clone() }(m) => m.insert(put_key, rebuilt.clone())),
     true => _type_trait_methods.with_mut({ put_key, rebuilt : rebuilt.clone() }(m) => m.insert(put_key, rebuilt.clone()))
@@ -670,11 +670,11 @@ update_type_trait_method_entry :: (
   updated
 });
 get_provisional_trait_methods_by_name :: (
-  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
+  fn(type_id_ : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
   result := ArrayList(MethodEntry).new();
   match(
-    _provisional_trait_methods.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id)),
+    _provisional_trait_methods.with({ type_id : &type_id_.* }(m) => m.get_cloned(type_id_)),
     .Some(all) => {
       n := all.len();
       (i : usize) = usize(0);
@@ -695,16 +695,16 @@ get_provisional_trait_methods_by_name :: (
   );
   result
 });
-clear_provisional_trait_methods :: (fn(type_id : &String) -> unit)({
-  type_id_owned := type_id.clone();
+clear_provisional_trait_methods :: (fn(type_id_ : &String) -> unit)({
+  type_id_owned := type_id_.clone();
   _provisional_trait_methods.with_mut({ type_id_owned }(m) => m.remove(&type_id_owned));
 });
 /// Return only the method entries whose `label` matches `method_name`.
 get_type_trait_methods_by_name :: (
-  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
+  fn(type_id_ : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
   result := ArrayList(MethodEntry).new();
-  all := get_type_trait_methods_for_type(type_id);
+  all := get_type_trait_methods_for_type(type_id_);
   n := all.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -728,9 +728,9 @@ visibility_report_enabled :: (fn() -> bool)(g_visibility_report);
 /// getter method RESOLUTION uses (`env.yo`); codegen, the LSP and the
 /// registries' own bookkeeping keep the unfiltered view.
 get_visible_type_trait_methods_by_name :: (
-  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
+  fn(type_id_ : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
-  all := get_type_trait_methods_by_name(type_id, method_name);
+  all := get_type_trait_methods_by_name(type_id_, method_name);
   cur_owner := _registration_owner.clone();
   if(cur_owner.len() == usize(0), {
     return(all);
@@ -803,9 +803,9 @@ clear_type_trait_methods :: (fn() -> unit)({
 /// defined at a DIFFERENT site — a genuine duplicate the caller must
 /// reject — and `.None` for a fresh definition or a same-site replay.
 note_inherent_method_site :: (
-  fn(type_id : &String, label : &String, site : &String) -> Option(String)
+  fn(type_id_ : &String, label : &String, site : &String) -> Option(String)
 )({
-  key := `${type_id}\n${label}`;
+  key := `${type_id_}\n${label}`;
   match(
     _inherent_method_sites.with({ &key }(m) => m.get_cloned(key.clone())),
     .Some(prev) => cond(
@@ -849,8 +849,8 @@ inherent_method_site_count :: (fn() -> usize)(_inherent_method_sites.with(_c_len
 /// Record `site` as the impl of trait `trait_key` for `type_id`. Returns
 /// `.Some(previous_site)` for a second impl from a different site, `.None`
 /// for a first impl or a same-site replay.
-note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &String) -> Option(String))({
-  key := `${type_id}\n${trait_key}`;
+note_trait_impl_site :: (fn(type_id_ : &String, trait_key : &String, site : &String) -> Option(String))({
+  key := `${type_id_}\n${trait_key}`;
   match(
     _trait_impl_sites.with({ &key }(m) => m.get_cloned(key.clone())),
     .Some(prev) => cond(
@@ -870,16 +870,16 @@ note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &Stri
 });
 /// The site of the impl of trait `trait_key` for the type `type_id`, if one
 /// is registered (`note_trait_impl_site`), without recording anything.
-trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(String))(
-  _trait_impl_sites.with({ type_id : &type_id.*, trait_key : &trait_key.* }(m) => m.get_cloned(`${type_id}\n${trait_key}`))
+trait_impl_site_of :: (fn(type_id_ : &String, trait_key : &String) -> Option(String))(
+  _trait_impl_sites.with({ type_id : &type_id_.*, trait_key : &trait_key.* }(m) => m.get_cloned(`${type_id_}\n${trait_key}`))
 );
 /// Drop the trait-impl site recorded for (`type_id`, `trait_key`) when it was
 /// recorded FROM `site` — the undo of `note_trait_impl_site` for an impl whose
 /// registration a later check rejected (a `comptime_expect_error` catch must
 /// not leave the rejected impl answering `trait_impl_site_of`). A site
 /// recorded from another impl stays: it is not this registration's to undo.
-forget_trait_impl_site_if_from :: (fn(type_id : &String, trait_key : &String, site : &String) -> unit)({
-  key := `${type_id}\n${trait_key}`;
+forget_trait_impl_site_if_from :: (fn(type_id_ : &String, trait_key : &String, site : &String) -> unit)({
+  key := `${type_id_}\n${trait_key}`;
   match(
     _trait_impl_sites.with({ &key }(m) => m.get_cloned(key.clone())),
     .Some(prev) => if(prev == site.*, {

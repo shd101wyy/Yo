@@ -156,7 +156,7 @@ guards it; `plans/archive/FMT_PAREN_ELISION.md`). Write the bare forms directly.
   Every binder a person wrote (`::`, `:=`, `(x : T) =`, a parameter or closure parameter, a capture entry, a
   labeled return, a pattern or destructuring binding, an import rename) named by a reserved word is E0407 with
   the help "`` `law` is a builtin; rename the binding (e.g. `law_`) ``" (`reject_reserved_binder`,
-  `src/evaluator/memory-safety.yo`; `std/prelude.yo` is exempt). The set is read from the compiler, not
+  `src/evaluator/memory-safety.yo`; a std module's own top-level definitions are exempt, keyed on the resolved std root: `reject_reserved_definition`). The set is read from the compiler, not
   listed: `builtin_call_head_names` (`src/expr.yo`: every identifier-spelled head of `_evaluate_expression`'s
   dispatch except `assert`/`exists`/`_`, plus `if` `for` `return` `break` `continue` `clone` `as`;
   `tests/internal/reserved-names.test.yo` fails when a dispatch arm is missing), the builtin type names

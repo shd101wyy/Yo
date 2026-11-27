@@ -78,24 +78,24 @@ _contract_block :: (
   reqs := hook_func_requires(fid.clone());
   enss := hook_func_ensures(fid.clone());
   label := hook_func_return_label(fid.clone());
-  ghost := is_ghost_fn(fid.clone());
-  if((reqs.len() == usize(0)) && ((enss.len() == usize(0)) && !ghost), {
+  ghost_ := is_ghost_fn(fid.clone());
+  if((reqs.len() == usize(0)) && ((enss.len() == usize(0)) && !ghost_), {
     return(Option(String).None);
   });
-  Option(String).Some(_render_contract_block(&reqs, &enss, &label, ghost, resolve_verify_mode(module_path)))
+  Option(String).Some(_render_contract_block(&reqs, &enss, &label, ghost_, resolve_verify_mode(module_path)))
 });
 _render_contract_block :: (
   fn(
     reqs : &ArrayList(AstExpr),
     enss : &ArrayList(AstExpr),
     label : &Option(String),
-    ghost : bool,
+    ghost_ : bool,
     mode : &String
   ) -> String
 )({
   sb := StringBuilder.new();
   sb.write_string(String.from("\n\n---\n\n**contracts**"));
-  if(ghost, {
+  if(ghost_, {
     sb.write_string(String.from(" · ghost_fn (spec-only, never called at runtime)"));
   });
   sb.write_string(`\n\nverification mode: ${mode}\n`);

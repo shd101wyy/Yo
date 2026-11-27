@@ -3103,13 +3103,13 @@ _doc_type_name :: (fn(t : &TypeValue) -> String)(
 /// they live in the type_trait_methods registry keyed by the
 /// type's id. `___`-prefixed (compiler-generated) members are skipped.
 _extract_methods :: (
-  fn(type_id : &String, type_name : &String, doc_lookup : &HashMap(String, String)) -> ArrayList(DocFunction)
+  fn(type_id_ : &String, type_name : &String, doc_lookup : &HashMap(String, String)) -> ArrayList(DocFunction)
 )({
   methods := ArrayList(DocFunction).new();
-  if(type_id.len() == usize(0), {
+  if(type_id_.len() == usize(0), {
     return(methods);
   });
-  entries := get_type_trait_methods_for_type(type_id);
+  entries := get_type_trait_methods_for_type(type_id_);
   (i : usize) = usize(0);
   while(i < entries.len(), {
     entry := match(

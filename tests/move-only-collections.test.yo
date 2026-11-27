@@ -76,7 +76,7 @@ test("HashMap of a move-only value: insert, overwrite, read in place, remove, re
     assert(m(i32(3)).n == i32(3), "read in place through the Index impl");
     match(
       m.insert(i32(3), _McFd(n : i32(300))),
-      .Some(old) => assert(_mc_take(old) == i32(3), "the overwritten value moves out"),
+      .Some(old_) => assert(_mc_take(old_) == i32(3), "the overwritten value moves out"),
       .None => assert(false, "the key was present")
     );
     assert(m(i32(3)).n == i32(300), "the new value is stored");
@@ -125,7 +125,7 @@ test("HashMap of a move-only key with a copyable value: get copies the value onl
   m.insert(_McTok(id : i32(1)), i32(10));
   m.insert(_McTok(id : i32(2)), i32(20));
   assert(m.get(&_McTok(id : i32(2))).unwrap_or(i32(0)) == i32(20), "get reads the value without copying the key");
-  match(m.insert(_McTok(id : i32(2)), i32(21)), .Some(old) => assert(old == i32(20), "the old value"), .None => assert(false, "present"));
+  match(m.insert(_McTok(id : i32(2)), i32(21)), .Some(old_) => assert(old_ == i32(20), "the old value"), .None => assert(false, "present"));
   assert(m.remove(&_McTok(id : i32(1))).unwrap_or(i32(0)) == i32(10), "remove drops the stored key");
   assert(m.len() == usize(1), "one key left");
 });
@@ -167,7 +167,7 @@ test("BTreeMap of a move-only value: insert, overwrite, remove, pop_first, pop_l
     assert(m.contains_key(&i32(5)), "contains_key does not copy the value");
     match(
       m.insert(i32(5), _McFd(n : i32(500))),
-      .Some(old) => assert(_mc_take(old) == i32(5), "the overwritten value moves out"),
+      .Some(old_) => assert(_mc_take(old_) == i32(5), "the overwritten value moves out"),
       .None => assert(false, "the key was present")
     );
     match(
@@ -196,7 +196,7 @@ test("BTreeMap of a move-only key", {
   m.insert(_McTok(id : i32(1)), i32(10));
   m.insert(_McTok(id : i32(3)), i32(30));
   assert(m.get(&_McTok(id : i32(2))).unwrap_or(i32(0)) == i32(20), "found by binary search, compared in place");
-  match(m.insert(_McTok(id : i32(2)), i32(21)), .Some(old) => assert(old == i32(20), "the old value"), .None => assert(false, "present"));
+  match(m.insert(_McTok(id : i32(2)), i32(21)), .Some(old_) => assert(old_ == i32(20), "the old value"), .None => assert(false, "present"));
   assert(m.remove(&_McTok(id : i32(1))).unwrap_or(i32(0)) == i32(10), "removed");
   match(m.pop_first(), .Some(e) => assert(e.key.id == i32(2), "the order holds"), .None => assert(false, "non-empty"));
   assert(m.len() == usize(1), "one entry left");
@@ -211,7 +211,7 @@ test("OrderedMap of a move-only value: insert, overwrite, remove, swap_remove", 
     });
     match(
       m.insert(i32(3), _McFd(n : i32(300))),
-      .Some(old) => assert(_mc_take(old) == i32(3), "the overwritten value moves out"),
+      .Some(old_) => assert(_mc_take(old_) == i32(3), "the overwritten value moves out"),
       .None => assert(false, "the key was present")
     );
     match(
@@ -279,7 +279,7 @@ test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop eac
       m.insert(_McKd(id : i), i);
     });
     assert(g_mc_kdropped == before, "inserts and rehashes drop no key");
-    match(m.insert(_McKd(id : i32(3)), i32(300)), .Some(old) => assert(old == i32(3), "the old value"), .None => assert(false, "present"));
+    match(m.insert(_McKd(id : i32(3)), i32(300)), .Some(old_) => assert(old_ == i32(3), "the old value"), .None => assert(false, "present"));
     assert(g_mc_kdropped == (before + i32(1)), "an overwrite drops one of the two equal keys");
     assert(m.remove(&p5).unwrap_or(i32(0)) == i32(5), "removed");
     assert(g_mc_kdropped == (before + i32(2)), "remove drops the stored key");
@@ -338,7 +338,7 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
       m.insert(_McKd(id : i), i);
     });
     assert(g_mc_kdropped == before2, "inserts drop no key");
-    match(m.insert(_McKd(id : i32(5)), i32(50)), .Some(old) => assert(old == i32(5), "the old value"), .None => assert(false, "present"));
+    match(m.insert(_McKd(id : i32(5)), i32(50)), .Some(old_) => assert(old_ == i32(5), "the old value"), .None => assert(false, "present"));
     assert(g_mc_kdropped == (before2 + i32(1)), "an overwrite drops the new key");
     assert(m.remove(&p6).unwrap_or(i32(0)) == i32(6), "removed");
     assert(g_mc_kdropped == (before2 + i32(2)), "remove drops the stored key");
@@ -381,7 +381,7 @@ test("OrderedMap of a Drop key: insert, overwrite, remove, swap_remove, index_of
     assert(m.get(&k3).unwrap() == i32(30), "get");
     assert(m.index_of(&k3).unwrap() == usize(2), "index_of");
     // An overwrite moves only the value: the new key drops, the stored one stays.
-    match(m.insert(_McKd(id : i32(2)), i32(200)), .Some(old) => assert(old == i32(20), "the old value moves out"), .None => assert(false, "present"));
+    match(m.insert(_McKd(id : i32(2)), i32(200)), .Some(old_) => assert(old_ == i32(20), "the old value moves out"), .None => assert(false, "present"));
     assert(g_mc_kdropped == (before + i32(1)), "the overwritten insert's argument key dropped once");
     assert(m.get(&k2).unwrap() == i32(200), "the new value is stored");
     // remove shifts the tail and fixes the position records.
@@ -416,7 +416,7 @@ test("OrderedMap of a plain key with neither Copy nor Clone: the same surface", 
   m.insert(_McTok(id : i32(1)), i32(10));
   m.insert(_McTok(id : i32(2)), i32(20));
   m.insert(_McTok(id : i32(3)), i32(30));
-  match(m.insert(_McTok(id : i32(2)), i32(200)), .Some(old) => assert(old == i32(20), "overwrite"), .None => assert(false, "present"));
+  match(m.insert(_McTok(id : i32(2)), i32(200)), .Some(old_) => assert(old_ == i32(20), "overwrite"), .None => assert(false, "present"));
   assert(m.contains_key(&t2), "found without a copy");
   match(m.remove(&t2), .Some(v) => assert(v == i32(200), "removed"), .None => assert(false, "present"));
   assert(m.index_of(&_McTok(id : i32(3))).unwrap() == usize(1), "positions fixed");
@@ -433,9 +433,9 @@ test("OrderedMap of a plain key with neither Copy nor Clone: the same surface", 
 test("HashMap of a plain value with neither Copy nor Clone: insert, overwrite, try_insert, remove", {
   mut(m) := HashMap(String, _McTok).new();
   assert(m.insert(String.from("a"), _McTok(id : i32(10))).is_none(), "a fresh key");
-  match(m.insert(String.from("a"), _McTok(id : i32(11))), .Some(old) => assert(old.id == i32(10), "the old value"), .None => assert(false, "present"));
+  match(m.insert(String.from("a"), _McTok(id : i32(11))), .Some(old_) => assert(old_.id == i32(10), "the old value"), .None => assert(false, "present"));
   match(m.try_insert(String.from("b"), _McTok(id : i32(20))), .Ok(.None) => (), _ => assert(false, "a fresh key"));
-  match(m.try_insert(String.from("b"), _McTok(id : i32(21))), .Ok(.Some(old)) => assert(old.id == i32(20), "the old value"), _ => assert(false, "present"));
+  match(m.try_insert(String.from("b"), _McTok(id : i32(21))), .Ok(.Some(old_)) => assert(old_.id == i32(20), "the old value"), _ => assert(false, "present"));
   match(m.remove(&String.from("a")), .Some(v) => assert(v.id == i32(11), "removed"), .None => assert(false, "present"));
   assert(m.len() == usize(1), "one left");
 });

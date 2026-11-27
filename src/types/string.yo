@@ -39,18 +39,18 @@ bump_type_key_epoch :: (fn() -> unit)({
 type_key_epoch :: (fn() -> u64)(g_type_key_epoch);
 /// Record `display` (`Ctor(Arg, …)`) for the type with id `type_id`. The
 /// first registration wins — one id is minted by one constructor call.
-register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)({
-  if(!g_type_display_names.with({ type_id : &type_id.* }(m) => m.contains_key(type_id.clone())), {
+register_type_display_name :: (fn(type_id_ : &String, display : &String) -> unit)({
+  if(!g_type_display_names.with({ type_id : &type_id_.* }(m) => m.contains_key(type_id_.clone())), {
     // Owned captures (`with_mut`'s callback is a sink parameter).
-    tdn_key := type_id.clone();
+    tdn_key := type_id_.clone();
     tdn_val := display.clone();
     _prev := g_type_display_names.with_mut({ tdn_key, tdn_val }(m) => m.insert(tdn_key, tdn_val));
     bump_type_key_epoch();
   });
 });
 /// The registered display name for `type_id`, if any.
-type_display_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_display_names.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id))
+type_display_name :: (fn(type_id_ : &String) -> Option(String))(
+  g_type_display_names.with({ type_id : &type_id_.* }(m) => m.get_cloned(type_id_))
 );
 /// One id serves every origin of a constructor instance (decision 43 step 3,
 /// N2a T3: the memo erases origins), so the first call's display names the
@@ -59,9 +59,9 @@ type_display_name :: (fn(type_id : &String) -> Option(String))(
 /// (`_display_with_own_origins`).
 DISPLAY_ORIGIN_MARK :: "<<origin>>";
 (g_type_display_origin_templates : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
-register_type_display_origin_template :: (fn(type_id : &String, template : &String) -> unit)({
-  if(!g_type_display_origin_templates.with({ type_id : &type_id.* }(m) => m.contains_key(type_id)), {
-    key_owned := type_id.clone();
+register_type_display_origin_template :: (fn(type_id_ : &String, template : &String) -> unit)({
+  if(!g_type_display_origin_templates.with({ type_id : &type_id_.* }(m) => m.contains_key(type_id_)), {
+    key_owned := type_id_.clone();
     tpl_owned := template.clone();
     _prev := g_type_display_origin_templates.with_mut({ key_owned, tpl_owned }(m) => m.insert(key_owned, tpl_owned));
     bump_type_key_epoch();

@@ -799,8 +799,8 @@ register_func_decreases_expr :: (fn(func_id : &String, measure : &Option(AstExpr
   );
 });
 /// Register the signature's `assumed()` marker. No-op when absent (sparse).
-register_func_assumed_body :: (fn(func_id : &String, assumed : bool) -> unit)({
-  if(assumed, {
+register_func_assumed_body :: (fn(func_id : &String, assumed_ : bool) -> unit)({
+  if(assumed_, {
     record_owned_func_id(func_id.clone());
     func_id_owned := func_id.clone();
     g_func_assumed_body.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));

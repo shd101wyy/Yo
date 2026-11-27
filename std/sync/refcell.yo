@@ -206,9 +206,9 @@ impl(
     // in, so nothing is copied and nothing is dropped twice (a move-only `T`
     // works). The whole slot moves, never `_value` through `addr_of`: a
     // `unit` value has no C storage to point at (`HashMap.try_insert`).
-    old := __yo_ptr_read(slot);
+    old_ := __yo_ptr_read(slot);
     __yo_ptr_write(slot, _RefCellSlot(T)(_borrow : mark, _value : value));
-    match(old, { _borrow : _, _value : old_value } => old_value)
+    match(old_, { _borrow : _, _value : old_value } => old_value)
   })
 );
 /// `take`, for a `T` with a default.

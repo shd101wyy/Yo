@@ -246,11 +246,11 @@ test("with, with_mut, replace_with and replace keep a cell reached through an Rc
   assert(_rc_cell_drops == i32(2), "destroyed once");
   mut(c) := _rc_tracked_list(i32(3));
   c2 := talias(&mut c);
-  old := c(usize(0)).replace_with(v => {
+  old_ := c(usize(0)).replace_with(v => {
     tclear(&c2);
     _RcTracked(n : (v.n + _rc_cell_drops))
   });
-  assert(old.n == i32(3), "replace_with: the old value, read from a live cell");
+  assert(old_.n == i32(3), "replace_with: the old value, read from a live cell");
   assert(_rc_cell_drops == i32(3), "the new value is destroyed with the cell after the call; the old one is held");
   mut(d) := _rc_tracked_list(i32(4));
   d2 := talias(&mut d);

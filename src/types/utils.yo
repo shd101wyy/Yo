@@ -1576,11 +1576,11 @@ join_static_bit :: (fn(a : &TypeValue, b : &TypeValue, depth : u32) -> TypeValue
     _ => a.clone()
   )
 });
-_join_static_bit_list :: (fn(as : &SharedList(TypeValue), bs : &SharedList(TypeValue), depth : u32) -> SharedList(TypeValue))({
+_join_static_bit_list :: (fn(as_ : &SharedList(TypeValue), bs : &SharedList(TypeValue), depth : u32) -> SharedList(TypeValue))({
   out := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
-  while(i < as.len(), {
-    ai := match(as.get(i), .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
+  while(i < as_.len(), {
+    ai := match(as_.get(i), .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
     bi := match(bs.get(i), .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
     out.push(join_static_bit(&ai, &bi, (depth + u32(1))));
     i = (i + usize(1));

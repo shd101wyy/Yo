@@ -45,11 +45,11 @@ export(StringBuilder, Alignment);
 /// `print`/`println`/`eprint`/`eprintln` (audit fmt row: collapse the four
 /// duplicated print bodies).
 _write_str :: (fn(s : &String, stream : *FILE) -> unit)({
-  str_bytes := &s.*;
-  str_bytes_len := str_bytes.len();
+  str_bytes_ := &s.*;
+  str_bytes_len := str_bytes_.len();
   cond(
     (str_bytes_len > usize(0)) => {
-      str_bytes_ptr := str_bytes.ptr().unwrap();
+      str_bytes_ptr := str_bytes_.ptr().unwrap();
       _w := unsafe(fwrite((*void)(str_bytes_ptr), usize(1), str_bytes_len, stream));
     },
     true => ()

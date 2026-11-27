@@ -57,10 +57,10 @@ test("is_reference_struct_type matches reference-semantics struct only", {
   assert(!is_reference_struct_type(t_i32()), "i32 is not an object");
 });
 test("is_atomic_reference_struct_type requires both reference-semantics + atomic_rc", {
-  atomic := mk_struct("A", empty_labels(), true, true, false);
+  atomic_ := mk_struct("A", empty_labels(), true, true, false);
   plain_obj := mk_struct("B", empty_labels(), true, false, false);
   value_struct := mk_struct("C", empty_labels(), false, true, false); // is_atomic_rc on value is nonsense but should not match
-  assert(is_atomic_reference_struct_type(&atomic), "atomic object");
+  assert(is_atomic_reference_struct_type(&atomic_), "atomic object");
   assert(!is_atomic_reference_struct_type(&plain_obj), "non-atomic object");
   assert(!is_atomic_reference_struct_type(&value_struct), "value struct can't be atomic");
 });

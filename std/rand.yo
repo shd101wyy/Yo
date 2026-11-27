@@ -35,11 +35,11 @@ impl(
   /// The next 32 uniformly random bits. THE algorithm — `Rng` and the
   /// per-thread generator both go through this one copy.
   next_u32 : (fn(self : &mut Self) -> u32)({
-    old := self.state;
+    old_ := self.state;
     // PCG's LCG step wraps BY DESIGN (wrapping_mul/add, safe mode D1).
-    self.state = old.wrapping_mul(_PCG_MULT).wrapping_add(self.inc);
-    xorshifted := u32(((old >> u64(18)) ^ old) >> u64(27));
-    rot := u32(old >> u64(59));
+    self.state = old_.wrapping_mul(_PCG_MULT).wrapping_add(self.inc);
+    xorshifted := u32(((old_ >> u64(18)) ^ old_) >> u64(27));
+    rot := u32(old_ >> u64(59));
     // `-rot & 31` wraps by design (the mask folds the negation back);
     // wrapping_sub keeps that design explicit under the Phase 3 traps.
     (xorshifted >> rot) | (xorshifted << (u32(0).wrapping_sub(rot) & u32(31)))

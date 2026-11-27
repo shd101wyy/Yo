@@ -360,7 +360,7 @@ set_type_implements_trait_full_fn :: (fn(f : TypeImplementsTraitFullFn) -> unit)
 /// type implements a trait VALUE (by its base id) so `Type.impls(T, Trait)`
 /// resolves at trait-checking step 4. Routed via a function pointer to break the
 /// impl.yo ↔ trait-checking.yo import cycle (same pattern as above).
-RegisterTraitValueFn :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit);
+RegisterTraitValueFn :: (fn(type_id_ : &String, trait_ty : &TypeValue) -> unit);
 (mut(g_register_trait_value_fn) : Option(RegisterTraitValueFn)) =
   Option(RegisterTraitValueFn).None;
 /// Install the function pointer (called from trait-checking.yo init block).
@@ -457,12 +457,12 @@ set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 /// `TreeNode <: Clone` even though the impl hasn't been formally
 /// registered yet.
 (_currently_registering_concrete_impls : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
-_concrete_impl_key :: (fn(type_id : &String, trait_id : &String) -> String)(
-  type_id.clone() + String.from(":") + trait_id.clone()
+_concrete_impl_key :: (fn(type_id_ : &String, trait_id : &String) -> String)(
+  type_id_.clone() + String.from(":") + trait_id.clone()
 );
 /// Returns true if (type_id, trait_id) is currently being registered.
-is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> bool)({
-  k := _concrete_impl_key(type_id, trait_id);
+is_concrete_impl_being_registered :: (fn(type_id_ : &String, trait_id : &String) -> bool)({
+  k := _concrete_impl_key(type_id_, trait_id);
   match(
     _currently_registering_concrete_impls.with({ &k }(m) => m.get(k)),
     .Some(_) => true,
@@ -470,13 +470,13 @@ is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) 
   )
 });
 /// Mark a type+trait pair as currently being registered.
-mark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)({
-  k := _concrete_impl_key(type_id, trait_id);
+mark_concrete_impl_being_registered :: (fn(type_id_ : &String, trait_id : &String) -> unit)({
+  k := _concrete_impl_key(type_id_, trait_id);
   _currently_registering_concrete_impls.with_mut(m => m.insert(k.clone(), true));
 });
 /// Unmark a type+trait pair after registration completes.
-unmark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)({
-  k := _concrete_impl_key(type_id, trait_id);
+unmark_concrete_impl_being_registered :: (fn(type_id_ : &String, trait_id : &String) -> unit)({
+  k := _concrete_impl_key(type_id_, trait_id);
   _currently_registering_concrete_impls.with_mut(m => m.remove(&k));
 });
 /// Extract the registry key from a trait TypeValue.
@@ -837,8 +837,8 @@ generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usiz
 // tests.
 // ---------------------------------------------------------------------------
 (g_negative_impl_registry : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
-has_negative_impl :: (fn(type_id : &String, trait_id : &String) -> bool)({
-  key := `${type_id}:${trait_id}`;
+has_negative_impl :: (fn(type_id_ : &String, trait_id : &String) -> bool)({
+  key := `${type_id_}:${trait_id}`;
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < g_negative_impl_registry.with(_c_len_2)) && !found, {
@@ -853,10 +853,10 @@ has_negative_impl :: (fn(type_id : &String, trait_id : &String) -> bool)({
   });
   found
 });
-register_negative_impl :: (fn(type_id : &String, trait_id : &String) -> unit)({
-  if(!has_negative_impl(type_id, trait_id), {
+register_negative_impl :: (fn(type_id_ : &String, trait_id : &String) -> unit)({
+  if(!has_negative_impl(type_id_, trait_id), {
     trait_id_owned := trait_id.clone();
-    g_negative_impl_registry.with_mut({ trait_id_owned, type_id : type_id.clone() }(xs) => xs.push(`${type_id}:${trait_id_owned}`));
+    g_negative_impl_registry.with_mut({ trait_id_owned, type_id : type_id_.clone() }(xs) => xs.push(`${type_id_}:${trait_id_owned}`));
   });
 });
 // Matches a generic impl's receiver-type pattern against a concrete type
@@ -2523,10 +2523,10 @@ _nominal_root_identity :: (fn(t : &TypeValue) -> Option(String))(
     _ => Option(String).None
   )
 );
-_decl_identity_of :: (fn(ctor_fid : String, type_id : &String, stable_prefix : String) -> Option(String))(
+_decl_identity_of :: (fn(ctor_fid : String, type_id_ : &String, stable_prefix : String) -> Option(String))(
   cond(
     (ctor_fid.len() > usize(0)) => Option(String).Some(`ctor:${ctor_fid}`),
-    type_id.starts_with(&stable_prefix) => Option(String).Some(`type:${type_id}`),
+    type_id_.starts_with(&stable_prefix) => Option(String).Some(`type:${type_id_}`),
     true => Option(String).None
   )
 );
@@ -5246,10 +5246,10 @@ _force_field_eval :: (fn(stack_idx : usize, field_idx : usize) -> unit)({
 /// (`_try_create_forward_shell`) and the lazy shell materializer — shells had
 /// their own func_ids and needed codegen thunks (`register_shell_redirect`).
 force_in_flight_field :: (
-  fn(type_id : &String, method_name : &String) -> bool
+  fn(type_id_ : &String, method_name : &String) -> bool
 )({
   stack_idx := match(
-    newest_impl_in_flight_index_for(type_id),
+    newest_impl_in_flight_index_for(type_id_),
     .Some(i) => i,
     .None => {
       return(false);
@@ -5308,7 +5308,7 @@ force_in_flight_field :: (
           });
         });
         if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
-          eprintln(`[force-field] phase-A ${type_id}.${method_name}`);
+          eprintln(`[force-field] phase-A ${type_id_}.${method_name}`);
         });
         true
       },
@@ -5316,7 +5316,7 @@ force_in_flight_field :: (
     ),
     .Unforced => {
       if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
-        eprintln(`[force-field] ${type_id}.${method_name} (impl arg ${pf.top_index.to_string()}, inner=${pf.is_inner.to_string()})`);
+        eprintln(`[force-field] ${type_id_}.${method_name} (impl arg ${pf.top_index.to_string()}, inner=${pf.is_inner.to_string()})`);
       });
       // Process-wide "where am I" state the surrounding trial owns — reset
       // to what an in-place evaluation of this member would see.

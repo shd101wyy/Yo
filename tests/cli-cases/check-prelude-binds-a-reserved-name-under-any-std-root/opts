@@ -1,0 +1,10 @@
+# The prelude may bind a reserved name (std/prelude.yo's `unsafe :: impl(...)`
+# namespace); the exemption is keyed on the RESOLVED std root, not on a path
+# suffix. Before, the gate tested `module_path.ends_with("std/prelude.yo")`,
+# so a `--std-path` directory not named `std` made the prelude's own binding
+# E0407 (VERDICTS-93 §6 item 6;
+# issues/fixed/2026-11-27-the-reserved-name-exemption-is-keyed-on-a-path-suffix.md).
+# The first check loads `lib/prelude.yo`, which binds `unsafe`, and passes. The
+# second shows the rule still holds for a user file under the same root.
+stdout_keep_match=(check: [0-9]+/[0-9]+ file\(s\) passed|error\[E0407\]: "unsafe" names a builtin)
+timeout=120

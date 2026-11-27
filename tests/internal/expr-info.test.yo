@@ -176,9 +176,9 @@ test("control_flow_to_string — multiple flags", {
 // ---------------------------------------------------------------------------
 test("ComptimeRef ArrayRef construction", {
   elems := ArrayList(EvalValue).new();
-  ref := ComptimeRef.ArrayRef(elements : value_cell_new(elems), index : usize(0));
+  ref_ := ComptimeRef.ArrayRef(elements : value_cell_new(elems), index : usize(0));
   match(
-    ref,
+    ref_,
     .ArrayRef(_, idx) => assert(idx == usize(0), "ArrayRef index"),
     .ComptimeListRef(_, _) => assert(false, "wrong variant"),
     .StructRef(_, _) => assert(false, "wrong variant"),
@@ -187,9 +187,9 @@ test("ComptimeRef ArrayRef construction", {
 });
 test("ComptimeRef StructRef construction", {
   fields := ArrayList(EvalValue).new();
-  ref := ComptimeRef.StructRef(field_values : value_cell_new(fields), field_index : usize(2));
+  ref_ := ComptimeRef.StructRef(field_values : value_cell_new(fields), field_index : usize(2));
   match(
-    ref,
+    ref_,
     .StructRef(_, fi) => assert(fi == usize(2), "StructRef field_index"),
     .ArrayRef(_, _) => assert(false, "wrong variant"),
     .ComptimeListRef(_, _) => assert(false, "wrong variant"),

@@ -114,9 +114,9 @@ impl(
         // never a field through `addr_of`: a `unit` value has no C storage
         // to point at.
         p := addr_of(self._entries(r.idx));
-        old := __yo_ptr_read(p);
+        old_ := __yo_ptr_read(p);
         drop(k);
-        match(old, { key : stored, value : old_value } => {
+        match(old_, { key : stored, value : old_value } => {
           __yo_ptr_write(p, MapEntry(K, V)(key : stored, value : v));
           .Some(old_value)
         })

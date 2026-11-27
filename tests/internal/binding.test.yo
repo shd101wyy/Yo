@@ -54,11 +54,11 @@ mk_op :: (fn(id : usize, op : str) -> AstExpr)(
 );
 /// Build a `(name : typename)` FnCall:
 ///   FnCall(call_id, Atom(":"), [Atom(name_id, name), Atom(type_id, typename)], true, ":"-token)
-mk_binding_expr :: (fn(call_id : usize, name_id : usize, name : str, type_id : usize, typename : str) -> AstExpr)({
+mk_binding_expr :: (fn(call_id : usize, name_id : usize, name : str, type_id_ : usize, typename : str) -> AstExpr)({
   callee := Rc.new(AstExprNode.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON)));
   mut(args) := ArrayList(AstExpr).new();
   args.push(mk_ident(name_id, name));
-  args.push(mk_ident(type_id, typename));
+  args.push(mk_ident(type_id_, typename));
   Rc.new(AstExprNode.FnCall(call_id, callee, Rc.new(args), true, mk_token(TokenKind.Operator, BK_COLON)))
 });
 /// Build `comptime(inner)` FnCall.
@@ -69,13 +69,13 @@ mk_comptime_wrap :: (fn(call_id : usize, inner : &AstExpr) -> AstExpr)({
   Rc.new(AstExprNode.FnCall(call_id, callee, Rc.new(args), false, mk_token(TokenKind.Identifier, BK_COMPTIME)))
 });
 /// Build a `(comptime(name) : typename)` binding.
-mk_comptime_binding :: (fn(call_id : usize, name_id : usize, name : str, type_id : usize, typename : str) -> AstExpr)({
+mk_comptime_binding :: (fn(call_id : usize, name_id : usize, name : str, type_id_ : usize, typename : str) -> AstExpr)({
   ct_call_id := (call_id + usize(500));
   comptime_lhs := mk_comptime_wrap(ct_call_id, mk_ident(name_id, name));
   callee := Rc.new(AstExprNode.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON)));
   mut(args) := ArrayList(AstExpr).new();
   args.push(comptime_lhs);
-  args.push(mk_ident(type_id, typename));
+  args.push(mk_ident(type_id_, typename));
   Rc.new(AstExprNode.FnCall(call_id, callee, Rc.new(args), true, mk_token(TokenKind.Operator, BK_COLON)))
 });
 /// Stub evaluator: maps type-name identifiers to TypeVal.

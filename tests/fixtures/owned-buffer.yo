@@ -20,8 +20,8 @@ impl(
   push : (fn(self : &mut Self, value : T) -> unit)({
     if(self._len == self._cap, {
       cap := cond((self._cap == usize(0)) => usize(4), true => (self._cap * usize(2)));
-      old := match(self._ptr, .Some(p) => Option(*void).Some((*void)(p)), .None => Option(*void).None);
-      grown := unsafe(realloc(old, cap * size_of(T)));
+      old_ := match(self._ptr, .Some(p) => Option(*void).Some((*void)(p)), .None => Option(*void).None);
+      grown := unsafe(realloc(old_, cap * size_of(T)));
       self._ptr = match(grown, .Some(g) => Option(*T).Some((*T)(g)), .None => panic("VList: out of memory"));
       self._cap = cap;
     });

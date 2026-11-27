@@ -380,22 +380,22 @@ _emit_capture_drop_lines :: (
   });
   context.base.emitter.declared_ref = prev_declared;
   context.base.emitter.scope_ref = prev_scope;
-  produced := context.base.emitter.code.substring(before, context.base.emitter.code.len());
+  produced_ := context.base.emitter.code.substring(before, context.base.emitter.code.len());
   // In place: a copy of the whole code buffer per spawn was a ~110 MB
   // transient late in the self-build's emit (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §0.6).
   context.base.emitter.code.truncate(before);
   // Re-emit what the walk produced, one line at a time, into the declaration
   // buffer with the wrapper's indentation.
   (mut(start) : usize) = usize(0);
-  pn := produced.len();
+  pn := produced_.len();
   (mut(pi) : usize) = usize(0);
   while(pi <= pn, {
     at_end := (pi == pn);
-    is_nl := if(at_end, false, produced.byte_at(pi) == u8(10));
+    is_nl := if(at_end, false, produced_.byte_at(pi) == u8(10));
     if(at_end || is_nl, {
       if(pi > start, {
         mut(line) := String.from("  ");
-        line.push_string(produced.substring(start, pi));
+        line.push_string(produced_.substring(start, pi));
         context.base.emitter.emit_declaration_string_line(&line);
       });
       start = (pi + usize(1));

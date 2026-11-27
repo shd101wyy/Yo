@@ -8383,16 +8383,16 @@ impl(
   take : (fn(self : &mut Self) -> Option(T))({
     // A bitwise move out and in: a move-only payload is never copied.
     p := addr_of(self.*);
-    old := __yo_ptr_read(p);
+    old_ := __yo_ptr_read(p);
     __yo_ptr_write(p, Option(T).None);
-    old
+    old_
   }),
   /// Replace the contained value with `Some(value)`, returning the old option.
   replace : (fn(self : &mut Self, value : T) -> Option(T))({
     p := addr_of(self.*);
-    old := __yo_ptr_read(p);
+    old_ := __yo_ptr_read(p);
     __yo_ptr_write(p, Option(T).Some(value));
-    old
+    old_
   })
 );
 /// Flatten a nested `Option(Option(T))` into `Option(T)`.

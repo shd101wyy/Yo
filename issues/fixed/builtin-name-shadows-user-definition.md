@@ -102,8 +102,10 @@ of the binder is in the file and none heads a call or is a brace pun, a
 `yo fix` repair that renames the binder and its uses to `law_`. Every binder is
 checked: `::`, `:=`, a typed `(x : T) =`, a parameter (a closure's included), a
 capture entry, a labeled return, a pattern or destructuring binding, an import
-rename. `std/prelude.yo` is exempt; compiler-minted binders are never checked
-(`TokenData.written`, VERDICTS-72 rule (b)).
+rename. A std module's own top-level definitions are exempt (the prelude's
+`unsafe` namespace, `std/build.yo`'s `test`), keyed on the resolved std root;
+std's parameters and locals are checked. Compiler-minted binders are never
+checked (`TokenData.written`, VERDICTS-72 rule (b)).
 
 The reserved set is read from the compiler, not listed by hand
 (`reserved_binding_message`, `src/evaluator/memory-safety.yo`):

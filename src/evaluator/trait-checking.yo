@@ -180,11 +180,11 @@ _c_len_3 :: (fn(xs : &ArrayList(TypeValue)) -> usize)(xs.len());
 /// scope yet (rare — e.g. a struct defined before the marker trait), skip
 /// silently.
 /// Called during struct/enum/union construction by `evaluator/types/utils.yo`.
-register_type_trait :: (fn(type_id : &String, trait_name : &(str, static), env : &Environment) -> unit)({
+register_type_trait :: (fn(type_id_ : &String, trait_name : &(str, static), env : &Environment) -> unit)({
   match(
     get_trait_type_from_env(env, String.from(trait_name)),
     .Some(trait_ty) => {
-      register_type_trait_value(type_id, &trait_ty);
+      register_type_trait_value(type_id_, &trait_ty);
     },
     .None => ()
   );
@@ -194,13 +194,13 @@ register_type_trait :: (fn(type_id : &String, trait_name : &(str, static), env :
 /// by impl.yo when a concrete `impl(T, SomeTrait(...))` is registered, so
 /// `Type.impls(T, SomeTrait)` resolves by id at step 4 — the base trait id
 /// `trait_ty` carries matches the id the query evaluates `SomeTrait` to.
-register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit)({
+register_type_trait_value :: (fn(type_id_ : &String, trait_ty : &TypeValue) -> unit)({
   // Taken out of the registry and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  type_id_owned := type_id.clone();
+  type_id_owned := type_id_.clone();
   list := match(g_type_trait_registry.with_mut({ type_id_owned }(m) => m.remove(type_id_owned.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(Rc.clone(trait_ty));
-  type_id_owned2 := type_id.clone();
+  type_id_owned2 := type_id_.clone();
   list_owned := list.clone();
   g_type_trait_registry.with_mut({ type_id_owned2, list_owned }(m) => m.insert(type_id_owned2.clone(), list_owned));
   bump_trait_impl_epoch();
@@ -225,9 +225,9 @@ _trait_type_id :: (fn(ty : &TypeValue) -> String)(
 /// `are_types_compatible`: `TraitT` compatibility is name-based and
 /// every marker is nameless (empty name), so it would treat EVERY marker as
 /// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
-is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
+is_type_registered_as_trait :: (fn(type_id_ : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
   match(
-    g_type_trait_registry.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id)),
+    g_type_trait_registry.with({ type_id : &type_id_.* }(m) => m.get_cloned(type_id_)),
     .None => false,
     .Some(list) => {
       n := list.len();
@@ -833,8 +833,8 @@ _find_matching_generic_impl :: (fn(target : &TypeValue, trait_ty : &TypeValue, e
 /// Used to handle recursive
 /// types — e.g. `impl(TreeNode, Clone(...))` whose function bodies
 /// validate `TreeNode <: Clone` before the impl is formally registered.
-_is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> bool)(
-  is_concrete_impl_being_registered(type_id, trait_id)
+_is_concrete_impl_being_registered :: (fn(type_id_ : &String, trait_id : &String) -> bool)(
+  is_concrete_impl_being_registered(type_id_, trait_id)
 );
 // ---------------------------------------------------------------------------
 // _check_associated_type_constraints
@@ -2610,14 +2610,14 @@ type_implements_runtime_full :: (fn(ty : &TypeValue, env : &Environment) -> bool
 /// Mark a type as currently undergoing Send auto-derivation.
 ///
 ///
-begin_send_derivation :: (fn(type_id : &String) -> unit)({
-  type_id_owned := type_id.clone();
+begin_send_derivation :: (fn(type_id_ : &String) -> unit)({
+  type_id_owned := type_id_.clone();
   g_send_derivation_in_progress.with_mut({ type_id_owned }(xs) => xs.push(type_id_owned.clone()));
 });
 /// Remove a type from the Send auto-derivation in-progress set.
 ///
 ///
-end_send_derivation :: (fn(type_id : &String) -> unit)({
+end_send_derivation :: (fn(type_id_ : &String) -> unit)({
   n := g_send_derivation_in_progress.with(_c_len_1);
   (i : usize) = usize(0);
   (found_idx : Option(usize)) = Option(usize).None;
@@ -2630,7 +2630,7 @@ end_send_derivation :: (fn(type_id : &String) -> unit)({
         continue;
       }
     );
-    if(entry == type_id.*, {
+    if(entry == type_id_.*, {
       found_idx = Option(usize).Some(i);
     });
     i = (i + usize(1));
@@ -3721,11 +3721,11 @@ find_some_type_missing_comptime_constraint :: (
 // owns the underlying HashMap). Defined that way so the impl
 // evaluator — which already imports impl.yo — can call them without
 // a circular dependency through trait-checking.yo.
-mark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)(
-  impl_mark_concrete_impl_being_registered(type_id, trait_id)
+mark_concrete_impl_being_registered :: (fn(type_id_ : &String, trait_id : &String) -> unit)(
+  impl_mark_concrete_impl_being_registered(type_id_, trait_id)
 );
-unmark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)(
-  impl_unmark_concrete_impl_being_registered(type_id, trait_id)
+unmark_concrete_impl_being_registered :: (fn(type_id_ : &String, trait_id : &String) -> unit)(
+  impl_unmark_concrete_impl_being_registered(type_id_, trait_id)
 );
 // Install type_implements_trait_bool as the function pointer used by
 // impl.yo's try_match_generic_impl for where-clause checking.

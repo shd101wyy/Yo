@@ -229,9 +229,9 @@ impl(
         // slot (HashMap.try_insert's idiom): nothing is copied, and the key
         // stays where it is.
         p := self._entries_ptr().add(pos);
-        old := __yo_ptr_read(unsafe(addr_of(p.*.value)));
+        old_ := __yo_ptr_read(unsafe(addr_of(p.*.value)));
         __yo_ptr_write(unsafe(addr_of(p.*.value)), value);
-        Result(Option(V), HashMapError).Ok(Option(V).Some(old))
+        Result(Option(V), HashMapError).Ok(Option(V).Some(old_))
       },
       .None => {
         h := self._hash_key(&key);

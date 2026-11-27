@@ -11,7 +11,7 @@ main :: (fn() -> unit)({
   outer := Rc.new(RefCell(ArrayList(Rc(RefCell(String)))).new(ArrayList(Rc(RefCell(String))).new()));
   outer.with_mut(v => v.push(Rc.new(RefCell(String).new(String.from("hello, a string long enough to live on the heap")))));
   other := Rc.clone(outer);
-  old := outer.with(
+  old_ := outer.with(
     v => v(usize(0)).replace_with(
       &mut ({ &other }(s) => {
         other.with_mut(v2 => v2.clear());
@@ -19,6 +19,6 @@ main :: (fn() -> unit)({
       })
     )
   );
-  println(`OUT: ${old}`);
+  println(`OUT: ${old_}`);
 });
 export(main);

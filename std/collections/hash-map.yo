@@ -573,9 +573,9 @@ impl(
         // the old entry and drops its key. The whole entry moves, never a
         // field through `addr_of`: a `unit` value (`HashSet`) has no C
         // storage to point at.
-        old := __yo_ptr_read(p);
+        old_ := __yo_ptr_read(p);
         __yo_ptr_write(p, MapEntry(K, V)(key : key, value : value));
-        match(old, { key : _, value : old_value } => .Ok(.Some(old_value)))
+        match(old_, { key : _, value : old_value } => .Ok(.Some(old_value)))
       },
       .None => {
         resize_check := cond(

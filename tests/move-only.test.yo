@@ -388,8 +388,8 @@ test("move-only: an assignment statement drops the old value at the assignment",
   xs.push(_MoFd(n : i32(5)));
   xs(usize(0)) = _MoFd(n : i32(6));
   assert(g_mo_disposed == (before + i32(3)), "an index store's too");
-  old := (x = _MoFd(n : i32(7)));
-  assert((g_mo_disposed == (before + i32(3))) && (old.n == i32(2)), "a used result keeps it");
+  old_ := (x = _MoFd(n : i32(7)));
+  assert((g_mo_disposed == (before + i32(3))) && (old_.n == i32(2)), "a used result keeps it");
 });
 // A value moved and then reassigned in every arm that continues is
 // initialized where the arms meet; reassigned in only some, it stays moved
@@ -1422,8 +1422,8 @@ test("Option take/replace move a move-only payload", {
   t := o.take();
   assert(o.is_none(), "take leaves .None");
   assert(g_mo_disposed == before, "take moved the payload; nothing was disposed");
-  old := o.replace(_MoFd(n : i32(8)));
-  assert(old.is_none(), "replace hands back the old option");
+  old_ := o.replace(_MoFd(n : i32(8)));
+  assert(old_.is_none(), "replace hands back the old option");
   assert(o.is_some(), "replace stores the new payload");
   again := o.replace(_MoFd(n : i32(9)));
   match(
@@ -2950,11 +2950,11 @@ test("std/mem: replace moves a move-only field out of a live holder", {
   g_mo_sum = i32(0);
   before := g_mo_disposed;
   mut(h) := _MoSlot(fd : _MoFd(n : i32(1)), tag : i32(7));
-  old := replace(&mut h.fd, _MoFd(n : i32(2)));
+  old_ := replace(&mut h.fd, _MoFd(n : i32(2)));
   assert(g_mo_disposed == before, "nothing disposed by the replace");
-  assert((old.n == i32(1)) && (h.fd.n == i32(2)), "the old value out, the new one in");
+  assert((old_.n == i32(1)) && (h.fd.n == i32(2)), "the old value out, the new one in");
   assert(h.tag == i32(7), "the holder's other field is untouched");
-  assert(_mo_take(old) == i32(1), "the old value is owned");
+  assert(_mo_take(old_) == i32(1), "the old value is owned");
   assert(g_mo_disposed == (before + i32(1)), "the old value, once, by its callee");
   mut(x) := _MoFd(n : i32(3));
   y := replace(&mut x, _MoFd(n : i32(4)));
@@ -3017,8 +3017,8 @@ test("std/mem: an Rc place", {
   g_mo_sum = i32(0);
   before := g_mo_disposed;
   mut(r) := Rc.new(_MoFd(n : i32(1)));
-  old := replace(&mut r, Rc.new(_MoFd(n : i32(2))));
-  assert((old.n == i32(1)) && (r.n == i32(2)), "the old handle out, the new one in");
+  old_ := replace(&mut r, Rc.new(_MoFd(n : i32(2))));
+  assert((old_.n == i32(1)) && (r.n == i32(2)), "the old handle out, the new one in");
   mut(r2) := Rc.new(_MoFd(n : i32(3)));
   swap(&mut r, &mut r2);
   assert((r.n == i32(3)) && (r2.n == i32(2)), "the handles traded places");
@@ -3026,7 +3026,7 @@ test("std/mem: an Rc place", {
   o2 := replace(&mut h.r, Rc.clone(r2));
   assert((o2.n == i32(4)) && (h.r.n == i32(2)) && (h.tag == i32(9)), "a handle field");
   assert(g_mo_disposed == before, "no payload disposed by the moves");
-  drop(old);
+  drop(old_);
   drop(o2);
   assert(g_mo_disposed == (before + i32(2)), "each replaced payload once, with its last handle");
   // `r2` is an `Rc`, a reference type: passing it copied the handle, so
@@ -3042,8 +3042,8 @@ test("std/mem: a Box", {
   g_mo_sum = i32(0);
   before := g_mo_disposed;
   mut(b) := Box.new(_MoFd(n : i32(1)));
-  old := replace(&mut b, Box.new(_MoFd(n : i32(2))));
-  assert((old.n == i32(1)) && (b.n == i32(2)), "the old box out, the new one in");
+  old_ := replace(&mut b, Box.new(_MoFd(n : i32(2))));
+  assert((old_.n == i32(1)) && (b.n == i32(2)), "the old box out, the new one in");
   assert(g_mo_disposed == before, "neither payload disposed by the replace");
   mut(c) := Box.new(_MoFd(n : i32(3)));
   swap(&mut b, &mut c);
@@ -3051,7 +3051,7 @@ test("std/mem: a Box", {
   mut(d) := Box.new(i32(4));
   e := take(&mut d);
   assert((e.* == i32(4)) && (d.* == i32(0)), "take leaves a box of the default");
-  drop(old);
+  drop(old_);
   assert(g_mo_disposed == (before + i32(1)), "the replaced box's payload, once");
   drop(b);
   drop(c);
@@ -3077,9 +3077,9 @@ test("B6-a: take, with, swap and an element replace on move-only elements", {
     d.n
   });
   assert((r == i32(12)) && (xs(usize(1)).n == i32(12)), "written in place");
-  old := replace(&mut xs(usize(1)), _MoDef(n : i32(3)));
-  assert((old.n == i32(12)) && (xs(usize(1)).n == i32(3)), "an element replace");
-  assert(_mo_take_def(old) == i32(12), "the replaced element is owned");
+  old_ := replace(&mut xs(usize(1)), _MoDef(n : i32(3)));
+  assert((old_.n == i32(12)) && (xs(usize(1)).n == i32(3)), "an element replace");
+  assert(_mo_take_def(old_) == i32(12), "the replaced element is owned");
   assert(g_mo_disposed == (before + i32(2)), "only the two moved-out elements so far");
   mut(dq) := Deque(_MoFd).new();
   dq.push_back(_MoFd(n : i32(4)));

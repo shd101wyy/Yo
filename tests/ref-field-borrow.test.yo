@@ -368,16 +368,16 @@ comptime_expect_error(
 // hold an `ArrayList(String)`, so it is accepted
 // (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md).
 _put_str :: (fn(dst : &mut String, v : String) -> String)({
-  old := dst.clone();
+  old_ := dst.clone();
   dst.* = v;
-  old
+  old_
 });
 test("an element borrow beside a value that cannot reach the container", {
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
   v := String.from("c");
-  old := _put_str(&mut xs(usize(0)), v);
-  assert((old == "a") && (xs(usize(0)) == "c"), "the element written in place");
+  old_ := _put_str(&mut xs(usize(0)), v);
+  assert((old_ == "a") && (xs(usize(0)) == "c"), "the element written in place");
   mut(h) := _ListBox(lists : ArrayList(String).new());
   h.lists.push(String.from("x"));
   old2 := _put_str(&mut h.lists(usize(0)), String.from("y"));
@@ -440,14 +440,14 @@ test("an element borrow beside a value that owns a list of the container's type"
 _VNode :: enum(Leaf(n : i32), Branch(kids : ArrayList(Self)));
 test("an element borrow beside a recursive value that owns lists of the container's type", {
   put_node :: (fn(dst : &mut _VNode, v : _VNode) -> i32)({
-    old := match(dst, .Leaf(n) => n.*, .Branch(_) => i32(-1));
+    old_ := match(dst, .Leaf(n) => n.*, .Branch(_) => i32(-1));
     dst.* = v;
-    old
+    old_
   });
   mut(kids) := ArrayList(_VNode).new();
   kids.push(_VNode.Leaf(n : i32(1)));
-  old := put_node(&mut kids(usize(0)), _VNode.Branch(kids : ArrayList(_VNode).new()));
-  assert((old == i32(1)) && (kids.len() == usize(1)), "replaced in place");
+  old_ := put_node(&mut kids(usize(0)), _VNode.Branch(kids : ArrayList(_VNode).new()));
+  assert((old_ == i32(1)) && (kids.len() == usize(1)), "replaced in place");
   old2 := put_node(&mut kids(usize(0)), _VNode.Leaf(n : i32(2)));
   assert((old2 == i32(-1)) && (kids.len() == usize(1)), "the branch was in place");
 });

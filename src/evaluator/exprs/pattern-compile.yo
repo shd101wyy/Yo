@@ -266,7 +266,7 @@ _bind_subject_and_eval_test :: (
     subject : &String,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    test : &AstExpr,
+    test_ : &AstExpr,
     src : &AstExpr,
     pc : &mut PatternCtx,
     env : &Environment,
@@ -288,10 +288,10 @@ _bind_subject_and_eval_test :: (
   );
   old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : Rc.clone(env))));
   flag_before_test := flow_violation_pending();
-  _evaluated := evaluate_expression(test, env, ctx);
+  _evaluated := evaluate_expression(test_, env, ctx);
   ctx.expected_type = old_expected.clone();
   match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(test)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(test_)),
     .Some(ti) => {
       if(!are_types_compatible(&ti.ty(), t_bool()), {
         exn.throw(
@@ -353,14 +353,14 @@ _make_const_test :: (
 )({
   subject := _next_subject(pc);
   tok := ast_expr_token(src);
-  test := _synth_infix(&tok, "==", _synth_atom(&tok, TokenKind.Identifier, subject.clone()), src);
-  _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, &test, src, pc, env, ctx, exn);
-  test
+  test_ := _synth_infix(&tok, "==", _synth_atom(&tok, TokenKind.Identifier, subject.clone()), src);
+  _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, &test_, src, pc, env, ctx, exn);
+  test_
 });
 /// The hidden subject name a test was built for (its left operand).
-_test_subject :: (fn(test : &AstExpr) -> String)(
+_test_subject :: (fn(test_ : &AstExpr) -> String)(
   match(
-    _args_of(test).get_cloned(usize(0)),
+    _args_of(test_).get_cloned(usize(0)),
     .Some(lhs) => _atom_name(&lhs),
     .None => String.new()
   )
@@ -494,13 +494,13 @@ _compile_const_expr :: (
       .None => ()
     );
     const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(i) => Rc.clone(i.ty()), .None => Rc.clone(position_ty));
-    test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
-    return(Pattern.Const(value : value, ty : const_ty, src : Rc.clone(e.*), subject : _test_subject(&test), test : test));
+    test_ := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
+    return(Pattern.Const(value : value, ty : const_ty, src : Rc.clone(e.*), subject : _test_subject(&test_), test : test_));
   });
-  test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
+  test_ := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
   value := _const_value_of(e, e, ctx, exn);
   const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(i) => Rc.clone(i.ty()), .None => Rc.clone(position_ty));
-  Pattern.Const(value : value, ty : const_ty, src : Rc.clone(e.*), subject : _test_subject(&test), test : test)
+  Pattern.Const(value : value, ty : const_ty, src : Rc.clone(e.*), subject : _test_subject(&test_), test : test_)
 });
 /// Compile a range pattern `(lo..hi)` / `(lo..=hi)`.
 _compile_range :: (
@@ -562,12 +562,12 @@ _compile_range :: (
     inclusive => _synth_infix(&tok, "<=", &s_hi, &hi),
     true => _synth_infix(&tok, "<", &s_hi, &hi)
   );
-  test := _synth_infix(&tok, "&&", &lower, &upper);
-  _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, &test, e, pc, env, ctx, exn);
+  test_ := _synth_infix(&tok, "&&", &lower, &upper);
+  _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, &test_, e, pc, env, ctx, exn);
   Pattern.Range(
     src : Rc.clone(e.*),
     subject : subject,
-    test : test,
+    test : test_,
     ty : Rc.clone(position_ty),
     lo : match(bound_vals.get_cloned(usize(0)), .Some(v) => v, .None => Option(EvalValue).None),
     hi : match(bound_vals.get_cloned(usize(1)), .Some(v) => v, .None => Option(EvalValue).None),
@@ -1685,8 +1685,8 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
     p,
     .Wildcard => Option(bool).Some(true),
     .Bind(_, _, _) => Option(bool).Some(true),
-    .Const(_, _, _, _, test) => match(
-      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test.*)),
+    .Const(_, _, _, _, test_) => match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test_.*)),
       .Some(ti) => match(
         ti.value(),
         .Some(v) => match(v, Rc(.BoolVal(b)) => Option(bool).Some(b), _ => Option(bool).None),
@@ -1694,8 +1694,8 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
       ),
       .None => Option(bool).None
     ),
-    .Range(_, _, test, _, _, _, _) => match(
-      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test.*)),
+    .Range(_, _, test_, _, _, _, _) => match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test_.*)),
       .Some(ti) => match(
         ti.value(),
         .Some(v) => match(v, Rc(.BoolVal(b)) => Option(bool).Some(b), _ => Option(bool).None),

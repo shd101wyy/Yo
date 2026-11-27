@@ -91,8 +91,8 @@ _AoUnitField :: struct(a : i32, u : unit);
 test("addr_of a unit place: a non-null pointer, and moves through it touch nothing", {
   s := _AoUnitField(a : i32(7), u : ());
   p := addr_of(s.u);
-  old := __yo_ptr_read(p);
-  __yo_ptr_write(p, old);
+  old_ := __yo_ptr_read(p);
+  __yo_ptr_write(p, old_);
   __yo_ptr_write(addr_of(s.u), ());
   (o : ?*unit) = .Some(p);
   assert(o.is_some(), "non-null, so not the None niche");
