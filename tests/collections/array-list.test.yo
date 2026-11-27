@@ -1845,3 +1845,60 @@ test("the view needs a writable list, is unsized, and is lent explicitly", {
     _al_view_sum(&list)
   }, "lend its view with `&list.*`");
 });
+// ===== Ord's total `cmp` (VERDICTS-87 PR B) =====
+// `sort`, `sort_unstable`, `sort_by_key` and `binary_search` order by `cmp`:
+// a float NaN is greater than every number and equal to another NaN, so the
+// IEEE operators' "unordered" never decides a position
+// (issues/fixed/2026-11-26-std-ord-bounded-algorithms-never-call-cmp.md).
+_al_is_nan :: (fn(v : f64) -> bool)(v != v);
+_al_nan_list :: (fn() -> ArrayList(f64))({
+  z := f64(0.0);
+  nan := (z / z);
+  ArrayList(f64).from([f64(3.0), nan, f64(1.0), f64(2.0), nan, f64(0.5)])
+});
+_al_sorted_with_nans_last :: (fn(xs : &ArrayList(f64)) -> bool)(
+  (xs(usize(0)) == f64(0.5)) && ((xs(usize(1)) == f64(1.0)) && ((xs(usize(2)) == f64(2.0)) && ((xs(usize(3)) == f64(3.0)) && (_al_is_nan(xs(usize(4))) && _al_is_nan(xs(usize(5)))))))
+);
+test("sort orders NaN after every number by cmp", {
+  mut(xs) := _al_nan_list();
+  xs.sort();
+  assert(_al_sorted_with_nans_last(&xs), "0.5 1 2 3 NaN NaN");
+});
+test("sort_unstable orders NaN after every number by cmp", {
+  mut(xs) := _al_nan_list();
+  xs.sort_unstable();
+  assert(_al_sorted_with_nans_last(&xs), "0.5 1 2 3 NaN NaN");
+});
+test("sort_by_key orders a NaN key after every number by cmp", {
+  mut(xs) := _al_nan_list();
+  xs.sort_by_key(v => v.*);
+  assert(_al_sorted_with_nans_last(&xs), "0.5 1 2 3 NaN NaN");
+});
+test("binary_search finds a NaN and places a number by cmp", {
+  mut(xs) := _al_nan_list();
+  xs.sort();
+  z := f64(0.0);
+  nan := (z / z);
+  assert(match(xs.binary_search(&nan), .Ok(at) => _al_is_nan(xs(at)), .Err(_) => false), "a NaN is found among the NaNs");
+  assert(match(xs.binary_search(&f64(2.5)), .Ok(_) => false, .Err(at) => (at == usize(3))), "2.5 goes before 3");
+  assert(match(xs.binary_search(&f64(1.0)), .Ok(at) => (at == usize(1)), .Err(_) => false), "1 is at index 1");
+});
+_AlKey :: struct(a : f64, b : i32);
+derive(_AlKey, Eq(_AlKey), Ord(_AlKey), Clone);
+test("sort of composite keys orders by the parts' cmp: Option, Reverse, a derived Ord", {
+  z := f64(0.0);
+  nan := (z / z);
+  mut(os) := ArrayList(Option(f64)).from([Option(f64).Some(nan), Option(f64).None, Option(f64).Some(f64(1.0))]);
+  os.sort();
+  assert(os(usize(0)).is_none(), "None first");
+  assert(match(os(usize(1)), .Some(v) => (v == f64(1.0)), .None => false), "then 1");
+  assert(match(os(usize(2)), .Some(v) => _al_is_nan(v), .None => false), "then NaN");
+  mut(rs) := ArrayList(Reverse(f64)).from([Reverse(f64)(f64(1.0)), Reverse(f64)(nan), Reverse(f64)(f64(2.0))]);
+  rs.sort();
+  assert(_al_is_nan(rs(usize(0)).value), "Reverse puts NaN first");
+  assert((rs(usize(1)).value == f64(2.0)) && (rs(usize(2)).value == f64(1.0)), "then 2 1");
+  mut(ks) := ArrayList(_AlKey).from([_AlKey(a : nan, b : i32(0)), _AlKey(a : f64(1.0), b : i32(2)), _AlKey(a : f64(1.0), b : i32(1))]);
+  ks.sort();
+  assert((ks(usize(0)).b == i32(1)) && (ks(usize(1)).b == i32(2)), "equal floats order by the next field");
+  assert(_al_is_nan(ks(usize(2)).a), "the NaN key last");
+});

@@ -233,7 +233,7 @@ evaluate_downcast :: (
       res_targs.push(Rc.clone(&ob));
       res_ty := match(apply_type_ctor_via(&String.from("Result"), &res_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(Rc.clone(dc_call)));
       match(
-        dc_call,
+        &dc_call,
         Rc(.FnCall(_, _, Rc(oargs), _, _)) => match(oargs.get_cloned(usize(0)), .Some(oa) => set_expr_as_needs_to_call_dup(&oa, ctx, exn, "downcast"), .None => ()),
         _ => ()
       );
@@ -453,7 +453,7 @@ evaluate_upcast :: (
       ht.push(Rc.clone(&target_type));
       uc_result_ty = match(apply_type_ctor_via(&hname, &ht, &cur_env, ctx, exn), .Some(t) => t, .None => return(Rc.clone(uc_call)));
       match(
-        uc_call,
+        &uc_call,
         Rc(.FnCall(_, _, Rc(uargs), _, _)) => match(uargs.get_cloned(usize(0)), .Some(ua) => set_expr_as_needs_to_call_dup(&ua, ctx, exn, "upcast"), .None => ()),
         _ => ()
       );

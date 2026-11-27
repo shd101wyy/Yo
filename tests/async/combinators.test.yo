@@ -79,8 +79,6 @@ test("Test race picks the fastest", {
   // the 40ms/5ms version of this test failed on macos-latest (PR #341).
   handles.push(io.spawn(sleepy(i32(1), u64(500), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   match(
     io.await(race(handles, io), io),
     (w, back) => {
@@ -99,8 +97,6 @@ test("Test race hands the list back: the losers can still be aborted", {
   handles.push(io.spawn(sleepy(i32(1), u64(500), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
   handles.push(io.spawn(sleepy(i32(3), u64(500), io), io));
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   match(
     io.await(race(handles, io), io),
     (w, back) => {
@@ -124,8 +120,6 @@ test("Test any skips aborted handles", {
   handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(10), io), io));
   handles(usize(0)).abort();
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   match(
     io.await(any(handles, io), io),
     (w, back) => {
@@ -146,8 +140,6 @@ test("Test any with all aborted", {
   handles.push(io.spawn(sleepy(i32(2), u64(30), io), io));
   handles(usize(0)).abort();
   handles(usize(1)).abort();
-  // A tuple destructuring binds borrows, so the list moves out through a
-  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
   match(
     io.await(any(handles, io), io),
     (w, back) => {

@@ -1,0 +1,13 @@
+// expect: E0901
+// VERDICTS-76 Q2 (Fable review §7): moving the fields out of a type with a user `Drop` would skip its
+// destructor (Rust's E0509).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+G :: struct(name : String, n : i32);
+impl(G, Drop(drop : (fn(self : &mut Self) -> unit)(println("drop G"))));
+main :: (fn() -> unit)({
+  g := G(name : String.from("ann"), n : i32(7));
+  { name, n } := g;
+  println(&name);
+});
+export(main);

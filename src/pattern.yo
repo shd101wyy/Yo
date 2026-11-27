@@ -187,8 +187,13 @@ impl(
 /// How each match takes its scrutinee (`register_match_mode`).
 (g_match_modes : RefCell(HashMap(usize, u8))) = RefCell(HashMap(usize, u8)).new(HashMap(usize, u8).new());
 /// The `___drop` of each part a consuming arm does not bind, keyed by the
-/// arm's `=>` node: codegen runs them once the arm is selected.
+/// arm's `=>` node: codegen runs them once the arm is selected. A consuming
+/// destructuring's are keyed by its `:=` node, run after the binds.
 (g_arm_entry_drops : RefCell(HashMap(usize, ArrayList(AstExpr)))) = RefCell(HashMap(usize, ArrayList(AstExpr))).new(HashMap(usize, ArrayList(AstExpr)).new());
+/// A lending destructuring's local borrows (`{ a, b } := &x` binds
+/// `a := &x.a; b := &x.b`, VERDICTS-76 Q2), keyed by its `:=` node: codegen
+/// emits them in place of the destructuring.
+(g_destructure_lends : RefCell(HashMap(usize, ArrayList(AstExpr)))) = RefCell(HashMap(usize, ArrayList(AstExpr))).new(HashMap(usize, ArrayList(AstExpr)).new());
 register_match_arms :: (fn(match_id : usize, arms : &ArrayList(Arm)) -> unit)({
   if(!match_arms_table_enabled(), {
     return(());
@@ -209,6 +214,7 @@ purge_match_arms :: (fn(ids : &ArrayList(usize)) -> unit)({
         _r := g_match_arms.with_mut(m => m.remove(&id));
         _rm := g_match_modes.with_mut(m => m.remove(&id));
         _rd := g_arm_entry_drops.with_mut(m => m.remove(&id));
+        _rl := g_destructure_lends.with_mut(m => m.remove(&id));
       },
       .None => ()
     );
@@ -266,6 +272,15 @@ register_arm_entry_drops :: (fn(arm_id : usize, drops : &ArrayList(AstExpr)) -> 
   record_owned_expr_id(arm_id);
 });
 lookup_arm_entry_drops :: (fn(arm_id : usize) -> Option(ArrayList(AstExpr)))(g_arm_entry_drops.with(m => m.get_cloned(&arm_id)));
+register_destructure_lends :: (fn(bind_id : usize, binds : &ArrayList(AstExpr)) -> unit)({
+  if(!codegen_tables_enabled(), {
+    return(());
+  });
+  binds_owned := binds.clone();
+  _old := g_destructure_lends.with_mut({ binds_owned, bind_id }(m) => m.insert(bind_id, binds_owned));
+  record_owned_expr_id(bind_id);
+});
+lookup_destructure_lends :: (fn(bind_id : usize) -> Option(ArrayList(AstExpr)))(g_destructure_lends.with(m => m.get_cloned(&bind_id)));
 /// A position whose parts are reached through a reference cell or a raw
 /// pointer: a consuming or `mut` match does not take them (other handles
 /// may share the cell), so its bindings below borrow.
@@ -2121,7 +2136,7 @@ pattern_test_exprs :: (fn(p : &Pattern, out : &mut ArrayList(AstExpr)) -> unit)(
   );
 });
 export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms, match_arms_entry_count);
-export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs, register_match_mode, lookup_match_mode, register_arm_entry_drops, lookup_arm_entry_drops, pattern_position_is_cell, pattern_binding_atoms);
+export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs, register_match_mode, lookup_match_mode, register_arm_entry_drops, lookup_arm_entry_drops, register_destructure_lends, lookup_destructure_lends, pattern_position_is_cell, pattern_binding_atoms);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs, variant_group_covers);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, is_pattern_cell_type, variant_field_types);
