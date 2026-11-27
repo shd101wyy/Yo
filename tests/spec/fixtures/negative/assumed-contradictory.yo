@@ -1,0 +1,12 @@
+// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md, the reproducer of
+// issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md.
+// `oracle`'s two `ensures` contradict each other, so no result meets them:
+// the satisfiability probe of its assumed() contract answers `unsat` and the
+// report is `contradictory`, a failure in every mode. `bad` claims 42 and
+// returns whatever `oracle` returns; its `ensures#0` discharges only because
+// the path after the call is infeasible, so it is `infeasible`, not `ok`.
+pragma(Pragma.Verify);
+
+oracle :: (fn(x : i32, ensures(r > x, r < x), assumed()) -> (r : i32))(x);
+
+bad :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))(oracle(x));
