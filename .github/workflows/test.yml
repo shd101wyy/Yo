@@ -235,10 +235,17 @@ jobs:
             echo "develop or restore the full battery deliberately."
           fi
 
-      - name: Checkout workflows (SEED_VERSION guard)
+      - name: Checkout workflows and code (SEED_VERSION guard, classifier)
         uses: actions/checkout@v4
         with:
-          sparse-checkout: .github/workflows
+          # The classifier greps the code trees for a changed issues/ path.
+          sparse-checkout: |
+            .github/
+            scripts/
+            src/
+            std/
+            tests/
+            /build.yo
           sparse-checkout-cone-mode: false
       - name: SEED_VERSION consistency guard
         run: |
@@ -322,6 +329,15 @@ jobs:
           for f in $FILES; do
             case "$f" in
               *.md|docs/*) ;;
+              issues/*)
+                # A non-Markdown file under issues/ (a repro, a patch) is a
+                # record. CI reads one only where code names its path (e.g. the
+                # repros gates_fast.sh compiles), so only such a file is code.
+                if git grep -qF -e "$f" -- .github scripts src std tests build.yo; then
+                  echo "$f is named by code"
+                  CODE=true; break
+                fi
+                ;;
               *) CODE=true; break ;;
             esac
           done
@@ -810,6 +826,16 @@ jobs:
       - name: yo verify --strict (the laws gate)
         if: matrix.part == 'harness'
         run: yo verify ./tests/spec/verify-straight-line.test.yo --strict
+
+      # DEFAULT_ON_VERIFICATION step S0: every fixture of
+      # tests/spec/fixtures/valid runs under Pragma.Verify and under
+      # Pragma.VerifyOrAssert (`verify+`, the mode the plan makes the default)
+      # and both must prove the same set of functions. Stage 1, not the seed:
+      # the sweep checks this tree's verifier. A divergence fails unless
+      # tests/spec/verify-both-modes-known.tsv names its open issue.
+      - name: Verify both modes (valid fixtures, verify against verify+)
+        if: matrix.part == 'harness'
+        run: python3 -I scripts/verify-both-modes.py --bin /tmp/yo-stage1 --std-path "$YO_STD" --jobs 4
 
       - name: Upload the verify report
         if: always() && matrix.part == 'harness'

@@ -7849,9 +7849,11 @@ probe_assumed_contract :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
 verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
   ctx := _enter_function(input);
   ctx.decreases = input.decreases_expr.clone();
-  // A body whose ROOT has no ExprInfo never completed its definition-time
-  // evaluation (the trial swallowed the real error at load — E0902/E0401
-  // class). Say THAT instead of the misleading "untyped expression".
+  // A body whose ROOT has no ExprInfo was never evaluated as a node. A
+  // definition-time trial that swallowed an error is reported by the driver
+  // with the recorded message before the walk, so reaching this means no
+  // error was recorded: the evaluator did not visit the body node. Say THAT
+  // instead of the misleading "untyped expression".
   root_typed := match(
     expr_info_table_get(&ctx.table, ast_expr_id(&input.body)),
     .Some(_) => true,
@@ -7860,7 +7862,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
   if(!root_typed, {
     _fail_subset(
       &mut ctx,
-      String.from("the body's definition-time evaluation did not complete (its error was swallowed at load — run yo check on the file for the underlying cause)"),
+      String.from("the body carries no type information: its definition-time evaluation did not reach the body node and recorded no error (a compiler defect)"),
       &input.body
     );
   });

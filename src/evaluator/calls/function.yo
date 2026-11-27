@@ -3038,7 +3038,7 @@ _resolve_array_length_vars_from_self :: (
 /// the push, leaving `ok_out` empty (the `_trial_eval_fn_body` pattern).
 /// The `try_to_call_function_with_arguments` path only type-checks (CTFE
 /// execution lives in the FuncVal arm of `evaluate_function_call`), so
-/// trials are side-effect-free.
+/// trials are side-effect-free. Returns the error a failed trial raised.
 _trial_call_overload_candidate :: (
   fn(
     fn_val : &EvalValue,
@@ -3049,7 +3049,7 @@ _trial_call_overload_candidate :: (
     callee_env : &Environment,
     ctx : &mut EvalContext,
     ok_out : &mut ArrayList(bool)
-  ) -> unit
+  ) -> Option(AnyError)
 )({
   // FRESH-ID clones — the dry-run must write fresh `$` slots instead of
   // polluting the real expr's eval data;
@@ -3077,7 +3077,7 @@ _trial_call_overload_candidate :: (
   saved_vars := ArrayList(Variable).new();
   saved_moves := ArrayList(Option(Token)).new();
   _save_move_states(callee_env, &mut saved_vars, &mut saved_moves);
-  _run_overload_trial(fn_val, fn_ty, &cloned_call, func_expr, &cloned_args, callee_env, ctx, ok_out);
+  trial_err := _run_overload_trial(fn_val, fn_ty, &cloned_call, func_expr, &cloned_args, callee_env, ctx, ok_out);
   _restore_move_states(&saved_vars, &saved_moves);
   // Only the verdict survives the trial: the clones' own metadata is dead
   // either way (the real call evaluates the originals). Specializations the
@@ -3088,9 +3088,11 @@ _trial_call_overload_candidate :: (
     match(cloned_args.get_cloned(pi), .Some(a) => purge_executed_clone_metadata(&ctx.expr_info_table, &a, clone_lo, clone_hi), .None => ());
     pi = (pi + usize(1));
   });
+  trial_err
 });
 /// The trial itself: a failure unwinds out of THIS function (the handler is
-/// created here), so the caller's purge runs on both outcomes.
+/// created here) with the error it caught, so the caller's purge runs on both
+/// outcomes.
 _run_overload_trial :: (
   fn(
     fn_val : &EvalValue,
@@ -3101,9 +3103,17 @@ _run_overload_trial :: (
     callee_env : &Environment,
     ctx : &mut EvalContext,
     ok_out : &mut ArrayList(bool)
-  ) -> unit
+  ) -> Option(AnyError)
 )({
-  trial_exn := Exception(throw : (_err -> unwind(())));
+  // A block, not a bare `e -> unwind(...)` body (see
+  // `_evaluate_function_call_trapped`).
+  trial_exn := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
   try_to_call_function_with_arguments(
     Option(EvalValue).Some(Rc.clone(fn_val.*)),
     fn_ty,
@@ -3118,6 +3128,7 @@ _run_overload_trial :: (
     trial_exn
   );
   ok_out.push(true);
+  Option(AnyError).None
 });
 /// Build the C-call argument list for a receiver method candidate: prepend the
 /// receiver (wrapped in `&(...)` when the method's self param is `*(T)`) for
@@ -3529,7 +3540,8 @@ _trial_call_overload_candidates :: (
     func_expr : &AstExpr,
     args : &ArrayList(AstExpr),
     env : &Environment,
-    ctx : &mut EvalContext
+    ctx : &mut EvalContext,
+    errs_out : &mut ArrayList(AnyError)
   ) -> ArrayList(usize)
 )({
   old_checking_ph := ctx.is_in_function_call_checking_phase;
@@ -3540,7 +3552,11 @@ _trial_call_overload_candidates :: (
     cv2 := match(cand_vals.get_cloned(cand_i), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
     ct2 := match(cand_tys.get_cloned(cand_i), .Some(t) => t, .None => t_unit());
     ok_out := ArrayList(bool).new();
-    _trial_call_overload_candidate(&cv2, &ct2, call_expr, func_expr, args, env, ctx, &mut ok_out);
+    match(
+      _trial_call_overload_candidate(&cv2, &ct2, call_expr, func_expr, args, env, ctx, &mut ok_out),
+      .Some(trial_err) => errs_out.push(trial_err),
+      .None => ()
+    );
     if(ok_out.len() > usize(0), {
       successes.push(cand_i);
     });
@@ -3548,6 +3564,60 @@ _trial_call_overload_candidates :: (
   });
   ctx.is_in_function_call_checking_phase = old_checking_ph;
   successes
+});
+/// The E0901 a failed overload trial raised in user code, if any: a moved
+/// operand. One raised inside std (a generic candidate's body) is the
+/// candidate's own failure, not the operand's.
+_moved_operand_trial_error :: (fn(errs : &ArrayList(AnyError), ctx : &EvalContext) -> Option(YoError))({
+  (ei : usize) = usize(0);
+  while(ei < errs.len(), ei = (ei + usize(1)), {
+    match(
+      errs.get_cloned(ei),
+      .Some(err) => {
+        is_moved := match(primary_diagnostic_code(&err), .Some(code) => (code == E_USE_OF_MOVED_VALUE), .None => false);
+        in_std := match(primary_diagnostic_path(&err), .Some(ep) => is_std_module_path(&ep, ctx.std_path.clone()), .None => false);
+        if(is_moved && !in_std, {
+          match(downcast(&err.*, YoError), .Some(ye) => return(Option(YoError).Some(ye.clone())), .None => ());
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(YoError).None
+});
+/// The help of an operator-module miss. `!x` on an operand with a bitwise
+/// complement (`BitNot`) is Rust's `!` on an integer: Yo's `!` is logical not
+/// and yields `bool`, the complement is `~x`.
+_overload_miss_help :: (fn(call_expr : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &mut EvalContext) -> Option(String))({
+  if(!ast_expr_is_fn_call_of(call_expr, "!", .Some(usize(1))), {
+    return(Option(String).None);
+  });
+  operand := match(
+    args.get_cloned(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(Option(String).None);
+    }
+  );
+  // A probe of a fresh-id clone: the real operand's metadata stays untouched.
+  probe_lo := next_global_expr_id();
+  probe := clone_expr_fresh_ids(&operand);
+  probe_hi := next_global_expr_id();
+  operand_tys := ArrayList(TypeValue).new();
+  _try_eval_operand_type(&probe, env, ctx, &mut operand_tys);
+  purge_executed_clone_metadata(&ctx.expr_info_table, &probe, probe_lo, probe_hi);
+  has_complement := match(
+    operand_tys.get_cloned(usize(0)),
+    .Some(oty) => match(get_trait_type_from_env(env, String.from("BitNot")), .Some(bit_not) => type_implements_trait(&oty, &bit_not, env).implemented, .None => false),
+    .None => false
+  );
+  cond(
+    has_complement => {
+      text := ast_expr_to_string(&operand);
+      Option(String).Some(`\`!\` is logical not and yields \`bool\`; the bitwise complement of \`${text}\` is \`~${text}\``)
+    },
+    true => Option(String).None
+  )
 });
 /// The tokens of the arguments that name a reference binding judged by the
 /// deref rule (a bare `r`, not a written `r.*`).
@@ -3719,7 +3789,8 @@ _try_expand_call_overload :: (
   });
   func_expr := match(call_expr, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), _ => Rc.clone(evaluated_callee.*));
   // Trial each candidate; collect the indices that type-check.
-  mut(successes) := _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx);
+  trial_errs := ArrayList(AnyError).new();
+  mut(successes) := _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx, &mut trial_errs);
   // A reference binding `r` passed to an operator module (`-r`, `!r`, `~r`
   // on `r : &T`) reads as the reference at the candidates' unbound binder
   // (the read rule), and no candidate takes a reference. When one takes its
@@ -3731,7 +3802,7 @@ _try_expand_call_overload :: (
     value_toks := _reference_binding_argument_tokens(args, env, ctx);
     if(value_toks.len() > usize(0), {
       for(&value_toks, vt => note_binder_value_read(vt));
-      successes = _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx);
+      successes = _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx, &mut trial_errs);
       if(successes.len() == usize(0), {
         for(&value_toks, vt => forget_binder_value_read(vt));
       });
@@ -3744,13 +3815,23 @@ _try_expand_call_overload :: (
     // here, letting the source-namespace struct callee fall through to the
     // struct path — which silently ACCEPTED e.g. `add(4, 5, 6, 7)` against a
     // `Call :: (add2, add3)` module (tests/fn.test.yo arm 13, hollow batch).
+    //
+    // An operand that is a use of a moved value fails every candidate the
+    // same way before any parameter is matched: the operand is the error, so
+    // it is E0901 as at a binary operator or a method call, not "no matching
+    // call" (`-b` after `take(b)`).
+    match(_moved_operand_trial_error(&trial_errs, ctx), .Some(moved_err) => raise_flow_violation(&moved_err, ctx, exn), .None => ());
     exn.throw(
       dyn(
         Box.new(
-          format_error_message(
-            ast_expr_token(call_expr),
-            `No matching call found with arguments:
-${ast_expr_to_string(call_expr)}`
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(call_expr),
+              `No matching call found with arguments:
+${ast_expr_to_string(call_expr)}`,
+              _overload_miss_help(call_expr, args, env, ctx)
+            ),
+            E_NO_MATCHING_CALL
           )
         )
       )
@@ -10573,9 +10654,23 @@ _lent_argument_pointee :: (fn(op_args : &ArrayList(AstExpr), ai : usize, slot : 
 /// arguments is what the callee may store there, and is judged as that
 /// store would be. When its type also occupies a non-static position, which
 /// one the callee writes is not known here, and the static one decides (rule
-/// 4: a site that cannot tell rejects).
+/// 4: a site that cannot tell rejects). A free generic function's slots are
+/// its definition's (`_lend_through_slots`), so a `v : T` slot names the
+/// binder, not what the call solved it to: its type is read off the call's
+/// specialization (`spec_slots`, empty when the callee has none), as the
+/// specialized method's own slot is (`keep(dst : &mut Option(T), v : T)`
+/// called with a `&mut Option(&(X, static))` holder and a local's `&X`).
 _static_type_argument_stores :: (
-  fn(op_args : &ArrayList(AstExpr), slots : &SharedList(TypeValue), wi : usize, pointees : &ArrayList(TypeValue), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+  fn(
+    op_args : &ArrayList(AstExpr),
+    slots : &SharedList(TypeValue),
+    spec_slots : &SharedList(TypeValue),
+    wi : usize,
+    pointees : &ArrayList(TypeValue),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> unit
 )({
   (pi : usize) = usize(0);
   while(pi < pointees.len(), pi = (pi + usize(1)), {
@@ -10587,9 +10682,16 @@ _static_type_argument_stores :: (
           slots.get(xj),
           // A slot that spells `static` itself is step 1b's.
           .Some(x_slot) => if((xj != wi) && !type_spells_checked_static(&x_slot), {
+            // A slot naming a type binder takes what the call solved it to.
+            x_binders := ArrayList(String).new();
+            type_var_ids_of(&x_slot, &mut x_binders, u32(0), true);
+            x_solved := cond(
+              ((x_binders.len() > usize(0)) && (spec_slots.len() == slots.len())) => match(spec_slots.get(xj), .Some(xs) => xs, .None => Rc.clone(&x_slot)),
+              true => Rc.clone(&x_slot)
+            );
             // A binder-typed by-value slot specialized to a reference is
             // `ValueSlot(&X)` (R3): the value it takes is the bare `&X`.
-            x_needle := match(&x_slot, Rc(.ValueSlot(xn_inner)) => Rc.clone(xn_inner), _ => Rc.clone(&x_slot));
+            x_needle := match(&x_solved, Rc(.ValueSlot(xn_inner)) => Rc.clone(xn_inner), _ => Rc.clone(&x_solved));
             if(_type_occurs_at_static_position(&x_needle, &st_pointee, u32(0)), {
               x_arg := _unlabeled_argument(match(op_args.get_cloned(xj), .Some(a) => a, .None => make_err_expr()));
               w_arg := _unlabeled_argument(match(op_args.get_cloned(wi), .Some(a) => a, .None => make_err_expr()));
@@ -10690,6 +10792,13 @@ _lend_through_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(AstE
     i = (i + usize(1));
   });
   out
+});
+/// The parameter slots of the specialization `call` was evaluated against:
+/// its callee node's recorded type, which the inline `FuncVal` arm stamps
+/// with the specialized function (empty when the callee has no record).
+_lend_through_spec_slots :: (fn(call : &AstExpr, ctx : &EvalContext) -> SharedList(TypeValue))({
+  sp_callee := match(call, Rc(.FnCall(_, c, _, _, _)) => Rc.clone(c.*), Rc(.Atom(_, _)) => return(no_types()));
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sp_callee)), .Some(spi) => _callee_param_slots(&spi.ty()), .None => no_types())
 });
 /// A recorded method call's parameter slots (empty for any other call).
 _method_slots :: (fn(call : &AstExpr) -> SharedList(TypeValue))(
@@ -10882,6 +10991,31 @@ _lend_through_solve :: (
   });
   solved
 });
+/// The binding a field path is rooted at (`h` for `h.r`, `h.a.b`, `t.0`, and
+/// `w` for `w.*.r`, a field reached through a reference, a `Box` or another
+/// handle the binding holds: a store there is one the binding's flow set
+/// answers for, its own or, for a local `&mut` borrow, its target's).
+_field_path_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
+  if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(AstExpr).None);
+  });
+  (cur : AstExpr) = e.clone();
+  while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    (fr_next : Option(AstExpr)) = match(
+      Rc.clone(cur),
+      Rc(.FnCall(_, _, Rc(fr_args), _, _)) => match(fr_args.get_cloned(usize(1)), .Some(fr_l) => if(ast_expr_is_atom(&fr_l), fr_args.get_cloned(usize(0)), Option(AstExpr).None), .None => Option(AstExpr).None),
+      Rc(.Atom(_, _)) => Option(AstExpr).None
+    );
+    match(
+      fr_next,
+      .Some(n) => {
+        cur = n;
+      },
+      .None => return(Option(AstExpr).None)
+    );
+  });
+  if(ast_expr_is_atom(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
+});
 /// `lend_through` step 3's write-back into one holder: a flow-inferred
 /// holder joins the solved set (`bind_join_roots_for`, KILL when the store
 /// replaced its value); a parameter of the body being evaluated has its
@@ -11041,6 +11175,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   // values where the callee may store them (`_static_type_argument_stores`).
   // The pointee is the lent argument's own (`_lent_argument_pointee`), not
   // the slot's.
+  sc_spec_slots := _lend_through_spec_slots(call, ctx);
   (sc_i : usize) = usize(0);
   while(sc_i < op_args.len(), sc_i = (sc_i + usize(1)), {
     match(
@@ -11055,7 +11190,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
           sc_seen := ArrayList(String).new();
           _nested_mut_pointees(&sc_ty, &mut sc_pointees, &mut sc_seen, u32(0));
         }));
-        _static_type_argument_stores(&op_args, &slots, sc_i, &sc_pointees, env, ctx, exn);
+        _static_type_argument_stores(&op_args, &slots, &sc_spec_slots, sc_i, &sc_pointees, env, ctx, exn);
       },
       .None => ()
     );
@@ -11173,7 +11308,13 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
           if(debug_knob(`YO_DEBUG_N2B`).is_some() && !ast_expr_is_atom(&w_place), {
             eprintln(`[n2b] lend-through &mut value ${ast_expr_to_string(&w_node)}: projection=${w_projection.to_string()} roots=[${n2b_roots_text(&origin_of(&w_node, env, ctx))}]`);
           });
-          if(ast_expr_is_atom(&w_place) || w_projection, {
+          // A field of a holder (`&mut h.r`, `&mut h.o`): the callee's store
+          // lands in the field, so the holder the field path is rooted at
+          // joins what it stores, never KILLed (its other fields still hold
+          // what they held; VERDICTS-78 Q1).
+          w_field_root := _field_path_root(&w_place);
+          w_holder_atom := match(&w_field_root, .Some(fr) => fr.clone(), .None => w_place.clone());
+          if(ast_expr_is_atom(&w_place) || w_projection || w_field_root.is_some(), {
             // The origin parameters the pointee names, and its TYPE
             // parameters: `dst : &mut Option(T)` with `T := &S` is as much an
             // inference variable as a spelled `r` (the row
@@ -11218,7 +11359,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             // not the receiver's `p`), so step 2 cannot relate the two: the
             // arguments whose type occurs among the pointee's type arguments
             // are the candidates too.
-            w_holder_is_param := (ast_expr_is_atom(&w_place) && match(get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(), .Some(whp) => param_declared_origin_slot(&whp, env, ctx).is_some(), .None => false));
+            w_holder_is_param := (ast_expr_is_atom(&w_holder_atom) && match(get_variables_from_env(env, ast_expr_token(&w_holder_atom).value.*.clone()).last_cloned(), .Some(whp) => param_declared_origin_slot(&whp, env, ctx).is_some(), .None => false));
             if(unfixed || w_holder_is_param, {
               w_pointees := ArrayList(TypeValue).new();
               w_pointees.push(t_slot_pointee(&w_slot));
@@ -11240,7 +11381,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
               });
               if(((solved.len() > usize(0)) || (w_holder_is_param && (stored.len() > usize(0)))) && !w_projection, {
                 match(
-                  get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(),
+                  get_variables_from_env(env, ast_expr_token(&w_holder_atom).value.*.clone()).last_cloned(),
                   .Some(hv) => {
                     chain := reference_reborrow_chain(&hv, usize(64), env);
                     (n_ends : usize) = usize(0);
@@ -11261,7 +11402,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                             if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                               eprintln(`[n2b] write-back ${hh.name} (chain depth ${link.depth.to_string()}): roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
                             });
-                            _lend_write_back_into(&hh, &solved, &stored, (link.is_end && (n_ends == usize(1))), ast_expr_token(&w_arg), env, ctx, exn);
+                            _lend_write_back_into(&hh, &solved, &stored, (link.is_end && (n_ends == usize(1)) && w_field_root.is_none()), ast_expr_token(&w_arg), env, ctx, exn);
                             // A local `&mut` borrow of a holder (`sp := &mut
                             // slot`): the store lands in the holder (A25).
                             if(local_mut_borrow_of_holder(&hh), {

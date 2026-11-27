@@ -407,6 +407,11 @@ SMT 调用（汇总中计入 `folded`，绝不算作查询）。折叠是保守�
 | `verify+` | `pragma(Pragma.VerifyOrAssert);` | 尽力证明；预算耗尽时回退到运行期断言 |
 | `ignore` | `pragma(Pragma.NoContracts);` | 契约完全擦除 |
 
+无法在运行期执行的子句在任何模式下都只用于证明，不会变成断言：含量词、
+`==>` 或 std/spec 幽灵集合（`seq_*`、`seq_of`、`ms_*`、`set_*`、`str_bytes`）、
+`distinct`，或调用 `ghost_fn` 的子句。`ghost_fn` 从不运行，因此也不会向其中
+插入任何断言。
+
 `yo verify <路径>` 把目标集合默认置为 `verify` 模式；
 `--verify-mode runtime|verify|verify+` 可覆盖，而文件自身的 pragma
 存在时以 pragma 为准。模式效果只作用于被验证的文件 —— 被导入的文件

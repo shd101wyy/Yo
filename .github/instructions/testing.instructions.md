@@ -482,6 +482,14 @@ Verify `tests/spec` PER PATH: `yo verify ./tests/spec` as one directory exits 1 
 for p in tests/spec/*.test.yo tests/spec/fixtures/valid tests/spec/fixtures/elision; do yo verify ./$p --format json; done
 ```
 
+Every fixture of `tests/spec/fixtures/valid/` must prove the same set of functions under
+`Pragma.Verify` and `Pragma.VerifyOrAssert`. The FV job's harness leg runs the sweep with stage 1; a
+divergence fails unless `tests/spec/verify-both-modes-known.tsv` names its open issue:
+
+```bash
+python3 -I scripts/verify-both-modes.py --bin yo-out/x86_64-unknown-linux-gnu/bin/yo --std-path ./std
+```
+
 ## Decision 43's origins corpus: `tests/origins/` is not run by `yo test`
 
 `tests/origins/corpus/<id>.yo` is decision 43's corpus (`plans/backlog/REFERENCES_AND_ORIGINS.md` §8):

@@ -518,6 +518,11 @@ a hover computation (they need the solver).
 | `verify+` | `pragma(Pragma.VerifyOrAssert);` | Prove when possible; budget-exhausted falls back to the runtime assert |
 | `ignore` | `pragma(Pragma.NoContracts);` | Contracts erased entirely |
 
+A clause that cannot run is proof-only in every mode and never becomes an
+assert: one that quantifies, uses `==>` or a std/spec ghost collection
+(`seq_*`, `seq_of`, `ms_*`, `set_*`, `str_bytes`), uses `distinct`, or calls
+a `ghost_fn`. Nothing is spliced into a `ghost_fn`, which never runs.
+
 `yo verify <path>` defaults its target set to `verify` mode; a
 `--verify-mode runtime|verify|verify+` flag overrides, and a file's own
 pragma is the source of truth when present. Mode effects apply only to

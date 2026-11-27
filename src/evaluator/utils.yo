@@ -145,7 +145,7 @@ pragma(Pragma.AllowUnsafe);
   format_error_message_with_repair_at
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH, E_TRAIT_BOUND_FORM, E_TRAIT_AS_VALUE_TYPE, E_ARGUMENT_COUNT_MISMATCH } :: import("../diagnostics.yo");
+{ suggest_name, Span, E_TYPE_MISMATCH, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH, E_TRAIT_BOUND_FORM, E_TRAIT_AS_VALUE_TYPE, E_ARGUMENT_COUNT_MISMATCH, E_INTERNAL_COMPILER_ERROR } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -157,7 +157,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation, impl_dispatch_hint } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message, type_key_epoch } :: import("../types/string.yo");
 { type_identity_slot, type_identity_slot_holds, TYPE_IDENTITY_CACHE_CAP } :: import("../types/type-key.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized, type_spells_checked_static } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, type_has_no_open_some, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized, type_spells_checked_static } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
 { is_global_mut_rule_exempt } :: import("./memory-safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -170,7 +170,6 @@ pragma(Pragma.AllowUnsafe);
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
 /// uses of the result needing methods fail (see refcell.yo's filler block).
-_c_keys_usize :: (fn(m : &HashMap(usize, ArrayList(DynCopyPending))) -> ArrayList(usize))(m.keys_cloned());
 _c_last_cloned_lbm :: (fn(xs : &ArrayList(LocalBorrowMacroSite)) -> Option(LocalBorrowMacroSite))(xs.last_cloned());
 _c_clone_lbl :: (fn(xs : &ArrayList(_LbLookahead)) -> ArrayList(_LbLookahead))(xs.clone());
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
@@ -184,8 +183,6 @@ _c_len_1 :: (fn(m : &HashMap(usize, ArrayList(_CaptureFreeze))) -> usize)(m.len(
 _c_len_2 :: (fn(m : &HashMap(usize, TypeValue)) -> usize)(m.len());
 /// `HashMap(usize, ArrayList(ImplicitCopyPending))` (1 use)
 _c_len_3 :: (fn(m : &HashMap(usize, ArrayList(ImplicitCopyPending))) -> usize)(m.len());
-/// `HashMap(usize, ArrayList(DynCopyPending))` (3 uses)
-_c_len_4 :: (fn(m : &HashMap(usize, ArrayList(DynCopyPending))) -> usize)(m.len());
 /// `ArrayList(LocalBorrowInfo)` (10 uses)
 _c_len_5 :: (fn(xs : &ArrayList(LocalBorrowInfo)) -> usize)(xs.len());
 /// `ArrayList(LocalBorrowPatternBinding)` (3 uses)
@@ -300,9 +297,9 @@ derive(BorrowMatchSourceDecl, Clone);
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
-/// The stores `h.r = e` being judged whose right side is a reference, by
-/// their target label's source position (`reference_field_store_mark`).
-(g_reference_field_stores : RefCell(HashMap(String, ReferenceFieldStore))) = RefCell(HashMap(String, ReferenceFieldStore)).new(HashMap(String, ReferenceFieldStore).new());
+/// The targets `h.r` of the stores `h.r = e` being evaluated, by their field
+/// label's source position (`reference_field_store_mark`).
+(g_reference_field_stores : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// The nodes the read rule (decision 43 step 2 N1e-2b) types as a reference
 /// VALUE — a reference binding's read, a projection's result, a reference
 /// field's read at a position expecting a reference. Their C is still the
@@ -349,6 +346,10 @@ derive(BorrowMatchSourceDecl, Clone);
 /// blocks' bindings in between, and with one slot the outer binding lost its
 /// range and froze nothing past its own statement.
 (g_lb_lookaheads : RefCell(ArrayList(_LbLookahead))) = RefCell(ArrayList(_LbLookahead)).new(ArrayList(_LbLookahead).new());
+/// A binding the evaluator builds for a statement (a lending destructuring's
+/// `a := &x.a`, VERDICTS-76 Q2) has no node in the block: it reads the
+/// look-ahead of the statement it stands for (`local_borrow_alias_statement`).
+(g_lb_statement_aliases : RefCell(HashMap(usize, usize))) = RefCell(HashMap(usize, usize)).new(HashMap(usize, usize).new());
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `src/utils.yo`.
@@ -358,6 +359,9 @@ derive(BorrowMatchSourceDecl, Clone);
 /// The scrutinee tokens of the consuming `match`es (see
 /// `note_consuming_match_scrutinee`).
 (g_consuming_match_scrutinees : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The source tokens of the consuming destructurings (see
+/// `note_consuming_destructure_source`).
+(g_consuming_destructure_sources : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Attach a generated temp variable to `expr`'s ExprInfo for RC drop-tracking.
 ///
 /// Steps:
@@ -1219,6 +1223,15 @@ note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
   (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
 );
+/// A destructuring `{ a, b } := x` consumed `x` at `tok` (VERDICTS-76 Q2):
+/// the E0901 for a later use of `x` names the borrow that keeps it.
+note_consuming_destructure_source :: (fn(tok : &Token) -> unit)({
+  cd_key := _consuming_match_key(tok);
+  g_consuming_destructure_sources.with_mut({ cd_key }(s) => s.insert(cd_key));
+});
+consuming_destructure_source_at :: (fn(tok : &Token) -> bool)(
+  (g_consuming_destructure_sources.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_destructure_sources.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
+);
 /// The type an E0901 for the moved binding `v` names: a reference binding's
 /// own reference type (a moved `&mut`), any other binding's value type.
 moved_value_type :: (fn(v : &Variable) -> TypeValue)(
@@ -1233,7 +1246,11 @@ use_of_moved_value_error :: (fn(name : &String, ty : &TypeValue, use_tok : &Toke
   entries.push(
     TokenAndError(
       token : Rc.clone(moved_tok.*),
-      error_message : cond(by_match => String.from("value moved here: a `match` takes its scrutinee by value"), true => String.from("value moved here"))
+      error_message : cond(
+        by_match => String.from("value moved here: a `match` takes its scrutinee by value"),
+        consuming_destructure_source_at(moved_tok) => String.from("value moved here: a destructuring takes its source by value"),
+        true => String.from("value moved here")
+      )
     )
   );
   with_code(format_error_messages_with_help(&entries, moved_value_help(name, ty, moved_tok)), E_USE_OF_MOVED_VALUE)
@@ -1245,6 +1262,9 @@ moved_value_help :: (fn(name : &String, ty : &TypeValue, moved_tok : &Token) -> 
   cond(
     consuming_match_scrutinee_at(moved_tok) => Option(String).Some(
       `a \`match\` consumes an owned scrutinee (plans/VALUES_BY_DEFAULT.md decision 26): match through a borrow to keep using \`${name}\`, \`match(&${name}, …)\`, or \`match(&mut ${name}, …)\` to write through the bindings`
+    ),
+    consuming_destructure_source_at(moved_tok) => Option(String).Some(
+      `a destructuring consumes an owned source, as a \`match\` does: destructure a borrow to keep using \`${name}\`, \`{ … } := &${name}\`, or \`{ … } := &mut ${name}\` to write through the names`
     ),
     true => move_only_help(name, ty)
   )
@@ -1530,10 +1550,10 @@ deref_operand_is_raw_pointer :: (fn(operand : &AstExpr, ctx : &EvalContext) -> b
 /// that is not implicitly copyable, for a message.
 _explicit_copy_kind :: (fn(ty : &TypeValue) -> String)(
   cond(
-    type_is_move_only(ty) => String.from("is move-only"),
     // A uniquely owned `Dyn` (decision 7): `Clone` in its trait list makes it
     // explicit-copy, its absence move-only.
     (type_holds_dyn_by_value(ty) && type_lacks_clone(ty)) => String.from("is move-only (a `Dyn` copies only when `Clone` is in its trait list)"),
+    type_is_move_only(ty) => String.from("is move-only"),
     // Decision 36: a plain-data type with neither `Copy` nor `Clone` is
     // move-only, with no `.clone()` to offer.
     type_lacks_clone(ty) => String.from("is move-only (it is neither `Copy` nor `Clone`)"),
@@ -3581,8 +3601,8 @@ reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Toke
               rw_lends_field,
               format_error_message_with_help(
                 tok,
-                `\`&mut ${rw_text}\` lends the reference field itself (\`${type_to_string_for_message(&rw_ty)}\`), not the place it refers to, and a reference field is not re-pointed in place.`,
-                Option(String).Some(`to re-point \`${rw_text}\`, write the whole holder with the new reference in that field; to write the place it refers to, declare the field \`&mut\` and lend \`&mut ${rw_text}.*\``)
+                `\`&mut ${rw_text}\` lends the reference field itself (\`${type_to_string_for_message(&rw_ty)}\`), not the place it refers to, and only a \`&mut &T\` parameter or a local \`&mut\` borrow (\`p := &mut ${rw_text}\`) takes it.`,
+                Option(String).Some(`to re-point the field, store into it (\`${rw_text} = &place\`); to write the place it refers to, declare the field \`&mut\` and lend \`&mut ${rw_text}.*\``)
               ),
               format_error_message_with_help(
                 tok,
@@ -3927,170 +3947,13 @@ audit_record_copy_trait :: (
 /// `consume_case_body_temp_var`).
 /// `exn` is threaded because `generate_expr_from_code` /
 /// `evaluate_expression_raw` require an explicit exception handler.
-// ---------------------------------------------------------------------------
-// The unique `Dyn` (plans/VALUES_BY_DEFAULT.md decision 7, B12 and B13)
-// ---------------------------------------------------------------------------
-/// One copy of a local holding a `Dyn` (`type_holds_dyn_by_value`), waiting
-/// for the epilogue of the frame that declares the local (`judge_dyn_copies`,
-/// exprs/begin.yo): the copy moves the local, so a read of it after `site`
-/// is the use of a moved value.
-DynCopyPending :: struct(site : ImplicitCopyPending, name : String, ty : TypeValue, site_tok : Token, seq : u64);
-derive(DynCopyPending, Clone);
-/// The sequence number the next pending `Dyn` copy gets (`dyn_copy_mark`).
-(mut(g_dyn_copy_seq) : u64) = u64(0);
-/// Variable id → the pending `Dyn` copies of it.
-(g_dyn_copy_pending : RefCell(HashMap(usize, ArrayList(DynCopyPending)))) = RefCell(HashMap(usize, ArrayList(DynCopyPending))).new(HashMap(usize, ArrayList(DynCopyPending)).new());
-/// A `Dyn` owns its payload uniquely (decision 7): `Dyn(Trait, Clone)` is
-/// explicit-copy, any other `Dyn` move-only, and a value aggregate holding
-/// one follows it. Generation B (B13) applies the rule to every copy, std and
-/// src included: their copies of a `Dyn` take `.clone()` or move. The rule
-/// only rejects programs: every copy it accepts is the last use of its
-/// source and keeps the counted-share representation, so it changes no
-/// emitted C.
-/// True when a copy of a `ty` value falls under the rule.
-dyn_copy_rule_applies :: (fn(ty : &TypeValue) -> bool)(type_holds_dyn_by_value(ty));
-/// Check one copy (`rhs`, read through variable `variable_name`) of a value
-/// holding a `Dyn`, where the rule applies (`dyn_copy_rule_applies`). A copy
-/// out of storage it cannot move from is E0901 at once, exactly as
-/// `transfer_explicit_copy_value` rejects it for an explicit-copy type: a
-/// field, element or dereference, a module-level binding, a `&mut` borrow, a
-/// `&T` parameter and a closure's capture. Any other source (an owning local
-/// or parameter, a `match`/`for` binding) is held pending: Generation B moves
-/// it here, so it is E0901 only if it is read again (`judge_dyn_copies`). A
-/// binding of a `match` that Generation B makes consuming owns its payload,
-/// and one of a borrowing `match` cannot be moved at all; holding both
-/// pending rejects no program Generation B accepts.
-check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, ctx : &EvalContext, exn : Exception) -> unit)(
-  match(
-    find_variable_in_env(&ei.env(), variable_name.clone()),
-    .None => (),
-    .Some(v) => cond(
-      is_temp_variable_name(&ei.env().module_path().*, variable_name) => if(!v.is_owning_the_rc_value(), {
-        what := cond(
-          _is_deref_place(rhs) => String.from("it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves)."),
-          ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) => String.from("it is a field of another value, and moving it out would leave that value partly moved (Yo has no partial moves). Move the whole value instead."),
-          true => String.from("it is borrowed from the value that holds it (an element, or a binding into another value).")
-        );
-        _throw_explicit_copy_violation(rhs, &ei.ty(), &what, ctx, exn);
-      }),
-      v.is_compile_time_only() => (),
-      v.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
-      moves_reference_itself(rhs, &ei.ty(), &v) => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
-      (v.is_ref() && !v.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
-      _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
-      (v.is_parameter() && !v.is_owning_the_rc_value() && _owning_param_binding_beside(&ei.env(), &v).is_none()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&T` parameter, and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn),
-      true => {
-        tok := ast_expr_token(rhs);
-        note_dyn_copy_pending(&v, &tok, &ei.ty());
-      }
-    )
-  )
-);
-derive(DynCopyPending, Clone);
-/// `check_dyn_copy` for the implicit capture of variable `v` by an escaping
-/// closure at `tok` (a closure that only borrows its captures copies
-/// nothing). A capture moves the variable in Generation B, so one that cannot
-/// be moved (a `&mut` borrow, a module-level binding, a `&T` parameter) is
-/// E0901 at once, and any other is held pending: read after the closure, it
-/// is the use of a moved value.
-check_dyn_capture :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
-  cond(
-    v.is_compile_time_only() => (),
-    (v.is_ref() || v.is_module_level() || (v.is_parameter() && !v.is_owning_the_rc_value() && _owning_param_binding_beside(env, v).is_none())) => {
-      msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(&variable_value_type(v))}\` ${_explicit_copy_kind(&variable_value_type(v))}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a \`&T\` parameter, a \`&mut\` borrow or a module-level binding).`;
-      raise_flow_violation(with_code(format_error_message_with_help(tok, &msg, move_only_help(v.name.clone(), &variable_value_type(v))), E_USE_OF_MOVED_VALUE), ctx, exn);
-    },
-    true => note_dyn_copy_pending(v, tok, &variable_value_type(v))
-  )
-);
-/// Hold the copy (or move) of `v`, a value of type `ty`, at `tok` pending
-/// for the epilogue of the frame that declares `v` (`judge_dyn_copies`,
-/// exprs/begin.yo). A by-value `match` of a local holding a `Dyn` holds its
-/// scrutinee this way too (`_decide_match_mode`, exprs/match.yo): Generation
-/// B moves it there.
-note_dyn_copy_pending :: (fn(v : &Variable, tok : &Token, ty : &TypeValue) -> unit)({
-  entry := DynCopyPending(
-    site : ImplicitCopyPending(line : String.new(), module_path : tok.module_path.*.clone(), byte_offset : tok.byte_offset),
-    name : v.name.clone(),
-    ty : ty.clone(),
-    site_tok : tok.clone(),
-    seq : _next_dyn_copy_seq()
-  );
-  // Owned key; the list moves back in (`with_mut`'s callback is a sink
-  // parameter).
-  dcp_key := v.id().clone();
-  lst := match(g_dyn_copy_pending.with_mut(({ dcp_key }(m) => m.remove(&dcp_key))), .Some(l) => l, .None => ArrayList(DynCopyPending).new());
-  lst.push(entry);
-  dcp_key2 := v.id().clone();
-  g_dyn_copy_pending.with_mut(({ dcp_key2, lst }(m) => m.insert(dcp_key2, lst)));
+/// E1301 for a copy that reached the implicit dup of
+/// `set_expr_as_needs_to_call_dup`: every value that holds a count needs a
+/// drop, and a value that needs a drop copies only explicitly.
+_throw_implicit_dup_reached :: (fn(rhs : &AstExpr, ty : &TypeValue, copy_path : &(str, static), exn : Exception) -> unit)({
+  msg := `internal compiler error: an implicit copy of \`${_place_text(rhs)}\` (type \`${type_to_string_for_message(ty)}\`, a ${copy_path} store) reached the implicit dup; a value that needs a drop copies only explicitly\nThis is a bug in the Yo compiler, not in your program — please report it:\nhttps://github.com/shd101wyy/Yo/issues`;
+  exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(rhs), &msg), E_INTERNAL_COMPILER_ERROR))));
 });
-_next_dyn_copy_seq :: (fn() -> u64)({
-  n := g_dyn_copy_seq;
-  g_dyn_copy_seq = (n + u64(1));
-  n
-});
-/// A mark to roll the pending `Dyn` copies back to (`dyn_copy_rollback`).
-dyn_copy_mark :: (fn() -> u64)(g_dyn_copy_seq);
-/// Drop every pending `Dyn` copy recorded since `mark`: the evaluation that
-/// made them was abandoned (a `comptime_expect_error` argument), so none of
-/// those copies happens.
-dyn_copy_rollback :: (fn(mark : u64) -> unit)({
-  if(g_dyn_copy_pending.with(_c_len_4) == usize(0), {
-    return(());
-  });
-  ids := g_dyn_copy_pending.with(_c_keys_usize);
-  (i : usize) = usize(0);
-  while(i < ids.len(), i = (i + usize(1)), {
-    id := match(ids.get(i), .Some(x) => x, .None => usize(0));
-    match(
-      g_dyn_copy_pending.with_mut(m => m.remove(&id)),
-      .Some(lst) => {
-        kept := ArrayList(DynCopyPending).new();
-        (j : usize) = usize(0);
-        while(j < lst.len(), j = (j + usize(1)), {
-          match(
-            lst.get_cloned(j),
-            .Some(e) => if(e.seq < mark, {
-              kept.push(e);
-            }),
-            .None => ()
-          );
-        });
-        if(kept.len() > usize(0), {
-          // Owned key/value (`with_mut`'s callback is a sink parameter).
-          dcp_k := id.clone();
-          dcp_v := kept.clone();
-          g_dyn_copy_pending.with_mut(({ dcp_k, dcp_v }(m) => m.insert(dcp_k, dcp_v)));
-        });
-      },
-      .None => ()
-    );
-  });
-});
-/// Whether any `Dyn` copy waits for its frame's epilogue.
-dyn_copy_pending_exists :: (fn() -> bool)(g_dyn_copy_pending.with(_c_len_4) > usize(0));
-/// Remove and return the pending `Dyn` copies of variable `id`, or none.
-take_dyn_copy_pending :: (fn(id : usize) -> Option(ArrayList(DynCopyPending)))(
-  cond(
-    (g_dyn_copy_pending.with(_c_len_4) == usize(0)) => Option(ArrayList(DynCopyPending)).None,
-    true => g_dyn_copy_pending.with_mut(m => m.remove(&id))
-  )
-);
-/// E0901 for a pending `Dyn` copy of `name` at `site_tok` whose source is
-/// read again at `use_tok` (`.None`: a loop runs the copy again).
-dyn_copy_used_again_error :: (fn(p : &DynCopyPending, use_tok : Option(Token)) -> YoError)(
-  match(
-    use_tok,
-    .Some(ut) => use_of_moved_value_error(&p.name, &p.ty, &ut, &p.site_tok),
-    .None => {
-      entries := ArrayList(TokenAndError).new();
-      entries.push(TokenAndError(token : p.site_tok.clone(), error_message : `use of moved value: \`${p.name}\` is moved here, and the loop runs this copy again`));
-      with_code(format_error_messages_with_help(&entries, move_only_help(&p.name, &p.ty)), E_USE_OF_MOVED_VALUE)
-    }
-  )
-);
-///
 set_expr_as_needs_to_call_dup :: (
   fn(
     rhs : &AstExpr,
@@ -4204,12 +4067,21 @@ set_expr_as_needs_to_call_dup :: (
           );
         });
       });
-      // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
-      // The unique `Dyn`: a copy of a value holding a `Dyn`
-      // (`check_dyn_copy`).
-      if(dyn_copy_rule_applies(&ei.ty()), {
-        check_dyn_copy(rhs, &ei, &variable_name, ctx, exn);
+      // A copy of a value whose type mentions an open type variable is
+      // judged where the variable is bound, at the instantiation
+      // (`type_requires_explicit_copy` above follows a bound variable's
+      // resolution chain). While it is open nothing can be counted: a
+      // definition-time trial pass emits nothing, and a body evaluated at the
+      // variable itself (a generic `ctl` handler's `ResumeType`, bound at its
+      // erased declared type) lowers the value to an untyped word.
+      if(!type_has_no_open_some(&ei.ty()), {
+        return(());
       });
+      // A value that needs a drop is not implicitly copyable
+      // (`type_requires_explicit_copy`, VERDICTS-70 row 9), so its copy moved
+      // above. An implicit dup reaching here is a compiler bug.
+      _throw_implicit_dup_reached(rhs, &ei.ty(), copy_path, exn);
+      // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
       saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
       // Evaluate in a PRIVATE copy of the recorded scope: a recorded snapshot is
@@ -6879,7 +6751,6 @@ export(move_only_help, move_only_type_help, use_of_moved_value_error, moved_valu
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle);
 export(audit_copy_trait_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy);
-export(DynCopyPending, dyn_copy_rule_applies, check_dyn_copy, check_dyn_capture, note_dyn_copy_pending, dyn_copy_mark, dyn_copy_rollback, dyn_copy_pending_exists, take_dyn_copy_pending, dyn_copy_used_again_error);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_is_future_operand_parameter, variable_id_in_scope);
 export(capture_place_crosses_cell, is_cell_handle_deref_step, place_rc_handle, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
@@ -7391,34 +7262,12 @@ reference_field_read_mode :: (fn(id : usize) -> Option(bool))(
 is_reference_field_read :: (fn(id : usize) -> bool)(reference_field_read_mode(id).is_some());
 /// E0926 at a field read `text` whose field is the reference `ref_ty`, used
 /// as a whole value without `.*` (N1e-2; the binding form is
-/// `reject_reference_without_deref`). `tok` is the field label's token. At
-/// the target of a store whose right side is a reference (`h.r = &y`,
-/// `reference_field_store_mark`) the message says what the store is and
-/// spells it as the whole-holder store.
+/// `reject_reference_without_deref`). `tok` is the field label's token.
 reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   if(ctx.is_in_function_call_checking_phase, {
     return(());
   });
   shown := type_to_string_for_message(ref_ty);
-  match(
-    _reference_field_store_at(tok),
-    .Some(st) => {
-      raise_flow_violation(
-        &with_code(
-          format_error_message_with_help(
-            tok,
-            `\`${text} = ${st.rhs_text}\` stores a reference into the field \`${label}\` (\`${shown}\`): a reference field is set by writing the whole holder`,
-            Option(String).Some(`write the whole holder: \`${_reference_field_store_whole_holder(&st, label, ctx)}\``)
-          ),
-          E_REFERENCE_READ_WITHOUT_DEREF
-        ),
-        ctx,
-        exn
-      );
-      return(());
-    },
-    .None => ()
-  );
   raise_flow_violation(
     &with_code(
       format_error_message_with_help(
@@ -7432,95 +7281,57 @@ reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref
     exn
   );
 });
-/// A store `h.r = e` whose right side is spelled as a reference (a borrow
-/// `&x` / `&mut x`, or a reference binding), recorded while its target is
-/// evaluated: E0926 at the target names the store
-/// (`reject_reference_field_without_deref`). `holder` is `h` as written,
-/// `holder_is_reference` when `h` names a reference binding (its whole
-/// holder is `h.*`), `rhs_text` is `e` as written.
-ReferenceFieldStore :: struct(holder : AstExpr, holder_is_reference : bool, rhs_text : String);
-derive(ReferenceFieldStore, Clone);
-_c_len_rfs :: (fn(m : &HashMap(String, ReferenceFieldStore)) -> usize)(m.len());
-_names_reference_binding :: (fn(e : &AstExpr, env : &Environment) -> bool)(
-  ast_expr_is_atom(e) && match(get_variables_from_env(env, ast_expr_token(e).value.*.clone()).last_cloned(), .Some(v) => variable_is_reference_binding(&v), .None => false)
-);
-/// Before the target `lhs` of `lhs = rhs` is evaluated: records the store
-/// when `lhs` is a field `h.r` and `rhs` is spelled as a reference. Returns
-/// the field label's token, for `reference_field_store_clear`.
-reference_field_store_mark :: (fn(lhs : &AstExpr, rhs : &AstExpr, env : &Environment) -> Option(Token))({
+/// E0926 at a store `h.r = v` into the reference field `r` whose right side
+/// `v` is a value, not a reference (VERDICTS-78 Q1): the store re-points the
+/// field, so it takes a reference; writing the place the field refers to is
+/// `h.r.* = v`. `target` is `h.r` as written, `value` is `v`.
+reject_reference_field_value_store :: (fn(target : &String, value : &String, label : &String, ref_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  shown := type_to_string_for_message(ref_ty);
+  through := if(t_slot_is_mut_ref(ref_ty), `write the place it refers to with \`${target}.* = ${value}\``, `write the place it refers to with \`${target}.* = ${value}\` (declare the field \`&mut\` first)`);
+  raise_flow_violation(
+    &with_code(
+      format_error_message_with_help(
+        tok,
+        `\`${target} = ${value}\` stores a value into the reference field \`${label}\` (\`${shown}\`), which holds a reference: a store into the field re-points it`,
+        Option(String).Some(`${through}, or re-point the field with \`${target} = &place\``)
+      ),
+      E_REFERENCE_READ_WITHOUT_DEREF
+    ),
+    ctx,
+    exn
+  );
+});
+/// Before the target `lhs` of `lhs = rhs` is evaluated: when `lhs` is a
+/// field `h.r` (or a tuple element `t.0`), records its label's source
+/// position. A reference field read there is the field itself, a place of
+/// the field's reference type (the store re-points it, VERDICTS-78 Q1), not
+/// the place it refers to (`is_reference_field_store_target`). Returns the
+/// label's token, for `reference_field_store_clear`.
+reference_field_store_mark :: (fn(lhs : &AstExpr) -> Option(Token))({
   if(!ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(Token).None);
   });
   rfs_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(Option(Token).None));
-  holder := match(rfs_args.get_cloned(usize(0)), .Some(a) => a, .None => return(Option(Token).None));
   label := match(rfs_args.get_cloned(usize(1)), .Some(a) => a, .None => return(Option(Token).None));
   if(!ast_expr_is_atom(&label) || (ast_expr_token(&label).value.* == "*"), {
     return(Option(Token).None);
   });
-  rhs_text := cond(
-    ast_expr_is_fn_call_of(rhs, BF_ADDRESS_OF, Option(usize).Some(usize(1))) => `&${_place_text(rhs)}`,
-    ast_expr_is_fn_call_of(rhs, BK_BORROW_MUT, Option(usize).Some(usize(1))) => `&mut ${_place_text(rhs)}`,
-    _names_reference_binding(rhs, env) => _place_text(rhs),
-    true => return(Option(Token).None)
-  );
   label_tok := ast_expr_token(&label);
   key := _reference_deref_site_key(&label_tok);
-  store := ReferenceFieldStore(holder : holder.clone(), holder_is_reference : _names_reference_binding(&holder, env), rhs_text : rhs_text);
-  _old := g_reference_field_stores.with_mut({ key, store }(m) => m.insert(key, store));
+  _new := g_reference_field_stores.with_mut({ key }(s) => s.insert(key));
   Option(Token).Some(label_tok)
 });
 /// After the target was evaluated (`reference_field_store_mark`).
 reference_field_store_clear :: (fn(label_tok : &Token) -> unit)({
   key := _reference_deref_site_key(label_tok);
-  _old := g_reference_field_stores.with_mut({ key }(m) => m.remove(&key));
+  _old := g_reference_field_stores.with_mut({ key }(s) => s.remove(&key));
   ()
 });
-/// The store whose target field's label is at `tok`.
-_reference_field_store_at :: (fn(tok : &Token) -> Option(ReferenceFieldStore))(
-  if(g_reference_field_stores.with(_c_len_rfs) == usize(0), Option(ReferenceFieldStore).None, g_reference_field_stores.with({ tok : &tok.* }(m) => m.get_cloned(&_reference_deref_site_key(tok))))
+/// Whether the field label at `tok` is the target of a store being evaluated
+/// (`reference_field_store_mark`).
+is_reference_field_store_target :: (fn(tok : &Token) -> bool)(
+  (g_reference_field_stores.with(s => s.len()) > usize(0)) && g_reference_field_stores.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
 );
-/// The whole-holder store `st` spells for its field `label`:
-/// `h = H(r : &y, n : h.n)`, `t = (&y, t.1)`, `w.* = H(r : &y, n : w.n)`.
-_reference_field_store_whole_holder :: (fn(st : &ReferenceFieldStore, label : &String, ctx : &EvalContext) -> String)({
-  holder := _place_text(&st.holder);
-  target := if(st.holder_is_reference, `${holder}.*`, holder.clone());
-  fallback := `${target} = …(${label} : ${st.rhs_text}, …the other fields of ${holder})`;
-  mut(holder_ty) := match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_rewritten_node(&st.holder))),
-    .Some(hi) => t_refine_inner(&hi.ty()),
-    .None => return(fallback)
-  );
-  if(t_slot_is_borrow(&holder_ty), {
-    holder_ty = t_refine_inner(&t_slot_pointee(&holder_ty));
-  });
-  is_tuple := is_tuple_type(&holder_ty);
-  labels := match(
-    &holder_ty,
-    Rc(.Tuple(tl, _)) => Option(SharedList(String)).Some(Rc.clone(tl)),
-    Rc(.Struct({ field_labels : sl, is_source_namespace : sns })) => if(sns.*, Option(SharedList(String)).None, Option(SharedList(String)).Some(Rc.clone(sl))),
-    _ => Option(SharedList(String)).None
-  );
-  match(
-    labels,
-    .Some(ls) => {
-      parts := String.new();
-      (i : usize) = usize(0);
-      while(i < ls.items.len(), i = (i + usize(1)), {
-        // A tuple's positional element is labelled by its index (or not at
-        // all) and is spelled bare; a labelled one is `name : value`.
-        position := i.to_string();
-        name := if(ls.items(i).len() == usize(0), position.clone(), ls.items(i).clone());
-        value := if(name == label.*, st.rhs_text.clone(), `${holder}.${name}`);
-        if(i > usize(0), {
-          parts.push_str(", ");
-        });
-        if(is_tuple && (name == position), parts.push_string(&value), parts.push_string(&`${name} : ${value}`));
-      });
-      if(is_tuple, `${target} = (${parts})`, `${target} = ${type_to_string_for_message(&holder_ty)}(${parts})`)
-    },
-    .None => fallback
-  )
-});
 /// After `e` was evaluated.
 deref_exempt_clear :: (fn() -> unit)({
   g_deref_exempt_armed = false;
@@ -7753,6 +7564,12 @@ local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt :
     });
     xs.push(frame);
   });
+});
+/// The binding `binding_id`, built by the evaluator for the statement
+/// `stmt_id`, takes that statement's look-ahead: its live range runs to the
+/// last use of its name after the statement.
+local_borrow_alias_statement :: (fn(binding_id : usize, stmt_id : usize) -> unit)({
+  _old := g_lb_statement_aliases.with_mut({ binding_id, stmt_id }(m) => m.insert(binding_id, stmt_id));
 });
 /// One pending look-ahead (`local_borrow_set_lookahead`).
 _LbLookahead :: struct(id : usize, index : usize, stmts : ArrayList(AstExpr));
@@ -9176,7 +8993,8 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token, 
   // bindings (in a function body the right-hand side evaluated) armed their
   // own frames in between. Without a frame the binding keeps its
   // statement-local range.
-  bid := ast_expr_id(binding);
+  own_id := ast_expr_id(binding);
+  bid := match(g_lb_statement_aliases.with({ own_id }(m) => m.get(&own_id)), .Some(sid) => sid, .None => own_id);
   match(
     g_lb_lookaheads.with({ bid }(xs) => match(_lb_lookahead_index_of(xs, bid), .Some(fi) => xs.get_cloned(fi), .None => Option(_LbLookahead).None)),
     .Some(frame) => {
@@ -12851,6 +12669,14 @@ _static_offending_root_of :: (fn(e : &AstExpr, skip : &String, env : &Environmen
 /// static place (rule 3: a literal, a read of a `static`-typed place, `&G`
 /// of an immutable module-level binding).
 _static_value_offense :: (fn(value : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(String))({
+  // A parameter whose declared slot spells `static` (rule 3) is read as a
+  // static value, whatever origin its read at an argument position is typed
+  // with: `slot.replace(g)` for `g : &(X, static)` stores what the caller was
+  // checked to pass
+  // (issues/fixed/2026-11-27-a-static-reference-parameter-passed-on-to-a-static-holders-method-is-e0923.md).
+  if(ast_expr_is_atom(value) && match(get_variables_from_env(env, ast_expr_token(value).value.*.clone()).last_cloned(), .Some(sp_v) => (sp_v.is_parameter() && _static_slot_param(&sp_v, env, ctx)), .None => false), {
+    return(Option(String).None);
+  });
   pv := byvalue_param_origin_names(value, env, ctx);
   if(pv.len() > usize(0), {
     return(Option(String).Some(pv(0).clone()));
@@ -13281,10 +13107,15 @@ store_through_mut_join :: (fn(targets : &ArrayList(OriginRootPlace), own : &Stri
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] store-through ${own}: holders=${holders.len().to_string()} value=${ast_expr_to_string(value)}`);
   });
+  // A lend stored through the reference (`rp.* = &y`, VERDICTS-78 Q1) is
+  // no re-point of `rp`'s target: `bind_join` leaves a bare lend to the
+  // re-point's own machinery, so it GENs here as any other target does.
+  value_bare := _unlabeled_value(value);
+  value_is_lend := (ast_expr_is_fn_call_of(&value_bare, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_bare, BK_BORROW_MUT, Option(usize).Some(usize(1))));
   (hi : usize) = usize(0);
   while(hi < holders.len(), {
     hv := holders(hi).clone();
-    if((holders.len() == usize(1)) && match(whole.get(usize(0)), .Some(w) => w, .None => false), {
+    if((holders.len() == usize(1)) && match(whole.get(usize(0)), .Some(w) => w, .None => false) && !value_is_lend, {
       bind_join(&hv, value, env, ctx, exn);
     }, {
       place_write_join(&hv, value, env, ctx, exn);
@@ -15199,7 +15030,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   out
 });
 export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, is_computed_reference_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, _static_module_level, _static_slot_param, _static_offending_root, _static_origin_reject, _static_join_subset_check, _static_offending_root_of, _static_value_offense, _static_value_roots, byvalue_param_origin_names);
-export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
+export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, note_consuming_destructure_source, consuming_destructure_source_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
   LocalBorrowInfo,
@@ -15237,6 +15068,8 @@ export(
   reject_reference_field_without_deref,
   reference_field_store_mark,
   reference_field_store_clear,
+  is_reference_field_store_target,
+  reject_reference_field_value_store,
   reject_write_through_shared_reference_field,
   note_reference_deref_site,
   is_reference_deref_site,
@@ -15257,6 +15090,7 @@ export(
   local_borrow_is_mut_binding_stmt,
   local_borrow_is_typed_decl_stmt,
   local_borrow_set_lookahead,
+  local_borrow_alias_statement,
   local_borrow_place_of,
   local_borrow_place_of_variable,
   local_borrow_value_place_of,

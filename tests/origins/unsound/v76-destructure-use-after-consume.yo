@@ -1,0 +1,11 @@
+// expect: E0901
+// VERDICTS-76 Q2: after `{ a, b } := p` consumes `p`, reading `p` would read the fields the names own and drop.
+{ String } :: import("std/string");
+Pair :: struct(a : String, b : String);
+main :: (fn() -> unit)({
+  p := Pair(a : String.from("a"), b : String.from("b"));
+  { a, b } := p;
+  q := p;
+  _n := (a.len() + q.a.len());
+});
+export(main);
