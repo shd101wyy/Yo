@@ -101,9 +101,9 @@ test("rc, box and arc are deleted: E0401 names the constructor", {
 // the type's `new`: `Rc(T).new(v)`, or `Arc(T).new(v)` for a Send Dyn.
 test("dyn(i32(1)) boxes through Rc(i32).new", {
   (d : Box(Dyn(ToString))) = dyn(Box.new(i32(1)));
-  assert(d.to_string() == `1`, "the boxed payload");
+  assert(d.*.to_string() == `1`, "the boxed payload");
   (s : Box(Dyn(ToString, Send))) = dyn(Box.new(i32(2)));
-  assert(s.to_string() == `2`, "the Send payload, boxed through Arc(i32).new");
+  assert(s.*.to_string() == `2`, "the Send payload, boxed through Arc(i32).new");
 });
 _Detector :: struct(detect : Box(Dyn(Fn(x : i32) -> i32)));
 test("dyn(Rc.new(<closure>)) contextually types the closure", {

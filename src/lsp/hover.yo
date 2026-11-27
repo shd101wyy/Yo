@@ -150,15 +150,15 @@ _find_token_at :: (
       }
     );
     skip := (
-      (t.kind == TokenKind.Whitespace) ||
-        (t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment)
+      (t.*.kind == TokenKind.Whitespace) ||
+        (t.*.kind == TokenKind.SingleLineComment) || (t.*.kind == TokenKind.MultiLineComment)
     );
-    if(!skip && (usize(t.row) == line), {
+    if(!skip && (usize(t.*.row) == line), {
       // `character` and `t.column` are RUNE columns, so the token width has
       // to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-      width := t.value.*.clone().chars().count();
-      inside := ((character >= usize(t.column)) && (character < (usize(t.column) + width)));
-      at_end := ((t.kind == TokenKind.Identifier) && (character == (usize(t.column) + width)));
+      width := t.*.value.*.clone().chars().count();
+      inside := ((character >= usize(t.*.column)) && (character < (usize(t.*.column) + width)));
+      at_end := ((t.*.kind == TokenKind.Identifier) && (character == (usize(t.*.column) + width)));
       if(inside || at_end, {
         return(Option(Token).Some(t));
       });
@@ -175,7 +175,7 @@ _collect_candidates :: (
   match(
     e,
     Rc(.Atom(_, tok)) => {
-      if((tok.value.* == target.value.*) && (tok.row == target.row) && (tok.column == target.column), {
+      if((tok.*.*.value.* == target.*.*.value.*) && (tok.*.*.row == target.*.*.row) && (tok.*.*.column == target.*.*.column), {
         out.push(Rc.clone(e.*));
       });
     },
@@ -232,26 +232,26 @@ _select_best_variable :: (
       }
     );
     match(
-      v.initialized_at_token(),
+      v.*.initialized_at_token(),
       .Some(it) => {
-        if(it.module_path == target.module_path, {
-          exact := ((it.row == target.row) && (it.column == target.column));
+        if(it.*.module_path == target.*.*.module_path, {
+          exact := ((it.*.row == target.*.*.row) && (it.*.column == target.*.*.column));
           if(exact, {
             return(Option(Variable).Some(v));
           });
           visible := (
-            (it.row < target.row) ||
-              ((it.row == target.row) && (it.column <= target.column))
+            (it.*.row < target.*.*.row) ||
+              ((it.*.row == target.*.*.row) && (it.*.column <= target.*.*.column))
           );
           if(visible, {
             later := (
               best_visible.is_none() ||
-                (usize(it.row) > best_row) || ((usize(it.row) == best_row) && (usize(it.column) >= best_col))
+                (usize(it.*.row) > best_row) || ((usize(it.*.row) == best_row) && (usize(it.*.column) >= best_col))
             );
             if(later, {
               best_visible = Option(Variable).Some(v);
-              best_row = usize(it.row);
-              best_col = usize(it.column);
+              best_row = usize(it.*.row);
+              best_col = usize(it.*.column);
             });
           });
         });
@@ -277,7 +277,7 @@ _find_member_access :: (
     e,
     Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func_box, Rc(args), is_infix, _)) => {
-      is_dot := match(func_box, Rc(.Atom(_, t)) => (t.value.* == "."), Rc(.FnCall(_, _, _, _, _)) => false);
+      is_dot := match(func_box, Rc(.Atom(_, t)) => (t.*.*.value.* == "."), Rc(.FnCall(_, _, _, _, _)) => false);
       if(is_dot, {
         (i : usize) = cond(is_infix.* => usize(1), true => usize(0));
         while(i < args.len(), {
@@ -289,7 +289,7 @@ _find_member_access :: (
                 Rc(.Atom(_, at)) => Rc.clone(at),
                 Rc(.FnCall(_, mf, _, _, ct)) => match(mf, Rc(.Atom(_, ft)) => Rc.clone(ft), Rc(.FnCall(_, _, _, _, _)) => Rc.clone(ct))
               );
-              if((mt.row == target.row) && (mt.column == target.column) && (mt.value.* == target.value.*), {
+              if((mt.*.row == target.*.*.row) && (mt.*.column == target.*.*.column) && (mt.*.value.* == target.*.*.value.*), {
                 out.push(Rc.clone(e.*));
               });
             },
@@ -394,8 +394,8 @@ handle_hover :: (
       mi = (mi + usize(1));
     });
   });
-  (name : String) = target.value.*.clone();
-  if(is_reserved_operator_name(name.clone()) || (target.kind == TokenKind.Operator), {
+  (name : String) = target.*.value.*.clone();
+  if(is_reserved_operator_name(name.clone()) || (target.*.kind == TokenKind.Operator), {
     name = `(${name})`;
   });
   (ty_opt : Option(String)) = Option(String).None;
@@ -423,15 +423,15 @@ handle_hover :: (
       // declared at/nearest the cursor. NOT for a
       // member — `p.x` is the field, never the local `x` in scope.
       if(!is_member, {
-        vars := get_variables_from_env(&info.env(), target.value.*.clone());
+        vars := get_variables_from_env(&info.env(), target.*.value.*.clone());
         if(vars.len() > usize(0), {
           match(
             _select_best_variable(&vars, &target),
             .Some(sv) => {
               ty_opt = Option(String).Some(type_to_string(&variable_value_type(&sv)));
-              is_comptime = sv.is_compile_time_only();
+              is_comptime = sv.*.is_compile_time_only();
               match(
-                sv.value().get(usize(0)),
+                sv.*.value().get(usize(0)),
                 .Some(vv) => {
                   fn_val = Option(EvalValue).Some(Rc.clone(vv));
                   vs2 := value_to_string(&vv);
@@ -505,7 +505,7 @@ handle_hover :: (
       ).obj()
     ).put(
       "range",
-      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.*.clone().chars().count())
+      j_range_in(lines, usize(target.*.row), usize(target.*.column), usize(target.*.row), usize(target.*.column) + target.*.value.*.clone().chars().count())
     ).obj()
   )
 });

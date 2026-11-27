@@ -42,7 +42,7 @@ test("write_string and read_to_string round-trip", {
   exn := Exception(
     throw : (
       err -> {
-        println(`  unexpected error: ${err}`);
+        println(`  unexpected error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -154,7 +154,7 @@ test("File.open write and read_to_string", {
   exn := Exception(
     throw : (
       err -> {
-        println(`  unexpected error: ${err}`);
+        println(`  unexpected error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -312,7 +312,7 @@ test("File sequential write_string calls advance the position", {
   exn := Exception(
     throw : (
       err -> {
-        println(`  unexpected error: ${err}`);
+        println(`  unexpected error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -333,7 +333,7 @@ test("File sequential read calls advance the position", {
   exn := Exception(
     throw : (
       err -> {
-        println(`  unexpected error: ${err}`);
+        println(`  unexpected error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -361,7 +361,7 @@ test("File.seek positions the next read", {
   exn := Exception(
     throw : (
       err -> {
-        println(`  unexpected error: ${err}`);
+        println(`  unexpected error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -390,7 +390,7 @@ test("File.set_len truncates a longer file", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  set_len-truncates error: ${err}`);
+        eprintln(`  set_len-truncates error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -413,7 +413,7 @@ test("File.set_len extends with zeroes", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  set_len-extends error: ${err}`);
+        eprintln(`  set_len-extends error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -438,7 +438,7 @@ test("File.from_fd wraps an existing descriptor", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  from-fd error: ${err}`);
+        eprintln(`  from-fd error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -520,7 +520,7 @@ test("File.open_opts read+append writes at the end and reads from the start", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  open_opts error: ${err}`);
+        eprintln(`  open_opts error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -545,7 +545,7 @@ test("File.open_opts create without truncate keeps existing content", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  open_opts create error: ${err}`);
+        eprintln(`  open_opts create error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -609,7 +609,7 @@ test("File.open_opts throws a Context naming the rejected combination", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         eprintln(`  rejected with: ${msg}`);
         assert(msg.contains("truncate needs write access"), "the explanation survives the throw");
         // The Context wraps an IoError, so the KIND Rust would report is
@@ -632,7 +632,7 @@ test("File.rewind returns to the beginning", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  rewind error: ${err}`);
+        eprintln(`  rewind error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -667,7 +667,7 @@ test("File satisfies the Seek trait bound", {
   exn := Exception(
     throw : (
       err -> {
-        eprintln(`  seek-bound error: ${err}`);
+        eprintln(`  seek-bound error: ${err.*}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -694,7 +694,7 @@ _nul_read_throws_invalid_input :: (fn(p : &Path, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
-        unwind(err.to_string().contains("invalid input"));
+        unwind(err.*.to_string().contains("invalid input"));
       }
     )
   );

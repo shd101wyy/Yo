@@ -162,7 +162,7 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     // A `Dyn` is identified by its trait set, so `impl(AnyError, is : ...)`
     // registers under `Dyn(Error)` and `err.is(T)` resolves. Without an id the
     // registration was silently skipped and the method was unreachable.
-    Rc(.DynT({ required_trait_types : rtt, negative_trait_types : ntt })) => _dyn_type_id(&rtt.items, &ntt.items),
+    Rc(.DynT({ required_trait_types : rtt, negative_trait_types : ntt })) => _dyn_type_id(&rtt.*.*.items, &ntt.*.*.items),
     // A slice `[T]` (decision 49) is keyed by its element's id, so
     // `impl([u8], …)` registers apart from `impl(u8, …)` and a call on a
     // `&[u8]` finds it
@@ -423,7 +423,7 @@ owner_visible_from_current :: (fn(owner : &String) -> bool)({
     .Some(f) => {
       closure := f(&cur_owner);
       owner_c := _canonical_owner(owner);
-      closure.contains(&owner_c.*)
+      closure.*.contains(&owner_c.*)
     }
   )
 });

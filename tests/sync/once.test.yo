@@ -92,48 +92,48 @@ test("Once call from multiple threads executes only once", {
   o := Arc.new(Once.new());
   counter := Arc.new(AtomicI32.new(i32(0)));
   t1 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t2 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t3 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   // Main thread also tries; its initializer borrows `counter`, which the
   // assertion below still reads.
-  o.call({ &counter }() => {
-    counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+  o.*.call({ &counter }() => {
+    counter.*.*.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
   t1.join();
   t2.join();
   t3.join();
-  assert(counter.load(MemoryOrder.Relaxed) == i32(1), "function should have executed exactly once");
-  assert(o.is_done(), "should be done");
+  assert(counter.*.load(MemoryOrder.Relaxed) == i32(1), "function should have executed exactly once");
+  assert(o.*.is_done(), "should be done");
 });
 test("Once is_done visible across threads after call", {
   if(arch == Arch.Wasm32, return(()));
   o := Arc.new(Once.new());
   counter := Arc.new(AtomicI32.new(i32(0)));
   // Main thread calls first
-  o.call({ &counter }() => {
-    counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+  o.*.call({ &counter }() => {
+    counter.*.*.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
   t := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    assert(o.is_done(), "should see done from other thread");
+    assert(o.*.is_done(), "should see done from other thread");
     // Second call should be no-op
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t.join();
-  assert(counter.load(MemoryOrder.Relaxed) == i32(1), "function should have executed only once");
+  assert(counter.*.load(MemoryOrder.Relaxed) == i32(1), "function should have executed only once");
 });
 test("Once multiple threads race to call", {
   if(arch == Arch.Wasm32, return(()));
@@ -141,28 +141,28 @@ test("Once multiple threads race to call", {
   counter := Arc.new(AtomicI32.new(i32(0)));
   // All threads start at the same time (no sleep)
   t1 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t2 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t3 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t4 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t5 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t1.join();
@@ -170,8 +170,8 @@ test("Once multiple threads race to call", {
   t3.join();
   t4.join();
   t5.join();
-  assert(counter.load(MemoryOrder.Relaxed) == i32(1), "should have executed exactly once despite 5 threads racing");
-  assert(o.is_done(), "should be done");
+  assert(counter.*.load(MemoryOrder.Relaxed) == i32(1), "should have executed exactly once despite 5 threads racing");
+  assert(o.*.is_done(), "should be done");
 });
 // ============================================================================
 // ThreadPool integration (the same `Arc` sharing; the pool itself is still a
@@ -183,28 +183,28 @@ test("Once with pool tasks executes only once", {
   counter := Arc.new(AtomicI32.new(i32(0)));
   wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
-  wg.add(i32(3));
+  wg.*.add(i32(3));
   spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
-    wg.done();
+    wg.*.done();
   });
   spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
-    wg.done();
+    wg.*.done();
   });
   spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
-    o.call(() => {
-      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    o.*.call(() => {
+      counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
-    wg.done();
+    wg.*.done();
   });
-  wg.wait();
-  assert(counter.load(MemoryOrder.Relaxed) == i32(1), "function should have executed only once across workers");
-  assert(o.is_done(), "should be done");
+  wg.*.wait();
+  assert(counter.*.load(MemoryOrder.Relaxed) == i32(1), "function should have executed only once across workers");
+  assert(o.*.is_done(), "should be done");
 });
 
 // ============================================================================
@@ -267,12 +267,12 @@ test("OnceCell get_or_init from multiple threads initializes exactly once", {
   inits := Arc.new(AtomicI32.new(i32(0)));
   mismatches := Arc.new(AtomicI32.new(i32(0)));
   (racer : Impl(Fn() -> unit)) = ({ cell : Arc.clone(cell), inits : Arc.clone(inits), mismatches : Arc.clone(mismatches) }() => {
-    got := cell.get_or_init({ &inits }() => {
-      inits.fetch_add(i32(1), MemoryOrder.AcqRel);
+    got := cell.*.get_or_init({ &inits }() => {
+      inits.*.*.fetch_add(i32(1), MemoryOrder.AcqRel);
       i32(7)
     });
     if(got.* != i32(7), {
-      mismatches.fetch_add(i32(1), MemoryOrder.AcqRel);
+      mismatches.*.fetch_add(i32(1), MemoryOrder.AcqRel);
     });
   });
   // `racer` owns the shared cells, so it is not `Copy` (decision 36): the
@@ -288,10 +288,10 @@ test("OnceCell get_or_init from multiple threads initializes exactly once", {
   t2.join();
   t3.join();
   t4.join();
-  assert(inits.load(MemoryOrder.Acquire) == i32(1), "the initializer must run exactly once across 5 racing threads");
-  assert(mismatches.load(MemoryOrder.Acquire) == i32(0), "every thread must see the same value");
-  assert(cell.is_initialized(), "the cell is initialized");
-  assert(match(cell.get(), .Some(v) => (v.* == i32(7)), .None => false), "the stored value survives the race");
+  assert(inits.*.load(MemoryOrder.Acquire) == i32(1), "the initializer must run exactly once across 5 racing threads");
+  assert(mismatches.*.load(MemoryOrder.Acquire) == i32(0), "every thread must see the same value");
+  assert(cell.*.is_initialized(), "the cell is initialized");
+  assert(match(cell.*.get(), .Some(v) => (v.* == i32(7)), .None => false), "the stored value survives the race");
 });
 // Decision 48 W2 (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §2) dropped the
 // O7 `Acyclic` requirement (plans/archive/STD_API_AUDIT.md §8): as in Rust, a

@@ -12,45 +12,45 @@
 test("with_mut through one handle is seen through another", {
   log := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   other := Rc.clone(log);
-  other.with_mut(xs => {
+  other.*.with_mut(xs => {
     xs.push(String.from("a"));
   });
-  log.with_mut(xs => {
+  log.*.with_mut(xs => {
     xs.push(String.from("b"));
   });
-  assert(log.with(xs => xs.len()) == usize(2), "both pushes landed in the one cell");
-  assert(other.with(xs => (xs(usize(1)) == "b")), "in order");
+  assert(log.*.with(xs => xs.len()) == usize(2), "both pushes landed in the one cell");
+  assert(other.*.with(xs => (xs(usize(1)) == "b")), "in order");
 });
 test("with returns the body's result, and nested reads share the cell", {
   c := Rc.new(RefCell(i32).new(i32(20)));
   d := Rc.clone(c);
-  sum := c.with(v => d.with(w => (v.* + w.*)));
+  sum := c.*.with(v => d.*.with(w => (v.* + w.*)));
   assert(sum == i32(40), "two readers at once");
 });
 test("the mark is released after each access", {
   c := Rc.new(RefCell(i32).new(i32(1)));
-  c.with_mut(v => {
+  c.*.with_mut(v => {
     v.* = (v.* + i32(1));
   });
-  c.with_mut(v => {
+  c.*.with_mut(v => {
     v.* = (v.* * i32(10));
   });
-  assert(c.with(v => v.*) == i32(20), "a second with_mut runs after the first");
+  assert(c.*.with(v => v.*) == i32(20), "a second with_mut runs after the first");
 });
 test("the mark is released when the body unwinds", {
   c := Rc.new(RefCell(i32).new(i32(1)));
   _unwinds :: (fn(cell : &Rc(RefCell(i32))) -> i32)({
-    cell.with_mut(v => {
+    cell.*.*.with_mut(v => {
       v.* = i32(2);
       unwind(i32(7));
     });
     i32(0)
   });
   assert(_unwinds(&c) == i32(7), "the body unwound out of the function");
-  c.with_mut(v => {
+  c.*.with_mut(v => {
     v.* = (v.* + i32(1));
   });
-  assert(c.with(v => v.*) == i32(3), "the cell is free again, with the write kept");
+  assert(c.*.with(v => v.*) == i32(3), "the cell is free again, with the write kept");
 });
 // `with_mut`'s body is an `FnOnce` moved in (decision 37): it may move a
 // captured move-only value into the cell, which a borrowed `Fn` body cannot
@@ -70,12 +70,12 @@ test("with_mut's FnOnce body moves a captured move-only value into the cell", {
   {
     cell := Rc.new(RefCell(ArrayList(_RefCellTok)).new(ArrayList(_RefCellTok).new()));
     t := _RefCellTok(n : i32(3));
-    n := cell.with_mut({ t }(xs) => {
+    n := cell.*.with_mut({ t }(xs) => {
       xs.push(t);
       xs.len()
     });
     assert(n == usize(1), "the body's result");
-    assert(cell.with(xs => xs(usize(0)).n) == i32(3), "the moved capture landed in the cell");
+    assert(cell.*.with(xs => xs(usize(0)).n) == i32(3), "the moved capture landed in the cell");
     assert(g_refcell_tok_dropped == before, "moved, not dropped");
   };
   assert(g_refcell_tok_dropped == (before + i32(1)), "dropped once, with the cell");
@@ -100,40 +100,40 @@ test("clone copies the value into a new cell", {
 test("replace_with counts through a second handle and returns the old value", {
   counter := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(counter);
-  assert(other.replace_with(n => (n.* + i32(1))) == i32(0), "the old value");
-  assert(counter.replace_with(n => (n.* * i32(10))) == i32(1), "the first handle sees 1");
-  assert(other.with(n => n.*) == i32(10), "both updates landed in the one cell");
+  assert(other.*.replace_with(n => (n.* + i32(1))) == i32(0), "the old value");
+  assert(counter.*.replace_with(n => (n.* * i32(10))) == i32(1), "the first handle sees 1");
+  assert(other.*.with(n => n.*) == i32(10), "both updates landed in the one cell");
 });
 test("replace swaps a String in and gives the old one back", {
   name := Rc.new(RefCell(String).new(String.from("old")));
   other := Rc.clone(name);
-  was := other.replace(String.from("new"));
+  was := other.*.replace(String.from("new"));
   assert(was == "old", "the replaced value");
-  assert(name.with(s => (s.* == "new")), "seen through the other handle");
+  assert(name.*.with(s => (s.* == "new")), "seen through the other handle");
 });
 test("replace_with builds the successor of a collection from the current one", {
   log := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  log.with_mut(xs => {
+  log.*.with_mut(xs => {
     xs.push(String.from("a"));
   });
-  was := log.replace_with(xs => {
+  was := log.*.replace_with(xs => {
     mut(next) := xs.clone();
     next.push(String.from("b"));
     next
   });
   assert(was.len() == usize(1), "the old list");
-  assert(log.with(xs => xs.len()) == usize(2), "the new list");
+  assert(log.*.with(xs => xs.len()) == usize(2), "the new list");
 });
 test("take leaves the default behind", {
   log := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   other := Rc.clone(log);
-  other.with_mut(xs => {
+  other.*.with_mut(xs => {
     xs.push(String.from("a"));
     xs.push(String.from("b"));
   });
-  taken := log.take();
+  taken := log.*.take();
   assert(taken.len() == usize(2), "the items moved out");
-  assert(other.with(xs => xs.len()) == usize(0), "an empty list is left");
+  assert(other.*.with(xs => xs.len()) == usize(0), "an empty list is left");
   n := RefCell(i32).new(i32(7));
   assert((n.take() == i32(7)) && (n.with(v => v.*) == i32(0)), "i32's default is 0");
 });
@@ -145,7 +145,7 @@ test("into_inner consumes the cell and returns the value", {
   s := cell.into_inner();
   assert(s == "xy", "the value written through the cell");
   shared := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  shared.with_mut(xs => {
+  shared.*.with_mut(xs => {
     xs.push(String.from("z"));
   });
   xs := match(Rc.try_unwrap(shared), .Ok(c) => c.into_inner(), .Err(_) => ArrayList(String).new());
@@ -180,7 +180,7 @@ test("into_inner moves a move-only payload out, dropped exactly once", {
 test("the mark is released when replace_with's function unwinds", {
   c := Rc.new(RefCell(i32).new(i32(1)));
   _unwinds :: (fn(cell : &Rc(RefCell(i32))) -> i32)({
-    cell.replace_with(
+    cell.*.*.replace_with(
       v => cond(
         (v.* == i32(1)) => unwind(i32(7)),
         true => (v.* + i32(1))
@@ -189,12 +189,12 @@ test("the mark is released when replace_with's function unwinds", {
     i32(0)
   });
   assert(_unwinds(&c) == i32(7), "the function unwound out of the caller");
-  assert(c.with(v => v.*) == i32(1), "the value is unchanged");
-  assert(c.replace_with(v => (v.* + i32(1))) == i32(1), "the cell is free again");
-  c.with_mut(v => {
+  assert(c.*.with(v => v.*) == i32(1), "the value is unchanged");
+  assert(c.*.replace_with(v => (v.* + i32(1))) == i32(1), "the cell is free again");
+  c.*.with_mut(v => {
     v.* = (v.* + i32(1));
   });
-  assert(c.with(v => v.*) == i32(3), "and with_mut runs after it");
+  assert(c.*.with(v => v.*) == i32(3), "and with_mut runs after it");
 });
 // A cell reached through an `Rc` element is kept alive for the call even
 // when the body drops every other handle: the caller holds a +1 on the
@@ -226,7 +226,7 @@ test("with, with_mut, replace_with and replace keep a cell reached through an Rc
   mut(a) := _rc_tracked_list(i32(1));
   a2 := talias(&mut a);
   assert(
-    a(usize(0)).with_mut(v => {
+    a(usize(0)).*.with_mut(v => {
       tclear(&a2);
       v.n = (v.n + i32(1));
       _rc_cell_drops
@@ -237,7 +237,7 @@ test("with, with_mut, replace_with and replace keep a cell reached through an Rc
   mut(b) := _rc_tracked_list(i32(2));
   b2 := talias(&mut b);
   assert(
-    b(usize(0)).with(v => {
+    b(usize(0)).*.with(v => {
       tclear(&b2);
       _rc_cell_drops + (v.n - v.n)
     }) == i32(1),
@@ -246,7 +246,7 @@ test("with, with_mut, replace_with and replace keep a cell reached through an Rc
   assert(_rc_cell_drops == i32(2), "destroyed once");
   mut(c) := _rc_tracked_list(i32(3));
   c2 := talias(&mut c);
-  old_ := c(usize(0)).replace_with(v => {
+  old_ := c(usize(0)).*.replace_with(v => {
     tclear(&c2);
     _RcTracked(n : (v.n + _rc_cell_drops))
   });
@@ -254,7 +254,7 @@ test("with, with_mut, replace_with and replace keep a cell reached through an Rc
   assert(_rc_cell_drops == i32(3), "the new value is destroyed with the cell after the call; the old one is held");
   mut(d) := _rc_tracked_list(i32(4));
   d2 := talias(&mut d);
-  old_d := d(usize(0)).replace({
+  old_d := d(usize(0)).*.replace({
     tclear(&d2);
     _RcTracked(n : _rc_cell_drops)
   });
@@ -274,13 +274,13 @@ test("with, with_mut, replace_with and replace keep a cell reached through an Rc
 test("a body naming the container its cell is lent from is E0910", {
   comptime_expect_error({
     mut(xs) := _rc_tracked_list(i32(1));
-    xs(usize(0)).with_mut(v => {
+    xs(usize(0)).*.with_mut(v => {
       xs.clear();
     })
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
     mut(xs) := _rc_tracked_list(i32(1));
-    xs(usize(0)).replace_with(v => {
+    xs(usize(0)).*.replace_with(v => {
       xs.clear();
       _RcTracked(n : v.n)
     })
@@ -309,11 +309,11 @@ impl(
   _CsCh(Item),
   new : (fn() -> Self)(Self(_st : Rc.new(RefCell(_CsSt(Item)).new(_CsSt(Item)(n : usize(0), x : Option(Item).None))))),
   _add : (fn(self : &Self) -> unit)(
-    self._st.with_mut(s => {
+    self._st.*.with_mut(s => {
       s.n = (s.n + usize(1));
     })
   ),
-  count : (fn(self : &Self) -> usize)(self._st.with(s => s.n))
+  count : (fn(self : &Self) -> usize)(self._st.*.with(s => s.n))
 );
 _CsTx :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_ch : _CsCh(T)));
 impl(

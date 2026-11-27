@@ -26,14 +26,14 @@ list :: (fn(n : i32) -> ArrayList(Rc(RefCell(C))))({
 main :: (fn() -> unit)({
   mut(a) := list(i32(1));
   a2 := talias(&mut a);
-  ra := a(usize(0)).with_mut(v => {
+  ra := a(usize(0)).*.with_mut(v => {
     tclear(&a2);
     v.n = (v.n + i32(1));
     drops
   });
   mut(b) := list(i32(2));
   b2 := talias(&mut b);
-  rb := b(usize(0)).with(
+  rb := b(usize(0)).*.with(
     &mut (
       v => {
         tclear(&b2);
@@ -43,7 +43,7 @@ main :: (fn() -> unit)({
   );
   mut(c) := list(i32(3));
   c2 := talias(&mut c);
-  old_ := c(usize(0)).replace_with(
+  old_ := c(usize(0)).*.replace_with(
     &mut (
       v => {
         tclear(&c2);

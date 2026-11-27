@@ -68,7 +68,7 @@ _run_doc_catching :: (fn(options : &DocCommandOptions, io : Io) -> Option(String
   exn := Exception(
     throw : (
       err -> {
-        unwind(Option(String).Some(err.to_string()));
+        unwind(Option(String).Some(err.*.to_string()));
       }
     )
   );
@@ -81,7 +81,7 @@ test("a degraded module fails the run unless --allow-token-only is passed", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `test io failed: ${err.to_string()}`);
+        assert(false, `test io failed: ${err.*.to_string()}`);
       }
     )
   );
@@ -113,7 +113,7 @@ test("--allow-token-only renders, with members on their types and no unexported 
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `test io failed: ${err.to_string()}`);
+        assert(false, `test io failed: ${err.*.to_string()}`);
       }
     )
   );
@@ -142,7 +142,7 @@ test("a fully loadable tree never needs the flag", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `a clean tree must not throw: ${err.to_string()}`);
+        assert(false, `a clean tree must not throw: ${err.*.to_string()}`);
       }
     )
   );

@@ -347,7 +347,7 @@ Acceptance gates, each PR:
 - `scripts/cli-diff-test.sh`, `scripts/check-embedded-yo.sh`, fmt with the tree binary, `scripts/check-issue-refs.sh`.
 - PR 1a's body states the count of programs in `tests/` that diagnostic 9 newly rejects. The scan in §4.2 found one.
 
-Order: 1a goes first and 1b stacks on it (it uses the contexts). Both close S1 issues and need neither the names nor a release boundary. 2 stacks on 1b. 3 stacks on 2. T1 (the std lemma library) and E2 (`assert_by`) come after 4 and are written in the new forms from their first line.
+Order against [`DEFAULT_ON_VERIFICATION.md`](DEFAULT_ON_VERIFICATION.md) §3.1: 1a and 1b land before either default flip, and 4 lands before that plan's S3 writes std proofs. Order: 1a goes first and 1b stacks on it (it uses the contexts). Both close S1 issues and need neither the names nor a release boundary. 2 stacks on 1b. 3 stacks on 2. T1 (the std lemma library) and E2 (`assert_by`) come after 4 and are written in the new forms from their first line.
 
 ## 9. Rejected alternatives
 

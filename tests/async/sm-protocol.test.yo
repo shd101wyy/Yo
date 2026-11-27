@@ -134,7 +134,7 @@ test("cancelling a task blocked on a channel releases it", {
     f := io.async({ ch : ch.clone(), i }(io : Io) => {
       t := _thing(i);
       v := io.await(ch.recv(io), io);
-      t.n + match(v, .Some(x) => x, .None => i32(0))
+      t.*.n + match(v, .Some(x) => x, .None => i32(0))
     });
     r := io.await(timeout(f, Duration.from_millis(i64(2)), io), io);
     assert(r.is_err(), "the receiver timed out");
@@ -165,7 +165,7 @@ _guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoE
     local_exn := Exception(
       throw : (
         err -> {
-          unwind(Result(String, String).Err(err.to_string()));
+          unwind(Result(String, String).Err(err.*.to_string()));
         }
       )
     );
@@ -215,7 +215,7 @@ _outer_catch :: (fn(io : Io) -> String)({
   exn := Exception(
     throw : (
       err -> {
-        unwind(`caught ${err.to_string()}`);
+        unwind(`caught ${err.*.to_string()}`);
       }
     )
   );
@@ -311,7 +311,7 @@ _sm_escape_after_branch :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
       );
       w := opt.unwrap();
       e.io.await(yield(e.io), e.io);
-      sum = (sum + match(w, .A(t) => t.n, .B(t) => t.n));
+      sum = (sum + match(w, .A(t) => t.*.n, .B(t) => t.*.n));
       cond(
         (i == i32(1)) => {
           e.exn.throw(dyn(Box.new(`stop`)));
@@ -353,7 +353,7 @@ _sm_reassign_across_escape :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
     (mut(t) : Thing) = _thing(i32(1));
     t = e.io.await(_sm_throws_thing(e.io), e);
-    t.n
+    t.*.n
   })
 );
 test("an escape inside a reassignment's await releases the old value once", {
@@ -375,7 +375,7 @@ test("an escape inside a reassignment's await releases the old value once", {
 _sm_hold :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async({ t : Rc.clone(t) }(e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    t.n
+    t.*.n
   })
 );
 _sm_pass_indexed :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, IoExn)))({

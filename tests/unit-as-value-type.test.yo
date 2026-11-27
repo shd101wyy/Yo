@@ -337,9 +337,9 @@ test("a unit field is erased from the C layout but still reads, writes and compa
   // below (issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md).
   k4 := k.clone();
   r := Rc.new(_CellWithUnit(a : i32(9), u : (), s : String.from("nine")));
-  k2 := r.u;
-  assert(r.a == i32(9), "Rc cell: the field after an erased unit is intact");
-  assert(r.s == "nine", "Rc cell: the RC field after an erased unit is intact");
+  k2 := r.*.u;
+  assert(r.*.a == i32(9), "Rc cell: the field after an erased unit is intact");
+  assert(r.*.s == "nine", "Rc cell: the RC field after an erased unit is intact");
   (t : _UnitTuple) = (i32(3), ());
   k3 := t.1;
   assert(t.0 == i32(3), "tuple: the element before an erased unit is intact");
@@ -355,7 +355,7 @@ test("a unit-typed constructor argument still runs for its side effects", {
   r := Rc.new(_CellWithUnit(a : i32(2), u : _bump(&mut c), s : String.from("s")));
   (t : _UnitTuple) = (i32(3), _bump(&mut c));
   assert(c.n == i32(3), `each erased unit argument ran once (got ${c.n})`);
-  assert((v.a + r.a + t.0) == i32(6), "the non-unit fields are intact");
+  assert((v.a + r.*.a + t.0) == i32(6), "the non-unit fields are intact");
 });
 // `Array(unit, N)` and a GENERIC struct instantiated at T = unit: the erasure
 // must hold when the unit arrives through a type parameter, and an array of a

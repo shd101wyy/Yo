@@ -112,11 +112,11 @@ has_comment_attribute :: (fn(tokens : &ArrayList(Token), attribute : &String) ->
       tokens.get_cloned(i),
       .Some(tok) => {
         is_plain_comment := cond(
-          (tok.kind == TokenKind.SingleLineComment) => true,
-          (tok.kind == TokenKind.MultiLineComment) => true,
+          (tok.*.kind == TokenKind.SingleLineComment) => true,
+          (tok.*.kind == TokenKind.MultiLineComment) => true,
           true => false
         );
-        if(is_plain_comment && tok.value.*.contains(attribute), {
+        if(is_plain_comment && tok.*.value.*.contains(attribute), {
           found = true;
         });
       },

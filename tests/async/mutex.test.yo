@@ -45,18 +45,18 @@ test("Test mutex excludes across awaits", {
   worker :: (fn(m2 : Arc(Mutex(i64)), ins : &Rc(RefCell(bool)), ovl : &Rc(RefCell(i64)), io : Io) -> Impl(Future(unit, Io)))(
     io.async({ ins : Rc.clone(ins), m2 : Arc.clone(m2), ovl : Rc.clone(ovl) }(io : Io) => {
       io.await(m2.*.lock(io), io);
-      if(ins.with(v => v.*), {
-        ovl.with_mut(n => {
+      if(ins.*.with(v => v.*), {
+        ovl.*.with_mut(n => {
           n.* = (n.* + i64(1));
         });
       });
-      ins.with_mut(v => {
+      ins.*.with_mut(v => {
         v.* = true;
       });
       before := m2.*.get();
       io.await(sleep(u64(5)), io);
       m2.*.set(before + i64(1));
-      ins.with_mut(v => {
+      ins.*.with_mut(v => {
         v.* = false;
       });
       m2.*.unlock();
@@ -69,7 +69,7 @@ test("Test mutex excludes across awaits", {
   _r1 := h1.await(io);
   _r2 := h2.await(io);
   _r3 := h3.await(io);
-  assert(overlaps.with(n => n.*) == i64(0), "no task may enter the section while another holds the lock");
+  assert(overlaps.*.with(n => n.*) == i64(0), "no task may enter the section while another holds the lock");
   assert(m.*.get() == i64(3), "read-modify-write across an await must not lose updates");
   assert(!m.*.is_locked(), "all sections released");
 });
@@ -111,7 +111,7 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   worker :: (fn(m2 : Arc(Mutex(i64)), ord : &Rc(RefCell(ArrayList(i64))), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
     io.async({ m2 : Arc.clone(m2), ord : Rc.clone(ord), tag }(io : Io) => {
       io.await(m2.*.lock(io), io);
-      ord.with_mut(o => o.push(tag));
+      ord.*.with_mut(o => o.push(tag));
       m2.*.unlock();
       return(());
     })
@@ -133,14 +133,14 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   _r3 := h3.await(io);
   _r4 := h4.await(io);
   _r5 := h5.await(io);
-  ran := order.with(o => o.len());
+  ran := order.*.with(o => o.len());
   assert(ran == usize(5), `all five ran, got ${ran.to_string()}`);
   // FIFO: the queue is drained from the front, so the arrival order is the
   // acquisition order. A stack would give 5,4,3,2,1 and would starve worker 1
   // under sustained contention.
   (mut(i) : usize) = usize(0);
   while(i < usize(5), i = (i + usize(1)), {
-    got := order.with(o => o(i));
+    got := order.*.with(o => o(i));
     assert(
       got == i64(i + usize(1)),
       `FIFO order: position ${i.to_string()} should be worker ${(i + usize(1)).to_string()}, got ${got.to_string()}`
@@ -212,11 +212,11 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
   ha := io.spawn(
     io.async({ a : Arc.clone(a) }(io : Io) => {
       // The receiver is auto-dereferenced: `a.lock(io)` lends `a.*`.
-      io.await(a.lock(io), io);
-      before := a.get();
+      io.await(a.*.lock(io), io);
+      before := a.*.get();
       io.await(sleep(u64(2)), io);
-      a.set(before + i64(10));
-      a.unlock();
+      a.*.set(before + i64(10));
+      a.*.unlock();
       return(());
     }),
     io
@@ -296,11 +296,11 @@ test("Test tasks contend through Rc handles, and lock borrows through them acros
   ha := io.spawn(
     io.async({ a : Rc.clone(a) }(io : Io) => {
       // The receiver is auto-dereferenced: `a.lock(io)` lends `a.*`.
-      io.await(a.lock(io), io);
-      before := a.get();
+      io.await(a.*.lock(io), io);
+      before := a.*.get();
       io.await(sleep(u64(2)), io);
-      a.set(before + i64(10));
-      a.unlock();
+      a.*.set(before + i64(10));
+      a.*.unlock();
       return(());
     }),
     io

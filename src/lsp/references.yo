@@ -52,24 +52,24 @@ _binding_token_of :: (
       return(Option(Token).None);
     }
   );
-  vars := get_variables_from_env(&info.env(), tok.value.*.clone());
+  vars := get_variables_from_env(&info.env(), tok.*.*.value.*.clone());
   if(vars.len() == usize(0), {
     return(Option(Token).None);
   });
   match(
     _select_best_variable(&vars, tok),
     .Some(v) => match(
-      v.initialized_at_token(),
+      v.*.initialized_at_token(),
       .Some(it) => Option(Token).Some(it),
-      .None => Option(Token).Some(Rc.clone(v.token))
+      .None => Option(Token).Some(Rc.clone(v.*.token))
     ),
     .None => Option(Token).None
   )
 });
 /// Same declaration site: same file (either `file://` spelling) and position.
 _same_declaration :: (fn(a : &Token, b : &Token) -> bool)(
-  (a.row == b.row) && (a.column == b.column) &&
-    (uri_to_fs_path(&a.module_path.*) == uri_to_fs_path(&b.module_path.*))
+  (a.*.*.row == b.*.*.row) && (a.*.*.column == b.*.*.column) &&
+    (uri_to_fs_path(&a.*.*.module_path.*) == uri_to_fs_path(&b.*.*.module_path.*))
 );
 
 /// The declaration token of a TOP-LEVEL binding of `name`, found
@@ -97,7 +97,7 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
               .Some(lhs) => match(
                 lhs,
                 Rc(.Atom(_, t)) => {
-                  if(t.value.* == name.*, {
+                  if(t.*.value.* == name.*, {
                     return(Option(Token).Some(Rc.clone(t)));
                   });
                 },
@@ -122,7 +122,7 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
                       .Some(name_expr) => {
                         if(ast_expr_is_atom(&name_expr), {
                           name_tok := ast_expr_token(&name_expr);
-                          if(name_tok.value.* == name.*, {
+                          if(name_tok.*.value.* == name.*, {
                             return(Option(Token).Some(name_tok));
                           });
                         });
@@ -184,7 +184,7 @@ collect_symbol_occurrences_with_decl :: (
     ci = (ci + usize(1));
   });
   roles := classify_atom_roles(exprs);
-  scoped := scoped_atoms_of(exprs, &target.value.*);
+  scoped := scoped_atoms_of(exprs, &target.*.*.value.*);
   (def : Option(Token)) = Option(Token).None;
   match(
     _best_candidate(&cands, info_table),
@@ -207,7 +207,7 @@ collect_symbol_occurrences_with_decl :: (
   match(
     def.clone(),
     .None => {
-      def = _top_level_decl_token(exprs, target.value.*.clone());
+      def = _top_level_decl_token(exprs, target.*.*.value.*.clone());
     },
     .Some(_) => ()
   );
@@ -235,7 +235,7 @@ collect_symbol_occurrences_with_decl :: (
         )
       );
       if(include, {
-        key := `${tok.row}:${tok.column}`;
+        key := `${tok.*.row}:${tok.*.column}`;
         if(!seen.contains(key.clone()), {
           seen.insert(key);
           out.push(tok);
@@ -275,7 +275,7 @@ handle_references :: (
       return(JsonValue.Array(items : empty));
     }
   );
-  if(target.kind != TokenKind.Identifier, {
+  if(target.*.kind != TokenKind.Identifier, {
     return(JsonValue.Array(items : empty));
   });
   decl := ArrayList(Token).new();
@@ -288,13 +288,13 @@ handle_references :: (
       .Some(tk) => {
         is_decl := match(
           decl.get_cloned(usize(0)),
-          .Some(d) => ((usize(tk.row) == usize(d.row)) && (usize(tk.column) == usize(d.column))),
+          .Some(d) => ((usize(tk.*.row) == usize(d.*.row)) && (usize(tk.*.column) == usize(d.*.column))),
           .None => false
         );
         if(include_declaration || !is_decl, {
           // RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
           out.push(
-            jb().put("uri", jstr(uri.clone())).put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.*.clone().chars().count())).obj()
+            jb().put("uri", jstr(uri.clone())).put("range", j_range_in(lines, usize(tk.*.row), usize(tk.*.column), usize(tk.*.row), usize(tk.*.column) + tk.*.value.*.clone().chars().count())).obj()
           );
         });
       },
@@ -333,7 +333,7 @@ handle_document_highlight :: (
       return(JsonValue.Array(items : ArrayList(JsonValue).new()));
     }
   );
-  if(target.kind != TokenKind.Identifier, {
+  if(target.*.kind != TokenKind.Identifier, {
     return(JsonValue.Array(items : ArrayList(JsonValue).new()));
   });
   decl := ArrayList(Token).new();
@@ -346,13 +346,13 @@ handle_document_highlight :: (
       .Some(tk) => {
         is_decl := match(
           decl.get_cloned(usize(0)),
-          .Some(d) => ((usize(tk.row) == usize(d.row)) && (usize(tk.column) == usize(d.column))),
+          .Some(d) => ((usize(tk.*.row) == usize(d.*.row)) && (usize(tk.*.column) == usize(d.*.column))),
           .None => false
         );
         // DocumentHighlightKind: 1 Text, 3 Write.
         kind := cond(is_decl => usize(3), true => usize(1));
         out.push(
-          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.*.clone().chars().count())).put("kind", jnum(kind)).obj()
+          jb().put("range", j_range_in(lines, usize(tk.*.row), usize(tk.*.column), usize(tk.*.row), usize(tk.*.column) + tk.*.value.*.clone().chars().count())).put("kind", jnum(kind)).obj()
         );
       },
       .None => ()

@@ -84,19 +84,19 @@ evaluate_char_literal :: (
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
-  if(!(tok.kind == TokenKind.CharLit), {
+  if(!(tok.*.kind == TokenKind.CharLit), {
     exn.throw(
       dyn(
         Box.new(
           format_error_message(
             &tok,
-            `Expected char literal, got ${tok.value.*}`
+            `Expected char literal, got ${tok.*.value.*}`
           )
         )
       )
     );
   });
-  char_code := parse_char_literal(tok.value.*.clone(), &tok, exn);
+  char_code := parse_char_literal(tok.*.value.*.clone(), &tok, exn);
   val := Rc.new(EvalValueNode.IntLit(char_code.to_string()));
   info := new_expr_info(env, t_comptime_int());
   info.set_value(.Some(val));

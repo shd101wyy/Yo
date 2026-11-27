@@ -321,7 +321,7 @@ find_matching_bracket :: (fn(tokens : &ArrayList(Token), start : usize) -> Optio
       return(.None);
     }
   );
-  start_kind := start_tok.kind;
+  start_kind := start_tok.*.kind;
   is_open_bracket := ((start_kind == TokenKind.LCurlyBracket) || (start_kind == TokenKind.LParen) || (start_kind == TokenKind.LBracket));
   if(!is_open_bracket, {
     return(.None);
@@ -341,7 +341,7 @@ find_matching_bracket :: (fn(tokens : &ArrayList(Token), start : usize) -> Optio
         break;
       },
       .Some(tok) => {
-        tk := tok.kind;
+        tk := tok.*.kind;
         cond(
           (tk == end_kind) => {
             depth = (depth - usize(1));

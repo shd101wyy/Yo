@@ -120,7 +120,7 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
       get_deferred_drop_target_atom_name(drop_expr),
       .Some(nm) => {
         cn := sanitize_for_c_identifier(&nm, false);
-        (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with({ &cn }(dn_s) => dn_s.contains(&cn.*))
+        (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.with({ &cn }(dn_s) => dn_s.contains(&cn.*))
       },
       .None => false
     );
@@ -138,7 +138,7 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
       get_deferred_drop_target_atom_name(drop_expr),
       .Some(nm2) => {
         cn2 := sanitize_for_c_identifier(&nm2, false);
-        (is_temp_variable_name(&ei.env().module_path().*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.with({ &cn2 }(ds_s) => scope_stack_contains(ds_s, &cn2.*))
+        (is_temp_variable_name(&ei.env().module_path().*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.*.with({ &cn2 }(ds_s) => scope_stack_contains(ds_s, &cn2.*))
       },
       .None => false
     );
@@ -224,7 +224,7 @@ _flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr)
     .Some(pending) => {
       if(pending.len() > usize(0), {
         stmt_tok := ast_expr_token(stmt);
-        if(stmt_tok.module_path.*.starts_with(String.from("auto-generated://")), {
+        if(stmt_tok.*.module_path.*.starts_with(String.from("auto-generated://")), {
           return(());
         });
         (next_tok : Option(Token)) = match(
@@ -248,17 +248,17 @@ _flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr)
                 // their release (`for(&make(), …)` drops its hidden owning
                 // local after the loop). User-named locals keep their
                 // scope-end drop the same way.
-                if(_drop_list_has_id(own_drops, ast_expr_id(&de)) && (is_temp_variable_name(&ei.env().module_path().*, tv.name.clone()) || _looks_like_minted_temp(tv.name.clone())) && is_lent_temp_token(&tv.token) && (tv.token.module_path.* == stmt_tok.module_path.*) && ((stmt_tok.row < tv.token.row) || ((stmt_tok.row == tv.token.row) && (stmt_tok.column <= tv.token.column))), {
+                if(_drop_list_has_id(own_drops, ast_expr_id(&de)) && (is_temp_variable_name(&ei.env().module_path().*, tv.*.name.clone()) || _looks_like_minted_temp(tv.*.name.clone())) && is_lent_temp_token(&tv.*.token) && (tv.*.token.*.module_path.* == stmt_tok.*.module_path.*) && ((stmt_tok.*.row < tv.*.token.*.row) || ((stmt_tok.*.row == tv.*.token.*.row) && (stmt_tok.*.column <= tv.*.token.*.column))), {
                   // The upper bound: a LATER sibling of the same module ends
                   // the statement's span.
                   in_span := match(
                     &next_tok,
-                    .Some(nt) => !((nt.module_path.* == stmt_tok.module_path.*) && ((nt.row < tv.token.row) || ((nt.row == tv.token.row) && (nt.column <= tv.token.column)))),
+                    .Some(nt) => !((nt.*.*.module_path.* == stmt_tok.*.module_path.*) && ((nt.*.*.row < tv.*.token.*.row) || ((nt.*.*.row == tv.*.token.*.row) && (nt.*.*.column <= tv.*.token.*.column)))),
                     .None => true
                   );
                   if(in_span, {
                     if(g_dbg_lt, {
-                      eprintln(`[lent-flush] stmt=${ast_expr_id(stmt).to_string()} temp=${tv.name} tok=${lent_temp_token_key(&tv.token)}`);
+                      eprintln(`[lent-flush] stmt=${ast_expr_id(stmt).to_string()} temp=${tv.*.name} tok=${lent_temp_token_key(&tv.*.token)}`);
                     });
                     matching.push(de);
                   });

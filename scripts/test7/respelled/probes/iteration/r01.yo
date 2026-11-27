@@ -7,8 +7,8 @@ main :: (fn() -> unit)({
   mut(l) := ArrayList(String).new();
   l.push(String.from("hello-world-hello-world-hello-world"));
   c := Rc.new(RefCell(ArrayList(String)).new(l));
-  r := c.with((fn(v : &ArrayList(String)) -> &String)(&v(usize(0))));
-  c.with_mut((v : &mut ArrayList(String)) => v.clear());
+  r := c.*.with((fn(v : &ArrayList(String)) -> &String)(&v(usize(0))));
+  c.*.with_mut((v : &mut ArrayList(String)) => v.clear());
   println(`OUT: ${r.*}`);
   ()
 });
