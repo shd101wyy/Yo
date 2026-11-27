@@ -31,6 +31,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
+  ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
   BK_BEGIN,
@@ -99,7 +100,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
-{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
+{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str, static_origin_marks_text } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type-key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function-value.yo");
@@ -148,9 +149,10 @@ pragma(Pragma.AllowUnsafe);
   sync_in_flight_ctx_at,
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ check_where_clause_form } :: import("../utils.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous-module.yo");
 { format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help, with_code_carried } :: import("../../error.yo");
-{ E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
+{ E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET, E_TRAIT_BOUND_FORM } :: import("../../diagnostics.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env-lookup.yo");
@@ -2286,6 +2288,52 @@ _throw_if_acyclic_impl :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env :
     );
   });
 });
+/// Is the resolved trait `trait_ty` the trait `name` resolves to in `env`?
+/// Compared by trait key, so an alias (`S :: Send`) is the trait it names.
+_resolved_trait_is :: (fn(trait_ty : &TypeValue, name : &(str, static), env : &Environment) -> bool)(
+  match(get_trait_type_from_env(env, String.from(name)), .Some(named) => (get_trait_key(trait_ty) == get_trait_key(&named)), .None => false)
+);
+/// The marker traits no impl claims freely, checked on the RESOLVED trait of
+/// every positive trait field, concrete or generic: `Sized` and `Escapable`
+/// are derived from a type's structure and never implemented by hand
+/// (decision 49, decision 43 O10); a manual `Send` or `Sync` needs
+/// `pragma(Pragma.AllowUnsafe)` in the file the impl is written in, because a
+/// wrong claim is a data race (THREAD_SAFETY Phase A). The trait's written
+/// name decides nothing: a generic header and an alias reach the same check
+/// (issues/fixed/2026-11-25-a-generic-or-aliased-send-impl-skips-the-allow-unsafe-gate.md).
+_throw_if_unimplementable_marker_impl :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env : &Environment, exn : Exception) -> unit)({
+  tt := match(trait_ty, .Some(t) => Rc.clone(t), .None => return(()));
+  if(_resolved_trait_is(&tt, "Sized", env), {
+    exn.throw(dyn(Box.new(format_error_message(tok, String.from(_SIZED_IS_DERIVED)))));
+  });
+  if(_resolved_trait_is(&tt, "Escapable", env), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            tok,
+            `\`Escapable\` is derived from a type's structure and is never implemented by hand: a type is \`Escapable\` exactly when it holds no reference and no borrow (plans/backlog/REFERENCES_AND_ORIGINS.md O10).`
+          )
+        )
+      )
+    );
+  });
+  is_send := _resolved_trait_is(&tt, "Send", env);
+  if((is_send || _resolved_trait_is(&tt, "Sync", env)) && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
+    (trait_name : String) = if(is_send, String.from("Send"), String.from("Sync"));
+    suffix := if(is_send, String.from("send across threads"), String.from("share across threads"));
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            tok,
+            `Manual 'impl(..., ${trait_name}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix}.`
+          )
+        )
+      )
+    );
+  });
+});
 /// Does the generic entry's trait, with the forall BINDINGS a receiver match
 /// produced substituted in, name the same trait instantiation as `concrete`?
 /// Traits carry no argument list, so the instantiations are compared by
@@ -3281,10 +3329,17 @@ _fmg_cache_usable :: (fn() -> bool)(
   && debug_knob(`YO_DEBUG_WARM`).is_none()
   && (_currently_registering_concrete_impls.with(_c_len_1) == usize(0))
 );
-/// The composed slow-map key: structural type key, method name, owner, joined
-/// on 0x01 (no type key or file path contains it).
+/// The composed slow-map key: structural type key, the static bits the type
+/// key leaves out, method name, owner, joined on 0x01 (no type key or file
+/// path contains it). `Box1(&X)` and `Box1(&(X, static))` are two instances
+/// (VERDICTS-74 rule 1) whose specialized methods differ in their slots and
+/// results: sharing one entry typed `Box1(&X).get()` as the static instance's
+/// `Option(&(X, static))`
+/// (issues/fixed/2026-11-25-a-generic-containers-method-result-is-typed-by-whichever-instance-looked-it-up-first.md).
 _fmg_cache_key :: (fn(resolved : &TypeValue, method_name : &String, owner : &String) -> String)({
   key := type_key(resolved);
+  key.push_byte(u8(1));
+  key.push_string(static_origin_marks_text(resolved));
   key.push_byte(u8(1));
   key.push_string(method_name.clone());
   key.push_byte(u8(1));
@@ -5340,6 +5395,23 @@ force_in_flight_field :: (
 /// to `out_some_types` / `out_traits`. Single-trait constraints only — a
 /// `(Trait1, Trait2)` RHS or an unknown trait is skipped (conservative: no
 /// constraint captured ⇒ no exclusion, same as before).
+/// E0624 at an impl `where(...)` entry whose left side is not one of the
+/// impl's `generic(...)` binders: an impl reads a bound on a binder only.
+_impl_bound_not_on_a_binder_error :: (fn(lhs : &AstExpr, forall_names : &ArrayList(String)) -> YoError)({
+  lhs_text := ast_expr_to_string(lhs);
+  shown := cond(
+    (forall_names.len() == usize(0)) => String.from("this impl declares no `generic(...)` binder"),
+    true => `its binders are \`${String.from("`, `").join(forall_names)}\``
+  );
+  example := match(forall_names.get_cloned(usize(0)), .Some(n) => n, .None => String.from("T"));
+  with_code(
+    format_error_message(
+      ast_expr_token(lhs),
+      `An impl's \`where(...)\` bounds the impl's own \`generic(...)\` binders, and \`${lhs_text}\` is not one of them (${shown}). Bound a binder, as in \`where(${example} <: Trait)\`.`
+    ),
+    E_TRAIT_BOUND_FORM
+  )
+});
 _collect_impl_where_constraints :: (
   fn(
     where_expr : &AstExpr,
@@ -5352,6 +5424,7 @@ _collect_impl_where_constraints :: (
     out_traits : &mut ArrayList(TypeValue)
   ) -> unit
 )({
+  check_where_clause_form(where_expr, exn);
   where_args := match(
     where_expr,
     Rc(.FnCall(_, _, Rc(wa), _, _)) => wa.clone(),
@@ -5372,7 +5445,7 @@ _collect_impl_where_constraints :: (
       lhs_name := ast_expr_token(&lhs).value.*.clone();
       (fa_idx : Option(usize)) = Option(usize).None;
       (fni : usize) = usize(0);
-      while((fni < forall_names.len()) && fa_idx.is_none(), {
+      while(ast_expr_is_atom(&lhs) && (fni < forall_names.len()) && fa_idx.is_none(), {
         match(
           forall_names.get_cloned(fni),
           .Some(fn0) => if(fn0 == lhs_name, {
@@ -5433,7 +5506,12 @@ _collect_impl_where_constraints :: (
             );
           });
         },
-        .None => ()
+        // The bound names none of the impl's binders (`W(T) <: Tr`,
+        // `Self <: Tr`, `T.Item <: Tr`): the impl would hold with the bound
+        // unread (VERDICTS-84 §4, E0624; issues/fixed/2026-11-26-an-impl-where-bound-whose-left-side-is-not-a-binder-is-silently-dropped.md).
+        .None => {
+          exn.throw(dyn(Box.new(_impl_bound_not_on_a_binder_error(&lhs, forall_names))));
+        }
       );
     });
   });
@@ -5882,6 +5960,7 @@ evaluate_module_value :: (
         g_trait_ty_opt := _try_lookup_trait_type(&trait_fn_expr2, &forall_env, ctx, exn);
         _throw_if_deref_impl_outside_prelude(&g_trait_ty_opt, &receiver_type_pattern, &mf_expr, ast_expr_token(&mf_expr), &forall_env, ctx, exn);
         _throw_if_acyclic_impl(&g_trait_ty_opt, ast_expr_token(&mf_expr), &forall_env, exn);
+        _throw_if_unimplementable_marker_impl(&g_trait_ty_opt, ast_expr_token(&mf_expr), &forall_env, exn);
         g_trait_ty := match(&g_trait_ty_opt, .Some(t) => Rc.clone(t), .None => t_unit());
         // `Drop` only on the receivers it accepts, as
         // Case 3 checks through `g_check_self_constraints_fn`; a blanket
@@ -6393,47 +6472,6 @@ evaluate_module_value :: (
             .None => ()
           );
         });
-        // Phase A (THREAD_SAFETY): a manual `impl(T, Send())` / `impl(T, Sync())`
-        // requires `pragma(Pragma.AllowUnsafe)`: a wrong claim is a data race.
-        // A manual `impl(T, Acyclic())` is rejected outright
-        // (`_throw_if_acyclic_impl`, decision 48 W6b).
-        if(!is_negative_field && (ast_expr_is_fn_call(&field_expr) && !ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2)))), {
-          pos_trait_name := match(
-            Rc.clone(field_expr),
-            Rc(.FnCall(_, pfb, _, _, _)) => ast_expr_text(&pfb).*.clone(),
-            Rc(.Atom(_, _)) => String.new()
-          );
-          // `Escapable` is the type's structure (decision 43, O10): no impl
-          // can claim or deny it.
-          if(pos_trait_name == "Sized", {
-            exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&field_expr), String.from(_SIZED_IS_DERIVED)))));
-          });
-          if(pos_trait_name == "Escapable", {
-            exn.throw(
-              dyn(
-                Box.new(
-                  format_error_message(
-                    ast_expr_token(&field_expr),
-                    `\`Escapable\` is derived from a type's structure and is never implemented by hand: a type is \`Escapable\` exactly when it holds no reference and no borrow (plans/backlog/REFERENCES_AND_ORIGINS.md O10).`
-                  )
-                )
-              )
-            );
-          });
-          if(((pos_trait_name == "Send") || (pos_trait_name == "Sync")) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.*.clone())), {
-            suffix := if(pos_trait_name == "Send", String.from("send across threads"), String.from("share across threads"));
-            exn.throw(
-              dyn(
-                Box.new(
-                  format_error_message(
-                    ast_expr_token(&field_expr),
-                    `Manual 'impl(..., ${pos_trait_name}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix}.`
-                  )
-                )
-              )
-            );
-          });
-        });
         if(ast_expr_is_fn_call(&field_expr) && ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2))), {
           // Direct colon pair: add it directly.
           method_exprs.push(Rc.clone(field_expr));
@@ -6460,6 +6498,7 @@ evaluate_module_value :: (
           current_trait_ty = _try_lookup_trait_type(&trait_fn_expr, &local_env, ctx, exn);
           _throw_if_deref_impl_outside_prelude(&current_trait_ty, &receiver_ty, &field_expr, ast_expr_token(&field_expr), &local_env, ctx, exn);
           _throw_if_acyclic_impl(&current_trait_ty, ast_expr_token(&field_expr), &local_env, exn);
+          _throw_if_unimplementable_marker_impl(&current_trait_ty, ast_expr_token(&field_expr), &local_env, exn);
           // Record that this type implements the trait (by its base id) in the
           // type's trait list, so `Type.impls(T, Trait)` resolves by identity at
           // trait-checking step 4 — the impl'd trait is pushed onto the

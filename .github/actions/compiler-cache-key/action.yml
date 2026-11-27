@@ -1,0 +1,62 @@
+name: "Compiler build cache key"
+description: >-
+  The actions/cache key for a compiler artifact (a stage-1 or stage-2 binary, a
+  cross-emitted C file) built from THIS checkout (plans/CI_ONE_HOUR.md phase 2).
+  It hashes everything that reaches the artifact's bytes: the compiler's sources
+  (src/, std/, build.yo, yo.toml, yo.lock, the vendored submodules), the seed
+  (SEED_VERSION), the runner (OS, arch, image version, clang version) and the
+  recipe files the caller names (the workflow or action holding the build
+  commands). A change to any of them misses the cache and rebuilds. Callers pass
+  the repository variable YO_CI_NO_BUILD_CACHE as `disable`: 1 turns every
+  restore off (`enabled=false`), the kill switch for a suspected stale entry.
+
+inputs:
+  kind:
+    description: "What is cached: stage1, stage2, cross-<target>, ... (part of the key)"
+    required: true
+  recipe:
+    description: "Glob(s) of the file(s) holding the build commands, hashed into the key"
+    required: true
+  seed-version:
+    description: "The bootstrap seed (env.SEED_VERSION)"
+    required: true
+  disable:
+    description: "'1' disables the cache (pass vars.YO_CI_NO_BUILD_CACHE)"
+    required: false
+    default: ""
+
+outputs:
+  key:
+    description: "The cache key"
+    value: ${{ steps.key.outputs.key }}
+  enabled:
+    description: "'true' unless `disable` is 1"
+    value: ${{ steps.key.outputs.enabled }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: key
+      shell: bash
+      env:
+        INPUTS_HASH: ${{ hashFiles('src/**', 'std/**', 'build.yo', 'yo.toml', 'yo.lock', 'vendor/**') }}
+        RECIPE_HASH: ${{ hashFiles(inputs.recipe, '.github/actions/compiler-cache-key/action.yml') }}
+        NO_CACHE: ${{ inputs.disable }}
+      run: |
+        set -euo pipefail
+        if [ -z "$INPUTS_HASH" ] || [ -z "$RECIPE_HASH" ]; then
+          echo "::error::compiler-cache-key: an input hash is empty (checkout missing?)"
+          exit 1
+        fi
+        # clang compiles every artifact's C; the image version covers libc,
+        # the OpenSSL headers and everything else the runner provides.
+        cc_id=$( (clang --version 2>/dev/null || echo no-clang) | head -1 | sha256sum | cut -c1-12)
+        key="yo-${{ inputs.kind }}-${RUNNER_OS}-${RUNNER_ARCH}-${ImageOS:-noimage}-${ImageVersion:-0}-${{ inputs.seed-version }}-cc${cc_id}-src${INPUTS_HASH:0:16}-r${RECIPE_HASH:0:12}"
+        echo "key=$key" >> "$GITHUB_OUTPUT"
+        if [ "${NO_CACHE:-}" = "1" ]; then
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          echo "build cache DISABLED (vars.YO_CI_NO_BUILD_CACHE=1); key would be $key"
+        else
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "build cache key: $key"
+        fi

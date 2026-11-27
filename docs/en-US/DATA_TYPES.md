@@ -707,8 +707,8 @@ The standard library keeps Rust's method names (`push`, `pop`, `len`, `insert`, 
 | `VecDeque`, `BinaryHeap` | `Deque`, `PriorityQueue` | The name of the abstract type, not of one implementation. |
 | `char` | `rune` | `char` is C's 8-bit type, which FFI needs. |
 | `Path`, `PathBuf` | one owned `Path` | There is no unsized path view. |
-| `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` | Floats carry a total `cmp`, so there is no split. |
-| `Neg`, `Rem`, `Shl`, `Shr`, `Not` | `Negate`, `Mod`, `BitLeftShift`, `BitRightShift`, `LogicalNot` / `BitNot` | Yo's own names. `Not` is two operators: `!` is `LogicalNot` and yields `bool`, `~` is `BitNot`. |
+| `PartialEq`/`Eq`, `PartialOrd`/`Ord` | `Eq(T)`, `Ord(T)` | Floats carry a total `cmp`, so there is no split. Code that needs a total order calls `cmp`; the operators are the type's own and are partial on floats. |
+| `Not` | `LogicalNot` / `BitNot` | Two operators where Rust has one: `!` is `LogicalNot`, on `bool` only (test a number with `x == 0`); `~` is `BitNot`. |
 | `collect::<Vec<_>>()`, `parse::<i32>()`, `into()` | `it.collect(ArrayList(i32))`, `s.parse(i32)`, `x.into(i64)` | The type is an argument: Yo does not infer from the result type. |
 | `lock()`, `borrow()` / `borrow_mut()`, `Cell` | `m.with_lock(v => ..)`, `c.with(v => ..)` / `c.with_mut(v => ..)` on `RefCell` | Access is scoped to a closure; there are no guards and no lock poisoning. |
 | `io::Result<T>`, `thread::spawn`, `JoinHandle<T>` | `exn : Exception` and `io : Io`, `Thread(T).spawn((io : Io) => ..)`, `t.join()` | I/O and threads are effects. |
