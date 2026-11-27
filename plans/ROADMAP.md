@@ -20,7 +20,7 @@ built-in verifier.
 | Release | Content |
 | --- | --- |
 | v0.2.80 | Published 2026-11-26. The language migration is complete. The soundness claim is not made while known S1s stay open |
-| v0.2.81 | Implicit dup deleted (VERDICTS-70 rows 7–14); owned destructuring consumes its source; `Deref` forwarding deleted; `Display`/`Debug` replace `ToString`; std's Rust alignment S-1–S-4 and S-6; IO-1b; variant patterns (VERDICTS-88); the spec/proof soundness rules ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md) PR 0, 1a, 1b); the async allocation baseline ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md) AFA-0) |
+| v0.2.81 | Implicit dup deleted (VERDICTS-70 rows 7–14); owned destructuring consumes its source (landed); `Deref` forwarding deleted; `Display`/`Debug` replace `ToString`; std's Rust alignment S-1–S-4 and S-6; IO-1b; variant patterns (VERDICTS-88); the spec/proof soundness rules ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md) PR 0, 1a, 1b); the async allocation baseline ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md) AFA-0) |
 | v0.2.82 | Implicit drop deleted (VERDICTS-70 row 15); VBD closes |
 
 ## Next: after VBD
