@@ -990,7 +990,8 @@ _wrapper_member_repair :: (fn(receiver : &AstExpr, name_tok : &Token, ctor : &St
     Repair(
       span : Span(path : recv_tok.module_path.*.clone(), row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
       replacement : replacement,
-      description : `call the ${ctor}'s own ${name_tok.value.*}: ${ctor}.${name_tok.value.*}(${recv_tok.value.*}${cond((arg_count > usize(0)) => `, ...`, true => ``)})`
+      description : `call the ${ctor}'s own ${name_tok.value.*}: ${ctor}.${name_tok.value.*}(${recv_tok.value.*}${cond((arg_count > usize(0)) => `, ...`, true => ``)})`,
+      also_at : ArrayList(Span).new()
     )
   )
 });

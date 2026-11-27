@@ -382,7 +382,7 @@ format_error_message_with_repair :: (
     d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
   });
   d.repair = Option(Repair).Some(
-    Repair(span : _span_of_token(token), replacement : replacement.clone(), description : repair_description.clone())
+    Repair(span : _span_of_token(token), replacement : replacement.clone(), description : repair_description.clone(), also_at : ArrayList(Span).new())
   );
   _yo_error_of(&d)
 });
@@ -405,7 +405,7 @@ format_error_message_with_repair_at :: (
     d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
   });
   d.repair = Option(Repair).Some(
-    Repair(span : span.clone(), replacement : replacement.clone(), description : repair_description.clone())
+    Repair(span : span.clone(), replacement : replacement.clone(), description : repair_description.clone(), also_at : ArrayList(Span).new())
   );
   _yo_error_of(&d)
 });
@@ -732,7 +732,7 @@ with_primary_repair_at_token :: (fn(err : &YoError, token : &Token, replacement 
     .Some(first) => {
       mut(primary) := first;
       primary.repair = Option(Repair).Some(
-        Repair(span : _span_of_token(token), replacement : replacement.clone(), description : description.clone())
+        Repair(span : _span_of_token(token), replacement : replacement.clone(), description : description.clone(), also_at : ArrayList(Span).new())
       );
       out.diagnostics(usize(0)) = primary;
     },
