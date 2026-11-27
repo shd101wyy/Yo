@@ -2794,9 +2794,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
         // The operation does not resume: a `return(...)`, `return(())`
         // included, is E0627, and so is a tail of a concrete type (the
         // lowering erases the result; the throw site read the zero-initialized
-        // temp). The body unwinds or diverges; a tail of `()` still falls
-        // through until VERDICTS-89 PR B makes it an error
-        // (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md).
+        // temp). Nor may the body fall off its end: every path unwinds or
+        // diverges
+        // (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md,
+        // issues/fixed/2026-11-27-a-generic-resume-handler-that-falls-through-aborts-the-process-with-no-message.md).
         rv_ret := match(&function_type, Rc(.Func({ result : rv_r })) => t_slot_pointee(&rv_r.*), _ => t_unit());
         rv_generic := match(
           &rv_ret,
@@ -2820,10 +2821,23 @@ Result type: ${type_to_string(&decl_result_ty)}`
           // R2): the operation does not resume.
           rv_returns := rv_values.len();
           // The tail resumes too, unless it unwinds; a tail of `()` falls
-          // through.
+          // through, judged after the resumes below.
           rv_tail := match(
             Rc.clone(anon_eb),
             Rc(.FnCall(_, _, Rc(rv_targs), _, _)) => if(ast_expr_is_fn_call_of(&anon_eb, BK_BEGIN, .None), match(rv_targs.last_cloned(), .Some(t) => t, .None => Rc.clone(anon_eb)), Rc.clone(anon_eb)),
+            Rc(.Atom(_, _)) => Rc.clone(anon_eb)
+          );
+          // Where a fall-through is reported: the body's last statement (a
+          // `;`-terminated block parses with a trailing `tuple()`).
+          rv_end := match(
+            Rc.clone(anon_eb),
+            Rc(.FnCall(_, _, Rc(rv_eargs), _, _)) => if(ast_expr_is_fn_call_of(&anon_eb, BK_BEGIN, .None), {
+              (rv_ek : usize) = rv_eargs.len();
+              while((rv_ek > usize(1)) && (ast_expr_is_fn_call_of(&rv_eargs(rv_ek - usize(1)), BK_TUPLE, .Some(usize(0))) || match(&rv_eargs(rv_ek - usize(1)), Rc(.Atom(_, rv_ut)) => (rv_ut.value.* == "()"), Rc(.FnCall(_, _, _, _, _)) => false)), {
+                rv_ek = (rv_ek - usize(1));
+              });
+              match(rv_eargs.get_cloned(rv_ek - usize(1)), .Some(t) => t, .None => Rc.clone(anon_eb))
+            }, Rc.clone(anon_eb)),
             Rc(.Atom(_, _)) => Rc.clone(anon_eb)
           );
           if(!evaluated_body_contains_unwind(&rv_tail) && !ast_expr_is_fn_call_of(&rv_tail, BK_RETURN, .None), {
@@ -2853,6 +2867,33 @@ Result type: ${type_to_string(&decl_result_ty)}`
             });
             rv_k = (rv_k + usize(1));
           });
+          // Nor may the body reach its end (VERDICTS-89 R2): every path
+          // unwinds (the body carries the `Unwind` flow, which a block, a
+          // `cond` or a `match` carries only when every path does) or has
+          // type `never` (`panic(msg)`). A tail of `()`, a `;`-terminated
+          // `assert(false, msg);`, or a `cond` with one arm that does not
+          // diverge falls through, and the throw site would read a value
+          // nothing built.
+          match(
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
+            .Some(rv_body_info) => if(!has_control_flow(rv_body_info.control_flow(), .Unwind) && !is_never_type(&rv_body_info.ty()), {
+              exn.throw(
+                dyn(
+                  Box.new(
+                    with_code(
+                      format_error_message_with_help(
+                        ast_expr_token(&rv_end),
+                        `This handler can reach its end without unwinding, but the operation does not resume: its resume type \`${type_to_string(&rv_ret)}\` is chosen by each throw site.`,
+                        Option(String).Some(String.from("end every path of the handler with `unwind(value)`, or with `panic(msg)` when a throw is a bug (`assert(false, msg);` has type `()`: write `panic(msg)` as the handler's value). To resume with a value, fix the resume type when the handler is built (for `Exception`: install a `ResumableException(T)`)."))
+                      ),
+                      E_CTL_GENERIC_RESUME
+                    )
+                  )
+                )
+              );
+            }),
+            .None => ()
+          );
         });
         // When the declared return type CONTAINS SomeTypes but is not itself
         // one (`Option(B)`) and the body evaluated to a fully concrete type,
