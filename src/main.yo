@@ -204,7 +204,7 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
       (fn_imp_args.len() != usize(1)) => Option(String).None,
       !match(
         func_box,
-        Rc(.Atom(_, tok)) => (tok.value.* == BK_IMPORT),
+        Rc(.Atom(_, tok)) => (tok.*.*.value.* == BK_IMPORT),
         Rc(.FnCall(_, _, _, _, _)) => false
       )
       => Option(String).None,
@@ -215,7 +215,7 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
           path_arg,
           Rc(.FnCall(_, _, _, _, _)) => Option(String).None,
           Rc(.Atom(_, ptok)) => {
-            raw := ptok.value.*.clone();
+            raw := ptok.*.value.*.clone();
             n := raw.len();
             cond(
               (n < usize(2)) => Option(String).None,
@@ -238,7 +238,7 @@ extract_import_path :: (fn(expr : &AstExpr) -> Option(String))(
     Rc(.FnCall(_, func_box, Rc(fn_imp_args), is_infix, _)) => {
       fval := match(
         func_box,
-        Rc(.Atom(_, tok)) => tok.value.*.clone(),
+        Rc(.Atom(_, tok)) => tok.*.*.value.*.clone(),
         Rc(.FnCall(_, _, _, _, _)) => String.new()
       );
       cond(
@@ -357,7 +357,7 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
       (fn_args.len() < usize(2)) => Option(String).None,
       !match(
         func_box,
-        Rc(.Atom(_, ftok)) => (ftok.value.* == "test"),
+        Rc(.Atom(_, ftok)) => (ftok.*.*.value.* == "test"),
         Rc(.FnCall(_, _, _, _, _)) => false
       )
       => Option(String).None,
@@ -368,12 +368,12 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
           name_expr,
           Rc(.FnCall(_, _, _, _, _)) => Option(String).None,
           Rc(.Atom(_, ntok)) => cond(
-            (ntok.kind == TokenKind.StringLit) => {
+            (ntok.*.kind == TokenKind.StringLit) => {
               // The token value is the RAW quoted source: decode the escapes
               // with the evaluator's own table (a `\"` in a test name printed
               // as a backslash + quote, and `--json` then escaped both), then
               // strip the surrounding double-quotes the decoder keeps.
-              decoded := decode_str_lit_escapes(&ntok.value.*);
+              decoded := decode_str_lit_escapes(&ntok.*.value.*);
               n := decoded.len();
               cond(
                 (n >= usize(2)) => .Some(decoded.substring(usize(1), n - usize(1))),
@@ -1239,14 +1239,14 @@ _mn_collect_literals :: (
     e,
     Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func, Rc(args), _, _)) => {
-      fname := match(func, Rc(.Atom(_, ft)) => ft.value.*.clone(), _ => String.new());
+      fname := match(func, Rc(.Atom(_, ft)) => ft.*.*.value.*.clone(), _ => String.new());
       if((fname == BK_IMPORT) && (args.len() == usize(1)), {
         match(
           args.get_cloned(usize(0)),
           .Some(arg) => match(
             arg,
-            Rc(.Atom(_, at)) => if(_mn_plain_string(&at.value.*), {
-              imports.push(_MnLit(row : usize(at.row), col : usize(at.column), raw : at.value.*.clone()));
+            Rc(.Atom(_, at)) => if(_mn_plain_string(&at.*.value.*), {
+              imports.push(_MnLit(row : usize(at.*.row), col : usize(at.*.column), raw : at.*.value.*.clone()));
             }),
             _ => ()
           ),
@@ -1256,7 +1256,7 @@ _mn_collect_literals :: (
       if(want_roots && (fname == ":") && (args.len() == usize(2)), {
         is_root := match(
           args.get_cloned(usize(0)),
-          .Some(k) => match(k, Rc(.Atom(_, kt)) => (kt.value.* == "root"), _ => false),
+          .Some(k) => match(k, Rc(.Atom(_, kt)) => (kt.*.value.* == "root"), _ => false),
           .None => false
         );
         if(is_root, {
@@ -1264,8 +1264,8 @@ _mn_collect_literals :: (
             args.get_cloned(usize(1)),
             .Some(v) => match(
               v,
-              Rc(.Atom(_, vt)) => if(_mn_plain_string(&vt.value.*), {
-                roots.push(_MnLit(row : usize(vt.row), col : usize(vt.column), raw : vt.value.*.clone()));
+              Rc(.Atom(_, vt)) => if(_mn_plain_string(&vt.*.value.*), {
+                roots.push(_MnLit(row : usize(vt.*.row), col : usize(vt.*.column), raw : vt.*.value.*.clone()));
               }),
               _ => ()
             ),
@@ -2085,11 +2085,18 @@ run_fix :: (
           mm_invalidate_document(
             mm_resolve_entry_abs(file.clone(), std_path.clone()).replace(String.from("file://"), String.new())
           );
-          fmt_argv := ArrayList(String).new();
-          fmt_argv.push(String.from("yo"));
-          fmt_argv.push(String.from("fmt"));
-          fmt_argv.push(file.clone());
-          run_fmt(&fmt_argv, io, exn);
+          // A parse-error repair can leave the file failing to parse at
+          // the next one (two compound assignments, E0010), and `fmt` exits
+          // the process on a file it cannot parse: the pass whose repair
+          // makes the file parse formats it.
+          fixed_src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+          if(_parse_or_none(&fixed_src, &file).is_some(), {
+            fmt_argv := ArrayList(String).new();
+            fmt_argv.push(String.from("yo"));
+            fmt_argv.push(String.from("fmt"));
+            fmt_argv.push(file.clone());
+            run_fmt(&fmt_argv, io, exn);
+          });
         });
       });
     });
@@ -2129,18 +2136,18 @@ _check_files_may_verify :: (fn(files : &ArrayList(String), exn : Exception) -> b
     (ti : usize) = usize(0);
     while(ti < tokens.len(), {
       t := tokens(ti).clone();
-      if(_token_is_code(t.kind), {
+      if(_token_is_code(t.*.kind), {
         code.push(t);
       });
       ti = (ti + usize(1));
     });
     (ci : usize) = usize(0);
     while((ci + usize(2)) < code.len(), {
-      if((code(ci).kind == TokenKind.Identifier) &&
-        (code(ci).value.* == String.from("Pragma")) &&
-          (code(ci + usize(1)).kind == TokenKind.Dot) &&
-            (code(ci + usize(2)).kind == TokenKind.Identifier) &&
-              code(ci + usize(2)).value.*.starts_with(String.from("Verify")), {
+      if((code(ci).*.kind == TokenKind.Identifier) &&
+        (code(ci).*.value.* == String.from("Pragma")) &&
+          (code(ci + usize(1)).*.kind == TokenKind.Dot) &&
+            (code(ci + usize(2)).*.kind == TokenKind.Identifier) &&
+              code(ci + usize(2)).*.value.*.starts_with(String.from("Verify")), {
         return(true);
       });
       ci = (ci + usize(1));
@@ -6274,7 +6281,7 @@ _is_main_definition :: (fn(e : &AstExpr) -> bool)(
       e,
       Rc(.FnCall(_, _, Rc(args), _, _)) => match(
         args.get_cloned(usize(0)),
-        .Some(lhs) => (ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value.* == "main")),
+        .Some(lhs) => (ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).*.value.* == "main")),
         .None => false
       ),
       _ => false
@@ -6294,7 +6301,7 @@ _export_without_main :: (fn(e : &AstExpr) -> Option(String))({
       while(ai < args.len(), {
         match(
           args.get_cloned(ai),
-          .Some(a) => if(!(ast_expr_is_atom(&a) && (ast_expr_token(&a).value.* == "main")), {
+          .Some(a) => if(!(ast_expr_is_atom(&a) && (ast_expr_token(&a).*.value.* == "main")), {
             kept.push(ast_expr_to_string(&a));
           }),
           .None => ()
@@ -6340,7 +6347,7 @@ TEST_BATCH_SIZE :: usize(100);
 /// Entries in the shared codegen ExprInfoTable (0 outside `compile`), for
 /// `--profile`'s per-phase memory lines.
 _shared_table_entries :: (fn() -> usize)(
-  match(mm_shared_expr_info_table(), .Some(t) => t.data.with(_c_len_2), .None => usize(0))
+  match(mm_shared_expr_info_table(), .Some(t) => t.data.*.with(_c_len_2), .None => usize(0))
 );
 derive(TestDecl, Clone);
 _current_rss_mb :: (fn() -> usize)(
@@ -8469,7 +8476,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
         match(
           &fty,
           Rc(.Func({ meta : fmeta })) => {
-            if(fmeta.is_control, {
+            if(fmeta.*.*.is_control, {
               has_ctl = true;
             });
             // The prelude `Io` is the struct whose primitives are named
@@ -8655,7 +8662,7 @@ run_fmt :: (
   fmt_exn := Exception(
     throw : (
       fmt_err -> {
-        eprintln(`${fmt_err.to_string()}`);
+        eprintln(`${fmt_err.*.to_string()}`);
         unsafe(exit(int(1)));
         unwind();
       }
@@ -9036,7 +9043,7 @@ _build_round_watch :: (fn(opts : &mut BuildOptions, io : Io) -> bool)({
   swallow := Exception(
     throw : (
       err -> {
-        eprintln(`build: FAILED — ${err.to_string()}`);
+        eprintln(`build: FAILED — ${err.*.to_string()}`);
         unwind(false)
       }
     )
@@ -11113,7 +11120,7 @@ main :: (fn(io : Io) -> unit)({
               emit_rendered_text(render_diagnostics_for_mode(&ye.diagnostics));
             },
             .None => {
-              text := err.to_string();
+              text := err.*.to_string();
               if(text.starts_with(String.from("error: ")), {
                 emit_rendered_text(&text);
               }, {

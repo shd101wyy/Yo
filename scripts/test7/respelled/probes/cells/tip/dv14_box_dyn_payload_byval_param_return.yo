@@ -17,8 +17,11 @@ _fwd :: (fn(d : &Dyn(Name)) -> &Dyn(Name))(&d.*);
 gid :: (fn(generic(T : Type), v : T) -> T)(v);
 Hd :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(d : &(Dyn(Name), p)));
 mkhold :: (fn(d : &Dyn(Name)) -> Hd(d))(Hd(d)(d : d));
-_two3 :: (fn(a : &Dyn(Name), z : &mut Zoo) -> usize)({ z.c = Cat(s : longs()); a.name().len() });
-get :: (fn(b : Box(Dyn(Name))) -> &String)(&b.name());
+_two3 :: (fn(a : &Dyn(Name), z : &mut Zoo) -> usize)({
+  z.c = Cat(s : longs());
+  a.name().len()
+});
+get :: (fn(b : Box(Dyn(Name))) -> &String)(&b.*.name());
 main :: (fn() -> unit)({
   println(`OUT: ${get(dyn(Box.new(Cat(s : longs())))).len().to_string()}`);
 });

@@ -102,8 +102,8 @@ _pointer_arg_code :: (fn(arg : &AstExpr, indent : &String, context : &mut Functi
 /// never copied: a `?Sized` slot specialized at `[E]` holds the fat pointer.
 _arg_is_by_value_borrow :: (fn(arg : &AstExpr, ai : &ExprInfo) -> bool)(
   (ast_expr_is_atom(arg) && type_is_sized(&ai.ty())) && match(
-    scope_variables(ast_expr_id(arg), &ai.env(), ast_expr_token(arg).value.*.clone()).last_cloned(),
-    .Some(v) => (v.is_imm_borrow() && !v.is_ref()),
+    scope_variables(ast_expr_id(arg), &ai.env(), ast_expr_token(arg).*.value.*.clone()).last_cloned(),
+    .Some(v) => (v.*.is_imm_borrow() && !v.*.is_ref()),
     .None => false
   )
 );
@@ -114,8 +114,8 @@ _arg_is_reference_binding :: (fn(arg : &AstExpr, context : &FunctionGenerationCo
   ast_expr_is_atom(arg) && match(
     context.base.get_expr_info(arg),
     .Some(ai) => match(
-      scope_variables(ast_expr_id(arg), &ai.env(), ast_expr_token(arg).value.*.clone()).last_cloned(),
-      .Some(v) => (v.is_ref() || (v.is_imm_borrow() || v.is_borrow_match_binding())),
+      scope_variables(ast_expr_id(arg), &ai.env(), ast_expr_token(arg).*.value.*.clone()).last_cloned(),
+      .Some(v) => (v.*.is_ref() || (v.*.is_imm_borrow() || v.*.is_borrow_match_binding())),
       .None => false
     ),
     .None => false

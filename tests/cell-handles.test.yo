@@ -36,11 +36,11 @@ test("S17/S18: .* reads the payload of a cell handle", {
 });
 test("S17 with D2: a cell handle auto-dereferences to its payload's fields and methods", {
   p := trc(_p(i32(4)));
-  assert(p.x == i32(4), "p.x is p.*.x");
-  assert(p.doubled() == i32(8), "p.doubled() is p.*.doubled()");
+  assert(p.*.x == i32(4), "p.x is p.*.x");
+  assert(p.*.doubled() == i32(8), "p.doubled() is p.*.doubled()");
   a := tarc(_p(i32(6)));
-  assert(a.x == i32(6), "through the atomic handle");
-  assert(a.doubled() == i32(12), "a method through the atomic handle");
+  assert(a.*.x == i32(6), "through the atomic handle");
+  assert(a.*.doubled() == i32(12), "a method through the atomic handle");
 });
 test("S1/S9/S10: a write through a cell handle is E0919", {
   h := trc(_p(i32(1)));
@@ -48,11 +48,11 @@ test("S1/S9/S10: a write through a cell handle is E0919", {
   comptime_expect_error(h.* = _p(i32(2)), "read-only through the handle");
   comptime_expect_error(_bump_p(&mut h.*), "read-only through the handle");
   comptime_expect_error(h.*.bump(), "read-only through the handle");
-  comptime_expect_error(h.bump(), "read-only through the handle");
-  comptime_expect_error(h.x = i32(3), "read-only through the handle");
+  comptime_expect_error(h.*.bump(), "read-only through the handle");
+  comptime_expect_error(h.*.x = i32(3), "read-only through the handle");
   // Spelled through auto-dereference, as the S13 test below explains.
   comptime_expect_error({
-    m := &mut h.x;
+    m := &mut h.*.x;
     ()
   }, "read-only through the handle");
   assert(h.*.x == i32(1), "nothing wrote the payload");
@@ -77,10 +77,10 @@ test("a `&mut` match scrutinee through a cell handle is E0919 / D3: the arms may
     ),
     "read-only through the handle"
   );
-  comptime_expect_error(match(&mut h.items, l => l.push(i32(5))), "read-only through the handle");
+  comptime_expect_error(match(&mut h.*.items, l => l.push(i32(5))), "read-only through the handle");
   comptime_expect_error(
     match(
-      &mut h.x,
+      &mut h.*.x,
       x => {
         x = i32(5);
       }
@@ -98,7 +98,7 @@ test("a `&mut` match scrutinee through a cell handle is E0919 / D3: the arms may
     "atomic object"
   );
   comptime_expect_error({
-    m := &mut a.x;
+    m := &mut a.*.x;
     ()
   }, "atomic object");
   assert((h.*.x == i32(1)) && (a.*.x == i32(1)) && (h.*.items.len() == usize(0)), "nothing wrote the payloads");
@@ -146,16 +146,19 @@ test("a handle's copy counts as an Rc's does", {
 });
 test("an atomic cell handle is shared with another thread", {
   a := tarc(_Sq(s : i32(7)));
-  t := Thread(i32).spawn({ a : TArc.clone(a) }(io) => a.s);
+  t := Thread(i32).spawn({ a : TArc.clone(a) }(io) => a.*.s);
   assert(t.join() == i32(7), "the worker read the payload");
   assert(ref_count(a) == usize(1), `the worker's handle was released: ${ref_count(a)}`);
 });
 test("D3: a struct over an atomic cell is not a handle", {
+  // It needs a drop (its cell's release), so it copies only explicitly: the
+  // binding moves it.
   l := tlocked(i32(1));
   m := l;
-  assert(ref_count(l) == usize(1), "a value struct is not counted, whatever it holds");
+  assert(ref_count(m) == usize(1), "a value struct is not counted, whatever it holds");
+  comptime_expect_error(l.*, "use of moved value");
   // A value struct has no `.*`: E0621 (VERDICTS-41 Q1).
-  comptime_expect_error(l.*, "a value: `.*` reads through a reference");
+  comptime_expect_error(m.*, "a value: `.*` reads through a reference");
 });
 test("S3: Option of a cell handle keeps the one-pointer niche; of an atomic one, the tag", {
   assert(size_of(TRc(i32)) == size_of(usize), "a handle is one pointer");
@@ -172,7 +175,7 @@ test("S3: Option of a cell handle keeps the one-pointer niche; of an atomic one,
 test("S13: a borrow of a place in a handle's payload pins the cell", {
   h := trc(_p(i32(2)));
   {
-    x := &h.x;
+    x := &h.*.x;
     assert(ref_count(h) == usize(2), `the borrow's pin holds the cell: ${ref_count(h)}`);
     assert(x.* == i32(2), "read through the borrow");
   };
@@ -183,7 +186,7 @@ _Sq :: struct(s : i32);
 impl(_Sq, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
 test("S20-S22: dyn of a cell handle dispatches to its payload", {
   (d : Rc(Dyn(_Area))) = dyn(trc(_Sq(s : i32(2))));
-  assert(d.area() == i32(4), "dispatched to _Sq through the handle");
+  assert(d.*.area() == i32(4), "dispatched to _Sq through the handle");
   match(downcast(&d.*, _Sq), .Some(sq) => assert(sq.s == i32(2), "the payload"), .None => assert(false, "a _Sq"));
   (e : Arc(Dyn(_Area, Send, Sync))) = dyn(tarc(_Sq(s : i32(3))));
   assert(e.*.area() == i32(9), "an atomic handle in a Send Dyn");
@@ -203,12 +206,12 @@ impl(_Tile, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
 test("S20: a Clone Dyn over a cell handle clones into a fresh cell", {
   (d : Box(Dyn(_Area, Clone))) = dyn(Box.new(_Tile(s : i32(2))));
   (e : Box(Dyn(_Area, Clone))) = d.clone();
-  assert(e.area() == i32(4), "the clone dispatches to its own payload");
-  assert(d.area() == i32(4), "the source still dispatches");
+  assert(e.*.area() == i32(4), "the clone dispatches to its own payload");
+  assert(d.*.area() == i32(4), "the source still dispatches");
   (f : Box(Dyn(_Area, Clone, Send))) = dyn(Box.new(_Tile(s : i32(3))));
   (g : Box(Dyn(_Area, Clone, Send))) = f.clone();
-  assert(g.area() == i32(9), "an atomic handle's clone");
-  assert(f.area() == i32(9), "the atomic source still dispatches");
+  assert(g.*.area() == i32(9), "an atomic handle's clone");
+  assert(f.*.area() == i32(9), "the atomic source still dispatches");
 });
 // A list buffer of optional cell handles is `*Option(TRc(T))`: the nullable
 // option is spelled by the handle's typedef, so the list's struct follows it
@@ -228,7 +231,7 @@ test("S2: an atomic handle of a payload enum is a box in a Send Dyn, as an Arc o
   (d : Arc(Dyn(_Area, Send, Sync))) = dyn(tarc(_AEPayload.A(n : i32(7))));
   assert(d.*.area() == i32(7), "dispatched through the atomic handle");
   (e : Box(Dyn(_Area, Send))) = dyn(Box.new(_AEPayload.A(n : i32(8))));
-  assert(e.area() == i32(8), "and through the Arc");
+  assert(e.*.area() == i32(8), "and through the Arc");
 });
 _count_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, Io)))(
   io.async({ items : &items.* }(io : Io) => {
@@ -303,7 +306,7 @@ test("a receiver reached through a cell handle element outlives a closure that d
   hs.push(trc(_HdCell(n : i32(1))));
   hs2 := talias(&mut hs);
   assert(
-    hs(usize(0)).peek(() => {
+    hs(usize(0)).*.peek(() => {
       tclear(&hs2);
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"

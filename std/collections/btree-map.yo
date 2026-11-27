@@ -71,15 +71,17 @@ impl(
     while(lo < hi, {
       mid := (lo + ((hi - lo) / usize(2)));
       // Compared in place: a copy of the key would be E0901 for a move-only
-      // `K`.
-      cond(
-        (self._entries(mid).key < k.*) => {
+      // `K`. Ordered by `cmp`, the key's total order: under the operators a
+      // float NaN is neither below nor above any key and would alias it.
+      match(
+        K.cmp(&self._entries(mid).key, k),
+        .Less => {
           lo = (mid + usize(1));
         },
-        (self._entries(mid).key > k.*) => {
+        .Greater => {
           hi = mid;
         },
-        true => {
+        .Equal => {
           return(_FindResult(mid, true));
         }
       );

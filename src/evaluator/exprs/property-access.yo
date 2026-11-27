@@ -39,7 +39,9 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated,
   note_dyn_place,
-  note_dyn_clone_into_witness
+  note_dyn_clone_into_witness,
+  self_lend_operand_mode,
+  mark_reference_self_place
 } :: import("../../expr-info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
@@ -63,7 +65,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_error, get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE, E_TRAIT_NOT_IMPLEMENTED } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted, is_reference_field_store_target } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory-safety.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
@@ -87,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
 _reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
   // In a std body (specialized for a type holding a reference) the user's
   // call that reached it is walled instead, naming the user's type.
-  if(origin_beyond_n2b(en_ty) && !is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
+  if(origin_beyond_n2b(en_ty) && !is_std_module_path(&ast_expr_token(at).*.module_path.*, ctx.std_path.clone()), {
     exn.throw(dyn(Box.new(origin_beyond_n2b_error(en_ty, ast_expr_token(at)))));
   })
 );
@@ -111,17 +113,31 @@ _reference_field_read_type :: (fn(ft : &TypeValue, expr : &AstExpr, property_exp
 _reference_field_read_place :: (fn(ft : &TypeValue, expr : &AstExpr, property_expr : &AstExpr, exempt : bool, ctx : &EvalContext, exn : Exception) -> TypeValue)(
   match(
     ft,
-    Rc(.Reference(rf_pointee, _, _)) => {
+    Rc(.Reference(rf_pointee, rf_mut, _)) => {
       rf_tok := ast_expr_token(property_expr);
-      if(!is_reference_deref_site(&rf_tok), {
-        note_reference_field_read(ast_expr_id(expr), ft);
-        // Where the position expects a reference, the read is the reference
-        // (the read rule, decision 43 step 2 N1e-2b): no whole-value read.
-        if(!exempt && deref_rule_applies(&rf_tok, ctx) && !reference_read_wanted(&rf_tok, false, ctx), {
-          reject_reference_field_without_deref(&local_borrow_place_text(expr), &rf_tok.value.*, ft, &rf_tok, ctx, exn);
-        });
-      });
-      Rc.clone(rf_pointee)
+      // The field itself, a place of its reference type (VERDICTS-78 Q1):
+      // the target of a store `h.r = e`, which re-points it, and the operand
+      // of `&mut h.r` on a `&` field, which lends the slot as a `&mut &T`
+      // (a `&` field lends nothing writable through it). Codegen emits the
+      // field's own storage there (`is_reference_self_place`).
+      rf_is_slot := (!is_reference_deref_site(&rf_tok) && (is_reference_field_store_target(&rf_tok) || (!rf_mut.* && match(self_lend_operand_mode(ast_expr_id(expr)), .Some(m) => m, .None => false))));
+      cond(
+        rf_is_slot => {
+          mark_reference_self_place(ast_expr_id(expr));
+          Rc.clone(ft)
+        },
+        true => {
+          if(!is_reference_deref_site(&rf_tok), {
+            note_reference_field_read(ast_expr_id(expr), ft);
+            // Where the position expects a reference, the read is the reference
+            // (the read rule, decision 43 step 2 N1e-2b): no whole-value read.
+            if(!exempt && deref_rule_applies(&rf_tok, ctx) && !reference_read_wanted(&rf_tok, false, ctx), {
+              reject_reference_field_without_deref(&local_borrow_place_text(expr), &rf_tok.*.value.*, ft, &rf_tok, ctx, exn);
+            });
+          });
+          Rc.clone(rf_pointee)
+        }
+      )
     },
     _ => Rc.clone(ft)
   )
@@ -270,12 +286,12 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
     TokenData(
       kind : TokenKind.Operator,
       value : intern_token_str(String.from("*")),
-      row : at.row,
-      column : at.column,
-      character : at.character,
-      byte_offset : at.byte_offset,
-      module_path : Rc.clone(at.module_path),
-      input : Rc.clone(at.input)
+      row : at.*.*.row,
+      column : at.*.*.column,
+      character : at.*.*.character,
+      byte_offset : at.*.*.byte_offset,
+      module_path : Rc.clone(at.*.*.module_path),
+      input : Rc.clone(at.*.*.input)
     )
   );
   star_id := alloc_global_expr_id();
@@ -321,7 +337,7 @@ _deref_chain_has_field :: (fn(t : &TypeValue, label : &String, env : &Environmen
       },
       .Some(payload) => {
         cur = resolve_struct_shell(&payload);
-        if(find_first_field_index(&_field_labels_of(&cur).items, label.clone()).is_some(), {
+        if(find_first_field_index(&_field_labels_of(&cur).*.items, label.clone()).is_some(), {
           return(.Ok(()));
         });
       }
@@ -408,7 +424,7 @@ _reject_private_static_member :: (
     (entry_owner.len() > usize(0)) => Option(String).Some(entry_owner),
     true => type_decl_module(type_id)
   );
-  if(private_member_blocked(prop_name.clone(), &decl, &ast_expr_token(property_expr).module_path.*), {
+  if(private_member_blocked(prop_name.clone(), &decl, &ast_expr_token(property_expr).*.module_path.*), {
     exn.throw(
       dyn(
         Box.new(
@@ -440,9 +456,9 @@ _try_resolve_associated_type :: (
       match(
         spec_vars.get_cloned(n_spec - usize(1)),
         .Some(last_spec) => {
-          if(is_type_value(last_spec.value().get(usize(0))), {
+          if(is_type_value(last_spec.*.value().get(usize(0))), {
             match(
-              last_spec.value().get(usize(0)),
+              last_spec.*.value().get(usize(0)),
               .Some(spec_tv) => {
                 out_spec := new_expr_info(env, type_of_eval_value(&spec_tv));
                 out_spec.set_value(Option(EvalValue).Some(spec_tv));
@@ -614,8 +630,8 @@ _evaluate_property_access_node :: (
   if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     prop_expr := match(dot_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
-    if(ast_expr_is_atom(&obj_expr) && (ast_expr_token(&obj_expr).value.* == "Type") && ast_expr_is_atom(&prop_expr), {
-      kind_name := ast_expr_token(&prop_expr).value.*.clone();
+    if(ast_expr_is_atom(&obj_expr) && (ast_expr_token(&obj_expr).*.value.* == "Type") && ast_expr_is_atom(&prop_expr), {
+      kind_name := ast_expr_token(&prop_expr).*.value.*.clone();
       (is_kind : bool) = cond(
         (kind_name == "Struct") => true,
         (kind_name == "Enum") => true,
@@ -705,7 +721,7 @@ _evaluate_property_access_node :: (
           resolve_enum_shell(&exp_ctx_1.ty),
           Rc(.EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1, en_irs_1, en_iar_1, en_tas_1)) => {
             // Find the variant.
-            fidx_1 := find_first_field_index(&en_vnames_1.items, variant_name_1.clone());
+            fidx_1 := find_first_field_index(&en_vnames_1.*.items, variant_name_1.clone());
             match(
               fidx_1,
               .None => {
@@ -714,9 +730,9 @@ _evaluate_property_access_node :: (
                     Box.new(
                       format_error_message_with_help(
                         ast_expr_token(&prop_expr_1),
-                        unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(&exp_ctx_1.ty), &en_vnames_1.items),
+                        unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(&exp_ctx_1.ty), &en_vnames_1.*.items),
                         match(
-                          suggest_name(&variant_name_1, &en_vnames_1.items),
+                          suggest_name(&variant_name_1, &en_vnames_1.*.items),
                           .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
                           .None => Option(String).None
                         )
@@ -820,7 +836,7 @@ _evaluate_property_access_node :: (
     .None => make_err_expr()
   );
   if(ast_expr_is_atom(&property_expr), {
-    scope_release_note_query(ast_expr_id(&property_expr), ast_expr_token(&property_expr).value.*);
+    scope_release_note_query(ast_expr_id(&property_expr), ast_expr_token(&property_expr).*.value.*);
   });
   // Evaluate the object without passing the expected type (it applies to the
   // property result, not the object itself).
@@ -854,13 +870,13 @@ _evaluate_property_access_node :: (
   // evaluated twice. Receivers with no info yet (fresh call results) fall
   // through to the dispatch-time gate in calls/function.yo; type-value
   // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
-  if(ast_expr_is_atom(&property_expr) && is_class1_panic_method_name(ast_expr_token(&property_expr).value.*), {
+  if(ast_expr_is_atom(&property_expr) && is_class1_panic_method_name(ast_expr_token(&property_expr).*.value.*), {
     pa_c1_banned := match(&obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(&oi_c1.ty()), .None => false);
-    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone())), {
+    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).*.module_path.*.clone())), {
       raise_flow_violation(
         format_error_message_with_help(
           ast_expr_token(&property_expr),
-          `\`${ast_expr_token(&property_expr).value.*}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+          `\`${ast_expr_token(&property_expr).*.value.*}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
           Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
         ),
         ctx,
@@ -932,14 +948,14 @@ _evaluate_property_access_node :: (
           rd_star_tok := ast_expr_token(&property_expr);
           rd_tok := Rc.new(
             TokenData(
-              kind : rd_name_tok.kind,
-              value : Rc.clone(rd_name_tok.value),
-              row : rd_star_tok.row,
-              column : rd_star_tok.column,
-              character : rd_star_tok.character,
-              byte_offset : rd_star_tok.byte_offset,
-              module_path : Rc.clone(rd_name_tok.module_path),
-              input : Rc.clone(rd_name_tok.input)
+              kind : rd_name_tok.*.kind,
+              value : Rc.clone(rd_name_tok.*.value),
+              row : rd_star_tok.*.row,
+              column : rd_star_tok.*.column,
+              character : rd_star_tok.*.character,
+              byte_offset : rd_star_tok.*.byte_offset,
+              module_path : Rc.clone(rd_name_tok.*.module_path),
+              input : Rc.clone(rd_name_tok.*.input)
             )
           );
           note_reference_deref_site(&rd_tok);
@@ -983,14 +999,14 @@ _evaluate_property_access_node :: (
           rf_star_tok := ast_expr_token(&property_expr);
           rf_new_tok := Rc.new(
             TokenData(
-              kind : rf_label_tok.kind,
-              value : Rc.clone(rf_label_tok.value),
-              row : rf_star_tok.row,
-              column : rf_star_tok.column,
-              character : rf_star_tok.character,
-              byte_offset : rf_star_tok.byte_offset,
-              module_path : Rc.clone(rf_label_tok.module_path),
-              input : Rc.clone(rf_label_tok.input)
+              kind : rf_label_tok.*.kind,
+              value : Rc.clone(rf_label_tok.*.value),
+              row : rf_star_tok.*.row,
+              column : rf_star_tok.*.column,
+              character : rf_star_tok.*.character,
+              byte_offset : rf_star_tok.*.byte_offset,
+              module_path : Rc.clone(rf_label_tok.*.module_path),
+              input : Rc.clone(rf_label_tok.*.input)
             )
           );
           note_reference_deref_site(&rf_new_tok);
@@ -1141,7 +1157,7 @@ _evaluate_property_access_node :: (
         if(is_pointer_type(&ot.*) || deref_box_payload.is_some(), {
           // Memory-safety gate: pointer dereference requires `unsafe(...)`.
           // Files under std/ and src/ are implicitly unsafe-capable.
-          if(deref_box_payload.is_none() && !ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone())), {
+          if(deref_box_payload.is_none() && !ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&property_expr).*.module_path.*.clone())), {
             exn.throw(
               dyn(
                 Box.new(
@@ -1272,15 +1288,15 @@ Raw pointer operations may dereference invalid memory.`
     // read as `self.*` on `self : &Self` in std/sync/atomic.yo).
     if(ast_expr_is_atom(&object_expr), {
       match(
-        get_variables_from_env(&env, ast_expr_token(&object_expr).value.*.clone()).last_cloned(),
-        .Some(deref_b_v) => if((deref_b_v.is_ref() || deref_b_v.is_imm_borrow()) &&
+        get_variables_from_env(&env, ast_expr_token(&object_expr).*.value.*.clone()).last_cloned(),
+        .Some(deref_b_v) => if((deref_b_v.*.is_ref() || deref_b_v.*.is_imm_borrow()) &&
           !match(
             obj_ty_deref,
-            .Some(deref_b_ot) => find_first_field_index(&_field_labels_of(&deref_b_ot).items, String.from("*")).is_some(),
+            .Some(deref_b_ot) => find_first_field_index(&_field_labels_of(&deref_b_ot).*.items, String.from("*")).is_some(),
             .None => false
           ), {
-          deref_b_name := ast_expr_token(&object_expr).value.*.clone();
-          deref_b_mode := cond(deref_b_v.is_ref() => "&mut", true => "&");
+          deref_b_name := ast_expr_token(&object_expr).*.value.*.clone();
+          deref_b_mode := cond(deref_b_v.*.is_ref() => "&mut", true => "&");
           exn.throw(
             dyn(
               Box.new(
@@ -1426,7 +1442,7 @@ Raw pointer operations may dereference invalid memory.`
       if(ast_expr_is_atom(&property_expr) &&
         is_class1_panic_method_name(pr_prop_name.clone()) &&
           is_class1_panic_receiver_type(&type_val_inner) &&
-            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone())), {
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).*.module_path.*.clone())), {
         raise_flow_violation(
           format_error_message_with_help(
             ast_expr_token(&property_expr),
@@ -1465,7 +1481,7 @@ Raw pointer operations may dereference invalid memory.`
     // receivers — the only spelling these in-impl references use — so
     // unrelated TypeVal property accesses are untouched.
     if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom(&object_expr) &&
-      (ast_expr_token(&object_expr).value.* == "Self"), {
+      (ast_expr_token(&object_expr).*.value.* == "Self"), {
       wt_prop := ast_expr_text(&property_expr).*.clone();
       n_wt := ctx.current_impl_trait_field_labels.len();
       (wt_i : usize) = usize(0);
@@ -1498,13 +1514,13 @@ Raw pointer operations may dereference invalid memory.`
       // as the value-receiver gate near the top of this function, with the
       // receiver type taken from the TypeVal itself.
       if(ast_expr_is_atom(&property_expr) &&
-        is_class1_panic_method_name(ast_expr_token(&property_expr).value.*) &&
+        is_class1_panic_method_name(ast_expr_token(&property_expr).*.value.*) &&
           is_class1_panic_receiver_type(&type_val_inner) &&
-            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone())), {
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).*.module_path.*.clone())), {
         raise_flow_violation(
           format_error_message_with_help(
             ast_expr_token(&property_expr),
-            `\`${ast_expr_token(&property_expr).value.*}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+            `\`${ast_expr_token(&property_expr).*.value.*}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
             Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
           ),
           ctx,
@@ -1529,7 +1545,7 @@ Raw pointer operations may dereference invalid memory.`
         // Same Self-shell resolution as the shorthand path above.
         resolve_enum_shell(&type_val_inner),
         Rc(.EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs, tv_en_irs, tv_en_iar, tv_en_tas)) => {
-          fidx_tv_en := find_first_field_index(&tv_en_vnames.items, variant_name_tv.clone());
+          fidx_tv_en := find_first_field_index(&tv_en_vnames.*.items, variant_name_tv.clone());
           match(
             fidx_tv_en,
             .None => {
@@ -1575,9 +1591,9 @@ Raw pointer operations may dereference invalid memory.`
                   Box.new(
                     format_error_message_with_help(
                       ast_expr_token(&property_expr),
-                      unknown_variant_message(variant_name_tv.clone(), &type_val_inner, &tv_en_vnames.items),
+                      unknown_variant_message(variant_name_tv.clone(), &type_val_inner, &tv_en_vnames.*.items),
                       match(
-                        suggest_name(&variant_name_tv, &tv_en_vnames.items),
+                        suggest_name(&variant_name_tv, &tv_en_vnames.*.items),
                         .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
                         .None => Option(String).None
                       )
@@ -1657,7 +1673,7 @@ Raw pointer operations may dereference invalid memory.`
       // access, before a std body specialized for it. A member of an INLINE
       // composite is N2b's and passes (a variant constructor, a user
       // static).
-      if(origin_beyond_n2b(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).module_path.*, ctx.std_path.clone()), {
+      if(origin_beyond_n2b(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).*.module_path.*, ctx.std_path.clone()), {
         exn.throw(dyn(Box.new(origin_beyond_n2b_error(&type_val_inner, ast_expr_token(&property_expr)))));
       });
       su_labels := match(
@@ -1673,7 +1689,7 @@ Raw pointer operations may dereference invalid memory.`
         _ => no_types()
       );
       // Search field_labels.
-      fidx_su := find_last_field_index(&su_labels.items, prop_name_su.clone());
+      fidx_su := find_last_field_index(&su_labels.*.items, prop_name_su.clone());
       match(
         fidx_su,
         .Some(fi_su) => {
@@ -1715,9 +1731,9 @@ Raw pointer operations may dereference invalid memory.`
           match(
             spec_vars.get_cloned(n_spec - usize(1)),
             .Some(last_spec) => {
-              if(is_type_value(last_spec.value().get(usize(0))), {
+              if(is_type_value(last_spec.*.value().get(usize(0))), {
                 match(
-                  last_spec.value().get(usize(0)),
+                  last_spec.*.value().get(usize(0)),
                   .Some(spec_tv) => {
                     spec_tv_ty := type_of_eval_value(&spec_tv);
                     out_spec_su := new_expr_info(&env, &spec_tv_ty);
@@ -1836,7 +1852,7 @@ Raw pointer operations may dereference invalid memory.`
         Rc(.Struct({ field_types : types })) => Rc.clone(types),
         _ => no_types()
       );
-      fidx_mt := find_first_field_index(&mt_labels.items, prop_name_mt.clone());
+      fidx_mt := find_first_field_index(&mt_labels.*.items, prop_name_mt.clone());
       match(
         fidx_mt,
         .Some(fi_mt) => {
@@ -2087,7 +2103,7 @@ Raw pointer operations may dereference invalid memory.`
                     match(
                       st_env_vars.last_cloned(),
                       .Some(st_ev) => match(
-                        st_ev.value().get(usize(0)),
+                        st_ev.*.value().get(usize(0)),
                         .Some(Rc(.TypeVal(st_evt))) => {
                           if(is_some_type(&st_evt), {
                             st_env_bound = Option(TypeValue).Some(Rc.clone(st_evt));
@@ -2178,7 +2194,7 @@ Raw pointer operations may dereference invalid memory.`
   // (the four-field `Io`) or the prelude's `Io` (the interface shape, whose
   // builtins are methods), so a user struct that merely has an `io` field is
   // untouched.
-  if(is_struct_type(&base_ty) && ast_expr_is_atom(&property_expr) && (ast_expr_token(&property_expr).value.* == "io"), {
+  if(is_struct_type(&base_ty) && ast_expr_is_atom(&property_expr) && (ast_expr_token(&property_expr).*.value.* == "io"), {
     io_proj_sid := match(&base_ty, Rc(.Struct({ id : ips })) => ips.clone(), _ => String.from(""));
     if((io_proj_sid.len() > usize(0)) && (is_prelude_io_struct(&base_ty) || lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some()), {
       out_io := new_expr_info(&env, &base_ty);
@@ -2234,19 +2250,19 @@ Raw pointer operations may dereference invalid memory.`
       vt_field := ast_expr_text(&property_expr).*.clone();
       if(((vt_field == "ty") || (vt_field == "bound_ty")) && (type_to_string(&base_ty) == "Variable"), {
         vt_tok := ast_expr_token(&property_expr);
-        eprintln(`[variable-ty] ${vt_tok.module_path.*}:${(vt_tok.row + u32(1)).to_string()}:${(vt_tok.column + u32(1)).to_string()} ${vt_field}`);
+        eprintln(`[variable-ty] ${vt_tok.*.module_path.*}:${(vt_tok.*.row + u32(1)).to_string()}:${(vt_tok.*.column + u32(1)).to_string()} ${vt_field}`);
       });
     });
     if(ast_expr_is_atom(&property_expr), {
       // --- Union member READ gate (safe mode) ------------------------------
       // A write (`u.x = v`, evaluated with is_lhs_of_assignment) stays legal.
       pa_union_member := ast_expr_text(&property_expr).*.clone();
-      if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.items.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone()), ctx.unsafe_context)), {
+      if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.*.items.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).*.module_path.*.clone()), ctx.unsafe_context)), {
         exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(&base_ty))))));
         return(Rc.clone(expr.*));
       });
       // --- Integer index access (tuple fields only) -----------------------
-      if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
+      if(ast_expr_token(&property_expr).*.kind == TokenKind.Integer, {
         if(!is_tuple_type(match(&obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit())), {
           exn.throw(
             dyn(
@@ -2346,7 +2362,7 @@ Raw pointer operations may dereference invalid memory.`
       // --- Label name access ----------------------------------------------
       if(is_valid_variable_name(&property_expr), {
         label_str := ast_expr_text(&property_expr).*.clone();
-        field_idx_lbl := find_first_field_index(&fields_labels.items, label_str.clone());
+        field_idx_lbl := find_first_field_index(&fields_labels.*.items, label_str.clone());
         match(
           field_idx_lbl,
           .None => {
@@ -2440,7 +2456,7 @@ Raw pointer operations may dereference invalid memory.`
                         with_code(
                           format_error_message(
                             ast_expr_token(&property_expr),
-                            unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(&object_expr), &base_ty, &innermost, &_field_labels_of(&innermost).items)
+                            unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(&object_expr), &base_ty, &innermost, &_field_labels_of(&innermost).*.items)
                           ),
                           unknown_field_code(&base_ty)
                         )
@@ -2459,7 +2475,7 @@ Raw pointer operations may dereference invalid memory.`
             // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
             if(!pa_is_callee, {
-              exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels.items)), unknown_field_code(&base_ty)))));
+              exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels.*.items)), unknown_field_code(&base_ty)))));
               return(Rc.clone(expr.*));
             });
             // A method of the prelude's `Io` bound to an io builtin
@@ -2494,7 +2510,7 @@ Raw pointer operations may dereference invalid memory.`
             // The access site is the label TOKEN's module (lexical) — never
             // `env.module_path`, which inside a generic impl body evaluated at
             // call time is the CALLER's module.
-            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), &ast_expr_token(&property_expr).module_path.*), {
+            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), &ast_expr_token(&property_expr).*.module_path.*), {
               exn.throw(
                 dyn(
                   Box.new(
@@ -2666,7 +2682,7 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   if(is_module_type(&base_ty), {
     if(ast_expr_is_atom(&property_expr), {
-      if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
+      if(ast_expr_token(&property_expr).*.kind == TokenKind.Integer, {
         exn.throw(
           dyn(
             Box.new(
@@ -2706,7 +2722,7 @@ Raw pointer operations may dereference invalid memory.`
           Rc(.Struct({ field_types : types })) => Rc.clone(types),
           _ => no_types()
         );
-        mod_fidx := find_first_field_index(&mod_labels_rt.items, mod_label.clone());
+        mod_fidx := find_first_field_index(&mod_labels_rt.*.items, mod_label.clone());
         match(
           mod_fidx,
           .None => {
@@ -2834,7 +2850,7 @@ Raw pointer operations may dereference invalid memory.`
           match(
             ev_sel,
             .Some(sel_vname) => {
-              sel_vi_opt := find_first_field_index(&ev_vnames.items, sel_vname.clone());
+              sel_vi_opt := find_first_field_index(&ev_vnames.*.items, sel_vname.clone());
               match(
                 sel_vi_opt,
                 .Some(sel_vi) => {
@@ -2848,7 +2864,7 @@ Raw pointer operations may dereference invalid memory.`
                     .Some(ft) => ft,
                     .None => no_types()
                   );
-                  prop_fidx_ev := find_first_field_index(&vfl.items, prop_name_ev.clone());
+                  prop_fidx_ev := find_first_field_index(&vfl.*.items, prop_name_ev.clone());
                   match(
                     prop_fidx_ev,
                     // Could be an enum method call.
@@ -2917,7 +2933,7 @@ Raw pointer operations may dereference invalid memory.`
               while(dv_i < ev_vflabels.len(), {
                 dv_fl := match(ev_vflabels.get(dv_i), .Some(fl) => fl, .None => no_labels());
                 match(
-                  find_first_field_index(&dv_fl.items, prop_name_ev.clone()),
+                  find_first_field_index(&dv_fl.*.items, prop_name_ev.clone()),
                   .Some(_) => {
                     n_dv = (n_dv + usize(1));
                     dv_idx = dv_i;
@@ -2929,7 +2945,7 @@ Raw pointer operations may dereference invalid memory.`
               if(n_dv == usize(1), {
                 dv_vfl := match(ev_vflabels.get(dv_idx), .Some(fl) => fl, .None => no_labels());
                 dv_vft := match(ev_vfields.get(dv_idx), .Some(ft) => ft, .None => no_types());
-                dv_pfi := match(find_first_field_index(&dv_vfl.items, prop_name_ev.clone()), .Some(i) => i, .None => usize(0));
+                dv_pfi := match(find_first_field_index(&dv_vfl.*.items, prop_name_ev.clone()), .Some(i) => i, .None => usize(0));
                 dv_ft := match(dv_vft.get(dv_pfi), .Some(t) => t, .None => t_unit());
                 dv_pc := ArrayList(ArrayList(String)).new();
                 dv_path := ArrayList(String).new();
@@ -2986,7 +3002,7 @@ Raw pointer operations may dereference invalid memory.`
       .Some(pa_oi) => type_to_string(&pa_oi.ty()),
       .None => String.from("<no-info>")
     );
-    eprintln(`[pa-fallthrough] prop=${ast_expr_token(&property_expr).value.*} obj_ty=${pa_obj_ty}`);
+    eprintln(`[pa-fallthrough] prop=${ast_expr_token(&property_expr).*.value.*} obj_ty=${pa_obj_ty}`);
   });
   Rc.clone(expr.*)
 });
@@ -3002,7 +3018,7 @@ _io_builtin_method_type :: (fn(env : &Environment, label : &String, io_ty : &Typ
       .Some(e) => match(
         &e.ty,
         Rc(.Func({ meta : ibm_m })) => match(
-          &ibm_m.extern_name,
+          &ibm_m.*.*.extern_name,
           .Some(en) => if((en.* == "__yo_io_async") || (en.* == "__yo_io_await") || (en.* == "__yo_io_state") || (en.* == "__yo_io_spawn"), {
             return(Option(TypeValue).Some(e.ty.clone()));
           }),

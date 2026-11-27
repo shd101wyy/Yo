@@ -165,7 +165,7 @@ test("read_to_string throws IoError.InvalidData on malformed UTF-8", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string();
+        msg := err.*.to_string();
         assert(msg.contains(`malformed data`), `expected InvalidData, got: ${msg}`);
         unwind(());
       }
@@ -331,7 +331,7 @@ test("BufReader wraps a user Reader through its generic parameter", {
   t_exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.*.to_string()}`);
         unwind(());
       }
     )

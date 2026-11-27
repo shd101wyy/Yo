@@ -43,7 +43,7 @@ import("std/fmt");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class, type_contains_some_type, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
-{ reject_second_class_escape } :: import("../utils.yo");
+{ reject_second_class_escape, is_bare_trait_type, trait_as_value_type_error } :: import("../utils.yo");
 { type_key } :: import("../../types/type-key.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -97,14 +97,14 @@ evaluate_struct_type :: (
   decl_tok := ast_expr_token(expr);
   struct_id := if(
     ctx.ctfe_depth == usize(0),
-    stable_position_id(String.from("struct_decl_"), &decl_tok.module_path.*, usize(decl_tok.row), usize(decl_tok.column)),
-    stable_type_id(String.from("struct_"), &decl_tok.module_path.*, usize(decl_tok.row), usize(decl_tok.column))
+    stable_position_id(String.from("struct_decl_"), &decl_tok.*.module_path.*, usize(decl_tok.*.row), usize(decl_tok.*.column)),
+    stable_type_id(String.from("struct_"), &decl_tok.*.module_path.*, usize(decl_tok.*.row), usize(decl_tok.*.column))
   );
   if(debug_knob(`YO_DEBUG_TMINT`).is_some() && (ctx.ctfe_depth > usize(0)), {
     eprintln(`[tmint-mint] ${struct_id}`);
   });
   // Member visibility: record which module declares this type (guards.yo).
-  register_type_decl_module(struct_id.clone(), decl_tok.module_path.*.clone());
+  register_type_decl_module(struct_id.clone(), decl_tok.*.module_path.*.clone());
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.
   // This allows self-referential types like `struct(val: Option(Self))`.
   // The shell shares the final's `struct_id` (UNLIKE enum.yo's distinct
@@ -184,6 +184,10 @@ evaluate_struct_type :: (
           )
         )
       );
+    });
+    // `struct(v : Tr)` (VERDICTS-84 §4, E0625): a field has one type.
+    if(!field.is_comptime && is_bare_trait_type(&field.ty), {
+      exn.throw(dyn(Box.new(trait_as_value_type_error(&ast_expr_token(&arg), &type_to_string(&field.ty), &`the field \`${field.label}\``))));
     });
     // A reference (or atomic) object outlives any one frame, so it cannot
     // hold a `ctl` handler: the handler unwinds into the frame that installed
@@ -334,8 +338,8 @@ evaluate_struct_type :: (
   if(is_atomic_rc, {
     enforce_atomic_object_send(
       &struct_ty,
-      &field_labels_s.items,
-      &patched_types_s.items,
+      &field_labels_s.*.items,
+      &patched_types_s.*.items,
       &env,
       ast_expr_token(expr),
       exn
@@ -348,7 +352,7 @@ evaluate_struct_type :: (
   // no-error check hollowed the arm (basic arm 24). Structural field scan
   // (see fields_have_incompatible_contexts) — the registry-based check
   // false-fired on pointer-fielded prelude newtypes.
-  if(fields_have_incompatible_contexts(&patched_types_s.items), {
+  if(fields_have_incompatible_contexts(&patched_types_s.*.items), {
     exn.throw(
       dyn(
         Box.new(
@@ -451,7 +455,7 @@ evaluate_cell_type :: (
   (env : Environment) = Rc.clone(env_in);
   builtin := if(is_atomic_rc, BK_YO_ATOMIC_CELL, BK_YO_CELL);
   tok := ast_expr_token(expr);
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.*.module_path.*.clone())), {
     exn.throw(
       dyn(
         Box.new(
@@ -563,7 +567,7 @@ evaluate_cell_type :: (
   flags := ArrayList(bool).new();
   flags.push(false);
   register_struct_field_comptime_flags(cell_id.clone(), &flags);
-  auto_derive_traits_for_struct_type(cell_id.clone(), &field_types_s.items, true, is_atomic_rc, &env);
+  auto_derive_traits_for_struct_type(cell_id.clone(), &field_types_s.*.items, true, is_atomic_rc, &env);
   fields := ArrayList(TypeField).new();
   fields.push(
     TypeField(

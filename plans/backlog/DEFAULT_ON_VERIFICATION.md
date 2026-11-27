@@ -10,6 +10,9 @@ two steps (report by default, then erase by default), S1 waits for a new S0, the
 solver's distribution is a step (SD) and a gate (G6), and `yo build` proves every
 module of its package (D10).
 
+**Amended 2026-11-27 (order with SPEC_AND_PROOF, maintainer):** soundness first, then
+two tracks in parallel; see §3.1.
+
 Filed the same day as a design question and promoted to a plan when the verdict was
 given. (The file is not called `VERIFICATION_BY_DEFAULT`: that abbreviates to "VBD",
 which already names VALUES_BY_DEFAULT.) Tree citations are to `origin/develop`
@@ -284,7 +287,7 @@ In order. S0, S2 and SD need nothing else and start at v0.2.80. S1 follows S0 (D
 
 | Step | What | Size | Depends on |
 | --- | --- | --- | --- |
-| **S0** | Fix `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`, and add the both-modes sweep: every fixture of `tests/spec/fixtures/valid/` runs under `Pragma.Verify` and under `Pragma.VerifyOrAssert` and must prove the same set of functions | S to M: the root cause is not known | nothing |
+| **S0** | **Done** (branch `wip/v0281-dov-s0`). `verify+` verifies what `verify` verifies: `issues/fixed/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md` (the requires-only splice flattened a block body, so the walked body node had no `ExprInfo`) and `issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md` (no mode splices a clause that cannot run, and none splices into a `ghost_fn`) are fixed. The both-modes sweep is `scripts/verify-both-modes.py`, a step of the formal-verification job's harness leg run with stage 1: every fixture of `tests/spec/fixtures/valid/` runs under `Pragma.Verify` and under `Pragma.VerifyOrAssert` and must prove the same set of functions. All 77 fixtures do; the known-divergence list `tests/spec/verify-both-modes-known.tsv` is empty | S to M | nothing |
 | **S1** | `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` in the source modules it generates, and the scaffolded `AGENTS.md` says so. `src/init.yo` already scaffolds a verified `spec/` | S: `src/init.yo` plus a cli-case golden | S0 |
 | **SD** | Solver distribution (D9): a static build of the pinned Z3 for each release target, published with the release, and an install that keeps only that binary; the installer and `yo version install` fetch it with the compiler, and `yo build` fetches it on first need; a missing solver and one that cannot execute are probed once and reported in one line for the build; `--require-solver` / `YO_REQUIRE_SOLVER=1` for CI; solver presence in the artifact's input stamp (§5 items 8 and 9) | M | nothing |
 | **S2** | A proved result is capped by what it rests on: the satisfiability probe per `assumed()` contract, the feasibility probe after a call, and `ok` naming the assumed contracts it used | about a week, with the vacuity probes of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) | nothing |
@@ -293,6 +296,18 @@ In order. S0, S2 and SD need nothing else and start at v0.2.80. S1 follows S0 (D
 | **S5** | Subset growth until the coverage gate holds: strings, exceptions as exit paths, trees as datatypes, collections through contracts | L (SELF_VERIFICATION levers L1–L4) | S3 for L4 |
 | **S6a** | **Report by default** (D7). One PR, seed-gated where it adds or renames a pragma | M, plus the tree sweep below | S0, S4, SD; gates G3, G5, G6 |
 | **S6b** | **Erase by default** (D7). One PR, seed-gated where it removes a pragma name | S | S6a; gates G1, G2 |
+
+### 3.1 Order with SPEC_AND_PROOF (maintainer, 2026-11-27)
+
+[`SPEC_AND_PROOF.md`](SPEC_AND_PROOF.md) separates specification functions (`logic`) from proofs (`lemma`), and its PR 1a and 1b close seven false proofs found on v0.2.80. The two plans interleave in this order:
+
+1. **Soundness first (v0.2.81).** SPEC_AND_PROOF PR 1a and 1b, and S2 here. A default that reports "proved" (S6a), or erases a check because it is proved (S6b), is only as trustworthy as the proofs, so neither flip may rest on a verifier with known false proofs. S1 rides along when ready.
+2. **Then two tracks in parallel (from v0.2.82, when VALUES_BY_DEFAULT closes):**
+   - SPEC_AND_PROOF PR 2 to PR 4 finish the split (`logic` and `lemma` as builtins, then `std/spec` in the new forms one seed later; about v0.2.83).
+   - SD and S4 start at once. They touch neither specifications nor proofs, and they are the long poles of S6a.
+3. **S3 after SPEC_AND_PROOF PR 4.** Proving std bodies needs the std lemma library (T1), which is written as `lemma` and `logic` from its first line, so no std proof is written in `ghost_fn` and migrated afterwards. S4 continues meanwhile.
+4. **S6a** when S4 and SD have landed and G3, G5 and G6 hold.
+5. **S6b** when S3 has landed and G1 holds (G2 holds with S2).
 
 S3 and S5 no longer stand between the project and its first flip: S6a does not need
 std to be proved or the subset to be wide. They gate S6b (S3, through G1) and decide
@@ -359,14 +374,15 @@ roadmap that says Yo code is verified by default.
 2. **Do `*.test.yo` files default too?** *Judgment:* yes, with the same rule; a test
    body that indexes with a literal proves trivially.
 3. **G3's and G4's numbers.** Set by measurement, as the table says.
-4. **Decided 2026-11-15: D8, step S0.** `verify+` must be tested as the default it is
-   about to become, before S1.
-   One fixture of `tests/spec/fixtures/valid/` uses `Pragma.VerifyOrAssert`,
-   and the measurement of §2.2 found
-   `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
-   within an hour. *Judgment:* fix it and add a sweep that runs every valid
-   fixture in both modes and requires the same proved set; S1 scaffolds this
-   pragma into every new project.
+4. **Decided 2026-11-15: D8, step S0. Done.** `verify+` is tested as the default
+   it is about to become. The sweep (`scripts/verify-both-modes.py`, in the
+   formal-verification job) runs every fixture of `tests/spec/fixtures/valid/`
+   under both pragmas and requires the same proved set. Two root causes are
+   fixed: the requires-only splice flattened a block body (the issue above),
+   and `verify+` and runtime mode spliced clauses that cannot run (a
+   quantified or `ghost_fn` `requires`, an `ensures` over the std/spec ghost
+   collections, any contract of a `ghost_fn`), which the sweep's first run
+   found in 13 fixtures. S1 is unblocked.
 5. **Solve in parallel.** Every obligation is already its own process and its
    own cache entry, and the verdicts do not depend on order. *Judgment:* a
    pool of solver processes sized by `--jobs`; the cold numbers of §2.2

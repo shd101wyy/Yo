@@ -6,7 +6,9 @@
 H :: struct(s : String);
 main :: (fn() -> unit)({
   h := Rc.new(RefCell(H).new(H(s : String.from("payload-0123456789abcdefghijklmnop"))));
-  h.with_mut(v => { v.s = v.s; });
+  h.*.with_mut(v => {
+    v.s = v.s;
+  });
   n := h.with(v => v.s.len());
   println(`OUT ${n.to_string()}`);
 });

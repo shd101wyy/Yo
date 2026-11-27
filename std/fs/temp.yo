@@ -156,7 +156,7 @@ impl(
   /// life of the handle, and still returned after `remove` — the handle
   /// remembers the name it removed rather than emptying itself.
   path : (fn(self : &Self) -> Path)(
-    Path.new(&self._cell._path)
+    Path.new(&self._cell.*._path)
   ),
   /// Remove the directory now and observe the outcome, instead of leaving it
   /// to `Drop`.
@@ -169,10 +169,10 @@ impl(
   remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, io }(e : IoExn) =>
       cond(
-        self._cell._removed => (),
+        self._cell.*._removed => (),
         true => {
           st := addr_of(self._cell.*);
-          e.io.await(_dir_mod.remove_dir(&Path.new(&self._cell._path), io), e);
+          e.io.await(_dir_mod.remove_dir(&Path.new(&self._cell.*._path), io), e);
           unsafe(consume(st.*._removed = true));
         }
       ))
@@ -198,7 +198,7 @@ impl(
         self._removed => (),
         true => {
           cond(
-            self._file._cell._is_closed => (),
+            self._file._cell.*._is_closed => (),
             true => {
               // `into_fd` retires the handle, so the `File`'s own drop that
               // follows does not close the descriptor a second time.
@@ -284,13 +284,13 @@ impl(
   /// harmless. The handle starts at position 0 — write, then `seek` back
   /// before reading.
   file : (fn(self : &Self) -> &_file_mod.File)(
-    &self._cell._file
+    &self._cell.*._file
   ),
   /// The file's real path, as `mkstemp` resolved it. Handing this to another
   /// process is the reason a NAMED temporary exists; note the file is
   /// unlinked when this handle drops, so the path outlives nothing.
   path : (fn(self : &Self) -> Path)(
-    Path.new(&self._cell._path)
+    Path.new(&self._cell.*._path)
   ),
   /// Close the descriptor and unlink the file now, observing the outcome,
   /// instead of leaving it to `Drop`. The close comes FIRST so that
@@ -301,13 +301,13 @@ impl(
   remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ self : &self.*, io }(e : IoExn) =>
       cond(
-        self._cell._removed => (),
+        self._cell.*._removed => (),
         true => {
           st := addr_of(self._cell.*);
           // The file's state sits inside this temporary's box: close it
           // through its address (this future borrows the temporary).
-          e.io.await(_file_mod._close_file_state(addr_of(self._cell._file._cell.*), io), e);
-          e.io.await(_dir_mod.remove_file(&Path.new(&self._cell._path), io), e);
+          e.io.await(_file_mod._close_file_state(addr_of(self._cell.*._file._cell.*), io), e);
+          e.io.await(_dir_mod.remove_file(&Path.new(&self._cell.*._path), io), e);
           unsafe(consume(st.*._removed = true));
         }
       ))

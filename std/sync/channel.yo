@@ -270,52 +270,52 @@ impl(
   /// caller instead of being silently dropped (Rust's `SendError(T)`;
   /// plans/archive/STD_API_AUDIT.md C8).
   send : (fn(self : &Self, value : T) -> Result(unit, T))({
-    self._shared._mutex._raw_lock();
+    self._shared.*._mutex._raw_lock();
     // Wait while the buffer is full and there is still a point in waiting:
     // a closed channel takes no more values, and a channel whose `Receiver`
     // has been dropped will never be drained, so blocking on either would
     // block forever.
-    while((self._shared._len.load(MemoryOrder.Relaxed) >= self._shared._capacity)
-    && !self._shared._closed.load(MemoryOrder.Relaxed)
-    && !self._shared._recv_dropped.load(MemoryOrder.Relaxed), {
-      self._shared._not_full.wait_with(&self._shared._mutex);
+    while((self._shared.*._len.load(MemoryOrder.Relaxed) >= self._shared.*._capacity)
+    && !self._shared.*._closed.load(MemoryOrder.Relaxed)
+    && !self._shared.*._recv_dropped.load(MemoryOrder.Relaxed), {
+      self._shared.*._not_full.wait_with(&self._shared.*._mutex);
     });
     cond(
       (
-        self._shared._closed.load(MemoryOrder.Relaxed)
-        || self._shared._recv_dropped.load(MemoryOrder.Relaxed)
+        self._shared.*._closed.load(MemoryOrder.Relaxed)
+        || self._shared.*._recv_dropped.load(MemoryOrder.Relaxed)
       ) => {
-        self._shared._mutex._raw_unlock();
+        self._shared.*._mutex._raw_unlock();
         return(.Err(value));
       },
       true => ()
     );
     // Write value at tail position
-    (current_len : usize) = self._shared._len.load(MemoryOrder.Relaxed);
-    (tail : usize) = ((self._shared._head + current_len) % self._shared._capacity);
+    (current_len : usize) = self._shared.*._len.load(MemoryOrder.Relaxed);
+    (tail : usize) = ((self._shared.*._head + current_len) % self._shared.*._capacity);
     // SAFETY: `tail` indexes a slot past the live run `[_head, _head + len)`,
     // so it holds no value (never written, or moved out by a receive). A
     // bitwise write moves `value` in without dropping those dead bytes and
     // without copying `value`, which a move-only `T` forbids.
     __yo_ptr_write(self._ring().add(tail), value);
-    self._shared._len.store(current_len + usize(1), MemoryOrder.Release);
-    self._shared._not_empty.signal();
-    self._shared._mutex._raw_unlock();
+    self._shared.*._len.store(current_len + usize(1), MemoryOrder.Release);
+    self._shared.*._not_empty.signal();
+    self._shared.*._mutex._raw_unlock();
     return(.Ok(()));
   }),
   /// Receive a value from the channel.
   /// Blocks if the channel is empty until a value is available.
   /// Returns .Some(value) on success, .None if the channel is closed and empty.
   recv : (fn(self : &Self) -> Option(T))({
-    self._shared._mutex._raw_lock();
+    self._shared.*._mutex._raw_lock();
     // Wait while buffer is empty and channel is not closed
-    while((self._shared._len.load(MemoryOrder.Relaxed) == usize(0))
-    && !self._shared._closed.load(MemoryOrder.Relaxed), {
-      self._shared._not_empty.wait_with(&self._shared._mutex);
+    while((self._shared.*._len.load(MemoryOrder.Relaxed) == usize(0))
+    && !self._shared.*._closed.load(MemoryOrder.Relaxed), {
+      self._shared.*._not_empty.wait_with(&self._shared.*._mutex);
     });
     cond(
-      (self._shared._len.load(MemoryOrder.Relaxed) == usize(0)) => {
-        self._shared._mutex._raw_unlock();
+      (self._shared.*._len.load(MemoryOrder.Relaxed) == usize(0)) => {
+        self._shared.*._mutex._raw_unlock();
         return(.None);
       },
       true => ()
@@ -324,11 +324,11 @@ impl(
     // under the mutex). A bitwise read moves it out, and advancing `_head`
     // below makes the slot dead, so neither the queue nor `drop` touches the
     // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
-    (val : T) = __yo_ptr_read(self._ring().add(self._shared._head));
-    unsafe(consume(self._st().*._head = ((self._shared._head + usize(1)) % self._shared._capacity)));
-    self._shared._len.store(self._shared._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
-    self._shared._not_full.signal();
-    self._shared._mutex._raw_unlock();
+    (val : T) = __yo_ptr_read(self._ring().add(self._shared.*._head));
+    unsafe(consume(self._st().*._head = ((self._shared.*._head + usize(1)) % self._shared.*._capacity)));
+    self._shared.*._len.store(self._shared.*._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
+    self._shared.*._not_full.signal();
+    self._shared.*._mutex._raw_unlock();
     return(.Some(val));
   }),
   /// Try to send a value without blocking.
@@ -336,41 +336,41 @@ impl(
   /// value is handed back to the caller (use `is_closed()` to tell the
   /// two failure causes apart).
   try_send : (fn(self : &Self, value : T) -> Result(unit, T))({
-    self._shared._mutex._raw_lock();
+    self._shared.*._mutex._raw_lock();
     cond(
       (
-        self._shared._closed.load(MemoryOrder.Relaxed)
-        || self._shared._recv_dropped.load(MemoryOrder.Relaxed)
-        || (self._shared._len.load(MemoryOrder.Relaxed) >= self._shared._capacity)
+        self._shared.*._closed.load(MemoryOrder.Relaxed)
+        || self._shared.*._recv_dropped.load(MemoryOrder.Relaxed)
+        || (self._shared.*._len.load(MemoryOrder.Relaxed) >= self._shared.*._capacity)
       ) => {
-        self._shared._mutex._raw_unlock();
+        self._shared.*._mutex._raw_unlock();
         return(.Err(value));
       },
       true => ()
     );
-    (current_len : usize) = self._shared._len.load(MemoryOrder.Relaxed);
-    (tail : usize) = ((self._shared._head + current_len) % self._shared._capacity);
+    (current_len : usize) = self._shared.*._len.load(MemoryOrder.Relaxed);
+    (tail : usize) = ((self._shared.*._head + current_len) % self._shared.*._capacity);
     // SAFETY: `tail` indexes a slot past the live run `[_head, _head + len)`,
     // so it holds no value (never written, or moved out by a receive). A
     // bitwise write moves `value` in without dropping those dead bytes and
     // without copying `value`, which a move-only `T` forbids.
     __yo_ptr_write(self._ring().add(tail), value);
-    self._shared._len.store(current_len + usize(1), MemoryOrder.Release);
-    self._shared._not_empty.signal();
-    self._shared._mutex._raw_unlock();
+    self._shared.*._len.store(current_len + usize(1), MemoryOrder.Release);
+    self._shared.*._not_empty.signal();
+    self._shared.*._mutex._raw_unlock();
     return(.Ok(()));
   }),
   /// Try to receive a value without blocking.
   /// Returns .Some(value) if available, .None if empty.
   try_recv : (fn(self : &Self) -> Result(T, TryRecvError))({
-    self._shared._mutex._raw_lock();
+    self._shared.*._mutex._raw_lock();
     cond(
-      (self._shared._len.load(MemoryOrder.Relaxed) == usize(0)) => {
+      (self._shared.*._len.load(MemoryOrder.Relaxed) == usize(0)) => {
         // Empty vs Disconnected is the whole reason this returns a Result:
         // a closed AND drained channel will never produce a value, and a
         // polling caller has to be able to stop.
-        closed := self._shared._closed.load(MemoryOrder.Relaxed);
-        self._shared._mutex._raw_unlock();
+        closed := self._shared.*._closed.load(MemoryOrder.Relaxed);
+        self._shared.*._mutex._raw_unlock();
         return(
           cond(
             closed => Result(T, TryRecvError).Err(TryRecvError.Disconnected),
@@ -384,22 +384,22 @@ impl(
     // under the mutex). A bitwise read moves it out, and advancing `_head`
     // below makes the slot dead, so neither the queue nor `drop` touches the
     // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
-    (val : T) = __yo_ptr_read(self._ring().add(self._shared._head));
-    unsafe(consume(self._st().*._head = ((self._shared._head + usize(1)) % self._shared._capacity)));
-    self._shared._len.store(self._shared._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
-    self._shared._not_full.signal();
-    self._shared._mutex._raw_unlock();
+    (val : T) = __yo_ptr_read(self._ring().add(self._shared.*._head));
+    unsafe(consume(self._st().*._head = ((self._shared.*._head + usize(1)) % self._shared.*._capacity)));
+    self._shared.*._len.store(self._shared.*._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
+    self._shared.*._not_full.signal();
+    self._shared.*._mutex._raw_unlock();
     return(Result(T, TryRecvError).Ok(val));
   }),
   /// Close the channel. No more values can be sent.
   /// Pending recv() calls will return .None once the buffer is drained.
   /// Pending send() calls will return .Err(value).
   close : (fn(self : &Self) -> unit)({
-    self._shared._mutex._raw_lock();
-    self._shared._closed.store(true, MemoryOrder.Release);
-    self._shared._not_empty.broadcast();
-    self._shared._not_full.broadcast();
-    self._shared._mutex._raw_unlock();
+    self._shared.*._mutex._raw_lock();
+    self._shared.*._closed.store(true, MemoryOrder.Release);
+    self._shared.*._not_empty.broadcast();
+    self._shared.*._not_full.broadcast();
+    self._shared.*._mutex._raw_unlock();
   }),
   /// Record that this queue's `Receiver` handle is gone: every further
   /// `send` fails, and senders parked on a full buffer wake up to find out.
@@ -410,10 +410,10 @@ impl(
   /// yet parked still holds the mutex, so a broadcast issued outside it could
   /// land before the park and be lost.
   _mark_receiver_dropped : (fn(self : &Self) -> unit)({
-    self._shared._mutex._raw_lock();
-    self._shared._recv_dropped.store(true, MemoryOrder.Release);
-    self._shared._not_full.broadcast();
-    self._shared._mutex._raw_unlock();
+    self._shared.*._mutex._raw_lock();
+    self._shared.*._recv_dropped.store(true, MemoryOrder.Release);
+    self._shared.*._not_full.broadcast();
+    self._shared.*._mutex._raw_unlock();
   }),
   // The queue in the `Arc`: `_head` is written through it, under `_mutex`
   // (an `Arc`'s payload is read-only through the handle).
@@ -421,24 +421,24 @@ impl(
   // The ring buffer.
   _ring : (fn(self : &Self) -> *T)(
     match(
-      self._shared._data,
+      self._shared.*._data,
       .Some(p) => p,
       .None => __yo_panic("Channel: the ring buffer is missing")
     )
   ),
   /// Check if the channel is closed (lock-free atomic load).
   is_closed : (fn(self : &Self) -> bool)(
-    self._shared._closed.load(MemoryOrder.Acquire)
+    self._shared.*._closed.load(MemoryOrder.Acquire)
   ),
   /// Return the number of values currently buffered (lock-free atomic load).
   /// Snapshot semantics: the value may be stale by the time the caller acts on it,
   /// matching Rust's `mpsc::channel` idiom.
   len : (fn(self : &Self) -> usize)(
-    self._shared._len.load(MemoryOrder.Acquire)
+    self._shared.*._len.load(MemoryOrder.Acquire)
   ),
   /// Check if the channel buffer is empty (lock-free atomic load).
   is_empty : (fn(self : &Self) -> bool)(
-    self._shared._len.load(MemoryOrder.Acquire) == usize(0)
+    self._shared.*._len.load(MemoryOrder.Acquire) == usize(0)
   )
 );
 /// The sending half of a `Channel(T).receiver`/`pair` split — Rust's
@@ -481,7 +481,7 @@ impl(
   /// no data, and the handle it produces cannot be used by another thread
   /// until it has been moved there, which is itself a synchronizing transfer.
   _attach : (fn(ch : &Channel(T)) -> Self)({
-    _prev := ch._shared._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
+    _prev := ch._shared.*._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
     Self(_ch : ch.clone())
   }),
   /// Send a value, blocking while the buffer is full.
@@ -547,7 +547,7 @@ impl(
   /// forever.
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      (prev : usize) = self._ch._shared._senders.fetch_sub(usize(1), MemoryOrder.AcqRel);
+      (prev : usize) = self._ch._shared.*._senders.fetch_sub(usize(1), MemoryOrder.AcqRel);
       if(prev == usize(1), {
         self._ch.close();
       });

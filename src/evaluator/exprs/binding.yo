@@ -27,7 +27,7 @@ import("std/fmt");
 { TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr-info.yo");
-{ Environment, add_variable_to_env, get_variables_from_env, env_adopt } :: import("../../env.yo");
+{ Environment, add_variable_to_env, get_variables_from_env, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, in_def_time_trial } :: import("../context.yo");
 { EvalValue, EvalValueNode, is_type_value, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -35,7 +35,8 @@ import("std/fmt");
 {
   is_array_type,
   is_function_type,
-  is_function_type_generic
+  is_function_type_generic,
+  is_type_kind
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
@@ -47,12 +48,12 @@ import("std/fmt");
   legacy_value_str
 } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_repair, format_error_messages, TokenAndError, YoError, format_eval_failure, with_code } :: import("../../error.yo");
-{ E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
+{ E_COMPTIME_RUNTIME_BINDING, E_TRAIT_AS_VALUE_TYPE } :: import("../../diagnostics.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait-checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
 { reject_annotation_naming_its_binding } :: import("../types/function.yo");
-{ is_valid_variable_name, in_compile_time_fn_body, reject_malformed_mut_marker } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body, reject_malformed_mut_marker, is_bare_trait_type, trait_as_value_type_error } :: import("../utils.yo");
 /// Deferred-check flag for the generic-fn-type rule (see the gate below and
 /// exprs/assignment.yo). Module-global because EvalContext field additions
 /// ripple through every explicit constructor; evaluation is single-threaded.
@@ -306,13 +307,13 @@ evaluate_binding :: (
   // Reserved operators cannot be bound or overloaded
   // (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md Part 1).
   res_tok := ast_expr_token(&lhs);
-  if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.*.clone()), {
+  if((res_tok.*.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.*.value.*.clone()), {
     exn.throw(
       dyn(
         Box.new(
           format_error_message(
             &res_tok,
-            `Operator "${res_tok.value.*}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
+            `Operator "${res_tok.*.value.*}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
           )
         )
       )
@@ -323,15 +324,39 @@ evaluate_binding :: (
   // spelled with the name dispatches to the builtin, silently. Reject the
   // binding instead (the `consume` arm leaked the argument's reference before
   // this gate: issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md).
-  if(is_reserved_builtin_binding_name(res_tok.value.*.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
+  if(is_reserved_builtin_binding_name(res_tok.*.value.*.clone()) && !res_tok.*.module_path.*.ends_with(String.from("std/prelude.yo")), {
     raise_flow_violation(
       format_error_message(
         &res_tok,
-        reserved_builtin_binding_message(res_tok.value.*.clone())
+        reserved_builtin_binding_message(res_tok.*.value.*.clone())
       ),
       ctx,
       exn
     );
+  });
+  // `(x : Tr) = v`, `(x : Tr);` (VERDICTS-84 §4, E0625): a binding has
+  // one type. `(P : Tr)` with `P` a type means the impl, `(P <: Tr)`.
+  if(!is_compile_time_only && is_bare_trait_type(&user_defined_type), {
+    bt_name := ast_expr_to_string(&lhs);
+    bt_trait := type_to_string(&user_defined_type);
+    bt_vars := get_variables_from_env(&env, &bt_name);
+    names_type := ((bt_vars.len() > usize(0)) && is_type_kind(&variable_value_type(&bt_vars(bt_vars.len() - usize(1)))));
+    if(names_type, {
+      exn.throw(
+        dyn(
+          Box.new(
+            with_code(
+              format_error_message(
+                ast_expr_token(&lhs),
+                `\`${bt_name}\` is a type and \`${bt_trait}\` a trait, so \`(${bt_name} : ${bt_trait})\` declares a binding. The impl of \`${bt_trait}\` for \`${bt_name}\` is \`(${bt_name} <: ${bt_trait})\`, as in \`(${bt_name} <: ${bt_trait}).m(x)\`.`
+              ),
+              E_TRAIT_AS_VALUE_TYPE
+            )
+          )
+        )
+      );
+    });
+    exn.throw(dyn(Box.new(trait_as_value_type_error(ast_expr_token(&lhs), &bt_trait, &`the binding \`${bt_name}\``))));
   });
   // Reject type annotations that require comptime but binding is runtime.
   // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
@@ -434,7 +459,7 @@ evaluate_binding :: (
           );
           sh_entries.push(
             TokenAndError(
-              token : Rc.clone(shadow_var.token),
+              token : Rc.clone(shadow_var.*.token),
               error_message : `Variable "${variable_name}" is already defined here (variable shadowing is not allowed):`
             )
           );
@@ -468,15 +493,15 @@ evaluate_binding :: (
   match(
     _var_opt,
     .Some(new_binding_var) => {
-      new_binding_var.set_initialized_at_token(.None);
+      new_binding_var.*.set_initialized_at_token(.None);
       // Stamp module-level-ness — computed above but previously never
       // patched onto the variable for the `(name : T) = ...` binding form
       // (add_variable_to_env has no is_module_level parameter). Also record
       // it in the data-keyed registry, which survives env copies (see
       // expr-info.yo g_module_level_globals).
-      new_binding_var.set_is_module_level(is_module_level.clone());
+      new_binding_var.*.set_is_module_level(is_module_level.clone());
       if(is_module_level, {
-        register_module_level_global(&ast_expr_token(&lhs).module_path.*, variable_name.clone());
+        register_module_level_global(&ast_expr_token(&lhs).*.module_path.*, variable_name.clone());
       });
     },
     .None => ()

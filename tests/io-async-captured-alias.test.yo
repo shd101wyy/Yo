@@ -87,7 +87,7 @@ alias_of_rc :: (fn(tag : usize, io : Io) -> Impl(Future(usize, IoExn)))({
   cb := Rc.clone(&c);
   io.async(e => {
     k := e.io.await(give_n(usize(1), e.io), e);
-    return(k + cb.tag);
+    return(k + cb.*.tag);
   })
 });
 test("a captured Rc alias is retained by the task and released once", {
