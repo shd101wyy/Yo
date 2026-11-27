@@ -179,7 +179,7 @@
   bind_join_roots_for,
   variable_holder_roots,
   local_borrow_alias_statement,
-  reference_field_deref_type
+  reference_field_read_type
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -508,9 +508,10 @@ _evaluate_inout_local_binding :: (
           // `&mut s.r.*` through a reference FIELD (VERDICTS-76 row 12)
           // reborrows what the field refers to: the holder owns the field,
           // and the reborrow freezes it and the field's places.
-          // The field's own reference type: its read `s.r` is typed as the
-          // pointee (`note_reference_field_deref`, exprs/property-access.yo).
-          d_field_ref_ty := if((dk + usize(1)) < hops.len(), reference_field_deref_type(ast_expr_id(&d_recv)), Option(TypeValue).None);
+          // The field's own reference type: `s.r.*` is rewritten to the
+          // field read `s.r`, typed as the pointee and recorded on the `.*`
+          // node as a reference field read (exprs/property-access.yo).
+          d_field_ref_ty := if((dk + usize(1)) < hops.len(), reference_field_read_type(ast_expr_id(&dhop.node)), Option(TypeValue).None);
           d_is_reference_field_deref := d_field_ref_ty.is_some();
           d_field_is_mut := match(&d_field_ref_ty, .Some(fr) => t_slot_is_mut_ref(fr), .None => false);
           if(d_is_reference_field_deref && is_mut && !d_field_is_mut, {
