@@ -435,6 +435,11 @@ _evaluate_inout_local_binding :: (
   if(hops.len() == usize(0), {
     note_self_lend_operand(ast_expr_id(&root_atom), is_mut);
   });
+  // `p := &mut h.r` over a `&` reference field lends the field itself, a
+  // `&mut &T` (VERDICTS-78 Q1), which the field access decides.
+  if(is_mut && (hops.len() > usize(0)) && ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))), {
+    note_self_lend_operand(ast_expr_id(rhs), true);
+  });
   // Evaluate the place as an expression (types for every hop), WITHOUT the
   // dup-on-store a value binding performs — nothing is copied.
   old_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);

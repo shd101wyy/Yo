@@ -1,0 +1,16 @@
+// expect: E0911
+// VERDICTS-78 Q1: after `h.r = &y`, `h` borrows `y`: writing `y` while `h` is live is rejected.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+main :: (fn() -> unit)({
+  z := mk();
+  mut(y) := mk();
+  mut(h) := H(r : &z, n : i32(0));
+  h.r = &y;
+  y = mk();
+  println(`OUT: ${h.r.*.*.s.len().to_string()}`);
+});
+export(main);
