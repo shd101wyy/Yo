@@ -28,7 +28,7 @@ Probe :: trait(
 impl(i32, Probe(value : (self -> self.*.*)));
 Square :: struct(side : i32);
 derive(Square, Copy, Clone);
-impl(Square, Probe(value : (self -> (self.side * self.side))));
+impl(Square, Probe(value : (self -> (self.*.*.side * self.*.*.side))));
 probe :: (fn(p : &Dyn(Probe)) -> i32)(p.value());
 /// A comptime function that builds the cell type: the instance is minted by a
 /// CTFE call of `Rc` inside it, and must be the same cell `Rc.new(...)` builds.
@@ -69,14 +69,14 @@ test("ref_count reads an Rc's count", {
 // read-only through it.
 test("auto-dereference reads and calls through an Rc; writes are E0919", {
   c := Rc.new(Counter(n : i32(1), items : ArrayList(i32).new()));
-  assert(c.n == i32(1), "a payload field reads through the cell");
+  assert(c.*.n == i32(1), "a payload field reads through the cell");
   assert(c.*.n == i32(1), "the explicit deref reads the same field");
-  assert(c.items.len() == usize(0), "a &self payload method is called through the cell");
-  comptime_expect_error(c.n = i32(2), "read-only through the handle");
-  comptime_expect_error(c.bump(i32(3)), "read-only through the handle");
-  comptime_expect_error(c.items.push(i32(9)), "read-only through the handle");
+  assert(c.*.items.len() == usize(0), "a &self payload method is called through the cell");
+  comptime_expect_error(c.*.n = i32(2), "read-only through the handle");
+  comptime_expect_error(c.*.bump(i32(3)), "read-only through the handle");
+  comptime_expect_error(c.*.items.push(i32(9)), "read-only through the handle");
   d := c;
-  assert(d.n == i32(1), "another handle reads the same payload");
+  assert(d.*.n == i32(1), "another handle reads the same payload");
 });
 test("nested patterns look through an Rc payload", {
   f :: (fn(l : &List) -> i32)(
@@ -346,7 +346,7 @@ test("an Rc of an enum whose only payload is an Rc keeps its own count", {
   assert(ref_count(s) == usize(2), "the enum cell is shared by s and alias");
   payload_rc := match(&alias.*, .Held(q) => ref_count(q.*), .Vacant => usize(0));
   assert(payload_rc == usize(1), "the payload has its own count: only the variant field holds it");
-  n := match(&alias.*, .Held(q) => q.n, .Vacant => i32(0));
+  n := match(&alias.*, .Held(q) => q.*.*.n, .Vacant => i32(0));
   assert(n == i32(7), "payload read through the alias");
   assert(match(_Slot.Vacant, .Vacant => true, .Held(_) => false), "payload-free variant");
 });
@@ -363,14 +363,14 @@ test("an enum parameter's field resolves against the declaring variant", {
 test("an Rc payload may have fields named header, ref_count, gc_flags and type_id", {
   _VH :: struct(header : i32, n : i32);
   v := Rc.new(_VH(header : i32(1), n : i32(2)));
-  assert(v.header == i32(1), "a payload field named header");
-  assert(v.n == i32(2), "its sibling");
+  assert(v.*.header == i32(1), "a payload field named header");
+  assert(v.*.n == i32(2), "its sibling");
   _KH :: struct(ref_count : i32, gc_flags : i32, type_id : i32);
   k := Rc.new(_KH(ref_count : i32(1), gc_flags : i32(2), type_id : i32(3)));
-  assert(k.ref_count == i32(1), "ref_count as a payload field name");
-  assert(k.gc_flags == i32(2), "gc_flags as a payload field name");
-  assert(k.type_id == i32(3), "type_id as a payload field name");
+  assert(k.*.ref_count == i32(1), "ref_count as a payload field name");
+  assert(k.*.gc_flags == i32(2), "gc_flags as a payload field name");
+  assert(k.*.type_id == i32(3), "type_id as a payload field name");
   _CH :: struct(header :: 1, n : i32);
   c := Rc.new(_CH(n : i32(5)));
-  assert(c.n == i32(5), "the runtime sibling of a comptime header field");
+  assert(c.*.n == i32(5), "the runtime sibling of a comptime header field");
 });

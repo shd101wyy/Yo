@@ -281,24 +281,25 @@ test("Test destructuring", {
   {
     Point :: struct(x : i32, y : f64);
     point := Point(3, 4.5);
+    // A destructuring of a borrow lends each field; of the value, consumes it.
     {
-      { x, y } := point;
-      assert(x == 3);
-      assert(y == 4.5);
+      { x, y } := &point;
+      assert(x.* == 3);
+      assert(y.* == 4.5);
     };
     {
-      { y, x } := point;
-      assert(x == 3);
-      assert(y == 4.5);
+      { y, x } := &point;
+      assert(x.* == 3);
+      assert(y.* == 4.5);
     };
     {
-      _(x : a, y : b) := point;
-      assert(a == 3);
-      assert(b == 4.5);
+      _(x : a, y : b) := &point;
+      assert(a.* == 3);
+      assert(b.* == 4.5);
     };
     {
-      { x : another_x } := point;
-      assert(another_x == 3);
+      { x : another_x } := &point;
+      assert(another_x.* == 3);
     };
     {
       { x : another_x, ... } := point;
@@ -814,8 +815,8 @@ test("Test 'struct'", {
     (p5 : Point) = .{ x, y };
     (p6 : Point) = .{ y, x };
     {
-      { x : another_x, y : a } := p;
-      a;
+      { x : another_x, y : a } := &p;
+      a.*;
     };
     {
       { x : a, y : b } := p;
@@ -1034,9 +1035,9 @@ test("Test 'struct'", {
       Withdraw,
       withdraw : (fn(self : *Self, amount : i32) -> i32)(
         cond(
-          (self.balance >= amount) => {
-            self.balance = (self.balance - amount);
-            return(self.balance);
+          (self.*.balance >= amount) => {
+            self.*.balance = (self.*.balance - amount);
+            return(self.*.balance);
           },
           true => {
             return(0); // insufficient balance
@@ -1071,7 +1072,7 @@ test("Test 'struct'", {
         Self.new(v)
       ),
       add : (fn(self : *Self, value : &T, where(T <: Add(T))) -> unit)({
-        self.value = (self.value + value.*);
+        self.*.value = (self.*.value + value.*);
       }),
       another_add : (fn(self : *Self, value : &T, where(T <: Add(T))) -> unit)({
         self.add(value);
@@ -2166,8 +2167,8 @@ test("Test whole-struct destructuring statements", {
   {
     Point :: struct(x : i32, y : i32);
     calculate :: (fn(p : &Point) -> i32)({
-      { x, y } := p.*;
-      x + y
+      { x, y } := p;
+      x.* + y.*
     });
     result := calculate(Point(7, 3));
     assert(result == i32(10));
@@ -2684,11 +2685,11 @@ test("an enum tag is int-sized: an option of a payload aligned below 4 is 8 byte
   assert(size_of(Option(i32)) == usize(8), "Option(i32) is unchanged");
   assert(size_of(SmallPayloadOptions) == usize(40), "struct: 3 x 8 + i64 + 8");
   b := Box(SmallPayloadOptions).new(SmallPayloadOptions(head : .Some(true), narrow : .Some(u8(7)), half : .Some(u16(300)), wide : i64(-5), last : .Some(false)));
-  assert(match(b.head, .Some(x) => x, .None => false), "head survives");
-  assert(match(b.narrow, .Some(x) => (x == u8(7)), .None => false), "narrow survives");
-  assert(match(b.half, .Some(x) => (x == u16(300)), .None => false), "half survives");
-  assert(b.wide == i64(-5), "wide survives");
-  assert(match(b.last, .Some(x) => !x, .None => false), "last survives");
+  assert(match(b.*.head, .Some(x) => x, .None => false), "head survives");
+  assert(match(b.*.narrow, .Some(x) => (x == u8(7)), .None => false), "narrow survives");
+  assert(match(b.*.half, .Some(x) => (x == u16(300)), .None => false), "half survives");
+  assert(b.*.wide == i64(-5), "wide survives");
+  assert(match(b.*.last, .Some(x) => !x, .None => false), "last survives");
 });
 // A comptime-TRUE condition in a NON-first `cond` arm is the chain's final
 // `else`; the arms after it are unreachable and must not be emitted. Codegen

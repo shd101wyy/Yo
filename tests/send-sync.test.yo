@@ -127,7 +127,7 @@ comptime_expect_error({
   _spawn_plain_dyn :: (fn() -> unit)({
     (d : Box(Dyn(SsSpeak))) = dyn(Box.new(SsDog(n : i32(3))));
     t := Thread(unit).spawn(io => {
-      _n := d.speak();
+      _n := d.*.speak();
       ()
     });
     t.join();
@@ -139,11 +139,11 @@ _spawn_send_dyn :: (fn() -> i32)({
   (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(4))));
   hits := Arc.new(AtomicI32.new(i32(0)));
   t := Thread(unit).spawn({ d, hits : Arc.clone(hits) }(io) => {
-    hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
+    hits.*.fetch_add(d.*.speak(), MemoryOrder.AcqRel);
     ()
   });
   t.join();
-  hits.load(MemoryOrder.Acquire)
+  hits.*.load(MemoryOrder.Acquire)
 });
 test("a Dyn(Trait, Send) crosses Thread.spawn", {
   assert(_spawn_send_dyn() == i32(4), "the spawned thread called the trait object");
@@ -155,11 +155,11 @@ _spawn_send_dyn_box :: (fn() -> i32)({
   (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(5))));
   hits := Arc.new(AtomicI32.new(i32(0)));
   t := Thread(unit).spawn({ d, hits : Arc.clone(hits) }(io) => {
-    hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
+    hits.*.fetch_add(d.*.speak(), MemoryOrder.AcqRel);
     ()
   });
   t.join();
-  hits.load(MemoryOrder.Acquire)
+  hits.*.load(MemoryOrder.Acquire)
 });
 test("dyn(Box.new(v)) into a Dyn(Trait, Send) crosses Thread.spawn", {
   assert(_spawn_send_dyn_box() == i32(5), "an Arc-boxed payload");
@@ -360,14 +360,14 @@ test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it",
   comptime_assert(Type.impls(SsBoxNode, Acyclic), "a Box back edge is no cycle");
   a := Arc.new(Mutex(SsPeer).new(SsPeer(id : i32(1), peer : .None)));
   b := Arc.clone(a);
-  a.with_lock(v => {
+  a.*.with_lock(v => {
     v.* = SsPeer(id : i32(1), peer : .Some(Arc.clone(b)));
   });
-  assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
-  a.with_lock(v => {
+  assert(a.*.with_lock(v => v.peer.is_some()), "the cycle is closed");
+  a.*.with_lock(v => {
     v.* = SsPeer(id : i32(1), peer : .None);
   });
-  assert(a.with_lock(v => v.peer.is_none()), "the back edge is cleared");
+  assert(a.*.with_lock(v => v.peer.is_none()), "the back edge is cleared");
 });
 // A cyclic payload (it reaches itself through an `Arc`): `Send` and `Sync`,
 // never `Acyclic`. Each container takes it, and the derived marker on the
@@ -456,9 +456,9 @@ SsShared :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(struct(
 test("a generic type holding an Arc(Mutex(T)) is accepted and judged at its instantiation", {
   s := SsShared(i32)(_m : Arc.new(Mutex(i32).new(i32(1))));
   t := SsShared(i32)(_m : Arc.clone(s._m));
-  t._m.with_lock(v => {
+  t._m.*.with_lock(v => {
     v.* = (v.* + i32(1));
   });
-  assert(s._m.with_lock(v => v.*) == i32(2), "both handles name one mutex");
+  assert(s._m.*.with_lock(v => v.*) == i32(2), "both handles name one mutex");
   comptime_assert(Type.impls(SsShared(i32), Send) && Type.impls(SsShared(i32), Sync), "the instantiation is Send and Sync");
 });

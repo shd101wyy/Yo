@@ -313,22 +313,22 @@ test("Test array of objects - no RC leak", {
     c2 := Rc.new(_ContainerVal(i32(2)));
     c3 := Rc.new(_ContainerVal(i32(3)));
     arr := [c1, c2, c3,];
-    assert(arr(0).value == i32(1), "arr(0).value == 1");
-    assert(arr(1).value == i32(2), "arr(1).value == 2");
-    assert(arr(2).value == i32(3), "arr(2).value == 3");
+    assert(arr(0).*.value == i32(1), "arr(0).value == 1");
+    assert(arr(1).*.value == i32(2), "arr(1).value == 2");
+    assert(arr(2).*.value == i32(3), "arr(2).value == 3");
   };
   // Assigned access to array of objects
   {
     c := Rc.new(_ContainerVal(i32(42)));
     arr := [c,];
     elem := Rc.clone(&arr(0));
-    assert(elem.value == i32(42), "assigned object from array should work");
+    assert(elem.*.value == i32(42), "assigned object from array should work");
   };
   // Inline access does not increase RC
   {
     c := Rc.new(_ContainerVal(i32(77)));
     arr := [c,];
-    val := arr(0).value;
+    val := arr(0).*.value;
     assert(val == i32(77), "inline field read works");
   };
 });
@@ -622,7 +622,7 @@ cond_move_work :: (fn(flag : bool) -> unit)({
   entries := cond_move_make_fresh();
   if(flag, {
     h := CondMoveHolder(items : entries);
-    assert(h.items.len() == usize(0), "held list is empty");
+    assert(h.items.*.len() == usize(0), "held list is empty");
   });
 });
 test("Conditional move into a struct field balances both paths", {
@@ -657,8 +657,8 @@ traversal_walk_with_sever :: (fn(head : &mut TraversalNode) -> i32)({
           first = false;
           head.next = Option(Rc(TraversalNode)).None;
         });
-        total = (total + current.value);
-        current_opt = current.next.clone();
+        total = (total + current.*.value);
+        current_opt = current.*.next.clone();
       }
     );
   });
@@ -1053,7 +1053,7 @@ test("aliasing a ref local disposes the object exactly once", {
   {
     a := Rc.new(_AliasHandleVal(tag : i32(1)));
     b := Rc.clone(&a);
-    assert(b.tag == i32(1), "the alias sees the same object");
+    assert(b.*.tag == i32(1), "the alias sees the same object");
     assert(g_alias_disposed == i32(0), "nothing disposed while the scope is live");
   };
   assert(
@@ -1066,8 +1066,8 @@ test("reassigning after aliasing disposes both objects exactly once", {
     mut(a) := Rc.new(_AliasHandleVal(tag : i32(1)));
     b := Rc.clone(&a);
     a = Rc.new(_AliasHandleVal(tag : i32(2)));
-    assert(b.tag == i32(1), "b keeps the original object alive");
-    assert(a.tag == i32(2), "a points at the replacement");
+    assert(b.*.tag == i32(1), "b keeps the original object alive");
+    assert(a.*.tag == i32(2), "a points at the replacement");
   };
   // Two objects were created, so two disposals. Before the fix this reported
   // ONE — the original was never disposed at all.
@@ -1149,12 +1149,12 @@ test("an own parameter of a generic function releases its value exactly once", {
 _AliasHolderVal :: struct(n : RefCell(i32));
 AliasHolder :: Rc(_AliasHolderVal);
 _alias_holder :: (fn(n : i32) -> AliasHolder)(Rc.new(_AliasHolderVal(n : RefCell(i32).new(n))));
-_alias_n :: (fn(h : &AliasHolder) -> i32)(h.n.with(v => v.*));
+_alias_n :: (fn(h : &AliasHolder) -> i32)(h.*.*.n.with(v => v.*));
 test("alias survives a reassignment of its base inside a nested block", {
   mut(h) := _alias_holder(i32(1));
   h2 := Rc.clone(&h);
   {
-    h.n.replace(i32(7));
+    h.*.n.replace(i32(7));
     h = _alias_holder(i32(100));
   };
   assert(_alias_n(&h2) == i32(7), "the alias still names the original object");
@@ -1166,7 +1166,7 @@ test("alias made inside a nested block, base reassigned there, base used after",
   mut(h) := _alias_holder(i32(1));
   {
     h2 := Rc.clone(&h);
-    h2.n.replace(i32(9));
+    h2.*.n.replace(i32(9));
     h = _alias_holder(i32(100));
     assert(_alias_n(&h2) == i32(9), "inner alias reads the original");
   };
@@ -1183,8 +1183,8 @@ test("reassigning the alias itself disposes both objects exactly once", {
     a := Rc.new(_AliasHandleVal(tag : i32(1)));
     mut(b) := Rc.clone(&a);
     b = Rc.new(_AliasHandleVal(tag : i32(3)));
-    assert(a.tag == i32(1), "a keeps the original");
-    assert(b.tag == i32(3), "b names the replacement");
+    assert(a.*.tag == i32(1), "a keeps the original");
+    assert(b.*.tag == i32(3), "b names the replacement");
   };
   assert(g_alias_disposed == (before + i32(2)), "original and replacement disposed exactly once each");
 });
@@ -1197,8 +1197,8 @@ test("chained aliases with the base reassigned in a nested block", {
     {
       a = Rc.new(_AliasHandleVal(tag : i32(2)));
     };
-    assert((b.tag == i32(1)) && (c.tag == i32(1)), "both aliases still name the original");
-    assert(a.tag == i32(2), "the base names the replacement");
+    assert((b.*.tag == i32(1)) && (c.*.tag == i32(1)), "both aliases still name the original");
+    assert(a.*.tag == i32(2), "the base names the replacement");
   };
   assert(g_alias_disposed == (before + i32(2)), "original and replacement disposed exactly once each");
 });
@@ -1209,9 +1209,9 @@ test("alias made in an inner block, base reassigned there, base used after", {
     {
       b := Rc.clone(&a);
       a = Rc.new(_AliasHandleVal(tag : i32(2)));
-      assert(b.tag == i32(1), "the inner alias reads the original");
+      assert(b.*.tag == i32(1), "the inner alias reads the original");
     };
-    assert(a.tag == i32(2), "the outer base reads the replacement");
+    assert(a.*.tag == i32(2), "the outer base reads the replacement");
   };
   assert(g_alias_disposed == (before + i32(2)), "original and replacement disposed exactly once each");
 });
@@ -1248,8 +1248,8 @@ test("an alias lent &mut to a call that replaces it leaves the base its object",
     a := Rc.new(_LendHandleVal(tag : i32(1)));
     mut(b) := Rc.clone(&a);
     _lend_replace(&mut b, i32(10));
-    assert(a.tag == i32(1), "a still names the original");
-    assert(b.tag == i32(10), "b names the replacement");
+    assert(a.*.tag == i32(1), "a still names the original");
+    assert(b.*.tag == i32(10), "b names the replacement");
     assert(ref_count(a) == 1, "the original is a's alone");
   };
   assert(g_lend_dropped_tags == (before + i32(11)), `each object dropped once, got ${(g_lend_dropped_tags - before).to_string()}`);
@@ -1260,8 +1260,8 @@ test("a base lent &mut to a call that replaces it leaves the alias its object", 
     mut(a) := Rc.new(_LendHandleVal(tag : i32(1)));
     b := Rc.clone(&a);
     _lend_replace(&mut a, i32(10));
-    assert(b.tag == i32(1), "b still names the original");
-    assert(a.tag == i32(10), "a names the replacement");
+    assert(b.*.tag == i32(1), "b still names the original");
+    assert(a.*.tag == i32(10), "a names the replacement");
   };
   assert(g_lend_dropped_tags == (before + i32(11)), `each object dropped once, got ${(g_lend_dropped_tags - before).to_string()}`);
 });
@@ -1271,8 +1271,8 @@ test("an alias whose &mut self method replaces it leaves the base its object", {
     a := Rc.new(_LendHandleVal(tag : i32(1)));
     mut(b) := Rc.clone(&a);
     b.replace_with(i32(10));
-    assert(a.tag == i32(1), "a still names the original");
-    assert(b.tag == i32(10), "b names the replacement");
+    assert(a.*.tag == i32(1), "a still names the original");
+    assert(b.*.tag == i32(10), "b names the replacement");
   };
   assert(g_lend_dropped_tags == (before + i32(11)), `each object dropped once, got ${(g_lend_dropped_tags - before).to_string()}`);
 });
@@ -1324,7 +1324,7 @@ test("a local stored into a container in a NESTED block outlives that block", {
     // The container is gone. `sink` must still be alive here — it is a live
     // local of THIS scope and nothing has consumed it.
     assert(g_nested_disposed == before, "the inner block's container did not take the outer local with it");
-    assert(sink.tag == i32(1), "and the outer local still reads correctly");
+    assert(sink.*.tag == i32(1), "and the outer local still reads correctly");
   };
   assert(
     g_nested_disposed == (before + i32(1)),
@@ -1342,7 +1342,7 @@ test("a container two blocks deep does not take the outer local either", {
       };
       ()
     };
-    assert(sink.tag == i32(3), "still readable through two closed scopes");
+    assert(sink.*.tag == i32(3), "still readable through two closed scopes");
   };
   assert(g_nested_disposed == (before + i32(1)), "and disposed exactly once");
 });
@@ -1356,7 +1356,7 @@ test("a container in the SAME scope still shares one count", {
     sink := Rc.new(_NestedSinkVal(tag : i32(5)));
     h := NestedHolder(label : i32(6), sink : Rc.clone(&sink));
     assert(h.label == i32(6), "the container sees its own field");
-    assert(sink.tag == i32(5), "and the local still reads");
+    assert(sink.*.tag == i32(5), "and the local still reads");
     assert(g_nested_disposed == before, "nothing disposed while both are live");
   };
   assert(g_nested_disposed == (before + i32(1)), "disposed exactly once at the shared scope end");
@@ -1372,13 +1372,13 @@ test("a container in a cond arm and in a while body behave the same way", {
       },
       true => ()
     );
-    assert(sink.tag == i32(7), "readable after the arm");
+    assert(sink.*.tag == i32(7), "readable after the arm");
     (mut(i) : i32) = i32(0);
     while(i < i32(3), i = (i + i32(1)), {
       w := NestedHolder(label : i, sink : Rc.clone(&sink));
       assert(w.label == i, "the loop body's container sees its field");
     });
-    assert(sink.tag == i32(7), "and after three loop iterations");
+    assert(sink.*.tag == i32(7), "and after three loop iterations");
   };
   assert(
     g_nested_disposed == (before + i32(1)),
@@ -1401,14 +1401,14 @@ _NestedTag :: trait(tag_of : (fn(self : &Self) -> i32));
 impl(_NestedSinkVal, _NestedTag(tag_of : (fn(self : &Self) -> i32)(self.tag)));
 _take_dyn_tag :: (fn(d : Box(Dyn(_NestedTag))) -> unit)({
   kept := Option(Box(Dyn(_NestedTag))).Some(d);
-  assert(match(&kept, .Some(k) => (k.tag_of() == i32(11)), .None => false), "the callee sees the payload");
+  assert(match(&kept, .Some(k) => (k.*.*.tag_of() == i32(11)), .None => false), "the callee sees the payload");
 });
 // The interim counted spelling of the same callee: an `Rc` handle over the
 // Dyn (decision 49 S2) — `dyn(Rc.clone(&sink))` erases to it, and the handle
 // moves by value like the box's.
 _take_dyn_tag_rc :: (fn(d : Rc(Dyn(_NestedTag))) -> unit)({
   kept := Option(Rc(Dyn(_NestedTag))).Some(d);
-  assert(match(&kept, .Some(k) => (k.tag_of() == i32(11)), .None => false), "the callee sees the payload");
+  assert(match(&kept, .Some(k) => (k.*.*.tag_of() == i32(11)), .None => false), "the callee sees the payload");
 });
 // The holder is a value struct: a `ref` holding a `ref` is GC-tracked, which
 // defers its release and would hide the early free.
@@ -1418,7 +1418,7 @@ test("a local stored into a temporary struct passed by value outlives the call",
     sink := Rc.new(_NestedSinkVal(tag : i32(12)));
     _take_holder(_NestedValHolder(label : i32(10), sink : Rc.clone(&sink)));
     assert(g_nested_disposed == before, "the callee's container did not take the caller's local with it");
-    assert(sink.tag == i32(12), "and the local still reads correctly");
+    assert(sink.*.tag == i32(12), "and the local still reads correctly");
   };
   assert(g_nested_disposed == (before + i32(1)), "disposed exactly once, when its own scope ended");
 });
@@ -1428,7 +1428,7 @@ test("a local stored into a temporary Dyn passed by value outlives the call", {
     sink := Rc.new(_NestedSinkVal(tag : i32(11)));
     _take_dyn_tag_rc(dyn(Rc.clone(&sink)));
     assert(g_nested_disposed == before, "the callee's Dyn did not take the caller's local with it");
-    assert(sink.tag == i32(11), "and the local still reads correctly");
+    assert(sink.*.tag == i32(11), "and the local still reads correctly");
   };
   assert(g_nested_disposed == (before + i32(1)), "disposed exactly once, when its own scope ended");
 });
@@ -1530,8 +1530,8 @@ impl(
     })
   )
 );
-at_read :: (fn(a : &ArgTemp) -> i32)(a.n);
-at_sink :: (fn(sink(a) : ArgTemp) -> i32)(a.n);
+at_read :: (fn(a : &ArgTemp) -> i32)(a.*.*.n);
+at_sink :: (fn(sink(a) : ArgTemp) -> i32)(a.*.n);
 at_pick_match :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(match(flag, true => Rc.new(_ArgTempVal(n : i32(1))), false => Rc.clone(keep))));
 at_pick_cond :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(cond(flag => Rc.new(_ArgTempVal(n : i32(2))), true => Rc.clone(keep))));
 test("a match passed as a call argument releases its fresh result", {
@@ -1594,7 +1594,7 @@ test("a block result that is not moved is released once", {
     _m := {
       t := Rc.new(_ArgTempVal(n : i32(22)));
       t
-    }.n;
+    }.*.n;
   };
   assert(g_at_disposed == (before + i32(3)), "a block as a receiver");
 });
@@ -1626,12 +1626,12 @@ test("a block that yields an outer local or is bound does not over-release", {
       _m := {
         _z := i32(0);
         Rc.clone(&keep)
-      }.n;
+      }.*.n;
       also := {
         _z := i32(0);
         Rc.clone(&keep)
       };
-      assert(also.n == i32(23), "a binding of a block that yields the outer local");
+      assert(also.*.n == i32(23), "a binding of a block that yields the outer local");
       assert(at_block_of_param(&keep) == i32(23), "a block that yields a borrowed parameter");
     };
     assert(g_at_disposed == before, "the outer local is still alive");
@@ -1643,7 +1643,7 @@ test("a block that yields an outer local or is bound does not over-release", {
       t := Rc.new(_ArgTempVal(n : i32(24)));
       t
     };
-    assert(b.n == i32(24), "the bound block's value");
+    assert(b.*.n == i32(24), "the bound block's value");
   };
   assert(g_at_disposed == (before + i32(2)), "the bound block's value is released once");
   {
@@ -1667,7 +1667,7 @@ test("a plain store into fresh memory never loads the uninitialized old value", 
   assert(unsafe(p.*), "the store landed");
   unsafe(free(raw));
 });
-at_sink_plus :: (fn(sink(a) : ArgTemp) -> i32)(a.n + i32(1));
+at_sink_plus :: (fn(sink(a) : ArgTemp) -> i32)(a.*.n + i32(1));
 test("an own parameter read by a bare-expression body is released after the read", {
   before := g_at_disposed;
   {
@@ -1705,7 +1705,7 @@ test("a call argument inside a struct-literal tail is released", {
   };
   assert(g_at_disposed == (before + i32(1)), "the argument temp of the call inside the struct literal is disposed once");
 });
-at_ok :: (fn(a : &ArgTemp) -> bool)(a.n > i32(0));
+at_ok :: (fn(a : &ArgTemp) -> bool)(a.*.*.n > i32(0));
 test("a call argument under ! or == in an if condition is released", {
   before := g_at_disposed;
   (mut(y) : i32) = i32(0);
@@ -1883,7 +1883,7 @@ _OwnMHolder :: struct(b : _OwnM);
 impl(
   _OwnMHolder,
   make : (fn(sink(b) : _OwnM) -> Self)(Self(b : b)),
-  adopt : (fn(self : &Self, sink(b) : _OwnM) -> i32)(b.tag)
+  adopt : (fn(self : &Self, sink(b) : _OwnM) -> i32)(b.*.tag)
 );
 _OwnMWrap :: struct(m : _OwnM, n : i32);
 _OwnMOuter :: struct(w : _OwnMWrap);
@@ -1898,7 +1898,7 @@ test("Type.method with an own parameter retains a borrowed parameter's field", {
     w := _OwnMWrap(m : Rc.new(_OwnMVal(tag : i32(1))), n : i32(1));
     h := _own_m_param_field(&w);
     assert(ref_count(w.m) == usize(2), `the holder and the caller each hold one, got ${ref_count(w.m).to_string()}`);
-    assert((h.b.tag == i32(1)) && (g_own_m_disposed == before), "still live in both");
+    assert((h.b.*.tag == i32(1)) && (g_own_m_disposed == before), "still live in both");
   };
   assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
 });
@@ -1908,7 +1908,7 @@ test("Type.method with an own parameter retains a local's field", {
     out := _OwnMWrap(m : Rc.new(_OwnMVal(tag : i32(2))), n : i32(0));
     h := _OwnMHolder.make(Rc.clone(&out.m));
     assert(ref_count(out.m) == usize(2), `the holder and the local each hold one, got ${ref_count(out.m).to_string()}`);
-    assert(h.b.tag == i32(2), "the holder reads it");
+    assert(h.b.*.tag == i32(2), "the holder reads it");
   };
   assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
 });
@@ -1921,7 +1921,7 @@ test("Type.method with an own parameter retains a nested field and a borrowed pa
     m := Rc.new(_OwnMVal(tag : i32(4)));
     h2 := _own_m_param(&m);
     assert(ref_count(m) == usize(2), `borrowed parameter: got ${ref_count(m).to_string()}`);
-    assert((h.b.tag + h2.b.tag) == i32(7), "both holders read their box");
+    assert((h.b.*.tag + h2.b.*.tag) == i32(7), "both holders read their box");
   };
   assert(g_own_m_disposed == (before + i32(2)), `each box released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
 });
@@ -1942,7 +1942,7 @@ test("a plain call with an own parameter still retains a field argument", {
     w := _OwnMWrap(m : Rc.new(_OwnMVal(tag : i32(8))), n : i32(0));
     h := _own_m_plain_field(&w);
     assert(ref_count(w.m) == usize(2), `got ${ref_count(w.m).to_string()}`);
-    assert(h.b.tag == i32(8), "the holder reads it");
+    assert(h.b.*.tag == i32(8), "the holder reads it");
   };
   assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
 });
@@ -1967,14 +1967,14 @@ impl(
 );
 _al_poke_f :: (fn(i : &Rc(_AlInner), o : *_AlOuter) -> i32)({
   _al_replace(o);
-  i.v
+  i.*.*.v
 });
 test("a receiver projection outlives a method that replaces it", {
   mut(o) := _AlOuter(inner : Rc.new(_AlInner(v : i32(7))));
   assert(_al_poke_f(&o.inner, addr_of(o)) == i32(7), "plain call: the argument survived the replacement");
   mut(o2) := _AlOuter(inner : Rc.new(_AlInner(v : i32(8))));
-  assert(o2.inner.poke(addr_of(o2)) == i32(8), "method call: the receiver survived the replacement");
-  assert((o.inner.v + o2.inner.v) == i32(0), "both owners see the replacement");
+  assert(o2.inner.*.poke(addr_of(o2)) == i32(8), "method call: the receiver survived the replacement");
+  assert((o.inner.*.v + o2.inner.*.v) == i32(0), "both owners see the replacement");
 });
 // `ref_count(x)` reads the count of the cell `x` holds, in every shape
 // (plans/VALUES_BY_DEFAULT.md V1 step 0): 1 for a value, the live count for
@@ -2080,7 +2080,7 @@ test("a newtype built from a field or a live local retains its payload", {
     assert(ref_count(s.b) == usize(3), `field projection (by-value self): got ${ref_count(s.b).to_string()}`);
     w := s.from_local();
     assert(ref_count(s.b) == usize(4), `live local: got ${ref_count(s.b).to_string()}`);
-    assert(((t.b.tag + u.b.tag + w.b.tag) == i32(3)) && (g_nt_disposed == before), "every copy reads the live box");
+    assert(((t.b.*.tag + u.b.*.tag + w.b.*.tag) == i32(3)) && (g_nt_disposed == before), "every copy reads the live box");
   };
   assert(g_nt_disposed == (before + i32(1)), `released exactly once, got ${(g_nt_disposed - before).to_string()}`);
 });
@@ -2093,7 +2093,7 @@ test("a newtype built from a parameter or a parameter's field retains it", {
     h := _NtHolder(v : _NtV(b : Rc.new(_NtBoxVal(tag : i32(3)))));
     hv := _nt_from_holder(&h);
     assert(ref_count(h.v.b) == usize(2), `nested field of a parameter: got ${ref_count(h.v.b).to_string()}`);
-    assert(((v.b.tag + hv.b.tag) == i32(5)) && (g_nt_disposed == before), "both read their box");
+    assert(((v.b.*.tag + hv.b.*.tag) == i32(5)) && (g_nt_disposed == before), "both read their box");
   };
   assert(g_nt_disposed == (before + i32(2)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
 });
@@ -2121,8 +2121,8 @@ test("a newtype over an Option, a newtype or a tuple retains a field payload", {
     mut(p) := _NtPair(p : (Rc.new(_NtBoxVal(tag : i32(9))), i32(0)));
     p2 := p.from_field();
     assert(ref_count(p.p.0) == usize(2), `tuple payload: got ${ref_count(p.p.0).to_string()}`);
-    o2_tag := match(&o2.b, .Some(x) => x.tag, .None => i32(0));
-    assert((o2_tag + n2.v.b.tag + p2.p.0.tag) == i32(24), "every copy reads its box");
+    o2_tag := match(&o2.b, .Some(x) => x.*.*.tag, .None => i32(0));
+    assert((o2_tag + n2.v.b.*.tag + p2.p.0.*.tag) == i32(24), "every copy reads its box");
   };
   assert(g_nt_disposed == (before + i32(3)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
 });
@@ -2155,7 +2155,7 @@ test("a local moved into a tuple argument of a call is disposed exactly once", {
     inner := Rc.new(_TupleElemHandleVal(tag : i32(1)));
     ys.push((i32(0), inner));
     // Over-drop canary: the read after the push must still see the object.
-    assert(ys(usize(0)).1.tag == i32(1), "the pushed handle is readable after the push");
+    assert(ys(usize(0)).1.*.tag == i32(1), "the pushed handle is readable after the push");
     assert(g_tuple_elem_disposed == before, "nothing disposed while the scope is live");
   };
   assert(
@@ -2168,7 +2168,7 @@ test("a fresh constructor inside a tuple argument is disposed exactly once", {
   {
     mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
     ys.push((i32(0), Rc.new(_TupleElemHandleVal(tag : i32(2)))));
-    assert(ys(usize(0)).1.tag == i32(2), "the fresh handle is stored");
+    assert(ys(usize(0)).1.*.tag == i32(2), "the fresh handle is stored");
   };
   assert(
     g_tuple_elem_disposed == (before + i32(1)),
@@ -2183,7 +2183,7 @@ test("one local pushed in two tuple arguments is disposed exactly once", {
     ys.push((i32(0), Rc.clone(&shared)));
     ys.push((i32(1), shared));
     // Over-drop canary: both elements still read the live object.
-    assert((ys(usize(0)).1.tag == i32(3)) && (ys(usize(1)).1.tag == i32(3)), "both elements see the shared object");
+    assert((ys(usize(0)).1.*.tag == i32(3)) && (ys(usize(1)).1.*.tag == i32(3)), "both elements see the shared object");
   };
   assert(
     g_tuple_elem_disposed == (before + i32(1)),
@@ -2196,7 +2196,7 @@ test("a tuple argument nested inside another tuple argument is disposed exactly 
     mut(ys) := ArrayList(Tuple(Tuple(i32, i32), TupleElemHandle)).new();
     inner := Rc.new(_TupleElemHandleVal(tag : i32(4)));
     ys.push(((i32(0), i32(1)), inner));
-    assert(ys(usize(0)).1.tag == i32(4), "the nested tuple's handle is stored");
+    assert(ys(usize(0)).1.*.tag == i32(4), "the nested tuple's handle is stored");
   };
   assert(
     g_tuple_elem_disposed == (before + i32(1)),
@@ -2214,7 +2214,7 @@ test("a named tuple binding pushed into a container is disposed exactly once", {
     inner := Rc.new(_TupleElemHandleVal(tag : i32(5)));
     p := (i32(0), inner);
     ys.push((p.0, Rc.clone(&p.1)));
-    assert(p.1.tag == i32(5), "the named tuple is readable after the push");
+    assert(p.1.*.tag == i32(5), "the named tuple is readable after the push");
   };
   assert(
     g_tuple_elem_disposed == (before + i32(1)),
@@ -2267,18 +2267,18 @@ impl(
 test("unique Box: Box.new(v) holds the payload, and b.* is its place", {
   mut(b) := Box.new(UBoxPoint(x : i32(1), y : i32(2)));
   assert(b.*.x == i32(1), "b.* is the payload");
-  assert(b.y == i32(2), "auto-dereference reads a field");
+  assert(b.*.y == i32(2), "auto-dereference reads a field");
   b.* = UBoxPoint(x : i32(5), y : i32(6));
-  assert(b.x == i32(5), "a write to b.* replaces the payload");
-  b.y = i32(9);
+  assert(b.*.x == i32(5), "a write to b.* replaces the payload");
+  b.*.y = i32(9);
   assert(b.*.y == i32(9), "a field write goes through the box");
 });
 test("unique Box: Box.clone is an independent, deep copy", {
   a := Box.new(UBoxPoint(x : i32(1), y : i32(2)));
   mut(c) := Box.clone(a);
-  c.x = i32(100);
-  assert(a.x == i32(1), "the source is untouched");
-  assert(c.x == i32(100), "the clone has its own cell");
+  c.*.x = i32(100);
+  assert(a.*.x == i32(1), "the source is untouched");
+  assert(c.*.x == i32(100), "the clone has its own cell");
   assert(a.* == UBoxPoint(x : i32(1), y : i32(2)), "the source payload");
 });
 test("unique Box: a tree copied with clone and edited on one side", {
@@ -2307,9 +2307,9 @@ test("unique Box: the payload is dropped exactly once, by its one owner", {
   {
     a := Box.new(UBoxProbe(n : i32(1)));
     b := a;
-    assert(b.n == i32(1), "moved");
+    assert(b.*.n == i32(1), "moved");
     c := Box.clone(b);
-    assert(c.n == i32(1), "cloned");
+    assert(c.*.n == i32(1), "cloned");
   };
   assert(g_ubox_disposed == (before + i32(2)), "the moved box once, the clone once");
 });
@@ -2326,7 +2326,7 @@ test("unique Box: Eq, Hash and Default by payload; no count", {
   a := Box.new(UBoxPoint(x : i32(1), y : i32(2)));
   mut(b) := Box.clone(a);
   assert(a == b, "equal payloads");
-  b.x = i32(3);
+  b.*.x = i32(3);
   assert(!(a == b), "compared by payload");
   h1 := Box.new(UBoxPoint(x : i32(7), y : i32(8)));
   h2 := Box.new(UBoxPoint(x : i32(7), y : i32(8)));
@@ -2443,8 +2443,8 @@ test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
   x := UBoxHolder(b : Box.new(UBoxPoint(x : i32(1), y : i32(2))), k : i32(3));
   mut(y) := x.clone();
   assert(x == y, "the derived Eq compares the payloads");
-  y.b.x = i32(9);
-  assert(x.b.x == i32(1), "the derived clone made a new cell");
+  y.b.*.x = i32(9);
+  assert(x.b.*.x == i32(1), "the derived clone made a new cell");
   assert(!(x == y), "and the payloads now differ");
   z := x.clone();
   assert(hash_one(&x) == hash_one(&z), "the derived Hash hashes the payload");
@@ -2482,10 +2482,10 @@ test("Rc(T) with a Drop payload drops it once, with the last handle", {
   {
     a := Rc.new(RcDropPayload(n : i32(5)));
     b := Rc.clone(a);
-    assert(b.n == i32(5), "both handles see the payload");
+    assert(b.*.n == i32(5), "both handles see the payload");
     drop(a);
     assert(g_rc_drop_payload == before, "one handle is still live: nothing dropped");
-    assert(b.n == i32(5), "b still reads the payload");
+    assert(b.*.n == i32(5), "b still reads the payload");
   };
   assert(g_rc_drop_payload == (before + i32(5)), "the last handle dropped the payload once");
 });
@@ -2535,7 +2535,7 @@ test("unique Box: a struct field of type Option(Box(T)) compiles and reads back"
   p := UBoxOptPoint(o : .Some(Box.new(UBoxPoint(x : i32(1), y : i32(2)))), n : i32(3));
   match(
     &p.o,
-    .Some(b) => assert(b.y == i32(2), "the struct payload through the field"),
+    .Some(b) => assert(b.*.*.y == i32(2), "the struct payload through the field"),
     .None => assert(false, "unreachable")
   );
   q := UBoxOptInt(o : .None, n : i32(4));
@@ -2586,7 +2586,7 @@ test("Rc.try_unwrap on a shared handle returns the handle", {
       .Err(h) => h
     );
     assert(ref_count(a) == 2, "the handle came back with its count");
-    assert(back.tag == i32(7), "the handle names the same payload");
+    assert(back.*.tag == i32(7), "the handle names the same payload");
     assert(g_door_dropped == before, "nothing was dropped");
   };
   assert(g_door_dropped == (before + i32(7)), `the payload is dropped once with its last handle, got ${(g_door_dropped - before).to_string()}`);
@@ -2596,8 +2596,8 @@ test("Rc.make_mut on the only handle writes the payload in place", {
   before := addr_of(h.*);
   Rc.make_mut(&mut h).x = i32(2);
   Rc.make_mut(&mut h).label.push_str("b");
-  assert(h.x == i32(2), "the write landed");
-  assert(h.label == "ab", "the receiver write landed");
+  assert(h.*.x == i32(2), "the write landed");
+  assert(h.*.label == "ab", "the receiver write landed");
   assert(addr_of(h.*) == before, "no clone: the same cell");
   assert(ref_count(h) == 1, "still the only handle");
 });
@@ -2605,12 +2605,12 @@ test("Rc.make_mut on a shared handle clones the payload first", {
   a := Rc.new(_DoorPoint(x : i32(1), label : String.from("a")));
   b := Rc.clone(a);
   Rc.make_mut(&mut b).x = i32(9);
-  assert(a.x == i32(1), "the other handle does not see the write");
-  assert(b.x == i32(9), "the write landed in b's own cell");
+  assert(a.*.x == i32(1), "the other handle does not see the write");
+  assert(b.*.x == i32(9), "the write landed in b's own cell");
   assert(ref_count(a) == 1, "a is alone in the old cell");
   assert(ref_count(b) == 1, "b is alone in the new cell");
   Rc.make_mut(&mut b).x = i32(10);
-  assert((a.x == i32(1)) && (b.x == i32(10)), "b is unique now: written in place");
+  assert((a.*.x == i32(1)) && (b.*.x == i32(10)), "b is unique now: written in place");
 });
 test("Rc.get_mut on the only handle writes the payload in place", {
   h := Rc.new(_DoorPoint(x : i32(1), label : String.from("a")));
@@ -2623,8 +2623,8 @@ test("Rc.get_mut on the only handle writes the payload in place", {
     },
     .None => assert(false, "the only handle is unique")
   );
-  assert(h.x == i32(2), "the write landed");
-  assert(h.label == "ab", "the receiver write landed");
+  assert(h.*.x == i32(2), "the write landed");
+  assert(h.*.label == "ab", "the receiver write landed");
   assert(addr_of(h.*) == before, "no clone: the same cell");
 });
 test("Rc.get_mut on a shared handle is None and changes nothing", {
@@ -2643,7 +2643,7 @@ test("Rc.get_mut's result borrows the handle exclusively", {
   comptime_expect_error({
     r := &h;
     _m := Rc.get_mut(&mut h);
-    _n := r.x;
+    _n := r.*.*.x;
   });
 });
 test("Rc.make_mut needs a Clone payload, as Rust's does", {
@@ -2679,7 +2679,7 @@ test("consume of an owned local releases it at the consume", {
   before := g_consume_disposed;
   {
     s := Rc.new(_ConsumeBoxVal(tag : i32(1)));
-    assert(s.tag == i32(1), "the local is live before the consume");
+    assert(s.*.tag == i32(1), "the local is live before the consume");
     consume(s);
     assert(g_consume_disposed == (before + i32(1)), "released at the consume, not at scope end");
   };
@@ -2699,7 +2699,7 @@ test("consume of an alias releases only the alias's count", {
     b := Rc.clone(&a);
     consume(b);
     assert(g_consume_disposed == before, "the original still holds the object");
-    assert(a.tag == i32(3), "and still reads it");
+    assert(a.*.tag == i32(3), "and still reads it");
   };
   assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
 });
@@ -2710,7 +2710,7 @@ test("consume in one cond arm releases the local once on either path", {
     {
       s := Rc.new(_ConsumeBoxVal(tag : i));
       cond(
-        (s.tag == i32(0)) => consume(s),
+        (s.*.tag == i32(0)) => consume(s),
         true => ()
       );
     };
@@ -2723,7 +2723,7 @@ test("consume of an owned parameter releases only the callee's count", {
   {
     s := Rc.new(_ConsumeBoxVal(tag : i32(4)));
     _consume_param(Rc.clone(&s));
-    assert(s.tag == i32(4), "the caller's value survives the callee's consume");
+    assert(s.*.tag == i32(4), "the caller's value survives the callee's consume");
   };
   assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
 });
@@ -2733,7 +2733,7 @@ test("consume of a borrow releases nothing", {
     s := Rc.new(_ConsumeBoxVal(tag : i32(5)));
     _consume_borrow(&s);
     assert(g_consume_disposed == before, "the borrow's consume left the value alone");
-    assert(s.tag == i32(5), "and the owner still reads it");
+    assert(s.*.tag == i32(5), "and the owner still reads it");
   };
   assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
 });
@@ -2787,52 +2787,52 @@ test("a write through an Rc handle is E0919, naming the doors", {
     h.* = _RoShared(n : i32(0), items : ArrayList(i32).new(), node : Rc.new(_RoNode(n : i32(0))));
   }, "read-only through the handle");
   comptime_expect_error({
-    h.n = i32(3);
+    h.*.n = i32(3);
   }, "read-only through the handle");
   comptime_expect_error({
     h.*.n = i32(3);
   }, "read-only through the handle");
   comptime_expect_error({
-    h.items(usize(0)) = i32(3);
+    h.*.items(usize(0)) = i32(3);
   }, "read-only through the handle");
   // The text names every door.
   comptime_expect_error({
-    h.n = i32(3);
+    h.*.n = i32(3);
   }, "RefCell");
   comptime_expect_error({
-    h.n = i32(3);
+    h.*.n = i32(3);
   }, "Rc.make_mut(&mut h)");
   comptime_expect_error({
-    h.n = i32(3);
+    h.*.n = i32(3);
   }, "Rc.try_unwrap(h)");
   // A `&mut` argument, whether or not the callee writes it, as in Rust.
-  comptime_expect_error(_ro_bump(&mut h.n), "read-only through the handle");
-  comptime_expect_error(_ro_peek(&mut h.n), "read-only through the handle");
+  comptime_expect_error(_ro_bump(&mut h.*.n), "read-only through the handle");
+  comptime_expect_error(_ro_peek(&mut h.*.n), "read-only through the handle");
   // A generic `&mut T` parameter: a place under the handle is still the payload.
-  comptime_expect_error(_ro_set_gen(&mut h.n, i32(3)), "read-only through the handle");
+  comptime_expect_error(_ro_set_gen(&mut h.*.n, i32(3)), "read-only through the handle");
   comptime_expect_error(_ro_set_gen(&mut h.*, _RoShared(n : i32(0), items : ArrayList(i32).new(), node : Rc.new(_RoNode(n : i32(0))))), "read-only through the handle");
   // A local `&mut` borrow of a place in the payload.
   comptime_expect_error({
-    r := &mut h.n;
+    r := &mut h.*.n;
     r = i32(2);
   }, "read-only through the handle");
   // A `self : &mut Self` receiver, spelled through the payload or auto-dereferenced.
-  comptime_expect_error(h.items.push(i32(1)), "read-only through the handle");
+  comptime_expect_error(h.*.items.push(i32(1)), "read-only through the handle");
   xs := Rc.new(ArrayList(i32).new());
-  comptime_expect_error(xs.push(i32(1)), "read-only through the handle");
+  comptime_expect_error(xs.*.push(i32(1)), "read-only through the handle");
   // An `Rc` reached from the payload is in the payload.
   comptime_expect_error({
-    h.node.n = i32(5);
+    h.*.node.*.n = i32(5);
   }, "read-only through the handle");
   // Through a parameter, a struct field holding the handle, and an Rc in an Rc.
   comptime_expect_error({
     _ro_param_write :: (fn(p : &Rc(_RoShared)) -> unit)({
-      p.n = i32(4);
+      p.*.*.n = i32(4);
     });
   }, "read-only through the handle");
   holder := _RoHolder(h : _ro_make());
   comptime_expect_error({
-    holder.h.n = i32(4);
+    holder.h.*.n = i32(4);
   }, "read-only through the handle");
   nested := Rc.new(Rc.new(i32(1)));
   comptime_expect_error({
@@ -2841,7 +2841,7 @@ test("a write through an Rc handle is E0919, naming the doors", {
   // Inside a closure body.
   comptime_expect_error(
     _ro_run(() => {
-      h.n = i32(6);
+      h.*.n = i32(6);
     }),
     "read-only through the handle"
   );
@@ -2859,28 +2859,28 @@ test("a `&mut` match scrutinee in an Rc's payload is E0919", {
     ),
     "read-only through the handle"
   );
-  comptime_expect_error(match(&mut h.items, l => l.push(i32(5))), "read-only through the handle");
+  comptime_expect_error(match(&mut h.*.items, l => l.push(i32(5))), "read-only through the handle");
   comptime_expect_error(
     match(
-      &mut h.n,
+      &mut h.*.n,
       n => {
         n = i32(5);
       }
     ),
     "read-only through the handle"
   );
-  assert((h.n == i32(1)) && (h.items.len() == usize(0)), "nothing wrote the payload");
+  assert((h.*.n == i32(1)) && (h.*.items.len() == usize(0)), "nothing wrote the payload");
 });
 test("reads, & lends, the handle itself and the doors are not E0919", {
   mut(h) := _ro_make();
-  assert(h.n == i32(1), "a read through the handle");
-  assert(_ro_read(&h.n) == i32(1), "a & lend of a place in the payload");
-  assert(h.items.len() == usize(0), "a &self method on the payload");
+  assert(h.*.n == i32(1), "a read through the handle");
+  assert(_ro_read(&h.*.n) == i32(1), "a & lend of a place in the payload");
+  assert(h.*.items.len() == usize(0), "a &self method on the payload");
   // The handle is the holder's own: rebinding it is not a write through it.
   h = _ro_make();
   mut(holder) := _RoHolder(h : h);
   holder.h = _ro_make();
-  assert(holder.h.n == i32(1), "a field holding a handle is rebound");
+  assert(holder.h.*.n == i32(1), "a field holding a handle is rebound");
   // A generic `&mut T` parameter binds `T` to the handle's own type, so the
   // handle itself is lent and rebound, not its payload
   // (issues/fixed/2026-10-24-an-rc-handle-cannot-be-lent-as-mut-to-a-generic-parameter.md).
@@ -2889,18 +2889,18 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   _ro_set_gen(&mut g, Rc.new(i32(3)));
   assert((g.* == i32(3)) && (other_g.* == i32(1)), "the handle is rebound; the other handle still sees the old cell");
   _ro_set_gen(&mut holder.h, _ro_make());
-  assert(holder.h.n == i32(1), "a field holding a handle, through a generic parameter");
+  assert(holder.h.*.n == i32(1), "a field holding a handle, through a generic parameter");
   // The doors.
   p := Rc.new(i32(1));
   Rc.make_mut(&mut p) = i32(8);
   assert(p.* == i32(8), "make_mut on the only handle");
   cell := Rc.new(RefCell(_RoShared).new(_RoShared(n : i32(0), items : ArrayList(i32).new(), node : Rc.new(_RoNode(n : i32(0))))));
   other := Rc.clone(cell);
-  other.with_mut(s => {
+  other.*.with_mut(s => {
     s.n = i32(9);
     s.items.push(i32(1));
   });
-  assert(cell.with(s => ((s.n == i32(9)) && (s.items.len() == usize(1)))), "a write through a RefCell door is seen through the other handle");
+  assert(cell.*.with(s => ((s.n == i32(9)) && (s.items.len() == usize(1)))), "a write through a RefCell door is seen through the other handle");
   n := match(Rc.try_unwrap(Rc.new(i32(4))), .Ok(v) => v, .Err(_) => i32(0));
   assert(n == i32(4), "try_unwrap moves the payload out of the only handle");
 });
@@ -3004,7 +3004,7 @@ test("a compile-time-collapsed cond dups the borrowed handle it returns", {
     assert(ref_count(r) == usize(6), "a raw-pointer read p.*");
     f := _cond_ct_read(addr_of(r));
     assert(ref_count(r) == usize(7), "a generic accessor on Type.impls(T, Copy)");
-    assert((a.n + b.n + (c.n + d.n) + (e.n + f.n)) == i32(30), "every copy reads the shared object");
+    assert((a.*.n + b.*.n + (c.*.n + d.*.n) + (e.*.n + f.*.n)) == i32(30), "every copy reads the shared object");
   };
   assert(ref_count(r) == usize(1), "each copy released its own count");
   x := i32(9);
@@ -3017,7 +3017,7 @@ test("a compile-time-collapsed cond in a binding dups the local it names", {
     true => Rc.clone(r)
   );
   assert(ref_count(r) == usize(2), "x and r each hold a count");
-  assert((x.n + r.n) == i32(12), "both read the object");
+  assert((x.*.n + r.*.n) == i32(12), "both read the object");
 });
 // More collapsed shapes: a nested collapse (in a runtime arm too), the `if`
 // spelling, a borrowed struct's field, a call argument, and an async body.
@@ -3031,7 +3031,7 @@ _cond_ct_nested_in_runtime :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)(
 );
 _cond_ct_if :: (fn(q : &_CondCtBox) -> _CondCtBox)(if(true, Rc.clone(q), Rc.clone(q)));
 _cond_ct_field :: (fn(h : &_CondCtHolder) -> _CondCtBox)(cond(true => Rc.clone(h.r)));
-_cond_ct_take :: (fn(b : _CondCtBox) -> i32)(b.n);
+_cond_ct_take :: (fn(b : _CondCtBox) -> i32)(b.*.n);
 _cond_ct_async :: (fn(sink(q) : _CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
@@ -3058,7 +3058,7 @@ test("a compile-time-collapsed cond dups through nesting, if, fields, arguments 
     assert(ref_count(r) == usize(6), "a call argument: the callee released its own count");
     e := io.await(_cond_ct_async(Rc.clone(r), io), io);
     assert(ref_count(r) == usize(7), "an async body after an await");
-    assert((a.n + b.n + (c.n + d.n) + (e.n + t)) == i32(12), "every copy reads the shared object");
+    assert((a.*.n + b.*.n + (c.*.n + d.*.n) + (e.*.n + t)) == i32(12), "every copy reads the shared object");
   };
   assert(ref_count(r) == usize(1), "each copy released its own count");
 });
@@ -3076,7 +3076,7 @@ _cond_ct_return_before_runtime_arm :: (fn(k : bool, q : &_CondCtBox) -> _CondCtB
   Rc.clone(q)
 });
 _cond_ct_return_owned :: (fn(q : &_CondCtBox) -> _CondCtBox)({
-  cond(true => return(Rc.new(_CondBoxInner(n : (q.n + i32(1))))));
+  cond(true => return(Rc.new(_CondBoxInner(n : (q.*.*.n + i32(1))))));
   Rc.clone(q)
 });
 _cond_ct_return_body :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => return(Rc.clone(q))));
@@ -3098,7 +3098,7 @@ test("a compile-time-collapsed cond's return arm keeps the returned value alive"
     assert(ref_count(r) == usize(5), "a local released before the return");
     o := _cond_ct_return_owned(&r);
     assert(ref_count(o) == usize(1), "an owned return value is the caller's");
-    assert((a.n + b.n + (c.n + d.n) + o.n) == i32(16), "every result reads its object");
+    assert((a.*.n + b.*.n + (c.*.n + d.*.n) + o.*.n) == i32(16), "every result reads its object");
   };
   assert(ref_count(r) == usize(1), "each copy released its own count");
 });
@@ -3117,7 +3117,7 @@ test("a compile-time-collapsed cond's return arm in an async body releases the b
   {
     a := io.await(_cond_ct_async_return(Rc.clone(r), io), io);
     assert(ref_count(r) == usize(2), "an async body's return arm after an await");
-    assert(a.n == i32(4), "the returned handle reads its object");
+    assert(a.*.n == i32(4), "the returned handle reads its object");
   };
   assert(ref_count(r) == usize(1), "the async result released its count");
 });
@@ -3127,7 +3127,7 @@ _cond_ct_loop_break :: (fn(q : &_CondCtBox) -> i32)({
   mut(i) := i32(0);
   while(i < i32(3), {
     t := cond(true => Rc.clone(q));
-    i = (i + t.n);
+    i = (i + t.*.n);
     cond(true => break);
   });
   i
@@ -3139,7 +3139,7 @@ _cond_ct_for_continue :: (fn(q : &_CondCtBox) -> i32)({
   mut(s) := i32(0);
   for(&xs, x => {
     t := cond(true => Rc.clone(q));
-    s = (s + (t.n * x.*));
+    s = (s + (t.*.n * x.*));
     cond(true => continue);
   });
   s
@@ -3161,7 +3161,7 @@ _cond_ct_fused :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))({
   y := cond(true => Rc.clone(q));
   io.async((io : Io) => {
     io.await(yield(io), io);
-    x.n + y.n
+    x.*.n + y.*.n
   })
 });
 _cond_ct_fused_twice :: (fn(sink(q) : _CondCtBox, io : Io) -> Impl(Future(i32, Io)))(
@@ -3222,7 +3222,7 @@ test("a receiver reached through an Rc element outlives a closure that drops the
   hs.push(Rc.new(_RcvCell(n : i32(1))));
   hs2 := addr_of(hs);
   assert(
-    hs(usize(0)).peek(() => {
+    hs(usize(0)).*.peek(() => {
       hs2.*.clear();
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"
@@ -3248,7 +3248,7 @@ test("a receiver reached through an Rc element outlives a closure that drops the
   hb := addr_of(h.bag);
   hb.*.push(Rc.new(_RcvCell(n : i32(4))));
   assert(
-    h.bag(usize(0)).peek(() => {
+    h.bag(usize(0)).*.peek(() => {
       hb.*.clear();
     }) == i32(3),
     "an element of a field"
@@ -3256,7 +3256,7 @@ test("a receiver reached through an Rc element outlives a closure that drops the
   assert(_rcv_drops == i32(4), "destroyed once");
   hb.*.push(Rc.new(_RcvCell(n : i32(5))));
   assert(
-    h.first().peek(() => {
+    h.first().*.peek(() => {
       hb.*.clear();
     }) == i32(4),
     "a handle returned by a projection call"
@@ -3269,7 +3269,7 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
   fs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1)))));
   fs2 := addr_of(fs);
   assert(
-    fs(usize(0)).r.peek(() => {
+    fs(usize(0)).r.*.peek(() => {
       fs2.*.clear();
     }) == i32(0),
     "an Rc field of an element"
@@ -3279,7 +3279,7 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
   nested.push(Rc.new(Rc.new(_RcvCell(n : i32(2)))));
   nested2 := addr_of(nested);
   assert(
-    nested(usize(0)).peek(() => {
+    nested(usize(0)).*.*.peek(() => {
       nested2.*.clear();
     }) == i32(1),
     "Rc(Rc(T)): the inner handle holds the payload"
@@ -3289,7 +3289,7 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
   boxed.push(Rc.new(Box.new(_RcvCell(n : i32(3)))));
   boxed2 := addr_of(boxed);
   assert(
-    boxed(usize(0)).peek(() => {
+    boxed(usize(0)).*.*.peek(() => {
       boxed2.*.clear();
     }) == i32(2),
     "Rc(Box(T)): the Rc owns the box"
@@ -3299,7 +3299,7 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
   shared.push(Arc.new(_RcvCell(n : i32(4))));
   shared2 := addr_of(shared);
   assert(
-    shared(usize(0)).peek(() => {
+    shared(usize(0)).*.peek(() => {
       shared2.*.clear();
     }) == i32(3),
     "an Arc element"
@@ -3314,7 +3314,7 @@ _rcv_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     hs.push(Rc.new(_RcvCell(n : i32(1))));
     io.await(yield(io), io);
     hs2 := addr_of(hs);
-    seen := hs(usize(0)).peek(() => {
+    seen := hs(usize(0)).*.peek(() => {
       hs2.*.clear();
     });
     io.await(yield(io), io);
@@ -3341,7 +3341,7 @@ test("a copyable receiver behind a Box or a value field of an element keeps its 
   bs.push(Box.new(_RcvText(s : String.from("hello"))));
   bs2 := addr_of(bs);
   assert(
-    bs(usize(0)).peek_len(() => {
+    bs(usize(0)).*.peek_len(() => {
       bs2.*.clear();
     }) == usize(5),
     "Box element"
@@ -3364,19 +3364,19 @@ test("a copyable receiver behind a Box or a value field of an element keeps its 
 test("a closure that writes the container a receiver is lent from is rejected", {
   comptime_expect_error({
     mut(hs) := ArrayList(Rc(_RcvCell)).new();
-    hs(usize(0)).peek(() => {
+    hs(usize(0)).*.peek(() => {
       hs.clear();
     })
   }, "the closure captures it implicitly");
   comptime_expect_error({
     mut(fs) := ArrayList(_RcvField).new();
-    fs(usize(0)).r.peek(() => {
+    fs(usize(0)).r.*.peek(() => {
       fs.clear();
     })
   }, "the closure captures it implicitly");
   comptime_expect_error({
     mut(r) := Rc.new(_RcvCell(n : i32(1)));
-    r.peek(() => {
+    r.*.peek(() => {
       r = Rc.new(_RcvCell(n : i32(2)));
     })
   }, "the closure captures it implicitly");
@@ -3401,20 +3401,20 @@ impl(
   })
 );
 _rcv_exit_return :: (fn(hs : &ArrayList(Rc(_RcvCell)), o : Option(i32)) -> i32)(
-  hs(usize(0)).peek_k(match(o, .Some(v) => v, .None => return(i32(-1))), () => ())
+  hs(usize(0)).*.peek_k(match(o, .Some(v) => v, .None => return(i32(-1))), () => ())
 );
 _rcv_exit_return_field :: (fn(fs : &ArrayList(_RcvField), o : Option(i32)) -> i32)(
-  fs(usize(0)).r.peek_k(match(o, .Some(v) => v, .None => return(i32(-1))), () => ())
+  fs(usize(0)).r.*.peek_k(match(o, .Some(v) => v, .None => return(i32(-1))), () => ())
 );
 _rcv_exit_loops :: (fn(hs : &ArrayList(Rc(_RcvCell))) -> i32)({
   mut(sum) := i32(0);
   mut(i) := i32(0);
   while(i < i32(5), i = (i + i32(1)), {
-    sum = (sum + hs(usize(0)).peek_k(cond((i == i32(3)) => break, true => i), () => ()));
+    sum = (sum + hs(usize(0)).*.peek_k(cond((i == i32(3)) => break, true => i), () => ()));
   });
   mut(j) := i32(0);
   while(j < i32(5), j = (j + i32(1)), {
-    sum = (sum + hs(usize(0)).peek_k(cond((j == i32(2)) => continue, true => j), () => ()));
+    sum = (sum + hs(usize(0)).*.peek_k(cond((j == i32(2)) => continue, true => j), () => ()));
   });
   sum
 });
@@ -3426,14 +3426,14 @@ _rcv_exit_unwind :: (fn(hs : &ArrayList(Rc(_RcvCell)), k : i32) -> i32)({
       unwind(i32(-7));
     }
   );
-  hs(usize(0)).peek_k(_rcv_pick(k, raise), () => ())
+  hs(usize(0)).*.peek_k(_rcv_pick(k, raise), () => ())
 });
 _rcv_exit_task :: (fn(o : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     mut(hs) := ArrayList(Rc(_RcvCell)).new();
     hs.push(Rc.new(_RcvCell(n : i32(1))));
     io.await(yield(io), io);
-    r := hs(usize(0)).peek_k(match(o, .Some(v) => v, .None => return(i32(5))), () => ());
+    r := hs(usize(0)).*.peek_k(match(o, .Some(v) => v, .None => return(i32(5))), () => ());
     io.await(yield(io), io);
     r
   })
@@ -3460,7 +3460,7 @@ test("an exit from a later argument releases the share a receiver took through a
 // The share is released by exits that leave the call, not by an exit inside
 // the argument (a loop's `break`) or inside the closure (its `return`).
 _rcv_exit_inner :: (fn(hs : &ArrayList(Rc(_RcvCell)), hs2 : *ArrayList(Rc(_RcvCell))) -> i32)(
-  hs(usize(0)).peek_k({
+  hs(usize(0)).*.peek_k({
     mut(s) := i32(0);
     while(true, {
       s = (s + i32(1));
@@ -3713,18 +3713,18 @@ impl(
 );
 _TupCopyT :: Rc(_TupCopyInner);
 _tup_copy_sum :: (fn(sink(p) : Tuple(_TupCopyT, _TupCopyT), n : i32) -> i32)(
-  cond((n == i32(0)) => (p.0.v + p.1.v), true => recur(p, n - i32(1)))
+  cond((n == i32(0)) => (p.0.*.v + p.1.*.v), true => recur(p, n - i32(1)))
 );
 test("a named tuple copied into a tuple literal keeps every counted field", {
   before := g_tup_copy_drops;
   {
     x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
     x2 := ((Rc.clone(x1.0), Rc.clone(x1.1)), i32(0));
-    assert((x2.0.0.v == i32(1)) && (x2.0.1.v == i32(2)), "both fields of the copy");
+    assert((x2.0.0.*.v == i32(1)) && (x2.0.1.*.v == i32(2)), "both fields of the copy");
     assert((ref_count(x1.0) == usize(2)) && (ref_count(x1.1) == usize(2)), "each cell has two handles");
-    assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
+    assert((x1.0.*.v + x1.1.*.v) == i32(3), "the source is intact");
     x3 := (x1, i32(1));
-    assert((ref_count(x3.0.0) == usize(2)) && ((x3.0.0.v + x3.0.1.v) == i32(3)), "a moved tuple keeps its counts");
+    assert((ref_count(x3.0.0) == usize(2)) && ((x3.0.0.*.v + x3.0.1.*.v) == i32(3)), "a moved tuple keeps its counts");
   };
   assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
 });
@@ -3735,7 +3735,7 @@ test("a tuple holding one cell twice, copied into a tuple literal, drops it once
     x1 := (Rc.clone(x0), x0);
     assert(ref_count(x1.0) == usize(2), "one cell, two handles");
     x2 := (x1, i32(0));
-    assert((x2.0.0.v + x2.0.1.v) == i32(8), "both fields of the moved tuple");
+    assert((x2.0.0.*.v + x2.0.1.*.v) == i32(8), "both fields of the moved tuple");
     x3 := ((Rc.clone(x2.0.0), Rc.clone(x2.0.1)), i32(1));
     assert(ref_count(x3.0.0) == usize(4), "the copy adds a handle per field");
   };
@@ -3747,9 +3747,9 @@ test("a named tuple copied into an array literal keeps every counted field", {
     x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
     y1 := (Rc.clone(x1.0), Rc.clone(x1.1));
     a := [(Rc.clone(x1.0), Rc.clone(x1.1)), y1];
-    assert((a(usize(0)).0.v + a(usize(1)).1.v) == i32(3), "fields of both copies");
+    assert((a(usize(0)).0.*.v + a(usize(1)).1.*.v) == i32(3), "fields of both copies");
     assert(ref_count(x1.0) == usize(3), "the source and two array elements");
-    assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
+    assert((x1.0.*.v + x1.1.*.v) == i32(3), "the source is intact");
   };
   assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
 });
@@ -3775,7 +3775,7 @@ test("a named tuple copied as a block's last expression in a cond arm keeps ever
       },
       true => (Rc.clone(x1.0), Rc.clone(x1.1))
     );
-    assert((y.0.v + y.1.v) == i32(3), "both fields of the copy");
+    assert((y.0.*.v + y.1.*.v) == i32(3), "both fields of the copy");
     assert(ref_count(x1.0) == usize(2), "the arm's copy holds one handle per field");
     z := cond(
       c => {
@@ -3784,7 +3784,7 @@ test("a named tuple copied as a block's last expression in a cond arm keeps ever
       },
       true => (Rc.new(_TupCopyInner(v : i32(0))), Rc.new(_TupCopyInner(v : i32(0))))
     );
-    assert((z.0.v + z.1.v) == i32(3), "the moved source, through the arm");
+    assert((z.0.*.v + z.1.*.v) == i32(3), "the moved source, through the arm");
   };
   assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
 });
@@ -3793,12 +3793,12 @@ test("a closure capturing a named tuple retains it", {
   {
     x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
     {
-      (f : Impl(Fn() -> i32)) = ({ c1 : (Rc.clone(x1.0), Rc.clone(x1.1)) }() => (c1.0.v + c1.1.v));
+      (f : Impl(Fn() -> i32)) = ({ c1 : (Rc.clone(x1.0), Rc.clone(x1.1)) }() => (c1.0.*.v + c1.1.*.v));
       assert(f() == i32(3), "the closure reads both fields");
       assert(ref_count(x1.0) == usize(2), "the capture retains each cell");
     };
     assert(ref_count(x1.0) == usize(1), "the closure released its handles");
-    assert((x1.0.v + x1.1.v) == i32(3), "the source outlives the closure");
+    assert((x1.0.*.v + x1.1.*.v) == i32(3), "the source outlives the closure");
   };
   assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
 });
@@ -3811,12 +3811,12 @@ test("a closure capturing a nested tuple and an array retains every cell", {
       (f : Impl(Fn() -> i32)) = ({
         c1 : ((Rc.clone(x1.0.0), Rc.clone(x1.0.1)), Rc.clone(x1.1)),
         c2 : [Rc.clone(a(usize(0))), Rc.clone(a(usize(1)))]
-      }() => (c1.0.0.v + c1.0.1.v + c1.1.v + (c2(usize(0)).v + c2(usize(1)).v)));
+      }() => (c1.0.0.*.v + c1.0.1.*.v + c1.1.*.v + (c2(usize(0)).*.v + c2(usize(1)).*.v)));
       assert(f() == i32(31), "the closure reads every field");
       assert((ref_count(x1.0.0) == usize(2)) && (ref_count(a(usize(1))) == usize(2)), "the captures retain every cell");
     };
     assert((ref_count(x1.0.0) == usize(1)) && (ref_count(a(usize(1))) == usize(1)), "the closure released its handles");
-    assert((x1.1.v + a(usize(1)).v) == i32(20), "the sources outlive the closure");
+    assert((x1.1.*.v + a(usize(1)).*.v) == i32(20), "the sources outlive the closure");
   };
   assert(g_tup_copy_drops == (before + i32(31)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
 });
@@ -3843,7 +3843,7 @@ impl(
   )
 );
 _seq_rc :: (fn() -> Rc(_SeqRcH))(Rc.new(_SeqRcH(tag : i32(2), acc : _SeqAcc(base : i32(2)))));
-_seq_eat :: (fn(sink(h) : Rc(_SeqRcH)) -> i32)(h.tag);
+_seq_eat :: (fn(sink(h) : Rc(_SeqRcH)) -> i32)(h.*.tag);
 _seq_sub :: (fn(a : i32, b : i32) -> i32)(a - b);
 _SeqPair :: struct(a : i32, b : i32);
 _SeqObj :: struct(a : i32, b : i32);
@@ -3852,7 +3852,7 @@ _SeqCellInner :: struct(n : i32);
 _SeqCell :: Rc(RefCell(_SeqCellInner));
 _seq_cell :: (fn(n : i32) -> _SeqCell)(Rc.new(RefCell(_SeqCellInner).new(_SeqCellInner(n : n))));
 _seq_set :: (fn(c : _SeqCell) -> i32)({
-  c.with_mut(v => {
+  c.*.with_mut(v => {
     v.n = i32(10);
   });
   i32(1)
@@ -3861,67 +3861,67 @@ test("an Rc field operand is read before a later operand releases the handle", {
   acc := _SeqAcc(base : i32(0));
   {
     h := _seq_rc();
-    assert((h.tag - _seq_eat(h)) == i32(0), "operator");
+    assert((h.*.tag - _seq_eat(h)) == i32(0), "operator");
   };
   {
     h := _seq_rc();
-    assert(_seq_sub(h.tag, _seq_eat(h)) == i32(0), "call argument");
+    assert(_seq_sub(h.*.tag, _seq_eat(h)) == i32(0), "call argument");
   };
   {
     h := _seq_rc();
-    assert(acc.sub2(h.tag, _seq_eat(h)) == i32(0), "method argument");
+    assert(acc.sub2(h.*.tag, _seq_eat(h)) == i32(0), "method argument");
   };
   {
     h := _seq_rc();
-    assert(h.acc.minus(_seq_eat(h)) == i32(0), "by-value receiver");
+    assert(h.*.acc.minus(_seq_eat(h)) == i32(0), "by-value receiver");
   };
   {
     h := _seq_rc();
-    p := _SeqPair(a : h.tag, b : _seq_eat(h));
+    p := _SeqPair(a : h.*.tag, b : _seq_eat(h));
     assert((p.a - p.b) == i32(0), "value-struct constructor");
   };
   {
     h := _seq_rc();
-    o := Rc.new(_SeqObj(a : h.tag, b : _seq_eat(h)));
-    assert((o.a - o.b) == i32(0), "Rc-struct constructor");
+    o := Rc.new(_SeqObj(a : h.*.tag, b : _seq_eat(h)));
+    assert((o.*.a - o.*.b) == i32(0), "Rc-struct constructor");
   };
   {
     h := _seq_rc();
-    e := _SeqE.P(a : h.tag, b : _seq_eat(h));
+    e := _SeqE.P(a : h.*.tag, b : _seq_eat(h));
     assert(match(e, .P(a, b) => (a - b), .Q => i32(-1)) == i32(0), "enum constructor");
   };
   {
     h := _seq_rc();
-    t := (h.tag, _seq_eat(h));
+    t := (h.*.tag, _seq_eat(h));
     assert((t.0 - t.1) == i32(0), "tuple");
   };
   {
     h := _seq_rc();
-    t := Array(i32, 2)(h.tag, _seq_eat(h));
+    t := Array(i32, 2)(h.*.tag, _seq_eat(h));
     assert((t(0) - t(1)) == i32(0), "array");
   };
   {
     h := _seq_rc();
     (f : Impl(Fn(a : i32, b : i32) -> i32)) = ((a : i32, b : i32) => (a - b));
-    assert(f(h.tag, _seq_eat(h)) == i32(0), "closure call argument");
+    assert(f(h.*.tag, _seq_eat(h)) == i32(0), "closure call argument");
   };
 });
 test("a RefCell field operand is read before a later operand writes it through an alias", {
   {
     c := _seq_cell(i32(3));
     c2 := Rc.clone(c);
-    assert((c.with(v => v.n) - _seq_set(c2)) == i32(2), "operator");
+    assert((c.*.with(v => v.n) - _seq_set(c2)) == i32(2), "operator");
   };
   {
     c := _seq_cell(i32(3));
     c2 := Rc.clone(c);
-    t := (c.with(v => v.n), _seq_set(c2));
+    t := (c.*.with(v => v.n), _seq_set(c2));
     assert((t.0 - t.1) == i32(2), "tuple");
   };
   {
     c := _seq_cell(i32(3));
     c2 := Rc.clone(c);
-    p := _SeqPair(a : c.with(v => v.n), b : _seq_set(c2));
+    p := _SeqPair(a : c.*.with(v => v.n), b : _seq_set(c2));
     assert((p.a - p.b) == i32(2), "constructor");
   };
 });
@@ -4034,7 +4034,7 @@ test("an upgrade from the payload's own Drop is .None, and the payload's Weak fr
   {
     a := Rc.new(RefCell(_WeakSelf).new(_WeakSelf(me : Weak(RefCell(_WeakSelf)).new(), n : i32(1))), alloc : .Some(heap));
     me := Rc.downgrade(&a);
-    a.with_mut({ me }(s) => {
+    a.*.with_mut({ me }(s) => {
       s.me = Weak.clone(&me);
     });
     assert(counts.live == usize(1), "one cell");
@@ -4088,7 +4088,7 @@ test("Rc.make_mut on the only Rc with a Weak alive moves to a fresh cell", {
   w := Rc.downgrade(&a);
   before := addr_of(a.*);
   Rc.make_mut(&mut a).a = i32(10);
-  assert(a.a == i32(10), "the write landed");
+  assert(a.*.a == i32(10), "the write landed");
   assert(addr_of(a.*) != before, "a Weak shared the cell: a moved to a fresh one");
   assert(w.upgrade().is_none(), "the Weak upgrades to .None afterwards");
   assert(w.strong_count() == usize(0), "the old cell's payload is gone");
@@ -4134,7 +4134,7 @@ test("Rc.make_mut with a Weak alive moves the payload, not a clone, to a fresh c
   w := Rc.downgrade(&a);
   before := addr_of(a.*);
   Rc.make_mut(&mut a).n = i32(10);
-  assert(a.n == i32(10), "the write landed");
+  assert(a.*.n == i32(10), "the write landed");
   assert(addr_of(a.*) != before, "the write landed in a fresh cell");
   assert(g_rc_mm_clones == clones, "no Clone ran");
   assert(g_rc_mm_drops == drops, "no payload drop ran");
@@ -4174,13 +4174,13 @@ _RcRecNode :: struct(next : Option(Rc(RefCell(Self))), tag : i32);
 test("a generic method returning Rc of its parameter over a recursive struct", {
   a := Rc.new(RefCell(_RcRecNode).new(_RcRecNode(next : .None, tag : i32(7))));
   h := _RcHolder(RefCell(_RcRecNode))(_h : .Some(a));
-  t := match(h.get(), .Some(p) => p.with(v => v.tag), .None => i32(0));
+  t := match(h.get(), .Some(p) => p.*.with(v => v.tag), .None => i32(0));
   assert(t == i32(7), "the returned handle reads the payload");
 });
 test("Weak.upgrade over a recursive payload reads the cell", {
   a := Rc.new(RefCell(_RcRecNode).new(_RcRecNode(next : .None, tag : i32(9))));
   w := Rc.downgrade(&a);
-  t := match(w.upgrade(), .Some(p) => p.with(v => v.tag), .None => i32(0));
+  t := match(w.upgrade(), .Some(p) => p.*.with(v => v.tag), .None => i32(0));
   assert(t == i32(9), "the upgraded handle reads the payload");
 });
 // ---------------------------------------------------------------------------
@@ -4204,7 +4204,7 @@ test("Rc.clone is a second handle to the same cell, whatever the payload", {
   c := Rc.new(_V2cBare(h : Rc.new(i32(2))));
   d := Rc.clone(c);
   assert(ref_count(c) == usize(2), "a payload that is not Clone shares its cell too");
-  assert(d.h.* == i32(2), "through the second handle");
+  assert(d.*.h.* == i32(2), "through the second handle");
   // A call's temporary lives to the end of its block.
   {
     assert(ref_count(_v2c_keep(&a)) == usize(3), "a clone of a borrowed handle");
@@ -4288,10 +4288,10 @@ test("a cycle closed through a Weak frees itself", {
   {
     a := Rc.new(RefCell(_WeakLoop).new(_WeakLoop(me : Weak(RefCell(_WeakLoop)).new(), tag : i32(1))));
     w := Rc.downgrade(&a);
-    a.with_mut({ w }(v) => {
+    a.*.with_mut({ w }(v) => {
       v.me = Weak.clone(&w);
     });
-    assert(a.with(v => v.me.upgrade().is_some()), "the cell reaches itself through its Weak");
+    assert(a.*.with(v => v.me.upgrade().is_some()), "the cell reaches itself through its Weak");
   };
   assert(g_weak_loop_dropped == (before + i32(1)), "the payload is dropped by reference counting");
 });
@@ -4315,15 +4315,15 @@ test("a tree with Weak parent pointers frees itself", {
     (mut(i) : i32) = i32(2);
     while(i <= i32(4), {
       leaf := _weak_tree_node(Rc.downgrade(&root), i);
-      root.with_mut({ leaf : Rc.clone(leaf) }(v) => {
+      root.*.with_mut({ leaf : Rc.clone(leaf) }(v) => {
         v.children.push(Rc.clone(leaf));
       });
       i = (i + i32(1));
     });
-    sum := root.with(v => {
+    sum := root.*.with(v => {
       (mut(acc) : i32) = i32(0);
       for(&v.children, c => {
-        acc = (acc + c.with(cv => match(cv.parent.upgrade(), .Some(p) => p.with(pv => pv.tag), .None => i32(0))));
+        acc = (acc + c.*.*.with(cv => match(cv.parent.upgrade(), .Some(p) => p.*.with(pv => pv.tag), .None => i32(0))));
       });
       acc
     });

@@ -35,18 +35,18 @@ test("__yo_mutex_trylock fails while ANOTHER thread holds the mutex", {
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
-    m.with_lock({ &held, &release }(_v) => {
+    m.*.with_lock({ &held, &release }(_v) => {
       _ := held.send(i32(1));
       release.recv();
     });
   });
   // Block until the other thread is definitely holding it.
   held.recv();
-  assert(m.try_with_lock(_v => ()).is_none(), "trylock fails on a held mutex");
+  assert(m.*.try_with_lock(_v => ()).is_none(), "trylock fails on a held mutex");
   _ := release.send(i32(1));
   holder.join();
   // Once released, it is acquirable again.
-  assert(m.try_with_lock(_v => ()).is_some(), "trylock succeeds after the holder released");
+  assert(m.*.try_with_lock(_v => ()).is_some(), "trylock succeeds after the holder released");
 });
 test("__yo_cond_timedwait times out, and actually waits that long", {
   // The elapsed check is the load-bearing half. A deadline whose tv_nsec is
@@ -73,13 +73,13 @@ test("__yo_cond_timedwait returns early when signalled", {
     // mutex is what guarantees that: the waiter releases it atomically on
     // entering the wait, so acquiring it here means the wait has begun.
     ready.recv();
-    m.with_lock({ &cv }(_v) => cv.signal());
+    m.*.with_lock({ &cv }(_v) => cv.*.*.signal());
   });
   start := Instant.now();
-  signalled := m.with_lock({ &m, &cv, &ready }(_v) => {
+  signalled := m.*.with_lock({ &m, &cv, &ready }(_v) => {
     _ := ready.send(i32(1));
     // A 10s budget that must not be consumed.
-    cv.wait_timeout_with(&m.*.*, Duration.from_secs(i64(10)))
+    cv.*.*.wait_timeout_with(&m.*.*, Duration.from_secs(i64(10)))
   });
   waited := start.elapsed();
   signaller.join();

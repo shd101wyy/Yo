@@ -189,7 +189,7 @@ test("load_project_manifest outside a project fails as error[E1502]", {
   mk := Exception(
     throw : (
       err -> {
-        assert(false, `fixture io failed: ${err}`);
+        assert(false, `fixture io failed: ${err.*}`);
       }
     )
   );
@@ -210,7 +210,7 @@ test("load_project_manifest outside a project fails as error[E1502]", {
             ),
             .None => assert(false, "a diagnostic group must have an entry")
           ),
-          .None => assert(false, `the no-manifest failure must be a coded YoError, got: ${err}`)
+          .None => assert(false, `the no-manifest failure must be a coded YoError, got: ${err.*}`)
         );
         unwind(());
       }

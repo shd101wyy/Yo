@@ -1,0 +1,158 @@
+// A destructuring takes its source as a `match` takes its scrutinee
+// (VERDICTS-76 Q2): an owned local, a by-value parameter or an owned
+// temporary is consumed and each name owns its field; a part no name binds
+// (`_`, a field the pattern leaves out) is dropped at the binding; a later use
+// of the source is E0901; a `Copy` source is copied. `g_dc_dropped` adds up
+// the `n` of every dropped `_DcFd`.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+(mut(g_dc_dropped) : i32) = i32(0);
+_DcFd :: struct(n : i32);
+impl(
+  _DcFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dc_dropped = (g_dc_dropped + self.n);
+    })
+  )
+);
+_DcPair :: struct(a : _DcFd, b : _DcFd);
+_DcAccount :: struct(name : String, balance : i64);
+_DcPoint :: struct(x : i32, y : i32);
+derive(_DcPoint, Copy, Clone);
+_dc_pair :: (fn(a : i32, b : i32) -> _DcPair)(_DcPair(a : _DcFd(n : a), b : _DcFd(n : b)));
+_dc_take :: (fn(f : _DcFd) -> i32)(f.n);
+_dc_owner_name :: (fn(a : _DcAccount) -> String)({
+  { name, balance : _ } := a;
+  name
+});
+test("an owned destructuring moves its fields into the names", {
+  before := g_dc_dropped;
+  {
+    p := _dc_pair(i32(1), i32(2));
+    { a, b } := p;
+    assert(_dc_take(a) == i32(1), "a is owned: it moves into the call");
+    assert(g_dc_dropped == (before + i32(1)), "the callee dropped a");
+    assert(b.n == i32(2), "b is owned");
+    comptime_expect_error(p.a.n, "use of moved value");
+  };
+  assert(g_dc_dropped == (before + i32(3)), "b is dropped at its scope end, once; p is not dropped");
+});
+test("an owned destructuring drops the parts no name binds at the binding", {
+  before := g_dc_dropped;
+  {
+    p := _dc_pair(i32(10), i32(20));
+    { a } := p;
+    assert(g_dc_dropped == (before + i32(20)), "b, left out, is dropped at the binding");
+    assert(a.n == i32(10), "a is owned");
+    (x, _) := (_DcFd(n : i32(100)), _DcFd(n : i32(200)));
+    assert(g_dc_dropped == (before + i32(220)), "the `_` element is dropped at the binding");
+    assert(x.n == i32(100), "x is owned");
+  };
+  assert(g_dc_dropped == (before + i32(330)), "a and x are dropped at the scope end");
+});
+test("a destructuring of a temporary consumes it", {
+  before := g_dc_dropped;
+  {
+    { a : first, b : second } := _dc_pair(i32(4), i32(5));
+    assert(_dc_take(second) == i32(5), "second moves out");
+    assert(first.n == i32(4), "first is owned");
+  };
+  assert(g_dc_dropped == (before + i32(9)), "each part dropped once");
+});
+test("a destructuring of a by-value parameter consumes it, and a name may be returned", {
+  name := _dc_owner_name(_DcAccount(name : String.from("ann"), balance : i64(7)));
+  assert(name == String.from("ann"), "the field moved out of the parameter");
+});
+test("a mut name of a consuming destructuring owns its field", {
+  before := g_dc_dropped;
+  {
+    { a : mut(w), b } := _dc_pair(i32(1), i32(2));
+    w = _DcFd(n : i32(7));
+    assert(g_dc_dropped == (before + i32(1)), "the old value of w is dropped by the assignment");
+    assert((w.n + b.n) == i32(9), "w and b are owned");
+  };
+  assert(g_dc_dropped == (before + i32(10)), "w and b dropped at the scope end");
+  (mut(s), _n) := (String.from("a"), i32(1));
+  s.push_str("b");
+  assert(s == String.from("ab"), "a mut String name owns its buffer");
+});
+test("a later use of the destructured source is E0901", {
+  comptime_expect_error({
+    p := _dc_pair(i32(1), i32(2));
+    { a, b } := p;
+    _q := p;
+  }, "a destructuring takes its source by value");
+  comptime_expect_error({
+    acc := _DcAccount(name : String.from("ann"), balance : i64(7));
+    { name, balance } := acc;
+    _b := acc.balance;
+  }, "use of moved value");
+});
+test("a Copy source is copied and stays usable", {
+  pt := _DcPoint(x : i32(1), y : i32(2));
+  { x, y } := pt;
+  assert((x + y + pt.x) == i32(4), "pt is still usable");
+});
+test("a field or an element is not destructured by value (no partial moves)", {
+  comptime_expect_error({
+    h := _DcPair(a : _DcFd(n : i32(1)), b : _DcFd(n : i32(2)));
+    w := _DcPair(a : _DcFd(n : i32(3)), b : _DcFd(n : i32(4)));
+    hh := (h, w);
+    { a, b } := hh.0;
+  }, "Cannot destructure");
+});
+test("a type with a user Drop is not destructured by value", {
+  comptime_expect_error({
+    f := _DcFd(n : i32(1));
+    { n } := f;
+  }, "implements `Drop`");
+  comptime_expect_error({
+    { n } := _DcFd(n : i32(1));
+  }, "bind it first");
+});
+// A lending destructuring: `{ a, b } := &x` is `a := &x.a; b := &x.b`, each
+// name a local borrow of its field, read with `a.*`; `&mut x` lends `&mut`
+// fields; a reference binding read bare lends through itself, in its mode.
+_dc_total :: (fn(acc : &_DcAccount) -> i64)({
+  { name, balance } := acc;
+  balance.* + i64(name.len())
+});
+_dc_bump :: (fn(acc : &mut _DcAccount) -> unit)({
+  { balance } := acc;
+  balance.* = (balance.* + i64(1));
+});
+test("a destructuring of a borrow lends its fields, and the source stays usable", {
+  acc := _DcAccount(name : String.from("ann"), balance : i64(7));
+  { name, balance } := &acc;
+  assert((name.* == String.from("ann")) && (balance.* == i64(7)), "the names read through");
+  assert(acc.balance == i64(7), "acc is still usable");
+  assert(_dc_total(&acc) == i64(10), "through a `&` parameter");
+  t := (i32(1), String.from("t"));
+  (x, y) := &t;
+  assert((x.* + i32(y.*.len())) == i32(2), "a tuple's elements are lent too");
+  assert(t.1 == String.from("t"), "t is still usable");
+});
+test("a destructuring of a `&mut` borrow writes through its names", {
+  mut(acc) := _DcAccount(name : String.from("ann"), balance : i64(7));
+  {
+    { name, balance } := &mut acc;
+    balance.* = i64(9);
+    name.*.push_str("e");
+  };
+  assert((acc.balance == i64(9)) && (acc.name == String.from("anne")), "written through the names");
+  _dc_bump(&mut acc);
+  assert(acc.balance == i64(10), "through a `&mut` parameter");
+});
+test("a borrow of a temporary is not destructured: bind it first", {
+  comptime_expect_error({
+    { a, b } := &_dc_pair(i32(1), i32(2));
+  }, "needs a place");
+});
+test("a destructuring of a dereference by value is E0901: destructure the reference", {
+  comptime_expect_error({
+    acc := _DcAccount(name : String.from("ann"), balance : i64(7));
+    r := &acc;
+    { name, balance } := r.*;
+  }, "destructure through the reference");
+});

@@ -212,7 +212,7 @@ ParsedOperand :: struct(
 );
 derive(ParsedOperand, Clone);
 _atom_value_cg :: (fn(e : &AstExpr) -> String)(
-  match(e, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""))
+  match(e, Rc(.Atom(_, tok)) => tok.*.*.value.*.clone(), _ => String.from(""))
 );
 _fn_call_args_cg :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(e, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())

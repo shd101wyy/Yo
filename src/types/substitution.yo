@@ -911,7 +911,7 @@ _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) 
         // `.None` from the mask (nothing shadowed) and the root node walk `s`
         // itself, as the shared record did.
         Rc(.Func({ meta : __fm1 })) => match(
-          if(is_root, Option(Substitution).None, _mask_func_own_binders(s, &__fm1.forall_labels.items)),
+          if(is_root, Option(Substitution).None, _mask_func_own_binders(s, &__fm1.*.*.forall_labels.*.items)),
           .Some(m) => {
             mut(s_in) := m;
             _subst_func_with(&mut s_in, ty)
@@ -1054,10 +1054,10 @@ _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) 
         ) =>
           // Re-sorted: substituting a trait argument can change its key.
           t_dyn(
-            match(_subst_list_changed(s, &rtt.*, false), .Some(l) => l, .None => rtt.items.clone()),
-            rtl.items.clone(),
-            match(_subst_list_changed(s, &ntt.*, false), .Some(l) => l, .None => ntt.items.clone()),
-            ntl.items.clone()
+            match(_subst_list_changed(s, &rtt.*, false), .Some(l) => l, .None => rtt.*.*.items.clone()),
+            rtl.*.*.items.clone(),
+            match(_subst_list_changed(s, &ntt.*, false), .Some(l) => l, .None => ntt.*.*.items.clone()),
+            ntl.*.*.items.clone()
           ),
         Rc(.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its)) => {
           new_cpts := _subst_slot_list(s, &cpts.*);

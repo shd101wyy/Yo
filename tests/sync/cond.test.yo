@@ -38,12 +38,12 @@ test("wait_timeout returns true when signalled before the deadline", {
   ready := Channel(i32).new(usize(1));
   signaller := Thread(unit).spawn({ m : Arc.clone(m), cv : Arc.clone(cv), ready : ready.clone() }(io) => {
     ready.recv();
-    m.with_lock({ &cv }(_v) => cv.signal());
+    m.*.with_lock({ &cv }(_v) => cv.*.*.signal());
   });
-  woken := m.with_lock({ &m, &cv, &ready }(_v) => {
+  woken := m.*.with_lock({ &m, &cv, &ready }(_v) => {
     _ := ready.send(i32(1));
     // A 10s budget that must not be consumed.
-    cv.wait_timeout_with(&m.*.*, Duration.from_secs(i64(10)))
+    cv.*.*.wait_timeout_with(&m.*.*, Duration.from_secs(i64(10)))
   });
   signaller.join();
   assert(woken, "a signalled wait reports true, not a timeout");
@@ -86,21 +86,21 @@ test("wait blocks until signalled, with the predicate re-checked", {
   waiting := Channel(i32).new(usize(1));
   setter := Thread(unit).spawn({ m : Arc.clone(m), cv : Arc.clone(cv), flag : Arc.clone(flag), waiting : waiting.clone() }(io) => {
     waiting.recv();
-    m.with_lock({ &flag, &cv }(_v) => {
-      flag.store(i32(1), MemoryOrder.SeqCst);
-      cv.signal();
+    m.*.with_lock({ &flag, &cv }(_v) => {
+      flag.*.*.store(i32(1), MemoryOrder.SeqCst);
+      cv.*.*.signal();
     });
   });
-  m.with_lock({ &m, &cv, &flag, &waiting }(_v) => {
+  m.*.with_lock({ &m, &cv, &flag, &waiting }(_v) => {
     _ := waiting.send(i32(1));
     // The predicate loop is the contract: a spurious wake must not be mistaken
     // for the condition becoming true.
-    while(flag.load(MemoryOrder.SeqCst) == i32(0), {
-      cv.wait_with(&m.*.*);
+    while(flag.*.*.load(MemoryOrder.SeqCst) == i32(0), {
+      cv.*.*.wait_with(&m.*.*);
     });
   });
   setter.join();
-  assert(flag.load(MemoryOrder.SeqCst) == i32(1), "the waiter observed the condition");
+  assert(flag.*.load(MemoryOrder.SeqCst) == i32(1), "the waiter observed the condition");
 });
 test("broadcast releases every waiter", {
   m := Arc.new(Mutex(i64).new(i64(0)));
@@ -119,13 +119,13 @@ test("broadcast releases every waiter", {
         woken : Arc.clone(woken),
         parked : parked.clone()
       }(io) => {
-        m.with_lock({ &m, &cv, &flag, &parked }(_v) => {
+        m.*.with_lock({ &m, &cv, &flag, &parked }(_v) => {
           _ := parked.send(i32(1));
-          while(flag.load(MemoryOrder.SeqCst) == i32(0), {
-            cv.wait_with(&m.*.*);
+          while(flag.*.*.load(MemoryOrder.SeqCst) == i32(0), {
+            cv.*.*.wait_with(&m.*.*);
           });
         });
-        woken.fetch_add(i32(1), MemoryOrder.SeqCst);
+        woken.*.fetch_add(i32(1), MemoryOrder.SeqCst);
       })
     );
     t = (t + i64(1));
@@ -136,9 +136,9 @@ test("broadcast releases every waiter", {
     parked.recv();
     p = (p + i64(1));
   });
-  m.with_lock({ &flag, &cv }(_v) => {
-    flag.store(i32(1), MemoryOrder.SeqCst);
-    cv.broadcast();
+  m.*.with_lock({ &flag, &cv }(_v) => {
+    flag.*.*.store(i32(1), MemoryOrder.SeqCst);
+    cv.*.*.broadcast();
   });
   (mut(j) : usize) = usize(0);
   while(j < handles.len(), {
@@ -148,5 +148,5 @@ test("broadcast releases every waiter", {
   // Joining all four IS the assertion: a signal() instead of a broadcast()
   // would leave three of them parked and this test would hang rather than
   // report a wrong number.
-  assert(woken.load(MemoryOrder.SeqCst) == i32(4), "all four waiters ran to completion");
+  assert(woken.*.load(MemoryOrder.SeqCst) == i32(4), "all four waiters ran to completion");
 });

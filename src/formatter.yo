@@ -111,9 +111,9 @@ paren_is_call_delimiter :: (fn(previous : &Option(Token)) -> bool)(
     previous,
     .None => false,
     .Some(p) => (
-      is_atom_like_token(p.kind) ||
-        (p.kind == TokenKind.RParen) ||
-          (p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket)
+      is_atom_like_token(p.*.*.kind) ||
+        (p.*.*.kind == TokenKind.RParen) ||
+          (p.*.*.kind == TokenKind.RBracket) || (p.*.*.kind == TokenKind.RCurlyBracket)
     )
   )
 );
@@ -133,9 +133,9 @@ needs_space_before_atom :: (fn(previous : &Option(Token)) -> bool)(
     previous,
     .None => false,
     .Some(p) => (
-      is_atom_like_token(p.kind) ||
-        (p.kind == TokenKind.RParen) ||
-          (p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket)
+      is_atom_like_token(p.*.*.kind) ||
+        (p.*.*.kind == TokenKind.RParen) ||
+          (p.*.*.kind == TokenKind.RBracket) || (p.*.*.kind == TokenKind.RCurlyBracket)
     )
   )
 );
@@ -163,14 +163,14 @@ prefix_operator_needs_leading_space :: (
     previous,
     .None => false,
     .Some(p) => cond(
-      (p.kind == TokenKind.Comma) => true,
+      (p.*.*.kind == TokenKind.Comma) => true,
       // `{ &y, &mut z }` (a capture list's puns, decision 42): an opening
       // brace keeps its space before a prefix operator on the same row, as
       // it does before a name (`{ y }`).
-      ((p.kind == TokenKind.LCurlyBracket) && (p.row == token.row)) => true,
-      ((p.kind == TokenKind.Operator) && (p.value.* != ".")) => {
+      ((p.*.*.kind == TokenKind.LCurlyBracket) && (p.*.*.row == token.*.*.row)) => true,
+      ((p.*.*.kind == TokenKind.Operator) && (p.*.*.value.* != ".")) => {
         prev_is_prefix_capable := (
-          (p.value.* == "-") || (p.value.* == "!") || (p.value.* == "~") || (p.value.* == "&") || (p.value.* == "*") || (p.value.* == "?") || (p.value.* == "&mut")
+          (p.*.*.value.* == "-") || (p.*.*.value.* == "!") || (p.*.*.value.* == "~") || (p.*.*.value.* == "&") || (p.*.*.value.* == "*") || (p.*.*.value.* == "?") || (p.*.*.value.* == "&mut")
         );
         // `prev` is a postfix deref (`.` then `*`/`&`) when prev_prev is a
         // Dot — that ends an rvalue, never starts a chain.
@@ -178,16 +178,16 @@ prefix_operator_needs_leading_space :: (
           prev_prev,
           .None => false,
           .Some(pp) => (
-            is_atom_like_token(pp.kind) || (pp.kind == TokenKind.Dot) ||
-              (pp.kind == TokenKind.RParen) ||
-                (pp.kind == TokenKind.RBracket) || (pp.kind == TokenKind.RCurlyBracket)
+            is_atom_like_token(pp.*.*.kind) || (pp.*.*.kind == TokenKind.Dot) ||
+              (pp.*.*.kind == TokenKind.RParen) ||
+                (pp.*.*.kind == TokenKind.RBracket) || (pp.*.*.kind == TokenKind.RCurlyBracket)
           )
         );
         cond(
           !prev_is_prefix_capable => true,
           prev_prev_ends_rvalue => true,
-          ((p.value.* == "-") && (token.value.* == "-")) => true,
-          _is_two_char_operator(`${p.value.*}${token.value.*}`) => true,
+          ((p.*.*.value.* == "-") && (token.*.*.value.* == "-")) => true,
+          _is_two_char_operator(`${p.*.*.value.*}${token.*.*.value.*}`) => true,
           true => false
         )
       },
@@ -274,7 +274,7 @@ previous_meaningful_token :: (fn(tokens : &ArrayList(Token), index : usize) -> O
         done = true;
       },
       .Some(t) => cond(
-        is_comment_token(t.kind) => (),
+        is_comment_token(t.*.kind) => (),
         true => {
           result = Option(Token).Some(t);
           done = true;
@@ -305,7 +305,7 @@ next_meaningful_token :: (fn(tokens : &ArrayList(Token), index : usize, end_excl
         done = true;
       },
       .Some(t) => cond(
-        is_comment_token(t.kind) => (),
+        is_comment_token(t.*.kind) => (),
         true => {
           result = Option(Token).Some(t);
           done = true;
@@ -321,7 +321,7 @@ next_meaningful_token :: (fn(tokens : &ArrayList(Token), index : usize, end_excl
 is_record_dot_at :: (fn(tokens : &ArrayList(Token), index : usize) -> bool)(
   match(
     tokens.get_cloned(index),
-    .Some(d) => ((d.kind == TokenKind.Dot) && match(tokens.get_cloned(index + usize(1)), .Some(c) => ((c.kind == TokenKind.LCurlyBracket) && (c.byte_offset == (d.byte_offset + u32(1)))), .None => false)),
+    .Some(d) => ((d.*.kind == TokenKind.Dot) && match(tokens.get_cloned(index + usize(1)), .Some(c) => ((c.*.kind == TokenKind.LCurlyBracket) && (c.*.byte_offset == (d.*.byte_offset + u32(1)))), .None => false)),
     .None => false
   )
 );
@@ -333,7 +333,7 @@ token_range_has_comment :: (fn(tokens : &ArrayList(Token), start_inclusive : usi
     match(
       tokens.get_cloned(i),
       .None => (),
-      .Some(t) => if(is_comment_token(t.kind), {
+      .Some(t) => if(is_comment_token(t.*.kind), {
         found = true;
       })
     );
@@ -350,7 +350,7 @@ has_any_token :: (fn(tokens : &ArrayList(Token), left_index : usize, right_index
     match(
       tokens.get_cloned(i),
       .None => (),
-      .Some(t) => if(t.kind == kind, {
+      .Some(t) => if(t.*.kind == kind, {
         found = true;
       })
     );
@@ -372,26 +372,26 @@ has_top_level_token :: (fn(tokens : &ArrayList(Token), left_index : usize, right
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        is_comment_token(t.kind) => (),
-        ((t.kind == kind) && (paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0))) => {
+        is_comment_token(t.*.kind) => (),
+        ((t.*.kind == kind) && (paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0))) => {
           found = true;
         },
-        (t.kind == TokenKind.LParen) => {
+        (t.*.kind == TokenKind.LParen) => {
           paren_depth = (paren_depth + usize(1));
         },
-        ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+        ((t.*.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
           paren_depth = (paren_depth - usize(1));
         },
-        (t.kind == TokenKind.LBracket) => {
+        (t.*.kind == TokenKind.LBracket) => {
           bracket_depth = (bracket_depth + usize(1));
         },
-        ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+        ((t.*.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
           bracket_depth = (bracket_depth - usize(1));
         },
-        (t.kind == TokenKind.LCurlyBracket) => {
+        (t.*.kind == TokenKind.LCurlyBracket) => {
           curly_depth = (curly_depth + usize(1));
         },
-        ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+        ((t.*.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
           curly_depth = (curly_depth - usize(1));
         },
         true => ()
@@ -434,10 +434,10 @@ find_matching_paren_indices :: (fn(tokens : &ArrayList(Token)) -> HashMap(usize,
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        (t.kind == TokenKind.LParen) => {
+        (t.*.kind == TokenKind.LParen) => {
           stack.push(i);
         },
-        (t.kind == TokenKind.RParen) => {
+        (t.*.kind == TokenKind.RParen) => {
           if(stack.len() > usize(0), {
             left := match(stack.last(), .Some(x) => x, .None => usize(0));
             _r := stack.pop();
@@ -463,14 +463,14 @@ find_parent_paren_indices :: (fn(tokens : &ArrayList(Token)) -> HashMap(usize, u
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        (t.kind == TokenKind.LParen) => {
+        (t.*.kind == TokenKind.LParen) => {
           if(stack.len() > usize(0), {
             parent := match(stack.last(), .Some(x) => x, .None => usize(0));
             parents.insert(i, parent);
           });
           stack.push(i);
         },
-        (t.kind == TokenKind.RParen) => {
+        (t.*.kind == TokenKind.RParen) => {
           if(stack.len() > usize(0), {
             _r := stack.pop();
           });
@@ -502,13 +502,13 @@ find_inline_curly_indices :: (fn(tokens : &ArrayList(Token)) -> HashSet(usize))(
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        (t.kind == TokenKind.LCurlyBracket) => {
+        (t.*.kind == TokenKind.LCurlyBracket) => {
           stack_indices.push(i);
           stack_paren_depths.push(paren_depth);
           stack_bracket_depths.push(bracket_depth);
           stack_has_top_level_semi.push(false);
         },
-        (t.kind == TokenKind.Semicolon) => {
+        (t.*.kind == TokenKind.Semicolon) => {
           if(stack_indices.len() > usize(0), {
             top := (stack_indices.len() - usize(1));
             frame_paren := match(stack_paren_depths.get(top), .Some(x) => x, .None => usize(0));
@@ -520,7 +520,7 @@ find_inline_curly_indices :: (fn(tokens : &ArrayList(Token)) -> HashSet(usize))(
             });
           });
         },
-        (t.kind == TokenKind.RCurlyBracket) => {
+        (t.*.kind == TokenKind.RCurlyBracket) => {
           if(stack_indices.len() > usize(0), {
             top := (stack_indices.len() - usize(1));
             left_idx := match(stack_indices.get(top), .Some(x) => x, .None => usize(0));
@@ -535,16 +535,16 @@ find_inline_curly_indices :: (fn(tokens : &ArrayList(Token)) -> HashSet(usize))(
             });
           });
         },
-        (t.kind == TokenKind.LParen) => {
+        (t.*.kind == TokenKind.LParen) => {
           paren_depth = (paren_depth + usize(1));
         },
-        ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+        ((t.*.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
           paren_depth = (paren_depth - usize(1));
         },
-        (t.kind == TokenKind.LBracket) => {
+        (t.*.kind == TokenKind.LBracket) => {
           bracket_depth = (bracket_depth + usize(1));
         },
-        ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+        ((t.*.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
           bracket_depth = (bracket_depth - usize(1));
         },
         true => ()
@@ -566,15 +566,15 @@ find_multiline_bracket_indices :: (fn(tokens : &ArrayList(Token)) -> HashSet(usi
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        (t.kind == TokenKind.LBracket) => {
+        (t.*.kind == TokenKind.LBracket) => {
           stack.push(i);
         },
-        (t.kind == TokenKind.RBracket) => {
+        (t.*.kind == TokenKind.RBracket) => {
           if(stack.len() > usize(0), {
             left_idx := match(stack.last(), .Some(x) => x, .None => usize(0));
             _p := stack.pop();
             left_tok := match(tokens.get_cloned(left_idx), .Some(lt) => lt, .None => Rc.clone(t));
-            if(t.row > left_tok.row, {
+            if(t.*.row > left_tok.*.row, {
               multiline_indices.insert(left_idx);
               multiline_indices.insert(i);
             });
@@ -600,15 +600,15 @@ find_multiline_inline_curly_indices :: (fn(tokens : &ArrayList(Token), inline_cu
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        (t.kind == TokenKind.LCurlyBracket) => {
+        (t.*.kind == TokenKind.LCurlyBracket) => {
           stack.push(i);
         },
-        (t.kind == TokenKind.RCurlyBracket) => {
+        (t.*.kind == TokenKind.RCurlyBracket) => {
           if(stack.len() > usize(0), {
             left_idx := match(stack.last(), .Some(x) => x, .None => usize(0));
             _p := stack.pop();
             left_tok := match(tokens.get_cloned(left_idx), .Some(lt) => lt, .None => Rc.clone(t));
-            if(inline_curly_indices.contains(&left_idx) && (t.row > left_tok.row), {
+            if(inline_curly_indices.contains(&left_idx) && (t.*.row > left_tok.*.row), {
               multiline_indices.insert(left_idx);
               multiline_indices.insert(i);
             });
@@ -634,7 +634,7 @@ should_force_operator_rhs_block :: (
     previous,
     .None => false,
     .Some(p) => (
-      (p.kind == TokenKind.Operator) &&
+      (p.*.*.kind == TokenKind.Operator) &&
         has_any_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
     )
   )
@@ -649,9 +649,9 @@ should_force_control_flow_multiline :: (
     previous,
     .None => false,
     .Some(p) => cond(
-      (p.kind != TokenKind.Identifier) => false,
+      (p.*.*.kind != TokenKind.Identifier) => false,
       true => {
-        v := p.value.*.clone();
+        v := p.*.*.value.*.clone();
         ((v == "cond") || (v == "if") || (v == "match")) &&
           has_top_level_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
         }
@@ -674,37 +674,37 @@ has_top_level_curly_argument :: (
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        is_comment_token(t.kind) => (),
+        is_comment_token(t.*.kind) => (),
         true => {
           at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
           // Check curly-after-comma BEFORE depth updates
-          if((t.kind == TokenKind.LCurlyBracket) && at_top_level, {
+          if((t.*.kind == TokenKind.LCurlyBracket) && at_top_level, {
             match(
               previous_top_level.clone(),
               .None => (),
-              .Some(p) => if(p.kind == TokenKind.Comma, {
+              .Some(p) => if(p.*.kind == TokenKind.Comma, {
                 found = true;
               })
             );
           });
           // Update depths
           cond(
-            (t.kind == TokenKind.LParen) => {
+            (t.*.kind == TokenKind.LParen) => {
               paren_depth = (paren_depth + usize(1));
             },
-            ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
               paren_depth = (paren_depth - usize(1));
             },
-            (t.kind == TokenKind.LBracket) => {
+            (t.*.kind == TokenKind.LBracket) => {
               bracket_depth = (bracket_depth + usize(1));
             },
-            ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
               bracket_depth = (bracket_depth - usize(1));
             },
-            (t.kind == TokenKind.LCurlyBracket) => {
+            (t.*.kind == TokenKind.LCurlyBracket) => {
               curly_depth = (curly_depth + usize(1));
             },
-            ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
               curly_depth = (curly_depth - usize(1));
             },
             true => ()
@@ -735,35 +735,35 @@ has_top_level_field_block :: (
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        is_comment_token(t.kind) => (),
+        is_comment_token(t.*.kind) => (),
         true => {
           at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
           cond(
-            ((t.kind == TokenKind.Operator) && (t.value.* == ":") && at_top_level) => {
+            ((t.*.kind == TokenKind.Operator) && (t.*.value.* == ":") && at_top_level) => {
               saw_top_level_colon = true;
             },
-            ((t.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0)) && saw_top_level_colon) => {
+            ((t.*.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0)) && saw_top_level_colon) => {
               found = true;
             },
             true => ()
           );
           cond(
-            (t.kind == TokenKind.LParen) => {
+            (t.*.kind == TokenKind.LParen) => {
               paren_depth = (paren_depth + usize(1));
             },
-            ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
               paren_depth = (paren_depth - usize(1));
             },
-            (t.kind == TokenKind.LBracket) => {
+            (t.*.kind == TokenKind.LBracket) => {
               bracket_depth = (bracket_depth + usize(1));
             },
-            ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
               bracket_depth = (bracket_depth - usize(1));
             },
-            (t.kind == TokenKind.LCurlyBracket) => {
+            (t.*.kind == TokenKind.LCurlyBracket) => {
               curly_depth = (curly_depth + usize(1));
             },
-            ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
               curly_depth = (curly_depth - usize(1));
             },
             true => ()
@@ -787,9 +787,9 @@ has_direct_top_level_closure_argument :: (
     previous,
     .None => false,
     .Some(p) => cond(
-      (p.kind != TokenKind.Identifier) => false,
+      (p.*.*.kind != TokenKind.Identifier) => false,
       true => {
-        v := p.value.*.clone();
+        v := p.*.*.value.*.clone();
         (v == "cond") || (v == "if") || (v == "match") || (v == "test") || (v == "while")
       }
     )
@@ -809,12 +809,12 @@ has_direct_top_level_closure_argument :: (
           tokens.get_cloned(i),
           .None => (),
           .Some(t) => cond(
-            is_comment_token(t.kind) => (),
+            is_comment_token(t.*.kind) => (),
             true => {
               at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
               cond(
-                ((t.kind == TokenKind.Operator) && at_top_level) => {
-                  v := t.value.*.clone();
+                ((t.*.kind == TokenKind.Operator) && at_top_level) => {
+                  v := t.*.value.*.clone();
                   cond(
                     (v == ":") => {
                       saw_top_level_colon = true;
@@ -825,28 +825,28 @@ has_direct_top_level_closure_argument :: (
                     true => ()
                   );
                 },
-                ((t.kind == TokenKind.LCurlyBracket) && at_top_level && saw_closure_operator) => {
+                ((t.*.kind == TokenKind.LCurlyBracket) && at_top_level && saw_closure_operator) => {
                   found = true;
                 },
                 true => ()
               );
               cond(
-                (t.kind == TokenKind.LParen) => {
+                (t.*.kind == TokenKind.LParen) => {
                   paren_depth = (paren_depth + usize(1));
                 },
-                ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+                ((t.*.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
                   paren_depth = (paren_depth - usize(1));
                 },
-                (t.kind == TokenKind.LBracket) => {
+                (t.*.kind == TokenKind.LBracket) => {
                   bracket_depth = (bracket_depth + usize(1));
                 },
-                ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+                ((t.*.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
                   bracket_depth = (bracket_depth - usize(1));
                 },
-                (t.kind == TokenKind.LCurlyBracket) => {
+                (t.*.kind == TokenKind.LCurlyBracket) => {
                   curly_depth = (curly_depth + usize(1));
                 },
-                ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+                ((t.*.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
                   curly_depth = (curly_depth - usize(1));
                 },
                 true => ()
@@ -875,7 +875,7 @@ is_parenthesized_dot_deref :: (
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        is_comment_token(t.kind) => (),
+        is_comment_token(t.*.kind) => (),
         true => {
           inner_token = Option(Token).Some(t);
           inner_count = (inner_count + usize(1));
@@ -893,13 +893,13 @@ is_parenthesized_dot_deref :: (
       previous,
       .None => false,
       .Some(prev) => cond(
-        (prev.kind != TokenKind.Dot) => false,
+        (prev.*.kind != TokenKind.Dot) => false,
         true => match(
           inner_token,
           .None => false,
           .Some(inner) => (
-            (inner.kind == TokenKind.Operator) &&
-              (inner.value.* == "*") && (inner_count == usize(1))
+            (inner.*.kind == TokenKind.Operator) &&
+              (inner.*.value.* == "*") && (inner_count == usize(1))
           )
         )
       )
@@ -916,12 +916,12 @@ is_parenthesized_dot_deref :: (
 /// exported there). `+` and the rest stay infix-only, so a leading `+` can
 /// never start an atom-like group.
 is_prefix_capable_operator :: (fn(t : &Token) -> bool)(
-  (t.kind == TokenKind.Operator) &&
+  (t.*.*.kind == TokenKind.Operator) &&
     (
-      (t.value.* == "-") ||
-        (t.value.* == "!") ||
-          (t.value.* == "~") ||
-            (t.value.* == "&") || (t.value.* == "*") || (t.value.* == "?") || (t.value.* == "&mut")
+      (t.*.*.value.* == "-") ||
+        (t.*.*.value.* == "!") ||
+          (t.*.*.value.* == "~") ||
+            (t.*.*.value.* == "&") || (t.*.*.value.* == "*") || (t.*.*.value.* == "?") || (t.*.*.value.* == "&mut")
     )
 );
 /// The elision-relevant shape of a paren group's content
@@ -958,7 +958,7 @@ classify_group_content :: (
       tokens.get_cloned(i),
       .None => (),
       .Some(t) => cond(
-        is_comment_token(t.kind) => (),
+        is_comment_token(t.*.kind) => (),
         true => {
           at_top_level := (
             (paren_depth == usize(0)) && (bracket_depth == usize(0)) &&
@@ -966,7 +966,7 @@ classify_group_content :: (
           );
           if(at_top_level, {
             cond(
-              (t.kind == TokenKind.Operator) => cond(
+              (t.*.kind == TokenKind.Operator) => cond(
                 seen_primary => {
                   has_infix = true;
                 },
@@ -976,7 +976,7 @@ classify_group_content :: (
                   });
                 }
               ),
-              ((t.kind == TokenKind.Comma) || (t.kind == TokenKind.Semicolon)) => {
+              ((t.*.kind == TokenKind.Comma) || (t.*.kind == TokenKind.Semicolon)) => {
                 bad = true;
               },
               true => {
@@ -985,22 +985,22 @@ classify_group_content :: (
             );
           });
           cond(
-            (t.kind == TokenKind.LParen) => {
+            (t.*.kind == TokenKind.LParen) => {
               paren_depth = (paren_depth + usize(1));
             },
-            ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
               paren_depth = (paren_depth - usize(1));
             },
-            (t.kind == TokenKind.LBracket) => {
+            (t.*.kind == TokenKind.LBracket) => {
               bracket_depth = (bracket_depth + usize(1));
             },
-            ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
               bracket_depth = (bracket_depth - usize(1));
             },
-            (t.kind == TokenKind.LCurlyBracket) => {
+            (t.*.kind == TokenKind.LCurlyBracket) => {
               curly_depth = (curly_depth + usize(1));
             },
-            ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+            ((t.*.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
               curly_depth = (curly_depth - usize(1));
             },
             true => ()
@@ -1027,7 +1027,7 @@ previous_meaningful_token_index :: (fn(tokens : &ArrayList(Token), before : usiz
     match(
       tokens.get_cloned(i),
       .None => (),
-      .Some(t) => if(!is_comment_token(t.kind), {
+      .Some(t) => if(!is_comment_token(t.*.kind), {
         result = Option(usize).Some(i);
         done = true;
       })
@@ -1055,16 +1055,16 @@ is_left_same_operator_flatten_group :: (
         next,
         .None => false,
         .Some(n) => cond(
-          (n.kind != TokenKind.Operator) => false,
+          (n.*.kind != TokenKind.Operator) => false,
           true => {
             previous := previous_meaningful_token(tokens, left_index);
             left_position := match(
               previous,
               .None => true,
               .Some(p) => (
-                (p.kind == TokenKind.LParen) ||
-                  (p.kind == TokenKind.Comma) ||
-                    (p.kind == TokenKind.Semicolon) || (p.kind == TokenKind.LCurlyBracket)
+                (p.*.kind == TokenKind.LParen) ||
+                  (p.*.kind == TokenKind.Comma) ||
+                    (p.*.kind == TokenKind.Semicolon) || (p.*.kind == TokenKind.LCurlyBracket)
               )
             );
             cond(
@@ -1082,7 +1082,7 @@ is_left_same_operator_flatten_group :: (
                     tokens.get_cloned(i),
                     .None => (),
                     .Some(t) => cond(
-                      is_comment_token(t.kind) => (),
+                      is_comment_token(t.*.kind) => (),
                       true => {
                         at_top_level := (
                           (paren_depth == usize(0)) && (bracket_depth == usize(0)) &&
@@ -1090,7 +1090,7 @@ is_left_same_operator_flatten_group :: (
                         );
                         if(at_top_level, {
                           cond(
-                            (t.kind == TokenKind.Operator) => cond(
+                            (t.*.kind == TokenKind.Operator) => cond(
                               // A prefix-capable operator in OPERAND
                               // position (no primary since the last chain
                               // operator) is an operand, not a chain link —
@@ -1103,13 +1103,13 @@ is_left_same_operator_flatten_group :: (
                               },
                               true => {
                                 op_count = (op_count + usize(1));
-                                if(!(t.value.* == n.value.*), {
+                                if(!(t.*.value.* == n.*.value.*), {
                                   mismatch = true;
                                 });
                                 seen_primary = false;
                               }
                             ),
-                            ((t.kind == TokenKind.Comma) || (t.kind == TokenKind.Semicolon)) => {
+                            ((t.*.kind == TokenKind.Comma) || (t.*.kind == TokenKind.Semicolon)) => {
                               mismatch = true;
                             },
                             true => {
@@ -1118,22 +1118,22 @@ is_left_same_operator_flatten_group :: (
                           );
                         });
                         cond(
-                          (t.kind == TokenKind.LParen) => {
+                          (t.*.kind == TokenKind.LParen) => {
                             paren_depth = (paren_depth + usize(1));
                           },
-                          ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+                          ((t.*.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
                             paren_depth = (paren_depth - usize(1));
                           },
-                          (t.kind == TokenKind.LBracket) => {
+                          (t.*.kind == TokenKind.LBracket) => {
                             bracket_depth = (bracket_depth + usize(1));
                           },
-                          ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+                          ((t.*.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
                             bracket_depth = (bracket_depth - usize(1));
                           },
-                          (t.kind == TokenKind.LCurlyBracket) => {
+                          (t.*.kind == TokenKind.LCurlyBracket) => {
                             curly_depth = (curly_depth + usize(1));
                           },
-                          ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+                          ((t.*.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
                             curly_depth = (curly_depth - usize(1));
                           },
                           true => ()
@@ -1167,7 +1167,7 @@ next_meaningful_token_index :: (
       .None => {
         done = true;
       },
-      .Some(t) => if(!is_comment_token(t.kind), {
+      .Some(t) => if(!is_comment_token(t.*.kind), {
         result = Option(usize).Some(i);
         done = true;
       })
@@ -1195,7 +1195,7 @@ first_inner_group_has_top_level_comma :: (
         tokens.get_cloned(fi),
         .None => false,
         .Some(t) => cond(
-          (t.kind != TokenKind.LParen) => false,
+          (t.*.kind != TokenKind.LParen) => false,
           true => {
             (depth : usize) = usize(0);
             (found : bool) = false;
@@ -1208,19 +1208,19 @@ first_inner_group_has_top_level_comma :: (
                   done = true;
                 },
                 .Some(u) => cond(
-                  is_comment_token(u.kind) => (),
+                  is_comment_token(u.*.kind) => (),
                   true => {
                     cond(
-                      (u.kind == TokenKind.LParen) => {
+                      (u.*.kind == TokenKind.LParen) => {
                         depth = (depth + usize(1));
                       },
-                      ((u.kind == TokenKind.RParen) && (depth > usize(0))) => {
+                      ((u.*.kind == TokenKind.RParen) && (depth > usize(0))) => {
                         depth = (depth - usize(1));
                       },
-                      ((u.kind == TokenKind.RParen) && (depth == usize(0))) => {
+                      ((u.*.kind == TokenKind.RParen) && (depth == usize(0))) => {
                         done = true;
                       },
-                      ((u.kind == TokenKind.Comma) && (depth == usize(0))) => {
+                      ((u.*.kind == TokenKind.Comma) && (depth == usize(0))) => {
                         found = true;
                         done = true;
                       },
@@ -1257,7 +1257,7 @@ single_inner_group_not_atom_like :: (
         tokens.get_cloned(fi),
         .None => false,
         .Some(t) => cond(
-          (t.kind != TokenKind.LParen) => false,
+          (t.*.kind != TokenKind.LParen) => false,
           true => {
             // Find the inner group's matching RParen, then require the
             // content to be exactly that one group.
@@ -1272,16 +1272,16 @@ single_inner_group_not_atom_like :: (
                   found_end = true;
                 },
                 .Some(u) => cond(
-                  is_comment_token(u.kind) => (),
+                  is_comment_token(u.*.kind) => (),
                   true => {
                     cond(
-                      (u.kind == TokenKind.LParen) => {
+                      (u.*.kind == TokenKind.LParen) => {
                         depth = (depth + usize(1));
                       },
-                      ((u.kind == TokenKind.RParen) && (depth > usize(0))) => {
+                      ((u.*.kind == TokenKind.RParen) && (depth > usize(0))) => {
                         depth = (depth - usize(1));
                       },
-                      (u.kind == TokenKind.RParen) => {
+                      (u.*.kind == TokenKind.RParen) => {
                         inner_right = i;
                         found_end = true;
                       },
@@ -1341,7 +1341,7 @@ prefix_call_paren_shape :: (
                   .Some(lp) => cond(
                     // The call form is exactly adjacency: `(` starts where the
                     // operator token ends (`f - (x)` has a gap and is infix).
-                    ((usize(op.byte_offset) + op.value.*.len()) != usize(lp.byte_offset)) => false,
+                    ((usize(op.*.byte_offset) + op.*.value.*.len()) != usize(lp.*.byte_offset)) => false,
                     true => {
                       // Prefix position: an rvalue-end before the operator
                       // makes it the infix spelling (`f -(x)`).
@@ -1359,8 +1359,8 @@ prefix_call_paren_shape :: (
                             .None => false,
                             .Some(fi) =>
                               !(
-                                (fi.kind == TokenKind.Identifier) &&
-                                  is_function_type_keyword(fi.value.*.clone())
+                                (fi.*.kind == TokenKind.Identifier) &&
+                                  is_function_type_keyword(fi.*.value.*.clone())
                               )
                           );
                           cond(
@@ -1419,7 +1419,7 @@ is_elidable_prefix_call_paren :: (
       match(
         next,
         .None => true,
-        .Some(nx) => ((nx.kind != TokenKind.LParen) && (nx.kind != TokenKind.Dot))
+        .Some(nx) => ((nx.*.kind != TokenKind.LParen) && (nx.*.kind != TokenKind.Dot))
       )
     }
   )
@@ -1443,12 +1443,12 @@ is_callee_prefix_call_paren :: (
         next,
         .None => false,
         .Some(nx) => cond(
-          (nx.kind != TokenKind.LParen) => false,
+          (nx.*.kind != TokenKind.LParen) => false,
           true =>
             match(
               tokens.get_cloned(right_index),
               .None => false,
-              .Some(r) => ((usize(r.byte_offset) + r.value.*.len()) == usize(nx.byte_offset))
+              .Some(r) => ((usize(r.*.byte_offset) + r.*.value.*.len()) == usize(nx.*.byte_offset))
             )
         )
       )
@@ -1484,7 +1484,7 @@ is_non_prefix_operator_call_paren :: (
         tokens.get_cloned(oi),
         .None => false,
         .Some(op) => cond(
-          ((op.kind != TokenKind.Operator) || is_prefix_capable_operator(&op)) => false,
+          ((op.*.kind != TokenKind.Operator) || is_prefix_capable_operator(&op)) => false,
           true => {
             // Prefix position: an rvalue-end before the operator makes it
             // the infix spelling (`a + (y)`), where the group is the
@@ -1542,7 +1542,7 @@ is_redundant_grouping_paren :: (
             previous.clone(),
             .None => false,
             .Some(p) => (
-              ((p.kind == TokenKind.Operator) && !shape.atom_like) || (
+              ((p.*.kind == TokenKind.Operator) && !shape.atom_like) || (
                 prev_prefix_defers_to_inner ||
                   is_non_prefix_operator_call_paren(tokens, left_index)
               )
@@ -1556,7 +1556,7 @@ is_redundant_grouping_paren :: (
               prev_is_dot_blocks := match(
                 previous,
                 .None => false,
-                .Some(p) => ((p.kind == TokenKind.Dot) && !paren_dot_deref)
+                .Some(p) => ((p.*.kind == TokenKind.Dot) && !paren_dot_deref)
               );
               cond(
                 prev_is_dot_blocks => false,
@@ -1571,9 +1571,9 @@ is_redundant_grouping_paren :: (
                     next,
                     .None => false,
                     .Some(nx) => (
-                      (nx.kind == TokenKind.LParen) ||
-                        ((nx.kind == TokenKind.Dot) && !paren_dot_deref) || (
-                          (nx.kind == TokenKind.Operator) && !paren_dot_deref &&
+                      (nx.*.kind == TokenKind.LParen) ||
+                        ((nx.*.kind == TokenKind.Dot) && !paren_dot_deref) || (
+                          (nx.*.kind == TokenKind.Operator) && !paren_dot_deref &&
                             !shape.atom_like
                         )
                     )
@@ -1586,8 +1586,8 @@ is_redundant_grouping_paren :: (
                         first_inner,
                         .None => false,
                         .Some(fi) => (
-                          (fi.kind == TokenKind.Identifier) &&
-                            is_function_type_keyword(fi.value.*.clone())
+                          (fi.*.kind == TokenKind.Identifier) &&
+                            is_function_type_keyword(fi.*.value.*.clone())
                         )
                       );
                       cond(
@@ -1637,13 +1637,13 @@ paren_removal_would_expose_operator_rhs_infix :: (
           true => match(
             previous_meaningful_token(tokens, parent_left),
             .None => false,
-            .Some(pp) => ((pp.kind == TokenKind.Operator) && exposes)
+            .Some(pp) => ((pp.*.kind == TokenKind.Operator) && exposes)
           )
         )
       )
     },
     .Some(prev) => cond(
-      (prev.kind == TokenKind.Operator) => exposes,
+      (prev.*.kind == TokenKind.Operator) => exposes,
       true => {
         parent_left_opt := parent_parens.get(&left_index);
         match(
@@ -1654,7 +1654,7 @@ paren_removal_would_expose_operator_rhs_infix :: (
             true => match(
               previous_meaningful_token(tokens, parent_left),
               .None => false,
-              .Some(pp) => ((pp.kind == TokenKind.Operator) && exposes)
+              .Some(pp) => ((pp.*.kind == TokenKind.Operator) && exposes)
             )
           )
         )
@@ -1676,7 +1676,7 @@ find_redundant_grouping_paren_indices :: (fn(tokens : &ArrayList(Token)) -> Hash
     match(
       tokens.get_cloned(i),
       .None => (),
-      .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
+      .Some(t) => if((t.*.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
         right_idx := match(matching_parens.get(&i), .Some(x) => x, .None => i);
         if(is_redundant_grouping_paren(tokens, i, right_idx) ||
           is_left_same_operator_flatten_group(tokens, i, right_idx) ||
@@ -1745,7 +1745,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
     match(
       tokens.get_cloned(i),
       .None => (),
-      .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
+      .Some(t) => if((t.*.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
         right_idx := match(matching_parens.get(&i), .Some(x) => x, .None => i);
         if(is_callee_prefix_call_paren(tokens, i, right_idx), {
           op_idx := match(
@@ -1782,12 +1782,12 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
                   TokenData(
                     kind : TokenKind.RParen,
                     value : Rc.new(String.from(")")),
-                    row : anchor.row,
-                    column : anchor.column,
-                    character : anchor.character,
-                    byte_offset : anchor.byte_offset,
-                    module_path : Rc.clone(anchor.module_path),
-                    input : Rc.clone(anchor.input)
+                    row : anchor.*.row,
+                    column : anchor.*.column,
+                    character : anchor.*.character,
+                    byte_offset : anchor.*.byte_offset,
+                    module_path : Rc.clone(anchor.*.module_path),
+                    input : Rc.clone(anchor.*.input)
                   )
                 )
               );
@@ -1807,12 +1807,12 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
                       TokenData(
                         kind : TokenKind.LParen,
                         value : Rc.new(String.from("(")),
-                        row : anchor_o.row,
-                        column : anchor_o.column,
-                        character : anchor_o.character,
-                        byte_offset : anchor_o.byte_offset,
-                        module_path : Rc.clone(anchor_o.module_path),
-                        input : Rc.clone(anchor_o.input)
+                        row : anchor_o.*.row,
+                        column : anchor_o.*.column,
+                        character : anchor_o.*.character,
+                        byte_offset : anchor_o.*.byte_offset,
+                        module_path : Rc.clone(anchor_o.*.module_path),
+                        input : Rc.clone(anchor_o.*.input)
                       )
                     )
                   );
@@ -1860,8 +1860,8 @@ find_multiline_paren_indices :: (
       tokens.get_cloned(pi),
       .None => false,
       .Some(pt) => cond(
-        (pt.kind == TokenKind.LCurlyBracket) => !inline_curlies.contains(&pi),
-        ((pt.kind == TokenKind.LParen) && matching_parens.contains_key(&pi)) => {
+        (pt.*.kind == TokenKind.LCurlyBracket) => !inline_curlies.contains(&pi),
+        ((pt.*.kind == TokenKind.LParen) && matching_parens.contains_key(&pi)) => {
           pr := match(matching_parens.get(&pi), .Some(x) => x, .None => pi);
           pprev := previous_meaningful_token(tokens, pi);
           !skipped_indices.contains(&pi) && !skipped_indices.contains(&pr) && (
@@ -1880,7 +1880,7 @@ find_multiline_paren_indices :: (
     match(
       tokens.get_cloned(i),
       .None => (),
-      .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
+      .Some(t) => if((t.*.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
         right_idx := match(matching_parens.get(&i), .Some(x) => x, .None => i);
         cond(
           (skipped_indices.contains(&i) || skipped_indices.contains(&right_idx)) => (),
@@ -1899,18 +1899,18 @@ find_multiline_paren_indices :: (
               match(renders_multirow_prefix.get(right_idx), .Some(x) => x, .None => usize(0))
               > match(renders_multirow_prefix.get(i + usize(1)), .Some(x) => x, .None => usize(0))
             );
-            spans_rows := ((right_tok.row > left_tok.row) || inner_multirow);
+            spans_rows := ((right_tok.*.row > left_tok.*.row) || inner_multirow);
             cond(
               (!force_multiline && !spans_rows) => (),
               true => {
                 first_inner := next_meaningful_token(tokens, i, right_idx);
                 (fi_idx : usize) = (i + usize(1));
-                while((fi_idx < right_idx) && match(tokens.get_cloned(fi_idx), .Some(fc) => is_comment_token(fc.kind), .None => false), fi_idx = (fi_idx + usize(1)), ());
+                while((fi_idx < right_idx) && match(tokens.get_cloned(fi_idx), .Some(fc) => is_comment_token(fc.*.kind), .None => false), fi_idx = (fi_idx + usize(1)), ());
                 first_is_curly := (
                   match(
                     first_inner,
                     .None => false,
-                    .Some(fi) => (fi.kind == TokenKind.LCurlyBracket)
+                    .Some(fi) => (fi.*.kind == TokenKind.LCurlyBracket)
                   ) || is_record_dot_at(tokens, fi_idx)
                 );
                 skip := (
@@ -1945,7 +1945,7 @@ is_tightly_bound_operator :: (
   fn(token : &Token, previous : &Option(Token), prev_prev : &Option(Token), next : &Option(Token)) -> bool
 )({
   // After a dot, always tight (e.g. ptr.*(x), ptr.&(x))
-  prev_is_dot := match(previous, .None => false, .Some(p) => (p.kind == TokenKind.Dot));
+  prev_is_dot := match(previous, .None => false, .Some(p) => (p.*.*.kind == TokenKind.Dot));
   // PREFIX-PRIMARY tightness (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md
   // Rule 1): a prefix-capable operator in PREFIX POSITION (previous is not
   // an rvalue-end) followed by an atom-like token or another prefix
@@ -1953,7 +1953,7 @@ is_tightly_bound_operator :: (
   // before comes from prefix_operator_needs_leading_space). Canonicalizes
   // regardless of source spacing: `- 1` and `-1` are the same tokens.
   is_prefix_capable := (
-    (token.value.* == "-") || (token.value.* == "!") || (token.value.* == "~") || (token.value.* == "&") || (token.value.* == "*") || (token.value.* == "?")
+    (token.*.*.value.* == "-") || (token.*.*.value.* == "!") || (token.*.*.value.* == "~") || (token.*.*.value.* == "&") || (token.*.*.value.* == "*") || (token.*.*.value.* == "?")
   );
   // A postfix DEREF (`.*` / `.&` — a `*`/`&` operator directly after a
   // Dot) ENDS an rvalue, so an operator following it is INFIX, not prefix:
@@ -1962,17 +1962,17 @@ is_tightly_bound_operator :: (
     previous,
     .None => false,
     .Some(p) => (
-      (p.kind == TokenKind.Operator) && ((p.value.* == "*") || (p.value.* == "&")) &&
-        match(prev_prev, .None => false, .Some(pp) => (pp.kind == TokenKind.Dot))
+      (p.*.*.kind == TokenKind.Operator) && ((p.*.*.value.* == "*") || (p.*.*.value.* == "&")) &&
+        match(prev_prev, .None => false, .Some(pp) => (pp.*.*.kind == TokenKind.Dot))
     )
   );
   prefix_position := match(
     previous,
     .None => true,
     .Some(p) => !(
-      is_atom_like_token(p.kind) || prev_is_postfix_deref ||
-        (p.kind == TokenKind.RParen) ||
-          (p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket)
+      is_atom_like_token(p.*.*.kind) || prev_is_postfix_deref ||
+        (p.*.*.kind == TokenKind.RParen) ||
+          (p.*.*.kind == TokenKind.RBracket) || (p.*.*.kind == TokenKind.RCurlyBracket)
     )
   );
   // A slice type `[T]` is an operand too (`&[i32]`, `*[u8]`; decision 49).
@@ -1980,9 +1980,9 @@ is_tightly_bound_operator :: (
     next,
     .None => false,
     .Some(n) => (
-      is_atom_like_token(n.kind) || (n.kind == TokenKind.LBracket) || (
-        (n.kind == TokenKind.Operator) && (
-          (n.value.* == "-") || (n.value.* == "!") || (n.value.* == "~") || (n.value.* == "&") || (n.value.* == "*") || (n.value.* == "?")
+      is_atom_like_token(n.*.*.kind) || (n.*.*.kind == TokenKind.LBracket) || (
+        (n.*.*.kind == TokenKind.Operator) && (
+          (n.*.*.value.* == "-") || (n.*.*.value.* == "!") || (n.*.*.value.* == "~") || (n.*.*.value.* == "&") || (n.*.*.value.* == "*") || (n.*.*.value.* == "?")
         )
       )
     )
@@ -1991,7 +1991,7 @@ is_tightly_bound_operator :: (
     prev_is_dot => true,
     (is_prefix_capable && prefix_position && next_starts_prefix_operand) => true,
     true => {
-      next_is_lparen := match(next, .None => false, .Some(n) => (n.kind == TokenKind.LParen));
+      next_is_lparen := match(next, .None => false, .Some(n) => (n.*.*.kind == TokenKind.LParen));
       cond(
         !next_is_lparen => false,
         true => {
@@ -2002,11 +2002,11 @@ is_tightly_bound_operator :: (
             next,
             .None => false,
             .Some(n) => (
-              (n.row == token.row) &&
+              (n.*.*.row == token.*.*.row) &&
                 // RUNE columns (the lexer indexes an ArrayList(rune)), so the
                 // token width added to one has to be a rune count
                 // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-                (usize(n.column) == (usize(token.column) + token.value.*.clone().chars().count()))
+                (usize(n.*.*.column) == (usize(token.*.*.column) + token.*.*.value.*.clone().chars().count()))
             )
           );
           cond(
@@ -2016,10 +2016,10 @@ is_tightly_bound_operator :: (
                 previous,
                 .None => false,
                 .Some(p) => (
-                  is_atom_like_token(p.kind) ||
-                    (p.kind == TokenKind.RParen) ||
-                      (p.kind == TokenKind.RBracket) ||
-                        (p.kind == TokenKind.RCurlyBracket)
+                  is_atom_like_token(p.*.*.kind) ||
+                    (p.*.*.kind == TokenKind.RParen) ||
+                      (p.*.*.kind == TokenKind.RBracket) ||
+                        (p.*.*.kind == TokenKind.RCurlyBracket)
                 )
               );
               !prev_is_rvalue_end
@@ -2301,8 +2301,8 @@ raw_token_value :: (fn(input : &String, tokens : &ArrayList(Token), index : usiz
     tokens.get_cloned(index),
     .None => String.new(),
     .Some(t) => cond(
-      (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, usize(t.byte_offset)),
-      true => t.value.*.clone()
+      (t.*.kind == TokenKind.TemplateString) => read_raw_template_string(input, usize(t.*.byte_offset)),
+      true => t.*.value.*.clone()
     )
   )
 );
@@ -2357,7 +2357,7 @@ _format_yo_source_impl :: (
         while(ti < nt, {
           match(
             all_tokens.get_cloned(ti),
-            .Some(t) => if(t.kind != TokenKind.Whitespace, {
+            .Some(t) => if(t.*.kind != TokenKind.Whitespace, {
               significant_tokens.push(t);
             }),
             .None => ()
@@ -2444,12 +2444,12 @@ _format_yo_source_impl :: (
             raw := match(raw_values.get_cloned(index), .Some(s) => s, .None => String.new());
             // ---- Comment handling ----
             cond(
-              is_comment_token(token.kind) => {
+              is_comment_token(token.*.kind) => {
                 // Insert newline if comment is on a later row.
                 prev_row_check := match(
                   previous,
                   .None => false,
-                  .Some(p) => ((token.row > p.row) && !at_line_start)
+                  .Some(p) => ((token.*.row > p.*.row) && !at_line_start)
                 );
                 if(prev_row_check, {
                   // Trim trailing whitespace + add newline.
@@ -2460,7 +2460,7 @@ _format_yo_source_impl :: (
                   at_line_start = true;
                 });
                 cond(
-                  is_line_comment_token(token.kind) => {
+                  is_line_comment_token(token.*.kind) => {
                     if(!at_line_start, {
                       if(!result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n")), {
                         result.push_str(" ");
@@ -2515,8 +2515,8 @@ _format_yo_source_impl :: (
                       next,
                       .None => false,
                       .Some(nx) => (
-                        (nx.row >= (token.row + u32(2))) && !(
-                          (nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket) || (nx.kind == TokenKind.RCurlyBracket)
+                        (nx.*.row >= (token.*.row + u32(2))) && !(
+                          (nx.*.kind == TokenKind.RParen) || (nx.*.kind == TokenKind.RBracket) || (nx.*.kind == TokenKind.RCurlyBracket)
                         )
                       )
                     );
@@ -2584,7 +2584,7 @@ _format_yo_source_impl :: (
                         next_on_same_row := match(
                           next,
                           .None => false,
-                          .Some(nx) => (nx.row == token.row)
+                          .Some(nx) => (nx.*.row == token.*.row)
                         );
                         if(next_on_same_row && (!at_line_start && !result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n"))), {
                           result.push_str(" ");
@@ -2600,7 +2600,7 @@ _format_yo_source_impl :: (
               true => {
                 // ---- TokenKind dispatch ----
                 cond(
-                  (token.kind == TokenKind.LCurlyBracket) => {
+                  (token.*.kind == TokenKind.LCurlyBracket) => {
                     cond(
                       inline_curly_indices.contains(&index) => {
                         is_multiline := multiline_inline_curly_indices.contains(&index);
@@ -2624,7 +2624,7 @@ _format_yo_source_impl :: (
                             });
                             result.push_str("{");
                             indent_level = (indent_level + usize(1));
-                            next_is_rcurly := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
+                            next_is_rcurly := match(next.clone(), .None => false, .Some(nx) => (nx.*.kind == TokenKind.RCurlyBracket));
                             if(!next_is_rcurly && match(next, .None => false, .Some(_) => true), {
                               if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
@@ -2643,7 +2643,7 @@ _format_yo_source_impl :: (
                               at_line_start = false;
                             });
                             result.push_str("{");
-                            next_is_rcurly := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
+                            next_is_rcurly := match(next.clone(), .None => false, .Some(nx) => (nx.*.kind == TokenKind.RCurlyBracket));
                             if(!next_is_rcurly && match(next, .None => false, .Some(_) => true) && (!at_line_start && !result.ends_with(String.from(" "))), {
                               result.push_str(" ");
                             });
@@ -2674,7 +2674,7 @@ _format_yo_source_impl :: (
                       }
                     );
                   },
-                  (token.kind == TokenKind.RCurlyBracket) => {
+                  (token.*.kind == TokenKind.RCurlyBracket) => {
                     // Pop frame
                     cur_inline := cond(
                       (curly_stack_inline.len() > usize(0)) => match(curly_stack_inline.last(), .Some(x) => x, .None => false),
@@ -2718,7 +2718,7 @@ _format_yo_source_impl :: (
                             result.push_str("}");
                           },
                           true => {
-                            prev_is_lcurly := match(previous, .None => false, .Some(p) => (p.kind == TokenKind.LCurlyBracket));
+                            prev_is_lcurly := match(previous, .None => false, .Some(p) => (p.*.kind == TokenKind.LCurlyBracket));
                             if(!at_line_start && !prev_is_lcurly, {
                               if(!result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n")), {
                                 result.push_str(" ");
@@ -2763,7 +2763,7 @@ _format_yo_source_impl :: (
                       curly_depth = (curly_depth - usize(1));
                     });
                   },
-                  (token.kind == TokenKind.LParen) => {
+                  (token.*.kind == TokenKind.LParen) => {
                     is_multiline := multiline_paren_indices.contains(&index);
                     if(at_line_start, {
                       (sp : usize) = usize(0);
@@ -2780,7 +2780,7 @@ _format_yo_source_impl :: (
                     paren_depth = (paren_depth + usize(1));
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
-                      next_is_rparen := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RParen));
+                      next_is_rparen := match(next.clone(), .None => false, .Some(nx) => (nx.*.kind == TokenKind.RParen));
                       if(!next_is_rparen && match(next, .None => false, .Some(_) => true), {
                         if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
@@ -2789,7 +2789,7 @@ _format_yo_source_impl :: (
                       });
                     });
                   },
-                  (token.kind == TokenKind.LBracket) => {
+                  (token.*.kind == TokenKind.LBracket) => {
                     is_multiline := multiline_bracket_indices.contains(&index);
                     bracket_stack_multiline.push(is_multiline);
                     bracket_stack_paren_depths.push(paren_depth);
@@ -2807,7 +2807,7 @@ _format_yo_source_impl :: (
                     result.push_str("[");
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
-                      next_is_rbracket := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RBracket));
+                      next_is_rbracket := match(next.clone(), .None => false, .Some(nx) => (nx.*.kind == TokenKind.RBracket));
                       if(!next_is_rbracket && match(next, .None => false, .Some(_) => true), {
                         if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
@@ -2816,7 +2816,7 @@ _format_yo_source_impl :: (
                       });
                     });
                   },
-                  (token.kind == TokenKind.RParen) => {
+                  (token.*.kind == TokenKind.RParen) => {
                     // close_operator_continuations
                     (closing_done : bool) = false;
                     while((continuation_paren.len() > usize(0)) && !closing_done, {
@@ -2886,7 +2886,7 @@ _format_yo_source_impl :: (
                       paren_depth = (paren_depth - usize(1));
                     });
                   },
-                  (token.kind == TokenKind.RBracket) => {
+                  (token.*.kind == TokenKind.RBracket) => {
                     // close_operator_continuations
                     (closing_done2 : bool) = false;
                     while((continuation_paren.len() > usize(0)) && !closing_done2, {
@@ -2957,7 +2957,7 @@ _format_yo_source_impl :: (
                       }
                     );
                   },
-                  (token.kind == TokenKind.Comma) => {
+                  (token.*.kind == TokenKind.Comma) => {
                     // close_operator_continuations
                     (closing_done3 : bool) = false;
                     while((continuation_paren.len() > usize(0)) && !closing_done3, {
@@ -2994,7 +2994,7 @@ _format_yo_source_impl :: (
                       next.clone(),
                       .None => false,
                       .Some(nx) => (
-                        (nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket) || (nx.kind == TokenKind.RCurlyBracket)
+                        (nx.*.kind == TokenKind.RParen) || (nx.*.kind == TokenKind.RBracket) || (nx.*.kind == TokenKind.RCurlyBracket)
                       )
                     );
                     // A line comment on the comma's own row annotates the item
@@ -3004,7 +3004,7 @@ _format_yo_source_impl :: (
                     next_is_trailing_comment := match(
                       next.clone(),
                       .None => false,
-                      .Some(nx) => (is_line_comment_token(nx.kind) && (nx.row == token.row))
+                      .Some(nx) => (is_line_comment_token(nx.*.kind) && (nx.*.row == token.*.row))
                     );
                     if(!next_is_closer && (!next_is_trailing_comment && match(next, .None => false, .Some(_) => true)), {
                       cur_bracket_ml := cond(
@@ -3124,9 +3124,9 @@ _format_yo_source_impl :: (
                       );
                     });
                   },
-                  (token.kind == TokenKind.Semicolon) => {
-                    next_is_not_rbracket := match(next.clone(), .None => false, .Some(nx) => (nx.kind != TokenKind.RBracket));
-                    next_is_not_comment := match(next.clone(), .None => true, .Some(nx) => !is_comment_token(nx.kind));
+                  (token.*.kind == TokenKind.Semicolon) => {
+                    next_is_not_rbracket := match(next.clone(), .None => false, .Some(nx) => (nx.*.kind != TokenKind.RBracket));
+                    next_is_not_comment := match(next.clone(), .None => true, .Some(nx) => !is_comment_token(nx.*.kind));
                     cond(
                       ((bracket_depth > usize(0)) && next_is_not_rbracket && next_is_not_comment) => {
                         if(!at_line_start && !result.ends_with(String.from(" ")), {
@@ -3171,7 +3171,7 @@ _format_yo_source_impl :: (
                         emit_newline := match(
                           next.clone(),
                           .None => false,
-                          .Some(nx) => (!is_comment_token(nx.kind) || (nx.row > token.row))
+                          .Some(nx) => (!is_comment_token(nx.*.kind) || (nx.*.row > token.*.row))
                         );
                         if(emit_newline, {
                           if(!result.ends_with(String.from("\n")), {
@@ -3179,7 +3179,7 @@ _format_yo_source_impl :: (
                           });
                           at_line_start = true;
                           // Preserve at most one blank line between statements
-                          next_row_diff := match(next, .None => usize(0), .Some(nx) => cond((nx.row > token.row) => usize(nx.row - token.row), true => usize(0)));
+                          next_row_diff := match(next, .None => usize(0), .Some(nx) => cond((nx.*.row > token.*.row) => usize(nx.*.row - token.*.row), true => usize(0)));
                           if(next_row_diff >= usize(2), {
                             result.push_str("\n");
                           });
@@ -3187,7 +3187,7 @@ _format_yo_source_impl :: (
                       }
                     );
                   },
-                  (token.kind == TokenKind.Dot) => {
+                  (token.*.kind == TokenKind.Dot) => {
                     // `trimTrailingHorizontalWhitespace(); write(".")` — the pending
                     // indent (when at line start) must be emitted BEFORE the dot:
                     // a line-leading dot pushed first leaves `at_line_start` set, and
@@ -3217,15 +3217,15 @@ _format_yo_source_impl :: (
                     });
                     result.push_str(".");
                   },
-                  (token.kind == TokenKind.Operator) => {
-                    is_colon_in_inline_curly := ((token.value.* == ":") && (inline_curly_depth > usize(0)));
+                  (token.*.kind == TokenKind.Operator) => {
+                    is_colon_in_inline_curly := ((token.*.value.* == ":") && (inline_curly_depth > usize(0)));
                     cond(
                       is_colon_in_inline_curly => {
                         if(!at_line_start && !result.ends_with(String.from(" ")), {
                           result.push_str(" ");
                         });
                         result.push_str(":");
-                        next_on_next_row := match(next, .None => false, .Some(nx) => (nx.row > token.row));
+                        next_on_next_row := match(next, .None => false, .Some(nx) => (nx.*.row > token.*.row));
                         cond(
                           next_on_next_row => {
                             // start_operator_continuation
@@ -3265,19 +3265,19 @@ _format_yo_source_impl :: (
                           });
                           at_line_start = false;
                         });
-                        result.push_string(&token.value.*);
+                        result.push_string(&token.*.value.*);
                       },
                       true => {
                         prev_is_open_bracket := match(
                           previous.clone(),
                           .None => false,
                           .Some(p) => (
-                            (p.kind == TokenKind.LParen) ||
-                              (p.kind == TokenKind.LBracket) || (p.kind == TokenKind.LCurlyBracket)
+                            (p.*.kind == TokenKind.LParen) ||
+                              (p.*.kind == TokenKind.LBracket) || (p.*.kind == TokenKind.LCurlyBracket)
                           )
                         );
                         if(!prev_is_open_bracket, {
-                          prev_on_earlier_row := match(previous, .None => false, .Some(p) => (token.row > p.row));
+                          prev_on_earlier_row := match(previous, .None => false, .Some(p) => (token.*.row > p.*.row));
                           cond(
                             prev_on_earlier_row => {
                               if(!result.ends_with(String.from("\n")), {
@@ -3301,8 +3301,8 @@ _format_yo_source_impl :: (
                           });
                           at_line_start = false;
                         });
-                        result.push_string(&token.value.*);
-                        next_on_next_row2 := match(next, .None => false, .Some(nx) => (nx.row > token.row));
+                        result.push_string(&token.*.value.*);
+                        next_on_next_row2 := match(next, .None => false, .Some(nx) => (nx.*.row > token.*.row));
                         cond(
                           next_on_next_row2 => {
                             // start_operator_continuation
@@ -3324,7 +3324,7 @@ _format_yo_source_impl :: (
                       }
                     );
                   },
-                  is_atom_like_token(token.kind) => {
+                  is_atom_like_token(token.*.kind) => {
                     if(needs_space_before_atom(&previous), {
                       if(!at_line_start && !result.ends_with(String.from(" ")), {
                         result.push_str(" ");

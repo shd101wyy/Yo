@@ -70,10 +70,10 @@ _mut_local_borrow_of_field :: (fn(p : &_P) -> unit)({
   }, "is a `&T` parameter, a read-only borrow");
 });
 _write_box_payload_field :: (fn(b : &Box(_P)) -> unit)({
-  comptime_expect_error(b.n = i32(1), "is a `&T` parameter, a read-only borrow");
+  comptime_expect_error(b.*.*.n = i32(1), "is a `&T` parameter, a read-only borrow");
 });
 _call_mut_method_on_box :: (fn(b : &Box(_P)) -> unit)({
-  comptime_expect_error(b.inc(), "Cannot");
+  comptime_expect_error(b.*.*.inc(), "Cannot");
 });
 _pass_whole_param_mut :: (fn(n : &i32) -> unit)({
   comptime_expect_error(_set_i32(&mut n.*, i32(1)), "Cannot");
@@ -123,7 +123,7 @@ test("a field write through a `&T` parameter is E0908", {
   assert(x.n == i32(0), "unchanged");
   assert(x.inner.m == i32(0), "unchanged");
   assert(x.arr(usize(0)) == i32(0), "unchanged");
-  assert(b.n == i32(0), "unchanged");
+  assert(b.*.n == i32(0), "unchanged");
 });
 // The writes that stay legal: a by-value parameter is the callee's own
 // value, and a `&mut T` parameter writes the caller's place. A collection is

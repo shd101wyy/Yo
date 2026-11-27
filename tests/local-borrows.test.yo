@@ -141,7 +141,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next;
+        cur = &mut n.*.next;
       },
       .None => ()
     );
@@ -155,8 +155,8 @@ sum_list :: (fn(list : &List) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.value);
-        cur = &n.next;
+        total = (total + n.*.*.value);
+        cur = &n.*.next;
       },
       .None => ()
     );
@@ -169,10 +169,10 @@ first_over :: (fn(list : &List, k : i32) -> i32)({
     match(
       cur,
       .Some(n) => {
-        if(n.value > k, {
-          return(n.value);
+        if(n.*.value > k, {
+          return(n.*.value);
         });
-        cur = &n.next;
+        cur = &n.*.next;
       },
       .None => ()
     );
@@ -511,7 +511,7 @@ comptime_expect_error(
       match(
         cur,
         .Some(n) => {
-          cur = &mut n.next;
+          cur = &mut n.*.next;
         },
         .None => ()
       );
@@ -636,10 +636,10 @@ test("a closure parameter named like a live borrow does not extend the borrow", 
     .None => ()
   );
   r := match(o, .Some(v) => v, .None => i32(0));
-  result.with_mut(cur => {
+  result.*.with_mut(cur => {
     cur.* = r;
   });
-  assert(result.with(c => c.*) == i32(6), "the write through the closure parameter landed");
+  assert(result.*.with(c => c.*) == i32(6), "the write through the closure parameter landed");
 });
 test("a match arm pattern that binds the name shadows the borrow", {
   (mut(o) : i32) = i32(1);
@@ -825,7 +825,7 @@ b_append :: (fn(list : &mut BList, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next;
+        cur = &mut n.*.next;
       },
       .None => ()
     );
@@ -840,8 +840,8 @@ b_sum :: (fn(list : &BList) -> i32)({
     match(
       cur,
       .Some(n) => {
-        cur = &n.next;
-        total = (total + n.value);
+        cur = &n.*.next;
+        total = (total + n.*.value);
       },
       .None => ()
     );
@@ -851,15 +851,15 @@ b_sum :: (fn(list : &BList) -> i32)({
 // `recur(&mut n.next)` passes the field's address, as a named call does
 // (issues/fixed/2026-11-05-recur-of-a-mut-borrowed-field-of-a-match-binding-passes-the-value-not-its-address.md).
 b_last_value :: (fn(slot : &mut Option(Box(BNode))) -> i32)(
-  match(slot, .Some(n) => cond(n.next.is_some() => recur(&mut n.next), true => n.value), .None => i32(-1))
+  match(slot, .Some(n) => cond(n.*.next.is_some() => recur(&mut n.*.next), true => n.*.value), .None => i32(-1))
 );
 // The same recursion writing through the address it was passed.
 b_bump_all :: (fn(slot : &mut Option(Box(BNode))) -> unit)(
   match(
     slot,
     .Some(n) => {
-      n.value = (n.value + i32(10));
-      recur(&mut n.next);
+      n.*.value = (n.*.value + i32(10));
+      recur(&mut n.*.next);
     },
     .None => ()
   )
@@ -891,7 +891,7 @@ comptime_expect_error(
       match(
         cur,
         .Some(n) => {
-          cur = &mut n.next;
+          cur = &mut n.*.next;
         },
         .None => ()
       );
@@ -941,7 +941,7 @@ comptime_expect_error(
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next;
+        cur = &mut n.*.next;
         seen = n.value;
       },
       .None => ()
@@ -981,8 +981,8 @@ r_sum :: (fn(list : &RList) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.value);
-        cur = &n.next;
+        total = (total + n.*.value);
+        cur = &n.*.next;
       },
       .None => ()
     );
@@ -1002,7 +1002,7 @@ comptime_expect_error(
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next;
+        cur = &mut n.*.next;
       },
       .None => ()
     );
@@ -1095,12 +1095,12 @@ test("a lent temporary of an enclosing statement is not released at an inner sta
   g_tmp_drops = i32(0);
   r := Rc.new(tmp_bag());
   (mut(sum) : i32) = i32(0);
-  for(&r.items, x => {
+  for(&r.*.items, x => {
     sum = (sum + x.*);
   });
   assert(sum == i32(3), "the loop reads every element");
   assert(g_tmp_drops == i32(0), "the loop body does not release the handle's temporary once per iteration");
-  assert(r.items.len() == usize(2), "the handle is still live after the loop");
+  assert(r.*.items.len() == usize(2), "the handle is still live after the loop");
 });
 test("a match binding's lent temporary is not released inside a loop in its arm", {
   g_tmp_drops = i32(0);
@@ -1109,7 +1109,7 @@ test("a match binding's lent temporary is not released inside a loop in its arm"
   match(
     tmp_share(&r),
     .Some(entry) => {
-      for(&entry.items, x => {
+      for(&entry.*.items, x => {
         sum = (sum + x.*);
       });
     },
@@ -1117,7 +1117,7 @@ test("a match binding's lent temporary is not released inside a loop in its arm"
   );
   assert(sum == i32(3), "the loop reads every element");
   assert(g_tmp_drops == i32(0), "the bag outlives the match: `r` still owns it");
-  assert(r.items.len() == usize(2), "the handle is still live after the match");
+  assert(r.*.items.len() == usize(2), "the handle is still live after the match");
 });
 // A holder's flow set is what its `=` joins added (O-1, §7), read wherever
 // the holder is read; a by-value parameter holder holds the caller's
@@ -1334,4 +1334,38 @@ comptime_expect_error(
     _ := read2;
   }),
   "declared over the empty origin `static`"
+);
+// VERDICTS-73: a local borrow through a handle's payload is written
+// `&b.*.x`, and it takes the check the step deref forwarding synthesized for
+// `&b.x` took: admitted, rooted at `b`, which stays frozen while the borrow
+// lives (E0911). A reference to a `Box` takes both stars (`&n.*.*.next`).
+_LbBox :: struct(x : i32, y : i32);
+test("a local borrow through a spelled Box star takes forwarding's step (VERDICTS-73)", {
+  b := Box.new(_LbBox(x : i32(1), y : i32(2)));
+  d := &b.*.x;
+  assert(d.* == i32(1), "the borrow reads the payload's field");
+  mut(m) := Box.new(_LbBox(x : i32(1), y : i32(2)));
+  {
+    e := &mut m.*.y;
+    e.* = i32(5);
+  };
+  assert(m.*.y == i32(5), "the write landed in the payload");
+  l := BList(head : .Some(Box.new(BNode(value : i32(7), next : .None))));
+  match(
+    &l.head,
+    .Some(n) => {
+      v := &n.*.*.value;
+      assert(v.* == i32(7), "a reference to a Box takes both stars");
+    },
+    .None => ()
+  );
+});
+comptime_expect_error(
+  local_borrow_through_a_spelled_box_freezes_the_box :: (fn() -> i32)({
+    mut(b) := Box.new(_LbBox(x : i32(1), y : i32(2)));
+    d := &b.*.x;
+    b = Box.new(_LbBox(x : i32(3), y : i32(4)));
+    d.*
+  }),
+  "Cannot write `b` here: `d` borrows `b.*.x`"
 );

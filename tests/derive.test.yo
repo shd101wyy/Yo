@@ -1137,6 +1137,6 @@ test("derive Clone and Hash over a Box field whose payload derives them later", 
   assert(hash_one(&a) == hash_one(&b), "a clone hashes like its source");
   e := DeLaterEnum.Held(b : Box.new(DeLaterPayload(n : i32(7))));
   f := e.clone();
-  assert(match(&f, .Held(fb) => (fb.*.n == i32(7)), .Bare => false), "the variant's payload is cloned");
+  assert(match(&f, .Held(fb) => (fb.*.*.n == i32(7)), .Bare => false), "the variant's payload is cloned");
   assert(hash_one(&e) == hash_one(&f), "a cloned variant hashes like its source");
 });
