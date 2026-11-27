@@ -1,0 +1,17 @@
+pragma(Pragma.Verify);
+
+spin :: (fn(x : i32, ensures(r > r)) -> (r : i32))({
+  mut(i) := x;
+  while(true, {
+    invariant(true);
+    i = i;
+  });
+  i
+});
+
+// The ensures clause is proved, so its run-time assert is erased; it calls a
+// contracted executable fn that never returns.
+wrong :: (fn(x : i32, ensures((spin(x) == spin(x)) && (r == i32(42)))) -> (r : i32))(x);
+
+// The caller trusts wrong's ensures. `yo verify --strict` proves r == 42.
+caller :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))(wrong(x));

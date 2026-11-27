@@ -155,7 +155,8 @@ export(main);
 - **The last use moves.** `y := x`, a by-value argument, a store, a capture
   and a return move a non-`Copy` value; a later use is E0901, whose help names
   the repair. There are no partial moves: copy the field, borrow it, or move
-  the whole value through a `match` struct pattern.
+  the whole value apart (`{ a, b } := x` consumes an owned `x`, as
+  `match(x, …)` does; `{ a, b } := &x` lends each field, read with `a.*`).
 - **Bindings are immutable** unless declared `mut(x) := v` /
   `(mut(x) : T) = v` (module-level ones too). Reassigning, lending `&mut`,
   calling a `&mut self` method or writing a field of an unmarked binding is

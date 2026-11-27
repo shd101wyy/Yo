@@ -1,0 +1,17 @@
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+{ panic } :: import("std/assert");
+
+// A value ghost_fn whose body panics off its intended domain.
+only42 :: ghost_fn((fn(x : i32) -> bool)(cond((x == i32(42)) => true, true => panic("no value"))));
+
+// `yo verify --strict` proves r == 42 for every x.
+wrong :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))({
+  ghost(t := only42(x));
+  x
+});
+
+main :: (fn() -> unit)({
+  println(wrong(i32(7)));
+});
+export(main);
