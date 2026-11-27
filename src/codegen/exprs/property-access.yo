@@ -27,7 +27,7 @@
 { _call_generate_expr } :: import("./dispatch.yo");
 { sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at, get_type_string, box_payload_place_code, unsized_place_fat_code } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime-value.yo");
-{ lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup } :: import("../../expr-info.yo");
+{ lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup, is_reference_self_place } :: import("../../expr-info.yo");
 { emit_deferred_dup_or_code } :: import("./drop-dup.yo");
 { dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, type_is_sized } :: import("../../types/utils.yo");
 /// `e` carries a deferred dup that is the caller-owned share of a call
@@ -315,9 +315,14 @@ _reference_or_none :: (fn(t : Option(TypeValue)) -> Option(TypeValue))(
 /// to: its C is the pointer's dereference, which a lend folds back to the
 /// pointer (`_apply_ref_amp`). A `&` field's `const T*` is read through a
 /// `T*`: the checker keeps the place read-only, and the place's address
-/// fills the `T*` every `&T` slot and projection result lowers to.
+/// fills the `T*` every `&T` slot and projection result lowers to. The field
+/// ITSELF (`is_reference_self_place`: the target of a store `h.r = &y`, the
+/// operand of `&mut h.r`, VERDICTS-78 Q1) is its own storage, the pointer.
 generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   code := _generate_field_access_raw(expr, indent, context);
+  if(is_reference_self_place(ast_expr_id(expr)), {
+    return(code);
+  });
   args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   ref_ty := match(
     args.get_cloned(usize(0)),

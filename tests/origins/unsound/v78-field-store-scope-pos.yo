@@ -1,0 +1,15 @@
+// expect: accept
+// VERDICTS-78 Q1: `h.r = &y` re-points the field; `y` outlives every read of `h`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+main :: (fn() -> unit)({
+  z := mk();
+  y := mk();
+  mut(h) := H(r : &z, n : i32(0));
+  h.r = &y;
+  println(`OUT: ${h.r.*.*.s.len().to_string()}`);
+});
+export(main);

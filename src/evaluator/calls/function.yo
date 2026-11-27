@@ -10882,6 +10882,31 @@ _lend_through_solve :: (
   });
   solved
 });
+/// The binding a field path is rooted at (`h` for `h.r`, `h.a.b`, `t.0`, and
+/// `w` for `w.*.r`, a field reached through a reference, a `Box` or another
+/// handle the binding holds: a store there is one the binding's flow set
+/// answers for, its own or, for a local `&mut` borrow, its target's).
+_field_path_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
+  if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(AstExpr).None);
+  });
+  (cur : AstExpr) = e.clone();
+  while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    (fr_next : Option(AstExpr)) = match(
+      Rc.clone(cur),
+      Rc(.FnCall(_, _, Rc(fr_args), _, _)) => match(fr_args.get_cloned(usize(1)), .Some(fr_l) => if(ast_expr_is_atom(&fr_l), fr_args.get_cloned(usize(0)), Option(AstExpr).None), .None => Option(AstExpr).None),
+      Rc(.Atom(_, _)) => Option(AstExpr).None
+    );
+    match(
+      fr_next,
+      .Some(n) => {
+        cur = n;
+      },
+      .None => return(Option(AstExpr).None)
+    );
+  });
+  if(ast_expr_is_atom(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
+});
 /// `lend_through` step 3's write-back into one holder: a flow-inferred
 /// holder joins the solved set (`bind_join_roots_for`, KILL when the store
 /// replaced its value); a parameter of the body being evaluated has its
@@ -11173,7 +11198,13 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
           if(debug_knob(`YO_DEBUG_N2B`).is_some() && !ast_expr_is_atom(&w_place), {
             eprintln(`[n2b] lend-through &mut value ${ast_expr_to_string(&w_node)}: projection=${w_projection.to_string()} roots=[${n2b_roots_text(&origin_of(&w_node, env, ctx))}]`);
           });
-          if(ast_expr_is_atom(&w_place) || w_projection, {
+          // A field of a holder (`&mut h.r`, `&mut h.o`): the callee's store
+          // lands in the field, so the holder the field path is rooted at
+          // joins what it stores, never KILLed (its other fields still hold
+          // what they held; VERDICTS-78 Q1).
+          w_field_root := _field_path_root(&w_place);
+          w_holder_atom := match(&w_field_root, .Some(fr) => fr.clone(), .None => w_place.clone());
+          if(ast_expr_is_atom(&w_place) || w_projection || w_field_root.is_some(), {
             // The origin parameters the pointee names, and its TYPE
             // parameters: `dst : &mut Option(T)` with `T := &S` is as much an
             // inference variable as a spelled `r` (the row
@@ -11218,7 +11249,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             // not the receiver's `p`), so step 2 cannot relate the two: the
             // arguments whose type occurs among the pointee's type arguments
             // are the candidates too.
-            w_holder_is_param := (ast_expr_is_atom(&w_place) && match(get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(), .Some(whp) => param_declared_origin_slot(&whp, env, ctx).is_some(), .None => false));
+            w_holder_is_param := (ast_expr_is_atom(&w_holder_atom) && match(get_variables_from_env(env, ast_expr_token(&w_holder_atom).value.*.clone()).last_cloned(), .Some(whp) => param_declared_origin_slot(&whp, env, ctx).is_some(), .None => false));
             if(unfixed || w_holder_is_param, {
               w_pointees := ArrayList(TypeValue).new();
               w_pointees.push(t_slot_pointee(&w_slot));
@@ -11240,7 +11271,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
               });
               if(((solved.len() > usize(0)) || (w_holder_is_param && (stored.len() > usize(0)))) && !w_projection, {
                 match(
-                  get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(),
+                  get_variables_from_env(env, ast_expr_token(&w_holder_atom).value.*.clone()).last_cloned(),
                   .Some(hv) => {
                     chain := reference_reborrow_chain(&hv, usize(64), env);
                     (n_ends : usize) = usize(0);
@@ -11261,7 +11292,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                             if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                               eprintln(`[n2b] write-back ${hh.name} (chain depth ${link.depth.to_string()}): roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
                             });
-                            _lend_write_back_into(&hh, &solved, &stored, (link.is_end && (n_ends == usize(1))), ast_expr_token(&w_arg), env, ctx, exn);
+                            _lend_write_back_into(&hh, &solved, &stored, (link.is_end && (n_ends == usize(1)) && w_field_root.is_none()), ast_expr_token(&w_arg), env, ctx, exn);
                             // A local `&mut` borrow of a holder (`sp := &mut
                             // slot`): the store lands in the holder (A25).
                             if(local_mut_borrow_of_holder(&hh), {
