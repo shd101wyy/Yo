@@ -148,7 +148,7 @@ test("an operator impl writes the trait's imm operands, Copy or not", {
 _PmMoney :: struct(c : i32);
 derive(_PmMoney, Copy, Clone);
 impl(_PmMoney, Add(_PmMoney)(Output : _PmMoney, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmMoney(c : (lhs.c + rhs.c)))));
-impl(_PmMoney, Negate(Output : _PmMoney, neg : (fn(self : Self) -> Self.Output)(_PmMoney(c : (i32(0) - self.c)))));
+impl(_PmMoney, Neg(Output : _PmMoney, neg : (fn(self : Self) -> Self.Output)(_PmMoney(c : (i32(0) - self.c)))));
 _PmTag :: struct(s : String);
 impl(_PmTag, Add(_PmTag)(Output : _PmTag, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmTag(s : lhs.s.concat(&rhs.s)))));
 test("arithmetic and unary operator impls take their operands by value", {
@@ -158,7 +158,7 @@ test("arithmetic and unary operator impls take their operands by value", {
   assert(sum.c == i32(5), "a by-value Add impl is accepted and called");
   assert(a.c == i32(2), "a Copy operand is copied: a stays usable");
   neg := -a;
-  assert(neg.c == i32(-2), "a by-value Negate impl is accepted and called");
+  assert(neg.c == i32(-2), "a by-value Neg impl is accepted and called");
   comptime_expect_error(impl(_PmV, Add(_PmV)(Output : _PmV, (+) : (fn(lhs : &Self, rhs : &Self) -> Self.Output)(_PmV(n : (lhs.n + rhs.n))))), "as written");
   comptime_expect_error(impl(_PmMoney, Eq(_PmMoney)((==) : (fn(lhs : Self, rhs : Self) -> bool)(lhs.c == rhs.c))), "as written");
 });

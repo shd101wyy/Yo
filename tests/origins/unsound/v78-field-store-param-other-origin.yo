@@ -1,0 +1,19 @@
+// expect: E0923
+// VERDICTS-78 Q1 edge 4: through `h : &mut Hp(p)`, a `&(T, q)` is outside `p`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+Hp :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p), n : i32));
+bad :: (fn(generic(p : Origin, q : Origin), h : &mut Hp(p), y : &(Rc(X), q)) -> unit)({
+  h.r = y;
+});
+main :: (fn() -> unit)({
+  z := mk();
+  y := mk();
+  mut(h) := Hp((z, y))(r : &z, n : i32(0));
+  bad(&mut h, &y);
+  println(`OUT: ${h.r.*.*.s.len().to_string()}`);
+});
+export(main);
