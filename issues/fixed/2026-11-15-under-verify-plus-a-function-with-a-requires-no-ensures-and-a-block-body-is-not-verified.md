@@ -3,14 +3,17 @@
 **Severity:** S2 — in a `Pragma.VerifyOrAssert` module every function that states a precondition, has no postcondition and has more than one statement is reported `subset` and proves nothing, where `Pragma.Verify` verifies the same function; `yo verify --strict` fails on it.
 
 Filed 2026-11-15 while measuring the cost of
-[`plans/backlog/DEFAULT_ON_VERIFICATION.md`](../plans/backlog/DEFAULT_ON_VERIFICATION.md),
+[`plans/backlog/DEFAULT_ON_VERIFICATION.md`](../../plans/backlog/DEFAULT_ON_VERIFICATION.md),
 which makes `verify+` the default mode. Reproduced with `yo 0.2.77` and with a
 build of `origin/develop` merged into `fix/sig-1` (`5c1b9c056`, 2026-11-15),
 Z3 5.1.0.
 
+- Status: FIXED by the `wip/v0281-dov-s0` branch (DEFAULT_ON_VERIFICATION step S0).
+  Reproduced before the fix with the v0.2.79 seed on `a471c290c`.
+
 ## Reproducer
 
-[`repros/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.yo`](repros/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.yo):
+[`repros/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.yo`](../repros/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.yo):
 
 ```yo
 pragma(Pragma.VerifyOrAssert);
@@ -86,15 +89,25 @@ binding matters.
 
 ## Root cause
 
-Not run to ground. The two modes differ in what the evaluator does with a
-function's contracts: `verify` suppresses the runtime asserts, `verify+`
-splices them and strips them after a proof. The report comes from the path
-that finds the body without `ExprInfo` after its definition-time trial (the
-`record_verify_task_def_eval_failure` site in
-`src/evaluator/calls/function_type.yo` and the driver's consult of it), so the
-`requires`-only wrapper spliced around a `begin` body is the place to look:
-with an `ensures` present the wrapper takes a different shape and the body is
-walked.
+Not the definition-time trial: nothing was swallowed, which is why no command
+could print an "underlying cause". The body node the verifier walks was never
+evaluated at all.
+
+`wrap_function_body_with_contracts` (`src/evaluator/builtins/contracts.yo`)
+splices a function's contract asserts into its body. With no `ensures` to
+splice, it builds `begin(<requires asserts>, <body>)`, and when the body is
+itself a `begin` it FLATTENS it: the body's statements become arguments of the
+new `begin`, and the body's own `begin` node is dropped. The evaluator then
+stamps `ExprInfo` on the statements but never on the dropped node. The
+`VerifyTask` carries the UNWRAPPED body (that dropped node), and the walk
+(`src/verifier/vc.yo`) finds its root untyped and fails the subset.
+
+`verify` mode already turned the flattening off (`flatten_body = false`, added
+with the verify-mode entry asserts). `verify+` did not, so the trigger was
+exactly: `verify+`, a requires-only splice (no `ensures`, or only proof-only
+ones such as a quantified `ensures`), and a block body. A single-expression
+body is pushed whole, and an `ensures` wrapper binds the whole body, so both
+kept the node.
 
 ## Why it matters now
 
@@ -103,12 +116,26 @@ least tested one: of the fixtures under `tests/spec/fixtures/valid/`, one
 (`verifyplus_abs.yo`) uses `Pragma.VerifyOrAssert`. Step S1 of that plan
 scaffolds this pragma into every new project.
 
-## Fix, and its test
+## Fix
 
-- Make `block` prove under `verify+` as it does under `verify`.
-- Whatever the cause, the diagnostic must name it, or at least must not point
-  at a command that prints nothing.
-- Tests: the reproducer as a fixture under `tests/spec/fixtures/valid/`,
-  expecting two proved functions; and a sweep that runs every fixture of that
-  directory in both modes and requires the same set of proved functions, which
-  is the gate that would have caught this.
+- `wrap_function_body_with_contracts` does not flatten in `verify` or
+  `verify+` mode, the two modes that register a `VerifyTask`. Runtime mode
+  still flattens (no task walks the node there).
+- The walk's message for an untyped root no longer sends the reader to `yo
+  check`. A trial that swallowed an error is reported by the driver with the
+  recorded message before the walk, so the walk's own message is reached only
+  when no error was recorded, and it now says that: "the body carries no type
+  information: its definition-time evaluation did not reach the body node and
+  recorded no error (a compiler defect)".
+
+## Tests
+
+- `tests/spec/fixtures/valid/verifyplus-requires-block.yo`: the reproducer
+  (`block`, `expr`), a unit-result block body, and a block body whose only
+  `ensures` is quantified (the block-body half of
+  `issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md`).
+  Before the fix `yo verify` reports 3 `subset-error`; after it, 5 `ok`.
+- `scripts/verify-both-modes.py`, run by the formal-verification job's harness
+  leg: every fixture of `tests/spec/fixtures/valid/` under `Pragma.Verify` and
+  under `Pragma.VerifyOrAssert` must prove the same set of functions. It
+  reports this fixture as diverging before the fix.

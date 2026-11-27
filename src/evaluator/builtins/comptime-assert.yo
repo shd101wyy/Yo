@@ -34,6 +34,7 @@
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
+{ witness_as_bool_note } :: import("../utils.yo");
 /// Raise the assertion failure, using the optional second argument as the
 /// message. Shared by the executing path and the validation path — a
 /// `comptime_assert` whose condition is a CONCRETE `false` is a failure in
@@ -224,7 +225,7 @@ evaluate_comptime_assert :: (
         Box.new(
           format_error_message(
             ast_expr_token(&arg_expr),
-            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nValue:\n${value_to_string(&arg_val)}`
+            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nValue:\n${value_to_string(&arg_val)}${witness_as_bool_note(&arg_expr)}`
           )
         )
       )

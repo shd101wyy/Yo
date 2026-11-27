@@ -26,6 +26,7 @@ json :: import("std/encoding/json");
   E_STRUCT_LITERAL_VS_BLOCK,
   E_CALL_SYNTAX,
   E_DELETED_SPELLING,
+  E_COMPOUND_ASSIGNMENT,
   E_VARIABLE_NOT_FOUND,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
@@ -59,6 +60,7 @@ json :: import("std/encoding/json");
   E_DEREF_OF_VALUE,
   E_DEREF_IMPL_SIZED_TARGET,
   E_TRAIT_BOUND_FORM,
+  E_TRAIT_AS_VALUE_TYPE,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
@@ -277,6 +279,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "{ String } :: import(\"std/string\");\nlen_of :: (fn(s : &String) -> usize)(s.len());\nexport(len_of);\n",
       "`imm(s) : String` is the deleted mode-word spelling of the read-only borrow `s : &String`.",
       "`imm(s) : String` 是只读借用 `s : &String` 已删除的模式关键字写法。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPOUND_ASSIGNMENT,
+      "compound assignment",
+      "复合赋值",
+      "Yo has no compound assignment operator: `x += 1` is written `x = (x + 1)`.",
+      "Yo 没有复合赋值运算符：`x += 1` 写作 `x = (x + 1)`。",
+      "Assignment is only `=`, and an operator is never fused with it: `x += 1`, `x -= d`, `flags |= m` and `bits <<= 1` are each an operator followed by `=`. Write the assignment out, with the operation parenthesized on the right: `x = (x + 1)`, `flags = (flags | m)`, `bits = (bits << 1)`. The parentheses are required, because Yo has no operator precedence between `=` and the operation. The same holds for `-`, `*`, `/`, `%`, `&`, `^` and `>>`. `yo fix` rewrites the compound form when the target and the right operand are each on one line.",
+      "赋值只有 `=`，运算符从不与它合并：`x += 1`、`x -= d`、`flags |= m` 和 `bits <<= 1` 都是一个运算符后面跟着 `=`。请把赋值完整写出，右侧的运算加上括号：`x = (x + 1)`、`flags = (flags | m)`、`bits = (bits << 1)`。括号是必需的，因为 Yo 在 `=` 与运算之间没有运算符优先级。`-`、`*`、`/`、`%`、`&`、`^` 和 `>>` 同理。当赋值目标与右操作数各自位于一行内时，`yo fix` 会改写复合形式。",
+      "main :: (fn() -> unit)({\n  (mut(x) : i32) = i32(4);\n  x += i32(1);\n  _y := x;\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  (mut(x) : i32) = i32(4);\n  x = (x + i32(1));\n  _y := x;\n});\nexport(main);\n",
+      "`x = (x + i32(1))` assigns the sum; `+=` is not an operator.",
+      "`x = (x + i32(1))` 赋值为和；`+=` 不是运算符。"
     )
   );
   out.push(
@@ -1152,16 +1169,31 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   out.push(
     _mk_explain(
       E_TRAIT_BOUND_FORM,
-      "a trait bound is written with `:` instead of `<:`",
-      "trait 约束用 `:` 写成，而不是 `<:`",
-      "An entry of a `where(...)` clause is written `T : Trait`. A trait bound is `T <: Trait`; `:` gives a name its type or kind.",
-      "`where(...)` 子句中的一项写成了 `T : Trait`。trait 约束写作 `T <: Trait`；`:` 给名字指定类型或种类。",
-      "`L <: R` says the type `L` implements the trait `R`; read it \"implements\". It is the only form a `where(...)` entry takes, in a function or type constructor's signature, a `trait(...)`, an `impl` header and a `derive`. Several bounds on one type are a tuple, `T <: (Clone, Hash)`. A `:` gives a name its type or its kind, as in `generic(T : Type)`, so `where(T : Clone)` would give `T` a second kind instead of a bound. The clause is checked where it is first read, so a mistyped bound is never dropped: an impl whose bound went unread would hold for every type. `yo fix` rewrites the `:` to `<:`.",
-      "`L <: R` 表示类型 `L` 实现了 trait `R`，读作“实现”。它是 `where(...)` 中每一项唯一的写法，无论出现在函数或类型构造器的签名、`trait(...)`、`impl` 头部还是 `derive` 中。同一类型上的多个约束写成元组 `T <: (Clone, Hash)`。`:` 给名字指定类型或种类，例如 `generic(T : Type)`，因此 `where(T : Clone)` 会给 `T` 第二个种类，而不是约束。子句在首次读取时就会检查，所以写错的约束绝不会被丢弃：若 impl 的约束未被读取，它将对所有类型成立。`yo fix` 会把 `:` 改写为 `<:`。",
+      "a trait bound in the wrong form",
+      "trait 约束的写法有误",
+      "A trait bound is written `T <: Trait` in a `where(...)` clause: a binder's `:` takes a kind, and `<:` relates a type to a trait.",
+      "trait 约束在 `where(...)` 子句中写作 `T <: Trait`：绑定者的 `:` 接受种类，`<:` 关联一个类型与一个 trait。",
+      "`<:` is the bound operator; read `L <: R` as \"`L` implements `R`\". It is the only form a `where(...)` entry takes, in a function or type constructor's signature, a `trait(...)`, an `impl` header and a `derive`; several bounds on one type are a tuple, `T <: (Clone, Hash)`. A `:` gives a name its type or its kind: `generic(T : Type)` is a binder and `where(T <: Clone)` its bound, so `where(T : Clone)`, `generic(T : Clone)`, `generic(T : (Clone, Hash))` and `generic(T <: Clone)` each put a bound where a kind is read. An associated type is declared `Item : Type` and bounded by the trait's `where(Self.Item <: Clone)`. The left side of `<:` is a type and the right side a trait: Yo has no subtyping between types, so `T <: Circle` with `Circle` a struct bounds nothing, and a supertrait is declared in the trait, `where(Self <: Shape)`. An impl's `where(...)` bounds the impl's own `generic(...)` binders. Every clause is checked where it is first read, so a mistyped bound is never dropped: an impl whose bound went unread would hold for every type. `yo fix` rewrites `where(T : Clone)` to `where(T <: Clone)`, and a bound in a binder's kind slot in two passes: the bound into the signature's `where(...)`, then the kind `Type`.",
+      "`<:` 是约束运算符；`L <: R` 读作“`L` 实现了 `R`”。它是 `where(...)` 中每一项唯一的写法，无论出现在函数或类型构造器的签名、`trait(...)`、`impl` 头部还是 `derive` 中；同一类型上的多个约束写成元组 `T <: (Clone, Hash)`。`:` 给名字指定类型或种类：`generic(T : Type)` 是绑定者，`where(T <: Clone)` 是它的约束，因此 `where(T : Clone)`、`generic(T : Clone)`、`generic(T : (Clone, Hash))` 和 `generic(T <: Clone)` 都把约束放在了读取种类的位置。关联类型声明为 `Item : Type`，并由 trait 的 `where(Self.Item <: Clone)` 约束。`<:` 的左侧是类型，右侧是 trait：Yo 的类型之间没有子类型关系，因此当 `Circle` 是结构体时 `T <: Circle` 不约束任何东西，而超 trait 在 trait 内声明为 `where(Self <: Shape)`。impl 的 `where(...)` 只约束该 impl 自己的 `generic(...)` 绑定者。每个子句在首次读取时就会检查，所以写错的约束绝不会被丢弃：若 impl 的约束未被读取，它将对所有类型成立。`yo fix` 会把 `where(T : Clone)` 改写为 `where(T <: Clone)`，并分两遍改写绑定者种类位置上的约束：先把约束写入签名的 `where(...)`，再把种类改为 `Type`。",
       "dup :: (fn(generic(T : Type), x : &T, where(T : Clone)) -> T)(x.clone());\nmain :: (fn() -> unit)({\n  a := i32(1);\n  _b := dup(&a);\n});\nexport(main);\n",
       "dup :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());\nmain :: (fn() -> unit)({\n  a := i32(1);\n  _b := dup(&a);\n});\nexport(main);\n",
       "`T <: Clone` says `T` implements `Clone`, so `x.clone()` is a `T`.",
       "`T <: Clone` 表示 `T` 实现了 `Clone`，因此 `x.clone()` 是一个 `T`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_TRAIT_AS_VALUE_TYPE,
+      "a trait used as a value's type",
+      "trait 被用作值的类型",
+      "A trait is not a type: a value's type is `Impl(Trait)`, `&Dyn(Trait)` or `Box(Dyn(Trait))`.",
+      "trait 不是类型：值的类型写作 `Impl(Trait)`、`&Dyn(Trait)` 或 `Box(Dyn(Trait))`。",
+      "A trait names a set of types, and a value has one type. Where a value's type is read (a parameter `a : Trait` or `a : &Trait`, a result `-> Trait`, a binding `(x : Trait) = v`, a struct field `struct(v : Trait)`), say which: `Impl(Trait)` is one implementing type chosen at compile time, so each call is specialized for its argument; `&Dyn(Trait)` borrows a value whose type is chosen at run time, and `Box(Dyn(Trait))` owns one; `dyn(&x)` and `dyn(Box.new(x))` make them. A generic function may instead name the type, `generic(T : Type)` with `where(T <: Trait)`, and take `a : &T`. With `P` a type, `(P : Trait)` declares a binding; the impl of `Trait` for `P` is `(P <: Trait)`, as in `(P <: Trait).m(x)`. The choice is the author's, so `yo fix` does not rewrite it.",
+      "trait 表示一组类型，而一个值只有一种类型。在读取值类型的位置（参数 `a : Trait` 或 `a : &Trait`、结果 `-> Trait`、绑定 `(x : Trait) = v`、结构体字段 `struct(v : Trait)`），需要写明是哪一种：`Impl(Trait)` 是编译期选定的一种实现类型，每次调用都会为其实参特化；`&Dyn(Trait)` 借用一个类型在运行时选定的值，`Box(Dyn(Trait))` 则拥有它；`dyn(&x)` 和 `dyn(Box.new(x))` 用来构造它们。泛型函数也可以为类型命名，即 `generic(T : Type)` 加 `where(T <: Trait)`，并接受 `a : &T`。当 `P` 是类型时，`(P : Trait)` 声明的是一个绑定；`Trait` 对 `P` 的 impl 写作 `(P <: Trait)`，例如 `(P <: Trait).m(x)`。该选择属于作者，因此 `yo fix` 不会改写它。",
+      "Area :: trait(area : (fn(self : &Self) -> i32));\nSq :: struct(s : i32);\nimpl(Sq, Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));\ntotal :: (fn(a : &Area) -> i32)(a.area());\nmain :: (fn() -> unit)({\n  q := Sq(s : i32(2));\n  _t := total(&q);\n});\nexport(main);\n",
+      "Area :: trait(area : (fn(self : &Self) -> i32));\nSq :: struct(s : i32);\nimpl(Sq, Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));\ntotal :: (fn(a : &Dyn(Area)) -> i32)(a.area());\nmain :: (fn() -> unit)({\n  q := Sq(s : i32(2));\n  _t := total(dyn(&q));\n});\nexport(main);\n",
+      "`&Dyn(Area)` borrows a value of any type implementing `Area`; `dyn(&q)` makes one.",
+      "`&Dyn(Area)` 借用任意实现了 `Area` 的类型的值；`dyn(&q)` 构造它。"
     )
   );
   // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────
