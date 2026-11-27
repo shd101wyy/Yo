@@ -1,0 +1,52 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+Raise :: (ctl(msg : &String) -> i32);
+
+// A helper that fails and is caught locally. Nothing escapes it.
+quiet :: (fn() -> String)({
+  (h : Raise) = (
+    msg -> {
+      unwind(`a string from the drop handler, long enough to live on the heap`);
+    }
+  );
+  r := leaf(h);
+  `ok ${r}`
+});
+leaf :: (fn(h : Raise) -> i32)(h(`inner`));
+
+Guard :: struct(id : i32);
+impl(
+  Guard,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      // cleanup code that uses a locally handled failure
+      v := quiet();
+      println(`drop guard ${self.id}: quiet()=${v}`);
+    })
+  )
+);
+
+mid :: (fn(a : Raise) -> i32)({
+  g := Guard(id : i32(1));
+  r := a(`outer`);
+  println(`mid: after a() r=${r} (must not print)`);
+  _ := &g;
+  (r + i32(10))
+});
+
+outer :: (fn() -> Option(Box(i32)))({
+  (a : Raise) = (
+    msg -> {
+      unwind(.None);
+    }
+  );
+  r := mid(a);
+  println(`outer: after mid r=${r} (must not print)`);
+  .Some(Box.new(r))
+});
+
+main :: (fn() -> unit)({
+  match(outer(), .Some(b) => println(`outer() = Some(${b.*}) (expected None)`), .None => println(`outer() = None`));
+});
+export(main);

@@ -1,0 +1,22 @@
+//! A generic function's `comptime(T.Output)` return is `T`'s `Output`, as the
+//! runtime `T.Output` return is
+//! (issues/fixed/2026-11-26-a-generic-comptime-associated-type-return-is-left-unresolved.md).
+{ assert } :: import("std/assert");
+neg_ct :: (fn(generic(T : Type), comptime(x) : T, where(T <: (Comptime, ComptimeNeg))) -> comptime(T.Output))(x.neg());
+neg_rt :: (fn(generic(T : Type), x : T, where(T <: Neg)) -> T.Output)(x.neg());
+CtV :: struct(x : i32);
+CtW :: struct(y : i32);
+impl(CtV, ComptimeNeg(Output : CtW, neg : (fn(comptime(self) : Self) -> comptime(Self.Output))(CtW(y : (i32(0) - self.x)))));
+test("a generic comptime(T.Output) return is T's Output", {
+  d := neg_ct(2.5);
+  assert(d == -2.5, "a float's ComptimeNeg.Output");
+  i := neg_ct(i32(2));
+  assert(i == i32(-2), "an i32's ComptimeNeg.Output");
+  x := f64(neg_ct(2.5));
+  assert(x == f64(-2.5), "the result converts like any float");
+  assert(neg_rt(i32(3)) == i32(-3), "the runtime twin");
+});
+test("a generic comptime(T.Output) return that is not T", {
+  w :: neg_ct(CtV(x : i32(3)));
+  assert(w.y == i32(-3), "CtV's ComptimeNeg.Output is CtW");
+});

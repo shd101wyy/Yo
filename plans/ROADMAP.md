@@ -31,6 +31,10 @@ Six lanes, at most four at once
 - **A. Soundness.** [`TYPE_SYSTEM_SOUNDNESS`](backlog/TYPE_SYSTEM_SOUNDNESS.md);
   the walls VBD dropped in [`REFERENCES_AND_ORIGINS`](backlog/REFERENCES_AND_ORIGINS.md),
   then the D1 thread-reach holes (A41/A42), scoped threads and lending iterators.
+  `ctl`/`unwind` kept and made correct
+  ([`CAPABILITIES_AND_HANDLERS`](backlog/CAPABILITIES_AND_HANDLERS.md)): the
+  core K-items in v0.2.82–84, the error-style pilot in v0.2.83, the go/no-go
+  for real handlers (H-0) in v0.2.85–86, handlers on AFA frames in v0.2.87–90.
 - **B. Runtime.** The `Io` interface
   ([`IO_INTERFACE_AND_STD_RUNTIME`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)),
   then allocation-free async ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md)),
@@ -46,10 +50,13 @@ Six lanes, at most four at once
   ([`AGENT_KNOWLEDGE_CONSOLIDATION`](backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md))
   and an evals corpus
   ([`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)).
-- **E. Verification.** Verification on by default
-  ([`DEFAULT_ON_VERIFICATION`](backlog/DEFAULT_ON_VERIFICATION.md), first);
-  `logic` and `lemma` replace `ghost_fn`
-  ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md)); verified std bodies
+- **E. Verification.** Soundness first (SPEC_AND_PROOF PR 1a/1b and
+  DEFAULT_ON_VERIFICATION S2, v0.2.81); then in parallel `logic` and `lemma`
+  replace `ghost_fn` ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md), ~v0.2.83)
+  and verification on by default
+  ([`DEFAULT_ON_VERIFICATION`](backlog/DEFAULT_ON_VERIFICATION.md) §3.1: the
+  solver shipped and incremental verification, then report by default); verified
+  std bodies after the split, then erase by default
   ([`SAFE_MODE`](backlog/SAFE_MODE.md),
   [`THEOREM_PROVING_DIRECTION`](backlog/THEOREM_PROVING_DIRECTION.md),
   [`SELF_VERIFICATION`](backlog/SELF_VERIFICATION.md)); a proved core

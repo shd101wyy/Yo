@@ -24,7 +24,7 @@ test("a safe function declares (alloc : Option(Allocator)) ?= .None and places a
     assert(counting_live() == base, "the default is the global allocator");
     n := _make_node(i32(2), alloc : .Some(a));
     assert(counting_live() == (base + usize(1)), `the placed cell is the counting allocator's: ${counting_live()}`);
-    assert((g.name + n.name) == i32(3), "the payloads");
+    assert((g.*.name + n.*.name) == i32(3), "the payloads");
   };
   assert(counting_live() == base, `the placed cell went back: ${counting_live()}`);
 });
@@ -35,7 +35,7 @@ test("an Allocator parameter and a struct holding one pass placement on", {
     m := _place_in(a, i32(3));
     k := _make_with(_Placement(alloc : .Some(a), label : i32(4)));
     assert(counting_live() == (base + usize(2)), `both cells are placed: ${counting_live()}`);
-    assert((m.name + k.name) == i32(7), "the payloads");
+    assert((m.*.name + k.*.name) == i32(7), "the payloads");
   };
   assert(counting_live() == base, `both cells went back: ${counting_live()}`);
 });

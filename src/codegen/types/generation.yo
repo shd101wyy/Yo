@@ -423,7 +423,7 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
       // Simple C enum (all variants fieldless).
       if(can_optimize_as_simple_enum(enum_type), {
         context.emitter.emit_declaration_string_line(`typedef enum { // ${name} : ${type_to_string(enum_type)} (optimized as simple enum)`);
-        _emit_enum_tags(c_name, &variant_names.items, &variant_discriminants.items, context);
+        _emit_enum_tags(c_name, &variant_names.*.*.items, &variant_discriminants.*.*.items, context);
         context.emitter.emit_declaration_string_line(`} ${c_name};`);
         context.emitter.emit_declaration_line("");
         return(());
@@ -433,7 +433,7 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
       tag_enum_name.push_string(c_name.clone());
       tag_enum_name.push_str("_tag");
       context.emitter.emit_declaration_line("typedef enum {");
-      _emit_enum_tags(c_name, &variant_names.items, &variant_discriminants.items, context);
+      _emit_enum_tags(c_name, &variant_names.*.*.items, &variant_discriminants.*.*.items, context);
       context.emitter.emit_declaration_string_line(`} ${tag_enum_name};`);
       context.emitter.emit_declaration_line("");
       // Data union (struct per variant with non-unit fields). When NO variant
@@ -1593,7 +1593,7 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
     match(
       field_ty,
       Rc(.Func({ param_types, result, meta : __fm1 })) => {
-        param_labels := Rc.clone(__fm1.param_labels);
+        param_labels := Rc.clone(__fm1.*.*.param_labels);
         // Only methods whose first param is `self`, and that a Dyn can call
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.

@@ -37,7 +37,7 @@ impl(
   Tracked,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      _old := self.c.n.replace_with(n => (n.* + i32(1)));
+      _old := self.c.*.n.replace_with(n => (n.* + i32(1)));
     })
   )
 );
@@ -109,7 +109,7 @@ _disposes :: (fn(f : &Impl(Fn(c : &Rc(Counter)) -> bool)) -> i32)({
     _r := f(&c);
     i = (i + usize(1));
   });
-  c.n.with(n => n.*)
+  c.*.n.with(n => n.*)
 });
 test("whole-body || drops both operand temps", {
   got := _disposes(_two_or);
@@ -150,7 +150,7 @@ test("|| in a while body drops its operand temps every iteration", {
     _r := _in_while(&c);
     i = (i + usize(1));
   });
-  got := c.n.with(n => n.*);
+  got := c.*.n.with(n => n.*);
   assert(got == i32(600), `2 temps x 3 iterations x 100 calls, got ${got.to_string()}`);
 });
 // ── a value the right operand MOVES ───────────────────────────────────────
@@ -215,7 +215,7 @@ _disposes_flags :: (fn(f : &Impl(Fn(c : &Rc(Counter), a : bool, b : bool) -> boo
     _r := f(&c, (k != usize(0)), (k == usize(2)));
     i = (i + usize(1));
   });
-  c.n.with(n => n.*)
+  c.*.n.with(n => n.*)
 });
 test("a local the right operand of && moves is dropped once on either path", {
   got := _disposes_flags(_and_moves);

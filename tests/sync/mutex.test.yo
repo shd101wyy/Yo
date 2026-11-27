@@ -92,29 +92,29 @@ test("Mutex serializes concurrent read-modify-write, losing no update", {
   mut(handles) := ArrayList(Thread(unit)).new();
   (mut(t) : i64) = i64(0);
   while(t < _THREADS, {
-    wg.add(i32(1));
+    wg.*.add(i32(1));
     handles.push(
       Thread(unit).spawn({ counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
         (mut(i) : i64) = i64(0);
         while(i < _INCREMENTS_PER_THREAD, {
-          counter.with_lock(v => {
+          counter.*.with_lock(v => {
             v.* = (v.* + i64(1));
           });
           i = (i + i64(1));
         });
-        wg.done();
+        wg.*.done();
       })
     );
     t = (t + i64(1));
   });
-  wg.wait();
+  wg.*.wait();
   (mut(j) : usize) = usize(0);
   while(j < handles.len(), {
     handles(j).join();
     j = (j + usize(1));
   });
   expected := (_THREADS * _INCREMENTS_PER_THREAD);
-  got := counter.with_lock(v => v.*);
+  got := counter.*.with_lock(v => v.*);
   assert(got == expected, `expected ${expected} increments, saw ${got}`);
 });
 test("Mutex.with_lock hands back the closure's value and mutations persist", {
@@ -138,33 +138,33 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
   mut(handles) := ArrayList(Thread(unit)).new();
   (mut(t) : i64) = i64(0);
   while(t < _THREADS, {
-    wg.add(i32(1));
+    wg.*.add(i32(1));
     handles.push(
       Thread(unit).spawn({ m : Arc.clone(m), wg : Arc.clone(wg) }(io) => {
         (mut(i) : i64) = i64(0);
         while(i < i64(500), {
           // Two separate critical sections per iteration: acquire, release,
           // acquire again.
-          m.with_lock(v => {
+          m.*.with_lock(v => {
             v.* = (v.* + i64(1));
           });
-          m.with_lock(v => {
+          m.*.with_lock(v => {
             v.* = (v.* - i64(1));
           });
           i = (i + i64(1));
         });
-        wg.done();
+        wg.*.done();
       })
     );
     t = (t + i64(1));
   });
-  wg.wait();
+  wg.*.wait();
   (mut(j) : usize) = usize(0);
   while(j < handles.len(), {
     handles(j).join();
     j = (j + usize(1));
   });
-  final := m.with_lock(v => v.*);
+  final := m.*.with_lock(v => v.*);
   assert(final == i64(0), `every increment was matched by a decrement, got ${final}`);
 });
 // ============================================================================
@@ -191,19 +191,19 @@ test("try_with_lock returns None while ANOTHER thread holds the mutex", {
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
-    m.with_lock(v => {
+    m.*.with_lock(v => {
       _ := held.send(i32(1));
       release.recv();
       v.* = i64(99);
     });
   });
   held.recv();
-  blocked := m.try_with_lock(v => v.*);
+  blocked := m.*.try_with_lock(v => v.*);
   assert(blocked.is_none(), "a held mutex gives .None, and the body never ran");
   _ := release.send(i32(1));
   holder.join();
   // Once released it is takeable again, and the holder's write is visible.
-  after := m.try_with_lock(v => v.*);
+  after := m.*.try_with_lock(v => v.*);
   assert(after.is_some(), "takeable again after the holder released");
   assert(after.unwrap() == i64(99), "the holder's write is visible");
 });
@@ -215,7 +215,7 @@ test("try_with_lock does not run the body when it fails", {
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
-    m.with_lock(v => {
+    m.*.with_lock(v => {
       _ := held.send(i32(1));
       release.recv();
     });
@@ -223,7 +223,7 @@ test("try_with_lock does not run the body when it fails", {
   held.recv();
   // The body borrows `ran` (`&ran`): an implicit capture would move the
   // move-only atomic into the closure.
-  m.try_with_lock({ &ran }(v) => {
+  m.*.try_with_lock({ &ran }(v) => {
     ran.fetch_add(i32(1), MemoryOrder.SeqCst);
   });
   assert(ran.load(MemoryOrder.SeqCst) == i32(0), "the body did not run at all");
@@ -232,20 +232,20 @@ test("try_with_lock does not run the body when it fails", {
 });
 test("is_unlocked answers about the past, and says so", {
   m := Arc.new(Mutex(i64).new(i64(0)));
-  assert(m.is_unlocked(), "a fresh mutex is unlocked");
+  assert(m.*.is_unlocked(), "a fresh mutex is unlocked");
   // It takes the lock to find out and releases it again, so it must leave the
   // mutex takeable.
-  assert(m.try_with_lock(v => v.*).is_some(), "is_unlocked released what it took");
+  assert(m.*.try_with_lock(v => v.*).is_some(), "is_unlocked released what it took");
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
-    m.with_lock(v => {
+    m.*.with_lock(v => {
       _ := held.send(i32(1));
       release.recv();
     });
   });
   held.recv();
-  assert(!m.is_unlocked(), "a held mutex reports locked");
+  assert(!m.*.is_unlocked(), "a held mutex reports locked");
   _ := release.send(i32(1));
   holder.join();
 });
@@ -274,16 +274,16 @@ test("is_unlocked from the holding thread reports locked", {
 });
 test("RawMutex records its holder", {
   r := Arc.new(RawMutex.new());
-  assert(!r.held_by_current_thread(), "fresh lock is unheld");
-  r.lock();
-  assert(r.held_by_current_thread(), "held after lock");
-  assert(!r.try_lock(), "the holder's try_lock is false on every platform");
-  other := Thread(bool).spawn({ r : Arc.clone(r) }(io) => r.held_by_current_thread());
+  assert(!r.*.held_by_current_thread(), "fresh lock is unheld");
+  r.*.lock();
+  assert(r.*.held_by_current_thread(), "held after lock");
+  assert(!r.*.try_lock(), "the holder's try_lock is false on every platform");
+  other := Thread(bool).spawn({ r : Arc.clone(r) }(io) => r.*.held_by_current_thread());
   assert(!other.join(), "another thread does not hold it");
-  r.unlock();
-  assert(!r.held_by_current_thread(), "unheld after unlock");
-  assert(r.try_lock(), "free again");
-  r.unlock();
+  r.*.unlock();
+  assert(!r.*.held_by_current_thread(), "unheld after unlock");
+  assert(r.*.try_lock(), "free again");
+  r.*.unlock();
 });
 test("Cond.wait_with restores the holder record after the wait", {
   m := Arc.new(Mutex(i32).new(i32(0)));
@@ -292,18 +292,18 @@ test("Cond.wait_with restores the holder record after the wait", {
     io;
     // The body borrows this thread's `Arc` handles (`&m`, `&cv`) and lends the
     // mutex itself to `wait_with`.
-    m.with_lock({ &m, &cv }(v) => {
+    m.*.with_lock({ &m, &cv }(v) => {
       while(v.* == i32(0), {
-        cv.wait_with(&m.*.*);
+        cv.*.*.wait_with(&m.*.*);
       });
       // Back from the OS wait holding the mutex: the owner record must say so,
       // or the guard's unlock at the end of this closure would trap.
-      !m.is_unlocked()
+      !m.*.*.is_unlocked()
     })
   });
-  m.with_lock(v => {
+  m.*.with_lock(v => {
     v.* = i32(1);
-    cv.broadcast();
+    cv.*.broadcast();
   });
   assert(waiter.join(), "the waiter holds the mutex after wait_with returns");
 });
