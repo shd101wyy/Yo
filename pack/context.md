@@ -216,6 +216,10 @@ export(main);
   only from parameter `s`; `generic(p : Origin)` declares one, and a struct
   holding a reference takes `comptime(p) : Origin`. No reference may live in a
   collection element, a heap cell, a global or another thread.
+- **Reference fields**: `h.r.*` reads the referent; `h.r = &y` re-points the
+  field (checked as writing the whole holder: `y` must outlive `h`), and
+  `&mut h.r` lends the field itself to a `&mut &T` slot. `h.r = v` with a
+  value `v` is E0926 (write the referent with `h.r.* = v` on a `&mut` field).
 
 ```yo
 { assert } :: import("std/assert");

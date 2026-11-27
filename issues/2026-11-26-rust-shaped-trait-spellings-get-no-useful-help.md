@@ -119,7 +119,7 @@ help: run `yo explain E0610` for more information
 yo: error: check: 1 file(s) failed evaluator coverage
 ```
 
-Rust's `!` on an integer is `~` in Yo (`BitNot`); `!` yields `bool` (`LogicalNot`) and is defined only on `bool`-like operands. The error should name `~`. (If `issues/questions/2026-11-26-should-bang-on-a-number-be-deleted.md` is accepted, `!` at any numeric slot lands here.)
+Rust's `!` on an integer is `~` in Yo (`BitNot`); `!` yields `bool` (`LogicalNot`) and is defined only on `bool`-like operands. The error should name `~`. (If `issues/fixed/2026-11-26-should-bang-on-a-number-be-deleted.md` is accepted, `!` at any numeric slot lands here.)
 
 ## 5. Unary `-` on a moved value: E0610 instead of E0901
 
