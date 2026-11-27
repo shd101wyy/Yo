@@ -238,7 +238,7 @@ test("capture list: a `&mut` binding's by-value entry moves the reference into t
   {
     m := &mut x;
     // Holding a `&mut` capture makes it an `FnMut` closure.
-    mut(get) := ({ m }() => m.*);
+    (mut(get) : Impl(FnMut() -> i32)) = ({ m }() => m.*);
     assert(get() == i32(1), "the closure reads through the moved reference");
   };
   {

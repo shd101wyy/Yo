@@ -1641,6 +1641,11 @@ is_reference_repoint_by_move :: (fn(expr : &AstExpr, env : &Environment, ctx : &
   if(!(ast_expr_is_atom(&lhs) && ast_expr_is_atom(&rhs)), {
     return(false);
   });
+  // A name a `r.*` was rewritten to (its token at the `*`) is the referent:
+  // `rp.* = ry` writes through `rp`, `a = m.*` copies the value.
+  if(is_reference_deref_site(ast_expr_token(&lhs)) || is_reference_deref_site(ast_expr_token(&rhs)), {
+    return(false);
+  });
   if(!(deref_rule_applies(ast_expr_token(&lhs), ctx) && deref_rule_applies(ast_expr_token(&rhs), ctx)), {
     return(false);
   });
