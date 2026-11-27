@@ -7349,7 +7349,7 @@ _fv_blame_binder_lend :: (
   // inference recorded it, or the later argument's own (a literal at its
   // runtime type).
   (other_ty : TypeValue) = cond(
-    !later_lends => convert_comptime_type_to_runtime_type(&match(infos.get_cloned(other_i), .Some(oi) => Rc.clone(oi.ty()), .None => return(())), env),
+    !later_lends => convert_comptime_type_to_runtime_type(&match(infos.get_cloned(other_i), .Some(oi) => oi.ty(), .None => return(())), env),
     true => {
       (bt : Option(TypeValue)) = Option(TypeValue).None;
       (bk : usize) = usize(0);
@@ -7363,7 +7363,7 @@ _fv_blame_binder_lend :: (
   );
   place := _unlabeled_argument(match(args.get_cloned(lend_i), .Some(a) => a, .None => return(())));
   marker := match(peeled_lend_marker(ast_expr_id(&place)), .Some(m) => m, .None => return(()));
-  place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&place)), .Some(pi) => Rc.clone(pi.ty()), .None => return(()));
+  place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&place)), .Some(pi) => pi.ty(), .None => return(()));
   _j := judge_lend_at_solved_slot(
     &marker,
     &match(labels.get_cloned(lend_i), .Some(l) => l, .None => String.new()),
@@ -7480,14 +7480,14 @@ _fv_solved_slot :: (
           match(
             pre_vals.get_cloned(k),
             .Some(Rc(.TypeVal(t))) => {
-              return(_FvSolvedSlot(slot : t, source : Option(LendSlotSource).Some(LendSlotSource(binder : b, from : String.from("the written `generic(...)`")))));
+              return(_FvSolvedSlot(slot : Rc.clone(t), source : Option(LendSlotSource).Some(LendSlotSource(binder : b.clone(), from : String.from("the written `generic(...)`")))));
             },
             _ => ()
           );
         });
       });
       _FvSolvedSlot(
-        slot : Rc.clone(slot),
+        slot : Rc.clone(&slot),
         source : cond(
           (from_expected && !is_some_type(&slot)) => Option(LendSlotSource).Some(LendSlotSource(binder : b, from : String.from("the expected type"))),
           true => Option(LendSlotSource).None
