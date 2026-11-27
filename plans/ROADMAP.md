@@ -20,7 +20,7 @@ built-in verifier.
 | Release | Content |
 | --- | --- |
 | v0.2.80 | Published 2026-11-26. The language migration is complete. The soundness claim is not made while known S1s stay open |
-| v0.2.81 | Implicit dup deleted (VERDICTS-70 rows 7–14); owned destructuring consumes its source; `Deref` forwarding deleted; `Display`/`Debug` replace `ToString`; std's Rust alignment S-1–S-4 and S-6; IO-1b; variant patterns (VERDICTS-88); the spec/proof soundness rules ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md) PR 0, 1a, 1b); the async allocation baseline ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md) AFA-0) |
+| v0.2.81 | Implicit dup deleted (VERDICTS-70 rows 7–14); owned destructuring consumes its source (landed); `Deref` forwarding deleted; `Display`/`Debug` replace `ToString`; std's Rust alignment S-1–S-4 and S-6; IO-1b; variant patterns (VERDICTS-88); the spec/proof soundness rules ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md) PR 0, 1a, 1b); the async allocation baseline ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md) AFA-0) |
 | v0.2.82 | Implicit drop deleted (VERDICTS-70 row 15); VBD closes |
 
 ## Next: after VBD
@@ -46,10 +46,13 @@ Six lanes, at most four at once
   ([`AGENT_KNOWLEDGE_CONSOLIDATION`](backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md))
   and an evals corpus
   ([`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)).
-- **E. Verification.** Verification on by default
-  ([`DEFAULT_ON_VERIFICATION`](backlog/DEFAULT_ON_VERIFICATION.md), first);
-  `logic` and `lemma` replace `ghost_fn`
-  ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md)); verified std bodies
+- **E. Verification.** Soundness first (SPEC_AND_PROOF PR 1a/1b and
+  DEFAULT_ON_VERIFICATION S2, v0.2.81); then in parallel `logic` and `lemma`
+  replace `ghost_fn` ([`SPEC_AND_PROOF`](backlog/SPEC_AND_PROOF.md), ~v0.2.83)
+  and verification on by default
+  ([`DEFAULT_ON_VERIFICATION`](backlog/DEFAULT_ON_VERIFICATION.md) §3.1: the
+  solver shipped and incremental verification, then report by default); verified
+  std bodies after the split, then erase by default
   ([`SAFE_MODE`](backlog/SAFE_MODE.md),
   [`THEOREM_PROVING_DIRECTION`](backlog/THEOREM_PROVING_DIRECTION.md),
   [`SELF_VERIFICATION`](backlog/SELF_VERIFICATION.md)); a proved core

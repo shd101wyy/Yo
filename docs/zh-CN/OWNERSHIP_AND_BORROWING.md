@@ -123,8 +123,8 @@ export(main);
 非 `Copy` 的字段不能从一个值中移出（E0901）：字段是其持有者的一部分。可以改为：
 
 - 拷贝该字段：`p.name.clone()`；
-- 用 `match` 把整个值拆开：`match(p, { name, age } => …)`；
-- 借用它：`&p.name`、`match(&p.name, …)`。
+- 把整个值拆开：`{ name, age } := p`，或 `match(p, { name, age } => …)`；
+- 借用它：`&p.name`、`{ name, age } := &p`、`match(&p.name, …)`。
 
 ### 可变绑定
 
@@ -143,10 +143,42 @@ export(main);
 `a := &mut p.x; a.* = i32(10)` 需要的是 `mut(p)`，而不是 `mut(a)`。参数不带 `mut`：
 要写参数的函数体把它重新绑定，`mut(y) := x`。
 
-解构从被解构的值中借用各个元素，这些元素仍由该值负责丢弃。解构中的 `mut(b)` 绑定是其元素的
-一份副本，因此持有 `Rc`、`Box` 或自有缓冲区（`String`、集合）的元素不能绑定为 `mut`
-（E0901）：不加 `mut` 绑定它，再显式复制（`mut(c) := b.clone()`）；或者对你拥有的值使用
-`match`，它会把各部分移动到分支的绑定中。
+### 解构
+
+解构接收其来源的方式与 `match` 接收被匹配值的方式相同：
+
+| 来源 | 各个名字 |
+| --- | --- |
+| `{ a, b } := p`，`p` 是自有局部变量、按值参数或临时值 | 拥有各自的字段：`p` 被移动，之后再使用它是 E0901 |
+| 同上，但 `p` 的类型是 `Copy` | 字段的副本；`p` 仍可使用 |
+| `{ a, b } := &p`、`{ a, b } := &mut p` | 借用各自的字段，`a := &p.a`（`&mut`），用 `a.*` 读取 |
+| `{ a, b } := r`，`r` 是引用 | 按 `r` 的模式通过 `r` 借用 |
+
+对被移动的值，没有名字绑定的部分（`_`、模式未列出的字段）在绑定处被丢弃。字段
+（`{ a, b } := p.f`）、元素或解引用（`r.*`）不能按值解构（没有部分移动），实现了 `Drop`
+的类型也不能（否则会跳过它的析构函数）：两者都是 E0901。被移动值的 `mut(b)` 名字拥有其字段；
+借用的 `mut(b)` 名字是可以重新指向的引用绑定。`&` 借出的是位置，所以 `{ a, b } := &make()` 是
+E0927：先绑定这个值（`t := make();`），再解构 `t` 或 `&t`。
+
+```yo
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+Account :: struct(name : String, balance : i64);
+owner :: (fn(a : Account) -> String)({
+  { name, balance : _ } := a; // `a` 被移动；`balance` 在此处丢弃
+  name // 自有：移出
+});
+main :: (fn() -> unit)({
+  mut(acc) := Account(name : String.from("ann"), balance : i64(7));
+  {
+    { balance } := &mut acc; // 借用 `acc.balance`
+    balance.* = i64(9);
+  };
+  assert(acc.balance == i64(9), "通过借用写入");
+  assert(owner(acc) == String.from("ann"), "整体拆开");
+});
+export(main);
+```
 
 ## 丢弃
 

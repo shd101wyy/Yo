@@ -146,8 +146,8 @@ A field that is not `Copy` cannot be moved out of a value (E0901): the field
 is part of its holder. Instead:
 
 - copy the field: `p.name.clone()`;
-- move the whole value apart with `match`: `match(p, { name, age } => …)`;
-- borrow it: `&p.name`, `match(&p.name, …)`.
+- move the whole value apart: `{ name, age } := p`, or `match(p, { name, age } => …)`;
+- borrow it: `&p.name`, `{ name, age } := &p`, `match(&p.name, …)`.
 
 ### Mutable bindings
 
@@ -168,12 +168,45 @@ Writing through a reference is not writing the binding, so `a := &mut p.x;
 a.* = i32(10)` needs `mut(p)`, not `mut(a)`. Parameters take no `mut`: a
 body that writes one rebinds it, `mut(y) := x`.
 
-A destructuring borrows its elements from the value it destructures, which
-still drops them. A `mut(b)` binding there is a copy of its element, so an
-element that holds an `Rc`, a `Box` or an owned buffer (a `String`, a
-collection) cannot be bound `mut` (E0901): bind it without `mut` and copy it
-explicitly (`mut(c) := b.clone()`), or `match` a value you own, which moves
-its parts into the arm's bindings.
+### Destructuring
+
+A destructuring takes its source the way a `match` takes its scrutinee:
+
+| Source | The names |
+| --- | --- |
+| `{ a, b } := p`, `p` an owned local, a by-value parameter or a temporary | own their fields: `p` is moved, and a later use of it is E0901 |
+| the same, `p` of a `Copy` type | copies of the fields; `p` stays usable |
+| `{ a, b } := &p`, `{ a, b } := &mut p` | borrow their fields, `a := &p.a` (`&mut`), read with `a.*` |
+| `{ a, b } := r`, `r` a reference | borrow through `r`, in its mode |
+
+A part no name binds (`_`, a field the pattern leaves out) is dropped at the
+binding of a moved value. A field (`{ a, b } := p.f`), an element or a
+dereference (`r.*`) is not destructured by value (no partial moves), and
+neither is a type with a `Drop` impl, whose destructor would be skipped: both
+are E0901. A `mut(b)` name of a moved value owns its field; a `mut(b)` name of
+a borrow is a reference binding that can be re-pointed. `&` lends a place, so
+`{ a, b } := &make()` is E0927: bind the value first (`t := make();`), then
+destructure `t` or `&t`.
+
+```yo
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+Account :: struct(name : String, balance : i64);
+owner :: (fn(a : Account) -> String)({
+  { name, balance : _ } := a; // `a` is moved; `balance` drops here
+  name // owned: it moves out
+});
+main :: (fn() -> unit)({
+  mut(acc) := Account(name : String.from("ann"), balance : i64(7));
+  {
+    { balance } := &mut acc; // borrows `acc.balance`
+    balance.* = i64(9);
+  };
+  assert(acc.balance == i64(9), "written through the borrow");
+  assert(owner(acc) == String.from("ann"), "moved apart");
+});
+export(main);
+```
 
 ## Drops
 
