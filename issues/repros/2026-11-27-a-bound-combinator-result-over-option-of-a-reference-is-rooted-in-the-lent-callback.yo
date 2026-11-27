@@ -1,0 +1,10 @@
+// A combinator whose RESULT carries a reference: `opt.as_ref().filter(...)` is an Option(&String).
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  opt := Option(String).Some(String.from("hello"));
+  r := opt.as_ref().filter(s => (s.*.len() > usize(2)));
+  n := match(r, .Some(s) => s.len(), .None => usize(0));
+  println(`${n} ${opt.is_some()}`);
+});
+export(main);

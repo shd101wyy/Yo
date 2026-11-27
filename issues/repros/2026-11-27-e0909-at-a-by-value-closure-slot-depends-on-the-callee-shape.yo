@@ -1,0 +1,13 @@
+// A by-value FnOnce slot whose RESULT type is a generic inferred from the closure (Option.map's shape),
+// with a closure that copies in a `&Config` parameter. Compare h4: the same closure, a non-generic slot.
+{ println } :: import("std/fmt");
+run :: (fn(generic(B : Type), a : i32, f : Impl(FnOnce(a : i32) -> B)) -> B)(f(a));
+Config :: struct(k : i32);
+shift :: (fn(cfg : &Config, x : i32) -> i32)(
+  run(x, { cfg }(a) => (a + cfg.k))
+);
+main :: (fn() -> unit)({
+  c := Config(k : i32(3));
+  println(`${shift(&c, i32(5))}`);
+});
+export(main);

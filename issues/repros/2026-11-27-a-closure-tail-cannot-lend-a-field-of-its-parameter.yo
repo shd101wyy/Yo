@@ -1,0 +1,11 @@
+// Rust's `opt.as_ref().map(|u| &u.name)`: the closure projects a field reference out of its argument.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+User :: struct(name : String, age : i32);
+main :: (fn() -> unit)({
+  opt := Option(User).Some(User(name : String.from("ada"), age : i32(36)));
+  r := opt.as_ref().map(u => &u.name);
+  n := match(r, .Some(s) => s.len(), .None => usize(0));
+  println(`${n} ${opt.is_some()}`);
+});
+export(main);

@@ -1,0 +1,13 @@
+// A: a by-value Impl(FnOnce) slot, called with a closure that captures `&mut seen`.
+{ println } :: import("std/fmt");
+run :: (fn(a : i32, f : Impl(FnOnce(a : i32) -> unit)) -> unit)({
+  f(a);
+});
+main :: (fn() -> unit)({
+  mut(seen) := i32(0);
+  run(i32(7), { &mut seen }(a) => {
+    seen.* = a;
+  });
+  println(`${seen}`);
+});
+export(main);

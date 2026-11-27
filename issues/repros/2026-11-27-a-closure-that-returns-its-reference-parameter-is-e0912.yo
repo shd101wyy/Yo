@@ -1,0 +1,11 @@
+// `opt.as_ref().map(s => s)`: the closure's result type B is a reference into `opt`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  mut(opt) := Option(String).Some(String.from("hello"));
+  r := opt.as_ref().map(s => s);
+  n := match(r, .Some(s) => s.len(), .None => usize(0));
+  opt = Option(String).None;
+  println(`${n} ${opt.is_some()}`);
+});
+export(main);
