@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory-safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place, note_self_lend_operand, note_self_lend_forced, path_collection_new } :: import("../../expr-info.yo");
+{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, note_mut_lend_value, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place, note_self_lend_operand, note_self_lend_forced, path_collection_new } :: import("../../expr-info.yo");
 {
   Variable,
   Environment,
@@ -173,7 +173,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer-type.yo");
 { CtorMethodImpl, instance_constructor_fid, impls_of_constructor_method, synthesize_impl_binders, first_failed_impl_where } :: import("../values/impl.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr, reference_argument_as_referent, _try_call_fn_with_args_trapped } :: import("./helper.yo");
+{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, peeled_lend_marker, judge_lend_at_solved_slot, t9_lend_type, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr, reference_argument_as_referent, _try_call_fn_with_args_trapped } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function-value.yo");
 { structural_clone_expansion } :: import("../utils/closure.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
@@ -7511,6 +7511,28 @@ _scratch_concrete_binding :: (fn(se : &Environment, name : &String) -> Option(Ty
     .None => Option(TypeValue).None
   )
 });
+/// The `ai`-th parameter's value type as the inline `FuncVal` arm has it
+/// solved before its arguments are read: the declared type, or the expected
+/// type's resolution (`resolved_param_types`), and for a bare binder the type
+/// a written `generic(...)` gave it (`pre_names`/`pre_vals`). An unsolved
+/// binder stays the binder.
+_fv_solved_slot :: (fn(resolved_param_types : &SharedList(TypeValue), ai : usize, pre_names : &ArrayList(String), pre_vals : &ArrayList(EvalValue)) -> TypeValue)({
+  slot := match(slot_pointee_at(resolved_param_types, ai), .Some(t) => t, .None => t_unit());
+  binder := match(&slot, Rc(.SomeT({ name : sn })) => Option(String).Some(sn.clone()), _ => Option(String).None);
+  match(
+    binder,
+    .Some(b) => {
+      (k : usize) = usize(0);
+      while(k < pre_names.len(), k = (k + usize(1)), {
+        if(match(pre_names.get_cloned(k), .Some(n) => (n == b), .None => false), {
+          return(match(pre_vals.get_cloned(k), .Some(Rc(.TypeVal(t))) => Rc.clone(t), _ => slot));
+        });
+      });
+      slot
+    },
+    .None => slot
+  )
+});
 /// The order the inline FuncVal arm evaluates a call's arguments in: every
 /// argument in source order, except that a closure literal whose parameter is
 /// an `Impl(Fn(...))` mentioning one of the callee's binders goes after the
@@ -14579,7 +14601,39 @@ Fix: wrap the call:
               );
               eprintln(`[arg-eval] expr=${ast_expr_to_string(&arg_expr_eff)} ty=${type_to_string(&arg_info.ty())} val=${ae_val_str}`);
             });
-            evaled_arg_infos.push(Rc.clone(arg_info));
+            // A lend peeled at a by-value parameter (decision 43 step 3, T9),
+            // judged at the slot this call solved before its arguments
+            // (VERDICTS-90 R3): a reference slot of the static call's type
+            // arguments (`Option(&i32).replace(&mut s, &y)`), or a bare binder
+            // a written `generic(...)` or the expected type made a reference
+            // (`id(generic(&X), &x)`). The argument is the slot's reference over
+            // the place (`t9_lend_type`); inference, the parameter's binding
+            // and the specialization read that type, while the place keeps its
+            // own.
+            (fv_t9_ty : Option(TypeValue)) = Option(TypeValue).None;
+            if((ai < n_p) && !du_frame_pushed && match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false) && !match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false) && !match(fv_param_ct.get(ai), .Some(c) => c, .None => false), {
+              match(
+                peeled_lend_marker(ast_expr_id(&_unlabeled_argument(&arg_expr_eff))),
+                .Some(fv_t9_marker) => {
+                  fv_t9_slot := _fv_solved_slot(&resolved_param_types, ai, &fv_pre_forall_names, &fv_pre_forall_vals);
+                  judge_lend_at_solved_slot(&fv_t9_marker, &match(fv_param_labels.get_cloned(ai), .Some(l) => l, .None => String.new()), &fv_t9_slot, exn);
+                  fv_t9_ty = t9_lend_type(&fv_t9_slot, &evaled_arg, &_unlabeled_argument(&arg_expr_eff), &arg_info, ctx);
+                  note_mut_lend_value(ast_expr_id(&evaled_arg), fv_t9_ty.is_some() && t_slot_is_mut_ref(&fv_t9_slot));
+                },
+                .None => ()
+              );
+            });
+            evaled_arg_infos.push(
+              match(
+                &fv_t9_ty,
+                .Some(fv_t9_w) => {
+                  fv_t9_info := new_expr_info(env, fv_t9_w);
+                  fv_t9_info.set_value(arg_info.value());
+                  fv_t9_info
+                },
+                .None => Rc.clone(arg_info)
+              )
+            );
             fv_eai_idx.push(ai);
             // A COMPTIME variadic's trailing args (indices >= n_p) are not C
             // arguments either — `rt_ct_flags_args` only covers the FIXED
@@ -14701,7 +14755,8 @@ Fix: wrap the call:
                     match(&fv_callee_ty, Rc(.Func({ result : fv_res_sc })) => t_slot_pointee(&fv_res_sc.*), _ => t_unit()),
                     match(&fv_callee_ty, Rc(.Func({ forall_types : fv_ft_sc })) => (fv_ft_sc.len() > usize(0)), _ => false),
                     ctx
-                  )
+                  ),
+                  fv_t9_ty.is_some()
                 ),
                 .Some(fv_s0d) => {
                   fv_s0_drops.push(Rc.clone(fv_s0d.0));
