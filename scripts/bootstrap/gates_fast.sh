@@ -273,22 +273,29 @@ echo "=== T1 GATE 7: CLI subcommand cases (golden scoring) ==="
 # case with no goldens scores NO-GOLDEN and fails, so nothing goes unscored, and
 # an intended behavior change must re-record in the same commit
 # (scripts/cli-diff-test.sh --record <case>).
-YO_SELF_BIN=$S1 scripts/cli-diff-test.sh &> "/tmp/${P}_clidiff.log"
-clidiff_rc=$?
-echo "CLIDIFF_RC=$clidiff_rc  $(tail -1 "/tmp/${P}_clidiff.log")"
-if [ "$clidiff_rc" != "0" ]; then
-  fail "CLI golden scoring failed (re-record with scripts/cli-diff-test.sh --record if the change is intended)"
-  dump_log "/tmp/${P}_clidiff.log"
+# T1_SKIP_CLI=1 skips this gate: CI runs it as test.yml's `cli-cases` job, in
+# three stripes on their own runners (plans/CI_ONE_HOUR.md phase 2). Local runs
+# leave it unset and get every gate.
+if [ "${T1_SKIP_CLI:-0}" = "1" ]; then
+  echo "SKIPPED (T1_SKIP_CLI=1): test.yml's cli-cases job scores the CLI cases"
+else
+  YO_SELF_BIN=$S1 scripts/cli-diff-test.sh &> "/tmp/${P}_clidiff.log"
+  clidiff_rc=$?
+  echo "CLIDIFF_RC=$clidiff_rc  $(tail -1 "/tmp/${P}_clidiff.log")"
+  if [ "$clidiff_rc" != "0" ]; then
+    fail "CLI golden scoring failed (re-record with scripts/cli-diff-test.sh --record if the change is intended)"
+    dump_log "/tmp/${P}_clidiff.log"
+  fi
+  # Defence in depth behind the exit code, which cli-diff-test.sh's own summary
+  # line advertises: if a refactor ever breaks the rc plumbing, a nonzero
+  # GOLDEN-DIFF or NO-GOLDEN still fails this gate rather than scoring silently.
+  clidiff_tail=$(tail -1 "/tmp/${P}_clidiff.log")
+  case "$clidiff_tail" in
+    *"GOLDEN-DIFF 0"*"NO-GOLDEN 0"*) ;;
+    *) fail "CLI golden scorecard is not clean: $clidiff_tail"
+       dump_log "/tmp/${P}_clidiff.log" ;;
+  esac
 fi
-# Defence in depth behind the exit code, which cli-diff-test.sh's own summary
-# line advertises: if a refactor ever breaks the rc plumbing, a nonzero
-# GOLDEN-DIFF or NO-GOLDEN still fails this gate rather than scoring silently.
-clidiff_tail=$(tail -1 "/tmp/${P}_clidiff.log")
-case "$clidiff_tail" in
-  *"GOLDEN-DIFF 0"*"NO-GOLDEN 0"*) ;;
-  *) fail "CLI golden scorecard is not clean: $clidiff_tail"
-     dump_log "/tmp/${P}_clidiff.log" ;;
-esac
 
 echo "=== T1 GATE 8: embedded Yo programs compile ==="
 # Yo source that lives INSIDE another file is covered by nothing else here:

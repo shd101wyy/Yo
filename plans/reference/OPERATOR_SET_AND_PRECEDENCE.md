@@ -83,7 +83,8 @@ streams (zero diffs expected).
 | Logic | `!` `&&` `\|\|` |
 | Bitwise | `&` `\|` `^` `~` `<<` `>>` |
 | Binding / assignment | `=` `:=` `::` `?=` |
-| Arrows / structure | `->` `=>` `:` `<:` |
+| Arrows / structure | `->` `=>` `:` |
+| Bound | `<:`, read *implements*: the trait bound (`where(T <: Tr)`) and impl selection (`(T <: Tr).m(a)`); never a relation between two types |
 | Dot family (own token kinds) | `.` `..` `..=` `...` |
 | Pointer / option types | `*` `?` (the `?*` token was REMOVED 2026-08-21: `?` is the Option alias, so `?(*(T))` composes — 138 corpus sites migrated) |
 | Splices (macro/derive layer) | none since 2026-10-10: the words `unquote(x)` / `unquote_splicing(xs)` (the `#` / `...#` operators were deleted) |
@@ -91,6 +92,9 @@ streams (zero diffs expected).
 
 Notes:
 
+- There is no compound assignment: `+=` and its kin are not in the set, so
+  `x += 1` lexes as `+` then `=` and the parser reports it as E0010 with the
+  rewrite `x = (x + 1)` (VERDICTS-86 §5 item 4).
 - The dot family already has bespoke lexing (`src/lexer.yo:100-116`) and
   the operator munch deliberately EXCLUDES `.` — so deref `x.*` is three
   tokens (`x`, `.`, `*`), NOT an `.*` token; the table unifies the rest of
