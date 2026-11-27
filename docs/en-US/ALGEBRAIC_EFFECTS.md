@@ -299,10 +299,10 @@ locally installed.
    closure could escape its enclosing frame and take the handler with
    it.
 
-5. **Subtyping `fn <: ctl`** (covariant). A regular `fn(T) -> R` is
-   assignable to a `ctl(T) -> R` slot — a non-unwinder is a valid
-   value where unwind is permitted. The reverse is unsafe and
-   rejected.
+5. **A `fn` is accepted where a `ctl` is expected.** A regular
+   `fn(T) -> R` is accepted where a `ctl(T) -> R` is expected — a
+   non-unwinder is a valid value where unwind is permitted. The
+   reverse is unsafe and rejected.
 
 6. **Generics over function kinds.** `generic(T : Type)` can bind `T`
    to either `fn(...)` or `ctl(...)` — uses of `T` are handled
