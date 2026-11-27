@@ -1,6 +1,6 @@
 # Spec and proof: `spec_fn` and `lemma` replace `ghost_fn`
 
-**Status:** BACKLOG — decided 2026-11-27 by VERDICTS-91 (Fable 5.2) and adopted by the maintainer the same day ("update the backlog directly with Fable's recommendation"). Nothing is built. PR 0 files the seven false-proof S1s this verdict found.
+**Status:** BACKLOG — decided 2026-11-27 by VERDICTS-91 (Fable 5.2) and adopted by the maintainer the same day ("update the backlog directly with Fable's recommendation"). Nothing is built. PR 0 filed the seven false-proof S1s this verdict found (§2.1).
 
 Fact base: `docs/en-US/FORMAL_VERIFICATION.md`, `plans/backlog/FORMAL_VERIFICATION.md`, `THEOREM_PROVING_DIRECTION.md`, `THEOREM_PROVING_NEXT.md`, `DEFAULT_ON_VERIFICATION.md`, `BEND_LAWS_AND_AGENT_LOOP_LESSONS.md` §A2, `std/spec/`, `src/verifier/vc.yo` and `src/evaluator/builtins/contracts.yo` on develop `a471c290c`, a census of every `ghost_fn` in the tree (§6), and 37 probes in `~/Workspace/Yo-wt/v0273/probe-ghost/` (29 `yo verify` runs, 8 compiled and executed) with the installed v0.2.80 and Z3 5.1.0 (§11). Nothing in the repository was edited or filed. *Judgment* marks an assessment.
 
@@ -48,7 +48,19 @@ How each one happens:
 - `r04`: a recursive `ghost_fn` becomes an uninterpreted function with the axiom `forall args. f(args) == body` (`vc.yo:6419`). The measure is proved under the function's `requires`, the `requires` is not checked at the self call, and the axiom is unconditional. `bad(n) == bad(0) + 1` for every `n` is false at `n = 0`.
 - `r05`: `ghost(e)` walks any expression (`vc.yo:4700`) and codegen erases it.
 
-All seven are S1 by `issues/README.md` and none is filed. They are not seven bugs to patch one at a time: each is an executable-code rule applied to erased code.
+All seven are S1 by `issues/README.md`. PR 0 filed them, each with its probe as `issues/repros/2026-11-27-<name>.yo` (the verified twin) and `-run.yo` (the printing twin):
+
+| Probe | Issue |
+| --- | --- |
+| `p02`, `r02` | `issues/2026-11-27-a-panicking-lemma-proves-anything.md` |
+| `p03`, `r03` | `issues/2026-11-27-a-looping-lemma-proves-anything.md` |
+| `p04`, `r04` | `issues/2026-11-27-a-recursive-ghost-fn-axiom-is-inconsistent.md` |
+| `p13b`, `r13` | `issues/2026-11-27-a-spec-ghost-fn-with-a-panic-arm-proves-anything.md` |
+| `p05b`, `r05` | `issues/2026-11-27-a-ghost-statement-mutates-state-the-program-reads.md` |
+| `p06`, `r06` | `issues/2026-11-27-a-ghost-binding-calls-a-diverging-function.md` |
+| `p17`, `r17` | `issues/2026-11-27-an-ensures-clause-calls-a-diverging-function.md` |
+
+They are not seven bugs to patch one at a time: each is an executable-code rule applied to erased code.
 
 ### 2.2 The shape test gives near misses the other meaning
 

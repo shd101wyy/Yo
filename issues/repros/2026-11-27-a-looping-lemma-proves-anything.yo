@@ -1,0 +1,14 @@
+pragma(Pragma.Verify);
+
+// A lemma whose body never terminates: partial correctness proves any ensures.
+bogus :: ghost_fn((fn(x : i32, ensures(x > x)) -> unit)({
+  while(true, {
+    invariant(true);
+  });
+}));
+
+// `yo verify --strict` proves r == 42 for every x.
+wrong :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))({
+  ghost(bogus(x));
+  x
+});
