@@ -372,27 +372,21 @@ test("Result.map and map_err move their payloads", {
 // The combinators lend their callback (`f : &mut Impl(FnMut(...))`), so a closure
 // cannot move a capture out (E0913).
 test("a combinator's closure cannot move a capture out (P-5 flips this)", {
-  comptime_expect_error(
-    {
-      name := `yo`;
-      got := Option(i32).Some(i32(1)).map({ name }(x) => name);
-      consume(got);
-    },
-    "Cannot move `name` out of the closure"
-  );
+  comptime_expect_error({
+    name := `yo`;
+    got := Option(i32).Some(i32(1)).map({ name }(x) => name);
+    consume(got);
+  }, "Cannot move `name` out of the closure");
 });
 // A bound `Option(&T)` result of `filter` is rooted in the lent predicate
 // (issues/2026-11-27-a-bound-combinator-result-over-option-of-a-reference-is-rooted-in-the-lent-callback.md);
 // consuming it in the statement, or naming the predicate, works.
 test("a bound `opt.as_ref().filter(...)` is E0911; the inline and named forms work", {
   opt := Option(String).Some(`hello`);
-  comptime_expect_error(
-    {
-      r := opt.as_ref().filter(s => (s.*.len() > usize(2)));
-      consume(r);
-    },
-    "a temporary that ends with this statement"
-  );
+  comptime_expect_error({
+    r := opt.as_ref().filter(s => (s.*.len() > usize(2)));
+    consume(r);
+  }, "a temporary that ends with this statement");
   n := match(opt.as_ref().filter(s => (s.*.len() > usize(2))), .Some(s) => s.len(), .None => usize(0));
   assert(n == usize(5), "consumed in the statement");
   (mut(pred) : Impl(FnMut(s : &(&String)) -> bool)) = (s => (s.*.len() > usize(2)));
