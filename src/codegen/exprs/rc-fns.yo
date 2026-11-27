@@ -55,11 +55,11 @@ _rc_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGene
 );
 /// `a` and `b` are one source position.
 _same_position :: (fn(a : &Token, b : &Token) -> bool)(
-  (a.module_path.* == b.module_path.*) && ((a.row == b.row) && (a.column == b.column))
+  (a.*.*.module_path.* == b.*.*.module_path.*) && ((a.*.*.row == b.*.*.row) && (a.*.*.column == b.*.*.column))
 );
 /// `a` comes before `b` in the same source file.
 _position_before :: (fn(a : &Token, b : &Token) -> bool)(
-  (a.module_path.* == b.module_path.*) && ((a.row < b.row) || ((a.row == b.row) && (a.column < b.column)))
+  (a.*.*.module_path.* == b.*.*.module_path.*) && ((a.*.*.row < b.*.*.row) || ((a.*.*.row == b.*.*.row) && (a.*.*.column < b.*.*.column)))
 );
 /// A copy of the optional name set `set` without `name`.
 _set_without :: (fn(set : &Option(HashSet(String)), name : &String) -> Option(HashSet(String)))(
@@ -87,7 +87,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
   if(!ast_expr_is_atom(arg), {
     return(_rc_operand(arg, indent, context));
   });
-  name := ast_expr_token(arg).value.*.clone();
+  name := ast_expr_token(arg).*.value.*.clone();
   cname := sanitize_for_c_identifier(&name, false);
   bindings := shadow_bindings_of(context, &cname);
   innermost := match(bindings.last_cloned(), .Some(b) => b, .None => return(_rc_operand(arg, indent, context)));
@@ -97,7 +97,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
     .None => Option(Variable).None
   );
   tv := match(target, .Some(v) => Rc.clone(v), .None => return(_rc_operand(arg, indent, context)));
-  if(match(&innermost.decl, .Some(d) => _same_position(&d.*, &tv.token), .None => false), {
+  if(match(&innermost.decl, .Some(d) => _same_position(&d.*, &tv.*.token), .None => false), {
     return(_rc_operand(arg, indent, context));
   });
   (mut(first_decl) : Option(Token)) = Option(Token).None;
@@ -108,7 +108,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
       .Some(b) => match(
         &b.decl,
         .Some(d) => {
-          if(_same_position(&d.*, &tv.token), {
+          if(_same_position(&d.*, &tv.*.token), {
             return(b.c_name.clone());
           });
           if(first_decl.is_none(), {
@@ -120,7 +120,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
       .None => ()
     );
   });
-  if(!match(&first_decl, .Some(fd) => _position_before(&tv.token, &fd.*), .None => false), {
+  if(!match(&first_decl, .Some(fd) => _position_before(&tv.*.token, &fd.*), .None => false), {
     return(_rc_operand(arg, indent, context));
   });
   saved_shadowed := context.local_shadowed_variables.take();
@@ -225,7 +225,7 @@ _emit_unsized_place_drop :: (fn(ty : &TypeValue, fat : &String, indent : &String
     t_refine_inner(ty),
     // A `Dyn` place drops through its vtable's `drop_in_place` slot, which
     // drops the payload and frees nothing (decision 49 S2).
-    Rc(.DynT({})) => {
+    Rc(.DynT(_, _, _, _)) => {
       dft := get_type_string(ty, &mut context.base);
       context.base.emitter.emit_string_line(`${indent.clone()}{ ${dft} __yo_dip_f = ${fat.clone()}; __yo_dip_f.vtable->__yo_drop_in_place(__yo_dip_f.data); }`);
     },

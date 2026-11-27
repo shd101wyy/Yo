@@ -424,7 +424,7 @@ _split_message :: (fn(sink(data) : ArrayList(u8), limit : usize, carry : &mut Ar
 });
 /// Replace the leftover bytes `carry` holds with `rest`, moved in.
 _carry_set :: (fn(carry : &Rc(RefCell(ArrayList(u8))), sink(rest) : ArrayList(u8)) -> unit)(
-  carry.with_mut({ rest }(c) => {
+  carry.*.*.with_mut({ rest }(c) => {
     c.clear();
     c.extend(rest);
   })
@@ -636,7 +636,7 @@ read_http_message_buffered :: (
     // Seed from what the previous message left behind — those bytes are
     // already this message's, and there may be enough of them that no read is
     // needed at all.
-    mut(result) := carry.with_mut(c => {
+    mut(result) := carry.*.*.with_mut(c => {
       seeded := c.clone();
       c.clear();
       seeded

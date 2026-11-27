@@ -13,14 +13,14 @@ peek :: (fn(w : &W, act : &Impl(Fn() -> unit)) -> unit)({
 });
 main :: (fn() -> unit)({
   cell := Rc.new(RefCell(ArrayList(Rc(W))).new(ArrayList(Rc(W)).new()));
-  cell.with_mut(v => v.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap")))));
+  cell.*.with_mut(v => v.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap")))));
   other := Rc.clone(cell);
-  cell.with(
+  cell.*.with(
     v => peek(
       &v(usize(0)).*,
       &(
         () => {
-          _gone := other.take();
+          _gone := other.*.take();
         }
       )
     )

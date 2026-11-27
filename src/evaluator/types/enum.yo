@@ -42,7 +42,7 @@ import("std/fmt");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_type_lists, no_label_lists, SharedList, slot_pointee_at } :: import("../../types/definitions.yo");
-{ t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
+{ t_unit, register_enum_final, patch_self_shell_reporting, mark_enum_recursive } :: import("../../types/creators.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 {
   is_comptime_int_type,
@@ -346,11 +346,11 @@ evaluate_enum_type :: (
   decl_tok := ast_expr_token(expr);
   enum_id := if(
     ctx.ctfe_depth == usize(0),
-    stable_position_id(String.from("enum_decl_"), &decl_tok.module_path.*, usize(decl_tok.row), usize(decl_tok.column)),
-    stable_type_id(String.from("enum_"), &decl_tok.module_path.*, usize(decl_tok.row), usize(decl_tok.column))
+    stable_position_id(String.from("enum_decl_"), &decl_tok.*.module_path.*, usize(decl_tok.*.row), usize(decl_tok.*.column)),
+    stable_type_id(String.from("enum_"), &decl_tok.*.module_path.*, usize(decl_tok.*.row), usize(decl_tok.*.column))
   );
   // Member visibility: record which module declares this type (guards.yo).
-  register_type_decl_module(enum_id.clone(), decl_tok.module_path.*.clone());
+  register_type_decl_module(enum_id.clone(), decl_tok.*.module_path.*.clone());
   // Preliminary EnumT (empty variants) used as SelfType during field evaluation
   // so self-referential variants like `Some(Self)` work. The shell carries a
   // DISTINCT id: sharing the final's id made EXACT type comparison — the
@@ -362,13 +362,13 @@ evaluate_enum_type :: (
   // minted from THIS `enum(...)` node — whichever id family — may merge with
   // another of the same shape, and a rendition of another declaration may
   // not (types/guards.yo, `register_enum_decl_identity`).
-  decl_key := stable_decl_key(&decl_tok.module_path.*, usize(decl_tok.row), usize(decl_tok.column));
+  decl_key := stable_decl_key(&decl_tok.*.module_path.*, usize(decl_tok.*.row), usize(decl_tok.*.column));
   register_enum_decl_identity(&enum_id, &decl_key);
   register_enum_decl_identity(&shell_id, &decl_key);
   // Only a declaration in std/prelude.yo itself (not compiler-generated
   // code) may stand for an undeclared synthetic rendition of its shape
   // (`create_option_type`'s `Option`, types/type-key.yo).
-  if(!decl_tok.module_path.*.starts_with(String.from("auto-generated://")) && is_prelude_or_generated_file(Option(String).Some(decl_tok.module_path.*.clone()), ctx.std_path.clone()), {
+  if(!decl_tok.*.module_path.*.starts_with(String.from("auto-generated://")) && is_prelude_or_generated_file(Option(String).Some(decl_tok.*.module_path.*.clone()), ctx.std_path.clone()), {
     register_prelude_enum_decl(&decl_key);
   });
   prelim_ty := Rc.new(
@@ -741,7 +741,7 @@ evaluate_enum_type :: (
           .Some(ft) => match(
             ft,
             Rc(.Func({ param_types : fc_ptypes, meta : __fm1 })) => {
-              fc_plabels := Rc.clone(__fm1.param_labels);
+              fc_plabels := Rc.clone(__fm1.*.*.param_labels);
               tca := ArrayList(TypeValue).new();
               (tci : usize) = usize(0);
               n_tcp := fc_plabels.len();
@@ -755,7 +755,7 @@ evaluate_enum_type :: (
                     match(
                       vars.last_cloned(),
                       .Some(lastv) => match(
-                        lastv.value().get(usize(0)),
+                        lastv.*.value().get(usize(0)),
                         .Some(Rc(.TypeVal(tvb))) => {
                           tca.push(Rc.clone(tvb));
                         },
@@ -859,6 +859,9 @@ evaluate_enum_type :: (
   // self-nesting resolves through the enum-final registry
   // (resolve_enum_shell).
   patched_fields := ArrayList(SharedList(TypeValue)).new();
+  // Whether a payload names `Self` (held the shell): only a recursive enum
+  // can occur inside itself (`enum_is_recursive`, read by `type_key`).
+  (names_self : bool) = false;
   (pf_i : usize) = usize(0);
   while(pf_i < variant_fields_s.len(), {
     vf_list := match(variant_fields_s.get(pf_i), .Some(l) => l, .None => no_types());
@@ -866,7 +869,9 @@ evaluate_enum_type :: (
     (pf_j : usize) = usize(0);
     while(pf_j < vf_list.len(), {
       ft := match(vf_list.get(pf_j), .Some(t) => t, .None => t_unit());
-      new_list.push(_patch_self_shell(&ft, shell_id.clone(), &pre_final_ty));
+      (patched_ft, held_shell) := patch_self_shell_reporting(&ft, shell_id.clone(), &pre_final_ty);
+      names_self = (names_self || held_shell);
+      new_list.push(Rc.clone(patched_ft));
       pf_j = (pf_j + usize(1));
     });
     patched_fields.push(shared_list(new_list));
@@ -889,6 +894,9 @@ evaluate_enum_type :: (
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
   register_enum_final(shell_id.clone(), &enum_ty);
+  if(names_self, {
+    mark_enum_recursive(&enum_id);
+  });
   // Auto-derive trait markers (Send, Sync, Comptime, Runtime).
   auto_derive_traits_for_enum_type(
     enum_id.clone(),

@@ -126,6 +126,8 @@ export(main);
   (`enum(Leaf, Node(v : i32))`) and built or matched with one (`.Some(v)`). A
   type names itself `Self` in its definition (`next : Option(Box(Self))`).
 - No overloading; operators are trait methods (`Eq`, `Ord`, `Add`, ...).
+  `Ord`'s `cmp` is a total order (a float NaN is greater than every number);
+  code that needs a total order calls `cmp`, since `<` on floats is partial.
 - Derivable: `Copy` (with `Clone`), `Clone`, `Eq(T)`, `Ord(T)`, `Hash`,
   `Default`, `ToString` and `Debug` (import `std/fmt` first), `Error` (import
   `std/error`).
@@ -153,7 +155,8 @@ export(main);
 - **The last use moves.** `y := x`, a by-value argument, a store, a capture
   and a return move a non-`Copy` value; a later use is E0901, whose help names
   the repair. There are no partial moves: copy the field, borrow it, or move
-  the whole value through a `match` struct pattern.
+  the whole value apart (`{ a, b } := x` consumes an owned `x`, as
+  `match(x, …)` does; `{ a, b } := &x` lends each field, read with `a.*`).
 - **Bindings are immutable** unless declared `mut(x) := v` /
   `(mut(x) : T) = v` (module-level ones too). Reassigning, lending `&mut`,
   calling a `&mut self` method or writing a field of an unmarked binding is
@@ -302,6 +305,10 @@ export(main);
 - Forms: literals, `_`, bindings, nested variants, or-patterns `(a | b)`,
   ranges `(0 .. 10)` / `(0 ..= 9)`, guards `(p && (cond))`, `(whole := p)`,
   tuples, struct patterns, `Rc(p)`, `Box(p)`.
+- A variant pattern has parentheses exactly when the variant has fields:
+  `.Empty`, `.Rect(w, h)`, `.Rect(w : p)`, and `.Rect(..)` for "any payload"
+  (`..` alone; elsewhere it is E0609). A bare `.Rect`, `.Rect()` or
+  `.Empty(..)` is E0626, which `yo fix` repairs.
 - Exhaustiveness is checked (E0607 names the missing case); an arm that can
   never run is E0608. A bare name binds unless it is a `::` constant in scope.
 

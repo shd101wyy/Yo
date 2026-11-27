@@ -113,7 +113,7 @@ test("ref and own arguments of distinct objects are allowed", {
 // emitted by BOTH the body-level flush-first (before the read!) and the tail
 // call's post-emit flush — ref_count()==0 double-free (glibc tcache abort in CI).
 test("own param of a single-expression body is released exactly once", {
-  read_and_sink :: (fn(sink(victim) : Rc(Rec)) -> usize)(victim.s.len());
+  read_and_sink :: (fn(sink(victim) : Rc(Rec)) -> usize)(victim.*.s.len());
   h := Rc.new(Rec(s : String.from("single-expr"), n : i32(3)));
   h2 := Rc.clone(&h);
   assert(ref_count(h) == 2, "two handles before the sink call");

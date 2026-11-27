@@ -621,7 +621,7 @@ _collect_operand_holds_list :: (fn(operands : &ArrayList(AstExpr), out : &mut Ar
 is_any_identifier_atom :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    Rc(.Atom(_, tok)) => (tok.kind == TokenKind.Identifier),
+    Rc(.Atom(_, tok)) => (tok.*.*.kind == TokenKind.Identifier),
     Rc(.FnCall(_, _, _, _, _)) => false
   )
 );
@@ -902,17 +902,17 @@ _dep_named_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationC
 _dep_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     t,
-    Rc(.FnTraitT({})) => Option(String).None,
-    Rc(.FutureTraitT({})) => Option(String).None,
+    Rc(.FnTraitT(_, _, _, _, _, _)) => Option(String).None,
+    Rc(.FutureTraitT(_, _, _, _, _)) => Option(String).None,
     Rc(.Tuple(_, _)) => _dep_named_type_string(t, context),
     Rc(.Union(_, _, _)) => _dep_named_type_string(t, context),
-    Rc(.Struct({})) => _dep_named_type_string(t, context),
-    Rc(.EnumT({})) => match(
+    Rc(.Struct(_, _, _, _, _, _, _, _, _, _)) => _dep_named_type_string(t, context),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => match(
       can_optimize_as_nullable_pointer(t),
       .Some(_) => Option(String).Some(get_type_string(t, &mut context.base)),
       .None => _dep_named_type_string(t, context)
     ),
-    Rc(.DynT({})) => _dep_named_type_string(t, context),
+    Rc(.DynT(_, _, _, _)) => _dep_named_type_string(t, context),
     _ => Option(String).Some(get_type_string(t, &mut context.base))
   )
 );
@@ -943,7 +943,7 @@ _build_deferred_deps :: (
   fn(b : &DeferredAsyncBlock, by_struct_name : &HashMap(String, DeferredAsyncBlock), dependents : &mut HashMap(String, HashSet(String)), indegree : &mut HashMap(String, usize), context : &mut FunctionGenerationContext) -> unit
 )({
   // Local variable fields.
-  cvs := &b.analysis.captured_variables;
+  cvs := &b.*.*.analysis.captured_variables;
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), {
     match(
@@ -952,8 +952,8 @@ _build_deferred_deps :: (
         _dep_type_string(&v.base.ty, context),
         .Some(t) => match(
           by_struct_name.get_cloned(&t),
-          .Some(target) => if(target.struct_name != b.struct_name, {
-            _add_deferred_dep(dependents, indegree, target.struct_name.clone(), b.struct_name.clone());
+          .Some(target) => if(target.*.struct_name != b.*.*.struct_name, {
+            _add_deferred_dep(dependents, indegree, target.*.struct_name.clone(), b.*.*.struct_name.clone());
           }),
           .None => ()
         ),
@@ -964,7 +964,7 @@ _build_deferred_deps :: (
     i = (i + usize(1));
   });
   // await_future_X fields.
-  aps := &b.analysis.await_points;
+  aps := &b.*.*.analysis.await_points;
   (mut(j) : usize) = usize(0);
   while(j < aps.len(), {
     match(
@@ -985,8 +985,8 @@ _build_deferred_deps :: (
                   _dep_type_string(&ei.ty(), context),
                   .Some(t) => match(
                     by_struct_name.get_cloned(&t),
-                    .Some(target) => if(target.struct_name != b.struct_name, {
-                      _add_deferred_dep(dependents, indegree, target.struct_name.clone(), b.struct_name.clone());
+                    .Some(target) => if(target.*.struct_name != b.*.*.struct_name, {
+                      _add_deferred_dep(dependents, indegree, target.*.struct_name.clone(), b.*.*.struct_name.clone());
                     }),
                     .None => ()
                   ),
@@ -1017,7 +1017,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
     match(
       blocks.get_cloned(i),
       .Some(b) => {
-        by_struct_name.insert(b.struct_name.clone(), b);
+        by_struct_name.insert(b.*.struct_name.clone(), b);
       },
       .None => ()
     );
@@ -1031,8 +1031,8 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
     match(
       blocks.get_cloned(i2),
       .Some(b) => {
-        dependents.insert(b.struct_name.clone(), HashSet(String).new());
-        indegree.insert(b.struct_name.clone(), usize(0));
+        dependents.insert(b.*.struct_name.clone(), HashSet(String).new());
+        indegree.insert(b.*.struct_name.clone(), usize(0));
       },
       .None => ()
     );
@@ -1111,21 +1111,21 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
       ordered_blocks.get_cloned(ei),
       .Some(b) => {
         cbr := _block_cross_boundary(&b, context);
-        osr := compute_overlapping_slots(&cbr.cross_boundary_ids, &cbr.variable_segments, &b.analysis.captured_variables, &cbr.await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
+        osr := compute_overlapping_slots(&cbr.cross_boundary_ids, &cbr.variable_segments, &b.*.analysis.captured_variables, &cbr.await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
         emit_async_block_struct_definition(
           AsyncBlockStructInfo(
-            async_block_id : b.async_block_id.clone(),
-            struct_name : b.struct_name.clone(),
-            result_type : Rc.clone(b.result_type),
-            result_type_c_name : b.result_type_c_name.clone(),
-            capture_type : b.capture_type.clone(),
-            analysis : b.analysis.clone(),
+            async_block_id : b.*.async_block_id.clone(),
+            struct_name : b.*.struct_name.clone(),
+            result_type : Rc.clone(b.*.result_type),
+            result_type_c_name : b.*.result_type_c_name.clone(),
+            capture_type : b.*.capture_type.clone(),
+            analysis : b.*.analysis.clone(),
             cross_boundary_ids : Option(HashSet(String)).Some(replace(&mut cbr.cross_boundary_ids, HashSet(String).new())),
             await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases.clone()),
             overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases.clone()),
             overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(replace(&mut osr.slots, ArrayList(OverlappingSlot).new())),
-            closure_param_slots : b.closure_param_slots.clone(),
-            operand_holds : collect_operand_holds(&b.body_expr, context)
+            closure_param_slots : b.*.closure_param_slots.clone(),
+            operand_holds : collect_operand_holds(&b.*.body_expr, context)
           ),
           context
         );
@@ -1875,7 +1875,7 @@ _build_async_capture_struct_literal :: (
                     dup_code := _call_generate_expr(&dup_expr, indent.clone(), context);
                     vname_c := sanitize_for_c_identifier(vname.clone(), false);
                     declared := (
-                      context.base.declared_c_var_names.with({ &vname }(dn_s) => dn_s.contains(vname.clone())) || context.base.declared_scopes.with({ &vname_c }(ds_s) => scope_stack_contains(ds_s, vname_c))
+                      context.base.declared_c_var_names.*.with({ &vname }(dn_s) => dn_s.contains(vname.clone())) || context.base.declared_scopes.*.with({ &vname_c }(ds_s) => scope_stack_contains(ds_s, vname_c))
                     );
                     parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
                   },
@@ -1919,7 +1919,7 @@ _build_async_capture_struct_literal :: (
                     // own name while its block is open; the name lookup
                     // through the call's env could land on an unrelated temp.
                     local_c := sanitize_for_c_identifier(label.clone(), false);
-                    cname := if(context.base.declared_scopes.with({ &local_c }(ds_s) => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with({ &local_c }(dn_s) => dn_s.contains(local_c.clone())), local_c, {
+                    cname := if(context.base.declared_scopes.*.with({ &local_c }(ds_s) => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.*.with({ &local_c }(dn_s) => dn_s.contains(local_c.clone())), local_c, {
                       cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env()), .None => Option(Environment).None);
                       get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), &cap_env)
                     });
@@ -1956,7 +1956,7 @@ _build_async_capture_struct_literal :: (
   // minted from BOTH the enclosing emission and the wrapper — a per-function
   // counter gives them different names.
   cap_tok := ast_expr_token(expr);
-  tmp := stable_label_id(String.from("__yo_cap_"), &cap_tok.module_path.*, usize(cap_tok.row), usize(cap_tok.column));
+  tmp := stable_label_id(String.from("__yo_cap_"), &cap_tok.*.module_path.*, usize(cap_tok.*.row), usize(cap_tok.*.column));
   mut(retain_lines) := ArrayList(String).new();
   (mut(ri) : usize) = usize(0);
   while(ri < fields.len(), {
@@ -2028,7 +2028,7 @@ FusedAwaitSite :: struct(
 _fusion_not_lowered :: (fn(await_expr : &AstExpr, why : &String, report : bool) -> Option(FusedAwaitSite))({
   if(report && debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
     tok := ast_expr_token(await_expr);
-    eprintln(`fusion: ${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()} not lowered: ${why}`);
+    eprintln(`fusion: ${tok.*.module_path.*}:${tok.*.row.to_string()}:${tok.*.column.to_string()} not lowered: ${why}`);
   });
   Option(FusedAwaitSite).None
 });
@@ -2078,7 +2078,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
       while((bi < blocks.len()) && found.is_none(), bi = (bi + usize(1)), {
         match(
           blocks.get_cloned(bi),
-          .Some(b) => if(b.source_call_id == ast_expr_id(&io_call), {
+          .Some(b) => if(b.*.source_call_id == ast_expr_id(&io_call), {
             found = Option(DeferredAsyncBlock).Some(b);
           }),
           .None => ()
@@ -2134,11 +2134,11 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   if(n_args != n_params, {
     return(_fusion_not_lowered(await_expr, `the call passes ${n_args.to_string()} arguments to ${n_params.to_string()} parameters`, report));
   });
-  n_slots := match(&block.closure_param_slots, .Some(s) => s.len(), .None => usize(0));
+  n_slots := match(&block.*.closure_param_slots, .Some(s) => s.len(), .None => usize(0));
   if(n_slots != usize(1), {
     return(_fusion_not_lowered(await_expr, String.from("the block does not take exactly one bundle parameter"), report));
   });
-  bundle_ty := match(&block.closure_param_slots, .Some(s) => match(s.get_cloned(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+  bundle_ty := match(&block.*.closure_param_slots, .Some(s) => match(s.get_cloned(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
   effects_ty := match(
     await_args.get_cloned(usize(1)),
     .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(Rc.clone(eei.ty())), .None => Option(TypeValue).None),
@@ -2201,7 +2201,7 @@ _collect_fused_sites :: (
                 // The site joins `out` before the sites nested in its block
                 // (emission order); its prefix and analysis are read first.
                 s_prefix := s.prefix.clone();
-                s_analysis := s.block.analysis.clone();
+                s_analysis := s.block.*.analysis.clone();
                 out.push(s);
                 saved_prefix := replace(&mut context.fusion_field_prefix, s_prefix);
                 _collect_fused_sites(&s_analysis, seen, out, context);
@@ -2228,8 +2228,8 @@ _collect_fused_sites :: (
 FusedLocalField :: struct(id : String, name : String, field_name : String, ty : TypeValue);
 _fused_local_fields :: (fn(site : &FusedAwaitSite) -> ArrayList(FusedLocalField))({
   mut(out) := ArrayList(FusedLocalField).new();
-  register_sm_captured_names(&site.block.analysis.captured_variables);
-  cvs := &site.block.analysis.captured_variables;
+  register_sm_captured_names(&site.block.*.analysis.captured_variables);
+  cvs := &site.block.*.analysis.captured_variables;
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
@@ -2251,12 +2251,12 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : 
   // the other.
   local_names := HashSet(String).new();
   for(&sites, site => {
-    context.base.emitter.emit_declaration_string_line(`  // fused wrapper block ${site.block.async_block_id.clone()} (await-site fusion)`);
+    context.base.emitter.emit_declaration_string_line(`  // fused wrapper block ${site.block.*.async_block_id.clone()} (await-site fusion)`);
     if(_fused_site_has_releases(&site.*), {
       context.base.emitter.emit_declaration_string_line(`  uint8_t ${site.prefix}live;  // the site is running: the dispose releases its fields`);
     });
     match(
-      &site.block.capture_type,
+      &site.block.*.capture_type,
       .Some(ct) => {
         emit_text6 := `  ${_find_capture_type_c_name(&ct.*, context)} ${site.prefix}capture;`;
         context.base.emitter.emit_declaration_string_line(&emit_text6);
@@ -2264,7 +2264,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : 
       .None => ()
     );
     match(
-      &site.block.closure_param_slots,
+      &site.block.*.closure_param_slots,
       .Some(slots) => {
         (mut(pi) : usize) = usize(0);
         while(pi < slots.len(), pi = (pi + usize(1)), {
@@ -2295,7 +2295,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : 
       );
     });
     saved_prefix := replace(&mut context.fusion_field_prefix, site.prefix.clone());
-    rfs := inline_await_result_fields(&site.block.analysis, context);
+    rfs := inline_await_result_fields(&site.block.*.analysis, context);
     context.fusion_field_prefix = saved_prefix;
     (mut(ri) : usize) = usize(0);
     while(ri < rfs.len(), ri = (ri + usize(1)), {
@@ -2333,7 +2333,7 @@ _fused_site_has_releases :: (fn(site : &FusedAwaitSite) -> bool)({
 });
 /// Whether a fused site's capture struct holds an RC or move-only value.
 _fused_capture_has_releases :: (fn(site : &FusedAwaitSite) -> bool)(
-  match(&site.block.capture_type, .Some(ct) => type_contains_rc_cell_or_move_only(&ct.*), .None => false)
+  match(&site.block.*.capture_type, .Some(ct) => type_contains_rc_cell_or_move_only(&ct.*), .None => false)
 );
 /// The caller's dispose of its fused sites' fields. Each site's capture is
 /// released while that site is live; a local field is released once, while
@@ -2389,7 +2389,7 @@ _emit_fused_site_end_releases :: (fn(site : &FusedAwaitSite, indent : &String, c
 /// Release a fused site's capture fields (`zero`: then zero the struct).
 _emit_fused_capture_releases :: (fn(site : &FusedAwaitSite, indent : &String, zero : bool, context : &mut FunctionGenerationContext) -> unit)({
   match(
-    &site.block.capture_type,
+    &site.block.*.capture_type,
     .Some(ct) => {
       cap_id := match(ct, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
@@ -2437,7 +2437,7 @@ _emit_fused_local_release :: (fn(lf : &FusedLocalField, indent : &String, zero :
 /// state machine) and its capture fields, all aliased into the site's fields.
 _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVariable))({
   vars := HashMap(String, CapturedVariable).new();
-  cvs := &site.block.analysis.captured_variables;
+  cvs := &site.block.*.analysis.captured_variables;
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
@@ -2449,7 +2449,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
     );
   });
   match(
-    &site.block.closure_param_slots,
+    &site.block.*.closure_param_slots,
     .Some(slots) => {
       (mut(pi) : usize) = usize(0);
       while(pi < slots.len(), pi = (pi + usize(1)), {
@@ -2466,7 +2466,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
     .None => ()
   );
   match(
-    &site.block.capture_type,
+    &site.block.*.capture_type,
     .Some(ct) => {
       cap_id := match(ct, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
@@ -2493,7 +2493,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
 /// uninitialized local field instead of the bundle.
 _fused_sm_aliases :: (fn(site : &FusedAwaitSite) -> HashMap(String, String))({
   aliases := HashMap(String, String).new();
-  n_slots := match(&site.block.closure_param_slots, .Some(s) => s.len(), .None => usize(0));
+  n_slots := match(&site.block.*.closure_param_slots, .Some(s) => s.len(), .None => usize(0));
   (mut(pi) : usize) = usize(0);
   while(pi < n_slots, pi = (pi + usize(1)), {
     aliases.insert(`__closure_param_${pi.to_string()}`, `${site.prefix}param_${pi.to_string()}`);
@@ -2616,7 +2616,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
     // The callee's position, as the `fusable` line prints it: the block id is
     // a C name derived from the module path, so it differs between checkouts.
     callee_at := match(await_fusion_candidate(&site.call), .Some(c) => c.callee_at.clone(), .None => String.from("?"));
-    eprintln(`fusion: ${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()} fused (callee ${callee_at})`);
+    eprintln(`fusion: ${tok.*.module_path.*}:${tok.*.row.to_string()}:${tok.*.column.to_string()} fused (callee ${callee_at})`);
   });
   // The await's own result field, under the caller's names.
   outer_field := inline_await_result_field_of(await_expr, inline_await_result_fields(&low_analysis, context));
@@ -2725,9 +2725,9 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   );
   _emit_fused_statements_no_tail(&site.prologue, inner.clone(), context);
   match(
-    &site.block.capture_type,
+    &site.block.*.capture_type,
     .Some(ct) => {
-      lit := _build_async_capture_struct_literal(&site.io_async_call, &site.block.capture_dups, &ct.*, _find_capture_type_c_name(&ct.*, context), inner.clone(), context);
+      lit := _build_async_capture_struct_literal(&site.io_async_call, &site.block.*.capture_dups, &ct.*, _find_capture_type_c_name(&ct.*, context), inner.clone(), context);
       context.base.emitter.emit_string_line(`${inner}sm->${site.prefix}capture = ${lit};`);
     },
     .None => ()
@@ -2766,13 +2766,13 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   // when the block is done: one map, as the shared handle was.
   saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
-  context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
-  saved_scope := sm_lowering_enter_scope(context, site.block.analysis.clone());
+  context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.*.analysis.variable_id_remapping.clone());
+  saved_scope := sm_lowering_enter_scope(context, site.block.*.analysis.clone());
   // The block's own drops, and no caller's: what its own state machine has.
   mut(pdd) := ArrayList(AstExpr).new();
-  match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions(), .Some(d) => _append_expr_list(&mut pdd, &d.*), .None => ()), .None => ());
+  match(context.base.get_expr_info(&site.block.*.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions(), .Some(d) => _append_expr_list(&mut pdd, &d.*), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
-  tail := _emit_fused_statements(_fused_statements(&site.block.body_expr), inner.clone(), context);
+  tail := _emit_fused_statements(_fused_statements(&site.block.*.body_expr), inner.clone(), context);
   (mut(out) : String) = String.from("");
   match(
     outer_field,
@@ -2785,7 +2785,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
       out = outer_local;
     })
   );
-  generate_deferred_drop_expressions(&site.block.body_expr, inner.clone(), context);
+  generate_deferred_drop_expressions(&site.block.*.body_expr, inner.clone(), context);
   _emit_fused_site_end_releases(&site, &inner, context);
   context.base.emitter.emit_string_line(`${indent}}`);
   context.declared_temp_vars = saved_temps2;
@@ -2936,7 +2936,7 @@ Fix the error inside the body. Common causes: a type error the deferred trial sw
 _report_hollow_async_body :: (fn(body_expr : &AstExpr, via_fsm : bool) -> unit)({
   tok := ast_expr_token(body_expr);
   match(
-    lookup_hollow_body_error(`${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`),
+    lookup_hollow_body_error(`${tok.*.module_path.*}:${tok.*.row.to_string()}:${tok.*.column.to_string()}`),
     .Some(hb) => {
       if(hb.diagnostics.len() > usize(0), {
         codegen_report_error(dyn(Box.new(yo_error_from_diagnostics(&hb.diagnostics))));
@@ -2962,15 +2962,15 @@ _first_atom_site :: (fn(e : &AstExpr, name : &String) -> String)(
   match(
     e.clone(),
     Rc(.Atom(_, tok)) => cond(
-      (tok.value.* == name.*) => `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`,
+      (tok.*.value.* == name.*) => `${tok.*.module_path.*}:${tok.*.row.to_string()}:${tok.*.column.to_string()}`,
       true => String.from("")
     ),
     Rc(.FnCall(_, _, Rc(args), _, _)) => {
-      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get_cloned(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(&a0).value.* == name.*)), .None => false));
+      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get_cloned(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(&a0).*.value.* == name.*)), .None => false));
       if(typed_here, {
         ctok := ast_expr_token(e.clone());
         a0tok := match(args.get_cloned(usize(0)), .Some(a0) => ast_expr_token(&a0), .None => ctok.clone());
-        return(`${a0tok.module_path}:${a0tok.row.to_string()}:${a0tok.column.to_string()}|${ctok.module_path.*}:${ctok.row.to_string()}:${ctok.column.to_string()}`);
+        return(`${a0tok.*.module_path.*}:${a0tok.*.row.to_string()}:${a0tok.*.column.to_string()}|${ctok.*.module_path.*}:${ctok.*.row.to_string()}:${ctok.*.column.to_string()}`);
       });
       (mut(i) : usize) = usize(0);
       (mut(found) : String) = String.from("");
@@ -3026,7 +3026,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     .None => {
       // Phase 2: position-derived with MERGE semantics — see the twin above.
       ab2_tok := ast_expr_token(expr);
-      stable_position_id(String.from("async_block_"), &ab2_tok.module_path.*, usize(ab2_tok.row), usize(ab2_tok.column))
+      stable_position_id(String.from("async_block_"), &ab2_tok.*.module_path.*, usize(ab2_tok.*.row), usize(ab2_tok.*.column))
     }
   );
   struct_name := `${async_block_id.clone()}_state_t`;
@@ -3124,7 +3124,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           .Some(v) => match(
             v.is_owning_the_same_rc_value_as.clone(),
             .Some(ob) => if(is_capture(&v, cap_id.clone()) && !is_capture(&ob.*, cap_id.clone()), {
-              outside_owner_ids.insert(ob.base.id.clone());
+              outside_owner_ids.insert(ob.*.base.id.clone());
             }),
             .None => ()
           ),
@@ -3372,8 +3372,8 @@ _copy_string_map :: (fn(src : &HashMap(String, String)) -> HashMap(String, Strin
 /// (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
 _sm_unwind_catch_for :: (fn(block : &DeferredAsyncBlock, context : &FunctionGenerationContext) -> Option(SmUnwindCatch))(
   match(
-    unwind_catch_condition(unwind_catches_of_body(&block.body_expr)),
-    .Some(c) => Option(SmUnwindCatch).Some(SmUnwindCatch(condition : c, drop_locals_fn : `${block.dispose_function_name.clone()}_locals`, result_is_unit : is_unit_type(&block.result_type), label : block.async_block_id.clone())),
+    unwind_catch_condition(unwind_catches_of_body(&block.*.*.body_expr)),
+    .Some(c) => Option(SmUnwindCatch).Some(SmUnwindCatch(condition : c, drop_locals_fn : `${block.*.*.dispose_function_name.clone()}_locals`, result_is_unit : is_unit_type(&block.*.*.result_type), label : block.*.*.async_block_id.clone())),
     .None => Option(SmUnwindCatch).None
   )
 );
@@ -3383,10 +3383,10 @@ _sm_unwind_catch_for :: (fn(block : &DeferredAsyncBlock, context : &FunctionGene
 /// stored twice, plans/archive/ASYNC_STATE_MACHINE_GENERATION.md §3.4). The struct
 /// definition and the resume function both read this one result.
 _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGenerationContext) -> CrossBoundaryResult)({
-  cbr := compute_cross_boundary_variables(&block.body_expr, &block.analysis, context);
+  cbr := compute_cross_boundary_variables(&block.*.*.body_expr, &block.*.*.analysis, context);
   param_sites := HashSet(String).new();
   match(
-    &block.closure_param_slots,
+    &block.*.*.closure_param_slots,
     .Some(slots) => {
       (mut(psi) : usize) = usize(0);
       while(psi < slots.len(), {
@@ -3414,7 +3414,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   );
   if(param_sites.len() > usize(0), {
     (mut(pci) : usize) = usize(0);
-    pcvs := &block.analysis.captured_variables;
+    pcvs := &block.*.*.analysis.captured_variables;
     while(pci < pcvs.len(), {
       match(
         pcvs.get_cloned(pci),
@@ -3430,9 +3430,9 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   // through the owner's slot (`sm_storage_id`), so it gets no field.
   body_locals := HashSet(String).new();
   (mut(bli) : usize) = usize(0);
-  while(bli < block.analysis.captured_variables.len(), bli = (bli + usize(1)), {
+  while(bli < block.*.*.analysis.captured_variables.len(), bli = (bli + usize(1)), {
     match(
-      block.analysis.captured_variables.get_cloned(bli),
+      block.*.*.analysis.captured_variables.get_cloned(bli),
       .Some(bv) => match(
         bv.kind,
         .Local => {
@@ -3444,12 +3444,12 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
     );
   });
   (mut(ali) : usize) = usize(0);
-  while(ali < block.analysis.captured_variables.len(), ali = (ali + usize(1)), {
+  while(ali < block.*.*.analysis.captured_variables.len(), ali = (ali + usize(1)), {
     match(
-      block.analysis.captured_variables.get_cloned(ali),
+      block.*.*.analysis.captured_variables.get_cloned(ali),
       .Some(av) => match(
         av.is_owning_the_same_rc_value_as.clone(),
-        .Some(ob) => if(body_locals.contains(ob.base.id.to_string()), {
+        .Some(ob) => if(body_locals.contains(ob.*.base.id.to_string()), {
           _dropped := cbr.cross_boundary_ids.remove(av.base.id.to_string());
         }),
         .None => ()
@@ -3459,18 +3459,18 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   });
   if(debug_knob(`YO_DEBUG_ASYNC_LAYOUT`).is_some(), {
     match(
-      &block.closure_param_slots,
+      &block.*.*.closure_param_slots,
       .Some(dslots) => {
         (mut(dsi) : usize) = usize(0);
         while(dsi < dslots.len(), dsi = (dsi + usize(1)), {
-          match(dslots.get_cloned(dsi), .Some(dsl) => eprintln(`[async-layout] ${block.async_block_id} param ${dsl.param_name} site=${dsl.decl_site}`), .None => ());
+          match(dslots.get_cloned(dsi), .Some(dsl) => eprintln(`[async-layout] ${block.*.*.async_block_id} param ${dsl.param_name} site=${dsl.decl_site}`), .None => ());
         });
       },
       .None => ()
     );
     (mut(dci) : usize) = usize(0);
-    while(dci < block.analysis.captured_variables.len(), dci = (dci + usize(1)), {
-      match(block.analysis.captured_variables.get_cloned(dci), .Some(dcv) => eprintln(`[async-layout] ${block.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cbr.cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
+    while(dci < block.*.*.analysis.captured_variables.len(), dci = (dci + usize(1)), {
+      match(block.*.*.analysis.captured_variables.get_cloned(dci), .Some(dcv) => eprintln(`[async-layout] ${block.*.*.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cbr.cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
     });
   });
   cbr
@@ -3482,11 +3482,11 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases.clone();
-  osr := compute_overlapping_slots(&cbr.cross_boundary_ids, &cbr.variable_segments, &block.analysis.captured_variables, &await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
+  osr := compute_overlapping_slots(&cbr.cross_boundary_ids, &cbr.variable_segments, &block.*.*.analysis.captured_variables, &await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
   overlapping_slot_aliases := osr.slot_aliases.clone();
   // Filter capturedVariables to those that need SM fields (or stay for drops).
   mut(filtered) := ArrayList(CapturedVariable).new();
-  src_cvs := &block.analysis.captured_variables;
+  src_cvs := &block.*.*.analysis.captured_variables;
   (mut(ci) : usize) = usize(0);
   while(ci < src_cvs.len(), {
     match(
@@ -3505,7 +3505,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   // Register closure-param slots as state-machine variables (the atom
   // emitter emits sm->__yo_param_<i>). See [[yo-anon-closure-param-name-extraction]].
   match(
-    &block.closure_param_slots,
+    &block.*.*.closure_param_slots,
     .Some(cps) => {
       (mut(cp) : usize) = usize(0);
       while(cp < cps.len(), {
@@ -3523,10 +3523,10 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
     .None => ()
   );
   filtered_analysis := AwaitAnalysisResult(
-    await_points : _share_await_points(&block.analysis.await_points),
+    await_points : _share_await_points(&block.*.*.analysis.await_points),
     captured_variables : filtered,
-    has_awaits : block.analysis.has_awaits,
-    variable_id_remapping : block.analysis.variable_id_remapping.clone()
+    has_awaits : block.*.*.analysis.has_awaits,
+    variable_id_remapping : block.*.*.analysis.variable_id_remapping.clone()
   );
   // SM var map: filtered vars + capture-struct fields (as outer vars).
   sm_var_map := HashMap(String, CapturedVariable).new();
@@ -3543,7 +3543,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
     fi = (fi + usize(1));
   });
   match(
-    &block.capture_type,
+    &block.*.*.capture_type,
     .Some(cap_ty) => {
       cap_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       cap_fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
@@ -3568,7 +3568,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
     merged_aliases.insert(k.clone(), v.clone());
   });
   match(
-    &block.closure_param_slots,
+    &block.*.*.closure_param_slots,
     .Some(cps) => {
       (cp2 : usize) = usize(0);
       while(cp2 < cps.len(), {
@@ -3586,7 +3586,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   );
   saved_field_aliases := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).Some(merged_aliases));
   hold_ids := HashSet(usize).new();
-  block_holds := collect_operand_holds(&block.body_expr, context);
+  block_holds := collect_operand_holds(&block.*.*.body_expr, context);
   for(&block_holds, oh => {
     hold_ids.insert(oh.expr_id);
   });
@@ -3616,7 +3616,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   // their own `.yo` positions inside. Restore honest C numbering before and
   // after so the setter/dispose/ctor scaffolding that follows reports real C.
   context.base.emitter.clear_yo_line_position();
-  local_var_drops := generate_async_block_resume_function_inline(&block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), &filtered_analysis, &block.future_type, &block.capture_type, context);
+  local_var_drops := generate_async_block_resume_function_inline(&block.*.*.body_expr, block.*.*.async_block_id.clone(), block.*.*.struct_name.clone(), block.*.*.resume_function_name.clone(), &filtered_analysis, &block.*.*.future_type, &block.*.*.capture_type, context);
   context.base.emitter.clear_yo_line_position();
   context.base.emitter.declared_ref = prev_declared_ref;
   context.base.emitter.scope_ref = prev_scope_ref;
@@ -3625,7 +3625,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   context.base.emitter.emit_string_line(String.from(""));
   // set_effect impl (emitted while SM vars are still in context).
   sync_param_slot := match(
-    &block.closure_param_slots,
+    &block.*.*.closure_param_slots,
     .Some(cps) => match(
       cps.get_cloned(usize(0)),
       .Some(slot) => Option(SyncParamSlot).Some(SyncParamSlot(field_name : slot.field_name.clone(), c_type : slot.c_type.clone())),
@@ -3633,7 +3633,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
     ),
     .None => Option(SyncParamSlot).None
   );
-  vt_bundle := generate_future_effect_setter(block.struct_name.clone(), block.set_effect_function_name.clone(), &block.future_trait_type, &block.capture_type, context, &sync_param_slot);
+  vt_bundle := generate_future_effect_setter(block.*.*.struct_name.clone(), block.*.*.set_effect_function_name.clone(), &block.*.*.future_trait_type, &block.*.*.capture_type, context, &sync_param_slot);
   // Restore context.
   context.state_machine_variables = saved_sm_vars;
   context.current_evidence_params = saved_evidence_params;
@@ -3641,14 +3641,14 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   context.sm_operand_holds = saved_operand_holds;
   context.base.emitter.emit_string_line(String.from(""));
   // Dispose function.
-  generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), &block.result_type, &block.capture_type, &filtered_analysis, &local_var_drops, &cbr.cross_boundary_ids, &await_future_temp_var_aliases, &overlapping_slot_aliases, &osr.slots, context);
+  generate_async_block_state_dispose_function(block.*.*.async_block_id.clone(), block.*.*.struct_name.clone(), block.*.*.dispose_function_name.clone(), &block.*.*.result_type, &block.*.*.capture_type, &filtered_analysis, &local_var_drops, &cbr.cross_boundary_ids, &await_future_temp_var_aliases, &overlapping_slot_aliases, &osr.slots, context);
   context.state_machine_binding_ids = saved_binding_ids;
   context.sm_unwind_catch = saved_sm_unwind_catch;
   context.base.emitter.emit_string_line(String.from(""));
   // Abort hook — cancels the I/O operation the task is suspended in.
-  cancel_pending_function_name := generate_async_block_cancel_pending_function_inline(block.async_block_id.clone(), block.struct_name.clone(), context);
+  cancel_pending_function_name := generate_async_block_cancel_pending_function_inline(block.*.*.async_block_id.clone(), block.*.*.struct_name.clone(), context);
   // Constructor.
-  generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), &cancel_pending_function_name, &vt_bundle, &block.future_type, &block.result_type, block.result_type_c_name.clone(), &block.capture_type, context);
+  generate_async_block_constructor(block.*.*.async_block_id.clone(), block.*.*.struct_name.clone(), block.*.*.resume_function_name.clone(), block.*.*.constructor_name.clone(), block.*.*.dispose_function_name.clone(), block.*.*.set_effect_function_name.clone(), &cancel_pending_function_name, &vt_bundle, &block.*.*.future_type, &block.*.*.result_type, block.*.*.result_type_c_name.clone(), &block.*.*.capture_type, context);
   context.base.emitter.emit_string_line(String.from(""));
 });
 /// Generate all deferred async-block implementations (resume / set_effect / dispose
@@ -3682,21 +3682,21 @@ generate_deferred_async_blocks :: (fn(context : &mut FunctionGenerationContext) 
           _deferred_block_at(context, ni),
           .Some(nb) => {
             ncbr := _block_cross_boundary(&nb, context);
-            nosr := compute_overlapping_slots(&ncbr.cross_boundary_ids, &ncbr.variable_segments, &nb.analysis.captured_variables, &ncbr.await_future_temp_var_aliases, &ncbr.pattern_binding_ids, context);
+            nosr := compute_overlapping_slots(&ncbr.cross_boundary_ids, &ncbr.variable_segments, &nb.*.analysis.captured_variables, &ncbr.await_future_temp_var_aliases, &ncbr.pattern_binding_ids, context);
             emit_async_block_struct_definition(
               AsyncBlockStructInfo(
-                async_block_id : nb.async_block_id.clone(),
-                struct_name : nb.struct_name.clone(),
-                result_type : Rc.clone(nb.result_type),
-                result_type_c_name : nb.result_type_c_name.clone(),
-                capture_type : nb.capture_type.clone(),
-                analysis : nb.analysis.clone(),
+                async_block_id : nb.*.async_block_id.clone(),
+                struct_name : nb.*.struct_name.clone(),
+                result_type : Rc.clone(nb.*.result_type),
+                result_type_c_name : nb.*.result_type_c_name.clone(),
+                capture_type : nb.*.capture_type.clone(),
+                analysis : nb.*.analysis.clone(),
                 cross_boundary_ids : Option(HashSet(String)).Some(replace(&mut ncbr.cross_boundary_ids, HashSet(String).new())),
                 await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases.clone()),
                 overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases.clone()),
                 overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(replace(&mut nosr.slots, ArrayList(OverlappingSlot).new())),
-                closure_param_slots : nb.closure_param_slots.clone(),
-                operand_holds : collect_operand_holds(&nb.body_expr, context)
+                closure_param_slots : nb.*.closure_param_slots.clone(),
+                operand_holds : collect_operand_holds(&nb.*.body_expr, context)
               ),
               context
             );
@@ -3762,7 +3762,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
                 // occurrence label): preregistration and generation BOTH
                 // mint this id and must agree on the struct name.
                 ab_tok := ast_expr_token(expr);
-                stable_position_id(String.from("async_block_"), &ab_tok.module_path.*, usize(ab_tok.row), usize(ab_tok.column))
+                stable_position_id(String.from("async_block_"), &ab_tok.*.module_path.*, usize(ab_tok.*.row), usize(ab_tok.*.column))
               }
             );
             struct_name := `${async_block_id}_state_t`;
@@ -3791,7 +3791,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
                 // Phase 2: position-derived, MERGE semantics (two passes
                 // must agree on the struct name).
                 io_tok := ast_expr_token(expr);
-                stable_position_id(String.from("io_async_block_"), &io_tok.module_path.*, usize(io_tok.row), usize(io_tok.column))
+                stable_position_id(String.from("io_async_block_"), &io_tok.*.module_path.*, usize(io_tok.*.row), usize(io_tok.*.column))
               }
             );
             // Must mirror the dispatcher's routing decision (generation.yo):
@@ -3940,7 +3940,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     .None => {
       // Phase 2: position-derived, MERGE semantics — see the twin above.
       io2_tok := ast_expr_token(expr);
-      stable_position_id(String.from("io_async_block_"), &io2_tok.module_path.*, usize(io2_tok.row), usize(io2_tok.column))
+      stable_position_id(String.from("io_async_block_"), &io2_tok.*.module_path.*, usize(io2_tok.*.row), usize(io2_tok.*.column))
     }
   );
   per_clone_key := output_some_id.clone();
@@ -4361,7 +4361,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
       // IN-SCOPE C local/param wins — the captures side-table can hold names
       // that are REAL C parameters of the current fn (the SM bundle param
       // `e`), and rewriting those referenced a nonexistent capture field.
-      lbl_in_scope := context.base.declared_scopes.with({ &lbl_c }(ds_s) => scope_stack_contains(ds_s, lbl_c.clone()));
+      lbl_in_scope := context.base.declared_scopes.*.with({ &lbl_c }(ds_s) => scope_stack_contains(ds_s, lbl_c.clone()));
       lbl_read := cond(
         lbl_in_scope => lbl_c.clone(),
         match(

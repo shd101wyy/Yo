@@ -144,7 +144,7 @@ _emit_place_binding_decl :: (fn(context : &mut FunctionGenerationContext, indent
 /// resets the default binding mode: a copy the arm may reassign, as the
 /// evaluator binds it (`evaluate_match`).
 _binds_by_ref :: (fn(refs : bool, atom : &AstExpr) -> bool)(
-  refs && !is_mut_binding(&ast_expr_token(atom), &ast_expr_token(atom).value.*.clone())
+  refs && !is_mut_binding(&ast_expr_token(atom), &ast_expr_token(atom).*.value.*.clone())
 );
 _emit_arm_binding_decl :: (fn(context : &mut FunctionGenerationContext, indent : &String, bind : &String, ty : &TypeValue, init : &String, refs : bool) -> unit)(
   if(refs && !t_slot_is_borrow(ty), {
@@ -663,7 +663,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
           .None => false
         );
         if(executed, {
-          is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).value.* == "_"));
+          is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).*.value.* == "_"));
           if(is_wildcard, {
             // The catch-all: a plain else. Arms after it are unreachable —
             // the evaluator rejects them (A2) — so this is the chain's tail.
@@ -775,7 +775,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
         case_body := match(cargs.get_cloned(usize(1)), .Some(cb) => cb, .None => case_expr);
         executed := match(context.base.get_expr_info(&case_value), .Some(cei) => match(expr_info_case_executed(&cei), .Some(b) => b, .None => false), .None => false);
         if(executed, {
-          is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).value.* == "_"));
+          is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).*.value.* == "_"));
           if(is_wildcard, {
             mut(d) := indent.clone();
             d.push_str("default: {");
@@ -897,7 +897,7 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &mut FunctionGenerationC
   if(context.sm_inline_lowering.is_none(), {
     return(Option(String).None);
   });
-  site := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  site := `${tok.*.*.module_path.*}:${tok.*.*.row.to_string()}:${tok.*.*.column.to_string()}`;
   // The binding id is found first and the context written after: the walk
   // borrows `context.state_machine_variables` for its whole extent.
   hit := match(
@@ -907,7 +907,7 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &mut FunctionGenerationC
       for(&smv, (k, cv) => {
         // A consuming arm's hidden bindings share the arm's token, so the
         // name tells them apart (decision 26).
-        if(found.is_none() && match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
+        if(found.is_none() && match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.*.*.value.*)), {
           found = Option(String).Some(k.clone());
         });
       });
@@ -1055,7 +1055,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
               // earlier one turned `.Some(fs) => fs, _ => fallback` into
               // "always the fallback".
               cond(
-                (ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value.* == "_")) => {
+                (ast_expr_is_atom(&cv) && (ast_expr_token(&cv).*.value.* == "_")) => {
                   if(null_body.is_none(), {
                     null_body = Option(AstExpr).Some(Rc.clone(cb));
                   });
@@ -1102,7 +1102,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
       match(
         nullable_arm_payload_binder(&pat),
         .Some(dvar) => {
-          dvn := sanitize_for_c_identifier(ast_expr_token(&dvar).value.*, false);
+          dvn := sanitize_for_c_identifier(ast_expr_token(&dvar).*.value.*, false);
           dvn_c := shadow_binding_decl_name(context, &dvn);
           // A `&` match's binding points at the payload: the enum's own
           // storage, which is the pointer.
@@ -1156,16 +1156,16 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
             match(
               context.base.get_expr_info(&dvar),
               .Some(smb_bei) => {
-                smb_vars := scope_variables(ast_expr_id(&dvar), &smb_bei.env(), ast_expr_token(&dvar).value.*.to_string());
+                smb_vars := scope_variables(ast_expr_id(&dvar), &smb_bei.env(), ast_expr_token(&dvar).*.value.*.to_string());
                 if(smb_vars.len() > usize(0), {
                   match(
                     smb_vars.last_cloned(),
                     .Some(smb_var) => {
                       smb_env_resolved = true;
                       smb_id = match(
-                        smb_var.is_owning_the_same_rc_value_as(),
-                        .Some(ob) => ob.id().to_string(),
-                        .None => smb_var.id().to_string()
+                        smb_var.*.is_owning_the_same_rc_value_as(),
+                        .Some(ob) => ob.*.id().to_string(),
+                        .None => smb_var.*.id().to_string()
                       );
                       match(
                         &context.variable_id_remapping,
@@ -1196,7 +1196,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
                 .Some(smv2) => {
                   for(&smv2, (smb_k, smb_cv) => {
                     smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
-                    if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).value.*.to_string()), {
+                    if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).*.value.*.to_string()), {
                       smb_id = smb_k.clone();
                       smb_has = true;
                       break;
@@ -1277,7 +1277,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
     ptr_pattern,
     .Some(pat2) => match(
       nullable_arm_payload_binder(&pat2),
-      .Some(dvar2) => _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(&dvar2).value.*, false)),
+      .Some(dvar2) => _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(&dvar2).*.value.*, false)),
       .None => ()
     ),
     .None => ()
@@ -1353,7 +1353,7 @@ _gen_simple_enum_match :: (fn(expr : &AstExpr, indent : &String, context : &mut 
           .Some(cv) => match(
             cargs.get_cloned(usize(1)),
             .Some(cb) => if(_case_executed(&cv, context), {
-              if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value.* == "_"), {
+              if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).*.value.* == "_"), {
                 mut(d) := indent.clone();
                 d.push_str("default: {");
                 context.base.emitter.emit_string_line(&d);
@@ -1405,8 +1405,8 @@ _remove_arm_shadows :: (fn(params : &ArrayList(AstExpr), context : &mut Function
       dparams.get_cloned(pi),
       .Some(p) => {
         var_atom := if(ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), match(_args(&p).get_cloned(usize(1)), .Some(v) => v, .None => p), p);
-        if(ast_expr_is_atom(&var_atom) && !(ast_expr_token(&var_atom).value.* == "_"), {
-          _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(&var_atom).value.*, false));
+        if(ast_expr_is_atom(&var_atom) && !(ast_expr_token(&var_atom).*.value.* == "_"), {
+          _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(&var_atom).*.value.*, false));
         });
       },
       .None => ()
@@ -1479,7 +1479,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                 label := match(pargs.get_cloned(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_text(&le).*.clone(), String.from("")), .None => String.from(""));
                 match(
                   pargs.get_cloned(usize(1)),
-                  .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value.* == "_") && (label.len() > usize(0)), {
+                  .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).*.value.* == "_") && (label.len() > usize(0)), {
                     // Find the field index for this label.
                     (mut(fi) : usize) = labels.len();
                     nl := labels.len();
@@ -1503,7 +1503,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                         init.push_string(c_variant_member_name(cvariant.clone()));
                         init.push_str(".");
                         init.push_string(sanitize_for_c_identifier(label.clone(), false));
-                        vcn := sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false);
+                        vcn := sanitize_for_c_identifier(ast_expr_token(&var_expr).*.value.*, false);
                         vcn_c := shadow_binding_decl_name(context, &vcn);
                         _emit_arm_binding_decl(context, body_indent.clone(), &vcn_c, &ftype, &init, _binds_by_ref(refs, &var_expr));
                         _bind_pattern_name(context, body_indent.clone(), &vcn, &vcn_c, ast_expr_token(&var_expr), init.clone());
@@ -1524,7 +1524,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
           while(fi < limit, {
             match(
               dparams.get_cloned(fi),
-              .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value.* == "_") && !pattern_param_is_literal(&var_expr), {
+              .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).*.value.* == "_") && !pattern_param_is_literal(&var_expr), {
                 field_label := match(labels.get_cloned(fi), .Some(fl) => fl, .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 if(!is_unit_type(&ftype), {
@@ -1534,7 +1534,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                   init.push_string(c_variant_member_name(cvariant.clone()));
                   init.push_str(".");
                   init.push_string(sanitize_for_c_identifier(&field_label, false));
-                  vcn := sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false);
+                  vcn := sanitize_for_c_identifier(ast_expr_token(&var_expr).*.value.*, false);
                   vcn_c := shadow_binding_decl_name(context, &vcn);
                   _emit_arm_binding_decl(context, body_indent.clone(), &vcn_c, &ftype, &init, _binds_by_ref(refs, &var_expr));
                   _bind_pattern_name(context, body_indent.clone(), &vcn, &vcn_c, ast_expr_token(&var_expr), init.clone());
@@ -1709,7 +1709,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
           .Some(cv) => match(
             cargs.get_cloned(usize(1)),
             .Some(cb0) => if(_case_executed(&cv, context), {
-              if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value.* == "_"), {
+              if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).*.value.* == "_"), {
                 d := indent.clone();
                 d.push_str("default: {");
                 context.base.emitter.emit_string_line(&d);
@@ -2135,7 +2135,7 @@ _emit_pattern_chain :: (
               while(ai0 < alt_atoms.len(), ai0 = (ai0 + usize(1)), {
                 match(
                   alt_atoms.get_cloned(ai0),
-                  .Some(aa) => if(!_binds_by_ref(true, &aa), by_value.push(ast_expr_token(&aa).value.*.clone())),
+                  .Some(aa) => if(!_binds_by_ref(true, &aa), by_value.push(ast_expr_token(&aa).*.value.*.clone())),
                   .None => ()
                 );
               });

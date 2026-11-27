@@ -100,7 +100,7 @@ Needs the v0.2.80 seed.
   - Q3 PR 2: `${x:spec}`, `${x:?}`, spec-aware `fmt`;
   - Q2: `Display`/`Debug` for `Box`/`Rc`/`Arc`; `Arc` gains `Eq`/`Hash`, all three gain `Ord`.
 - A free generic function's unbound binder slot with `&x`: infer-first (Rust) as a candidate, with the open S2
-  `issues/2026-11-23-a-lend-to-a-by-value-reference-parameter-in-a-static-method-call-is-e0601.md`.
+  `issues/fixed/2026-11-23-a-lend-to-a-by-value-reference-parameter-in-a-static-method-call-is-e0601.md`.
 - VERDICTS-72 rule (b): no user binder in the `__yo_` namespace.
 - The `std/sync` channel payload back to `_ChannelState(T)`; the prelude's four `Deref` arms in
   `derive(Clone)`/`derive(Hash)`.
@@ -133,6 +133,11 @@ Needs the v0.2.80 seed.
 - VERDICTS-77: a substituted recursive type's self-reference denotes the substituted type (`substitute` and the
   finals registries; `type_key` renders the recursion cut by declaration and arguments), two stacked PRs after
   the evalwork memo — fixes the generic `GKind(T)` impl-member S2 and its struct twin.
+- Adopted after this schedule was written (2026-11-26/27): `Deref` member forwarding deleted, F1 and F2 (moved from
+  v0.2.80); VERDICTS-88 (variant patterns: `.V(..)` matches any payload, parentheses exactly when the variant has
+  fields); VERDICTS-89 PR A (the `ctl` resume rule); VERDICTS-90 (infer-first for a free generic's binder slot);
+  [`ALLOCATION_FREE_ASYNC`](../backlog/ALLOCATION_FREE_ASYNC.md) AFA-0; [`SPEC_AND_PROOF`](../backlog/SPEC_AND_PROOF.md)
+  PR 0, 1a and 1b; reserved builtin names if ready, else v0.2.82.
 
 ## 5. v0.2.82 — implicit drop deleted; VBD closes
 
