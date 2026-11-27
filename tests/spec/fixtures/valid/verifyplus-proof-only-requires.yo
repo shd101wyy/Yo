@@ -1,0 +1,32 @@
+// verify+ fixture: a `requires` that cannot run (a quantifier, a ghost-only
+// builtin, a `ghost_fn` call) is proof-only in every mode. `verify+` used to
+// splice it as an entry assert, and the module failed to load with
+// "ghost-only builtin" or "a ghost_fn is callable only from ghost context"
+// (issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md).
+pragma(Pragma.VerifyOrAssert);
+{ ArrayList } :: import("std/collections/array-list");
+
+quant_req :: (fn(n : i64, requires(exists(x : i64, (x + x) == n))) -> i64)(n);
+
+within :: ghost_fn((fn(x : i32, lo : i32) -> bool)((x >= lo) && (x <= (lo + i32(100)))));
+
+bounded :: (fn(x : i32, requires(within(x, i32(0))), ensures(result >= i32(0))) -> (result : i32))({
+  y := x;
+  y
+});
+
+append_all :: (
+  fn(
+    src : &ArrayList(i32),
+    dst : &mut ArrayList(i32),
+    requires(distinct(src.*, dst.*), (dst.len() + src.len()) >= dst.len()),
+    ensures(dst.len() == (old(dst.len()) + src.len()))
+  ) -> unit
+)({
+  (mut(i) : usize) = usize(0);
+  while(i < src.len(), {
+    invariant(i <= src.len(), dst.len() == (old(dst.len()) + i));
+    dst.push(src(i));
+    i = (i + usize(1));
+  });
+});

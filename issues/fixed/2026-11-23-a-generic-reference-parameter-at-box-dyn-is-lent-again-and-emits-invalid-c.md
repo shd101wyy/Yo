@@ -63,10 +63,12 @@ Relation to `issues/fixed/2026-11-21-a-reference-binder-whose-type-is-the-method
 
 Not traced to the line: whether the def-time binder (`src/evaluator/calls/function-type.yo`, `fn_param_is_ptr_borrow(fn_type_for_foralls, pi)`) or the call-time binder produced the binding codegen read. Both compute the flag from a signature whose slot is `&T`.
 
-## Fix (planned: v0.2.81 PR 0, VERDICTS-78)
+## Fix (v0.2.81, VERDICTS-78 PR 0)
 
-Compute the pointer-ABI flag of a `generic(...)` body's parameter from the specialized slot (`&T` with `T` substituted), the same type the prototype is lowered from, at every binding site that binds a specialized body's parameters; or decide `_dyn_box_pointee` where the specialization binds `T`. Then a pointer-passed `&Box(Dyn(S))` parameter reads `(*x)`, and the receiver lend folds back to `x`.
+`bind_parameter` (`src/env.yo`), the one function every binder of a parameter goes through (the def-time binder, the call-time binder of a `generic(...)` body in `src/evaluator/calls/function.yo`, and `check_if_function_parameter_matches_argument`), decides the Box-of-unsized term of the pointer ABI at the type the parameter binds: a `&T` parameter whose bound type is a `Box` with an unsized payload (`pointee_is_unsized_box`, `src/types/utils.yo`, the predicate `fn_param_is_ptr_borrow`'s `_dyn_box_pointee` now reads) binds pointer-passed whatever its signature says. A specialized body's `x : &T` at `T := Box(Dyn(S))` then reads `(*x)` as the prototype passes it, and the receiver lend folds back to `x`.
+
+Only that term is decided at the bound type. The others already agree or are compensated where they are read: a fat pointee (`T := str`, `T := [U]`) reads as the pair under both conventions (`_var_read_code`'s `vrc_thin`), and a reference pointee (`T := &U`, whose prototype is pointer-passed by `_params_may_store_a_reference`) is read through `_var_read_code`'s pointee-reference arm (`issues/fixed/2026-11-21-a-qualified-call-through-a-blanket-bound-at-t-ref-u-passes-check-and-emits-invalid-c.md`).
 
 ## Test
 
-Not added to `tests/`: the language suite has no known-failing form (`scripts/bootstrap/known-failing.tsv` is the hollow sweep's allowlist and a red file there would also fail `yo test ./tests`). The reproducer is `issues/repros/2026-11-23-a-generic-reference-parameter-at-box-dyn-is-lent-again.yo`; the fix turns it into a test in `tests/` (e.g. beside the blanket-impl tests) that compiles and runs it, asserting `via(&d) == i32(7)`, plus the `T := Box(A)` and `T := A` rows as controls.
+`tests/dyn-pointer-kinds.test.yo`, "a generic &T binder at T := Box(Dyn(S)) calls the Box blanket's method on the box": the reproducer's `?Sized` binder and a sized binder at `T := Box(Dyn(Tally))`, compiled and run, with `T := Box(Cat)` and `T := Cat` as controls. Before the fix the file's batch fails to compile (`incompatible pointer types`, both binders); after it, every test passes.

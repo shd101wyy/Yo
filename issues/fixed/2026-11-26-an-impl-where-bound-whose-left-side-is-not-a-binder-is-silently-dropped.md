@@ -38,3 +38,19 @@ Either read the bound (a constraint on the instantiated left side, as a function
 `parse_where_clause_constraints`) or reject it at the impl's definition with a coded error naming the binders the impl
 can bound. With `Send` as the trait, a pragma'd impl relying on such a bound is a data race, so the silent arm has to go
 either way.
+
+## Resolution (2026-11-26, lane `v81-v84-pr2`)
+
+The coordinator adopted the second option: a coded rejection at the impl's definition. The `.None` arm of the binder
+lookup in `_collect_impl_where_constraints` (`src/evaluator/values/impl.yo`) now raises E0624
+(`_impl_bound_not_on_a_binder_error`), and the lookup only matches a bare identifier, so `W(T)` no longer matches a
+binder named `W`:
+
+```text
+error[E0624]: An impl's `where(...)` bounds the impl's own `generic(...)` binders, and `W(T)` is not one of them (its binders are `T`). Bound a binder, as in `where(T <: Trait)`.
+```
+
+No impl or derive header in std, src, tests, docs or the pack has such a bound (a scan over balanced `impl(...)` and
+`derive(...)` groups found none), so nothing that compiled before is rejected.
+
+Test: `tests/where-clause-fn-inference.test.yo` (the `where(FormBox(T) <: FormProbe)` case).

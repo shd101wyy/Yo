@@ -4,7 +4,7 @@ Yo 拥有 Dafny/SPARK 传统的编译期验证器：带契约注解的函数（�
 verify 模式下**未注解**的函数）会被符号执行，其证明义务由固定版本的
 [Z3](https://github.com/Z3Prover/z3) SMT 求解器判定。证明会替代运行期
 检查；被驳倒则是带着具体反例的编译错误。设计记录：
-[`plans/backlog/FORMAL_VERIFICATION.md`](../../plans/backlog/FORMAL_VERIFICATION.md)。
+`plans/backlog/FORMAL_VERIFICATION.md`。
 
 ```bash
 # 验证一个文件（或目录）—— 任何失败都以非零退出码结束
@@ -380,6 +380,11 @@ SMT 调用（汇总中计入 `folded`，绝不算作查询）。折叠是保守�
 | `verify` | `pragma(Pragma.Verify);` | 证明替代 `ensures` 断言；被驳倒/无法证明 ⇒ 编译错误。`requires` 保留运行期入口检查，因为验证器看不到的调用方（子集之外、导出符号的外部调用方、经函数值的调用）什么也证明不了 |
 | `verify+` | `pragma(Pragma.VerifyOrAssert);` | 尽力证明；预算耗尽时回退到运行期断言 |
 | `ignore` | `pragma(Pragma.NoContracts);` | 契约完全擦除 |
+
+无法在运行期执行的子句在任何模式下都只用于证明，不会变成断言：含量词、
+`==>` 或 std/spec 幽灵集合（`seq_*`、`seq_of`、`ms_*`、`set_*`、`str_bytes`）、
+`distinct`，或调用 `ghost_fn` 的子句。`ghost_fn` 从不运行，因此也不会向其中
+插入任何断言。
 
 `yo verify <路径>` 把目标集合默认置为 `verify` 模式；
 `--verify-mode runtime|verify|verify+` 可覆盖，而文件自身的 pragma
