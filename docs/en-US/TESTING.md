@@ -21,7 +21,7 @@ test("Test description", {
 
 // Io is implicitly available via `io` in all test bodies
 test("With effects", {
-  io.await(sleep(u64(1000)), io);
+  io.await(sleep(u64(1000), io), io);
 });
 ```
 

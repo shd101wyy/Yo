@@ -9,12 +9,12 @@ tcp :: import("std/sys/tcp");
 sockinfo :: import("std/sys/sockinfo");
 { AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, SO_TYPE, sockaddr_storage_size } :: import("std/sys/socket");
 test("sockinfo getsockname and getpeername on TCP connection", {
-  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   assert(server_fd >= i32(0), "server socket should be created");
   bind_addr := tcp.make_sockaddr_in_loopback(u16(0));
-  bind_result := io.await(tcp.bind(server_fd, bind_addr.buf, bind_addr.len), io);
+  bind_result := io.await(tcp.bind(server_fd, bind_addr.buf, bind_addr.len, io), io);
   assert(bind_result == i32(0), "bind should succeed on loopback ephemeral port");
-  listen_result := io.await(tcp.listen(server_fd, i32(16)), io);
+  listen_result := io.await(tcp.listen(server_fd, i32(16), io), io);
   assert(listen_result == i32(0), "listen should succeed");
   storage_size := sockaddr_storage_size();
   local_addr_buf := (*u8)(malloc(storage_size).unwrap());
@@ -28,15 +28,15 @@ test("sockinfo getsockname and getpeername on TCP connection", {
   server_port := tcp.get_port_in(local_addr_buf);
   unsafe(printf("  server ephemeral port = %u\n", server_port));
   assert(server_port != u16(0), "ephemeral port should be non-zero after bind");
-  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   assert(client_fd >= i32(0), "client socket should be created");
   connect_addr := tcp.make_sockaddr_in_loopback(server_port);
-  connect_result := io.await(tcp.connect(client_fd, connect_addr.buf, connect_addr.len), io);
+  connect_result := io.await(tcp.connect(client_fd, connect_addr.buf, connect_addr.len, io), io);
   assert(connect_result == i32(0), "connect should succeed");
   accepted_addr_buf := (*u8)(malloc(storage_size).unwrap());
   accepted_addr_len := (*u32)(malloc(usize(4)).unwrap());
   accepted_addr_len.* = u32(storage_size);
-  accepted_fd := io.await(tcp.accept(server_fd, accepted_addr_buf, accepted_addr_len), io);
+  accepted_fd := io.await(tcp.accept(server_fd, accepted_addr_buf, accepted_addr_len, io), io);
   assert(accepted_fd >= i32(0), "accept should return a valid fd");
   peer_addr_buf := (*u8)(malloc(storage_size).unwrap());
   peer_addr_len := (*u32)(malloc(usize(4)).unwrap());
@@ -59,9 +59,9 @@ test("sockinfo getsockname and getpeername on TCP connection", {
   accepted_peer_port := tcp.get_port_in(accepted_peer_buf);
   unsafe(printf("  client source port = %u\n", accepted_peer_port));
   assert(accepted_peer_port != u16(0), "accepted peer port should be non-zero");
-  close_client := io.await(tcp.close(client_fd), io);
-  close_accepted := io.await(tcp.close(accepted_fd), io);
-  close_server := io.await(tcp.close(server_fd), io);
+  close_client := io.await(tcp.close(client_fd, io), io);
+  close_accepted := io.await(tcp.close(accepted_fd, io), io);
+  close_server := io.await(tcp.close(server_fd, io), io);
   assert(close_client == i32(0), "closing client socket should succeed");
   assert(close_accepted == i32(0), "closing accepted socket should succeed");
   assert(close_server == i32(0), "closing server socket should succeed");
@@ -77,7 +77,7 @@ test("sockinfo getsockname and getpeername on TCP connection", {
   free(.Some((*void)(accepted_peer_len)));
 });
 test("sockinfo getsockopt and setsockopt", {
-  fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   assert(fd >= i32(0), "socket should be created for getsockopt/setsockopt test");
   set_optval := (*i32)(malloc(usize(4)).unwrap());
   set_optval.* = i32(1);
@@ -101,7 +101,7 @@ test("sockinfo getsockopt and setsockopt", {
   unsafe(printf("  getsockopt(SO_TYPE) = %d, value = %d\n", getsockopt_type_result, sock_type.*));
   assert(getsockopt_type_result == i32(0), "getsockopt SO_TYPE should succeed");
   assert(sock_type.* == SOCK_STREAM, "SO_TYPE should report SOCK_STREAM");
-  close_result := io.await(tcp.close(fd), io);
+  close_result := io.await(tcp.close(fd, io), io);
   assert(close_result == i32(0), "closing socket should succeed");
   free(.Some((*void)(set_optval)));
   free(.Some((*void)(get_optval)));

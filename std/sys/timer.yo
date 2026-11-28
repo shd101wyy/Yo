@@ -19,9 +19,7 @@
 //! (nanoseconds, truncating) and a cancel path. `std/time/sleep` is the
 //! stable surface meanwhile.
 pragma(Pragma.AllowUnsafe);
-{ IoFuture } :: import("./future.yo");
 { IoError } :: import("./errors.yo");
-{ __yo_async_sleep_start } :: import("./externs.yo");
 /// Suspend the current async task for `milliseconds`, without blocking the
 /// event loop — the one operation in `std/sys` that exists purely to yield
 /// time back to the loop.
@@ -38,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 /// Windows threadpool timers, and wasm a sorted timer queue the loop drains.
 /// If Linux can create neither backend, the sleep completes at once with that
 /// errno instead of exiting the process (plans/reference/DROP_LIBURING.md §3.6).
-sleep :: (fn(milliseconds : u64) -> IoFuture)(
-  __yo_async_sleep_start(milliseconds)
+sleep :: (fn(milliseconds : u64, io : Io) -> IoFuture)(
+  io.vtable.*.sleep(io.ctx, milliseconds)
 );
 export(sleep);

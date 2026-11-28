@@ -80,8 +80,8 @@ test("two stdout() handles append to a redirected stdout instead of overwriting"
   n3 := io.await(o1.write((*u8)("CC"), usize(2), io), t_e);
   _restore(saved, i32(1));
   got := io.await(read_to_string(&_path_of(template_path), io), t_e);
-  io.await(file.close(fd), io);
-  io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  io.await(file.close(fd, io), io);
+  io.await(dir.unlink(AT_FDCWD, template_path, i32(0), io), io);
   assert((n1 == usize(4)) && (n2 == usize(4)) && (n3 == usize(2)), "each write should report its full length");
   assert(got == `AAAABBBBCC`, `two handles must append in order, got "${got}"`);
 });
@@ -111,8 +111,8 @@ test("stdout and stderr redirected to one file (2>&1) share its position", {
   _restore(saved_err, i32(2));
   _restore(saved_out, i32(1));
   got := io.await(read_to_string(&_path_of(template_path), io), t_e);
-  io.await(file.close(fd), io);
-  io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  io.await(file.close(fd, io), io);
+  io.await(dir.unlink(AT_FDCWD, template_path, i32(0), io), io);
   assert(got == `out:err:end`, `stdout and stderr must interleave in write order, got "${got}"`);
 });
 test("a stdout() handle appends after flushed libc output instead of overwriting it", {
@@ -138,8 +138,8 @@ test("a stdout() handle appends after flushed libc output instead of overwriting
   _n := io.await(o.write((*u8)("+handle"), usize(7), io), t_e);
   _restore(saved, i32(1));
   got := io.await(read_to_string(&_path_of(template_path), io), t_e);
-  io.await(file.close(fd), io);
-  io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  io.await(file.close(fd, io), io);
+  io.await(dir.unlink(AT_FDCWD, template_path, i32(0), io), io);
   assert(got == `from print+handle`, `the handle must append after libc's bytes, got "${got}"`);
 });
 test("two stdin() handles read a redirected stdin sequentially", {
@@ -158,7 +158,7 @@ test("two stdin() handles read a redirected stdin sequentially", {
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
   assert(fd >= i32(0), "mkstemp should succeed");
-  w := io.await(file.write(fd, (*u8)("abcdef"), u32(6), u64(0)), io);
+  w := io.await(file.write(fd, (*u8)("abcdef"), u32(6), u64(0), io), io);
   assert(w == i32(6), "seeding the stdin file should write 6 bytes");
   saved := _redirect(fd, i32(0));
   mut(buf_uninit) := MaybeUninit(Array(u8, usize(8))).new();
@@ -170,8 +170,8 @@ test("two stdin() handles read a redirected stdin sequentially", {
   r2 := io.await(i2.read(buf, usize(3), io), t_e);
   second := buf.*;
   _restore(saved, i32(0));
-  io.await(file.close(fd), io);
-  io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  io.await(file.close(fd, io), io);
+  io.await(dir.unlink(AT_FDCWD, template_path, i32(0), io), io);
   assert((r1 == usize(3)) && (r2 == usize(3)), "each read should return 3 bytes");
   assert(first == u8(97), "the first handle should read from the start (a)");
   assert(second == u8(100), "the second handle should continue where the first stopped (d)");

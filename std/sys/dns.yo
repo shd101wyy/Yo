@@ -57,8 +57,7 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-{ IoFuture } :: import("./future.yo");
-{ __yo_async_getaddrinfo_start, __yo_async_getnameinfo_start, __yo_freeaddrinfo, __yo_addrinfo_size, __yo_addrinfo_flags, __yo_addrinfo_family, __yo_addrinfo_socktype, __yo_addrinfo_protocol, __yo_addrinfo_addrlen, __yo_addrinfo_addr, __yo_addrinfo_canonname, __yo_addrinfo_next } :: import("./externs.yo");
+{ __yo_freeaddrinfo, __yo_addrinfo_size, __yo_addrinfo_flags, __yo_addrinfo_family, __yo_addrinfo_socktype, __yo_addrinfo_protocol, __yo_addrinfo_addrlen, __yo_addrinfo_addr, __yo_addrinfo_canonname, __yo_addrinfo_next } :: import("./externs.yo");
 /// A resolver failure: the name does not exist (`EAI_NONAME`, `EAI_NODATA`).
 DNS_ERR_NOT_FOUND :: i32(-4097);
 /// A temporary resolver failure; retrying may succeed (`EAI_AGAIN`).
@@ -79,8 +78,8 @@ DNS_ERR_OTHER :: i32(-4101);
 // result: pointer to a ?(*(u8)) that will receive the head of the result list
 // Returns 0 on success, a DNS_ERR_* code on failure.
 // Caller must call freeaddrinfo() on the result when done.
-getaddrinfo :: (fn(node : *u8, service : ?*u8, hints : ?*u8, result : *?*u8) -> IoFuture)(
-  __yo_async_getaddrinfo_start(node, service, hints, result)
+getaddrinfo :: (fn(node : *u8, service : ?*u8, hints : ?*u8, result : *?*u8, io : Io) -> IoFuture)(
+  io.vtable.*.getaddrinfo(io.ctx, node, service, hints, result)
 );
 // Reverse lookup: convert a socket address to hostname and service strings.
 // addr: pointer to sockaddr buffer
@@ -91,8 +90,8 @@ getaddrinfo :: (fn(node : *u8, service : ?*u8, hints : ?*u8, result : *?*u8) -> 
 // servlen: size of service buffer
 // flags: NI_NUMERICHOST, NI_NUMERICSERV, etc.
 // Returns 0 on success, a DNS_ERR_* code on failure.
-getnameinfo :: (fn(addr : *u8, addrlen : u32, host : *u8, hostlen : usize, service : *u8, servlen : usize, flags : i32) -> IoFuture)(
-  __yo_async_getnameinfo_start(addr, addrlen, host, hostlen, service, servlen, flags)
+getnameinfo :: (fn(addr : *u8, addrlen : u32, host : *u8, hostlen : usize, service : *u8, servlen : usize, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.getnameinfo(io.ctx, addr, addrlen, host, hostlen, service, servlen, flags)
 );
 // Free an addrinfo result list returned by getaddrinfo.
 freeaddrinfo :: (fn(res : *u8) -> unit)(

@@ -52,11 +52,11 @@ std/sys/
 ├── dns.yo          — getaddrinfo, getnameinfo, addrinfo accessors
 ├── errors.yo       — IoError enum with errno mapping, ToString impl
 ├── events.yo       — TTY/poll/FS event constants + FS-event / poll wrappers
-├── externs.yo      — All C extern function declarations
+├── externs.yo      — Runtime helper externs (sync syscalls, accessors, wakers)
 ├── fallocate.yo    — fallocate (pre-allocate file space)
 ├── fcntl.yo        — getfl/setfl/getfd/setfd (file descriptor flags)
 ├── file.yo         — Async + sync file ops (openat, read, write, stat, fsync, etc.)
-├── future.yo       — IoFuture extern type wrapping __yo_io_future_t
+├── future.yo       — park, yield, completed (IoFuture lives in the prelude)
 ├── iov.yo          — readv/writev/preadv/pwritev + iovec helpers
 ├── lock.yo         — flock advisory locking
 ├── mmap.yo         — mmap, munmap, mprotect, msync
@@ -92,6 +92,29 @@ tcp :: import("std/sys/tcp");
 timer :: import("std/sys/timer");
 ```
 
+**Every operation takes the `Io`.** A function that returns an `IoFuture`
+(`openat`, `read`, `accept`, `sleep`, …) takes the `Io` it runs on as its last
+argument and calls that `Io`'s table (`io.vtable.*.read(io.ctx, …)`, the
+prelude's `IoVTable`). The watch registrations in `events.yo` (`poll_*`,
+`fs_event_*`) take it too. Await an operation where you make it:
+
+```yo
+pragma(Pragma.AllowUnsafe);
+file :: import("std/sys/file");
+{ AT_FDCWD, O_RDONLY } :: import("std/sys/constants");
+
+main :: (fn(io : Io) -> unit)({
+  fd := io.await(file.openat(AT_FDCWD, (*u8)("/etc/hostname"), O_RDONLY, i32(0), io), io);
+  if(fd >= i32(0), {
+    _c := io.await(file.close(fd, io), io);
+  });
+});
+export(main);
+```
+
+The synchronous helpers (`open_sync`, `fcntl`, `mmap`, the address and stat
+accessors) are blocking calls and take no `Io`.
+
 ---
 
 ## Component Status
@@ -105,8 +128,8 @@ timer :: import("std/sys/timer");
 | Signals          | `signals.yo`    | ✅ Complete | Platform-aware POSIX signal numbers                      |
 | Events           | `events.yo`     | ✅ Complete | TTY/poll/FS event constants + FS/poll wrappers           |
 | IoError          | `errors.yo`     | ✅ Complete | Enum with errno mapping, ToString impl                   |
-| IoFuture         | `future.yo`     | ✅ Complete | Extern type wrapping `__yo_io_future_t`                  |
-| Externs          | `externs.yo`    | ✅ Complete | All C extern function declarations                       |
+| Future           | `future.yo`     | ✅ Complete | `park`, `yield`, `completed`; `IoFuture` is the prelude's |
+| Externs          | `externs.yo`    | ✅ Complete | Runtime helper externs; operations go through the `Io`   |
 | Statx            | `statx.yo`      | ✅ Complete | File metadata accessor object                            |
 | Timer            | `timer.yo`      | ✅ Complete | `sleep(ms)`                                              |
 | File             | `file.yo`       | ✅ Complete | Async+sync file ops (openat, read, write, etc.)          |
@@ -335,29 +358,14 @@ IOCP is Windows' native async I/O mechanism:
 
 ### State Machine Integration
 
-When codegen encounters `await __yo_async_read(...)`, the generated C state machine:
-
-```c
-case STATE_AWAIT_READ:
-  // First entry: submit I/O and suspend
-  if (!sm->io_state.completed) {
-    sm->io_state.state_machine = sm;
-    sm->io_state.resume_fn = (void(*)(void*))this_resume_fn;
-    sm->io_state.completed = false;
-
-    __yo_async_read_start(sm->fd, sm->buffer, sm->size, sm->offset, &sm->io_state);
-
-    // Suspend — do NOT add to ready queue yet
-    // Platform backend completion will wake us
-    return;
-  }
-
-  // Resumed after I/O completion
-  sm->result = sm->io_state.result;
-  sm->io_state.completed = false;
-  sm->state = STATE_NEXT;
-  // Fall through to next state...
-```
+An `io.await(file.read(fd, buf, n, offset, io), io)` inside a task calls the
+`Io`'s `read` entry, which for the native `Io` submits the operation to this
+thread's backend and returns its `IoFuture` (`__yo_io_future_t`, laid out like
+a state machine: the future prefix plus `result`). The await then reads the
+future's `state`: an operation that already completed (`-1`, the common case
+for regular files on macOS and Windows) continues inline; otherwise the task
+registers itself as the future's continuation and returns to the loop, and the
+backend's completion wakes it.
 
 ---
 

@@ -105,7 +105,7 @@ test("Test channel close semantics", {
 test("Test channel recv waits for sender", {
   ch := Channel(i32).new(usize(1));
   late_sender := io.async({ ch : ch.clone() }(io : Io) => {
-    io.await(sleep(u64(10)), io);
+    io.await(sleep(u64(10), io), io);
     _s := io.await(ch.send(i32(99), io), io);
     return(());
   });
@@ -242,7 +242,7 @@ test("async: dropping the last Sender resolves a SUSPENDED recv as Disconnected"
   {
     _last := tx;
     // Let the consumer reach its suspension point before the sender goes.
-    io.await(sleep(u64(5)), io);
+    io.await(sleep(u64(5), io), io);
   };
   verdict := match(
     io.await(timeout(h.join(io), Duration.from_millis(i64(2000)), io), io),

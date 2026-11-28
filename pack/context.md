@@ -480,6 +480,14 @@ export(main);
   async `Mutex` and channels too); a bundled future viewed as `Future(T)` is
   E0605. `Dyn(Future(...))` is E0614: keep different tasks as
   `ArrayList(JoinHandle(T))` (`io.spawn` each; `join_all`, `race`).
+- `io : Io` is a value, the event loop as `{ ctx, vtable }` (like
+  `Allocator`): `main`, a `Thread` and a pool task are handed their thread's
+  native one, a task body sees the one in its bundle. Everything that suspends
+  or submits takes it (`File.open`, `sleep`, `Park.new(io)`, `watch(p, opts,
+  io, exn)`, every `std/sys` operation as its last argument:
+  `io.await(IO_file.read(fd, buf, n, off, io), io)`); blocking calls do not
+  (`println`, `Instant.now`). Pass `io` on, never build one: `Io.native()`
+  needs `pragma(Pragma.AllowUnsafe)`.
 
 ```yo
 { assert } :: import("std/assert");

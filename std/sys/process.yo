@@ -25,8 +25,7 @@
 //! `ExitStatus`-shaped result rather than an `i32`, which is exactly what
 //! `std/process` already builds on top — so that is the stable surface.
 pragma(Pragma.AllowUnsafe);
-{ IoFuture } :: import("./future.yo");
-{ __yo_async_spawn_start_cwd, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill, __yo_io_cleanup } :: import("./externs.yo");
+{ __yo_process_exit_status, __yo_process_term_signal, __yo_kill, __yo_io_cleanup } :: import("./externs.yo");
 /// Spawn a child process, inheriting the parent's working directory.
 /// Resolves to the child's pid, or a negative errno.
 ///
@@ -50,10 +49,11 @@ spawn :: (
     envp : ?*?*u8,
     stdin_fd : i32,
     stdout_fd : i32,
-    stderr_fd : i32
+    stderr_fd : i32,
+    io : Io
   ) -> IoFuture
 )(
-  __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, .None)
+  io.vtable.*.spawn_cwd(io.ctx, file, argv, envp, stdin_fd, stdout_fd, stderr_fd, .None)
 );
 /// `spawn` plus a working directory for the child (`.None` inherits the
 /// parent's) — what backs `Command.current_dir`.
@@ -72,10 +72,11 @@ spawn_cwd :: (
     stdin_fd : i32,
     stdout_fd : i32,
     stderr_fd : i32,
-    cwd : ?*u8
+    cwd : ?*u8,
+    io : Io
   ) -> IoFuture
 )(
-  __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, cwd)
+  io.vtable.*.spawn_cwd(io.ctx, file, argv, envp, stdin_fd, stdout_fd, stderr_fd, cwd)
 );
 /// Wait for a child to change state — `waitpid(2)`. Resolves to the RAW
 /// ENCODED status, which is not an exit code: decode it with `exit_status`
@@ -89,8 +90,8 @@ spawn_cwd :: (
 /// indistinguishable from the return value alone. The Windows implementation
 /// treats ANY non-zero `options` as "do not block" rather than testing the
 /// `WNOHANG` bit.
-waitpid :: (fn(pid : i32, options : i32) -> IoFuture)(
-  __yo_async_waitpid_start(pid, options)
+waitpid :: (fn(pid : i32, options : i32, io : Io) -> IoFuture)(
+  io.vtable.*.waitpid(io.ctx, pid, options)
 );
 /// Send `signum` to `pid` — the same `kill(2)` wrapper `std/sys/signal`
 /// exports, re-exported here because process control and signalling are one

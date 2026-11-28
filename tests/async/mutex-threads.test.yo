@@ -27,7 +27,7 @@ test("Test a task on another thread's loop contends for the same mutex", {
   // The worker parks on the lock from its own loop; main's unlock wakes it
   // across threads.
   while(m.*.waiter_count() == usize(0), {
-    io.await(sleep(u64(1)), io);
+    io.await(sleep(u64(1), io), io);
   });
   m.*.set(i64(1));
   m.*.unlock();
@@ -55,7 +55,7 @@ test("Test the lock is handed FIFO across loops, ahead of a later same-loop wait
     v
   });
   while(m.*.waiter_count() == usize(0), {
-    io.await(sleep(u64(1)), io);
+    io.await(sleep(u64(1), io), io);
   });
   ms := Arc.clone(m);
   hs := io.spawn(
@@ -69,7 +69,7 @@ test("Test the lock is handed FIFO across loops, ahead of a later same-loop wait
     io
   );
   while(m.*.waiter_count() < usize(2), {
-    io.await(sleep(u64(1)), io);
+    io.await(sleep(u64(1), io), io);
   });
   m.*.unlock();
   // No suspension since the unlock: the foreign waiter's loop may not have run

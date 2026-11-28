@@ -21,7 +21,7 @@ test("Test description", {
 
 // Io 通过 `io` 自动注入到所有测试体中
 test("With effects", {
-  io.await(sleep(u64(1000)), io);
+  io.await(sleep(u64(1000), io), io);
 });
 ```
 

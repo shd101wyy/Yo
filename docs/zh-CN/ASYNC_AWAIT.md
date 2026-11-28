@@ -184,6 +184,28 @@ test("my test", {
 });
 ```
 
+### `Io` 是一个值
+
+`io : Io` 是事件循环及其反应器：一个不透明的上下文加一张操作表，就像
+`Allocator` 是一个分配器那样。
+
+```yo ignore
+Io :: struct(ctx : ?*void, vtable : *IoVTable);
+```
+
+`main` 接收调用线程的原生 `Io`。`Thread` 或线程池任务拿到的是其工作线程的
+`Io`。任务体看到的是等待它的一方在效应包中传入的 `io`。
+
+每个会挂起或提交的操作都经过 `io`：`File.open`、`TcpListener.accept`、
+`sleep`、`io.spawn`、`Park.new`、`fs/watch` 的 `watch`。普通的阻塞调用则不经过：
+`println`、`Instant.now`、`sleep_blocking`。在公开模块之下，每个 `std/sys`
+操作都把 `io` 作为最后一个参数并调用这张表（`std/sys/file` 的
+`read(fd, buf, size, offset, io)`），所以调用方传入的 `Io` 决定了操作在哪个循环上运行。
+
+测试可以给代码换一个不同的 `Io`，例如伪造时钟或模拟对端的 `Io`，它由原生值或
+自己的表构建。不要在测试之外自己构造 `Io`：`Io.native()`（调用线程的原生
+`Io`）需要 `pragma(Pragma.AllowUnsafe)`，它是为运行时的入口点而存在的。
+
 ### API
 
 ```yo ignore
@@ -340,14 +362,18 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-`Io` 效应记录本身就是一个效应包形态的 struct，由异步运行时提供：
+`Io` 效应记录本身就是一个普通的 struct，两个字（`ctx` 和 `vtable`，见
+“`Io` 是一个值”），它像其他字段一样放在效应包里。`io.async`、`io.await`、
+`io.state` 和 `io.spawn` 是它的方法，绑定到编译器自己的操作：
 
-```yo
-Io :: struct(
-  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
-  await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
-  spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+```yo ignore
+impl(
+  Io,
+  async : __yo_io_async,   // (action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))
+  await : __yo_io_await,   // (fut : Impl(Future(T, E)), e : E) -> T
+  state : __yo_io_state,   // (fut : &Impl(Future(T, E))) -> FutureState
+  spawn : __yo_io_spawn,   // (fut : Impl(Future(T, E)), e : E) -> JoinHandle(T)
+  native : __yo_io_native  // () -> Io，需要 pragma(Pragma.AllowUnsafe)
 );
 ```
 
@@ -501,7 +527,7 @@ io_uring 仍在完成其读取的 `select` 或 `timeout` 操作数），任务�
 { sleep } :: import("std/sys/timer");
 
 f := io.async((io : Io) => {
-  io.await(sleep(u64(50)), io);
+  io.await(sleep(u64(50), io), io);
   i32(7)
 });
 // 等待的任务拥有 `f`（捕获列表把它移入，§3.13 A1）。
@@ -821,8 +847,8 @@ while(i < rest.len(), i = (i + usize(1)), {
 ```
 
 这些等待之下是一个运行时原语：
-一个由任务完成或中止来唤醒的 park future（`std/sys/externs` 的 `__yo_join_wait_new` /
-`__yo_join_wait_add`）；`race`、`timeout` 和 `select` 会把多个任务加到同一个等待上。
+一个由任务完成或中止来唤醒的 park future（通过任务的 `io` 创建的 park，加上
+`std/sys/externs` 的 `__yo_join_wait_add`）；`race`、`timeout` 和 `select` 会把多个任务加到同一个等待上。
 
 ### 借用的 Future 上的超时与 select
 
@@ -848,7 +874,7 @@ Future：它的借用随调用结束。
 Counter :: struct(n : i32);
 bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async({ c : &mut c.*, ms }(io : Io) => {
-    io.await(sleep(ms), io);
+    io.await(sleep(ms, io), io);
     c.n = (c.n + i32(1));
     c.n
   })
@@ -1455,7 +1481,7 @@ export(main);
 
 // 等待方。先创建 park，把它的 waker 交给将来发信号的一方，然后挂起 ——
 // 顺序就是这样，中间不能有 await。
-p := Park.new();
+p := Park.new(io);
 waiters.push(p.waker());
 io.await(p.wait(io), io);
 
@@ -1517,7 +1543,7 @@ main :: (fn(io : Io) -> unit)({
     io.async({ worker }(io : Io) => {
       io.await(worker.*.lock(io), io);
       before := worker.*.get();
-      io.await(sleep(u64(1)), io); // 临界区跨越 await 仍然互斥
+      io.await(sleep(u64(1), io), io); // 临界区跨越 await 仍然互斥
       worker.*.set(before + i64(1));
       worker.*.unlock();
     }),

@@ -1,0 +1,31 @@
+pragma(Pragma.AllowUnsafe);
+IO_future :: import("std/sys/future");
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ Stream } :: import("std/async/stream");
+Ev :: struct(name : String);
+derive(Ev, Clone);
+MyVT :: struct(f : (fn(ctx : ?*void) -> IoFuture));
+MyIo :: struct(ctx : ?*void, vtable : *MyVT);
+_St :: struct(_io : MyIo, n : i32);
+noop :: (fn(ctx : ?*void) -> IoFuture)(IO_future.completed(i32(0)));
+VT0 := MyVT(f : noop);
+namesOf :: (fn(e : &Ev) -> String)(e.name.clone());
+Src :: struct(_cell : _St);
+impl(
+  Src,
+  Stream(
+    Item : Ev,
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(Ev), Io)))(
+      io.async({ self : &mut self.* }(io : Io) => {
+        Option(Ev).Some(Ev(name : String.from("x")))
+      })
+    )
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  s := Src(_cell : _St(_io : MyIo(ctx : .None, vtable : addr_of(VT0)), n : i32(21)));
+  m := s.map(namesOf);
+  println("built");
+});
+export(main);

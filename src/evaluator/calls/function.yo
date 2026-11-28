@@ -9849,13 +9849,15 @@ _probe_operand_type :: (
   );
 });
 /// Rule D6: is this callee expression a runtime extern named directly — a
-/// bare identifier (a destructured import), or a field of a MODULE value —
-/// rather than a field of a runtime value (`io.await`)?
+/// bare identifier (a destructured import), a field of a MODULE value, or a
+/// static member of a TYPE bound to the extern (`Io.native()`, the prelude's
+/// `impl(Io, native : __yo_io_native)`) — rather than a method of a runtime
+/// value (`io.await`)?
 _d6_callee_is_by_name :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> bool)({
   if(ast_expr_is_atom(func_expr), {
     return(true);
   });
-  (recv_is_module : bool) = false;
+  (recv_names_it : bool) = false;
   match(
     func_expr,
     Rc(.FnCall(_, d6_dot, Rc(d6_args), _, _)) => {
@@ -9866,11 +9868,13 @@ _d6_callee_is_by_name :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> bool)(
           .Some(d6_recv) => match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&d6_recv)),
             .Some(d6_ri) => {
-              recv_is_module = is_module_type(&d6_ri.ty());
+              recv_names_it = is_module_type(&d6_ri.ty());
               match(
                 d6_ri.value(),
-                .Some(Rc(.TypeVal(d6_t))) => {
-                  recv_is_module = (recv_is_module || is_module_type(&d6_t));
+                // A type receiver names the extern too: a static member
+                // bound to it is the extern under the type's name.
+                .Some(Rc(.TypeVal(_))) => {
+                  recv_names_it = true;
                 },
                 .Some(_) => (),
                 .None => ()
@@ -9884,7 +9888,7 @@ _d6_callee_is_by_name :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> bool)(
     },
     _ => ()
   );
-  recv_is_module
+  recv_names_it
 });
 /// `No method "m" on T.` for a dot callee `recv.m` whose receiver type has
 /// neither a field nor a method `m`.
@@ -13044,8 +13048,8 @@ Fix: wrap the call:
             };
             // Treat default UnknownVal fields as compile-time placeholders.
             // Only `.None` positions (no value at all) make the struct non-comptime.
-            // This lets `__yo_builtin_io :: Io(async : __yo_io_async, ...)` in the
-            // prelude evaluate to a comptime StructVal even though extern-fn fields
+            // This lets a struct built from extern functions (`S(f : __yo_x, ...)`)
+            // evaluate to a comptime StructVal even though extern-fn fields
             // carry UnknownVal values.
             (all_known_s : bool) = true;
             (ki_s : usize) = usize(0);
@@ -15998,8 +16002,8 @@ Fix: wrap the call:
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rt);
         // Same temp attachment as the method + valueless-callee arms (attached
         // for EVERY runtime call). Without it, an
-        // io.async call whose callee has a comptime-known Io value (the test
-        // runner's batch `io :: __yo_builtin_io` shape) reaches codegen with
+        // io.async call whose callee has a comptime-known Io value (an
+        // `io :: <comptime Io>` binding) reaches codegen with
         // no variable_name — preregister_async_blocks_in_expr and
         // generate_async_block then each mint a DIFFERENT random fallback
         // name, so the FSM struct typedef the code references is never

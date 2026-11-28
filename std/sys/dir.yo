@@ -34,36 +34,35 @@
 //     assert(result == i32(0));
 //   };
 pragma(Pragma.AllowUnsafe);
-{ IoFuture } :: import("./future.yo");
-{ __yo_async_mkdirat_start, __yo_async_unlinkat_start, __yo_async_renameat_start, __yo_async_symlinkat_start, __yo_async_linkat_start, __yo_sync_readlinkat, __yo_async_getdents_start, __yo_dirent_size, __yo_dirent_reclen, __yo_dirent_type, __yo_dirent_name, __yo_dirent_ino } :: import("./externs.yo");
+{ __yo_sync_readlinkat, __yo_dirent_size, __yo_dirent_reclen, __yo_dirent_type, __yo_dirent_name, __yo_dirent_ino } :: import("./externs.yo");
 // ============================================================================
 // Async Directory Operations (return IoFuture, use with await)
 // ============================================================================
 // Create a directory relative to dirfd. Use AT_FDCWD for current directory.
 // Returns 0 on success, -errno on failure.
-mkdir :: (fn(dirfd : i32, path : *u8, mode : i32) -> IoFuture)(
-  __yo_async_mkdirat_start(dirfd, path, mode)
+mkdir :: (fn(dirfd : i32, path : *u8, mode : i32, io : Io) -> IoFuture)(
+  io.vtable.*.mkdirat(io.ctx, dirfd, path, mode)
 );
 // Remove a file or directory relative to dirfd.
 // Use flags=0 for files, flags=AT_REMOVEDIR (0x200) for directories.
 // Returns 0 on success, -errno on failure.
-unlink :: (fn(dirfd : i32, path : *u8, flags : i32) -> IoFuture)(
-  __yo_async_unlinkat_start(dirfd, path, flags)
+unlink :: (fn(dirfd : i32, path : *u8, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.unlinkat(io.ctx, dirfd, path, flags)
 );
 // Rename/move a file or directory.
 // Returns 0 on success, -errno on failure.
-rename :: (fn(olddirfd : i32, oldpath : *u8, newdirfd : i32, newpath : *u8) -> IoFuture)(
-  __yo_async_renameat_start(olddirfd, oldpath, newdirfd, newpath)
+rename :: (fn(olddirfd : i32, oldpath : *u8, newdirfd : i32, newpath : *u8, io : Io) -> IoFuture)(
+  io.vtable.*.renameat(io.ctx, olddirfd, oldpath, newdirfd, newpath)
 );
 // Create a symbolic link at linkpath pointing to target.
 // Returns 0 on success, -errno on failure.
-symlink :: (fn(target : *u8, newdirfd : i32, linkpath : *u8) -> IoFuture)(
-  __yo_async_symlinkat_start(target, newdirfd, linkpath)
+symlink :: (fn(target : *u8, newdirfd : i32, linkpath : *u8, io : Io) -> IoFuture)(
+  io.vtable.*.symlinkat(io.ctx, target, newdirfd, linkpath)
 );
 // Create a hard link from oldpath to newpath.
 // Returns 0 on success, -errno on failure.
-link :: (fn(olddirfd : i32, oldpath : *u8, newdirfd : i32, newpath : *u8, flags : i32) -> IoFuture)(
-  __yo_async_linkat_start(olddirfd, oldpath, newdirfd, newpath, flags)
+link :: (fn(olddirfd : i32, oldpath : *u8, newdirfd : i32, newpath : *u8, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.linkat(io.ctx, olddirfd, oldpath, newdirfd, newpath, flags)
 );
 // Read the target of a symbolic link into buf.
 // Returns number of bytes read on success, -errno on failure.
@@ -107,8 +106,8 @@ readlink :: (fn(dirfd : i32, path : *u8, buf : *u8, bufsize : usize) -> i32)(
 //     free(.Some((*void)(buf)));
 //     await close(fd);
 //   };
-getdents :: (fn(fd : i32, buf : *u8, buf_size : u32) -> IoFuture)(
-  __yo_async_getdents_start(fd, buf, buf_size)
+getdents :: (fn(fd : i32, buf : *u8, buf_size : u32, io : Io) -> IoFuture)(
+  io.vtable.*.getdents(io.ctx, fd, buf, buf_size)
 );
 // ============================================================================
 // Directory Entry Accessor Functions
