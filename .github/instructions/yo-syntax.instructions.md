@@ -755,7 +755,7 @@ for(chain.map(f), y => println(&y)); // an iterator chain as the source
   is E0901: use the read walk or `coll.clone()`). `chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/
   `chunks`/`windows` consume their receiver too. `iter()` yields raw pointers (unsafe-capable code only).
 - **Borrowed form `for(&mut coll, x => …)`** (decision 39): the value form over `(&mut coll).into_iter()`,
-  whose cursor (`ArrayListCursorMut(T, p)`, …) holds the `&mut(C, p)` lend; `x` is a `&mut(T, p)` item
+  whose cursor (`ArrayListIterMut(T, p)`, …) holds the `&mut(C, p)` lend; `x` is a `&mut(T, p)` item
   (`x.* = …`; struct fields write in place). The hidden iterator carries the `for` position
   (`for_desugar_site_of`), so the body may NOT name `coll` at all (E0911, Rust's `iter_mut` rule). `x` is
   second-class (`return(x)` is E0912; `v := x.*`). To read or grow a list while walking it, walk positions:

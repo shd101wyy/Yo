@@ -6,7 +6,7 @@
 //! value at compile time.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList, ArrayListIter } :: import("std/collections/array-list");
+{ ArrayList, ArrayListIntoIter } :: import("std/collections/array-list");
 { HashMap } :: import("std/collections/hash-map");
 { TypeValue, TypeValueNode, SharedList, SharedListCell, shared_list, no_types, no_labels } :: import("./types/definitions.yo");
 { t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t, t_some_t_of_kind } :: import("./types/creators.yo");
@@ -289,8 +289,8 @@ impl(
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
     Item : EvalValue,
-    IntoIter : ArrayListIter(EvalValue),
-    into_iter : (fn(self : Self) -> ArrayListIter(EvalValue))(self.*.items.clone().into_iter())
+    IntoIter : ArrayListIntoIter(EvalValue),
+    into_iter : (fn(self : Self) -> ArrayListIntoIter(EvalValue))(self.*.items.clone().into_iter())
   )
 );
 (g_no_opt_values : SharedList(Option(EvalValue))) = Rc.new(SharedListCell(Option(EvalValue))(items : ArrayList(Option(EvalValue)).new()));

@@ -41,7 +41,7 @@ Every imported name is a binding, so the no-shadowing rule applies to imports: b
 
 ```yo
 { ArrayList } :: import("std/collections/array-list");
-{ ArrayListIter } :: import("std/collections/array-list"); // fine: a different name
+{ ArrayListIntoIter } :: import("std/collections/array-list"); // fine: a different name
 { ArrayList : List } :: import("std/collections/array-list"); // fine: bound under a new name
 xs := List(i32).new();
 ```

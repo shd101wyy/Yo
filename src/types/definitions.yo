@@ -23,7 +23,7 @@
 //! Variant-shape predicates (`is_int_type`, …) live in `guards.yo`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList, ArrayListIter } :: import("std/collections/array-list");
+{ ArrayList, ArrayListIntoIter } :: import("std/collections/array-list");
 { HashMap } :: import("std/collections/hash-map");
 { RefCell } :: import("std/sync/refcell");
 /// The payload of a `SharedList`: one list, never written after it is built.
@@ -137,8 +137,8 @@ impl(
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
     Item : TypeValue,
-    IntoIter : ArrayListIter(TypeValue),
-    into_iter : (fn(self : Self) -> ArrayListIter(TypeValue))(self.*.items.clone().into_iter())
+    IntoIter : ArrayListIntoIter(TypeValue),
+    into_iter : (fn(self : Self) -> ArrayListIntoIter(TypeValue))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -160,8 +160,8 @@ impl(
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
     Item : String,
-    IntoIter : ArrayListIter(String),
-    into_iter : (fn(self : Self) -> ArrayListIter(String))(self.*.items.clone().into_iter())
+    IntoIter : ArrayListIntoIter(String),
+    into_iter : (fn(self : Self) -> ArrayListIntoIter(String))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -180,8 +180,8 @@ impl(
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
     Item : bool,
-    IntoIter : ArrayListIter(bool),
-    into_iter : (fn(self : Self) -> ArrayListIter(bool))(self.*.items.clone().into_iter())
+    IntoIter : ArrayListIntoIter(bool),
+    into_iter : (fn(self : Self) -> ArrayListIntoIter(bool))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -200,8 +200,8 @@ impl(
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
     Item : usize,
-    IntoIter : ArrayListIter(usize),
-    into_iter : (fn(self : Self) -> ArrayListIter(usize))(self.*.items.clone().into_iter())
+    IntoIter : ArrayListIntoIter(usize),
+    into_iter : (fn(self : Self) -> ArrayListIntoIter(usize))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -220,8 +220,8 @@ impl(
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
     Item : i64,
-    IntoIter : ArrayListIter(i64),
-    into_iter : (fn(self : Self) -> ArrayListIter(i64))(self.*.items.clone().into_iter())
+    IntoIter : ArrayListIntoIter(i64),
+    into_iter : (fn(self : Self) -> ArrayListIntoIter(i64))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -240,8 +240,8 @@ impl(
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
     Item : SharedList(TypeValue),
-    IntoIter : ArrayListIter(SharedList(TypeValue)),
-    into_iter : (fn(self : Self) -> ArrayListIter(SharedList(TypeValue)))(self.*.items.clone().into_iter())
+    IntoIter : ArrayListIntoIter(SharedList(TypeValue)),
+    into_iter : (fn(self : Self) -> ArrayListIntoIter(SharedList(TypeValue)))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -260,8 +260,8 @@ impl(
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
     Item : SharedList(String),
-    IntoIter : ArrayListIter(SharedList(String)),
-    into_iter : (fn(self : Self) -> ArrayListIter(SharedList(String)))(self.*.items.clone().into_iter())
+    IntoIter : ArrayListIntoIter(SharedList(String)),
+    into_iter : (fn(self : Self) -> ArrayListIntoIter(SharedList(String)))(self.*.items.clone().into_iter())
   )
 );
 // A `SharedList` copy is one count bump, `Rc.clone(xs)` (see `SharedList`;

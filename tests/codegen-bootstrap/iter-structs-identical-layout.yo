@@ -1,5 +1,5 @@
 // Regression: two DIFFERENT generic declarations with IDENTICAL field layouts
-// (DequeIter(T) vs DequeIterPtr(T), both {_deque,_pos,_remaining}) must stay
+// (DequeIntoIter(T) vs DequeRawIter(T), both {_deque,_pos,_remaining}) must stay
 // DISTINCT under exact type comparison. Instantiation copies carry empty
 // names, fresh sids, and equal type_arguments ([i32] vs [i32]), so only the
 // stamped constructor_func_id separates them; without the cfid nominal rule
@@ -8,8 +8,8 @@
 // the collections identity-split family). The batch-dispatch shape below is
 // REQUIRED (both arms analysis-evaluated in one pass); a direct-call version
 // is green. See issues/fixed/yo-self-collections-batch-residuals.md.
-// Since VBD B7b `DequeIterPtr` holds the ring's buffer, not the deque, so this
-// pair no longer shares a layout; `HashMapKeys`/`HashMapValues` still do.
+// Since VBD B7b `DequeRawIter` holds the ring's buffer, not the deque, so this
+// pair no longer shares a layout; `HashMapIntoKeys`/`HashMapIntoValues` still do.
 pragma(Pragma.AllowUnsafe);
 { assert : assert } :: import("std/assert");
 { Deque } :: import("std/collections/deque");

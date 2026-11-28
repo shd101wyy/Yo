@@ -272,7 +272,7 @@ total := sum(list.into_iter(), i32(0)); // A = i32
 
 A parameter fixed only by an `Fn` bound's result (`J` in `where(F <: (Fn(item : A) -> J))`) is
 bound from the closure argument's body type. When an associated type does not match, the error
-says which one: `Type ArrayListIter(String) does not implement required trait Iterator: its
+says which one: `Type ArrayListIntoIter(String) does not implement required trait Iterator: its
 associated type Item is String, not i32.`
 
 ## Partial Application with `_`

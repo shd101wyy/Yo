@@ -82,8 +82,8 @@ test("where-clause inference with bool callback return type", {
 // a two-instantiation smoke test, not a guard. The fix sits in the cycle
 // collector's trace delegation, which W6b deletes, so the lost guard is
 // accepted rather than rebuilt.
-{ Deque, DequeIter } :: import("std/collections/deque");
-{ BTreeMap, BTreeMapIter, MapEntry } :: import("std/collections/btree-map");
+{ Deque, DequeIntoIter } :: import("std/collections/deque");
+{ BTreeMap, BTreeMapIntoIter, MapEntry } :: import("std/collections/btree-map");
 __WbInto :: trait(
   Item : Type,
   IntoIter : Type,
@@ -95,8 +95,8 @@ impl(
   Deque(T),
   __WbInto(
     Item : T,
-    IntoIter : DequeIter(T),
-    wb_into : (fn(self : Self) -> DequeIter(T))(self.into_iter())
+    IntoIter : DequeIntoIter(T),
+    wb_into : (fn(self : Self) -> DequeIntoIter(T))(self.into_iter())
   )
 );
 impl(
@@ -104,8 +104,8 @@ impl(
   BTreeMap(K, V),
   __WbInto(
     Item : MapEntry(K, V),
-    IntoIter : BTreeMapIter(K, V),
-    wb_into : (fn(self : Self) -> BTreeMapIter(K, V))(self.into_iter())
+    IntoIter : BTreeMapIntoIter(K, V),
+    wb_into : (fn(self : Self) -> BTreeMapIntoIter(K, V))(self.into_iter())
   )
 );
 __wb_sum :: (

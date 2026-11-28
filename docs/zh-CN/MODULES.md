@@ -40,7 +40,7 @@ test_module :: import("./module1.yo"); // 从 module1.yo 导入所有内容并�
 
 ```yo
 { ArrayList } :: import("std/collections/array-list");
-{ ArrayListIter } :: import("std/collections/array-list"); // 可以：名字不同
+{ ArrayListIntoIter } :: import("std/collections/array-list"); // 可以：名字不同
 { ArrayList : List } :: import("std/collections/array-list"); // 可以：绑定为新名字
 xs := List(i32).new();
 ```

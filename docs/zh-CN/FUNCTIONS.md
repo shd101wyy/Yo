@@ -256,7 +256,7 @@ total := sum(list.into_iter(), i32(0)); // A = i32
 ```
 
 只由 `Fn` 约束的结果确定的参数（`where(F <: (Fn(item : A) -> J))` 中的 `J`）从闭包实参的函数体类型绑定。
-关联类型不匹配时，错误会指出是哪一个：`Type ArrayListIter(String) does not implement required trait
+关联类型不匹配时，错误会指出是哪一个：`Type ArrayListIntoIter(String) does not implement required trait
 Iterator: its associated type Item is String, not i32.`
 
 ## 使用 `_` 进行偏应用（Partial Application）

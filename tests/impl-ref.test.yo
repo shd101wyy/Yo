@@ -11,7 +11,7 @@
 // receiver auto-borrows; nothing auto-moves: `c.m()` takes a by-value `self`
 // on `C` first, and `(&c).m()` is the explicit borrow.
 { assert } :: import("std/assert");
-{ ArrayList, ArrayListIter } :: import("std/collections/array-list");
+{ ArrayList, ArrayListIntoIter } :: import("std/collections/array-list");
 { String } :: import("std/string");
 { DefaultHasher, hash_one } :: import("std/hash");
 { Display } :: import("std/fmt");
@@ -417,7 +417,7 @@ test("(R3) an owned temporary receiver picks the by-value impl: `.clone().into_i
   xs.push(i32(1));
   xs.push(i32(2));
   xs.push(i32(3));
-  (mut(it) : ArrayListIter(i32)) = xs.clone().into_iter();
+  (mut(it) : ArrayListIntoIter(i32)) = xs.clone().into_iter();
   (mut(count) : usize) = usize(0);
   while(it.next().is_some(), {
     count = (count + usize(1));
