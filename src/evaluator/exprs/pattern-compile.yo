@@ -269,7 +269,7 @@ _rest_drop_repair :: (fn(dots : &AstExpr) -> Option(Repair))({
   match(
     _rest_with_comma_span(&tok),
     .Some(sp) => {
-      return(Option(Repair).Some(Repair(span : sp, replacement : String.new(), description : desc.clone())));
+      return(Option(Repair).Some(Repair(span : sp, replacement : String.new(), description : desc.clone(), also_at : ArrayList(Span).new())));
     },
     .None => ()
   );
@@ -280,7 +280,7 @@ _rest_drop_repair :: (fn(dots : &AstExpr) -> Option(Repair))({
   });
   cond(
     _is_byte(&src.*, i, u8(41)) => Option(Repair).Some(
-      Repair(span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)), replacement : String.new(), description : desc)
+      Repair(span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)), replacement : String.new(), description : desc, also_at : ArrayList(Span).new())
     ),
     true => Option(Repair).None
   )
@@ -320,7 +320,7 @@ _reject_positional_rest :: (fn(args : &ArrayList(AstExpr), n_slots : usize, what
         Repair(
           span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)),
           replacement : fill.clone(),
-          description : `write \`${fill}\`, one \`_\` per ${what} \`..\` stands for`
+          description : `write \`${fill}\`, one \`_\` per ${what} \`..\` stands for`, also_at : ArrayList(Span).new()
         )
       );
     });
@@ -1757,7 +1757,7 @@ compile_pattern :: (
       e,
       String.from("write `_`, which matches any value"),
       Option(Repair).Some(
-        Repair(span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)), replacement : String.from("_"), description : String.from("write `_`"))
+        Repair(span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)), replacement : String.from("_"), description : String.from("write `_`"), also_at : ArrayList(Span).new())
       ),
       exn
     );
