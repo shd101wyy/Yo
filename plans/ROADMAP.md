@@ -34,6 +34,8 @@ Six lanes, at most four at once
   `ctl`/`unwind` deleted, errors are values
   ([`ERRORS_AS_VALUES`](backlog/ERRORS_AS_VALUES.md)): `try` in v0.2.83, std
   in v0.2.84, the compiler in v0.2.84–85, the mechanism out in v0.2.86.
+  Generators ([`GENERATORS`](backlog/GENERATORS.md)): design landed; decision
+  after AFA-7/E-5 (v0.2.88+).
 - **B. Runtime.** The `Io` interface
   ([`IO_INTERFACE_AND_STD_RUNTIME`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)),
   then allocation-free async ([`ALLOCATION_FREE_ASYNC`](backlog/ALLOCATION_FREE_ASYNC.md)),

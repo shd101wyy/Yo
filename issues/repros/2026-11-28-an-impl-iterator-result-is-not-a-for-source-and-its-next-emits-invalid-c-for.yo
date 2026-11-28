@@ -1,0 +1,32 @@
+// `for` over a function result typed `Impl(Iterator(Item := i32))` (VERDICTS-97 probe p01).
+// Expected: prints `for: 20`. Actual (v0.2.80): E0610, no method `into_iter` on Impl(Iterator).
+{ println } :: import("std/fmt");
+
+Evens :: struct(i : i32, n : i32);
+impl(
+  Evens,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))(
+      cond(
+        (self.i < self.n) => {
+          v := self.i;
+          self.i = (self.i + i32(2));
+          .Some(v)
+        },
+        true => .None
+      )
+    )
+  )
+);
+
+evens :: (fn(n : i32) -> Impl(Iterator(Item := i32)))(Evens(i : i32(0), n : n));
+
+main :: (fn() -> unit)({
+  mut(sum) := i32(0);
+  for(evens(i32(10)), v => {
+    sum = (sum + v);
+  });
+  println(`for: ${sum}`);
+});
+export(main);
