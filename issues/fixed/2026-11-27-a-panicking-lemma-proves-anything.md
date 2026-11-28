@@ -2,7 +2,7 @@
 
 **Severity:** S1 — `yo verify --strict` passes a function whose `ensures(r == 42)` is false (the binary prints `7`), because a `ghost(lemma(x))` statement assumes an `ensures` that a panicking lemma body never had to establish.
 
-**Status:** open. **Found:** 2026-11-27 by the VERDICTS-91 probes (`p02`, `r02` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
+**Status:** fixed by PR 1b of the plan (§8). **Found:** 2026-11-27 by the VERDICTS-91 probes (`p02`, `r02` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
 
 ## Reproducer
 
@@ -48,4 +48,14 @@ This is not a bug to patch alone: each of the seven false proofs of `plans/backl
 
 ## Fix
 
-PR 1b of `plans/backlog/SPEC_AND_PROOF.md` §8 (the form rules: a lemma's body is total). The fixing PR adds a `tests/spec/fixtures/negative/` fixture of this program that the tree binary rejects and v0.2.80 accepts, and moves this doc to `issues/fixed/`.
+PR 1b of `plans/backlog/SPEC_AND_PROOF.md` §8. A lemma's body is a proof, and a proof ends normally on every path (plan §4.3): `panic` and an early `return` in a lemma body or a law's proof block are E0930 (E_GHOST_FN_FORM). The reproducer now fails evaluation, so `yo verify --strict` exits 1.
+
+```text
+error[E0930]: a proof ends normally on every path, so 'panic(...)' is not allowed in it; for a case that cannot happen, write 'assert(false)'
+  --> issues/repros/2026-11-27-a-panicking-lemma-proves-anything.yo:6:57
+  |
+6 | bogus :: ghost_fn((fn(x : i32, ensures(x > x)) -> unit)(panic("never proved")));
+  |                                                         ^^^^^
+```
+
+Test: `tests/spec/fixtures/negative/lemma-body-panics.yo` (this program's shape; the tree binary rejects it, v0.2.80 accepts it), checked by the E0930 tests of `tests/internal/verifier-ghost.test.yo`; `tests/spec/fixtures/valid/lemma-impossible-case.yo` is the legal form (`assert(false)` under the contradicting path).

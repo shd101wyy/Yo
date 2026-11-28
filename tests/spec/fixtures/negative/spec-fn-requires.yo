@@ -1,0 +1,14 @@
+// A logic function is total and has no precondition. Here the measure dropped
+// only under `requires(n > 0)`, which the self call `bad(0)` breaks and which
+// nothing checks, so the definitional axiom `bad(n) == bad(0) + 1` was false at
+// n = 0 and proved `r == 42` for a program that returns 7
+// (issues/fixed/2026-11-27-a-recursive-ghost-fn-axiom-is-inconsistent.md). The
+// evaluator rejects the clause (E0930); valid/ghost-fn-recursive.yo guards its
+// body with `cond(...)` instead.
+pragma(Pragma.Verify);
+
+bad :: ghost_fn(
+  (fn(n : u8, requires(n > u8(0)), decreases(n)) -> u32)(bad(u8(0)) + u32(1))
+);
+
+wrong :: (fn(x : i32, requires(bad(u8(0)) == bad(u8(0))), ensures(r == i32(42))) -> (r : i32))(x);

@@ -187,18 +187,18 @@ test("safe_div over refine(i32, non_zero) proves with no manual requires; a disc
     true
   );
   // The callee's divisor-nonzero obligation must PROVE from the assumed
-  // refinement alone — that is the flagship claim. FIVE fns report (the
-  // ghost_fn's inner fn walks the trivial AoRTE sweep too; by_alias and
-  // alias_caller are the NAMED-ALIAS spellings) and ALL of them must be
-  // ok — a subset error on caller_ok would otherwise pass the ok-count
-  // vacuously.
+  // refinement alone — that is the flagship claim. FOUR fns report (the
+  // predicate is a logic function that does not recurse, so it has no task;
+  // by_alias and alias_caller are the NAMED-ALIAS spellings) and ALL of them
+  // must be ok — a subset error on caller_ok would otherwise pass the
+  // ok-count vacuously.
   assert(
-    reports.len() == usize(5),
-    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
+    reports.len() == usize(4),
+    `all four functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(&reports, String.from("ok")) == usize(5),
-    `safe_div, caller_ok, by_alias (the NAMED-ALIAS spelling carries the refinement too), alias_caller and the predicate fn must all verify, got: [${_reports_dump(&reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(4),
+    `safe_div, caller_ok, by_alias (the NAMED-ALIAS spelling carries the refinement too) and alias_caller must all verify, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -212,15 +212,15 @@ test("a caller passing an unconstrained value REFUTES at refine#N (the callee st
     true
   );
   assert(
-    reports.len() == usize(3),
-    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
+    reports.len() == usize(2),
+    `both functions report (the predicate has no task), got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
     _count_outcome(&reports, String.from("refuted")) == usize(1),
     `caller_bad must refute at refine#1, got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(&reports, String.from("ok")) == usize(2),
+    _count_outcome(&reports, String.from("ok")) == usize(1),
     `safe_div itself must stay ok (modular: one bad caller does not poison the callee), got: [${_reports_dump(&reports)}]`
   );
   // The counter-example names the argument: d = 0.
@@ -298,8 +298,8 @@ test("worked example: a refinement-typed index proves an array read in bounds", 
     i = (i + usize(1));
   });
   assert(
-    (reports.len() == usize(3)) && (ok_n == usize(3)),
-    `first_of_8 (entry-assumed index in [0,8) discharges the AoRTE bound) and pick (refine#1 discharged from its requires) must verify alongside the predicate fn, got ${reports.len().to_string()} report(s), ${ok_n.to_string()} ok: [${_reports_dump(&reports)}]`
+    (reports.len() == usize(2)) && (ok_n == usize(2)),
+    `first_of_8 (entry-assumed index in [0,8) discharges the AoRTE bound) and pick (refine#1 discharged from its requires) must verify (the predicate has no task), got ${reports.len().to_string()} report(s), ${ok_n.to_string()} ok: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -317,8 +317,8 @@ test("worked example twin: an under-constrained index refutes at refine#1", {
     `bad_pick must refute at refine#1, got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(&reports, String.from("ok")) == usize(2),
-    `the callee and predicate fn stay ok (modular), got: [${_reports_dump(&reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(1),
+    `the callee stays ok (modular; the predicate has no task), got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -339,8 +339,8 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
     io
   );
   assert(
-    reports.len() == usize(4),
-    `all four functions report (predicate fn, takes_nz, lit_caller, lit_caller_bad), got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
+    reports.len() == usize(3),
+    `all three functions report (takes_nz, lit_caller, lit_caller_bad; the predicate has no task), got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   // fn_ids carry path:line (no fn names) — the literal callers sit at
   // :12 (lit_caller, must PROVE from the folded 5 != 0) and :14

@@ -156,21 +156,21 @@ test("alias-created refinements prove: composition chain, Bounded capture, wrapp
     io,
     true
   );
-  // 11 fns report: the ghost predicate bodies, use_dbl (the composition
-  // chain's inner nonzero leg discharges the divisor obligation), use_band
-  // + band_caller (the captured [0,100] bound proves at the caller's
-  // refine#1), use_wrapped (the comptime value-parameter wrapper),
-  // nz_check/nz_unchecked (the entry paths) and the alias-created
-  // predicate fns. Everything must be a passing outcome: ok, or the
-  // contract-less outside-subset degrade (nz_check's Option construction
-  // is outside the V3 subset).
+  // 6 fns report: use_dbl (the composition chain's inner nonzero leg
+  // discharges the divisor obligation), use_band + band_caller (the captured
+  // [0,100] bound proves at the caller's refine#1), use_wrapped (the
+  // comptime value-parameter wrapper) and nz_check/nz_unchecked (the entry
+  // paths). The predicates are logic functions that do not recurse, so they
+  // have no task. Everything must be a passing outcome: ok, or the
+  // contract-less outside-subset degrade (nz_check's Option construction is
+  // outside the V3 subset).
   assert(
-    reports.len() == usize(11),
-    `all eleven functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
+    reports.len() == usize(6),
+    `all six functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    (_count_outcome(&reports, String.from("ok")) == usize(10)) && (_count_outcome(&reports, String.from("outside-subset")) == usize(1)) && (_count_outcome(&reports, String.from("refuted")) == usize(0)),
-    `every outcome must pass (10 ok + 1 outside-subset degrade, 0 refuted): [${_reports_dump(&reports)}]`
+    (_count_outcome(&reports, String.from("ok")) == usize(5)) && (_count_outcome(&reports, String.from("outside-subset")) == usize(1)) && (_count_outcome(&reports, String.from("refuted")) == usize(0)),
+    `every outcome must pass (5 ok + 1 outside-subset degrade, 0 refuted): [${_reports_dump(&reports)}]`
   );
 });
 
@@ -184,15 +184,15 @@ test("the negative twins refute: single even refinement does not discharge a div
     true
   );
   assert(
-    reports.len() == usize(5),
-    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
+    reports.len() == usize(3),
+    `all three functions report (the predicates have no task), got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
     _count_outcome(&reports, String.from("refuted")) == usize(2),
     `use_even (zero IS even — the single-leg refinement must NOT discharge a division) and band_caller_bad (nothing bounds v into the band) must refute: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(&reports, String.from("ok")) == usize(3),
-    `the predicate fns and use_band stay ok (modular): [${_reports_dump(&reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(1),
+    `use_band stays ok (modular): [${_reports_dump(&reports)}]`
   );
 });

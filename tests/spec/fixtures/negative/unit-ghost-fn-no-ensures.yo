@@ -1,0 +1,12 @@
+// A ghost_fn that returns `unit` is a lemma, and a lemma must claim something.
+// Without an `ensures` it was read as a logic function: inlined at the use, its
+// `assert` proved again in the caller and its `requires` never checked
+// (E0930).
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+check_pos :: ghost_fn(
+  (fn(x : i32, requires(x > i32(0))) -> unit)({
+    assert(x > i32(0));
+  })
+);

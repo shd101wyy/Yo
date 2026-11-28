@@ -217,7 +217,7 @@ Z3 不做归纳。递归 `ghost_fn` 的某些性质需要归纳才能证明，�
 
 ```yo
 member :: ghost_fn(
-  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+  (fn(xs : ArrayList(i32), n : usize, v : i32, decreases(n)) -> bool)(
     cond(
       (n == usize(0)) => false,
       true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
@@ -251,7 +251,9 @@ member_frame :: ghost_fn(
 
 引理是证明步骤。可执行代码只能以上述语句调用它。引理体和 law 的证明块（§法则）本身就是证明，因此在其中直接调用，正如上面的递归调用。规约不能调用引理：应在需要该事实之前，在证明中引用它（§被擦除的代码可以调用什么）。
 
-返回值的 `ghost_fn` 仍会被内联，递归时则被公理化。调用处不检查它的 `requires`：它的 SMT 解读是全函数。
+返回值的 `ghost_fn` 是**逻辑函数**，且是全函数。其函数体就是其含义：一个在每条路径上都有值的表达式，使用处会内联它，递归时则通过定义公理读取它。它不带 `requires`（用 `cond(...)` 守卫函数体，正如 `member` 在 `n == 0` 处所做的），不带 `ensures`（把性质写成引理），也不带 `assumed()`；函数体中的循环、赋值、`panic`、`assert` 或 `return` 都是 `E0930`。其中的下标或除法是逻辑中的运算，处处有定义，因此不产生义务：当 `n > xs.len()` 时 `member` 读取的是未指定的元素。不递归的逻辑函数不断言任何东西，没有报告；递归的逻辑函数只需证明其终止性，且由函数体自身的守卫证明。
+
+引理的函数体是证明，而证明在每条路径上都正常结束：`panic` 与提前 `return` 都是 `E0930`（不可能发生的情形写 `assert(false)`），其中每个 `while` 都需要 `decreases(...)`。返回 `unit` 的 `ghost_fn` 必须断言某些东西，因此带有 `ensures`。公理是标记了 `assumed()` 的引理，其函数体是 `()`。
 
 ### 列表上的序列：`seq_of`
 
@@ -311,7 +313,7 @@ append_all :: (
 
 ### 规约中的纯函数
 
-没有契约、函数体可被验证器表达、不改变任何实参、且不调用带契约函数的函数是透明的：规约可以调用它，调用的含义就是其函数体。因此对 `sq :: (fn(x : i32) -> i32)(x * x)`，`r = x * x` 时 `ensures(r == sq(x))` 能证出，无需把 `sq` 重写成 `ghost_fn`。递归函数只有带 `decreases(...)` 时才透明：其自身任务证明度量递减，因此其定义会终止。其他函数保持不透明，子集错误会指出缺少的性质（"not spec-transparent: it changes an argument"、"... its body is outside the verifier subset (...)"、"... it calls itself without decreases(...)"、"... it calls 'f', which has a contract"）。
+没有契约、函数体可被验证器表达、不改变任何实参、且不调用带契约函数的函数是透明的：规约可以调用它，调用的含义就是其函数体。因此对 `sq :: (fn(x : i32) -> i32)(x * x)`，`r = x * x` 时 `ensures(r == sq(x))` 能证出，无需把 `sq` 重写成 `ghost_fn`。递归函数只有带 `decreases(...)` 时才透明：其自身任务证明度量递减，因此其定义会终止。其他函数保持不透明，子集错误会指出缺少的性质（"not spec-transparent: it changes an argument"、"... its body is outside the verifier subset (...)"、"... it calls itself without decreases(...)"、"... it calls 'f', which has a contract"、"... its body can panic"、"... its body has a loop"）。
 
 ### 被擦除的代码可以调用什么
 

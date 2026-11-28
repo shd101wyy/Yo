@@ -1,0 +1,19 @@
+// A loop in a lemma terminates: it carries `decreases(...)` (the legal form of
+// negative/lemma-body-loops.yo).
+pragma(Pragma.Verify);
+
+count_up :: ghost_fn(
+  (fn(n : u32, requires(n < u32(1000)), ensures(n <= u32(1000))) -> unit)({
+    (mut(i) : u32) = u32(0);
+    while(i < n, {
+      invariant(i <= n);
+      decreases(n - i);
+      i = (i + u32(1));
+    });
+  })
+);
+
+use_it :: (fn(n : u32, requires(n < u32(1000)), ensures(r <= u32(1000))) -> (r : u32))({
+  ghost(count_up(n));
+  n
+});

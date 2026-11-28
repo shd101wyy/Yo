@@ -1,0 +1,22 @@
+// A lemma's impossible case is `assert(false)` under the path that
+// contradicts its `requires`: the proof ends normally on every path, and the
+// assert is proved because the path cannot happen (the legal form of
+// negative/lemma-body-panics.yo).
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
+
+pos_of_big :: ghost_fn(
+  (fn(x : i32, requires(x > i32(10)), ensures(pos(x))) -> unit)(
+    cond(
+      (x <= i32(0)) => assert(false),
+      true => ()
+    )
+  )
+);
+
+use_it :: (fn(x : i32, requires(x > i32(10)), ensures(r > i32(0))) -> (r : i32))({
+  ghost(pos_of_big(x));
+  x
+});

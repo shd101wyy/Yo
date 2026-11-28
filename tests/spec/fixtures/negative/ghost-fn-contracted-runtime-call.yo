@@ -1,5 +1,6 @@
-// A CONTRACTED ghost_fn called from a runtime body. The call is illegal —
-// a ghost_fn has no runtime semantics — and the evaluator has always thrown
+// A CONTRACTED ghost_fn (a lemma: a logic function has no contract) called
+// from a runtime body. The call is illegal — a ghost_fn has no runtime
+// semantics — and the evaluator has always thrown
 // the right diagnostic for it. What it did NOT do is let that diagnostic out:
 // the throw lands inside the def-time trial swallow, so the rejection was
 // discarded and evaluation limped on until a downstream node failed with
@@ -12,13 +13,10 @@
 pragma(Pragma.Verify);
 
 g :: ghost_fn(
-  (fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
-    y := x;
-    y
-  })
+  (fn(x : i32, requires(x > i32(0)), ensures(x > i32(0))) -> unit)(())
 );
 
 use_it :: (fn(n : i32) -> (result : i32))({
-  r := g(n);
-  r
+  g(n);
+  n
 });

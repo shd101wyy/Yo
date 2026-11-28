@@ -1,0 +1,10 @@
+// An axiom (an `assumed()` lemma) is trusted instead of proved, so it has no
+// proof: its body is `()` (E0930).
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+mul_commutes :: ghost_fn(
+  (fn(a : u64, b : u64, ensures((a * b) == (b * a)), assumed()) -> unit)({
+    assert((a * b) == (b * a));
+  })
+);

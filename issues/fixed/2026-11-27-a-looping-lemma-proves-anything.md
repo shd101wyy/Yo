@@ -2,7 +2,7 @@
 
 **Severity:** S1 — `yo verify --strict` passes a function whose `ensures(r == 42)` is false (the binary prints `7`), because a lemma whose body is `while(true, …)` proves `x > x` under partial correctness and every `ghost(...)` use assumes it.
 
-**Status:** open. **Found:** 2026-11-27 by the VERDICTS-91 probes (`p03`, `r03` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
+**Status:** fixed by PR 1b of the plan (§8). **Found:** 2026-11-27 by the VERDICTS-91 probes (`p03`, `r03` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
 
 ## Reproducer
 
@@ -52,4 +52,11 @@ This is not a bug to patch alone: each of the seven false proofs of `plans/backl
 
 ## Fix
 
-PR 1b of `plans/backlog/SPEC_AND_PROOF.md` §8 (a lemma is total: its loops need `decreases`). The fixing PR adds a `tests/spec/fixtures/negative/` fixture of this program that the tree binary rejects and v0.2.80 accepts, and moves this doc to `issues/fixed/`.
+PR 1b of `plans/backlog/SPEC_AND_PROOF.md` §8. A lemma is total (plan §4.3): in a lemma's or a law's task, a `while` or `for` without `decreases(...)` is a subset error, so the lemma is not `ok` and `yo verify --strict` exits 1. `tests/spec/fixtures/valid/lemma-loop-decreases.yo` is the legal form.
+
+```text
+  subset   fn@issues/repros/2026-11-27-a-looping-lemma-proves-anything.yo:4 [verify] — cannot verify: a while loop in a proof without decreases(...) (a proof must terminate)
+           while(true, begin(invariant(true), ()))
+```
+
+Test: `tests/spec/fixtures/negative/lemma-body-loops.yo` (this program's shape; the tree binary rejects it, v0.2.80 accepts it), checked by `tests/internal/verifier-ghost.test.yo`.

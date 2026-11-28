@@ -11,14 +11,9 @@
 // issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md
 pragma(Pragma.Verify);
 
-g :: ghost_fn(
-  (fn(a : i32, b : i32, requires(a > b)) -> (result : i32))({
-    y := a;
-    y
-  })
-);
+g :: ghost_fn((fn(a : i32, b : i32, requires(a > b), ensures(a > b)) -> unit)(()));
 
 use_it :: (fn(n : i32) -> (result : i32))({
-  r := g(n, n);
-  r
+  g(n, n);
+  n
 });

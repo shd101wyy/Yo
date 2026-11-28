@@ -140,8 +140,9 @@ test("ghost_fn predicates INLINE (bounded proves through within)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/ghost-fn-inline.yo"), io, true);
-  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
-  rp := _second(&reports);
+  // The logic function does not recurse, so it claims nothing and has no task.
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
   assert(rp.outcome == "ok", `bounded proves through the inlined requires, got: [${_reports_dump(&reports)}]`);
 });
 
@@ -150,8 +151,8 @@ test("the inlining is REAL — a false post-condition REFUTES (x = 0 model)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/ghost-fn-inline-false.yo"), io, true);
-  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
-  rp := _second(&reports);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
   assert(rp.outcome == "refuted", `strictly_bounded refutes (an assumed-instead-of-inlined predicate would prove anything), got: [${_reports_dump(&reports)}]`);
 });
 
@@ -307,4 +308,90 @@ test("an uncontracted function that calls a contracted one is not spec-transpare
     i = (i + usize(1));
   });
   assert(found, `a report must name the contracted call inside wrap, got: [${_reports_dump(&reports)}]`);
+});
+
+// ---------------------------------------------------------------------------
+// The form rules of a ghost_fn (plans/backlog/SPEC_AND_PROOF.md §4.3): E0930
+// is an evaluator error; a lemma loop without a measure is a subset error.
+// ---------------------------------------------------------------------------
+test("a lemma body that panics is E0930 — a proof ends normally", {
+  // issues/fixed/2026-11-27-a-panicking-lemma-proves-anything.md
+  msg := _load_error(String.from("./tests/spec/fixtures/negative/lemma-body-panics.yo"), io);
+  assert(msg.contains(String.from("E0930")), `a panic in a proof is E0930, got: ${msg}`);
+  assert(msg.contains(String.from("assert(false)")), `the message names the legal form, got: ${msg}`);
+});
+
+test("a logic function with a requires is E0930 — it is total", {
+  // issues/fixed/2026-11-27-a-recursive-ghost-fn-axiom-is-inconsistent.md
+  msg := _load_error(String.from("./tests/spec/fixtures/negative/spec-fn-requires.yo"), io);
+  assert(msg.contains(String.from("E0930")), `a requires on a logic function is E0930, got: ${msg}`);
+  assert(msg.contains(String.from("no precondition")), `the message says why, got: ${msg}`);
+});
+
+test("a logic function with a panic arm is E0930 — a value on every path", {
+  // issues/fixed/2026-11-27-a-spec-ghost-fn-with-a-panic-arm-proves-anything.md
+  msg := _load_error(String.from("./tests/spec/fixtures/negative/spec-fn-panic-arm.yo"), io);
+  assert(msg.contains(String.from("E0930")), `a panic in a logic function is E0930, got: ${msg}`);
+  assert(msg.contains(String.from("value on every path")), `the message says why, got: ${msg}`);
+});
+
+test("a logic function with an ensures, a loop, or a unit ghost_fn without ensures is E0930", {
+  ens := _load_error(String.from("./tests/spec/fixtures/negative/spec-fn-ensures.yo"), io);
+  assert(ens.contains(String.from("E0930")) && ens.contains(String.from("no post-condition")), `ensures on a logic function, got: ${ens}`);
+  lp := _load_error(String.from("./tests/spec/fixtures/negative/spec-fn-loop.yo"), io);
+  assert(lp.contains(String.from("E0930")) && lp.contains(String.from("'while(...)'")), `a loop in a logic function, got: ${lp}`);
+  un := _load_error(String.from("./tests/spec/fixtures/negative/unit-ghost-fn-no-ensures.yo"), io);
+  assert(un.contains(String.from("E0930")) && un.contains(String.from("must claim something")), `a unit ghost_fn without ensures, got: ${un}`);
+  ax := _load_error(String.from("./tests/spec/fixtures/negative/axiom-with-body.yo"), io);
+  assert(ax.contains(String.from("E0930")) && ax.contains(String.from("an axiom has no proof")), `an assumed() lemma with a body, got: ${ax}`);
+});
+
+test("a while loop in a lemma needs decreases — a proof must terminate", {
+  // issues/fixed/2026-11-27-a-looping-lemma-proves-anything.md
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/lemma-body-loops.yo"), io, true);
+  rp := _first(&reports);
+  assert(rp.outcome == "subset-error", `the looping lemma must not prove, got: [${_reports_dump(&reports)}]`);
+  assert(
+    rp.subset_construct.contains(String.from("a proof must terminate")),
+    `the report names the missing measure, got: [${_reports_dump(&reports)}]`
+  );
+});
+
+test("the legal twins prove: an impossible case is assert(false), a lemma loop carries decreases", {
+  if(!_have_z3(), {
+    return(());
+  });
+  imp := _load_reports(String.from("./tests/spec/fixtures/valid/lemma-impossible-case.yo"), io, true);
+  (mut(i) : usize) = usize(0);
+  while(i < imp.len(), {
+    assert(imp.get_cloned(i).unwrap().outcome == "ok", `every task proves, got: [${_reports_dump(&imp)}]`);
+    i = (i + usize(1));
+  });
+  // `pos` is a logic function that does not recurse: it claims nothing and has
+  // no task, so the lemma and its use are the two reports.
+  assert(imp.len() == usize(2), `the lemma and its use, got: [${_reports_dump(&imp)}]`);
+  lp := _load_reports(String.from("./tests/spec/fixtures/valid/lemma-loop-decreases.yo"), io, true);
+  (mut(j) : usize) = usize(0);
+  while(j < lp.len(), {
+    assert(lp.get_cloned(j).unwrap().outcome == "ok", `every task proves, got: [${_reports_dump(&lp)}]`);
+    j = (j + usize(1));
+  });
+});
+
+test("an uncontracted function that can panic is not spec-transparent", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/transparent-body-panics.yo"), io, true);
+  (mut(found) : bool) = false;
+  (mut(i) : usize) = usize(0);
+  while(i < reports.len(), {
+    rp := reports.get_cloned(i).unwrap();
+    if(rp.subset_construct.contains(String.from("its body can panic")), {
+      found = true;
+      assert(rp.outcome == "subset-error", `wrong must not prove through first_pos, got: [${_reports_dump(&reports)}]`);
+    });
+    i = (i + usize(1));
+  });
+  assert(found, `a report must name the panic in first_pos, got: [${_reports_dump(&reports)}]`);
 });

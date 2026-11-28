@@ -2,7 +2,7 @@
 
 **Severity:** S1 — `yo verify --strict` passes a function whose `ensures(r == 42)` is false (the binary prints `7`): the unconditional axiom `forall n. bad(n) == bad(0) + 1` of a logic function whose `decreases` was proved only under an unchecked `requires` is false at `n = 0`, and any query that mentions `bad` can prove anything.
 
-**Status:** open. **Found:** 2026-11-27 by the VERDICTS-91 probes (`p04`, `r04` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
+**Status:** fixed by PR 1b of the plan (§8). **Found:** 2026-11-27 by the VERDICTS-91 probes (`p04`, `r04` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
 
 ## Reproducer
 
@@ -48,4 +48,14 @@ This is not a bug to patch alone: each of the seven false proofs of `plans/backl
 
 ## Fix
 
-PR 1b of `plans/backlog/SPEC_AND_PROOF.md` §8 (termination of a recursive logic function without assumptions; no `requires` on a value `ghost_fn`). The fixing PR adds a `tests/spec/fixtures/negative/` fixture of this program that the tree binary rejects and v0.2.80 accepts, and moves this doc to `issues/fixed/`.
+PR 1b of `plans/backlog/SPEC_AND_PROOF.md` §8. A logic function takes no `requires` (plan §4.3), so its definitional axiom is consistent exactly when its termination is proved with no assumption. The reproducer is E0930 (E_GHOST_FN_FORM). With the `requires` removed, the definition's `decreases-step` (`0 < n` at `n = 0`) is refuted, and `yo verify --strict` exits 1 either way.
+
+```text
+error[E0930]: a logic function (a ghost_fn that returns a value) is total and has no precondition: guard its body with 'cond(...)', or state the condition where it is used
+  --> issues/repros/2026-11-27-a-recursive-ghost-fn-axiom-is-inconsistent.yo:7:15
+  |
+7 |   (fn(n : u8, requires(n > u8(0)), decreases(n)) -> u32)(bad(u8(0)) + u32(1))
+  |               ^^^^^^^^
+```
+
+Test: `tests/spec/fixtures/negative/spec-fn-requires.yo` (this program's shape; the tree binary rejects it, v0.2.80 accepts it), checked by `tests/internal/verifier-ghost.test.yo`.

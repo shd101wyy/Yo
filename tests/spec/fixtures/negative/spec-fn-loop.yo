@@ -1,0 +1,15 @@
+// A logic function's body is one expression with a value on every path: a loop
+// is not a function the logic can name (`loopy(x) == loopy(x)` was refuted).
+// The evaluator rejects it (E0930).
+pragma(Pragma.Verify);
+
+loopy :: ghost_fn(
+  (fn(x : i32) -> i32)({
+    mut(i) := x;
+    while(i > i32(0), {
+      invariant(true);
+      i = (i - i32(1));
+    });
+    i
+  })
+);

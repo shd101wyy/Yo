@@ -1,0 +1,15 @@
+// A logic function has a value on every path. This one's other arm panicked, the
+// inlined walk treated the panic path as dead, and `ghost(t := only42(x))`
+// proved `r == 42` for a program that returns 7
+// (issues/fixed/2026-11-27-a-spec-ghost-fn-with-a-panic-arm-proves-anything.md).
+// The evaluator rejects the panic (E0930); a logic function gives every arm a
+// value (`true => false`).
+pragma(Pragma.Verify);
+{ panic } :: import("std/assert");
+
+only42 :: ghost_fn((fn(x : i32) -> bool)(cond((x == i32(42)) => true, true => panic("no value"))));
+
+wrong :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))({
+  ghost(t := only42(x));
+  x
+});

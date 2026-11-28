@@ -7,19 +7,16 @@ pragma(Pragma.VerifyOrAssert);
 { ArrayList } :: import("std/collections/array-list");
 
 g :: ghost_fn(
-  (fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
-    y := x;
-    y
-  })
+  (fn(x : i32, requires(x > i32(0)), ensures(x > i32(0))) -> unit)(())
 );
 
 use_it :: (fn(n : i32, requires(n > i32(0)), ensures(result > i32(0))) -> (result : i32))({
-  ghost(v := g(n));
+  ghost(g(n));
   n
 });
 
 all_pos :: ghost_fn(
-  (fn(xs : &ArrayList(i32), n : usize, requires(n <= xs.len()), decreases(n)) -> bool)(
+  (fn(xs : &ArrayList(i32), n : usize, decreases(n)) -> bool)(
     cond(
       (n == usize(0)) => true,
       true => (all_pos(xs, n - usize(1)) && (xs(n - usize(1)) > i32(0)))

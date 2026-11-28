@@ -43,6 +43,10 @@
   BF_PANIC,
   BF_RUNTIME,
   BK_COND,
+  BK_WHILE,
+  BK_RETURN,
+  BK_BREAK,
+  BK_ASSIGN,
   BF_ADDRESS_OF,
   BK_BORROW_MUT,
   alloc_global_expr_id,
@@ -77,7 +81,7 @@
 { HashMap } :: import("std/collections/hash-map");
 { HashSet } :: import("std/collections/hash-set");
 { format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
-{ E_SPEC_CONTEXT_CALL, E_GHOST_STATEMENT_FORM } :: import("../../diagnostics.yo");
+{ E_SPEC_CONTEXT_CALL, E_GHOST_STATEMENT_FORM, E_GHOST_FN_FORM } :: import("../../diagnostics.yo");
 { display_module_path, canonical_module_path, debug_knob } :: import("../../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -561,7 +565,7 @@ _is_ghost_fn_or_base :: (fn(func_id : &String) -> bool)(
     )
   )
 );
-/// The shape that tells a lemma from a spec function today: the literal
+/// The shape that tells a lemma from a logic function today: the literal
 /// `(fn(..., ensures(...), ...) -> unit)(body)`. `.None` when the argument is
 /// not a function literal written out in place.
 _ghost_fn_literal_is_lemma :: (fn(literal : &AstExpr) -> Option(bool))({
@@ -609,6 +613,197 @@ _ghost_fn_literal_is_lemma :: (fn(literal : &AstExpr) -> Option(bool))({
     pi = (pi + usize(1));
   });
   Option(bool).Some(returns_unit && has_ensures)
+});
+_throw_ghost_fn_form :: (fn(at : &AstExpr, message : String, exn : Exception) -> unit)({
+  exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(at), &message), E_GHOST_FN_FORM))));
+});
+/// The first call in `e` (callee included, nested arguments included) whose
+/// head is one of `names`.
+_first_call_named :: (fn(e : &AstExpr, names : &ArrayList(String)) -> Option(AstExpr))({
+  callee := match(
+    e,
+    Rc(.FnCall(_, f, _, _, _)) => Option(AstExpr).Some(Rc.clone(f.*)),
+    Rc(.Atom(_, _)) => Option(AstExpr).None
+  );
+  if(callee.is_none(), {
+    return(Option(AstExpr).None);
+  });
+  f := match(callee, .Some(x_) => x_, .None => make_err_expr());
+  if(ast_expr_is_atom(&f) && names.contains(ast_expr_text(&f).*.clone()), {
+    return(Option(AstExpr).Some(Rc.clone(e.*)));
+  });
+  in_callee := _first_call_named(&f, names);
+  if(in_callee.is_some(), {
+    return(in_callee);
+  });
+  args := match(
+    e,
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+  );
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    arg := match(args.get_cloned(ai), .Some(x_) => x_, .None => make_err_expr());
+    in_arg := _first_call_named(&arg, names);
+    if(in_arg.is_some(), {
+      return(in_arg);
+    });
+    ai = (ai + usize(1));
+  });
+  Option(AstExpr).None
+});
+/// What a proof may not do: stop without finishing (SPEC_AND_PROOF.md §4.3).
+_proof_forbidden_calls :: (fn() -> ArrayList(String))({
+  out := ArrayList(String).new();
+  out.push(String.from("panic"));
+  out.push(String.from(BF_PANIC));
+  out.push(String.from(BK_RETURN));
+  out
+});
+/// What a logic function's body may not hold: it is one expression with a
+/// value on every path (SPEC_AND_PROOF.md §4.3).
+_spec_forbidden_calls :: (fn() -> ArrayList(String))({
+  out := _proof_forbidden_calls();
+  out.push(String.from(BK_WHILE));
+  out.push(String.from("for"));
+  out.push(String.from(BK_BREAK));
+  out.push(String.from("continue"));
+  out.push(String.from(BK_ASSIGN));
+  out.push(String.from("assert"));
+  out
+});
+/// A proof (a lemma body, a law's proof block) ends normally on every path:
+/// a lemma that panicked or returned early would prove its `ensures` for
+/// nothing, and nothing runs it to stop there
+/// (issues/fixed/2026-11-27-a-panicking-lemma-proves-anything.md).
+check_proof_block_form :: (fn(body : &AstExpr, exn : Exception) -> unit)({
+  forbidden := _proof_forbidden_calls();
+  match(
+    _first_call_named(body, &forbidden),
+    .Some(hit) => {
+      _throw_ghost_fn_form(
+        &hit,
+        `a proof ends normally on every path, so '${_callee_text(&hit)}(...)' is not allowed in it; for a case that cannot happen, write 'assert(false)'`,
+        exn
+      );
+    },
+    .None => ()
+  );
+});
+/// The form rules of a `ghost_fn` (SPEC_AND_PROOF.md §4.3), by today's
+/// shape. A logic function is total: no `requires` (its termination and its
+/// definitional axiom may not lean on a precondition nobody checks,
+/// issues/fixed/2026-11-27-a-recursive-ghost-fn-axiom-is-inconsistent.md), no
+/// `ensures`, no `assumed()`, and a body with a value on every path
+/// (issues/fixed/2026-11-27-a-spec-ghost-fn-with-a-panic-arm-proves-anything.md).
+/// A lemma's body ends normally; an axiom (an `assumed()` lemma) has the body
+/// `()`.
+_check_ghost_fn_form :: (fn(literal : &AstExpr, is_lemma : bool, exn : Exception) -> unit)({
+  ft := match(
+    literal,
+    Rc(.FnCall(_, f, _, _, _)) => Rc.clone(f.*),
+    Rc(.Atom(_, _)) => make_err_expr()
+  );
+  body := match(
+    literal,
+    Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(x_) => x_, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
+  );
+  ft_args := match(
+    &ft,
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+  );
+  fn_head := match(ft_args.get_cloned(usize(0)), .Some(x_) => x_, .None => make_err_expr());
+  result := match(ft_args.get_cloned(usize(1)), .Some(x_) => x_, .None => make_err_expr());
+  params := match(
+    &fn_head,
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+  );
+  (requires_at : Option(AstExpr)) = Option(AstExpr).None;
+  (ensures_at : Option(AstExpr)) = Option(AstExpr).None;
+  (assumed_at : Option(AstExpr)) = Option(AstExpr).None;
+  (pi : usize) = usize(0);
+  while(pi < params.len(), {
+    param := match(params.get_cloned(pi), .Some(x_) => x_, .None => make_err_expr());
+    if(ast_expr_is_fn_call_of(&param, BF_REQUIRES, Option(usize).None) && requires_at.is_none(), {
+      requires_at = Option(AstExpr).Some(Rc.clone(param));
+    });
+    if(ast_expr_is_fn_call_of(&param, BF_ENSURES, Option(usize).None) && ensures_at.is_none(), {
+      ensures_at = Option(AstExpr).Some(Rc.clone(param));
+    });
+    if(ast_expr_is_fn_call_of(&param, BF_ASSUMED, Option(usize).None) && assumed_at.is_none(), {
+      assumed_at = Option(AstExpr).Some(Rc.clone(param));
+    });
+    pi = (pi + usize(1));
+  });
+  if(is_lemma, {
+    match(
+      &assumed_at,
+      .Some(aa) => {
+        body_is_unit := match(
+          &body,
+          Rc(.Atom(_, bt)) => (bt.value.* == "()"),
+          Rc(.FnCall(_, bf, Rc(ba), _, _)) => ((ast_expr_text(&bf.*).* == BK_TUPLE) && (ba.len() == usize(0)))
+        );
+        if(!body_is_unit, {
+          _throw_ghost_fn_form(aa, String.from("an axiom has no proof: an 'assumed()' lemma's body is '()'"), exn);
+        });
+      },
+      .None => ()
+    );
+    check_proof_block_form(&body, exn);
+    return(());
+  });
+  if(ast_expr_is_atom(&result) && (ast_expr_text(&result).* == "unit"), {
+    _throw_ghost_fn_form(
+      literal,
+      String.from("a ghost_fn that returns 'unit' is a lemma, and a lemma must claim something: add an 'ensures(...)'; a logic function returns a value"),
+      exn
+    );
+  });
+  match(
+    &requires_at,
+    .Some(ra) => {
+      _throw_ghost_fn_form(
+        ra,
+        String.from("a logic function (a ghost_fn that returns a value) is total and has no precondition: guard its body with 'cond(...)', or state the condition where it is used"),
+        exn
+      );
+    },
+    .None => ()
+  );
+  match(
+    &ensures_at,
+    .Some(ea) => {
+      _throw_ghost_fn_form(
+        ea,
+        String.from("a logic function (a ghost_fn that returns a value) has no post-condition: its body is its meaning. State the property as a lemma, a ghost_fn that returns 'unit' with an 'ensures'"),
+        exn
+      );
+    },
+    .None => ()
+  );
+  match(
+    &assumed_at,
+    .Some(sa) => {
+      _throw_ghost_fn_form(sa, String.from("a logic function has nothing to assume: its body is its meaning"), exn);
+    },
+    .None => ()
+  );
+  spec_forbidden := _spec_forbidden_calls();
+  match(
+    _first_call_named(&body, &spec_forbidden),
+    .Some(hit) => {
+      _throw_ghost_fn_form(
+        &hit,
+        `a logic function's body is one expression with a value on every path, so '${_callee_text(&hit)}(...)' is not allowed in it`,
+        exn
+      );
+    },
+    .None => ()
+  );
 });
 /// Whether `func_id` carries a contract: a `requires` or an `ensures`.
 _has_contract :: (fn(func_id : &String) -> bool)({
@@ -931,7 +1126,7 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCon
     );
   });
   // A ghost_fn's body IS ghost (V5): quantifier builtins are well-formed
-  // there. A lemma's body is a proof, a spec function's a specification
+  // there. A lemma's body is a proof, a logic function's a specification
   // (SPEC_AND_PROOF.md §4.1): the shape says which.
   literal := match(
     expr,
@@ -955,6 +1150,7 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCon
       false
     }
   );
+  _check_ghost_fn_form(&literal, is_lemma, exn);
   body_id := match(
     &literal,
     Rc(.FnCall(_, _, Rc(lb), _, _)) => match(lb.get_cloned(usize(0)), .Some(b) => ast_expr_id(&b), .None => ast_expr_id(&literal)),
@@ -3794,6 +3990,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   proof_ev := match(
     proof_block,
     .Some(pb) => {
+      check_proof_block_form(&pb, exn);
       prev_proof_ctx := ctx.spec_context;
       ctx.spec_context = SpecContext.Proof;
       pev := evaluate_expression_raw(&pb, &pred_env, ctx, exn);

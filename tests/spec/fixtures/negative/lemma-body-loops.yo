@@ -1,0 +1,20 @@
+// A proof must terminate: after a loop that never exits, partial correctness
+// proves any `ensures`, so this lemma proved `x > x` and a use proved
+// `r == 42` for a program that returns 7
+// (issues/fixed/2026-11-27-a-looping-lemma-proves-anything.md). A `while` in a
+// lemma needs `decreases(...)`; without one the lemma is a subset error
+// (valid/lemma-loop-decreases.yo is the legal form).
+pragma(Pragma.Verify);
+
+bogus :: ghost_fn(
+  (fn(x : i32, ensures(x > x)) -> unit)({
+    while(true, {
+      invariant(true);
+    });
+  })
+);
+
+wrong :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))({
+  ghost(bogus(x));
+  x
+});

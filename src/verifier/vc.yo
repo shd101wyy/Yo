@@ -49,7 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
 { lookup_match_arms, Arm, Pattern, pattern_bindings } :: import("../pattern.yo");
-{ VcSort, VcSortNode, VcOp, VcTerm, VcTermNode, VcQuery, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
+{ VcSort, VcSortNode, VcOp, VcTerm, VcTermNode, VcQuery, VcAssumption, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
 { type_key } :: import("../types/type-key.yo");
@@ -904,7 +904,16 @@ VcCtx :: struct(
   /// spec-transparent attempt that adds one is not transparent.
   frame_effects : usize,
   /// S2: every contracted call's spliced `ensures` so far (`CalleeFact`).
-  callee_facts : ArrayList(CalleeFact)
+  callee_facts : ArrayList(CalleeFact),
+  /// > 0 while a specification's body is walked: an inlined logic function's,
+  /// a definition walked for its meaning, or a recursive logic function's
+  /// own task (plans/backlog/SPEC_AND_PROOF.md §4.3). A logic function is
+  /// total: an index, a divisor or a shift in it is the SMT operator, and it
+  /// owes no obligation but its own `decreases-step`.
+  spec_body_depth : usize,
+  /// The task is a proof (a lemma, or a law with a proof block): a proof
+  /// must terminate, so each of its loops needs a measure.
+  is_proof_task : bool
 );
 derive(ForFrame, Clone);
 _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String) -> VcCtx)(
@@ -949,7 +958,9 @@ _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String)
     for_frames : ArrayList(ForFrame).new(),
     label_depth : usize(0),
     frame_effects : usize(0),
-    callee_facts : ArrayList(CalleeFact).new()
+    callee_facts : ArrayList(CalleeFact).new(),
+    spec_body_depth : usize(0),
+    is_proof_task : false
   )
 );
 _next_fresh :: (fn(ctx : &mut VcCtx) -> usize)({
@@ -1269,6 +1280,23 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
   )
 );
 /// Emit one obligation: prove `Φ ∧ assumptions ⇒ goal`.
+/// Whether every path assumption of a query folds to `true` (or there is
+/// none), so a goal that folds to `false` is refuted without the solver.
+_assumptions_fold_true :: (fn(assumptions : &ArrayList(VcAssumption)) -> bool)({
+  (all_true : bool) = true;
+  (ai : usize) = usize(0);
+  while(all_true && (ai < assumptions.len()), {
+    match(
+      assumptions.get_cloned(ai),
+      .Some(a) => {
+        all_true = match(_fold_term(&a.term), Rc(.BoolLit(b)) => b, _ => false);
+      },
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  all_true
+});
 _emit :: (
   fn(
     ctx : &mut VcCtx,
@@ -1280,6 +1308,10 @@ _emit :: (
     (probe : Option(VcProbe)) ?= Option(VcProbe).None
   ) -> unit
 )({
+  // A specification owes nothing but its termination (spec_body_depth).
+  if((ctx.spec_body_depth > usize(0)) && (label.* != "decreases-step"), {
+    return(());
+  });
   // Unique within the function: a guard obligation carries its 1-based
   // position (`f/divisor-nonzero@6:5`), and any name still repeated (two
   // call sites of one callee's `requires#0`, two `assert`s) gets `~2`,
@@ -1508,7 +1540,10 @@ _emit :: (
   // Literal-construction CTFE folding: a goal whose terms are all
   // literals (e.g. `refine#1` = `5 != 0` at `use_nz(i32(5))`) folds to a
   // BoolLit — record the verdict directly and let the driver skip the
-  // solver for it.
+  // solver for it. A goal that folds to `false` is refuted only when no
+  // path assumption is left to contradict: under `x > 10` and `x <= 0` an
+  // `assert(false)` holds, because the path cannot happen, and only the
+  // solver can tell.
   // A probe's goal is the literal `false` by construction: its question is
   // the satisfiability of the assumptions, which folding cannot answer.
   pre := match(
@@ -1516,10 +1551,10 @@ _emit :: (
     true => Option(VcPreVerdict).None,
     false => match(
       _fold_term(&q.goal),
-      Rc(.BoolLit(v)) => if(
-        v,
-        Option(VcPreVerdict).Some(VcPreVerdict.PreProved),
-        Option(VcPreVerdict).Some(VcPreVerdict.PreRefuted)
+      Rc(.BoolLit(v)) => cond(
+        v => Option(VcPreVerdict).Some(VcPreVerdict.PreProved),
+        _assumptions_fold_true(&q.assumptions) => Option(VcPreVerdict).Some(VcPreVerdict.PreRefuted),
+        true => Option(VcPreVerdict).None
       ),
       _ => Option(VcPreVerdict).None
     )
@@ -3859,6 +3894,12 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
     _fail_subset(ctx, String.from("for with other than (collection, x => body)"), e);
     return(Option(VcTerm).None);
   });
+  // A definition walked for its meaning is a specification: no loop.
+  if(ctx.func_id == "__yo_gfn_definition", {
+    g_transparent_reason = String.from("its body has a loop");
+    _fail_subset(ctx, String.from("a loop in a definition walked for its meaning"), e);
+    return(Option(VcTerm).None);
+  });
   coll := args.get_cloned(usize(0)).unwrap();
   lam := args.get_cloned(usize(1)).unwrap();
   if(!ast_expr_is_atom(&coll), {
@@ -3932,6 +3973,19 @@ _while_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -
   a := ann.unwrap();
   if(a.invariants.len() == usize(0), {
     _fail_subset(ctx, String.from("invariant(...) with no predicates"), e);
+    return(Option(VcTerm).None);
+  });
+  // A proof must terminate: after a loop that never exits, partial
+  // correctness proves any `ensures`, and nothing runs a proof to hang there
+  // (issues/fixed/2026-11-27-a-looping-lemma-proves-anything.md).
+  if(ctx.is_proof_task && a.decreases.is_none(), {
+    _fail_subset(ctx, String.from("a while loop in a proof without decreases(...) (a proof must terminate)"), e);
+    return(Option(VcTerm).None);
+  });
+  // A definition walked for its meaning is a specification: no loop.
+  if(ctx.func_id == "__yo_gfn_definition", {
+    g_transparent_reason = String.from("its body has a loop");
+    _fail_subset(ctx, String.from("a loop in a definition walked for its meaning"), e);
     return(Option(VcTerm).None);
   });
   _loop_core(ctx, e, &a, args.get_cloned(usize(0)), Option(ForFrame).None)
@@ -4830,6 +4884,13 @@ _call_term :: (
   // walked, and the branch it sits in is assumed not taken after the branch
   // (`path_dead`, the break/continue machinery). Its value is never used.
   if(head.* == "panic", {
+    // A definition walked for its meaning is a specification: it has a value
+    // on every path, and a path that panics has none.
+    if(ctx.func_id == "__yo_gfn_definition", {
+      g_transparent_reason = String.from("its body can panic");
+      _fail_subset(ctx, String.from("panic in a definition walked for its meaning"), e);
+      return(Option(VcTerm).None);
+    });
     ctx.path_dead = true;
     return(Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(true))));
   });
@@ -6747,7 +6808,9 @@ _ghost_fn_inline_term :: (
   });
   fid_owned := fid.clone();
   g_ghost_inline_stack.with_mut({ fid_owned }(xs) => xs.push(fid_owned.clone()));
+  ctx.spec_body_depth = (ctx.spec_body_depth + usize(1));
   out := _expr_term(ctx, &body);
+  ctx.spec_body_depth = (ctx.spec_body_depth - usize(1));
   _ := g_ghost_inline_stack.with_mut(xs => xs.pop());
   (ri : usize) = saved_names.len();
   while(ri > usize(0), {
@@ -7663,6 +7726,12 @@ VerifyFnInput :: struct(
 /// predicate) and the entry snapshot `old(e)` reads.
 _enter_function :: (fn(input : &VerifyFnInput) -> VcCtx)({
   ctx := _new_vc_ctx(&input.table, input.fn_name.clone(), input.func_id.clone());
+  is_ghost_task := (is_ghost_fn(input.func_id.clone()) || match(specialized_base_of(input.func_id.clone()), .Some(b) => is_ghost_fn(b.clone()), .None => false));
+  is_lemma_task := (is_ghost_task && ghost_fn_is_lemma(input.func_id.clone()));
+  if(is_ghost_task && !is_lemma_task, {
+    ctx.spec_body_depth = usize(1);
+  });
+  ctx.is_proof_task = (is_lemma_task || input.fn_name.starts_with("law@"));
   ctx.elision_obligations = input.elision_obligations;
   ctx.body_abstract = input.body_abstract;
   // V6 task 3: this fn's per-parameter refinement predicates ("" = none).

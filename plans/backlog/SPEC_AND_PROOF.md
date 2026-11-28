@@ -56,10 +56,10 @@ All seven are S1 by `issues/README.md`. PR 0 filed them, each with its probe as 
 
 | Probe | Issue |
 | --- | --- |
-| `p02`, `r02` | `issues/2026-11-27-a-panicking-lemma-proves-anything.md` |
-| `p03`, `r03` | `issues/2026-11-27-a-looping-lemma-proves-anything.md` |
-| `p04`, `r04` | `issues/2026-11-27-a-recursive-ghost-fn-axiom-is-inconsistent.md` |
-| `p13b`, `r13` | `issues/2026-11-27-a-spec-ghost-fn-with-a-panic-arm-proves-anything.md` |
+| `p02`, `r02` | `issues/fixed/2026-11-27-a-panicking-lemma-proves-anything.md` |
+| `p03`, `r03` | `issues/fixed/2026-11-27-a-looping-lemma-proves-anything.md` |
+| `p04`, `r04` | `issues/fixed/2026-11-27-a-recursive-ghost-fn-axiom-is-inconsistent.md` |
+| `p13b`, `r13` | `issues/fixed/2026-11-27-a-spec-ghost-fn-with-a-panic-arm-proves-anything.md` |
 | `p05b`, `r05` | `issues/fixed/2026-11-27-a-ghost-statement-mutates-state-the-program-reads.md` |
 | `p06`, `r06` | `issues/fixed/2026-11-27-a-ghost-binding-calls-a-diverging-function.md` |
 | `p17`, `r17` | `issues/fixed/2026-11-27-an-ensures-clause-calls-a-diverging-function.md` |

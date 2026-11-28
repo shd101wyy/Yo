@@ -22,7 +22,7 @@ json :: import("std/encoding/json");
 { VcQuery, VcSort, VcSortNode, VcTerm, VcTermNode, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, encode_term, EncodeOptions, default_encode_options } :: import("./encode.yo");
 { VerifyFnInput, verify_function_body, probe_assumed_contract, VcObligation, register_recursion_cliques, register_frame_tasks, GuardSite } :: import("./vc.yo");
-{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure, ProvedGuardSite, record_proved_guard_site, assumed_fn_site, specialized_base_of } :: import("../evaluator/builtins/contracts.yo");
+{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure, ProvedGuardSite, record_proved_guard_site, assumed_fn_site, specialized_base_of, is_ghost_fn, ghost_fn_is_lemma } :: import("../evaluator/builtins/contracts.yo");
 { get_current_target } :: import("../target.yo");
 {
   ensure_z3,
@@ -930,6 +930,13 @@ record_elidable_guard_sites :: (fn(reports : &ArrayList(VerifyFnReport)) -> usiz
   });
   n
 });
+/// A logic function (a `ghost_fn` that returns a value) that does not recurse
+/// claims nothing, so it has no task (plans/backlog/SPEC_AND_PROOF.md §4.3); a
+/// recursive one owes its termination.
+_is_spec_fn_without_task :: (fn(t : &VerifyTask) -> bool)({
+  is_ghost := (is_ghost_fn(t.func_id.clone()) || match(specialized_base_of(t.func_id.clone()), .Some(b) => is_ghost_fn(b.clone()), .None => false));
+  (is_ghost && !ghost_fn_is_lemma(t.func_id.clone()) && t.decreases_expr.is_none())
+});
 verify_and_strip_tasks :: (
   fn(cfg : &VerifyRunConfig, binary : &String, tasks : &ArrayList(VerifyTask)) -> ArrayList(VerifyFnReport)
 )({
@@ -950,6 +957,10 @@ verify_and_strip_tasks :: (
     match(
       tasks.get_cloned(ti),
       .Some(t) => {
+        if(_is_spec_fn_without_task(&t), {
+          ti = (ti + usize(1));
+          continue;
+        });
         input := VerifyFnInput(
           fn_name : t.fn_id.clone(),
           func_id : t.func_id.clone(),

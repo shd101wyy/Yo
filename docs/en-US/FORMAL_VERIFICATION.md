@@ -248,7 +248,7 @@ as "two lists that agree on `[0, n)` have the same members there", stays
 
 ```yo
 member :: ghost_fn(
-  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+  (fn(xs : ArrayList(i32), n : usize, v : i32, decreases(n)) -> bool)(
     cond(
       (n == usize(0)) => false,
       true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
@@ -290,8 +290,23 @@ lemma body and a law's proof block (§Laws) are proofs already, so they call it
 bare, as the recursive call above does. A specification cannot call a lemma:
 cite it in a proof before the fact is needed (§What erased code may call).
 
-A `ghost_fn` that returns a value is still inlined, or axiomatized when it
-recurses. Its `requires` is not checked at a call: its SMT reading is total.
+A `ghost_fn` that returns a value is a **logic function**, and it is total.
+Its body is its meaning: one expression with a value on every path, which a
+use inlines, or reads through the definitional axiom when it recurses. It
+takes no `requires` (guard the body with `cond(...)`, as `member` does at
+`n == 0`), no `ensures` (state the property as a lemma) and no `assumed()`,
+and a loop, an assignment, `panic`, `assert` or `return` in its body is
+`E0930`. An index or a division in it is the logic's operation, defined
+everywhere, so it owes no obligation: `member` reads unspecified elements
+when `n > xs.len()`. A logic function that does not recurse claims nothing and
+has no report; a recursive one owes only its termination, proved from its
+body's own guards.
+
+A lemma's body is a proof, and a proof ends normally on every path: `panic`
+and an early `return` are `E0930` (an impossible case is `assert(false)`), and
+each `while` in it needs `decreases(...)`. A `ghost_fn` that returns `unit`
+must claim something, so it has an `ensures`. An axiom is a lemma marked
+`assumed()`, and its body is `()`.
 
 ### Sequences over lists: `seq_of`
 
@@ -384,7 +399,8 @@ proves that the measure drops, so its definition terminates. Any other
 function stays opaque, and the subset error names the missing property
 ("not spec-transparent: it changes an argument", "... its body is outside
 the verifier subset (...)", "... it calls itself without decreases(...)",
-"... it calls 'f', which has a contract").
+"... it calls 'f', which has a contract", "... its body can panic",
+"... its body has a loop").
 
 ### What erased code may call
 

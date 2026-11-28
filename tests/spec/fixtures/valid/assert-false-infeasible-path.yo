@@ -1,0 +1,13 @@
+// `assert(false)` on a path the `requires` rules out holds: the path cannot
+// happen. Its goal folds to `false`, but the path assumptions `x > 10` and
+// `x <= 0` are left for the solver, which finds them contradictory.
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+f :: (fn(x : i32, requires(x > i32(10)), ensures(r > i32(0))) -> (r : i32))({
+  cond(
+    (x <= i32(0)) => assert(false),
+    true => ()
+  );
+  x
+});

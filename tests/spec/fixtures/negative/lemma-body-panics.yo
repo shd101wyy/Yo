@@ -1,0 +1,15 @@
+// A proof ends normally on every path: a lemma whose body panics proved its
+// `ensures(x > x)` for nothing (the panic path owes no `ensures`), and a use
+// proved `r == 42` for a program that returns 7
+// (issues/fixed/2026-11-27-a-panicking-lemma-proves-anything.md). The
+// evaluator rejects the panic (E0930); an impossible case is `assert(false)`
+// (valid/lemma-impossible-case.yo).
+pragma(Pragma.Verify);
+{ panic } :: import("std/assert");
+
+bogus :: ghost_fn((fn(x : i32, ensures(x > x)) -> unit)(panic("never proved")));
+
+wrong :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))({
+  ghost(bogus(x));
+  x
+});

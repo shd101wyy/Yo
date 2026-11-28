@@ -1,0 +1,14 @@
+// A function with no contract is spec-transparent only when its body is one a
+// specification could have: a value on every path. `first_pos` panics off its
+// domain, so a ghost binding through it is a subset error ("not
+// spec-transparent: its body can panic") instead of a fact read off the
+// panic-free arm.
+pragma(Pragma.Verify);
+{ panic } :: import("std/assert");
+
+first_pos :: (fn(x : i32) -> bool)(cond((x > i32(0)) => true, true => panic("not positive")));
+
+wrong :: (fn(x : i32, ensures(r > i32(0))) -> (r : i32))({
+  ghost(t := first_pos(x));
+  x
+});

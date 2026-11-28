@@ -86,6 +86,7 @@ json :: import("std/encoding/json");
   E_BORROW_OF_NON_PLACE,
   E_SPEC_CONTEXT_CALL,
   E_GHOST_STATEMENT_FORM,
+  E_GHOST_FN_FORM,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -883,6 +884,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "{ ArrayList } :: import(\"std/collections/array-list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  xs.push(i32(1));\n  _n := xs.len();\n});\nexport(main);\n",
       "The push is code that runs, so it is written without `ghost(...)`.",
       "push 是会运行的代码，因此不加 `ghost(...)`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_GHOST_FN_FORM,
+      "a `ghost_fn` of the wrong form",
+      "形式错误的 `ghost_fn`",
+      "A logic function (a `ghost_fn` that returns a value) is total and has no contract, and a lemma (a `ghost_fn` that returns `unit` with an `ensures`) ends normally on every path.",
+      "逻辑函数（返回值的 `ghost_fn`）是全函数且不带契约；引理（返回 `unit` 并带 `ensures` 的 `ghost_fn`）在每条路径上都正常结束。",
+      "A `ghost_fn` never runs, so nothing stops at a `panic` in it and nothing hangs in its loop: the verifier would read a fact off a path that does not exist. A logic function's body is its meaning: one expression with a value on every path (literals, operators, `cond`, `match`, `:=` bindings in a block, quantifiers, calls to other logic functions), with no `requires` (its termination and its definition may not lean on a precondition nobody checks; guard the body with `cond(...)` instead), no `ensures` (state the property as a lemma) and no `assumed()`. A non-recursive logic function claims nothing and has no verification task; a recursive one carries `decreases(...)` and owes only its termination, proved from the body's own guards. A lemma is a proof: its body may assert and recurse, but it may not `panic` or `return` early (for a case that cannot happen, write `assert(false)`), each `while` in it needs `decreases(...)`, and it must claim something, so a `unit` `ghost_fn` has an `ensures`. An axiom is an `assumed()` lemma, and its body is `()`.",
+      "`ghost_fn` 从不运行，因此其中的 `panic` 不会让任何东西停下，其中的循环也不会让任何东西挂起：验证器会从一条不存在的路径上读出事实。逻辑函数的函数体就是其含义：一个在每条路径上都有值的表达式（字面量、运算符、`cond`、`match`、块中的 `:=` 绑定、量词、对其他逻辑函数的调用），不带 `requires`（它的终止性与定义不能依赖一个无人检查的前置条件；改用 `cond(...)` 守卫函数体），不带 `ensures`（把性质写成引理），也不带 `assumed()`。非递归的逻辑函数不断言任何东西，没有验证任务；递归的逻辑函数带 `decreases(...)`，只需证明其终止性，且由函数体自身的守卫证明。引理是证明：其函数体可以断言和递归，但不能 `panic` 或提前 `return`（对不可能发生的情形写 `assert(false)`），其中每个 `while` 都需要 `decreases(...)`，且它必须断言某些东西，因此返回 `unit` 的 `ghost_fn` 带有 `ensures`。公理是带 `assumed()` 的引理，其函数体是 `()`。",
+      "half :: ghost_fn((fn(x : i32, requires((x % i32(2)) == i32(0))) -> i32)(x / i32(2)));\nmain :: (fn() -> unit)({\n  _x := i32(1);\n});\nexport(main);\n",
+      "half :: ghost_fn((fn(x : i32) -> i32)(x / i32(2)));\nmain :: (fn() -> unit)({\n  _x := i32(1);\n});\nexport(main);\n",
+      "`half` is total: its `/` is the logic's division, defined at every `x`, so it needs no precondition.",
+      "`half` 是全函数：其中的 `/` 是逻辑中的除法，对每个 `x` 都有定义，因此不需要前置条件。"
     )
   );
   out.push(
