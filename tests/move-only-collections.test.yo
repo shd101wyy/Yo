@@ -105,7 +105,7 @@ test("HashMap of a move-only key and value: remove_entry, retain, clear", {
     assert(m.contains_key(&_McTok(id : i32(4))), "contains_key borrows the key");
     match(
       m.remove_entry(&_McTok(id : i32(3))),
-      .Some(e) => match(e, { key : k, value : v } => assert((k.id == i32(3)) && (_mc_take(v) == i32(3)), "the whole entry moves out")),
+      .Some(e) => match(e, (k, v) => assert((k.id == i32(3)) && (_mc_take(v) == i32(3)), "the whole entry moves out")),
       .None => assert(false, "the key was present")
     );
     m.retain(&mut ((k : &_McTok, v : &_McFd) => (v.n < i32(20))));
@@ -284,7 +284,7 @@ test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop eac
     assert(g_mc_kdropped == (before + i32(2)), "remove drops the stored key");
     match(
       m.remove_entry(&p6),
-      .Some(e) => match(e, { key : k, value : v } => assert((k.id == i32(6)) && (v == i32(6)), "the entry moves out")),
+      .Some(e) => match(e, (k, v) => assert((k.id == i32(6)) && (v == i32(6)), "the entry moves out")),
       .None => assert(false, "present")
     );
     assert(g_mc_kdropped == (before + i32(3)), "the moved-out key, once");

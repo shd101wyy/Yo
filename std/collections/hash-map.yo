@@ -1379,8 +1379,8 @@ impl(
 // advances a COPY of the field, so `_index` never moved and manual
 // `it.next()` loops yielded the first key forever (`for(...)` masked it).
 // Scan directly instead, mirroring `HashMapRawIter`.
-/// Iterator over a map's keys, in bucket order — what `keys()` returns. The
-/// iterator owns the map (`keys()` consumes it), so each key moves out of its
+/// Iterator over a map's keys, in bucket order — what `into_keys()` returns. The
+/// iterator owns the map (`into_keys()` consumes it), so each key moves out of its
 /// bucket and the bucket's value is dropped: nothing is cloned, and a
 /// move-only key works.
 HashMapIntoKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
@@ -1436,7 +1436,7 @@ impl(
 );
 // NOTE: Same direct-scan structure as `HashMapIntoKeys` — see the note there for
 // why the wrapped-`_inner` delegation form was replaced.
-/// Iterator over a map's values, in bucket order — what `values()` returns.
+/// Iterator over a map's values, in bucket order — what `into_values()` returns.
 /// Each value moves out of its bucket, as `HashMapIntoKeys` moves its keys.
 HashMapIntoValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(

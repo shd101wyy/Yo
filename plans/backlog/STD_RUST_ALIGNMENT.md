@@ -19,7 +19,13 @@ consumers' `f : &mut F`): a closure that holds a reference is E0909 at any by-va
 `FnOnce` slot would reject `opt.inspect({ &mut seen }(v) => …)` and every closure reading a borrowed parameter. VERDICTS-93 confirms the lent slot for S-1; the by-value `FnOnce` slot is PR P-5, after P4-1. Q3's rider (`FromIterator.Elem` → `Item`) is not taken: the
 assoc-type registry is keyed by (type, label) without the trait, so an `Item` there would alias `IntoIterator.Item` on every
 collection whose two element types differ (the reason `Elem` was chosen); it needs trait-keyed associated types first.
-S-2 to S-6, L-1 and P-1 to P-4 are not started.
+S-3 is built (branch `wip/v0281-s3`, on S-1): §3.5 for the collections (`iter()`/`iter_mut()` lend, `iter_raw()` is the raw
+walk, `into_keys`/`into_values` consume, `keys`/`values`/`values_mut` lend; the `XIntoIter`/`XIter`/`XIterMut`/`XRawIter`
+names), `keys_cloned`/`values_cloned`/`items_cloned` deleted, `MapEntry` → `Tuple` (`first_entry` → `first_key_value`),
+and `Iterator.cloned()`/`copied()` (moved here from S-2). Two defects it worked around are filed:
+`issues/2026-11-28-an-associated-type-binding-to-a-reference-type-is-read-as-a-local-borrow.md` (the prelude spells
+`Item := _RefTo(A)`) and `issues/2026-11-28-a-mut-reference-field-of-a-matched-tuple-is-rooted-in-the-arm-binding.md`.
+S-2, S-4 to S-6, L-1 and P-1 to P-4 are not started.
 
 ## 1. Headline
 
@@ -166,8 +172,8 @@ Order inside a release is top to bottom. Every PR: `check ./src`, `check ./std`,
 | --- | --- | --- | --- | --- |
 | S-0 | v0.2.80 or v0.2.81 | compiler: the Rust-name table (§3.6); the E0601 `as_str()` repair once PR E is in; file the E0610 misattribution (§3.1) and the uncoded safe-code raw-pointer error (c32); a help line on E0601 for a literal at a `&String` slot (b1, b7) until P-2 removes the slot | nothing | cli-cases `explain`/`fix`; `diagnostics-registry` |
 | S-1 | **v0.2.81**, after VERDICTS-78 Q3 PR 1 (both edit the prelude and `std/fmt`) and after F1/F2 | §3.1 (item modes, consuming receivers, `as_ref`/`as_mut`; the callback slot stays `&mut Impl(FnMut(...))`, VERDICTS-93); row 12 (`From`/`Into`/`TryFrom`/`TryInto`, `from_iter_add` by value); `IterPair` → `Tuple` (row 10, first half) | v0.2.80 seed only for ordering | `option-result-combinators`, the iterator and `prelude` tests, `async/stream` (its own `map`/`filter`), `yo compile src/main.yo --skip-c-compiler`; `comptime_expect_error` pins for the E0913 move-out and for `r := opt.as_ref().filter(…)` (E0911), which P-5 flips |
-| S-2 | **v0.2.81** | row 9, all additive; `get_mut`/`first_mut`/`last_mut`/`values_mut` | S-1 (`Option(&T).cloned`) | each addition has a test |
-| S-3 | **v0.2.81** | §3.5 for collections; `MapEntry` → `Tuple` (row 10, second half) | S-1 | the collection tests, `tests/origins` corpus and model, `for`-desugar tests, `yo verify ./std/collections` |
+| S-2 | **v0.2.81** | row 9, all additive; `get_mut`/`first_mut`/`last_mut` (`values_mut` and `Iterator.cloned`/`copied` are in S-3) | S-1 (`Option(&T).cloned`) | each addition has a test |
+| S-3 | **v0.2.81** | §3.5 for collections, with `values_mut` and `Iterator.cloned`/`copied`; `MapEntry` → `Tuple` (row 10, second half) | S-1 | the collection tests, `tests/origins` corpus and model, `for`-desugar tests, `yo verify ./std/collections` |
 | S-4 | **v0.2.81** | §3.7, as two PRs: collections/strings/sync, then env/thread/fs/process | S-3 for `find` vs `position` | the renamed modules' tests; test-name strings rewritten (the D2 rule) |
 | S-5 | **v0.2.81 if PR E shipped in v0.2.80, else v0.2.82** | §3.2 stage 1, with `FromStr` and the string iterators | the seed that carries PR E and P12 | `string*`, `fmt`, `encoding/*` tests; callers change only at the `parse_*` (78 `src`), `FromString` (0/24/20) and `str.bytes(i)` (4/16/3) sites |
 | S-6 | **v0.2.81** | Q2: re-export-only `index.yo` modules for `std/collections`, `std/fs`, `std/time`, `std/sync` and `std/net`; `std/process/index.yo` already re-exports all of `std/process/command` (`Command` among it), a test pins `{ Command } :: import("std/process")`; `yo-design`'s "no catch-all `index.yo`" rule is amended in this PR to allow a re-export-only `index.yo`; the compiler's directory-import help (S-0) then applies to the directories that still have none | nothing | a test per `index.yo` (each name resolves through the barrel and through its module); `yo check ./std`; cli-diff; the load cost of a barrel measured on `yo check src/main.yo` (a barrel that costs more than noise keeps the rule and stays out) |
