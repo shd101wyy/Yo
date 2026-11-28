@@ -1745,12 +1745,12 @@ is_reference_repoint_by_move :: (fn(expr : &AstExpr, env : &Environment, ctx : &
     return(false);
   });
   lhs_ok := match(
-    get_variables_from_env(env, ast_expr_token(&lhs).value.*.clone()).last_cloned(),
+    get_variables_from_env(env, ast_expr_token(&lhs).*.value.*.clone()).last_cloned(),
     .Some(lv) => (variable_is_reference_binding(&lv) && local_borrow_info_of_variable(&lv).is_some()),
     .None => false
   );
   lhs_ok && match(
-    get_variables_from_env(env, ast_expr_token(&rhs).value.*.clone()).last_cloned(),
+    get_variables_from_env(env, ast_expr_token(&rhs).*.value.*.clone()).last_cloned(),
     .Some(rv) => variable_is_reference_binding(&rv),
     .None => false
   )
@@ -1767,8 +1767,8 @@ evaluate_reference_repoint_by_move :: (fn(expr : &AstExpr, env_in : &Environment
   rhs := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   lhs_tok := ast_expr_token(&lhs);
   rhs_tok := ast_expr_token(&rhs);
-  name := lhs_tok.value.*.clone();
-  src := rhs_tok.value.*.clone();
+  name := lhs_tok.*.value.*.clone();
+  src := rhs_tok.*.value.*.clone();
   cur_var := match(get_variables_from_env(&env, name.clone()).last_cloned(), .Some(v) => v, .None => make_err_variable(&env));
   src_var := match(get_variables_from_env(&env, src.clone()).last_cloned(), .Some(v) => v, .None => make_err_variable(&env));
   info := match(local_borrow_info_of_variable(&cur_var), .Some(i) => i, .None => local_borrow_info_placeholder(name.clone(), &lhs_tok));
@@ -1807,10 +1807,10 @@ evaluate_reference_repoint_by_move :: (fn(expr : &AstExpr, env_in : &Environment
   // A re-point of a moved reference gives it a new value, as any assignment
   // of a moved `mut` local does (the `a = &place` re-point's rule).
   match(
-    cur_var.consumed_at_token(),
+    cur_var.*.consumed_at_token(),
     .Some(rp_moved_at) => {
-      record_branch_init(cur_var.id(), &variable_value_type(&cur_var), &Option(TypeValue).None, &lhs_tok, &cur_var.initialized_at_token(), &Option(Token).Some(rp_moved_at));
-      cur_var.set_consumed_at_token(Option(Token).None);
+      record_branch_init(cur_var.*.id(), &variable_value_type(&cur_var), &Option(TypeValue).None, &lhs_tok, &cur_var.*.initialized_at_token(), &Option(Token).Some(rp_moved_at));
+      cur_var.*.set_consumed_at_token(Option(Token).None);
     },
     .None => ()
   );
@@ -1837,7 +1837,7 @@ evaluate_reference_repoint_by_move :: (fn(expr : &AstExpr, env_in : &Environment
   // The re-point codegen emits: `__yo_mut(a) = m`.
   mode_args := ArrayList(AstExpr).new();
   mode_args.push(Rc.clone(&evaluated_lhs));
-  mode_head := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(String.from(cond(info.is_mut => BK_MUT, true => BK_IMM))), row : lhs_tok.row, column : lhs_tok.column, character : lhs_tok.character, byte_offset : lhs_tok.byte_offset, module_path : Rc.clone(lhs_tok.module_path), input : Rc.clone(lhs_tok.input)))));
+  mode_head := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(String.from(cond(info.is_mut => BK_MUT, true => BK_IMM))), row : lhs_tok.*.row, column : lhs_tok.*.column, character : lhs_tok.*.character, byte_offset : lhs_tok.*.byte_offset, module_path : Rc.clone(lhs_tok.*.module_path), input : Rc.clone(lhs_tok.*.input)))));
   mode_call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), mode_head, Rc.new(mode_args), false, Rc.clone(&lhs_tok)));
   rp_args := ArrayList(AstExpr).new();
   rp_args.push(Rc.clone(&mode_call));
