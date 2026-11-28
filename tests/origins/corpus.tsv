@@ -18,6 +18,9 @@
 # issues/fixed/2026-11-21-a-reference-in-a-container-is-an-uncoded-error-citing-plan-phases.md and
 # issues/fixed/2026-11-21-copy-without-clone-and-a-local-borrow-of-an-element-are-uncoded-errors.md):
 # the 20 rows whose first error is the wall and index-mut-twice re-recorded with their code.
+# 2026-11-28 (VERDICTS-90 PR B: a lend at a parameter typed by a binder solves the binder): spawn-box-origin,
+# generic-unbounded-rc and generic-bounded-rc no longer stop at the lend's E0914; they meet the E0909 their `expect`
+# column names (the cell wall at `Box(&i32)`, the `Escapable` bound at `&i32`).
 # id	anchor	kind	phase	expect	today
 wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0924|names the binding being declared
 wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	E0924|names the value being defined
@@ -50,7 +53,7 @@ loop-join-push	hole: control-flow joins	neg	N2	E0911	E0909|carries an origin
 loop-join-push-after	hole: control-flow joins	pos	N2	ACCEPT	E0909|carries an origin
 drop-order-user-drop	hole: drop order x may_dangle	neg	N2	E0911	E0909|carries an origin
 drop-order-may-dangle	hole: drop order x may_dangle	pos	N2	ACCEPT	E0909|carries an origin
-spawn-box-origin	O4, O10	neg	N2	E0909	E0914|lends a borrow, but parameter
+spawn-box-origin	O4, O10	neg	N2	E0909	E0909|carries an origin
 thread-send-origin	O4, O8, O10	neg	N2	E0909	E0909|carries an origin
 global-refcell-origin	O4, O10, §7 module-level origins	neg	N2	E0909	E0909|carries an origin
 extern-box-origin	O4, O10	neg	N2	E0909	E0909|carries an origin
@@ -61,8 +64,8 @@ rc-push-handle-borrow	O9	pos	N2	ACCEPT	E0909|carries an origin
 rc-of-ref-holder	O9, O10	neg	N2	E0909	E0909|requires an `Escapable` type
 rc-guard-and-clone	hole: handle origin x RefCell guard x collection	pos	N3	ACCEPT	E0610|No method "borrow_mut"
 rc-guard-handle-dropped	O9	neg	N3	E0911	E0610|No method "borrow_mut"
-generic-unbounded-rc	O10	neg	N1	E0909@spec	E0914|lends a borrow, but parameter
-generic-bounded-rc	O10	neg	N1	E0909	E0914|lends a borrow, but parameter
+generic-unbounded-rc	O10	neg	N1	E0909@spec	E0909|requires an `Escapable` type
+generic-bounded-rc	O10	neg	N1	E0909	E0909|requires an `Escapable` type
 generic-escapable-rc	O10	pos	N1	ACCEPT	accept
 closure-caps-exceed-slot	O7 closures, O3-3	neg	N2	ORIGIN_MISMATCH	-|a payload bounded by an origin
 closure-caps-within-slot	O7 closures	pos	N2	ACCEPT	-|a payload bounded by an origin

@@ -1,0 +1,32 @@
+$ yo check blame.yo bound.yo
+error[E0914]: `&x` lends a borrow, but parameter "a" takes `X` by value (`T` is `X` from argument 2): pass `x` (it moves, or is copied when it is `Copy`), or `x.clone()` to keep `x`; to lend `x`, make `T` `&X` at argument 2.
+  --> blame.yo:6:8
+  |
+6 |   pair(&x, y);
+  |        ^
+help: run `yo explain E0914` for more information
+error[E0602]: Type &X does not implement required trait Default.
+  --> bound.yo:3:45
+  |
+3 | nd :: (fn(generic(T : Type), v : T, where(T <: Default)) -> unit)(());
+  |                                             ^^
+help: run `yo explain E0602` for more information
+
+note: `T` is `&X` here because the argument `&x` is a lend. To pass the value, write `x` (it moves) or `x.clone()`.
+  --> bound.yo:6:6
+  |
+6 |   nd(&x);
+  |      ^
+yo: error: check: 2 file(s) failed evaluator coverage
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing blame.yo
+check: parsed 5 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+check: parsing bound.yo
+check: parsed 6 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+check: 0/2 file(s) passed
+rc=1
