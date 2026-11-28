@@ -4,7 +4,7 @@
 //! function, and the first line a Rust programmer writes,
 //! `{ HashMap } :: import("std/collections")`, binds a usable name.
 { assert } :: import("std/assert");
-{ HashMap, ArrayList, Deque, PriorityQueue, BTreeMap, HashSet, OrderedMap, MapEntry } :: import("std/collections");
+{ HashMap, ArrayList, Deque, PriorityQueue, BTreeMap, HashSet, OrderedMap } :: import("std/collections");
 { Mutex, Channel, Cond, MemoryOrder, AtomicUsize, RwLock } :: import("std/sync");
 { Duration, Instant } :: import("std/time");
 { IpAddr, SocketAddr } :: import("std/net");
@@ -19,7 +19,6 @@ process :: import("std/process");
 array_list :: import("std/collections/array-list");
 btree_map :: import("std/collections/btree-map");
 deque :: import("std/collections/deque");
-entry :: import("std/collections/entry");
 hash_map :: import("std/collections/hash-map");
 hash_set :: import("std/collections/hash-set");
 ordered_map :: import("std/collections/ordered-map");
@@ -56,8 +55,7 @@ test("std/collections names are the modules' names", {
   comptime_assert(Type.eq(collections.ArrayListError, array_list.ArrayListError));
   comptime_assert(Type.eq(collections.BTreeMap(i32, i32), btree_map.BTreeMap(i32, i32)));
   comptime_assert(Type.eq(collections.Deque(i32), deque.Deque(i32)));
-  comptime_assert(Type.eq(collections.MapEntry(i32, i32), entry.MapEntry(i32, i32)));
-  comptime_assert(Type.eq(collections.MapEntry(i32, i32), hash_map.MapEntry(i32, i32)));
+  comptime_assert(Type.eq(collections.ArrayListIntoIter(i32), array_list.ArrayListIntoIter(i32)));
   comptime_assert(Type.eq(collections.HashMap(i32, i32), hash_map.HashMap(i32, i32)));
   comptime_assert(Type.eq(collections.HashMapError, hash_map.HashMapError));
   comptime_assert(Type.eq(collections.HashSet(i32), hash_set.HashSet(i32)));
@@ -79,7 +77,7 @@ test("std/collections barrel names are usable", {
   assert(o.len() == usize(0), "an empty OrderedMap");
   q := PriorityQueue(i32).new();
   assert(q.len() == usize(0), "an empty PriorityQueue");
-  comptime_assert(Type.eq(MapEntry(i32, i32), entry.MapEntry(i32, i32)));
+  assert(m.iter().count() == usize(0), "an empty map lends nothing");
 });
 test("std/fs names are the modules' names", {
   comptime_assert(Type.eq(fs.File, fs_file.File));
