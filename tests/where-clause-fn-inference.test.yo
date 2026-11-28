@@ -83,7 +83,7 @@ test("where-clause inference with bool callback return type", {
 // collector's trace delegation, which W6b deletes, so the lost guard is
 // accepted rather than rebuilt.
 { Deque, DequeIntoIter } :: import("std/collections/deque");
-{ BTreeMap, BTreeMapIntoIter, MapEntry } :: import("std/collections/btree-map");
+{ BTreeMap, BTreeMapIntoIter } :: import("std/collections/btree-map");
 __WbInto :: trait(
   Item : Type,
   IntoIter : Type,
@@ -103,7 +103,7 @@ impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
   __WbInto(
-    Item : MapEntry(K, V),
+    Item : Tuple(K, V),
     IntoIter : BTreeMapIntoIter(K, V),
     wb_into : (fn(self : Self) -> BTreeMapIntoIter(K, V))(self.into_iter())
   )

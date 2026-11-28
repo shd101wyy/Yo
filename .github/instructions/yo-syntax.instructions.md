@@ -752,8 +752,9 @@ for(chain.map(f), y => println(&y)); // an iterator chain as the source
 ```
 
 - **Value form `for(coll, x => …)`**: `coll.into_iter()` (`self : Self`), so it CONSUMES `coll` (a later use
-  is E0901: use the read walk or `coll.clone()`). `chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/
-  `chunks`/`windows` consume their receiver too. `iter()` yields raw pointers (unsafe-capable code only).
+  is E0901: use the read walk or `coll.clone()`). `chars`/`bytes`/`char_indices`/`lines`/`into_keys`/`into_values`/
+  `chunks`/`windows` consume their receiver too. `iter()`/`iter_mut()` (`keys()`/`values()`/`values_mut()` on a map)
+  lend, like the read and write walks; `iter_raw()` yields raw pointers (unsafe-capable code only).
 - **Borrowed form `for(&mut coll, x => …)`** (decision 39): the value form over `(&mut coll).into_iter()`,
   whose cursor (`ArrayListIterMut(T, p)`, …) holds the `&mut(C, p)` lend; `x` is a `&mut(T, p)` item
   (`x.* = …`; struct fields write in place). The hidden iterator carries the `for` position

@@ -385,30 +385,30 @@ test("Deque into_iter - wrapping circular buffer", {
   });
   assert(sum == i32(6));
 });
-test("Deque iter - empty deque", {
+test("Deque iter_raw - empty deque", {
   d := Deque(i32).new();
   mut(count) := i32(0);
-  for(d.iter(), ptr => {
+  for(d.iter_raw(), ptr => {
     count = (count + i32(1));
   });
   assert(count == i32(0));
 });
-test("Deque iter - yields pointers to elements", {
+test("Deque iter_raw - yields pointers to elements", {
   mut(d) := Deque(i32).new();
   d.push_back(i32(10));
   d.push_back(i32(20));
   mut(sum) := i32(0);
-  for(d.iter(), ptr => {
+  for(d.iter_raw(), ptr => {
     sum = (sum + ptr.*);
   });
   assert(sum == i32(30));
 });
-test("Deque iter - mutate through pointer", {
+test("Deque iter_raw - mutate through pointer", {
   mut(d) := Deque(i32).new();
   d.push_back(i32(1));
   d.push_back(i32(2));
   d.push_back(i32(3));
-  for(d.iter(), ptr => {
+  for(d.iter_raw(), ptr => {
     ptr.* = (ptr.* * i32(10));
   });
   assert(d(usize(0)) == i32(10));
@@ -567,4 +567,17 @@ test("A cloned deque lives in its source's allocator; a plain deque's clone stay
     assert(plain.clone().allocator().is_none(), "a global deque clones onto the global allocator");
   };
   assert(counts.live == usize(0), `the source and the clone released their rings: ${counts.live}`);
+});
+test("Deque iter lends and iter_mut writes in place, front to back", {
+  mut(d) := Deque(i32).new();
+  d.push_back(i32(2));
+  d.push_front(i32(1));
+  for(d.iter_mut(), x => {
+    x.* = (x.* + i32(10));
+  });
+  (mut(seen) : i32) = i32(0);
+  for(d.iter(), x => {
+    seen = ((seen * i32(100)) + x.*);
+  });
+  assert(seen == i32(1112), "11 then 12");
 });

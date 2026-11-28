@@ -1328,7 +1328,7 @@ _emit :: (
   });
   keys := ArrayList(String).new();
   {
-    it := declared.keys_cloned().into_iter();
+    it := declared.keys().cloned().collect(ArrayList(String)).into_iter();
     (go : bool) = true;
     while(go, {
       match(
@@ -1437,7 +1437,7 @@ _emit :: (
         fits := true;
         fit_keys := ArrayList(String).new();
         {
-          fit_it := free_of_ax.keys();
+          fit_it := free_of_ax.into_keys();
           (fit_go : bool) = true;
           while(fit_go, {
             match(
@@ -1741,7 +1741,7 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
         );
         qi = (qi + usize(1));
       });
-      kit := inner.keys_cloned().into_iter();
+      kit := inner.keys().cloned().collect(ArrayList(String)).into_iter();
       (kgo : bool) = true;
       while(kgo, {
         match(
@@ -1813,7 +1813,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
     // coinciding outer name stays outer everywhere else).
     Rc(.Quant(kind, names, sorts, body, triggers)) => {
       inner_map := HashMap(String, String).new();
-      mit := map.keys_cloned().into_iter();
+      mit := map.keys().cloned().collect(ArrayList(String)).into_iter();
       (mgo : bool) = true;
       while(mgo, {
         match(
@@ -3442,7 +3442,7 @@ _scan_assigned_in :: (fn(ctx : &mut VcCtx, e : &AstExpr, out : &mut ArrayList(St
       });
       oi = (oi + usize(1));
     });
-    ki := ctx.vars.keys_cloned().into_iter();
+    ki := ctx.vars.keys().cloned().collect(ArrayList(String)).into_iter();
     (go : bool) = true;
     while(go, {
       match(
@@ -3544,7 +3544,7 @@ _is_continue_stmt :: (fn(e : &AstExpr) -> bool)(
 /// Snapshot the current state as one break site.
 _record_break_site :: (fn(ctx : &mut VcCtx) -> unit)({
   vals := HashMap(String, VcTerm).new();
-  it := ctx.vars.keys_cloned().into_iter();
+  it := ctx.vars.keys().cloned().collect(ArrayList(String)).into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -4850,7 +4850,7 @@ _call_term :: (
     pre_map := ctx.call_pre.clone().unwrap();
     saved_pre_vars := ctx.vars.clone();
     overlay := HashMap(String, VcTerm).new();
-    ovi := ctx.vars.keys_cloned().into_iter();
+    ovi := ctx.vars.keys().cloned().collect(ArrayList(String)).into_iter();
     (ovgo : bool) = true;
     while(ovgo, {
       match(
@@ -4869,7 +4869,7 @@ _call_term :: (
         }
       );
     });
-    pmi := pre_map.keys_cloned().into_iter();
+    pmi := pre_map.keys().cloned().collect(ArrayList(String)).into_iter();
     (pmgo : bool) = true;
     while(pmgo, {
       match(
@@ -4908,7 +4908,7 @@ _call_term :: (
     });
     saved_vars := ctx.vars.clone();
     entry_copy := HashMap(String, VcTerm).new();
-    eit := ctx.entry_vars.keys_cloned().into_iter();
+    eit := ctx.entry_vars.keys().cloned().collect(ArrayList(String)).into_iter();
     (ego : bool) = true;
     while(ego, {
       match(
@@ -7716,7 +7716,7 @@ _enter_function :: (fn(input : &VerifyFnInput) -> VcCtx)({
   });
   // V5 two-state: snapshot the ENTRY state (params; module constants fold
   // into literals) — `old(e)` walks against this, never the live bindings.
-  eit0 := ctx.vars.keys_cloned().into_iter();
+  eit0 := ctx.vars.keys().cloned().collect(ArrayList(String)).into_iter();
   (ego0 : bool) = true;
   while(ego0, {
     match(
@@ -8258,7 +8258,7 @@ _sort_holds_list :: (fn(ctx : &VcCtx, s : &VcSort) -> bool)(
 /// entry snapshot `old(...)` reads are left alone.
 _frame_havoc_lists :: (fn(ctx : &mut VcCtx, keep : &ArrayList(String)) -> unit)({
   names := ArrayList(String).new();
-  ki := ctx.vars.keys_cloned().into_iter();
+  ki := ctx.vars.keys().cloned().collect(ArrayList(String)).into_iter();
   (go : bool) = true;
   while(go, {
     match(

@@ -2,6 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { GlobalAllocator } :: import("std/allocator");
 { HashSet } :: import("std/collections/hash-set");
+{ ArrayList } :: import("std/collections/array-list");
 // ===== Construction Tests =====
 test("HashSet.new creates empty set", {
   set := HashSet(i32).new();
@@ -575,20 +576,20 @@ test("HashSet into_iter - multiple elements all visited", {
   assert(sum == i32(60));
   assert(count == i32(3));
 });
-test("HashSet iter - empty set", {
+test("HashSet iter_raw - empty set", {
   set := HashSet(i32).new();
   mut(count) := i32(0);
-  for(set.iter(), ptr => {
+  for(set.iter_raw(), ptr => {
     count = (count + i32(1));
   });
   assert(count == i32(0));
 });
-test("HashSet iter - yields pointers to elements", {
+test("HashSet iter_raw - yields pointers to elements", {
   mut(set) := HashSet(i32).new();
   set.insert(i32(10));
   set.insert(i32(20));
   mut(sum) := i32(0);
-  for(set.iter(), ptr => {
+  for(set.iter_raw(), ptr => {
     sum = (sum + ptr.*);
   });
   assert(sum == i32(30));
@@ -683,13 +684,18 @@ test("HashSet.new(alloc : .Some(a)) keeps its table in its allocator", {
   };
   assert(counts.live == usize(0), "dispose released the table");
 });
-test("items_cloned lists a borrowed set without consuming it", {
+test("iter lends a borrowed set; copied() collects a snapshot", {
   mut(s) := HashSet(i32).new();
-  assert(s.items_cloned().is_empty(), "empty: empty list");
+  assert(s.iter().next().is_none(), "empty: nothing lent");
   s.insert(i32(1));
   s.insert(i32(2));
   s.insert(i32(3));
-  xs := s.items_cloned();
+  (mut(sum) : i32) = i32(0);
+  for(s.iter(), x => {
+    sum = (sum + x.*);
+  });
+  assert(sum == i32(6), "iter() lends every element");
+  xs := s.iter().copied().collect(ArrayList(i32));
   assert(xs.len() == usize(3), "one per element");
   for(&xs, x => {
     assert(s.contains(x), "every listed element is in the set");

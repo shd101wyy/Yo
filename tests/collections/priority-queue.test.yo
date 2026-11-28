@@ -246,21 +246,21 @@ test("PriorityQueue into_iter - visits all elements", {
   assert(sum == i32(60));
   assert(count == i32(3));
 });
-test("PriorityQueue iter - yields pointers", {
+test("PriorityQueue iter_raw - yields pointers", {
   mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(20));
   mut(sum) := i32(0);
-  for(pq.iter(), ptr => {
+  for(pq.iter_raw(), ptr => {
     sum = (sum + ptr.*);
   });
   assert(sum == i32(30));
 });
-test("PriorityQueue iter - mutate through pointer", {
+test("PriorityQueue iter_raw - mutate through pointer", {
   mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(10));
-  for(pq.iter(), ptr => {
+  for(pq.iter_raw(), ptr => {
     ptr.* = (ptr.* * i32(100));
   });
   // Elements are multiplied but in heap order
@@ -329,4 +329,15 @@ test("a Reverse min-heap of floats pops the numbers in order, then the NaN", {
   assert(q.pop().unwrap().value == f64(4.0), "4");
   last := q.pop().unwrap().value;
   assert(last != last, "the NaN last");
+});
+test("PriorityQueue iter lends every element without popping", {
+  mut(pq) := PriorityQueue(i32).new();
+  pq.push(i32(3));
+  pq.push(i32(1));
+  pq.push(i32(2));
+  (mut(sum) : i32) = i32(0);
+  for(pq.iter(), x => {
+    sum = (sum + x.*);
+  });
+  assert((sum == i32(6)) && (pq.len() == usize(3)), "read in place");
 });

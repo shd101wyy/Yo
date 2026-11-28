@@ -798,3 +798,21 @@ test("a tuple of reference match bindings holds the references", {
   z := (&xs).into_iter().zip((&ys).into_iter()).map(p => (p.0.len() + p.1.len())).collect(ArrayList(usize));
   assert(z(usize(0)) == usize(3), "zip of borrowed walks");
 });
+test("cloned() turns a walk over references into owned clones", {
+  mut(xs) := ArrayList(String).new();
+  xs.push(`a`);
+  xs.push(`bb`);
+  ys := xs.iter().cloned().collect(ArrayList(String));
+  assert((ys.len() == usize(2)) && (ys(usize(1)) == `bb`), "each element cloned in order");
+  xs.push(`ccc`);
+  assert((xs.len() == usize(3)) && (ys.len() == usize(2)), "the clones are independent of the list");
+});
+test("copied() turns a walk over references into copies", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(3));
+  xs.push(i32(4));
+  sum := xs.iter().copied().fold(i32(0), (acc, x) => (acc + x));
+  assert(sum == i32(7), "each element copied");
+  firsts := xs.iter().copied().filter(x => (x.* > i32(3))).collect(ArrayList(i32));
+  assert((firsts.len() == usize(1)) && (firsts(usize(0)) == i32(4)), "copied() chains with filter");
+});

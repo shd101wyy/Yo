@@ -267,6 +267,11 @@ export(main);
   writes in place (the body may not name `xs`), `for(xs, x => ...)` consumes
   `xs`; `for(xs.indices(), i => ...)` walks positions. Maps:
   `for(&m, (k, v) => ...)`.
+- `xs.iter()` / `xs.iter_mut()` lend (Rust's), `xs.into_iter()` consumes;
+  maps add `keys()`, `values()`, `values_mut()` and the consuming
+  `into_keys()` / `into_values()`. A snapshot of the keys is
+  `m.keys().cloned().collect(ArrayList(K))`. Map entries are `Tuple(K, V)`
+  (`kv.0`, `kv.1`).
 - `xs(i)` copies out a `Copy` element; `xs.get(i)` is the checked form
   (`Option`); a non-`Copy` element is cloned with `xs.get_cloned(i)` or
   borrowed with `r := xs.index(i)`.

@@ -313,7 +313,7 @@ generate_object_constructor_declarations :: (fn(context : &mut CodeGenContext) -
   // register a late type (the on-demand hook), and the hook declares that type
   // itself and records it in `on_demand_body_cnames`, so this pass need not
   // visit it (VERDICTS-59 decision 6).
-  vals_keys := context.types.keys_cloned();
+  vals_keys := context.types.keys().cloned().collect(ArrayList(String));
   (vals_i : usize) = usize(0);
   while(vals_i < vals_keys.len(), vals_i = (vals_i + usize(1)), {
     vals_key := vals_keys(vals_i).clone();
@@ -371,7 +371,7 @@ generate_object_constructor_declarations :: (fn(context : &mut CodeGenContext) -
   // register a late type (the on-demand hook), and the hook declares that type
   // itself and records it in `on_demand_body_cnames`, so this pass need not
   // visit it (VERDICTS-59 decision 6).
-  evals_keys := context.types.keys_cloned();
+  evals_keys := context.types.keys().cloned().collect(ArrayList(String));
   (evals_i : usize) = usize(0);
   while(evals_i < evals_keys.len(), evals_i = (evals_i + usize(1)), {
     evals_key := evals_keys(evals_i).clone();

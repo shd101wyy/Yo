@@ -2,7 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { GlobalAllocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array-list");
-{ HashMap, MapEntry } :: import("std/collections/hash-map");
+{ HashMap } :: import("std/collections/hash-map");
 { String } :: import("std/string");
 // ===== Construction Tests =====
 test("HashMap.new creates empty map", {
@@ -507,8 +507,8 @@ test("HashMap into_iter - single entry", {
   mut(result_key) := i32(0);
   mut(result_val) := i32(0);
   for(map.into_iter(), bucket => {
-    result_key = bucket.key;
-    result_val = bucket.value;
+    result_key = bucket.0;
+    result_val = bucket.1;
   });
   assert(result_key == i32(1));
   assert(result_val == i32(100));
@@ -522,8 +522,8 @@ test("HashMap into_iter - multiple entries all visited", {
   mut(val_sum) := i32(0);
   mut(count) := i32(0);
   for(map.into_iter(), bucket => {
-    key_sum = (key_sum + bucket.key);
-    val_sum = (val_sum + bucket.value);
+    key_sum = (key_sum + bucket.0);
+    val_sum = (val_sum + bucket.1);
     count = (count + i32(1));
   });
   assert(key_sum == i32(6));
@@ -545,8 +545,8 @@ test("HashMap into_iter - a unique map moves its entries out", {
   mut(counts) := usize(0);
   mut(sum) := i32(0);
   for(_two_entry_rc_map(Rc(i32).new(10), Rc(i32).new(20)).into_iter(), e => {
-    counts = (counts + ref_count(e.value));
-    sum = (sum + e.value.*);
+    counts = (counts + ref_count(e.1));
+    sum = (sum + e.1.*);
   });
   assert(counts == usize(2), `each moved value has one owner: ${counts}`);
   assert(sum == i32(30));
@@ -559,7 +559,7 @@ test("HashMap into_iter - a named local moves its entries out", {
   map.insert(i32(1), Rc(i32).new(10));
   mut(counts) := usize(0);
   for(map.into_iter(), e => {
-    counts = (counts + ref_count(e.value));
+    counts = (counts + ref_count(e.1));
   });
   assert(counts == usize(1), `the moved value has one owner: ${counts}`);
 });
@@ -571,7 +571,7 @@ test("HashMap into_iter - move-only String entries move out", {
   map.insert(String.from("b"), String.from("y"));
   mut(total) := usize(0);
   for(map.into_iter(), e => {
-    total = ((total + e.key.len()) + e.value.len());
+    total = ((total + e.0.len()) + e.1.len());
   });
   assert(total == usize(4), `every entry visited once: ${total}`);
 });
@@ -591,7 +591,7 @@ test("HashMap into_iter - a partial walk drops the entries it did not yield", {
 _moved_map_owner_count :: (fn(m : HashMap(i32, Rc(i32))) -> usize)({
   mut(counts) := usize(0);
   for(m.into_iter(), e => {
-    counts = (counts + ref_count(e.value));
+    counts = (counts + ref_count(e.1));
   });
   counts
 });
@@ -601,33 +601,33 @@ test("HashMap moved into a function - the callee is the only owner", {
   map.insert(i32(2), Rc(i32).new(20));
   assert(_moved_map_owner_count(map) == usize(2), "each entry moved, none copied");
 });
-test("HashMap keys - the map's own keys move out, none cloned", {
+test("HashMap into_keys - the map's own keys move out, none cloned", {
   // B9: `keys()` is a consuming projection (B7's D20); a key is never cloned
   // on the way out — each yielded `Rc` is the map's own, with one owner.
   mut(map) := HashMap(Rc(i32), i32).new();
   map.insert(Rc(i32).new(7), i32(1));
   mut(counts) := usize(0);
-  for(map.keys(), k => {
+  for(map.into_keys(), k => {
     counts = (counts + ref_count(k));
   });
   assert(counts == usize(1), `a moved key has one owner: ${counts}`);
 });
-test("HashMap iter - yields pointers to buckets", {
+test("HashMap iter_raw - yields pointers to buckets", {
   mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   mut(val_sum) := i32(0);
-  for(map.iter(), ptr => {
-    val_sum = (val_sum + ptr.*.value);
+  for(map.iter_raw(), ptr => {
+    val_sum = (val_sum + ptr.*.1);
   });
   assert(val_sum == i32(30));
 });
-test("HashMap iter - mutate values through pointer", {
+test("HashMap iter_raw - mutate values through pointer", {
   mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
-  for(map.iter(), ptr => {
-    ptr.*.value = (ptr.*.value * i32(10));
+  for(map.iter_raw(), ptr => {
+    ptr.*.1 = (ptr.*.1 * i32(10));
   });
   assert(map(i32(1)) == i32(100));
   assert(map(i32(2)) == i32(200));
@@ -638,7 +638,7 @@ test("HashMap for (b) => body iterates occupied buckets by value", {
   map.insert(i32(2), i32(20));
   mut(val_sum) := i32(0);
   for(map, b => {
-    val_sum = (val_sum + b.value);
+    val_sum = (val_sum + b.1);
   });
   assert(val_sum == i32(30));
 });
@@ -658,24 +658,24 @@ test("HashMap value rebound in a read walk is a copy — writes do not reach the
   map.insert(i32(1), map(i32(1)) * i32(10));
   assert(map(i32(1)) == i32(100), "set updates the live value");
 });
-test("HashMap keys - yields all keys", {
+test("HashMap into_keys - yields all keys", {
   mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
   mut(key_sum) := i32(0);
-  for(map.keys(), k => {
+  for(map.into_keys(), k => {
     key_sum = (key_sum + k);
   });
   assert(key_sum == i32(6));
 });
-test("HashMap values - yields all values", {
+test("HashMap into_values - yields all values", {
   mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
   mut(val_sum) := i32(0);
-  for(map.values(), v => {
+  for(map.into_values(), v => {
     val_sum = (val_sum + v);
   });
   assert(val_sum == i32(60));
@@ -686,12 +686,12 @@ test("HashMap values - yields all values", {
 // the first element forever — `for(...)` masked it. Includes re-set keys
 // (the update path) since capture-usage promotion in the self-hosted
 // evaluator re-sets the same key repeatedly.
-test("HashMap keys - manual next() iteration terminates", {
+test("HashMap into_keys - manual next() iteration terminates", {
   mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(1), i32(11));
   map.insert(i32(2), i32(20));
-  mut(it) := map.keys();
+  mut(it) := map.into_keys();
   mut(key_sum) := i32(0);
   mut(steps) := i32(0);
   mut(more) := true;
@@ -710,12 +710,12 @@ test("HashMap keys - manual next() iteration terminates", {
   assert(steps == i32(2), "keys() must terminate after yielding each key once");
   assert(key_sum == i32(3));
 });
-test("HashMap values - manual next() iteration terminates", {
+test("HashMap into_values - manual next() iteration terminates", {
   mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(1), i32(11));
   map.insert(i32(2), i32(20));
-  mut(it) := map.values();
+  mut(it) := map.into_values();
   mut(val_sum) := i32(0);
   mut(steps) := i32(0);
   mut(more) := true;
@@ -816,8 +816,8 @@ test("get_key_value returns the STORED key beside the value", {
   mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
-  assert(match(m.get_key_value(i32(1)), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "present key");
-  assert(match(m.get_key_value(i32(2)), .Some(e) => (e.value == i32(20)), .None => false), "other key");
+  assert(match(m.get_key_value(i32(1)), .Some(e) => ((e.0 == i32(1)) && (e.1 == i32(10))), .None => false), "present key");
+  assert(match(m.get_key_value(i32(2)), .Some(e) => (e.1 == i32(20)), .None => false), "other key");
   assert(match(m.get_key_value(i32(99)), .Some(_) => false, .None => true), "absent key is None");
   assert(m.len() == usize(2), "lookup does not mutate");
 });
@@ -825,11 +825,11 @@ test("remove_entry hands back the entry it removed", {
   mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
-  assert(match(m.remove_entry(i32(1)), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "returns the entry");
+  assert(match(m.remove_entry(i32(1)), .Some(e) => ((e.0 == i32(1)) && (e.1 == i32(10))), .None => false), "returns the entry");
   assert(m.len() == usize(1), "length shrank");
   assert(m.contains_key(i32(1)) == false, "the key is gone");
   assert(match(m.remove_entry(i32(1)), .Some(_) => false, .None => true), "removing twice is None");
-  assert(match(m.remove_entry(i32(2)), .Some(e) => (e.value == i32(20)), .None => false), "the survivor removes");
+  assert(match(m.remove_entry(i32(2)), .Some(e) => (e.1 == i32(20)), .None => false), "the survivor removes");
   assert(m.is_empty() == true, "map is empty");
 });
 // ===== Entry API =====
@@ -1046,9 +1046,9 @@ test("extend merges another map, overwriting on duplicates", {
 test("extend accepts any IntoIterator over entries, not just a map", {
   mut(a) := HashMap(i32, i32).new();
   a.insert(i32(1), i32(10));
-  mut(entries) := ArrayList(MapEntry(i32, i32)).new();
-  entries.push(MapEntry(i32, i32)(key : i32(2), value : i32(20)));
-  entries.push(MapEntry(i32, i32)(key : i32(1), value : i32(99)));
+  mut(entries) := ArrayList(Tuple(i32, i32)).new();
+  entries.push((i32(2), i32(20)));
+  entries.push((i32(1), i32(99)));
   a.extend(entries);
   assert(a.len() == usize(2), "the list's entries arrived");
   assert(a.get(i32(2)).unwrap() == i32(20), "a new key");
@@ -1150,16 +1150,16 @@ test("get_cloned and get_key_value_cloned clone in place", {
   assert(m(`k`) == `v`, "the clone is independent");
   assert(m.get_cloned(&`absent`).is_none(), "absent: none");
   e := m.get_key_value_cloned(&`k`).unwrap();
-  assert((e.key == `k`) && (e.value == `v`), "the stored pair");
+  assert((e.0 == `k`) && (e.1 == `v`), "the stored pair");
 });
-test("keys_cloned and values_cloned list a borrowed map without consuming it", {
+test("keys and values lend a borrowed map; cloned() collects a snapshot", {
   mut(m) := HashMap(String, String).new();
-  assert(m.keys_cloned().is_empty() && m.values_cloned().is_empty(), "empty: empty lists");
+  assert(m.keys().next().is_none() && m.values().next().is_none(), "empty: nothing lent");
   m.insert(`a`, `1`);
   m.insert(`b`, `2`);
   m.insert(`c`, `3`);
-  ks := m.keys_cloned();
-  vs := m.values_cloned();
+  ks := m.keys().cloned().collect(ArrayList(String));
+  vs := m.values().cloned().collect(ArrayList(String));
   assert((ks.len() == usize(3)) && (vs.len() == usize(3)), "one per entry");
   // Bucket order is the order `keys()`/`values()` yield, pairwise aligned.
   (mut(i) : usize) = usize(0);
@@ -1167,9 +1167,32 @@ test("keys_cloned and values_cloned list a borrowed map without consuming it", {
     assert(m.get_cloned(&ks(i)).unwrap() == vs(i), "keys and values align");
     i = (i + usize(1));
   });
-  // The lists are snapshots: the map stays usable and writable during the walk.
+  (mut(n) : usize) = usize(0);
+  for(m.keys(), k => {
+    assert(m.contains_key(k), "a lent key reads the map");
+    n = (n + usize(1));
+  });
+  assert(n == usize(3), "keys() lends every key");
+  // The collected list is a snapshot: the map stays writable during its walk.
   for(&ks, k => {
     m.remove(k);
   });
   assert(m.is_empty() && (ks.len() == usize(3)), "the snapshot outlives the removes");
+});
+test("values_mut and iter_mut write the values in place; iter lends each pair", {
+  mut(m) := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(10));
+  m.insert(i32(2), i32(20));
+  for(m.values_mut(), v => {
+    v.* = (v.* + i32(1));
+  });
+  for(m.iter_mut(), kv => {
+    kv.1.* = (kv.1.* + kv.0.*);
+  });
+  (mut(sum) : i32) = i32(0);
+  for(m.iter(), kv => {
+    sum = (sum + kv.1.*);
+  });
+  assert(sum == i32(35), "11 + 1 and 21 + 2");
+  assert(m.values().copied().fold(i32(0), (acc, v) => (acc + v)) == i32(35), "values().copied() reads the same");
 });

@@ -1893,7 +1893,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   // through `context` (its emitter) while it runs, so it cannot hold a borrow
   // of `context.types`; it registers no type, so the snapshot misses nothing
   // (VERDICTS-59 decision 6).
-  fkeys_keys := context.types.keys_cloned();
+  fkeys_keys := context.types.keys().cloned().collect(ArrayList(String));
   (fkeys_i : usize) = usize(0);
   while(fkeys_i < fkeys_keys.len(), fkeys_i = (fkeys_i + usize(1)), {
     tid := fkeys_keys(fkeys_i).clone();
@@ -1980,7 +1980,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   // register a late type (the on-demand hook), and the hook declares that type
   // itself and records it in `on_demand_body_cnames`, so this pass need not
   // visit it (VERDICTS-59 decision 6).
-  skeys_keys := context.types.keys_cloned();
+  skeys_keys := context.types.keys().cloned().collect(ArrayList(String));
   (skeys_i : usize) = usize(0);
   while(skeys_i < skeys_keys.len(), skeys_i = (skeys_i + usize(1)), {
     tid := skeys_keys(skeys_i).clone();
@@ -2299,7 +2299,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   });
   // Bodies of on-demand Future interfaces the hook deferred that pass 5's key
   // walk did not reach (the hook met them DURING pass 5).
-  fwd_keys := context.on_demand_fwd_only.keys_cloned().into_iter();
+  fwd_keys := context.on_demand_fwd_only.keys().cloned().collect(ArrayList(String)).into_iter();
   (g_fwd : bool) = true;
   while(g_fwd, {
     match(

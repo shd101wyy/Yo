@@ -382,7 +382,7 @@ _captures_offense :: (
   fn(cvwv : &HashMap(String, FuncCapturedVarInfo), capture_ty : &Option(TypeValue), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(String)
 )({
   mname := type_to_string(marker);
-  key_iter := cvwv.keys_cloned().into_iter();
+  key_iter := cvwv.keys().cloned().collect(ArrayList(String)).into_iter();
   (more : bool) = true;
   while(more, {
     match(
@@ -901,7 +901,7 @@ validate_capture_trait_requirements :: (
           match(
             captured_variables_with_values,
             .Some(cvwv) => {
-              key_iter := cvwv.keys_cloned().into_iter();
+              key_iter := cvwv.keys().cloned().collect(ArrayList(String)).into_iter();
               (more : bool) = true;
               while(more, {
                 match(
@@ -1020,7 +1020,7 @@ enrich_captured_variables :: (
   ) -> HashMap(String, FuncCapturedVarInfo)
 )({
   result := HashMap(String, FuncCapturedVarInfo).new();
-  key_iter := captured_variables.keys_cloned().into_iter();
+  key_iter := captured_variables.keys().cloned().collect(ArrayList(String)).into_iter();
   (more : bool) = true;
   while(more, {
     match(
@@ -1098,7 +1098,7 @@ enrich_captured_variables :: (
 /// struct) was missing from the enclosing capture struct
 /// (issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md).
 propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo), ctx : &mut EvalContext) -> unit)({
-  key_iter := caps.keys_cloned().into_iter();
+  key_iter := caps.keys().cloned().collect(ArrayList(String)).into_iter();
   (more : bool) = true;
   while(more, {
     match(
@@ -1204,7 +1204,7 @@ create_capture_type_and_value :: (
       );
       if(has_any_caps, {
         cvwv := match(captured_vars_with_values, .Some(m) => m.clone(), .None => HashMap(String, FuncCapturedVarInfo).new());
-        key_iter := cvwv.keys_cloned().into_iter();
+        key_iter := cvwv.keys().cloned().collect(ArrayList(String)).into_iter();
         (more_keys : bool) = true;
         while(more_keys, {
           match(
@@ -1481,7 +1481,7 @@ transfer_captured_variables :: (
   match(
     captured_vars_with_values,
     .Some(cvwv) => if(cvwv.len() > usize(0), {
-      key_iter := cvwv.keys_cloned().into_iter();
+      key_iter := cvwv.keys().cloned().collect(ArrayList(String)).into_iter();
       (done : bool) = false;
       while(!done, {
         match(

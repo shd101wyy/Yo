@@ -59,9 +59,9 @@ _c_len_1 :: (fn(m : &HashMap(String, String)) -> usize)(m.len());
 /// `HashMap(String, EvalValue)` (1 use)
 _c_len_2 :: (fn(m : &HashMap(String, EvalValue)) -> usize)(m.len());
 /// (seed window) See refcell.yo's filler block; concrete K/V for the `.into_iter()` chains.
-_ttm_keys :: (fn(m : &HashMap(String, ArrayList(MethodEntry))) -> ArrayList(String))(m.keys_cloned());
-_ttm_site_owners_keys :: (fn(m : &HashMap(String, String)) -> ArrayList(String))(m.keys_cloned());
-_ttm_defaults_keys :: (fn(m : &HashMap(String, EvalValue)) -> ArrayList(String))(m.keys_cloned());
+_ttm_keys :: (fn(m : &HashMap(String, ArrayList(MethodEntry))) -> ArrayList(String))(m.keys().cloned().collect(ArrayList(String)));
+_ttm_site_owners_keys :: (fn(m : &HashMap(String, String)) -> ArrayList(String))(m.keys().cloned().collect(ArrayList(String)));
+_ttm_defaults_keys :: (fn(m : &HashMap(String, EvalValue)) -> ArrayList(String))(m.keys().cloned().collect(ArrayList(String)));
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
@@ -351,7 +351,7 @@ take_owned_func_ids :: (fn(owner : &String) -> ArrayList(String))({
   match(
     g_owned_func_ids.with_mut({ tf_key }(m) => m.remove(&tf_key)),
     .Some(ids) => {
-      it := ids.keys();
+      it := ids.into_keys();
       nx := it.next();
       while(nx.is_some(), {
         match(nx, .Some(id) => out.push(id.clone()), .None => ());

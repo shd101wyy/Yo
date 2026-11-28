@@ -75,9 +75,9 @@ _c_len_5 :: (fn(xs : &ArrayList(ImplInFlight)) -> usize)(xs.len());
 /// `cell_map_keys_cloned`/`cell_map_values_cloned` for the `.into_iter()`
 /// chains: a fn value generic over K re-spells K's bounds and the
 /// IntoIterator lookup fails on it (see refcell.yo's filler block).
-_finished_walk_values :: (fn(m : &HashMap(String, ModuleWalk)) -> ArrayList(ModuleWalk))(m.values_cloned());
-_def_dep_keys :: (fn(m : &HashMap(String, HashSet(String))) -> ArrayList(String))(m.keys_cloned());
-_module_ordered_read_keys :: (fn(m : &HashMap(String, HashMap(String, HashSet(String)))) -> ArrayList(String))(m.keys_cloned());
+_finished_walk_values :: (fn(m : &HashMap(String, ModuleWalk)) -> ArrayList(ModuleWalk))(m.values().cloned().collect(ArrayList(ModuleWalk)));
+_def_dep_keys :: (fn(m : &HashMap(String, HashSet(String))) -> ArrayList(String))(m.keys().cloned().collect(ArrayList(String)));
+_module_ordered_read_keys :: (fn(m : &HashMap(String, HashMap(String, HashSet(String)))) -> ArrayList(String))(m.keys().cloned().collect(ArrayList(String)));
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
 // ---------------------------------------------------------------------------

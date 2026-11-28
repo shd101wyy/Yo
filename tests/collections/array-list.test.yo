@@ -296,13 +296,13 @@ test("ArrayList.drain end == length is allowed", {
   assert(drained(usize(0)) == i32(2));
   assert(list.len() == usize(1));
 });
-test("ArrayList.iter yields POINTERS and does not consume the list", {
+test("ArrayList.iter_raw yields POINTERS and does not consume the list", {
   mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
   mut(sum) := i32(0);
-  for(list.iter(), ptr => {
+  for(list.iter_raw(), ptr => {
     sum = (sum + ptr.*);
   });
   assert(sum == i32(6));
@@ -311,12 +311,12 @@ test("ArrayList.iter yields POINTERS and does not consume the list", {
   assert(list(usize(0)) == i32(1));
   assert(list(usize(2)) == i32(3));
 });
-test("ArrayList.iter pointers alias the buffer — writing through one mutates the list", {
+test("ArrayList.iter_raw pointers alias the buffer — writing through one mutates the list", {
   mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  for(list.iter(), ptr => {
+  for(list.iter_raw(), ptr => {
     ptr.* = (ptr.* * i32(10));
   });
   assert(list(usize(0)) == i32(10), "first doubled in place");
@@ -334,12 +334,12 @@ test("ArrayList.into_iter still yields VALUES", {
   });
   assert(sum == i32(9));
 });
-test("ArrayList.iter works on a list of RC strings", {
+test("ArrayList.iter_raw works on a list of RC strings", {
   mut(list) := ArrayList(String).new();
   list.push(String.from("a"));
   list.push(String.from("b"));
   mut(count) := usize(0);
-  for(list.iter(), ptr => {
+  for(list.iter_raw(), ptr => {
     assert(ptr.*.len() == usize(1));
     count = (count + usize(1));
   });
@@ -350,12 +350,12 @@ test("ArrayList.iter works on a list of RC strings", {
   assert(list(usize(0)) == String.from("a"));
   assert(list(usize(1)) == String.from("b"));
 });
-test("ArrayList.iter walks backwards through next_back", {
+test("ArrayList.iter_raw walks backwards through next_back", {
   mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  mut(it) := list.iter();
+  mut(it) := list.iter_raw();
   assert(it.next_back().unwrap().* == i32(3), "last first");
   assert(it.next().unwrap().* == i32(1), "then the front");
   assert(it.next_back().unwrap().* == i32(2), "then the middle");
@@ -1902,3 +1902,33 @@ test("sort of composite keys orders by the parts' cmp: Option, Reverse, a derive
   assert((ks(usize(0)).b == i32(1)) && (ks(usize(1)).b == i32(2)), "equal floats order by the next field");
   assert(_al_is_nan(ks(usize(2)).a), "the NaN key last");
 });
+test("ArrayList.iter lends each element and leaves the list usable", {
+  mut(list) := ArrayList(String).new();
+  list.push(`a`);
+  list.push(`bb`);
+  (mut(total) : usize) = usize(0);
+  for(list.iter(), s => {
+    total = (total + s.len());
+  });
+  assert((total == usize(3)) && (list.len() == usize(2)), "read through the lend");
+  assert(list.iter().count() == usize(2), "a second walk");
+});
+test("ArrayList.iter_mut writes each element in place", {
+  mut(list) := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  for(list.iter_mut(), x => {
+    x.* = (x.* * i32(10));
+  });
+  assert((list(usize(0)) == i32(10)) && (list(usize(1)) == i32(20)), "written in place");
+});
+// `xs.iter()` lends the list: a write while the iterator lives is E0911.
+comptime_expect_error(
+  _iter_freezes_the_list :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    xs.push(i32(1));
+    it := xs.iter();
+    xs.push(i32(2));
+    _ := it.count();
+  })
+);

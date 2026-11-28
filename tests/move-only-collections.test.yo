@@ -16,7 +16,6 @@
 { OrderedMap } :: import("std/collections/ordered-map");
 { Deque } :: import("std/collections/deque");
 { PriorityQueue } :: import("std/collections/priority-queue");
-{ MapEntry } :: import("std/collections/entry");
 { String } :: import("std/string");
 (mut(g_mc_dropped) : i32) = i32(0);
 (mut(g_mc_sum) : i32) = i32(0);
@@ -177,12 +176,12 @@ test("BTreeMap of a move-only value: insert, overwrite, remove, pop_first, pop_l
     );
     match(
       m.pop_first(),
-      .Some(e) => assert(e.key == i32(1), "the smallest key"),
+      .Some(e) => assert(e.0 == i32(1), "the smallest key"),
       .None => assert(false, "non-empty")
     );
     match(
       m.pop_last(),
-      .Some(e) => assert(e.key == i32(20), "the largest key"),
+      .Some(e) => assert(e.0 == i32(20), "the largest key"),
       .None => assert(false, "non-empty")
     );
     assert(m.len() == usize(17), "four entries fewer");
@@ -198,7 +197,7 @@ test("BTreeMap of a move-only key", {
   assert(m.get(&_McTok(id : i32(2))).unwrap_or(i32(0)) == i32(20), "found by binary search, compared in place");
   match(m.insert(_McTok(id : i32(2)), i32(21)), .Some(old) => assert(old == i32(20), "the old value"), .None => assert(false, "present"));
   assert(m.remove(&_McTok(id : i32(1))).unwrap_or(i32(0)) == i32(10), "removed");
-  match(m.pop_first(), .Some(e) => assert(e.key.id == i32(2), "the order holds"), .None => assert(false, "non-empty"));
+  match(m.pop_first(), .Some(e) => assert(e.0.id == i32(2), "the order holds"), .None => assert(false, "non-empty"));
   assert(m.len() == usize(1), "one entry left");
 });
 test("OrderedMap of a move-only value: insert, overwrite, remove, swap_remove", {
@@ -342,7 +341,7 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
     assert(g_mc_kdropped == (before2 + i32(1)), "an overwrite drops the new key");
     assert(m.remove(&p6).unwrap_or(i32(0)) == i32(6), "removed");
     assert(g_mc_kdropped == (before2 + i32(2)), "remove drops the stored key");
-    match(m.pop_first(), .Some(e) => assert(e.key.id == i32(1), "the smallest key"), .None => assert(false, "non-empty"));
+    match(m.pop_first(), .Some(e) => assert(e.0.id == i32(1), "the smallest key"), .None => assert(false, "non-empty"));
     assert(g_mc_kdropped == (before2 + i32(3)), "the popped entry's key");
   };
   assert(g_mc_kdropped == (before2 + i32(12)), "12 keys made, 12 dropped");

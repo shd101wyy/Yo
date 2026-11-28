@@ -188,7 +188,7 @@ generate_ref_struct_constructor_functions :: (fn(context : &mut FunctionGenerati
   // register a late type (the on-demand hook), and the hook declares that type
   // itself and records it in `on_demand_body_cnames`, so this pass need not
   // visit it (VERDICTS-59 decision 6).
-  vals_keys := context.base.types.keys_cloned();
+  vals_keys := context.base.types.keys().cloned().collect(ArrayList(String));
   (vals_i : usize) = usize(0);
   while(vals_i < vals_keys.len(), vals_i = (vals_i + usize(1)), {
     vals_key := vals_keys(vals_i).clone();
@@ -299,7 +299,7 @@ generate_ref_enum_constructor_functions :: (fn(context : &mut FunctionGeneration
   // register a late type (the on-demand hook), and the hook declares that type
   // itself and records it in `on_demand_body_cnames`, so this pass need not
   // visit it (VERDICTS-59 decision 6).
-  vals_keys := context.base.types.keys_cloned();
+  vals_keys := context.base.types.keys().cloned().collect(ArrayList(String));
   (vals_i : usize) = usize(0);
   while(vals_i < vals_keys.len(), vals_i = (vals_i + usize(1)), {
     vals_key := vals_keys(vals_i).clone();
