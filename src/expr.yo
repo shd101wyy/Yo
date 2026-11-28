@@ -969,8 +969,8 @@ export(BK_EXTERN, BK_C_INCLUDE, BK_IMPLEMENTS, BK_WHERE);
 collect_minted_yo_names :: (fn(e : &AstExpr, out : &mut ArrayList(String)) -> unit)(
   match(
     e,
-    Rc(.Atom(_, tok)) => if((tok.kind == TokenKind.Identifier) && !tok.written && tok.value.*.starts_with(String.from("__yo_")), {
-      out.push(tok.value.*.clone());
+    Rc(.Atom(_, tok)) => if((tok.*.*.kind == TokenKind.Identifier) && !tok.*.*.written && tok.*.*.value.*.starts_with(String.from("__yo_")), {
+      out.push(tok.*.*.value.*.clone());
     }),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       collect_minted_yo_names(&func_box.*, out);

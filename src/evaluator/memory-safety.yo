@@ -305,12 +305,12 @@ reserved_yo_name_help :: (fn() -> String)(
 /// `TokenData.written` is false: `__yo_tpl_N`, ...) as a last line,
 /// `// yo-batch-minted: a b c `, and a binder named there is not a person's.
 _is_declared_minted_in_batch :: (fn(tok : &Token) -> bool)({
-  if(!tok.module_path.*.contains(String.from(".yo_selftest_batch_")), {
+  if(!tok.*.*.module_path.*.contains(String.from(".yo_selftest_batch_")), {
     return(false);
   });
   match(
-    tok.input.*.last_index_of(String.from("\n// yo-batch-minted:")),
-    .Some(at) => tok.input.*.substring(at, tok.input.*.len()).contains(` ${tok.value.*} `),
+    tok.*.*.input.*.last_index_of(String.from("\n// yo-batch-minted:")),
+    .Some(at) => tok.*.*.input.*.substring(at, tok.*.*.input.*.len()).contains(` ${tok.*.*.value.*} `),
     .None => false
   )
 });
@@ -326,8 +326,8 @@ _is_declared_minted_in_batch :: (fn(tok : &Token) -> bool)({
 /// is: a closure parameter is bound while a call's argument is tried against
 /// the callee's signature, and a plain throw there is swallowed with the trial.
 reject_reserved_yo_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(tok.written && is_yo_namespace_name(&tok.value.*) && !may_bind_yo_namespace_name(&tok.module_path.*, &ctx.std_path) && !_is_declared_minted_in_batch(tok), {
-    raise_flow_violation(&format_error_message_with_help(tok, &reserved_yo_name_message(&tok.value.*), &Option(String).Some(reserved_yo_name_help())), ctx, exn);
+  if(tok.*.*.written && is_yo_namespace_name(&tok.*.*.value.*) && !may_bind_yo_namespace_name(&tok.*.*.module_path.*, &ctx.std_path) && !_is_declared_minted_in_batch(tok), {
+    raise_flow_violation(&format_error_message_with_help(tok, &reserved_yo_name_message(&tok.*.*.value.*), &Option(String).Some(reserved_yo_name_help())), ctx, exn);
   });
 });
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
