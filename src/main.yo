@@ -2025,6 +2025,9 @@ run_fix :: (
         });
       });
       pending := ArrayList(_PendingFix).new();
+      // One entry per repair (its first span), for the report and the count:
+      // a rename's `also_at` edits belong to the one repair.
+      announced := ArrayList(_PendingFix).new();
       (dj : usize) = usize(0);
       while(dj < diags.len(), {
         match(
@@ -2041,6 +2044,7 @@ run_fix :: (
                   description : r.description.clone()
                 )
               );
+              announced.push(_PendingFix(row : r.span.row, col : r.span.col, len : r.span.len, replacement : r.replacement.clone(), description : r.description.clone()));
               // A rename's other edits (E0407): the uses of the binder.
               for(&r.also_at, sp => {
                 pending.push(_PendingFix(row : sp.row, col : sp.col, len : sp.len, replacement : r.replacement.clone(), description : r.description.clone()));
@@ -2053,9 +2057,9 @@ run_fix :: (
         dj = (dj + usize(1));
       });
       (pi : usize) = usize(0);
-      while(pi < pending.len(), {
+      while(pi < announced.len(), {
         match(
-          pending.get_cloned(pi),
+          announced.get_cloned(pi),
           .Some(p) => println(`fix: ${file}:${(p.row + usize(1)).to_string()}:${(p.col + usize(1)).to_string()}: ${p.description}`),
           .None => ()
         );
@@ -2081,7 +2085,7 @@ run_fix :: (
       if(!dry_run && (pending.len() > usize(0)), {
         n_applied := _apply_fixes_to_file(file.clone(), &mut pending, io, exn);
         if(n_applied > usize(0), {
-          total_applied = (total_applied + n_applied);
+          total_applied = (total_applied + announced.len());
           progress = true;
           // The bytes changed, so this module and everything that imported it
           // must leave the cache — and nothing else may. See the note at the

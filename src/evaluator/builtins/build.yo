@@ -401,17 +401,17 @@ impl(
   register_system_library : (fn(self : &mut Self, sink(lib) : BuildSystemLibrary) -> unit)({
     self.system_libraries.push(lib);
   }),
-  register_dependency_artifact : (fn(self : &mut Self, sink(ref) : DependencyArtifactRef) -> unit)({
+  register_dependency_artifact : (fn(self : &mut Self, sink(ref_) : DependencyArtifactRef) -> unit)({
     already := false;
     for(&self.dependency_artifacts, r => {
-      if((r.dependency_name == ref.dependency_name) && (r.artifact_name == ref.artifact_name), {
+      if((r.dependency_name == ref_.dependency_name) && (r.artifact_name == ref_.artifact_name), {
         already = true;
       });
     });
     cond(
       already => (),
       true => {
-        self.dependency_artifacts.push(ref);
+        self.dependency_artifacts.push(ref_);
       }
     );
   }),

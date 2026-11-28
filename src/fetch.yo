@@ -376,13 +376,13 @@ commit_from_ls_remote :: (fn(text : &String) -> Option(String))({
 resolve_git_ref :: (
   fn(
     url : &String,
-    ref : &String,
+    ref_ : &String,
     io : Io,
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )({
   owned_url := url.clone();
-  owned_ref := ref.clone();
+  owned_ref := ref_.clone();
   io.async((e : IoExn) => {
     mut(cmd) := git_command();
     cmd = cmd.arg(String.from("ls-remote"));
@@ -506,12 +506,12 @@ ensure_mirror :: (
 mirror_rev_parse :: (
   fn(
     mirror : &String,
-    ref : &String,
+    ref_ : &String,
     io : Io,
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )({
-  owned_ref := ref.clone();
+  owned_ref := ref_.clone();
   owned_mirror := mirror.clone();
   io.async((e : IoExn) => {
     mut(cmd) := git_command();
@@ -839,7 +839,7 @@ fetch_package :: (
     cache_root : &String,
     name : &String,
     url : &String,
-    ref : &String,
+    ref_ : &String,
     locked_commit : &Option(String),
     expected_integrity : &Option(String),
     refresh : bool,
@@ -852,7 +852,7 @@ fetch_package :: (
   owned_cache_root := cache_root.clone();
   owned_name := name.clone();
   owned_url := url.clone();
-  owned_ref := ref.clone();
+  owned_ref := ref_.clone();
   owned_locked_commit := locked_commit.clone();
   owned_expected_integrity := expected_integrity.clone();
   io.async((e : IoExn) => {
