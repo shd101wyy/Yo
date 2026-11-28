@@ -1,0 +1,17 @@
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+
+w4 :: (fn(xs : &ArrayList(i32)) -> unit)({
+  (f : Impl(Fn() -> unit)) = ({ xs }() => {
+    (m : &mut ArrayList(i32)) = &mut xs.*;
+    m.push(i32(7));
+  });
+  f()
+});
+
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).from([1, 5, 2]);
+  w4(&xs);
+  for(&xs, v => println(`${v.*} `));
+});
+export(main);

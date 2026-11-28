@@ -1,6 +1,6 @@
 # Generators: a `gen` block that `yield`s, a movable value that implements `Iterator`
 
-**Status: BACKLOG, design ready (VERDICTS-97, 2026-11-28); adoption gated by [`issues/questions/2026-11-28-generators-on-frames.md`](../../issues/questions/2026-11-28-generators-on-frames.md) after AFA-7/E-5.** Designed by VERDICTS-97 (Fable 5.2) at the maintainer's request ("Can we start designing the generator now assuming the ERRORS_AS_VALUES.md will be already implemented?"); the maintainer approved landing it as the plan of record on 2026-11-28. Nothing is built and nothing is adopted. The decision stays where the question puts it: after AFA-7 and E-5 (v0.2.88 or later), on the entry condition of §9.
+**Status: BACKLOG, design ready (VERDICTS-97, 2026-11-28); adoption gated by [`issues/questions/2026-11-28-generators-on-frames.md`](../../issues/questions/2026-11-28-generators-on-frames.md) after AFA-7/E-5.** Designed by VERDICTS-97 (Fable 5.2) at the maintainer's request ("Can we start designing the generator now assuming the ERRORS_AS_VALUES.md will be already implemented?"); the maintainer approved landing it as the plan of record on 2026-11-28. Nothing is built and nothing is adopted. The decision stays where the question puts it: after AFA-7 and E-5 (v0.2.88 or later), on the entry condition of §9. Audited 2026-11-28 ([#2145](https://github.com/shd101wyy/Yo/issues/2145)): the corrections are folded into §2 (G2, G7, G11), §7, §8, §9.1 and §10, and what stays open is under §11, "Found by the 2026-11-28 audit".
 
 The fact base is `origin/develop` `bab404f2e` and the released v0.2.80. The reasoning, the measurements and the ranked alternatives are in the coordinator's `VERDICTS-97.md`; its probes, C model, census scripts and eval harness are the `v97-probes/` directory beside it. *Judgment* marks an assessment.
 
@@ -60,16 +60,16 @@ That is O5 applied to a struct the compiler writes: no `Pin`, no immovable type,
 | Rule | Statement |
 | --- | --- |
 | **G1, form** | `gen(c)`: `c` is a closure literal with no parameters. Each `gen` expression has its own anonymous type `G` |
-| **G2, type** | `G <: Iterator(Item := T)`. `T` comes from the expected type when the slot gives one, otherwise from the first `yield`; every `yield(e)` checks `e : T` |
+| **G2, type** | `G <: Iterator(Item := T)`. `T` comes from the expected type when the slot gives one, otherwise from the first `yield`; every `yield(e)` checks `e : T`. Every origin `T` names is one `G` carries (G7): an item may not name a place inside the body, so `yield(&local)`, `yield(&capture.field)` of a by-value capture and `yield(x)` from `for(&local, x => …)` are errors. G6 is a liveness rule and does not catch them (the borrow's last use in the body is the `yield`). A yielded `&mut` keeps its origin live in the consumer, so holding it across the next `next()` is E0911 |
 | **G3, body** | The body has type `unit`. `return()` ends the generator; `return(v)` with a value is an error. `yield(e)` has type `unit` |
 | **G4, placement** | `yield` is legal only lexically inside a `gen` body and belongs to the innermost one. The body's `while`, `for`, `cond`, `match` and blocks are part of it; a nested closure or `fn` literal is another body |
 | **G5, only the body suspends** | A function the body calls cannot yield for it. A callee returns a generator and the body walks it |
 | **G6, no self-reference** | A borrow whose origin is the body's own local, or a by-value capture, may not be live across a `yield`. A borrow whose origin is outside the generator may. A borrow of a module-level place may not be live across a `yield` (decision 18 rule 3, as for a call) |
-| **G7, origins** | `G` carries the origins of its borrowing captures by the rules of a borrowing closure and a borrowing future (O4, O8): a binding freezes those places until the generator's last use, returning one whose origin names a local is E0912, a reference parameter's origin forwards by substitution. `G` is `Escapable` iff it has no origin, and `Send` iff its captures and the locals that live across a `yield` are |
+| **G7, origins** | `G` carries the origins of its borrowing captures by the rules of a borrowing **future** (O4, O8, "As built"), not a closure's: for a `{ xs }` capture of a reference parameter the two differ today, and §1's `flatten` is that shape (§11, the 2026-11-28 audit). A binding freezes those places until the generator's last use, returning one whose origin names a local is E0912, a reference parameter's origin forwards by substitution. `G` is `Escapable` iff it has no origin. `G` is `Send` iff its captures and the locals that live across a `yield` are, **and its body reaches no non-`Send` global, judged as a closure's is (D1: `function_reaches_non_send_global` over the body)**. `G` is a struct the compiler writes, and judged by its fields alone it is `Send` whatever its body does between two yields; that was `issues/fixed/function-values-bypass-the-d1-reach-walk.md` for closures |
 | **G8, value** | `G` is move-only with drop glue. It may be moved before its first `next`, between two `next` calls and after it has finished. It is not `Clone` |
 | **G9, drop** | Dropping a suspended generator drops the locals live at its suspension point, newest first, then its captures. An unstarted one drops its captures; a finished one drops nothing |
 | **G10, fused** | After the body ends, `next` returns `.None` every time |
-| **G11, one type per slot** | `Impl(Iterator(Item := T))` is static dispatch: two generators at one slot is an error whose help names `Box(Dyn(Iterator(Item := T)))`, and a struct field cannot be typed `Impl(Iterator(...))` |
+| **G11, one type per slot** | `Impl(Iterator(Item := T))` is static dispatch: two generators at one slot is an error whose help names `Box(Dyn(Iterator(Item := T)))`, a struct field cannot be typed `Impl(Iterator(...))`, and, as for a future (ALLOCATION_FREE_ASYNC §2's fourth rejection), a `Dyn` trait method, a bare `fn` type or a function-pointer type cannot have the result `Impl(Iterator(...))`: a caller has no concrete type behind it. An `Impl(Fn(...) -> Impl(Iterator(...)))` parameter stays generic |
 | **G12, no cycle** | A generator whose frame would contain itself, directly or through other generators, is an error at the use that closes the cycle. The repair is a box (§4) |
 | **G13, no await** | `io.await` lexically inside a `gen` body is an error; the form is reserved for async generators (§11, Q9) |
 | **G14, `try`** | `try(e)` in a `gen` body is legal iff `T` is `Result(U, E)` and the error converts through `From`. On `.Err(x)` it yields `.Err(From.from(x))` and ends the generator (§5) |
@@ -166,7 +166,7 @@ One paragraph each; VERDICTS-97 has the argument and the alternatives.
 
 - **A block, not a kind of function.** `gen` is `io.async(closure)` without the capability. Functions stay functions, and the signature `-> Impl(Iterator(Item := T))` says what a caller gets.
 - **A value, not a place.** The 72 iterators in std are values that move while started, and every adapter holds one by value. The place form (a cold value started in the consumer's frame, with borrows across a `yield` legal) would make a started generator something that is not an `Iterator`, and every adapter would need a twin: a new colour.
-- **Rust's choices, reached from Yo's rules.** RFC 3513's `gen` blocks have a unit completion, no resume argument, no borrow across a `yield`, `?` that yields the error and stops, and delegation by a `for` loop. Yo adds the contract (§7) and the static cycle error with its box repair (§4).
+- **Rust's choices, reached from Yo's rules.** RFC 3513's `gen` blocks have a unit completion, no resume argument, no borrow across a `yield`, `?` that yields the error and stops, and delegation by a `for` loop. The RFC itself calls the borrow limit "a severe and surprising limitation" and leaves it open; §9.3's owned-source row is Yo's answer to it. Yo adds the contract (§7) and the static cycle error with its box repair (§4).
 
 ## 4. Recursion and nesting
 
@@ -360,7 +360,7 @@ sum_below :: (fn(n : i32, requires(n >= i32(0)), ensures(r >= i64(0))) -> (r : i
 
 - **`yields(g, v => P)`** is a specification form, legal in an `ensures` whose labelled result `g` is an iterator: every `g.next()` that returns `.Some(v)` satisfies `P`.
 - **It is written on the function**, because a caller verifies against the signature. The function's `Impl(Iterator(...))` result is one `gen` expression (G11), so the clause names that expression's `yield` sites.
-- **`P` reads** `v` and the function's parameters as they were at the call. A `&` parameter's referent is frozen while `g` lives; a `&mut` parameter is read as `old(...)`.
+- **`P` reads** `v` and the function's parameters as they were at the call. A `&` parameter's referent is frozen while `g` lives only where `G` borrows it (G7), so `P` reads a `&` parameter only through a place `G`'s type names; any other read through a reference is `old(...)`, and so is a `&mut` parameter's referent. A `&` parameter the body never borrows is not frozen: a consumer that changes its referent between two `next` calls would be assumed a fact about a state that no longer holds, the F8 shape. **A run-time `old(e)` is evaluated once, when the generator is created,** and its value is a capture of `G`: the one thing creation may run.
 - **The producer** owes `P[e/v]` at each `yield(e)`. A `try` that yields an `.Err` (G14) is a yield site.
 - **The consumer** assumes `P[x/v]` at the head of each iteration of `for(f(args), x => …)` and in the `.Some(x)` arm of a `next`.
 - **Without a verify pragma** the clause lowers to an `assert` at each `yield` site.
@@ -403,9 +403,10 @@ Census of `bab404f2e` (`v97-probes/census/iterators.py`): 72 `Iterator` impls, 3
 | Adapters (`IterMap` … `IterPeekable`, without `IterRev`) | 11 | stay | Named exported types, `Clone`/`Copy` derives, extra methods |
 | Other `IntoIterator` targets: the owning `…Iter` types and the `…Cursor` / `…CursorMut` types | 17 | stay | An impl must name its `IntoIter` type (§11, Q3, Q8) |
 | Other raw-pointer iterators (`…IterPtr`) | 6 | stay | Unsafe-facing |
-| `HashMapKeys`, `HashMapValues`, `BTreeMapKeys`, `BTreeMapValues`, `BTreeMapRange`, `ArrayListChunks`, `ArrayListWindows`, `RegexMatchIter`, `ErrorChain` | 9 | G-4 converts | Returned by a method, forward-only, no named-type contract |
+| `HashMapKeys`, `HashMapValues`, `RegexMatchIter`, `ErrorChain` | 4 | G-4 converts | Returned by a method, forward-only, no named-type contract; each in an `unstable` module |
+| `ArrayListChunks`, `ArrayListWindows`, `BTreeMapKeys`, `BTreeMapValues`, `BTreeMapRange` | 5 | stay | Exported by name and returned by name (`chunks`, `windows`, `keys`, `values`, `range`) from modules whose `## Stability` is `stable`, where std changes additively only. A generator's type has no name (Q3), so the conversion changes five signatures and strands five exports; it needs an exception the maintainer grants (§11, the 2026-11-28 audit) |
 
-*Judgment.* 9 of 72 and none of the hot ones; the compiler has no `Iterator` impl. std is not the case for generators. The case is what users and models write (a tokenizer, a traversal, a paged reader, a combinatorial sequence) and each new std API that would otherwise need a struct and an impl. §9.3 measures it.
+*Judgment.* 4 of 72 (9 with that exception) and none of the hot ones; the compiler has no `Iterator` impl. std is not the case for generators. The case is what users and models write (a tokenizer, a traversal, a paged reader, a combinatorial sequence) and each new std API that would otherwise need a struct and an impl. §9.3 measures it.
 
 ## 9. The entry condition
 
@@ -421,19 +422,19 @@ In the shape of N0 ([`REFERENCES_AND_ORIGINS`](REFERENCES_AND_ORIGINS.md), "N0 a
 | Rule | Negative rows |
 | --- | --- |
 | G1 | `gen` of a named closure; of a closure with a parameter; of a block |
-| G2 | two `yield`s of different types; a `yield` that disagrees with the slot's `Item`; no `yield` and no expected type |
+| G2 | two `yield`s of different types; a `yield` that disagrees with the slot's `Item`; no `yield` and no expected type; `yield(&local)`; `yield(x)` from `for(&local, x => …)`; `yield(&capture.field)` of a by-value capture; a yielded `&mut` from a `&mut` capture, held across the next `next()` |
 | G3 | `return(v)` with a value; a non-unit tail; `yield(v)` used as a value |
 | G4 | `yield` outside any `gen`; in a closure inside the body; in a `fn` literal inside the body |
 | G5 | a helper function that calls `yield` |
 | G6 | `for(&local, …)` with a `yield` in the body; `r := &mut local` used after a `yield`; `for(&by_value_capture, …)` with a `yield`; a sub-generator that captures `&local`, walked with a `yield`; a cursor over a local held across a `yield`; a borrow of a module-level place across a `yield` |
-| G7 | returning a generator that captures `&local`; a write to a place a live generator borrows; a borrowing generator at `io.spawn`; one in an `Rc` |
+| G7 | returning a generator that captures `&local`; a write to a place a live generator borrows; a borrowing generator at `io.spawn`; one in an `Rc`; one whose body writes a `mut(G)` global, judged `Send`; one whose body reads a non-`Sync` global, judged `Send` |
 | G8 | use after move; `g.clone()` |
-| G11 | two generators in two `cond` arms at one slot; a struct field typed `Impl(Iterator(...))` |
+| G11 | two generators in two `cond` arms at one slot; a struct field typed `Impl(Iterator(...))`; a bare `fn` type and a `Dyn` method whose result is `Impl(Iterator(...))` |
 | G12 | direct recursion without a box; mutual recursion through two generator functions |
 | G13 | `io.await` in a `gen` body |
-| G14 | `try` with a non-`Result` item; `try` on an `Option`; an error type with no `From` |
+| G14 | `try` with a non-`Result` item; `try` on an `Option`; an error type with no `From`; before G-3 lands, any `try` in a `gen` body, rejected with G14's help rather than as a value returned from a `unit` closure |
 
-Positive controls (16): a capture by value; a `&` capture used across a `yield`; a `&mut` capture written across a `yield`; a re-borrow of a local after each `yield`; a consumed local; an index walk; a nested `for` over a captured list; delegation; boxed recursion; an explicit stack; a move before the first `next`; a move between two `next` calls; a drop while suspended with an owned local; `Box(Dyn(...))` at a slot; a generator as the hidden iterator of a `for` in an `io.async` body with an `await` in the loop; `try` with a `Result` item.
+Positive controls (18): a capture by value; a `&` capture used across a `yield`; a `&mut` capture written across a `yield`; a re-borrow of a local after each `yield`; a consumed local; an index walk; a nested `for` over a captured list; §1's `flatten` (a `{ xs }` capture of a reference parameter, walked across a `yield`); a yielded `&mut` dropped before the next `next()`; delegation; boxed recursion; an explicit stack; a move before the first `next`; a move between two `next` calls; a drop while suspended with an owned local; `Box(Dyn(...))` at a slot; a generator as the hidden iterator of a `for` in an `io.async` body with an `await` in the loop; `try` with a `Result` item.
 
 **Gate:** the model accepts every positive control and rejects every negative row for the recorded rule. Each rule interaction it finds is recorded in this plan.
 
@@ -505,10 +506,10 @@ Nothing before the decision changes the compiler's language. Releases assume AFA
 | **G-0c** | v0.2.83–87, as filler | no | §9.1's model and corpus; §9.2's C model; §9.3's stage E-a; §9.4's fixtures; §12's census script | M | the corpus in `today` mode |
 | **G-0d** | before G-1 | no | Fix the two blockers below | S–M each | their probes as tests |
 | **The decision** | v0.2.88 | — | The maintainer, on §9. E-b needs a build of G-1, so G-1 is written as a draft PR before the decision and merged after it | — | — |
-| **G-1** | v0.2.88–89 | A | `gen` and `yield` reserved; G1–G11 and G13; the lowering on AFA's frame code; the drop walk; the diagnostics; `tests/generators.test.yo` | L | the corpus in `target` mode; ASan; an emit-diff of `src/main.yo` with no change |
-| **G-2** | v0.2.89 | A | G12 and its `yo fix` repair; `Box(I) <: Iterator`; the benchmarks | M | §9.2's table |
+| **G-1** | v0.2.88–89 | A | `gen` and `yield` reserved; G1–G11 and G13, with G12's detection (without it a recursive generator's embedding is infinite; only its repair waits for G-2); the lowering on AFA's frame code; the drop walk; the diagnostics; `tests/generators.test.yo` | L | the corpus in `target` mode; ASan; an emit-diff of `src/main.yo` with no change |
+| **G-2** | v0.2.89 | A | G12's `yo fix` repair; `Box(I) <: Iterator`; the benchmarks | M | §9.2's table |
 | **G-3** | v0.2.89–90 | A | G14 (`try`); G15 stage 1 in the verifier and the run-time asserts (lane E) | M | §9.4's fixtures |
-| **G-4** | v0.2.90 | B | std converts §8's nine; docs in both languages; the pack; `yo explain` for the new codes | M | develop's battery; `markdown-yo` rebuilt |
+| **G-4** | v0.2.90 | B | std converts §8's four; docs in both languages; the pack; `yo explain` for the new codes | M | develop's battery; `markdown-yo` rebuilt |
 | **G-5** | on demand | A, B | Stage 2 contracts: `seq_of`, `yielded`, `produced` | M–L | — |
 | **G-6** | on demand | A, B | Async generators; leaf-direct recursion; overlapped frame fields | L each | — |
 
@@ -560,6 +561,18 @@ Open questions:
 | **Q8** | Yielding a `for(&xs, x => …)` item | Needs the item to be a first-class `&(T, xs)`; today `return(x)` is E0912. Until then the cursor types stay hand-written |
 | **Q9** | Async generators (`Stream`) | Deferred. Needs AFA-8, `Stream.next` reshaped for it, and a rule for a `next` future dropped while the body is at an `await`. G13 keeps the form free |
 | **Q10** | Recursion at O(1) per item | Leaf-direct resume (C++23 `std::generator`): 3.3–6.8 ns per item in the model against 65–86. It needs an erased generator type with a third resume status. G-6, on demand |
+
+### Found by the 2026-11-28 audit
+
+The audit is [#2145](https://github.com/shd101wyy/Yo/issues/2145). Its corrections sit in the rules they belong to; these stay open.
+
+| | Question | Position |
+| --- | --- | --- |
+| **Q8, restated** | Yielding a borrowed item | Q8 above is both narrower and larger than its row. Narrower: at function level a `for(xs, x => …)` item over a `&ArrayList(i32)` parameter is returned today, in two forms (seed v0.2.80); E0912 is for a by-value source, which is right, and for the closure body (Q12). Larger: under Q8 the delegation idiom `for(sub, v => yield(v))` works for owned items only, so two borrowing generators cannot compose, and none of the eight E-b tasks yields a reference (§1's `flatten` yields `x.*`, a copy). Either a G-1 prerequisite (the element's origin forwards through `for(&xs, x => …)`) or a ninth task, `flatten : &ArrayList(ArrayList(String)) -> Impl(Iterator(Item := &String))`, with its first-attempt rate in §9.3's table |
+| **Q11** | A repair G6 rejects: box the source | `src := Box.new(text); for(&src.*, …)` is rejected because the borrow's origin names the local `src`, though its target is the heap and the frame may move. It is the general repair for an owned source: it needs neither an owning iterator nor an index walk, the two §2 lists. It costs one origin rule (a borrow behind a `Box` local may cross a `yield`; the handle and the borrow are fields of one frame and drop newest first). Price it before E-b: a rejected row here with its reason, or repair 3 in §2 |
+| **Q12** | The rule a `gen` body's captures follow | G7 says a borrowing future's. A closure's differs today for a `{ xs }` capture of a reference parameter: [`issues/2026-11-29-a-capture-list-closure-copies-the-referent-of-a-shared-reference-it-captures-by-value.md`](../../issues/2026-11-29-a-capture-list-closure-copies-the-referent-of-a-shared-reference-it-captures-by-value.md). G-1's gate carries §1's `flatten` as a positive control on a real build |
+| **Q13** | The async half | Q9 stands, and §0's "generators add no colour of their own" is true of the sync half: an async generator is a `Stream`. G-6 needs a decision point of its own. Until it lands, an I/O-bound lazy sequence is a blocking reader in a sync `gen` body, its failures `Result` items under G14 |
+| **§8's exception** | The five stable-module iterators | Converting them needs the maintainer to grant an exception to the additive-only rule, by name. Until then §8 counts four |
 
 ## 12. Measuring the cost of colouring
 

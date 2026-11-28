@@ -1,0 +1,21 @@
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+
+w :: (fn(xs : &ArrayList(i32)) -> unit)({
+  (f : Impl(Fn() -> unit)) = ({ xs }() => {
+    (m : &mut ArrayList(i32)) = &mut xs.*;
+    m.push(i32(7));
+  });
+  f()
+});
+
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).with_capacity(usize(16));
+  xs.push(i32(1));
+  xs.push(i32(5));
+  xs.push(i32(2));
+  w(&xs);
+  println(`len seen by main: ${xs.len()}`);
+  for(&xs, v => println(`${v.*} `));
+});
+export(main);
