@@ -855,9 +855,7 @@ _parse_ts :: (fn(inner : str, exn : Exception) -> String)({
 test("Peel a format spec off a MULTIBYTE template expression", {
   exn := Exception(
     throw : (
-      err -> {
-        panic("unexpected parse error in a template string");
-      }
+      err -> panic("unexpected parse error in a template string")
     )
   );
   assert_str_eq(_parse_ts("${x:>8}", exn), `(x.format)(">8")`, "ASCII control case");
@@ -869,9 +867,7 @@ test("Peel a format spec off a MULTIBYTE template expression", {
 test("A spaced colon-pair stays a colon-pair with multibyte content", {
   exn := Exception(
     throw : (
-      err -> {
-        panic("unexpected parse error in a template string");
-      }
+      err -> panic("unexpected parse error in a template string")
     )
   );
   // The `space before the colon` guard reads `tc(k - 2)`, a RUNE index; the
@@ -882,9 +878,7 @@ test("A spaced colon-pair stays a colon-pair with multibyte content", {
 test("Peeling survives multibyte literal text around the interpolation", {
   exn := Exception(
     throw : (
-      err -> {
-        panic("unexpected parse error in a template string");
-      }
+      err -> panic("unexpected parse error in a template string")
     )
   );
   // A template of several parts lowers to one builder block (D10): an empty
