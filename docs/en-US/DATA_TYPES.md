@@ -674,20 +674,12 @@ set2.insert(i32(3));
 set2.insert(i32(4));
 
 // Union
-union_result := set1.union(set2);
-match(
-  union_result,
-  .Ok(union_set) => printf("Union size: %zu\n", union_set.len()),
-  .Error(_) => printf("Union failed\n")
-);
+union_set := set1.union(&set2);
+printf("Union size: %zu\n", union_set.len());
 
 // Intersection
-inter_result := set1.intersection(set2);
-match(
-  inter_result,
-  .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.len()),
-  .Error(_) => printf("Intersection failed\n")
-);
+inter_set := set1.intersection(&set2);
+printf("Intersection size: %zu\n", inter_set.len());
 
 // Subset check
 is_sub := set1.is_subset(set2);

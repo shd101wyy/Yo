@@ -660,20 +660,12 @@ set2.insert(i32(3));
 set2.insert(i32(4));
 
 // 并集
-union_result := set1.union(set2);
-match(
-  union_result,
-  .Ok(union_set) => printf("Union size: %zu\n", union_set.length()),
-  .Error(_) => printf("Union failed\n")
-);
+union_set := set1.union(&set2);
+printf("Union size: %zu\n", union_set.len());
 
 // 交集
-inter_result := set1.intersection(set2);
-match(
-  inter_result,
-  .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.length()),
-  .Error(_) => printf("Intersection failed\n")
-);
+inter_set := set1.intersection(&set2);
+printf("Intersection size: %zu\n", inter_set.len());
 
 // 子集检查
 is_sub := set1.is_subset(set2);
