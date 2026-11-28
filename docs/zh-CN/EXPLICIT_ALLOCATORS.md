@@ -54,10 +54,10 @@ main :: (fn() -> unit)({
     p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     // 一个列表，它的缓冲区及其每一次增长都在 `a` 中。
     mut(xs) := ArrayList(i32).new(alloc : .Some(a));
-    xs.push(p.x);
+    xs.push(p.*.x);
     // 没有参数：全局分配器。
     mut(ys) := ArrayList(i32).new();
-    ys.push(p.y);
+    ys.push(p.*.y);
     println(`${xs.len() + ys.len()}`); // 2
   };
   // `p` 和 `xs` 都已消失，它们的块已经回到 `a`。
@@ -177,7 +177,7 @@ main :: (fn() -> unit)({
   a := Allocator.global(); // 任意 `Allocator`：它是 `Send`
   t := Thread(i32).spawn(io => {
     p := Rc.new(Point(x : i32(1), y : i32(2)), alloc : .Some(a));
-    p.x + p.y
+    p.*.x + p.*.y
   });
   println(`${t.join()}`);
 });
@@ -263,7 +263,7 @@ main :: (fn() -> unit)({
   a := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(_COUNT_VTABLE));
   {
     p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
-    println(`${p.x}`);
+    println(`${p.*.x}`);
   };
   println(`allocs=${counts.allocs} frees=${counts.frees}`); // allocs=1 frees=1
 });

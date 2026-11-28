@@ -11,23 +11,23 @@ tcp :: import("std/sys/tcp");
 { AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, SHUT_RDWR, SO_NOSIGPIPE } :: import("std/sys/socket");
 { sleep } :: import("std/sys/timer");
 test("TCP socket creation and close", {
-  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   unsafe(printf("  socket fd = %d\n", server_fd));
   assert(server_fd >= i32(0));
-  close_result := io.await(tcp.close(server_fd), io);
+  close_result := io.await(tcp.close(server_fd, io), io);
   unsafe(printf("  close = %d\n", close_result));
   assert(close_result == i32(0));
 });
 test("TCP socket creation and close", {
-  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   unsafe(printf("  socket fd = %d\n", server_fd));
   assert(server_fd >= i32(0));
-  close_result := io.await(tcp.close(server_fd), io);
+  close_result := io.await(tcp.close(server_fd, io), io);
   unsafe(printf("  close = %d\n", close_result));
   assert(close_result == i32(0));
 });
 test("Set SO_REUSEADDR socket option", {
-  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   unsafe(printf("  socket fd = %d\n", server_fd));
   assert(server_fd >= i32(0));
   optval := (*u8)(malloc(usize(4)).unwrap());
@@ -35,32 +35,32 @@ test("Set SO_REUSEADDR socket option", {
   (optval.add(usize(1))).* = u8(0);
   (optval.add(usize(2))).* = u8(0);
   (optval.add(usize(3))).* = u8(0);
-  sso := io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4)), io);
+  sso := io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4), io), io);
   unsafe(printf("  setsockopt = %d\n", sso));
   assert(sso == i32(0));
   free(.Some((*void)(optval)));
-  close_result := io.await(tcp.close(server_fd), io);
+  close_result := io.await(tcp.close(server_fd, io), io);
   unsafe(printf("  close = %d\n", close_result));
   assert(close_result == i32(0));
 });
 test("Bind to loopback and listen", {
-  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   unsafe(printf("  socket fd = %d\n", server_fd));
   assert(server_fd >= i32(0));
   addr := tcp.make_sockaddr_in_loopback(u16(0));
-  bind_result := io.await(tcp.bind(server_fd, addr.buf, addr.len), io);
+  bind_result := io.await(tcp.bind(server_fd, addr.buf, addr.len, io), io);
   unsafe(printf("  bind = %d\n", bind_result));
   assert(bind_result == i32(0));
-  listen_result := io.await(tcp.listen(server_fd, i32(128)), io);
+  listen_result := io.await(tcp.listen(server_fd, i32(128), io), io);
   unsafe(printf("  listen = %d\n", listen_result));
   assert(listen_result == i32(0));
   tcp.free_sockaddr(addr);
-  close_result := io.await(tcp.close(server_fd), io);
+  close_result := io.await(tcp.close(server_fd, io), io);
   unsafe(printf("  close = %d\n", close_result));
   assert(close_result == i32(0));
 });
 test("TCP echo server-client", {
-  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   unsafe(printf("  server fd = %d\n", server_fd));
   assert(server_fd >= i32(0));
   optval := (*u8)(malloc(usize(4)).unwrap());
@@ -68,39 +68,39 @@ test("TCP echo server-client", {
   (optval.add(usize(1))).* = u8(0);
   (optval.add(usize(2))).* = u8(0);
   (optval.add(usize(3))).* = u8(0);
-  sso := io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4)), io);
+  sso := io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4), io), io);
   unsafe(printf("  setsockopt = %d\n", sso));
   assert(sso == i32(0));
   free(.Some((*void)(optval)));
   addr := tcp.make_sockaddr_in_loopback(u16(19877));
-  bind_result := io.await(tcp.bind(server_fd, addr.buf, addr.len), io);
+  bind_result := io.await(tcp.bind(server_fd, addr.buf, addr.len, io), io);
   unsafe(printf("  bind = %d\n", bind_result));
   assert(bind_result == i32(0));
-  listen_result := io.await(tcp.listen(server_fd, i32(128)), io);
+  listen_result := io.await(tcp.listen(server_fd, i32(128), io), io);
   unsafe(printf("  listen = %d\n", listen_result));
   assert(listen_result == i32(0));
-  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   unsafe(printf("  client fd = %d\n", client_fd));
   assert(client_fd >= i32(0));
   connect_addr := tcp.make_sockaddr_in_loopback(u16(19877));
-  conn_result := io.await(tcp.connect(client_fd, connect_addr.buf, connect_addr.len), io);
+  conn_result := io.await(tcp.connect(client_fd, connect_addr.buf, connect_addr.len, io), io);
   unsafe(printf("  connect = %d\n", conn_result));
   assert(conn_result == i32(0));
   tcp.free_sockaddr(connect_addr);
   peer_addr_buf := (*u8)(malloc(usize(128)).unwrap());
   peer_addr_len := (*u32)(malloc(usize(4)).unwrap());
   peer_addr_len.* = u32(128);
-  accepted_fd := io.await(tcp.accept(server_fd, peer_addr_buf, peer_addr_len), io);
+  accepted_fd := io.await(tcp.accept(server_fd, peer_addr_buf, peer_addr_len, io), io);
   unsafe(printf("  accepted fd = %d\n", accepted_fd));
   assert(accepted_fd >= i32(0));
   free(.Some((*void)(peer_addr_buf)));
   free(.Some((*void)(peer_addr_len)));
   msg := (*u8)("Hello TCP!");
-  sent := io.await(tcp.send(client_fd, msg, usize(10), i32(0)), io);
+  sent := io.await(tcp.send(client_fd, msg, usize(10), i32(0), io), io);
   unsafe(printf("  sent = %d\n", sent));
   assert(sent == i32(10));
   recv_buf := (*u8)(malloc(usize(256)).unwrap());
-  received := io.await(tcp.recv(accepted_fd, recv_buf, usize(256), i32(0)), io);
+  received := io.await(tcp.recv(accepted_fd, recv_buf, usize(256), i32(0), io), io);
   unsafe(printf("  received = %d\n", received));
   assert(received == i32(10));
   unsafe(printf("  verifying message...\n"));
@@ -110,15 +110,15 @@ test("TCP echo server-client", {
   assert((recv_buf.add(usize(3))).* == u8(108));
   assert((recv_buf.add(usize(4))).* == u8(111));
   free(.Some((*void)(recv_buf)));
-  shut := io.await(tcp.shutdown(client_fd, SHUT_RDWR), io);
+  shut := io.await(tcp.shutdown(client_fd, SHUT_RDWR, io), io);
   unsafe(printf("  shutdown = %d\n", shut));
-  c1 := io.await(tcp.close(client_fd), io);
+  c1 := io.await(tcp.close(client_fd, io), io);
   unsafe(printf("  close client = %d\n", c1));
   assert(c1 == i32(0));
-  c2 := io.await(tcp.close(accepted_fd), io);
+  c2 := io.await(tcp.close(accepted_fd, io), io);
   unsafe(printf("  close accepted = %d\n", c2));
   assert(c2 == i32(0));
-  c3 := io.await(tcp.close(server_fd), io);
+  c3 := io.await(tcp.close(server_fd, io), io);
   unsafe(printf("  close server = %d\n", c3));
   assert(c3 == i32(0));
   tcp.free_sockaddr(addr);
@@ -148,29 +148,29 @@ test("SockAddr helper functions", {
 // (issues/fixed/pending-io-future-local-drop-uaf.md); the kqueue, epoll and
 // io_uring backends hold a reference for every parked operation.
 _drop_a_pending_recv :: (fn(fd : i32, buf : *u8, io : Io) -> bool)({
-  pending := tcp.recv(fd, buf, usize(64), i32(0));
+  pending := tcp.recv(fd, buf, usize(64), i32(0), io);
   s := io.state(&pending);
   s == FutureState.Completed
 });
 test("a recv future dropped while pending does not complete into freed memory", {
-  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   assert(server_fd >= i32(0));
   optval := (*u8)(malloc(usize(4)).unwrap());
   (optval.add(usize(0))).* = u8(1);
   (optval.add(usize(1))).* = u8(0);
   (optval.add(usize(2))).* = u8(0);
   (optval.add(usize(3))).* = u8(0);
-  io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4)), io);
+  io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4), io), io);
   free(.Some((*void)(optval)));
   addr := tcp.make_sockaddr_in_loopback(u16(19878));
-  assert(io.await(tcp.bind(server_fd, addr.buf, addr.len), io) == i32(0));
-  assert(io.await(tcp.listen(server_fd, i32(16)), io) == i32(0));
-  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
-  assert(io.await(tcp.connect(client_fd, addr.buf, addr.len), io) == i32(0));
+  assert(io.await(tcp.bind(server_fd, addr.buf, addr.len, io), io) == i32(0));
+  assert(io.await(tcp.listen(server_fd, i32(16), io), io) == i32(0));
+  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
+  assert(io.await(tcp.connect(client_fd, addr.buf, addr.len, io), io) == i32(0));
   peer := (*u8)(malloc(usize(128)).unwrap());
   peer_len := (*u32)(malloc(usize(4)).unwrap());
   peer_len.* = u32(128);
-  accepted_fd := io.await(tcp.accept(server_fd, peer, peer_len), io);
+  accepted_fd := io.await(tcp.accept(server_fd, peer, peer_len, io), io);
   assert(accepted_fd >= i32(0));
   free(.Some((*void)(peer)));
   free(.Some((*void)(peer_len)));
@@ -178,18 +178,18 @@ test("a recv future dropped while pending does not complete into freed memory", 
   dropped_buf := (*u8)(malloc(usize(64)).unwrap());
   assert(!_drop_a_pending_recv(accepted_fd, dropped_buf, io), "nothing was sent yet, so the recv is pending");
   // Its completion is delivered while the loop runs the sleep.
-  assert(io.await(tcp.send(client_fd, (*u8)("first"), usize(5), i32(0)), io) == i32(5));
-  io.await(sleep(u64(20)), io);
+  assert(io.await(tcp.send(client_fd, (*u8)("first"), usize(5), i32(0), io), io) == i32(5));
+  io.await(sleep(u64(20), io), io);
   // The socket still works: the next recv gets the next bytes.
-  assert(io.await(tcp.send(client_fd, (*u8)("second"), usize(6), i32(0)), io) == i32(6));
+  assert(io.await(tcp.send(client_fd, (*u8)("second"), usize(6), i32(0), io), io) == i32(6));
   buf := (*u8)(malloc(usize(64)).unwrap());
-  got := io.await(tcp.recv(accepted_fd, buf, usize(64), i32(0)), io);
+  got := io.await(tcp.recv(accepted_fd, buf, usize(64), i32(0), io), io);
   assert(got == i32(6), "the recv after the dropped one gets the second message");
   free(.Some((*void)(buf)));
   free(.Some((*void)(dropped_buf)));
-  io.await(tcp.close(client_fd), io);
-  io.await(tcp.close(accepted_fd), io);
-  io.await(tcp.close(server_fd), io);
+  io.await(tcp.close(client_fd, io), io);
+  io.await(tcp.close(accepted_fd, io), io);
+  io.await(tcp.close(server_fd, io), io);
   tcp.free_sockaddr(addr);
 });
 // The stream-write op std/net uses for its own sockets: write(2) on macOS once
@@ -198,27 +198,27 @@ test("a recv future dropped while pending does not complete into freed memory", 
 _StreamPair :: struct(server : i32, client : i32, accepted : i32);
 derive(_StreamPair, Copy, Clone);
 _stream_pair :: (fn(port : u16, io : Io) -> _StreamPair)({
-  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
   optval := (*u8)(malloc(usize(4)).unwrap());
   (optval.add(usize(0))).* = u8(1);
   (optval.add(usize(1))).* = u8(0);
   (optval.add(usize(2))).* = u8(0);
   (optval.add(usize(3))).* = u8(0);
-  io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4)), io);
+  io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4), io), io);
   addr := tcp.make_sockaddr_in_loopback(port);
-  assert(io.await(tcp.bind(server_fd, addr.buf, addr.len), io) == i32(0));
-  assert(io.await(tcp.listen(server_fd, i32(16)), io) == i32(0));
-  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
-  assert(io.await(tcp.connect(client_fd, addr.buf, addr.len), io) == i32(0));
+  assert(io.await(tcp.bind(server_fd, addr.buf, addr.len, io), io) == i32(0));
+  assert(io.await(tcp.listen(server_fd, i32(16), io), io) == i32(0));
+  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0), io), io);
+  assert(io.await(tcp.connect(client_fd, addr.buf, addr.len, io), io) == i32(0));
   peer := (*u8)(malloc(usize(128)).unwrap());
   peer_len := (*u32)(malloc(usize(4)).unwrap());
   peer_len.* = u32(128);
-  accepted_fd := io.await(tcp.accept(server_fd, peer, peer_len), io);
+  accepted_fd := io.await(tcp.accept(server_fd, peer, peer_len, io), io);
   assert(accepted_fd >= i32(0));
   free(.Some((*void)(peer)));
   free(.Some((*void)(peer_len)));
   if(platform == Platform.Macos, {
-    io.await(tcp.setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, optval, u32(4)), io);
+    io.await(tcp.setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, optval, u32(4), io), io);
   });
   free(.Some((*void)(optval)));
   tcp.free_sockaddr(addr);
@@ -229,7 +229,7 @@ _drain :: (fn(fd : i32, want : i64, io : Io) -> Impl(Future(i64, Io)))(
     buf := (*u8)(malloc(usize(65536)).unwrap());
     (mut(got) : i64) = i64(0);
     while(got < want, {
-      n := io.await(tcp.recv(fd, buf, usize(65536), i32(0)), io);
+      n := io.await(tcp.recv(fd, buf, usize(65536), i32(0), io), io);
       if(n <= i32(0), {
         return(got);
       });
@@ -252,37 +252,37 @@ test("the stream-write op delivers every byte, parking when the send buffer is f
   while(sent < total, {
     rest := (total - sent);
     want := cond((rest < i64(65536)) => usize(rest), true => usize(65536));
-    n := io.await(tcp.stream_write(client_fd, chunk, want), io);
+    n := io.await(tcp.stream_write(client_fd, chunk, want, io), io);
     assert(n > i32(0), "a stream write to a live peer makes progress");
     sent = (sent + i64(n));
   });
   got := match(reader.await(io), .Some(g) => g, .None => i64(-1));
   assert(got == total, "the reader received every byte, in order of writing");
   free(.Some((*void)(chunk)));
-  io.await(tcp.close(client_fd), io);
-  io.await(tcp.close(accepted_fd), io);
-  io.await(tcp.close(fds.server), io);
+  io.await(tcp.close(client_fd, io), io);
+  io.await(tcp.close(accepted_fd, io), io);
+  io.await(tcp.close(fds.server, io), io);
 });
 test("the stream-write op to a closed peer fails with an error instead of SIGPIPE", {
   fds := _stream_pair(u16(19887), io);
   client_fd := fds.client;
   accepted_fd := fds.accepted;
-  io.await(tcp.close(accepted_fd), io);
+  io.await(tcp.close(accepted_fd, io), io);
   buf := (*u8)(malloc(usize(1024)).unwrap());
   // The first writes after the peer closes can still be accepted (the RST has
   // not arrived yet): retry a bounded number of times, 2 ms apart.
   (mut(err) : i32) = i32(0);
   (mut(i) : i32) = i32(0);
   while((i < i32(50)) && (err == i32(0)), {
-    r := io.await(tcp.stream_write(client_fd, buf, usize(1024)), io);
+    r := io.await(tcp.stream_write(client_fd, buf, usize(1024), io), io);
     if(r < i32(0), {
       err = r;
     });
-    io.await(sleep(u64(2)), io);
+    io.await(sleep(u64(2), io), io);
     i = (i + i32(1));
   });
   assert(err < i32(0), "writing to a closed peer eventually reports an error, and the process is still here");
   free(.Some((*void)(buf)));
-  io.await(tcp.close(client_fd), io);
-  io.await(tcp.close(fds.server), io);
+  io.await(tcp.close(client_fd, io), io);
+  io.await(tcp.close(fds.server, io), io);
 });

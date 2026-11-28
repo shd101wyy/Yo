@@ -8,19 +8,19 @@
 //! release after a seed carries it.
 { assert } :: import("std/assert");
 { Error, AnyError, Context } :: import("std/error");
-{ ToString } :: import("std/fmt/to_string");
+{ Display } :: import("std/fmt/to_string");
 { String } :: import("std/string");
 NotFound :: struct(path : String);
 impl(
   NotFound,
-  ToString(to_string : (fn(self : &Self) -> String)(`no such file: ${self.path}`))
+  Display(fmt : ((self, f) -> f.write(&`no such file: ${self.path}`)))
 );
 impl(NotFound, Error());
 derive(NotFound, Clone);
 Denied :: struct(who : String);
 impl(
   Denied,
-  ToString(to_string : (fn(self : &Self) -> String)(`denied for ${self.who}`))
+  Display(fmt : ((self, f) -> f.write(&`denied for ${self.who}`)))
 );
 impl(Denied, Error());
 derive(Denied, Clone);

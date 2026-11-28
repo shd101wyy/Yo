@@ -56,7 +56,6 @@ pragma(Pragma.AllowUnsafe);
   has_any_control_flow,
   expr_info_capture_type,
   expr_info_comptime_ref,
-  expr_info_deferred_dup_expressions,
   expr_info_early_return_only_deferred_drop_expressions,
   expr_info_is_anonymous_function_definition,
   expr_info_is_compile_time_only_assignment,
@@ -74,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_origin,
   OriginRootPlace
 } :: import("../../expr-info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_call_scoped_share_dup, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr-info.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, mark_fnonce_capture_drop, record_immediate_old_value_drop, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr-info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt, variable_value_type } :: import("../../env.yo");
 {
   EvalContext,
@@ -105,7 +104,7 @@ pragma(Pragma.AllowUnsafe);
   attach_temp_variable_to_expr,
   throw_expr_is_implicit_variable_error,
   consume_case_body_temp_var,
-  set_expr_as_needs_to_call_dup,
+  transfer_value_into,
   snapshot_loop_flow,
   ImplicitCopyPending,
   audit_take_implicit_copy_pending,
@@ -150,8 +149,7 @@ is_unit_value_expression :: (fn(expr : &AstExpr) -> bool)(
 );
 /// If `e` is an evaluated `___dup` call, return the duped variable's NAME.
 /// Matches BOTH shapes: the method-resolved `(x.___dup)()` and the bare
-/// `___dup(x)` builtin call (the shape
-/// set_expr_as_needs_to_call_dup mints via generate_expr_from_code).
+/// `___dup(x)` builtin call.
 _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
@@ -446,13 +444,13 @@ _m3_is_flow_logged_move :: (fn(variable : &Variable, t : &Token) -> bool)({
 /// The same holds for a TEMPORARY passed by value (`g(mk(), …)`), a struct or
 /// tuple literal's earlier field and a by-value receiver (`T(…).eat(…)`)
 /// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
-_m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token), ctx : &EvalContext) -> Option(Token))({
+_m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
   ct := match(consumed, .Some(t) => Rc.clone(t.*), .None => return(Option(Token).None));
   // A block's statements run one by one: an earlier one is not an argument.
   if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
     return(consumed.*.clone());
   });
-  match(_m3_first_arg_after_move(call, args, variable, &ct, ctx), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
+  match(_m3_first_arg_after_move(call, args, variable, &ct), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
   consumed.*.clone()
 });
 /// Whether the call argument `a` is the by-value use that moved `variable` at
@@ -461,69 +459,31 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
 /// the call is what moves it, wherever the move is recorded: a receiver's at
 /// the method call). A labeled field's value (`S(f : x, …)`) counts as the
 /// argument.
-_m3_arg_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token, ctx : &EvalContext) -> bool)(
-  _m3_operand_moves_variable(a, variable, ct, ctx) || match(
+_m3_arg_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token) -> bool)(
+  _m3_operand_moves_variable(a, variable, ct) || match(
     a,
-    Rc(.FnCall(_, _, Rc(la), _, _)) => (ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) && match(la.get_cloned(usize(1)), .Some(v) => _m3_operand_moves_variable(&v, variable, ct, ctx), .None => false)),
+    Rc(.FnCall(_, _, Rc(la), _, _)) => (ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) && match(la.get_cloned(usize(1)), .Some(v) => _m3_operand_moves_variable(&v, variable, ct), .None => false)),
     Rc(.Atom(_, _)) => false
   )
 );
-_m3_operand_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token, ctx : &EvalContext) -> bool)({
+_m3_operand_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token) -> bool)({
   t := ast_expr_token(a);
   if(ast_expr_is_atom(a), {
     return((t.*.value.* == variable.*.*.name) && _m3_tokens_comparable(&t, ct) && (t.*.character == ct.*.*.character));
   });
-  // The minting-site test first: it allocates nothing, and the walks ask it
-  // of every operand of every call in a block, for each consumed variable.
   minted_here := match(variable.*.*.initialized_at_token(), .Some(init) => (_m3_tokens_comparable(&t, &init) && (t.*.character == init.*.character)), .None => false);
-  if(!minted_here || !is_any_temp_variable_name(&variable.*.*.name), {
-    return(false);
-  });
-  // A call-scoped share (Aliasing Stage 0's caller-owned +1 of a borrowed
-  // receiver or argument, `mark_call_scoped_share_dup`) is "consumed at the
-  // dup by design" and released by the call's post-call flush, whose drop
-  // codegen already keeps pending for every exit in the later arguments: the
-  // call does not move it, and an exit drop here released it a second time
-  // (issues/fixed/2026-11-13-a-receivers-call-scoped-rc-share-is-released-twice-by-an-exit-in-a-later-argument.md).
-  !_m3_operand_carries_call_scoped_share(a, ctx)
+  minted_here && is_any_temp_variable_name(&variable.*.*.name)
 });
-/// Whether the operand `a` carries a call-scoped share dup
-/// (`is_call_scoped_share_dup`): its temporary is the share, not a value the
-/// call moves.
-_m3_operand_carries_call_scoped_share :: (fn(a : &AstExpr, ctx : &EvalContext) -> bool)(
-  match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(a)),
-    .Some(ei) => match(
-      expr_info_deferred_dup_expressions(&ei),
-      .Some(dl) => {
-        (mut(i) : usize) = usize(0);
-        while(i < dl.len(), {
-          match(
-            dl.get_cloned(i),
-            .Some(d) => if(is_call_scoped_share_dup(ast_expr_id(&d)), {
-              return(true);
-            }),
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-        false
-      },
-      .None => false
-    ),
-    .None => false
-  )
-);
 /// The index of the first argument of the plain call `call` that runs after
 /// one of its by-value operands moved `variable` at `ct` (an earlier argument,
 /// or the receiver of a method call, which precedes them all), or `.None`.
-_m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), variable : &Variable, ct : &Token, ctx : &EvalContext) -> Option(usize))({
+_m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), variable : &Variable, ct : &Token) -> Option(usize))({
   receiver_moves := match(
     call,
     Rc(.FnCall(_, func, _, _, _)) => (
       ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))) && match(
         func,
-        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(r) => _m3_arg_moves_variable(&r, variable, ct, ctx), .None => false),
+        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(r) => _m3_arg_moves_variable(&r, variable, ct), .None => false),
         Rc(.Atom(_, _)) => false
       )
     ),
@@ -536,7 +496,7 @@ _m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), var
   while(j < args.len(), {
     match(
       args.get_cloned(j),
-      .Some(a) => if(_m3_arg_moves_variable(&a, variable, ct, ctx), {
+      .Some(a) => if(_m3_arg_moves_variable(&a, variable, ct), {
         return(Option(usize).Some(j + usize(1)));
       }),
       .None => ()
@@ -568,7 +528,7 @@ _m3_note_arg_move_region :: (fn(expr : &AstExpr, variable : &Variable, ct : &Tok
       plain := !(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) || ast_expr_is_fn_call_of(expr, "=>", Option(usize).None)))));
       if(plain, {
         match(
-          _m3_first_arg_after_move(expr, &args.*, variable, ct, ctx),
+          _m3_first_arg_after_move(expr, &args.*, variable, ct),
           .Some(k) => match(
             args.get_cloned(k),
             .Some(later) => {
@@ -854,7 +814,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
       recur(&func.*, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        arg_consumed := _m3_consumed_for_call_arg(expr, &args.*, ai, variable, consumed, ctx);
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args.*, ai, variable, consumed);
         match(args.get_cloned(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
@@ -936,7 +896,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
       recur(&func.*, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        arg_consumed := _m3_consumed_for_call_arg(expr, &args.*, ai, variable, consumed, ctx);
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args.*, ai, variable, consumed);
         match(args.get_cloned(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
@@ -1163,23 +1123,6 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         .None => ()
       );
       if(match(expr_info_is_anonymous_function_definition(&ei.*), .Some(b) => b, .None => false), {
-        match(
-          expr_info_deferred_dup_expressions(&ei.*),
-          .Some(dl) => {
-            (di : usize) = usize(0);
-            while(di < dl.len(), {
-              match(
-                dl.get_cloned(di),
-                .Some(d) => if(match(_dup_call_target_name(&d), .Some(n) => (n == v.*.*.name), .None => false), {
-                  _ic_read(&tok, site, acc);
-                }),
-                .None => ()
-              );
-              di = (di + usize(1));
-            });
-          },
-          .None => ()
-        );
         return(());
       });
     },
@@ -2820,11 +2763,9 @@ _evaluate_begin_expression_impl :: (
   // (or an `own(...)` parameter of the enclosing function) transfers
   // ownership out — mark it consumed so the scope-end scheduler skips it.
   // A NON-OWNING local (e.g. a match pattern binding borrowing the
-  // scrutinee's payload) or one from an OUTER frame is SHARED out — mark the
-  // tail with a deferred `___dup` so codegen emits the balancing incr before
-  // the owner's scope-end `___drop` runs (without it, widening the drop
-  // predicate to value enums/structs freed payloads still in use — the
-  // hashmap_self_cycle abort).
+  // scrutinee's payload) or one from an OUTER frame is stored into the
+  // block's result (`transfer_value_into`): a value that needs a drop moves
+  // or is E0901, any other value is copied.
   (return_value_expr : AstExpr) = Rc.clone(last_expr);
   if(ast_expr_is_fn_call_of(&last_expr, BK_RETURN, Option(usize).Some(usize(1))), {
     match(
@@ -2863,12 +2804,10 @@ _evaluate_begin_expression_impl :: (
         // The tail's recorded temp name is NOT visible in the live begin env
         // (snapshot env threading can drop an inline field-read's temp
         // registration on a bare-expression body — e.g. `(fn(p : Pair) ->
-        // Krate)(p.inner)`). Delegate to set_expr_as_needs_to_call_dup,
-        // which re-checks ownership/consumption against the RECORDED ei.env
-        // (where the temp does exist): owning temps still consume, non-RC and
-        // inlinable-concrete values still decline — only the borrowed case
-        // gains its balancing +1 (the round-3 borrowed-field-tail UAF).
-        set_expr_as_needs_to_call_dup(&return_value_expr, ctx, exn, "return");
+        // Krate)(p.inner)`). Delegate to transfer_value_into, which
+        // re-checks ownership/consumption against the RECORDED ei.env (where
+        // the temp does exist).
+        transfer_value_into(&return_value_expr, ctx, exn, "return");
       });
       if(nrv > usize(0), {
         match(
@@ -2928,8 +2867,8 @@ _evaluate_begin_expression_impl :: (
                 });
                 rv.*.set_consumed_at_token(Option(Token).Some(ast_expr_token(&last_expr)));
               }, {
-                // Borrow/outer-frame share: balancing dup.
-                set_expr_as_needs_to_call_dup(&return_value_expr, ctx, exn, "return");
+                // A borrow or an outer frame's local: a store into the result.
+                transfer_value_into(&return_value_expr, ctx, exn, "return");
               });
             });
           }
@@ -3319,14 +3258,8 @@ _evaluate_begin_expression_impl :: (
     new_expr_info(&env, &return_type)
   );
   // The begin level owns the scope-end drops, but on a SHARED id it must not
-  // CLOBBER the tail's own deferred drops: a Stage-0 projection dup's
-  // balancing `___drop(<dup temp>)` rides the tail CALL node (utils.yo
-  // set_expr_as_needs_to_call_dup_for_borrowed_projection — the dup temp is
-  // consumed, so NO other channel can release that +1), and for a
-  // single-expression begin that call node IS this shared node. Clobbering
-  // left the dup (deferred_dup_expressions survives the clone) with no
-  // balancing drop — every bare-tail projection-by-value call to a
-  // may-mutate callee leaked its whole RC group
+  // CLOBBER the tail's own deferred drops: for a single-expression begin the
+  // tail node IS this shared node, and its drops have no other channel
   // (issues/fixed/ref-local-scope-drop-missing-after-value-call.md). Concat the
   // tail's drops AFTER the scope drops; codegen's emitted-once guard
   // (FunctionGenerationContext.emitted_deferred_drop_ids) keeps each drop to

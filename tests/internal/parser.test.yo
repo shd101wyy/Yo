@@ -887,13 +887,30 @@ test("Peeling survives multibyte literal text around the interpolation", {
       }
     )
   );
-  // A template of several parts lowers to one builder block (D10): an empty
-  // string, then every part appended to it in order.
+  // A template of several parts lowers to one formatter block: an empty
+  // formatter, then every part written into it in order.
   got := _parse_ts("中${名前:>8}文", exn);
-  assert(got.contains(`("".to_string)()`), `the builder starts empty: ${got}`);
-  assert(got.contains(`push_str)("中")`), `the first literal part is appended from its bytes: ${got}`);
-  assert(got.contains(`(名前.format)(">8").append_to)`), `the spec'd part appends its format() result: ${got}`);
-  assert(got.contains(`push_str)("文")`), `the last literal part is appended from its bytes: ${got}`);
+  assert(got.contains(`("".formatter)()`), `the formatter starts empty: ${got}`);
+  assert(got.contains(`write_str)("中")`), `the first literal part is written from its bytes: ${got}`);
+  assert(got.contains(`(名前.format)(">8").fmt)`), `the spec'd part writes its format() result: ${got}`);
+  assert(got.contains(`write_str)("文")`), `the last literal part is written from its bytes: ${got}`);
+});
+test("A template lowers to to_string for one part, to a Formatter for several", {
+  exn := Exception(
+    throw : (
+      err -> {
+        panic("unexpected parse error in a template string");
+      }
+    )
+  );
+  assert_str_eq(_parse_ts("${x}", exn), `(x.to_string)()`, "one interpolated part");
+  assert_str_eq(_parse_ts("lit", exn), `("lit".to_string)()`, "one literal part");
+  got := _parse_ts("a${x}b", exn);
+  assert(got.contains(`("".formatter)()`), `the formatter starts empty: ${got}`);
+  assert(got.contains(`write_str)("a")`), `a literal part is written by write_str: ${got}`);
+  assert(got.contains(`(x.fmt)(`), `an interpolated part is written by its fmt: ${got}`);
+  assert(got.contains(`finish)()`), `the block yields the formatter's finish(): ${got}`);
+  assert(!got.contains(`append_to`), `nothing is appended through append_to: ${got}`);
 });
 test("Reject adjacent different operators without parentheses", {
   // The parse-time rejection of `1 + 2 * 3` had NO test at all: the header
@@ -1224,7 +1241,7 @@ _d47_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
 );
 _d47_marked :: (fn(name : &AstExpr) -> bool)({
   t := ast_expr_token(name);
-  is_mut_binding(&t, &t.*.value.*)
+  is_mut_binding(&t, &t.value.*)
 });
 _d47_thread_local :: (fn(name : &AstExpr) -> bool)({
   t := ast_expr_token(name);

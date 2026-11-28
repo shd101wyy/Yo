@@ -13,7 +13,7 @@
 //
 // `&&T` is a parse error, so it is pinned by tests/internal/parser.test.yo.
 { assert } :: import("std/assert");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { HashMap } :: import("std/collections/hash-map");
@@ -583,7 +583,7 @@ comptime_expect_error(
 // as the named form `{ r := &x; bs_id(r) }` does.
 BsTagger :: struct(k : i32);
 impl(BsTagger, tag : (fn(generic(U : Type), self : &Self, v : U) -> U)(v));
-bs_show :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> usize)(v.to_string().len());
+bs_show :: (fn(generic(T : Type), v : T, where(T <: Display)) -> usize)(v.to_string().len());
 bs_mx :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> T)(cond((a >= b) => a, true => b));
 bs_apply :: (fn(generic(T : Type, U : Type), f : Impl(Fn(v : T) -> U), v : T) -> U)(f(v));
 bs_pair :: (fn(generic(T : Type), a : T, b : T) -> unit)(());
@@ -619,7 +619,7 @@ test("a lend at a parameter typed by a binder makes the binder a reference", {
   t2 := h.tag(rx);
   assert(t2.*.n == i32(4), "the named form");
   i := i32(12);
-  assert(bs_show(&i) == usize(2), "`where(T <: ToString)` at `T := &i32`, through the blanket `ToString(&T)`");
+  assert(bs_show(&i) == usize(2), "`where(T <: Display)` at `T := &i32`, through the blanket `Display(&T)`");
   a := i32(1);
   b := i32(2);
   mxr := bs_mx(&a, &b);

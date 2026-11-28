@@ -15,7 +15,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
-{ ToString } :: import("std/fmt/to_string");
+{ Display } :: import("std/fmt/to_string");
 // ============================================================================
 // Sorts
 // ============================================================================
@@ -62,17 +62,19 @@ derive(VcSortNode, Clone, Eq(VcSortNode));
 // 21's trees).
 impl(
   VcSort,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      match(
-        self,
-        Rc(.BoolS) => String.from("bool"),
-        Rc(.BvS(w)) => `bv${w.to_string()}`,
-        Rc(.DataS(name)) => name.clone(),
-        Rc(.SeqS(_)) => String.from("seq"),
-        Rc(.FunS(_, _)) => String.from("array"),
-        Rc(.ArrS(_, _)) => String.from("array"),
-        Rc(.Uninterpreted(name)) => name.clone()
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
+          self,
+          Rc(.BoolS) => String.from("bool"),
+          Rc(.BvS(w)) => `bv${w.to_string()}`,
+          Rc(.DataS(name)) => name.clone(),
+          Rc(.SeqS(_)) => String.from("seq"),
+          Rc(.FunS(_, _)) => String.from("array"),
+          Rc(.ArrS(_, _)) => String.from("array"),
+          Rc(.Uninterpreted(name)) => name.clone()
+        )
       )
     )
   )

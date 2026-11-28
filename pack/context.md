@@ -90,11 +90,22 @@ export(main);
 
 ```yo
 { assert } :: import("std/assert");
-{ ToString } :: import("std/fmt"); // brings the ToString derive rule
+{ Display, Debug, Formatter } :: import("std/fmt"); // Debug's derive rule is here
 { String } :: import("std/string");
 
 Point :: struct(x : i32, y : i32);
-derive(Point, Copy, Clone, Eq(Point), ToString);
+derive(Point, Copy, Clone, Eq(Point), Debug);
+// Display is written by hand: `fmt` writes into the Formatter.
+impl(
+  Point,
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+      f.write(&self.x);
+      f.write_str(",");
+      f.write(&self.y);
+    })
+  )
+);
 
 Norm :: trait(
   norm1 : (fn(self : &Self) -> i32)
@@ -109,7 +120,7 @@ impl(
 );
 
 // A generic function: T is inferred from the argument.
-describe :: (fn(generic(T : Type), x : &T, where(T <: ToString)) -> String)(
+describe :: (fn(generic(T : Type), x : &T, where(T <: Display)) -> String)(
   `<${x.to_string()}>`
 );
 
@@ -129,10 +140,11 @@ export(main);
   `Ord`'s `cmp` is a total order (a float NaN is greater than every number);
   code that needs a total order calls `cmp`, since `<` on floats is partial.
 - Derivable: `Copy` (with `Clone`), `Clone`, `Eq(T)`, `Ord(T)`, `Hash`,
-  `Default`, `ToString` and `Debug` (import `std/fmt` first), `Error` (import
-  `std/error`).
+  `Default`, `Debug` (import `std/fmt` first), `Error` (import `std/error`).
+  `Display` (what `println` and `${x}` use) is written by hand; its
+  `to_string()` and `Debug`'s `debug_string()` are provided.
 - `impl(...)` statements end with `;`. A generic impl:
-  `impl(generic(T : Type), where(T <: ToString), Box(T), ...)`.
+  `impl(generic(T : Type), where(T <: Display), ArrayList(T), ...)`.
 - `<:` is the bound operator, read *implements*: `where(T <: Tr)`, several
   `T <: (A, B)`, a function trait grouped `F <: (Fn(x : A) -> B)`. A name's `:`
   takes a type or a kind, never a trait: `where(T : Tr)` and
@@ -348,7 +360,7 @@ export(main);
 
 - `"..."` is a reference to static UTF-8 bytes: a parameter takes
   `s : &str`; a function returning a literal is typed `-> str`. A backtick
-  literal is an owned `String` with `${expr}` interpolation (`ToString`).
+  literal is an owned `String` with `${expr}` interpolation (`Display`).
   `String` is a value (`mut(s)` to `push_str`, `.clone()` to copy); indices
   are byte offsets.
 - `Option(T)` (`.Some(v)` / `.None`) is absence; `Result(T, E)` is a
@@ -363,7 +375,7 @@ export(main);
 
 ```yo
 { assert } :: import("std/assert");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt"); // derive(Error) writes a Display impl
 { Error } :: import("std/error"); // brings the Error derive rule
 
 ParseError :: enum(Empty, BadDigit(at : usize));
@@ -395,15 +407,19 @@ export(main);
 ## Sharing: Box, Rc, Arc, Weak, RefCell, std/sync
 
 - `Box(T)` is a unique heap cell (`Option(Box(Self))`). `Rc(T)` (one thread) and `Arc(T)` (threads) share one cell; a second handle
-  is `Rc.clone(&h)`. Members forward (`h.x`, `h.len()`; `h.*` is the
-  payload), which is read-only (E0919): mutate through `RefCell(T)` (`with`,
-  `with_mut`), `Rc.make_mut(&mut h)` or `Rc.get_mut(&mut h)`.
+  is `h.clone()` (`Rc.clone(&h)`). `h.*` is the payload: `.` never reads
+  through a handle, so a payload member is `h.*.x` / `h.*.len()` (`h.x` is
+  E0623, whose `yo fix` repair inserts the star), and a `&Box(T)` binding
+  takes two stars, `b.*.*.x`. The payload is read-only (E0919): mutate
+  through `RefCell(T)` (`h.*.with`, `h.*.with_mut`), `Rc.make_mut(&mut h)` or
+  `Rc.get_mut(&mut h)`.
 - A cycle of strong handles leaks; put a `Weak` on the back edge
   (`Rc.downgrade(&h)`, `w.upgrade()`).
 - `Mutex(T)`, `RwLock(T)`, `WaitGroup`, the `Atomic*` types and the other
   `std/sync` types are move-only values. Share one across threads as
   `Arc(Mutex(T))`: give each thread its own `Arc.clone(&a)`, captured by
-  value. `RefCell` is single-threaded.
+  value; `a.*` names the `Mutex` (`a.*.with_lock(v => ...)`). `RefCell` is
+  single-threaded.
 - `Dyn(Trait)` lives behind `Box`, `Rc` or `&`: `dyn(Box.new(v))`.
 
 ```yo
@@ -415,20 +431,20 @@ export(main);
 main :: (fn() -> unit)({
   shared := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(&shared); // a second handle to the same cell
-  other.with_mut(v => {
+  other.*.with_mut(v => {
     v.* = (v.* + i32(1)); // written through the RefCell door
   });
-  seen := shared.with(v => v.*);
+  seen := shared.*.with(v => v.*);
 
   total := Arc.new(Mutex(i32).new(i32(0)));
   mine := Arc.clone(&total); // the spawned thread's own handle
   t := Thread(unit).spawn({ mine }(io : Io) => {
-    mine.with_lock(v => {
+    mine.*.with_lock(v => {
       v.* = (v.* + i32(1));
     });
   });
   t.join();
-  assert((seen == i32(1)) && (total.with_lock(v => v.*) == i32(1)), "shared");
+  assert((seen == i32(1)) && (total.*.with_lock(v => v.*) == i32(1)), "shared");
 });
 export(main);
 ```
@@ -463,6 +479,11 @@ export(main);
 
 - std's exception effect: `exn := Exception(throw : (e -> unwind(.None)));`
   catches what `exn.throw(dyn(Box.new(err)))` raises (`std/error`).
+- A `ctl` type parameter may only be the whole result,
+  `ctl(generic(R : Type), ps) -> R` (as `Exception.throw`): the operation does
+  not resume, and a `return(...)` in its handler (`return(())` too) is E0627.
+  To resume with a value, fix the type when the record is built
+  (`comptime(R)` on its constructor, as `ResumableException(T)` does).
 - Async runs on ONE event-loop thread per thread and a task never migrates:
   async state needs no mutexes or atomics (blocking work goes to
   `spawn_blocking`). `io.async((io : Io) => body)` builds a lazy future that
@@ -473,6 +494,14 @@ export(main);
   async `Mutex` and channels too); a bundled future viewed as `Future(T)` is
   E0605. `Dyn(Future(...))` is E0614: keep different tasks as
   `ArrayList(JoinHandle(T))` (`io.spawn` each; `join_all`, `race`).
+- `io : Io` is a value, the event loop as `{ ctx, vtable }` (like
+  `Allocator`): `main`, a `Thread` and a pool task are handed their thread's
+  native one, a task body sees the one in its bundle. Everything that suspends
+  or submits takes it (`File.open`, `sleep`, `Park.new(io)`, `watch(p, opts,
+  io, exn)`, every `std/sys` operation as its last argument:
+  `io.await(IO_file.read(fd, buf, n, off, io), io)`); blocking calls do not
+  (`println`, `Instant.now`). Pass `io` on, never build one: `Io.native()`
+  needs `pragma(Pragma.AllowUnsafe)`.
 
 ```yo
 { assert } :: import("std/assert");

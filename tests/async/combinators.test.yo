@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
 { IoExn, Exception, Error } :: import("std/error");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { Channel } :: import("std/async/channel");
@@ -22,7 +22,7 @@ sleepy :: (fn(value : i32, ms : u64, io : Io) -> Impl(Future(i32, Io)))({
   v := Rc(i32).new(value);
   m := Rc(u64).new(ms);
   io.async((io : Io) => {
-    io.await(sleep(m.*), io);
+    io.await(sleep(m.*, io), io);
     return(v.*);
   })
 });
@@ -194,7 +194,7 @@ test("Test timeout in a loop against a long deadline", {
 // ---------------------------------------------------------------------------
 test("Test timeout distinguishes an aborted task from an elapsed deadline", {
   fut := io.async((io : Io) => {
-    io.await(sleep(u64(200)), io);
+    io.await(sleep(u64(200), io), io);
     return(i32(1));
   });
   h := io.spawn(fut, io);
@@ -232,7 +232,7 @@ test("Test two timeouts of join futures at one T", {
 test("Test timeout aborts on deadline", {
   ran := Rc.new(RefCell(bool).new(false));
   fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
-    io.await(sleep(u64(100)), io);
+    io.await(sleep(u64(100), io), io);
     ran.*.with_mut(cur => {
       cur.* = true;
     });
@@ -244,7 +244,7 @@ test("Test timeout aborts on deadline", {
     "an over-deadline task should report Elapsed, not a bare .None"
   );
   // Outlive the aborted task's timer so its completion fires the entry guard.
-  io.await(sleep(u64(120)), io);
+  io.await(sleep(u64(120), io), io);
   assert(!ran.*.with(cur => cur.*), "the timed-out body must not resume past its suspension point");
 });
 // ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ test("Test timeout aborts on deadline", {
 /// returns `value`.
 sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(RefCell(bool)), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ value, ms, ran : Rc.clone(ran) }(io : Io) => {
-    io.await(sleep(ms), io);
+    io.await(sleep(ms, io), io);
     ran.*.with_mut(r => {
       r.* = true;
     });
@@ -276,7 +276,7 @@ test("Test race_first returns the fastest task's value", {
   r := io.await(race_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(20)), .None => false), "the 1 ms task wins");
   // Both losers were aborted and joined: neither runs past its sleep.
-  io.await(sleep(u64(100)), io);
+  io.await(sleep(u64(100), io), io);
   assert(!ran0.*.with(r => r.*), "loser 0 was aborted, not left running");
   assert(!ran2.*.with(r => r.*), "loser 2 was aborted, not left running");
 });
@@ -293,7 +293,7 @@ test("Test any_first returns the first COMPLETED value and aborts the rest", {
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
   r := io.await(any_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(2)), .None => false), "the fast task's value comes back");
-  io.await(sleep(u64(100)), io);
+  io.await(sleep(u64(100), io), io);
   assert(!ran0.*.with(r => r.*), "the loser was aborted");
 });
 test("Test any_first is None when every handle was aborted", {
@@ -441,7 +441,7 @@ test("Test any inside a task skips an aborted handle", {
 test("Test aborting the joining task leaves the joined task running", {
   done := Rc.new(RefCell(bool).new(false));
   worker := io.async({ done : Rc.clone(done) }(io : Io) => {
-    io.await(sleep(u64(20)), io);
+    io.await(sleep(u64(20), io), io);
     done.*.with_mut(cur => {
       cur.* = true;
     });
@@ -458,7 +458,7 @@ test("Test aborting the joining task leaves the joined task running", {
   r := jh.await(io);
   assert(match(r, .Some(_) => false, .None => true), "the joiner was aborted");
   // The aborted join dropped the handle, which detached the worker.
-  io.await(sleep(u64(60)), io);
+  io.await(sleep(u64(60), io), io);
   assert(done.*.with(cur => cur.*), "the joined task still ran to the end");
 });
 // ===========================================================================
@@ -1026,7 +1026,7 @@ impl(
 _a4_bump_after :: (fn(c : &mut _A4Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async({ c : &mut c.*, ms }(io : Io) => {
     p := _A4Probe(k : i32(1));
-    io.await(sleep(ms), io);
+    io.await(sleep(ms, io), io);
     c.n = (c.n + p.k);
     c.n
   })
@@ -1034,7 +1034,7 @@ _a4_bump_after :: (fn(c : &mut _A4Counter, ms : u64, io : Io) -> Impl(Future(i32
 /// Sleeps `ms`, then reads the counter it borrows `&`.
 _a4_read_after :: (fn(c : &_A4Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async({ c : &c.*, ms }(io : Io) => {
-    io.await(sleep(ms), io);
+    io.await(sleep(ms, io), io);
     c.n
   })
 );
@@ -1339,7 +1339,7 @@ test("A4: timeout over a borrowing future that hits the deadline aborts and join
   assert(match(r, .Ok(_) => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)), "the deadline fired first");
   assert(g_a4_dropped == (before + i32(1)), "the aborted operand was joined and disposed before timeout resolved");
   c.n = (c.n + i32(10));
-  io.await(sleep(u64(350)), io);
+  io.await(sleep(u64(350), io), io);
   assert(c.n == i32(10), "the aborted operand never resumed to write through its borrow");
 });
 test("A4: select over two borrowing futures of disjoint places", {
@@ -1349,7 +1349,7 @@ test("A4: select over two borrowing futures of disjoint places", {
   s := io.await(select(_a4_bump_after(&mut a, u64(300), io), _a4_bump_after(&mut b, u64(1), io), io), io);
   assert(match(s, .Some(.Second(v)) => (v == i32(101)), _ => false), "the faster operand won");
   assert(g_a4_dropped == (before + i32(2)), "both operands were joined and disposed: the winner finished, the loser was aborted");
-  io.await(sleep(u64(350)), io);
+  io.await(sleep(u64(350), io), io);
   assert(a.n == i32(0), "the loser was aborted before its write");
   assert(b.n == i32(101), "the winner's write stands");
   // Two shared borrows of one place may overlap.
@@ -1368,7 +1368,7 @@ test("N3-1: select over two borrowing futures of disjoint fields of one struct",
   fb := _a4_read_after(&p.b, u64(300), io);
   s2 := io.await(select(fa, fb, io), io);
   assert(match(s2, .Some(.First(v)) => (v == i32(1)), _ => false), "two bound futures over disjoint fields");
-  io.await(sleep(u64(350)), io);
+  io.await(sleep(u64(350), io), io);
   assert(p.a.n == i32(1), "the first field took its write");
   assert(p.b.n == i32(101), "the second field kept the earlier write");
 });
@@ -1536,7 +1536,7 @@ impl(
 );
 _ArSp :: trait(ar_sp : (fn(self : &Self) -> i32));
 impl(_ArObj, _ArSp(ar_sp : (fn(self : &Self) -> i32)(self.n)));
-impl(_ArObj, ToString(to_string : (fn(self : &Self) -> String)(String.from("ar"))));
+impl(_ArObj, Display(fmt : ((self, f) -> f.write(&String.from("ar")))));
 impl(_ArObj, Error());
 impl(_ArObj, Clone(clone : (fn(self : &Self) -> Self)(_ArObj(n : self.n))));
 _ar_leaf :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => n));
@@ -1567,7 +1567,7 @@ test("an AnyError thrown across an await is caught and its payload dropped once"
 _ar_holder :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     (b : Box(Dyn(_ArSp))) = dyn(Box.new(_ArObj(n : i32(7))));
-    io.await(sleep(u64(30)), io);
+    io.await(sleep(u64(30), io), io);
     b.*.ar_sp()
   })
 );

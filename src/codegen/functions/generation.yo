@@ -1292,8 +1292,15 @@ emit_io_native_definitions :: (fn(context : &mut CodeGenContext) -> unit)({
                     call_args.push_str(", ");
                   });
                   arg_name := if(pi == usize(0), String.from("ctx"), `a${pi.to_string()}`);
-                  params.push_string(`${get_type_string(&pt, context)} ${arg_name.clone()}`);
+                  pt_c := get_type_string(&pt, context);
+                  params.push_string(`${pt_c.clone()} ${arg_name.clone()}`);
                   if(pi > usize(0), {
+                    // A pointer goes on as `void*`: the entry spells its own
+                    // pointee (`const char*` for a `*u8` path), and `void*`
+                    // converts to it without a pointer-sign warning.
+                    if(pt_c.ends_with("*"), {
+                      call_args.push_str("(void*)");
+                    });
                     call_args.push_string(&arg_name);
                   });
                 },
@@ -1690,6 +1697,8 @@ generate_main_wrapper :: (fn(context : &mut FunctionGenerationContext, module_va
   // a normal return, which is what makes a live block at exit a failure.
   debug_alloc := (context.base.allocator == "debug");
   dbg_init := if(debug_alloc, String.from("  __yo_debug_alloc_init();\n"), String.new());
+  // YO_ASYNC_STATS=1 (types/generation.yo): read once, before any task runs.
+  stats_init := String.from("  __yo_async_stats_init();\n");
   dbg_mark := if(debug_alloc, String.from("  __yo_debug_alloc_main_returned();\n"), String.new());
   belt_block := cond(
     test_batch_main =>
@@ -1812,7 +1821,7 @@ ${abort_report}${belt_block}${dbg_mark}  return NULL;
 // Main wrapper - runs program body on a worker thread (default 1 GiB stack,
 // overridable via the YO_MAIN_STACK_MB env var)
 int main(int argc, char** argv) {
-${dbg_init}  __yo_argc = (int32_t)argc;
+${dbg_init}${stats_init}  __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
   pthread_attr_t __yo_main_attr;
@@ -1893,7 +1902,7 @@ static void __yo_win_console_cp_exit(void) {
 // Main wrapper - runs the program body on a worker thread (default 1 GiB
 // stack, overridable via YO_MAIN_STACK_MB), mirroring the POSIX wrapper.
 int main(int argc, char** argv) {
-${dbg_init}  __yo_argc = (int32_t)argc;
+${dbg_init}${stats_init}  __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
   __yo_win_console_cp_enter();
@@ -1936,7 +1945,7 @@ ${dbg_init}  __yo_argc = (int32_t)argc;
         `
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
-${dbg_init}  __yo_argc = (int32_t)argc;
+${dbg_init}${stats_init}  __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
 ${init_call}  // Call sync main

@@ -1,0 +1,35 @@
+//! A program built with -DYO_ASYNC_STATS prints what its async lowering built
+//! and started when it runs with YO_ASYNC_STATS=1
+//! (plans/backlog/ALLOCATION_FREE_ASYNC.md, AFA-0). It touches every counter
+//! the lowering has: a no-await future (a sync cell), a two-await state machine,
+//! a one-await wrapper fused into its caller, a spawned task, a receive that
+//! parks (an I/O-class cell) and the sync-context awaits that root a task.
+{ println } :: import("std/fmt");
+{ Channel } :: import("std/async/channel");
+
+one :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => (n + i32(1))));
+wrap :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))({
+  k := (n + i32(1));
+  io.async((io : Io) => {
+    a := io.await(one(k, io), io);
+    (a + i32(1))
+  })
+});
+two :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    a := io.await(wrap(n, io), io);
+    b := io.await(wrap(a, io), io);
+    (a + b)
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  r := io.await(two(i32(1), io), io);
+  ch := Channel(i32).new(usize(1));
+  consumer := io.async({ ch : ch.clone() }(io : Io) => match(io.await(ch.recv(io), io), .Some(v) => v, .None => i32(-1)));
+  h := io.spawn(consumer, io);
+  _sent := io.await(ch.send(i32(9), io), io);
+  got := match(h.await(io), .Some(v) => v, .None => i32(-1));
+  println(`result: ${r + got}`);
+});
+export(main);

@@ -1,6 +1,5 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ printf } :: import("std/libc/stdio");
 { malloc, free } :: import("std/libc/stdlib");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
@@ -714,95 +713,23 @@ test("Bare discard-statement fn body compiles and drops the discarded value", {
     "discarded value must be dropped (rc 2, not 3)"
   );
 });
-// Regression (issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md,
-// aliasing Stage 0): an RC-typed field PROJECTION passed to a BORROWING
-// parameter gets a caller-owned +1 for the call. Without it, `poke(w, w.b)`
-// reassigning `w.b` in a LOOP freed the old box mid-call (the loop cannot
-// defer the old-value drop across iterations) — the borrowed parameter then
-// read a RECYCLED allocation (printed 101, the newest box, instead of 42).
-// `AliasWrap` was a `ref` struct, and `ref(...)` was deleted in v0.2.79. The
-// container is a value now, so the callee's second name for it is a raw
-// pointer (`w : *AliasWrap`, `addr_of(w)` at the call): the write through it
-// reaches the borrowed field behind the borrow checker's back, exactly as the
-// shared handle did, and the Stage-0 +1 is what keeps the borrow alive.
+// A place lent to a call takes no count: a `&` parameter borrows it, and
+// the checker keeps its owner alive for the call. The non-generic and the
+// generic callee both see the count the caller's handles make (w.b + b0).
 AliasWrap :: struct(b : Rc(i32));
-alias_poke_loop :: (fn(w : *AliasWrap, borrowed : &Rc(i32)) -> unit)({
-  (mut(i) : i32) = i32(0);
-  while(i < i32(2), {
-    w.*.b = Rc.new(i32(100) + i);
-    i = (i + i32(1));
-  });
-  assert(borrowed.*.* == i32(42), "borrowed projection reads the pre-mutation value");
-});
-test("borrowed projection argument survives aliased container mutation", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
-  b0 := Rc.clone(w.b);
-  assert(ref_count(b0) == 2, "w.b + b0 before the call");
-  {
-    alias_poke_loop(addr_of(w), &w.b);
-  };
-  // Asserted AFTER the enclosing statement scope, deliberately. The two
-  // compilers release the Stage-0 +1 at different points — yo-self drops it
-  // post-call (its dup temp is consumed at creation and balanced by an
-  // explicit call-node drop), TS at scope end (its dup temp stays owning and
-  // the normal scope-end machinery drops it). Both are sound; the difference
-  // is only WHEN, and it is only observable through `ref_count`. Checking here, once
-  // both release points have passed, asserts the property that actually
-  // matters and is identical in both: the +1 is released EXACTLY once.
-  //
-  // rc 2 here = the +1 leaked (which is precisely what yo-self's
-  // runtime-call path did before that drop was wired — the previous version
-  // of this test asserted rc 2 right after the call and so encoded the leak
-  // as expected behaviour). rc 0 / a crash = it was released twice.
-  assert(ref_count(b0) == 1, "the Stage-0 +1 is released exactly once");
-  assert(b0.* == i32(42), "original box intact after the aliased mutation");
-});
-// Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot
-// invalidate the borrowed projection, so the Stage-0 +1 is elided — during
-// the call the box's rc stays 2 (w.b + b0), not 3. The non-generic callee
-// exercises the mark-time skip; the generic one exercises the
-// post-specialization unmark.
-stage1_read_borrow :: (fn(w : *AliasWrap, borrowed : &Rc(i32)) -> usize)(
+lend_count_of :: (fn(borrowed : &Rc(i32)) -> usize)(
   ref_count(borrowed.*)
 );
-stage1_rc_of :: (fn(generic(T : Type), borrowed : &T) -> usize)(
+lend_count_of_generic :: (fn(generic(T : Type), borrowed : &T) -> usize)(
   ref_count(borrowed.*)
 );
-test("read-only callee elides the Stage-0 borrowed-projection dup", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
+test("a place lent to a call takes no count", {
+  w := AliasWrap(b : Rc.new(i32(42)));
   b0 := Rc.clone(w.b);
   assert(ref_count(b0) == 2, "w.b + b0 before the calls");
-  assert(
-    stage1_read_borrow(addr_of(w), &w.b) == 2,
-    "non-generic read-only callee sees rc 2 (mark-time skip)"
-  );
-  assert(
-    stage1_rc_of(&w.b) == 2,
-    "generic read-only callee sees rc 2 (post-specialization unmark)"
-  );
-  assert(ref_count(b0) == 2, "ref_count balanced after both elided calls");
-});
-// Aliasing Stage 1 SOUNDNESS: the mutation-summary walk must not be fooled by
-// a mutation hidden behind a STATEMENT. An assignment carries a compile-time
-// UNIT value simply because that is its type — not because it was folded away
-// — so a walk that treats "has a compile-time value" as "emits no runtime
-// code" skips the statement whole, never sees the mutating call on its
-// right-hand side, and wrongly reports the caller read-only. That would elide
-// the Stage-0 dup and reopen the aliasing hole this whole arc closes.
-stage1_poke :: (fn(w : *AliasWrap, seed : i32) -> i32)({
-  w.*.b = Rc.new(i32(100) + seed);
-  w.*.b.*
-});
-// The mutating call sits on the RHS of a REASSIGNMENT statement.
-stage1_sneaky :: (fn(w : *AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
-  (mut(t) : i32) = i32(0);
-  t = stage1_poke(w, seed);
-  borrowed.*.* + (t - t)
-});
-// Control: the same mutation behind a `:=` declaration.
-stage1_honest :: (fn(w : *AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
-  t := stage1_poke(w, seed);
-  borrowed.*.* + (t - t)
+  assert(lend_count_of(&w.b) == 2, "a non-generic callee sees rc 2");
+  assert(lend_count_of_generic(&w.b) == 2, "a generic callee sees rc 2");
+  assert(ref_count(b0) == 2, "rc 2 after both calls");
 });
 // Regression (issues/fixed/array-of-rc-constructor-emits-invalid-c.md): the
 // `Array(T, N)(...)` CONSTRUCTOR used to manufacture UnknownValue placeholders
@@ -824,197 +751,6 @@ test("arrays of RC elements build at runtime, constructor and literal alike", {
   // A fully compile-time array still folds to a constant.
   c :: Array(i32, 3)(1, 2, 3);
   assert(c(2) == 3, "comptime array still folds");
-});
-// Aliasing STAGE 0 SOUNDNESS — the rules deciding WHICH arguments get
-// protected at all. Stage 1 can only elide a dup Stage 0 created, so a shape
-// Stage 0 declines to mark is unprotected whatever Stage 1 concludes.
-//
-// The borrowed argument here is an INDEX read, not a field access. The
-// projection predicate used to require a 2-arg dot, and the marker used to
-// skip any argument carrying a `$.value` — but a runtime element read carries
-// an `UnknownValue`, a value OBJECT meaning "type known, value not". Between
-// them every indexed borrow went unprotected: this read 101 (the recycled
-// allocation) instead of 42. A fixed-size Array is the shape that
-// discriminates — ArrayList index reads go through the Index trait and yield
-// an OWNING temp, so they were already safe at +0.
-// The container is a value reached through a raw pointer, like `AliasWrap`.
-Stage0Arr :: struct(a : Array(Rc(i32), 2));
-stage0_poke_index :: (fn(h : *Stage0Arr, borrowed : &Rc(i32)) -> i32)({
-  (mut(i) : i32) = i32(0);
-  while(i < i32(2), {
-    h.*.a(0) = Rc.new(i32(100) + i);
-    i = (i + i32(1));
-  });
-  borrowed.*.*
-});
-test("an INDEXED borrowed argument is protected like a field projection", {
-  mut(h) := Stage0Arr(a : Array(Rc(i32), 2)(Rc.new(i32(42)), Rc.new(i32(7))));
-  assert(
-    stage0_poke_index(addr_of(h), &h.a(0)) == i32(42),
-    "an element read is a place into container storage too"
-  );
-});
-// Aliasing Stage 1 SOUNDNESS — one probe per "this callee is read-only"
-// decision rule in the mutation-summary walk. Each callee below invalidates
-// the borrowed projection through a DIFFERENT mechanism; every one must be
-// classified may-mutate so the Stage-0 +1 is kept. A rule that wrongly
-// answers read-only shows up here as a use-after-free, not as a subtle
-// slowdown — which is why these are asserted on VALUE, not just rc balance.
-//
-// An explicit RC decrement releases the container-held reference directly,
-// without any assignment for the walk's assignment rule to see. Both the
-// high-level drop and the raw primitive count.
-// NOTE on shape: the decrement must target a handle the callee OWNS. An
-// explicit `___drop(w.b)` on a place the callee does not own is an
-// unbalanced program — it releases the container's reference without
-// clearing the field, so dropping the container later double-frees. (macOS's
-// allocator tolerates that; glibc aborts. It is a bug in the test, not in
-// the compiler.) Raw `__yo_decr_rc` is unbalanced in EVERY shape — it does
-// not consume its operand, so the scope-end drop decrements a second time —
-// so no valid program exercises it and it gets no test; the classification
-// rule still lists it, documented in mutation-summary.ts.
-stage1_drop_owned :: (fn(sink(h) : Rc(i32), borrowed : &Rc(i32)) -> usize)({
-  ___drop(h);
-  ref_count(borrowed.*)
-});
-// The mutation happens only on the BACK EDGE of a mutual recursion, so the
-// walk meets the cycle guard before it ever reaches the assignment.
-Stage1Rec :: struct(_d : i32);
-impl(
-  Stage1Rec,
-  even : (fn(w : *AliasWrap, borrowed : &Rc(i32), n : i32) -> i32)(
-    cond(
-      (n == i32(0)) => borrowed.*.*,
-      true => Stage1Rec.odd(w, borrowed, n - i32(1))
-    )
-  ),
-  odd : (fn(w : *AliasWrap, borrowed : &Rc(i32), n : i32) -> i32)({
-    w.*.b = Rc.new(i32(777));
-    Stage1Rec.even(w, borrowed, n - i32(1))
-  })
-);
-// The mutation is inside an immediately-invoked closure — the walk skips
-// function DEFINITIONS, so it must still catch the CALL.
-stage1_closure :: (fn(w : *AliasWrap, borrowed : &Rc(i32)) -> i32)({
-  f := (fn(ww : *AliasWrap) -> i32)({
-    ww.*.b = Rc.new(i32(888));
-    i32(0)
-  });
-  z := f(w);
-  borrowed.*.* + z
-});
-// The mutation sits in a runtime-selected cond arm, then a match arm — the
-// walk must not let arm-skipping (`caseExecuted`) hide a live branch.
-stage1_cond_arm :: (fn(w : *AliasWrap, borrowed : &Rc(i32), go : bool) -> i32)({
-  cond(
-    (go == true) => {
-      w.*.b = Rc.new(i32(555));
-      i32(0)
-    },
-    true => i32(0)
-  );
-  borrowed.*.*
-});
-stage1_match_arm :: (fn(w : *AliasWrap, borrowed : &Rc(i32), o : Option(i32)) -> i32)({
-  match(
-    o,
-    .Some(_) => {
-      w.*.b = Rc.new(i32(666));
-      ()
-    },
-    .None => ()
-  );
-  borrowed.*.*
-});
-// Transitivity: the mutation is three calls deep.
-stage1_deep3 :: (fn(w : *AliasWrap) -> unit)({
-  w.*.b = Rc.new(i32(333));
-});
-stage1_deep2 :: (fn(w : *AliasWrap) -> unit)(
-  stage1_deep3(w)
-);
-stage1_deep1 :: (fn(w : *AliasWrap, borrowed : &Rc(i32)) -> i32)({
-  stage1_deep2(w);
-  borrowed.*.*
-});
-// Over-conservatism guard: a callee whose only "effect" is a benign extern
-// (printf takes no callback and is not the runtime/allocator family) must
-// STILL be read-only, so the +1 is elided. If this starts failing, the
-// extern rule has become too broad and Stage 1 is losing its benefit.
-stage1_benign_extern :: (fn(w : *AliasWrap, borrowed : &Rc(i32)) -> usize)({
-  unsafe(printf(""));
-  ref_count(borrowed.*)
-});
-test("mutation inside a runtime cond arm keeps the borrow alive", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_cond_arm(addr_of(w), &w.b, true) == i32(42),
-    "a live cond arm's mutation must count"
-  );
-});
-test("mutation inside a match arm keeps the borrow alive", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_match_arm(addr_of(w), &w.b, Option(i32).Some(i32(1))) == i32(42),
-    "a live match arm's mutation must count"
-  );
-});
-test("mutation three calls deep keeps the borrow alive", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_deep1(addr_of(w), &w.b) == i32(42),
-    "the summary must be transitive through the call graph"
-  );
-});
-test("a benign extern does not defeat the read-only elision", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
-  b0 := Rc.clone(w.b);
-  assert(ref_count(b0) == 2, "w.b + b0 before the call");
-  assert(
-    stage1_benign_extern(addr_of(w), &w.b) == 2,
-    "printf must not make a callee may-mutate (elision preserved)"
-  );
-});
-test("a callee containing an explicit ___drop keeps the borrow alive", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  // rc during the call: the container's 1, the own-param's dup, and the
-  // Stage-0 borrow dup = 3; `___drop(h)` consumes the own-param's, leaving
-  // 2. A 1 here would mean the borrow dup was elided — i.e. a callee that
-  // explicitly releases RC storage was classified read-only, which is how
-  // `___drop` sitting in the safe-recurse list used to read.
-  assert(
-    stage1_drop_owned(Rc.clone(w.b), &w.b) == 2,
-    "an explicit ___drop must not be walked through as safe"
-  );
-  assert(w.b.* == i32(42), "the container's own handle is still valid");
-});
-test("mutation on a mutual-recursion back edge keeps the borrow alive", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    Stage1Rec.even(addr_of(w), &w.b, i32(2)) == i32(42),
-    "cycle-guard optimism must not hide the back edge's mutation"
-  );
-});
-test("mutation inside an invoked closure keeps the borrow alive", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_closure(addr_of(w), &w.b) == i32(42),
-    "skipping closure DEFINITIONS must not skip the closure CALL"
-  );
-});
-test("statement-hidden mutation keeps the borrowed-projection dup", {
-  mut(w) := AliasWrap(b : Rc.new(i32(42)));
-  // The callee reassigns `w.b`, dropping the 42-box's container reference.
-  // Without the caller's Stage-0 +1 the borrow would read recycled memory.
-  assert(
-    stage1_sneaky(addr_of(w), &w.b, i32(0)) == i32(42),
-    "borrow survives a mutation hidden behind a reassignment statement"
-  );
-  mut(w2) := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_honest(addr_of(w2), &w2.b, i32(0)) == i32(42),
-    "borrow survives a mutation behind a declaration"
-  );
 });
 // Regression: aliasing a ref local must drop each object EXACTLY ONCE.
 //
@@ -1945,36 +1681,6 @@ test("a plain call with an own parameter still retains a field argument", {
     assert(h.b.*.tag == i32(8), "the holder reads it");
   };
   assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
-});
-// The same method-dispatch emitters also dropped the Stage-0 +1 of a borrowed
-// field projection passed as the RECEIVER (`o.inner.poke(o)`): the plain call
-// `poke_f(o.inner, o)` holds the projected value for the call, the method call
-// did not, and a callee that replaced `o.inner` freed the receiver it was still
-// reading.
-// `_AlOuter` holds its inner cell as an `Rc` field and the callee replaces it
-// through a raw pointer (`ref(struct)` was deleted in v0.2.79).
-_AlInner :: struct(v : i32);
-_AlOuter :: struct(inner : Rc(_AlInner));
-_al_replace :: (fn(o : *_AlOuter) -> unit)({
-  o.*.inner = Rc.new(_AlInner(v : i32(0)));
-});
-impl(
-  _AlInner,
-  poke : (fn(self : &Self, o : *_AlOuter) -> i32)({
-    _al_replace(o);
-    self.v
-  })
-);
-_al_poke_f :: (fn(i : &Rc(_AlInner), o : *_AlOuter) -> i32)({
-  _al_replace(o);
-  i.*.*.v
-});
-test("a receiver projection outlives a method that replaces it", {
-  mut(o) := _AlOuter(inner : Rc.new(_AlInner(v : i32(7))));
-  assert(_al_poke_f(&o.inner, addr_of(o)) == i32(7), "plain call: the argument survived the replacement");
-  mut(o2) := _AlOuter(inner : Rc.new(_AlInner(v : i32(8))));
-  assert(o2.inner.*.poke(addr_of(o2)) == i32(8), "method call: the receiver survived the replacement");
-  assert((o.inner.*.v + o2.inner.*.v) == i32(0), "both owners see the replacement");
 });
 // `ref_count(x)` reads the count of the cell `x` holds, in every shape
 // (plans/VALUES_BY_DEFAULT.md V1 step 0): 1 for a value, the live count for
@@ -3176,15 +2882,12 @@ test("a compile-time-collapsed cond in a wrapper awaited twice by one task", {
   assert(io.await(_cond_ct_fused_twice(Rc.clone(r), io), io) == i32(20), "each await reads the handle twice");
   assert(ref_count(r) == usize(1), "every collapsed copy released its count");
 });
-// A `&Self` receiver, or a `&` argument, reached through an `Rc`/`Arc`
-// payload is kept alive for its call: the caller takes its +1 on the HANDLE
-// (Aliasing Stage 0), so a closure argument that drops every other handle
-// leaves the cell alive until the call returns. When the closure names the
-// handle's container itself, the call is E0910, as the `&` argument is
+// A `&Self` receiver reached through an `Rc`/`Arc` payload, with a closure
+// argument. When the closure names the handle's container itself, the call
+// is rejected
 // (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
-// The payload has a destructor, so it is move-only and no copy of it could
-// keep it: `peek` returns how many payloads were destroyed while its closure
-// ran, 0 when the cell outlived the closure.
+// The payload has a destructor, so it is move-only, and `_rcv_drops` counts
+// the payloads destroyed.
 mut(_rcv_drops) := i32(0);
 _RcvCell :: struct(n : i32);
 impl(
@@ -3205,128 +2908,8 @@ impl(
 );
 _RcvField :: struct(r : Rc(_RcvCell));
 derive(_RcvField, Clone);
-// The aliased list the receiver is reached through. An `ArrayList` is a value
-// since B8, and `ref(...)` (the unchecked shared object these cases used)
-// was deleted in v0.2.79, so the second name for ONE list is a raw pointer:
-// `hs2 := addr_of(hs)`, and `hs2.*.clear()` empties the list the receiver
-// borrows from behind the borrow checker's back, as the shared object did.
-_RcvHolder :: struct(bag : ArrayList(Rc(_RcvCell)));
-impl(_RcvHolder, first : (fn(self : &Self) -> &Rc(_RcvCell))(&self.bag(usize(0))));
-_rcv_peek :: (fn(c : &_RcvCell, act : &Impl(Fn() -> unit)) -> i32)({
-  act();
-  _rcv_drops + (c.n - c.n)
-});
-test("a receiver reached through an Rc element outlives a closure that drops the last other handle", {
-  _rcv_drops = i32(0);
-  mut(hs) := ArrayList(Rc(_RcvCell)).new();
-  hs.push(Rc.new(_RcvCell(n : i32(1))));
-  hs2 := addr_of(hs);
-  assert(
-    hs(usize(0)).*.peek(() => {
-      hs2.*.clear();
-    }) == i32(0),
-    "auto-dereferenced receiver: the cell outlives the call"
-  );
-  assert(_rcv_drops == i32(1), "and is destroyed once, after it");
-  hs.push(Rc.new(_RcvCell(n : i32(2))));
-  assert(
-    hs(usize(0)).*.peek(() => {
-      hs2.*.clear();
-    }) == i32(1),
-    "written `.*` receiver"
-  );
-  assert(_rcv_drops == i32(2), "destroyed once");
-  hs.push(Rc.new(_RcvCell(n : i32(3))));
-  assert(
-    _rcv_peek(&hs(usize(0)).*, () => {
-      hs2.*.clear();
-    }) == i32(2),
-    "a `&` argument through the handle"
-  );
-  assert(_rcv_drops == i32(3), "destroyed once");
-  mut(h) := _RcvHolder(bag : hs);
-  hb := addr_of(h.bag);
-  hb.*.push(Rc.new(_RcvCell(n : i32(4))));
-  assert(
-    h.bag(usize(0)).*.peek(() => {
-      hb.*.clear();
-    }) == i32(3),
-    "an element of a field"
-  );
-  assert(_rcv_drops == i32(4), "destroyed once");
-  hb.*.push(Rc.new(_RcvCell(n : i32(5))));
-  assert(
-    h.first().*.peek(() => {
-      hb.*.clear();
-    }) == i32(4),
-    "a handle returned by a projection call"
-  );
-  assert(_rcv_drops == i32(5), "destroyed once");
-});
-test("a receiver behind a field, nested handles or an Arc outlives the closure too", {
-  _rcv_drops = i32(0);
-  mut(fs) := ArrayList(_RcvField).new();
-  fs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1)))));
-  fs2 := addr_of(fs);
-  assert(
-    fs(usize(0)).r.*.peek(() => {
-      fs2.*.clear();
-    }) == i32(0),
-    "an Rc field of an element"
-  );
-  assert(_rcv_drops == i32(1), "destroyed once");
-  mut(nested) := ArrayList(Rc(Rc(_RcvCell))).new();
-  nested.push(Rc.new(Rc.new(_RcvCell(n : i32(2)))));
-  nested2 := addr_of(nested);
-  assert(
-    nested(usize(0)).*.*.peek(() => {
-      nested2.*.clear();
-    }) == i32(1),
-    "Rc(Rc(T)): the inner handle holds the payload"
-  );
-  assert(_rcv_drops == i32(2), "destroyed once");
-  mut(boxed) := ArrayList(Rc(Box(_RcvCell))).new();
-  boxed.push(Rc.new(Box.new(_RcvCell(n : i32(3)))));
-  boxed2 := addr_of(boxed);
-  assert(
-    boxed(usize(0)).*.*.peek(() => {
-      boxed2.*.clear();
-    }) == i32(2),
-    "Rc(Box(T)): the Rc owns the box"
-  );
-  assert(_rcv_drops == i32(3), "destroyed once");
-  mut(shared) := ArrayList(Arc(_RcvCell)).new();
-  shared.push(Arc.new(_RcvCell(n : i32(4))));
-  shared2 := addr_of(shared);
-  assert(
-    shared(usize(0)).*.peek(() => {
-      shared2.*.clear();
-    }) == i32(3),
-    "an Arc element"
-  );
-  assert(_rcv_drops == i32(4), "destroyed once");
-});
-// The same call in an `io.async` body: the handle's share is taken on the
-// state machine's path too, across the awaits around the call.
-_rcv_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) => {
-    mut(hs) := ArrayList(Rc(_RcvCell)).new();
-    hs.push(Rc.new(_RcvCell(n : i32(1))));
-    io.await(yield(io), io);
-    hs2 := addr_of(hs);
-    seen := hs(usize(0)).*.peek(() => {
-      hs2.*.clear();
-    });
-    io.await(yield(io), io);
-    seen
-  })
-);
-test("a receiver reached through an Rc element in an io.async body outlives the closure", {
-  _rcv_drops = i32(0);
-  assert(io.await(_rcv_in_task(io), io) == i32(0), "the cell outlives the call in the task");
-  assert(_rcv_drops == i32(1), "and is destroyed once");
-});
-// A copyable payload behind a `Box` or a value field keeps its own +1.
+// A `&` receiver is a copy of the caller's value, so a copyable payload behind a
+// `Box` or a value field keeps its value.
 _RcvText :: struct(s : String);
 impl(
   _RcvText,
@@ -3387,11 +2970,10 @@ test("a closure that writes the container a receiver is lent from is rejected", 
     })
   }, "the closure captures it implicitly");
 });
-// An exit taken while a later argument of the call is evaluated (`return`,
-// `break`, `continue`, an unwind, a task's `return`) skips the post-call
-// release of the share the receiver took on the handle, so the exit releases
-// it: a share left behind keeps the cell alive past its last handle, and the
-// payload is never destroyed
+// An exit taken while a later argument of a call on a receiver reached
+// through an `Rc` is evaluated (`return`, `break`, `continue`, an unwind, a
+// task's `return`) leaves the cell's count as it was: the payload is
+// destroyed once, when its last handle goes
 // (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
 impl(
   _RcvCell,
@@ -3438,7 +3020,7 @@ _rcv_exit_task :: (fn(o : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
     r
   })
 );
-test("an exit from a later argument releases the share a receiver took through an Rc", {
+test("an exit from a later argument of a call on a receiver reached through an Rc leaks nothing", {
   _rcv_drops = i32(0);
   mut(hs) := ArrayList(Rc(_RcvCell)).new();
   hs.push(Rc.new(_RcvCell(n : i32(1))));
@@ -3448,40 +3030,14 @@ test("an exit from a later argument releases the share a receiver took through a
   assert(_rcv_exit_unwind(&hs, i32(-1)) == i32(-7), "unwind from a later argument");
   assert(_rcv_exit_unwind(&hs, i32(2)) == i32(3), "no unwind");
   hs.clear();
-  assert(_rcv_drops == i32(1), "every exit released its share");
+  assert(_rcv_drops == i32(1), "every exit left the count as it was");
   mut(fs) := ArrayList(_RcvField).new();
   fs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1)))));
   assert(_rcv_exit_return_field(&fs, .None) == i32(-1), "return, Rc field of an element");
   fs.clear();
-  assert(_rcv_drops == i32(2), "the field's share was released");
+  assert(_rcv_drops == i32(2), "the field's payload was destroyed once");
   assert(io.await(_rcv_exit_task(.None, io), io) == i32(5), "a task's return from a later argument");
-  assert(_rcv_drops == i32(3), "the task released its share");
-});
-// The share is released by exits that leave the call, not by an exit inside
-// the argument (a loop's `break`) or inside the closure (its `return`).
-_rcv_exit_inner :: (fn(hs : &ArrayList(Rc(_RcvCell)), hs2 : *ArrayList(Rc(_RcvCell))) -> i32)(
-  hs(usize(0)).*.peek_k({
-    mut(s) := i32(0);
-    while(true, {
-      s = (s + i32(1));
-      cond((s > i32(2)) => break, true => ());
-    });
-    s
-  }, { hs2 }() => {
-    hs2.*.clear();
-    cond(true => return(()), true => ());
-    _rcv_drops = (_rcv_drops + i32(100));
-  })
-);
-test("an exit inside a later argument or its closure keeps the receiver's share", {
-  _rcv_drops = i32(0);
-  // One list behind two names (a raw pointer, as above): the closure
-  // empties the list the receiver is read from.
-  mut(hs) := ArrayList(Rc(_RcvCell)).new();
-  hs.push(Rc.new(_RcvCell(n : i32(1))));
-  hs2 := addr_of(hs);
-  assert(_rcv_exit_inner(&hs, hs2) == i32(4), "the cell outlives the call");
-  assert(_rcv_drops == i32(1), "and is destroyed once, after it");
+  assert(_rcv_drops == i32(3), "the task's payload was destroyed once");
 });
 
 // Teardown at any nesting depth (issues/fixed/yo-self-rc-depth-cap-skips-deep-teardown.md).

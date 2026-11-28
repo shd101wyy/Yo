@@ -6,7 +6,7 @@ pragma(Pragma.SkipWasm32Wasi);
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Error, Exception, IoExn } :: import("std/error");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { yield, timeout } :: import("std/async");
@@ -14,11 +14,11 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("std/time/duration");
 { Channel } :: import("std/async/channel");
 { Mutex } :: import("std/async/mutex");
-{ __yo_async_socket_start, __yo_async_yield_start, __yo_join_wait_new, __yo_join_wait_add } :: import("std/sys/externs");
+{ __yo_join_wait_add } :: import("std/sys/externs");
 tcp :: import("std/sys/tcp");
 // The native Io's executor entries and IoFuture.completed
 // (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2, §3, IO-1a).
-{ IoFuture, __yo_io_future_completed, __yo_io_spawn_task, __yo_io_run_until, __yo_io_now_ns } :: import("std/sys/future");
+IO_future :: import("std/sys/future");
 
 (mut(g_disposed) : i32) = i32(0);
 // A `Thing` is a shared handle (an `Rc`): copying a list of them clones each
@@ -41,7 +41,7 @@ impl(
 // built on, each holding the task as a raw pointer; the handle stays here.
 _wait_for_task :: (fn(task : *void, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    w := unsafe(__yo_join_wait_new());
+    w := IO_future.park(io);
     unsafe(__yo_join_wait_add(&w, task));
     _w := io.await(w, io);
     i32(1)
@@ -49,7 +49,7 @@ _wait_for_task :: (fn(task : *void, io : Io) -> Impl(Future(i32, Io)))(
 );
 test("two tasks awaiting one pending future both resume", {
   shared := io.async((io : Io) => {
-    io.await(sleep(u64(5)), io);
+    io.await(sleep(u64(5), io), io);
     i32(7)
   });
   hs := io.spawn(shared, io);
@@ -65,7 +65,7 @@ test("two tasks awaiting one pending future both resume", {
 // issues/fixed/aborting-a-task-never-wakes-its-awaiter.md
 test("aborting a task wakes the task awaiting it", {
   f := io.async((io : Io) => {
-    io.await(sleep(u64(50)), io);
+    io.await(sleep(u64(50), io), io);
     i32(7)
   });
   hf := io.spawn(f, io);
@@ -92,7 +92,7 @@ test("a cancelled receiver does not consume the next message", {
     match(v, .Some(x) => x, .None => i32(-1))
   });
   hg := io.spawn(g, io);
-  io.await(sleep(u64(2)), io);
+  io.await(sleep(u64(2), io), io);
   _s := io.await(ch.send(i32(42), io), io);
   r2 := io.await(timeout(hg.join(io), Duration.from_millis(i64(200)), io), io);
   assert(match(r2, .Ok(v) => (v == .Some(i32(42))), .Err(_) => false), "the live receiver got the message");
@@ -145,7 +145,7 @@ test("cancelling a task blocked on a channel releases it", {
 
 // issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md
 Boom :: struct(msg : String);
-impl(Boom, ToString(to_string : (self -> self.msg.clone())));
+impl(Boom, Display(fmt : ((self, f) -> f.write(&self.msg))));
 impl(Boom, Error());
 derive(Boom, Clone);
 _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
@@ -272,13 +272,13 @@ test("a JoinHandle is awaited once: the await consumes it", {
 test("a JoinHandle of a raw I/O future reads its result and can abort it", {
   // A socket's result is its (non-zero) fd, which a handle reading the
   // state-machine layout used to miss.
-  h := io.spawn(unsafe(__yo_async_socket_start(i32(2), i32(1), i32(0))), io);
+  h := io.spawn(tcp.socket(i32(2), i32(1), i32(0), io), io);
   fd := match(h.await(io), .Some(v) => v, .None => i32(-99));
   assert(fd > i32(2), "the handle read the operation's fd");
   // Through the runtime: on Windows the fd is a SOCKET, and the CRT's
   // close() on it hits the invalid-parameter handler (abort, exit code 22).
-  _c := io.await(tcp.close(fd), io);
-  h2 := io.spawn(unsafe(__yo_async_yield_start()), io);
+  _c := io.await(tcp.close(fd, io), io);
+  h2 := io.spawn(IO_future.yield(io), io);
   h2.abort();
   assert(h2.await(io).is_none(), "the aborted raw future reads .None");
 });
@@ -419,11 +419,7 @@ test("an index result passed to an async call in a task is released", {
 _SmErr :: struct(n : i32);
 impl(
   _SmErr,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
-      return(String.from("sm error"));
-    })
-  )
+  Display(fmt : ((self, f) -> f.write_str("sm error")))
 );
 impl(_SmErr, Error());
 impl(
@@ -456,37 +452,38 @@ test("an error a task throws after an await is released", {
   assert(g_disposed == (before + i32(1)), `the thrown error was disposed, ${g_disposed - before} times`);
 });
 
-// plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2: `IoFuture.completed(r)`
-// is a future born completed. An await reads -1 and resumes inline, in a
+// plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2: `completed(r)`
+// (std/sys/future) is a future born completed. An await reads -1 and resumes inline, in a
 // sync context and inside a task alike.
 _sm_await_completed :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    a := io.await(__yo_io_future_completed(i32(40)), io);
-    b := io.await(__yo_io_future_completed(i32(2)), io);
+    a := io.await(IO_future.completed(i32(40)), io);
+    b := io.await(IO_future.completed(i32(2)), io);
     (a + b)
   })
 );
 test("a future born completed resolves to its result without a tick", {
-  assert(io.await(__yo_io_future_completed(i32(-5)), io) == i32(-5), "a negative errno passes through");
+  assert(io.await(IO_future.completed(i32(-5)), io) == i32(-5), "a negative errno passes through");
   assert(io.await(_sm_await_completed(io), io) == i32(42), "awaited inside a task");
 });
-// The executor entries the native IoVTable calls: run_until drives this
-// thread's loop until the task is terminal, spawn leaves a task that is not
-// cold alone, and now is the monotonic clock in nanoseconds.
+// The native IoVTable's executor entries, called through `io.vtable`:
+// run_until drives this thread's loop until the task is terminal, spawn
+// leaves a task that is not cold alone, and now is the monotonic clock in
+// nanoseconds.
 test("the native executor entries drive and leave tasks as the table promises", {
-  t0 := __yo_io_now_ns();
+  t0 := io.vtable.*.now(io.ctx);
   h := io.spawn(
     io.async((io : Io) => {
-      io.await(sleep(u64(2)), io);
+      io.await(sleep(u64(2), io), io);
       i32(9)
     }),
     io
   );
   assert(!h.is_finished(), "the task is parked on its timer");
-  __yo_io_spawn_task(h.as_ptr());
-  __yo_io_run_until(h.as_ptr());
+  io.vtable.*.spawn(io.ctx, h.as_ptr());
+  io.vtable.*.run_until(io.ctx, h.as_ptr());
   assert(h.is_finished(), "run_until returned with the task terminal");
-  t1 := __yo_io_now_ns();
+  t1 := io.vtable.*.now(io.ctx);
   assert(t1 >= (t0 + u64(1000000)), `now advanced across the 2 ms timer (${t1 - t0} ns)`);
   assert(h.await(io) == Option(i32).Some(i32(9)), "the task completed once, with its result");
 });

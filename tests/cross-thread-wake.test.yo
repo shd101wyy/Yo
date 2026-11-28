@@ -32,7 +32,7 @@
 { Duration } :: import("std/time/duration");
 { sleep_blocking } :: import("std/time/sleep");
 test("a waker fired from another OS thread resumes its task on the owning loop", {
-  p := Park.new();
+  p := Park.new(io);
   w := p.waker();
   stamped := Arc.new(AtomicI32.new(i32(0)));
   resumed_on := Arc.new(AtomicUsize.new(usize(0)));
@@ -64,8 +64,8 @@ test("a waker fired from another OS thread resumes its task on the owning loop",
   t.join();
 });
 test("two parks woken from two different threads", {
-  p1 := Park.new();
-  p2 := Park.new();
+  p1 := Park.new(io);
+  p2 := Park.new(io);
   w1 := p1.waker();
   w2 := p2.waker();
   order := Arc.new(AtomicI32.new(i32(0)));
@@ -115,7 +115,7 @@ test("a wake that arrives BEFORE the task suspends is not lost", {
   // future, and an await point reads the future's state before registering a
   // continuation, so an already-woken park resumes inline instead of
   // suspending forever.
-  p := Park.new();
+  p := Park.new(io);
   w := p.waker();
   t := Thread(unit).spawn((tio : Io) => {
     w.wake();
@@ -147,7 +147,7 @@ test("a wake posted before the owner drops its waker handle still resumes the pa
   // deterministic, so this fails every time on the unfixed runtime.
   (mut(round) : i32) = i32(0);
   while(round < i32(5), {
-    p := Park.new();
+    p := Park.new(io);
     w := p.waker();
     {
       wc := w.clone();
@@ -170,7 +170,7 @@ test("the common ordering — owner drops its waker handle first, worker wakes l
   // the previous test while pessimising this one.
   (mut(round) : i32) = i32(0);
   while(round < i32(5), {
-    p := Park.new();
+    p := Park.new(io);
     w := p.waker();
     {
       wc := w.clone();
@@ -219,7 +219,7 @@ test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outl
 test("a waker clone released on a worker thread leaves the owner's handle able to wake the park", {
   (mut(round) : i32) = i32(0);
   while(round < i32(50), {
-    p := Park.new();
+    p := Park.new(io);
     w := p.waker();
     wc := w.clone();
     worker := Thread(unit).spawn({ wc }(tio : Io) => {
@@ -246,7 +246,7 @@ test("a waker clone released on a worker thread leaves the owner's handle able t
 test("the last of two waker handles, released on a worker after its wake, resumes the park", {
   (mut(round) : i32) = i32(0);
   while(round < i32(50), {
-    p := Park.new();
+    p := Park.new(io);
     w := p.waker();
     wc := w.clone();
     // The owner's handle goes first, so the worker's clone is the last

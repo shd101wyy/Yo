@@ -272,12 +272,12 @@ impl(
   /// (moved) at the back of the waiters and return the park with its ticket,
   /// in one guarded step: a waiter cannot miss an `unlock` that runs between
   /// its check and its queueing.
-  _acquire_or_park : (fn(self : &Self) -> Option(_Parked))({
+  _acquire_or_park : (fn(self : &Self, io : Io) -> Option(_Parked))({
     st := self._core.*._state();
     self._core.*._guard.lock();
     (mut(out) : Option(_Parked)) = Option(_Parked).None;
     if(unsafe(st.*._locked), {
-      p := Park.new();
+      p := Park.new(io);
       t := unsafe(st.*._next_ticket);
       unsafe(consume(st.*._next_ticket = (t + u64(1))));
       unsafe(st.*._waiters.push(_Waiter(_ticket : t, _thread : __yo_thread_self(), _waker : p.waker())));
@@ -302,7 +302,7 @@ impl(
   lock : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
     io.async({ self : &self.* }(io : Io) => {
       match(
-        self._acquire_or_park(),
+        self._acquire_or_park(io),
         .None => (),
         .Some(_Parked(_park : p, _ticket : t)) => {
           // Until the lock is taken, dropping the claim (this future released

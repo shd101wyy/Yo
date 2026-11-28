@@ -89,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
   convert_comptime_type_to_runtime_type_with_expected
 } :: import("../../types/env-lookup.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, with_code, YoError } :: import("../../error.yo");
-{ Span, E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES, E_TRAIT_BOUND_FORM } :: import("../../diagnostics.yo");
+{ Span, E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES, E_TRAIT_BOUND_FORM, E_CTL_GENERIC_RESUME } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name, check_where_clause_form, throw_if_bound_rhs_is_not_a_trait, is_bare_trait_type, trait_constructor_params_of, trait_constructor_spelling, trait_as_value_type_error, source_matching_paren_byte, source_span_from_anchor, source_operand_after } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
@@ -4283,6 +4283,35 @@ retry_pending_constraints :: (
 /// True for `...(E)` with one identifier argument: the removed effect-row
 /// spread spelling (the variadic `...(comptime(rest) : T)` has a non-atom
 /// argument and is not matched).
+/// Whether `ty` mentions the type variable `label` anywhere: a SomeT of that
+/// name among its type variables.
+_type_mentions_type_var :: (fn(ty : &TypeValue, label : &String) -> bool)({
+  vars := get_all_some_types(ty);
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while(!found && (i < vars.len()), {
+    found = match(vars.get_cloned(i), .Some(v) => match(&v, Rc(.SomeT({ name : n })) => (n.* == label.*), _ => false), .None => false);
+    i = (i + usize(1));
+  });
+  found
+});
+/// E0627 at a `ctl` type that uses its type parameter `label` in `site` (VERDICTS-89 R1).
+_throw_ctl_type_param_misuse :: (fn(label : &String, site : String, tok : Token, exn : Exception) -> unit)(
+  exn.throw(
+    dyn(
+      Box.new(
+        with_code(
+          format_error_message_with_help(
+            &tok,
+            `The type parameter \`${label.*}\` of this \`ctl\` type is used in ${site}. A \`ctl\`'s type parameter may only be its whole result type (\`ctl(generic(${label.*} : Type), ...) -> ${label.*}\`), which declares an operation that does not resume.`,
+            Option(String).Some(`one handler function serves every throw site, so it cannot receive or build a value of a type the throw site picks. Fix the type when the record is built: \`(fn(comptime(${label.*}) : Type) -> comptime(Type))(struct(op : (ctl(..., v : ${label.*}) -> ${label.*})))\`.`)
+          ),
+          E_CTL_GENERIC_RESUME
+        )
+      )
+    )
+  )
+);
 _is_removed_row_spread :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, "...", .Some(usize(1))) && match(_fn_call_args(e).get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false)
 );
@@ -5808,6 +5837,43 @@ evaluate_function_type :: (
       quoted_param_indices.push(ppi);
     });
     ppi = (ppi + usize(1));
+  });
+  // VERDICTS-89 R1: a `ctl` type parameter may appear only as the whole
+  // result type. One handler function serves every throw site, so a type the
+  // throw site picks can reach it neither as an argument nor inside a result
+  // it builds; `ctl(generic(R : Type), ...) -> R` is the operation that does
+  // not resume.
+  if(is_ctl_fn_type, {
+    (cg_i : usize) = usize(0);
+    while(cg_i < params_result.forall_params.len(), {
+      match(
+        params_result.forall_params.get_cloned(cg_i),
+        .Some(cg_fp) => if(is_type_kind(&cg_fp.ty), {
+          (cg_j : usize) = usize(0);
+          while(cg_j < params_result.params.len(), {
+            match(
+              params_result.params.get_cloned(cg_j),
+              .Some(cg_pp) => if(_type_mentions_type_var(&cg_pp.ty, &cg_fp.label), {
+                _throw_ctl_type_param_misuse(
+                  &cg_fp.label,
+                  `the parameter \`${cg_pp.label}\``,
+                  match(cg_pp.ty_expr.clone(), .Some(cg_te) => ast_expr_token(&cg_te), .None => ast_expr_token(expr)),
+                  exn
+                );
+              }),
+              .None => ()
+            );
+            cg_j = (cg_j + usize(1));
+          });
+          cg_whole := match(&return_type, Rc(.SomeT({ name : cg_rn })) => (cg_rn.* == cg_fp.label), _ => false);
+          if(!cg_whole && _type_mentions_type_var(&return_type, &cg_fp.label), {
+            _throw_ctl_type_param_misuse(&cg_fp.label, `the result type \`${type_to_string(&return_type)}\``, ast_expr_token(&return_type_expr), exn);
+          });
+        }),
+        .None => ()
+      );
+      cg_i = (cg_i + usize(1));
+    });
   });
   // Register the per-parameter default values keyed by this `fn(...)`
   // type-expression id. `try_to_implement_function_by_function_type`

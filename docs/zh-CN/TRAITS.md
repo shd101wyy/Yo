@@ -147,7 +147,7 @@ Pullable :: trait(
 在整个程序中，一个类型最多实现某个 trait 一次（`plans/reference/TRAIT_COHERENCE.md`）。以下情况都是错误 E0612：
 
 - 第二个 `impl(P, Summary(...))`，无论在同一模块还是其他模块；
-- 被导入的模块或 prelude 已经为该类型实现过的 trait，再写一个 impl，例如 `impl(i32, ToString(...))`；
+- 被导入的模块或 prelude 已经为该类型实现过的 trait，再写一个 impl，例如 `impl(i32, Display(...))`；
 - 一揽子 impl（`impl(generic(T : Type), where(T <: Bound), T, Summary(...))`）与某个满足 `Bound` 的类型的 `Summary` 具体 impl 同时存在，无论注册顺序。
 
 Yo 没有特化，更具体的 impl 不会覆盖更一般的 impl；在此规则之前，先注册的 impl 会静默胜出，另一个成为死代码。泛型 trait 的两个实例是不同的 trait（`Eq(String)` 与 `Eq(str)`），约束互不重叠的一揽子 impl 也没有问题。
@@ -328,7 +328,7 @@ p := addr_of(collection(idx));
 - **只读元素。** 只实现 `Index` 而不实现 `IndexMut` 的类型，其元素是只读的；通过 `x(i)` 写入会得到一个指出缺少 `IndexMut` 的编译错误。
 - **可写的接收者。** `index_mut` 接收 `self : &mut Self`，所以通过 `x` 的只读借用（一个 `x : &T` 参数）写 `x(i)` 是 E0908。
 - **同一个 `Output`。** 同一索引类型的 `Index` 与 `IndexMut` 必须给出相同的 `Output`。
-- **`Deref` 与 `DerefMut` 以同样的方式选择。** 所有者（`Array(T, N)`、持有 `[T]` 的用户类型）上的 `w.*` 是其 `deref` 投影给出的位置，经由它的每一次写入改为调用 `deref_mut`；只有 `Deref` 而没有 `DerefMut` 的类型，其 `.*` 是只读的（[自动解引用](#自动解引用)）。
+- **`Deref` 与 `DerefMut` 以同样的方式选择。** 所有者（`Array(T, N)`、持有 `[T]` 的用户类型）上的 `w.*` 是其 `deref` 投影给出的位置，经由它的每一次写入改为调用 `deref_mut`；只有 `Deref` 而没有 `DerefMut` 的类型，其 `.*` 是只读的（[解引用](#解引用)）。
 
 #### 投影
 
@@ -618,7 +618,7 @@ match(
 );
 ```
 
-## 自动解引用
+## 解引用
 
 prelude 中的 `Deref` trait 给出 `w.*` 所代表的位置，`DerefMut` 是它的写入半边：
 
@@ -631,45 +631,89 @@ DerefMut :: trait(Target : Type, deref_mut : (fn(self : &mut Self) -> &mut Self.
 `&mut` 借出、`self : &mut Self` 接收者以及 `addr_of` 调用 `deref_mut`。只有
 `Deref` 而没有 `DerefMut` 的类型，其 `.*` 是只读的；两个实现共用同一个 `Target`。
 
+`x.*` 是唯一的解引用：引用的被引用值、裸指针的被指向值、句柄的载荷、所有者的
+`deref` 视图。`Deref` 和 `DerefMut` 只定义 `.*`，不定义别的。保留下来的隐式
+步骤由三条规则命名：
+
+- **引用透明性。** `.` 访问接收者自身类型所命名的成员。`&T` 与 `&mut T` 对它是
+  透明的——它们没有自己的成员，任何 impl 也无法为它们提供——因此字段读取、
+  方法调用和下标调用都无需 `.*` 即可穿过任意多层引用，且适用于每一种接收者
+  形式：绑定、字段、调用结果、临时值。所有用户定义的间接层——`Deref`/
+  `DerefMut` 类型、裸指针、所有者——都要求写出 `.*`（下文的 E0623）。对命名
+  绑定，引用的整值读取、借出或写入仍要写 `.*`（E0926），且没有任何转换会把
+  `&&T` 变成 `&T`。
+- **接收者自动借用。** 方法接收者遵循其槽位声明的模式：`x.m(...)` 按 impl
+  声明的方式把 `x` 传给 `self`——按值接收者消耗（`Copy` 则复制），`&Self` 槽位
+  在调用期间以只读方式借出 `x`，`&mut Self` 槽位独占地借出它直到调用返回。
+  本身是引用值的接收者无需借用：引用就是槽位的值。写作 `(&x).m(...)` /
+  `(&mut x).m(...)` 与之是同一个调用。声明的模式就是契约；
+  `yo context <type> <method>` 会打印它。
+- **按书写上下文选择孪生。** 处于读取位置的 `x.*` 和 `x(i)` 分派 `deref` /
+  `index`；只有当书写的语法让一次写入或一次独占借出经过该位置时——赋值目标、
+  `&mut` 实参或接收者、`addr_of`——才会选择 mut 孪生，别无其他。两个孪生共用
+  一个 `Target` / `Output`，只有读取孪生的类型是只读的（E0908）。
+
 `Box`、`Rc` 和 `Arc` 是**句柄**：`w.*` 是其指针所指的载荷，由编译器直接读取，
 它们的 `deref` 是 `&self.*.*`。`Rc` 和 `Arc` 没有 `DerefMut`，因为通过句柄
-访问的载荷是只读的。对 `Deref` 类型，包装器自身没有的字段或方法会到载荷上查找：
-`w.field` 即 `w.*.field`，`w.method()` 即 `w.*.method()`。
+访问的载荷是只读的。载荷的成员每穿过一层写一个星号：
 
 ```yo
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
 p := Rc.new(Point(x : 3, y : 4));
-assert(p.x == 3); // p.*.x
-assert(p.norm1() == 7); // p.*.norm1()
+assert(p.*.x == 3);
+assert(p.*.norm1() == 7);
+assert(p.*.norm1() == 7);
 pp := Rc.new(Rc.new(Point(x : 1, y : 2)));
-assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
+assert(pp.*.*.y == 2); // 每个句柄一个星号
+assert(pp.*.*.y == 2); // 每个句柄一个星号
 mut(b) := Box.new(Point(x : 3, y : 4));
-b.x = 5; // 是一个位置：写入 b.*.x —— 只有 Box 有 DerefMut
-assert(b.norm1() == 9);
+b.*.x = 5; // 是一个位置：只有 Box 有 DerefMut
+assert(b.*.norm1() == 9);
 ```
 
-- **两者都有的名字是错误（E0616）。** `Point` 派生了 `Clone`，`Rc` 也实现了
-  `Clone`，因此 `p.clone()` 两种含义都有可能。用 `Rc.clone(p)` 调用 `Rc`
-  自己的 `clone`（得到一个新的 `Rc`），用 `p.*.clone()` 调用载荷的（得到一个
-  `Point`）；`yo fix` 会把调用改写为 `Rc.clone(p)`。只有一方拥有的名字无需
-  选择，`p.*` 永远就是载荷本身。泛型函数体中的调用，例如
-  `where(T <: Clone)` 下的 `x.clone()`，即使 `T` 是 `Rc` 也是约束提供的方法。
-- **位置。** 在 `Box` 上，转发得到的字段是一个位置：`b.x = v` 以及
-  `&mut self` 调用（如 `b.items.push(v)`）都写入载荷。通过 `Rc` 的同样写法
+- **只用 `.` 读取载荷的成员是错误 E0623。** 其帮助信息写出完整的链
+  （`pp.*.*.y`、`x.*.*.value`），`yo fix` 会插入这些星号：
+
+  ```yo expect=E0623
+  Point :: struct(x : i32, y : i32);
+  impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
+  main :: (fn() -> unit)({
+    p := Rc.new(Point(x : 3, y : 4));
+    n := p.norm1();
+  });
+  export(main);
+  ```
+
+  ```text
+  error[E0623]: `p` has type `Rc(Point)`, which has no member "norm1"; its payload `Point` has one. `.` does not read through a handle.
+  help: write `p.*.norm1(...)`: `p.*` names the payload (`yo fix` applies this)
+  ```
+
+  当链上没有任何类型拥有这个名字时，错误信息会说明这一点：
+  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
+  field "z" either.``（E0406；方法则为 E0610）。
+- **`w.clone()` 是句柄自身的 `clone`**，在泛型函数体内外都一样：对 `Rc` 和
+  `Arc` 得到第二个句柄，对 `Box` 得到一个新单元。`Rc.clone(w)` 是同一个调用，
+  `w.*.clone()` 调用载荷的 `clone`。
+- **被调用位置。** `h.*.items(i)` 对载荷的 `items` 进行索引，`h.*.f(x)` 调用
+  载荷中保存函数的字段。
+- **指向句柄的引用要写两个星号。** `x : &Box(Node)`，例如 `for(&xs, x => …)`
+  的元素或 `match(&self.next, .Some(b) => …)` 的绑定，以 `x.*.*.value` 访问
+  载荷：第一个星号属于引用，第二个属于句柄。惯用写法是 `Box(n)` 模式
+  （`.Some(Box(n)) => n.total()`）和 `x.as_ref().value`。
+- **裸指针。** 在不安全代码中，`q.*.x` 读取 `q : *P` 所指值的字段；`q.add(1)`
+  是指针自身的方法。
+- **位置。** 在 `Box` 上，载荷的成员是一个位置：`b.*.x = v` 以及
+  `&mut self` 调用（如 `b.*.items.push(v)`）都写入载荷。通过 `Rc` 的同样写法
   是 E0919（见下文）：`Rc` 没有 `DerefMut`，其载荷通过句柄只读。在没有
   `pragma(Pragma.AllowUnsafe)` 的文件中，通过 `Arc` 写入同样会被拒绝
-  （`a.n = v`，或 `self : &mut Self` 的 `a.bump()`）：请通过 `Mutex` 或原子
+  （`a.*.n = v`，或 `self : &mut Self` 的 `a.*.bump()`）：请通过 `Mutex` 或原子
   类型修改 `Arc` 的载荷。
 - **在 prelude 之外，`Deref` 需要非定长的 `Target`。** prelude 之外的 `Deref`
   或 `DerefMut` 实现，只有当 `Target` 是 `[T]`、`str`、`Dyn(...)` 或尾部非定长的
   结构体时才被接受。定长的 `Target` 和开放的类型变量是错误 E0622：包装定长
   载荷的类型应通过自己的字段和方法暴露它。
-- 当包装器和载荷都没有这个名字时，错误信息会说明这一点：
-  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
-  field "z" either.``（E0406；方法则为 E0610）。
-- **被调用位置。** `p.items(i)` 对载荷的 `items` 进行索引，`p.f(x)` 调用载荷中
-  保存函数的字段。包装器的方法与载荷的同名字段同样是 E0616。
 - **把整个载荷当作引用：`as_ref`。** `Rc`、`Box` 和 `Arc` 都有
   `as_ref : (fn(self : &Self) -> &T)`（沿用 Rust 的名字）：在需要 `&T` 的地方
   （例如传给 `&T` 参数，`takes_point(p.as_ref())`），`h.as_ref()` 把载荷借出；
@@ -692,9 +736,10 @@ main :: (fn() -> unit)({
   mut(r) := Ring(items : Array(i32, 3)(1, 2, 3));
   v := &r.*; // r.deref()：以 r 为根的视图
   assert(count(v) == usize(3));
-  assert(r.len() == usize(30)); // 所有者自己的 len
+  assert(r.len() == usize(30)); // Ring 的 len
+  assert(r.len() == usize(30)); // Ring 的 len
   assert(r.*.len() == usize(3)); // 视图的 len
-  assert(!r.is_empty()); // 只有视图有它：r.*.is_empty()
+  assert(!r.*.is_empty()); // 只有视图拥有的成员
   w := &mut r.*; // r.deref_mut()：w 存活期间独占
   assert(count(w) == usize(3));
 });
@@ -704,9 +749,10 @@ export(main);
 - `&w.*` 即 `w.deref()`，`&mut w.*` 即 `w.deref_mut()`，其他位置的 `w.*` 是该
   调用的位置。视图借用所有者，因此视图存活期间，所有者不能被写入、移动或以
   `&mut` 借出（E0911）。
-- **所有者自己的成员优先。** 只有视图拥有的成员通过 `.*` 访问；所有者拥有的
-  成员属于所有者，因此上例中 `r.len()` 是 `Ring` 的，`r.*.len()` 是视图的。
-  因此，给所有者新增成员会让原先访问视图同名
-  成员的调用改为解析到所有者。
+- 上例中 `r.len()` 是 `Ring` 的，`r.*.len()` 是视图的。`r.is_empty()` 是
+  E0623：只有视图有 `is_empty`，而 `r.*` 指称视图。
+  E0623：只有视图有 `is_empty`，而 `r.*` 指称视图。
 - **其他地方都不解引用。** `&Ring` 不能填入 `&[i32]` 形参：`count(&r)` 是
-  E0601，其帮助信息给出 `count(&r.*)`。运算符的操作数也从不解引用。
+  E0601，其帮助信息给出 `count(&r.*)`。运算符的操作数也从不解引用（`h.* + 1`）。
+  索引和迭代同样不解引用：`h : Rc(ArrayList(T))` 上的 `h(i)` 是 E0606，其帮助
+  信息给出 `h.*(i)`；`for(&h, …)` 是 E0623，其帮助信息给出 `for(&h.*, …)`。

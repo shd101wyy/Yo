@@ -114,7 +114,7 @@ A reference (`&T`, `&mut T`) is a value whose type carries its **origin**, the s
 
 Use cases:
 
-- Stdlib trait methods that mutate (`Hasher.write`, `Iterator.next`) take `self : &mut Self`; the ones that only read (`Clone.clone`, `ToString.to_string`, `Hash.hash`, `Debug.debug_string`, `Format.format`, `ToJson.to_json`, `Error.source`) take `self : &Self`, as in Rust. You write `hasher.write_u64(v)`, `it.next()` — a receiver is written bare; an argument to a `&mut T` parameter is lent with `&mut`, as in `value.hash(&mut hasher)`.
+- Stdlib trait methods that mutate (`Hasher.write`, `Iterator.next`) take `self : &mut Self`; the ones that only read (`Clone.clone`, `Display.fmt`, `Hash.hash`, `Debug.debug_fmt`, `Format.format`, `ToJson.to_json`, `Error.source`) take `self : &Self`, as in Rust. You write `hasher.write_u64(v)`, `it.next()` — a receiver is written bare; an argument to a `&mut T` parameter is lent with `&mut`, as in `value.hash(&mut hasher)`.
 - Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `name : &mut T`.
 - Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(v : &mut T) -> R))`.
 
@@ -174,7 +174,7 @@ Node :: struct(value : i32, next : Option(Rc(RefCell(Self))));
 test("a cycle of strong handles is never freed", {
   a := Rc.new(RefCell(Node).new(Node(value : i32(1), next : .None)));
   b := Rc.new(RefCell(Node).new(Node(value : i32(2), next : .Some(Rc.clone(a)))));
-  a.with_mut((n : &mut Node) => {
+  a.*.with_mut((n : &mut Node) => {
     n.next = .Some(Rc.clone(b)); // a -> b -> a: both counts stay above zero
   });
 });

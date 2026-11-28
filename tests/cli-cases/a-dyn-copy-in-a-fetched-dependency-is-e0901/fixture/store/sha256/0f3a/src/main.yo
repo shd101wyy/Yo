@@ -2,12 +2,12 @@
 // dependency's is: decision 47's locals rule still exempts the store, and the
 // unique `Dyn` rule (decision 7) no longer does (B13).
 { println } :: import("std/fmt");
-{ ToString } :: import("std/fmt/to_string");
+{ Display } :: import("std/fmt/to_string");
 { String } :: import("std/string");
 Cat :: struct(n : i32);
-impl(Cat, ToString(to_string : (fn(self : &Self) -> String)(`cat ${self.n}`)));
+impl(Cat, Display(fmt : ((self, f) -> f.write(&`cat ${self.n}`))));
 main :: (fn() -> unit)({
-  (d : Box(Dyn(ToString))) = dyn(Box.new(Cat(n : i32(3))));
+  (d : Box(Dyn(Display))) = dyn(Box.new(Cat(n : i32(3))));
   e := d;
   println(e.*.to_string());
   println(d.to_string());

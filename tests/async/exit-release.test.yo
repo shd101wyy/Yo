@@ -30,7 +30,7 @@ test("a join wait completed before its other task's abort is released at exit", 
 // and its park future waited there forever, because only a loop driver's
 // teardown drained the inbox.
 test("a waker released on a worker after the owner's last tick is released at exit", {
-  p := Park.new();
+  p := Park.new(io);
   w := p.waker();
   t := Thread(unit).spawn({ w }(tio : Io) => {
     sleep_blocking(Duration.from_millis(i64(1)));

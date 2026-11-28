@@ -1,9 +1,8 @@
-// expect: accept
-// guard-off: DIRTY heap-use-after-free
-// Unsafe-capable code (outside claim (S)): tests/rc.test.yo's Stage 0 row. An
-// `Rc` field projection `&w.b` lent to a callee that reassigns the field in a
-// loop through a raw pointer to the container; the guard's +1 keeps the
-// borrowed box alive.
+// expect: DIRTY heap-use-after-free
+// Unsafe-capable code (outside claim (S)). An `Rc` field projection `&w.b`
+// lent to a callee that reassigns the field in a loop through a raw pointer to
+// the container. No count is taken for a lend, so the borrowed box is freed
+// under the callee.
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
 AliasWrap :: struct(b : Rc(i32));

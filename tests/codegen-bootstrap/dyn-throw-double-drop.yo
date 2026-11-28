@@ -1,6 +1,6 @@
 // Regression: `dyn(payload)` takes OWNERSHIP of its payload. The self-hosted
 // evaluator (src/evaluator/values/dyn.yo) must call
-// `set_expr_as_needs_to_call_dup` on the final inner value expr — mirroring TS
+// `transfer_value_into` on the final inner value expr — mirroring TS
 // setExprAsNeedsToCallDup(finalValueExpr) (src/evaluator/values/dyn.ts:321) —
 // so an OWNING payload temp is marked consumed (its scope/escape drop
 // suppressed; the dyn's own `.data` drop is the single owner) and a BORROWED
@@ -8,7 +8,7 @@
 // `exn.throw(dyn(make_err(...)))` double-dropped the payload (the pre-existing
 // stage-2 startup heap corruption). See
 // issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "done live=0".
-{ ToString, println } :: import("std/fmt");
+{ Display, println } :: import("std/fmt");
 { String } :: import("std/string");
 { Error, Exception } :: import("std/error");
 // A ref-struct error, counted when made and when dropped, built by a helper
@@ -27,7 +27,7 @@ impl(
 );
 impl(
   ErrObj,
-  ToString(to_string : (self -> self.msg.clone()))
+  Display(fmt : ((self, f) -> f.write(&self.msg)))
 );
 impl(ErrObj, Error());
 impl(

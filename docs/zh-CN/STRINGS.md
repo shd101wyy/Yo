@@ -333,7 +333,7 @@ export(main);
 
 ### 使用 `${}` 语法的模板字符串插值：
 
-模板字符串的工作方式类似于 JavaScript 的模板字面量，允许你使用 `${}` 语法在字符串中嵌入表达式。`${}` 内的值必须实现 `ToString` trait 才能被转换为 `String`。
+模板字符串的工作方式类似于 JavaScript 的模板字面量，允许你使用 `${}` 语法在字符串中嵌入表达式。`${}` 内的值必须实现 `Display` trait（`std/fmt`）。
 
 ```yo
 name := "Alice";
@@ -343,7 +343,29 @@ greeting := `Hello, ${name}!, age: ${age}`;
 // 值为 "Hello, Alice!, age: 16"
 ```
 
-含两个或更多部分的模板只构建一个 `String`，并按顺序把各部分追加进去：字面量部分用 `push_str`，插值部分用 `ToString.append_to(self, out : &mut String)`。`append_to` 的默认实现追加 `self.to_string()`；`String` 和 `str` 以借用方式追加自己的字节，因此 `String` 部分不会先被复制一次。类型可以重写 `append_to`，把自己的文本直接写入结果。只有一个部分的模板（`${s}`）就是 `s.to_string()`。
+含两个或更多部分的模板就是一个 `Formatter`：字面量部分用 `write_str` 写入，插值部分由它自己的 `Display.fmt(self, f : &mut Formatter)` 写入，模板的值是该 formatter 的 `finish()`。每个部分都把文本直接写进同一个结果，因此 `String` 部分不会先被复制一次。只有一个部分的模板（`${s}`）就是 `s.to_string()`，即 `Display` 的默认（provided）方法：它在一个新的 formatter 中运行 `fmt`（`String` 和 `str` 重写了它，直接复制自己的字节）。
+
+自定义类型实现 `Display` 后即可被打印和插值。它的 `fmt` 用 `write_str`（一个 `str`）、`write_rune`、`write`（任意 `Display` 值）和 `write_debug`（任意 `Debug` 值）写入 formatter：
+
+```yo
+{ Display, Formatter } :: import("std/fmt");
+Point :: struct(x : i32, y : i32);
+impl(
+  Point,
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+      f.write_str("(");
+      f.write(&self.x);
+      f.write_str(", ");
+      f.write(&self.y);
+      f.write_str(")");
+    })
+  )
+);
+// `${Point(x : i32(1), y : i32(2))}` 的值是 "(1, 2)"
+```
+
+`Debug` 是与之并列的结构化通道：`derive(T, Debug)` 通过 `debug_fmt` 写出 `T(field1, field2)`，`debug_string()` 返回这段文本。
 
 #### 格式说明符 —— `${value:spec}`
 
@@ -373,10 +395,10 @@ pi := f64(3.14159);
 宽度以**字符**计。数字补零时，零位于符号或进制前缀与数字之间——`${i32(-(42)):08}`
 得到 `-0000042`，而非 `000-0042`。
 
-数字支持全部部分：符号、进制与补零，以及宽度、填充、对齐与截断。文本、`bool`、`Option`、`Result`、`ArrayList` 以及其他实现了 `ToString` 的 std 类型通过 `Format` 的默认成员支持宽度、填充、对齐与截断。由于没有一揽子 impl（见上文“一致性”），自定义类型用一行代码接入：
+数字支持全部部分：符号、进制与补零，以及宽度、填充、对齐与截断。文本、`bool`、`Option`、`Result`、`ArrayList` 以及其他实现了 `Display` 的 std 类型通过 `Format` 的默认成员支持宽度、填充、对齐与截断。由于没有一揽子 impl（见上文“一致性”），自定义类型用一行代码接入：
 
 ```yo
-impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(Point, Display(fmt : ((self, f) -> f.write(&`(${self.x}, ${self.y})`))));
 impl(Point, Format());
 `[${Point(x : i32(1), y : i32(2)):>8}]` // "[  (1, 2)]"
 ```

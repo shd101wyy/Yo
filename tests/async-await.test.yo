@@ -2170,7 +2170,7 @@ test("Test an io.async capture list disposes each capture once on every path", {
     h := io.spawn(
       io.async({ d }(io : Io) => {
         x := _aw_eat(d);
-        io.await(sleep(u64(50)), io);
+        io.await(sleep(u64(50), io), io);
         x
       }),
       io
@@ -2184,7 +2184,7 @@ test("Test an io.async capture list disposes each capture once on every path", {
     d := _AwRes(n : i32(1));
     h := io.spawn(
       io.async({ d }(io : Io) => {
-        io.await(sleep(u64(50)), io);
+        io.await(sleep(u64(50), io), io);
         _aw_eat(d)
       }),
       io
@@ -4128,8 +4128,7 @@ Pick :: enum(First, Second, Neither);
 derive(Pick, Copy, Clone);
 test("Test await inside nested match arms under a payload-free scrutinee", {
   // The parameter is `rio`, not `io`: the test runner batches every test body
-  // into one file that binds `io :: __yo_builtin_io` at top level, and Yo
-  // forbids shadowing it.
+  // into one `main` whose parameter is `io : Io`, and Yo forbids shadowing it.
   run := (fn(p : Pick, rio : Io) -> Impl(Future(i32, Io)))(
     rio.async((aio : Io) => {
       out := Rc.new(RefCell(i32).new(0));
@@ -5351,7 +5350,7 @@ test("Test spawn inside a loop runs tasks concurrently", {
   (mut(i) : usize) = usize(0);
   while(i < usize(4), {
     task := io.async((io : Io) => {
-      _slept := io.await(sleep(u64(250)), io);
+      _slept := io.await(sleep(u64(250), io), io);
       u64(1)
     });
     handles.push(io.spawn(task, io));
@@ -5524,7 +5523,7 @@ test("escape after an awaiting cond branch closed does not re-drop its locals", 
 two_hop_after_timer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async(io => {
     inner := io.async(io => {
-      io.await(sleep(u64(1)), io);
+      io.await(sleep(u64(1), io), io);
       return(i32(1));
     });
     v := io.await(inner, io);
@@ -5532,7 +5531,7 @@ two_hop_after_timer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 test("a top-level await returns as soon as its future completes, despite unrelated pending I/O", {
-  parked := io.spawn(sleep(u64(2000)), io);
+  parked := io.spawn(sleep(u64(2000), io), io);
   start := Instant.now();
   v := io.await(two_hop_after_timer(io), io);
   elapsed_ms := start.elapsed().as_millis();
@@ -5557,7 +5556,7 @@ test("a nested e.io.async inside an IoExn async body compiles and awaits with th
   nested_with_bundle :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
     io.async(e => {
       inner := e.io.async(e2 => {
-        e2.io.await(sleep(u64(1)), e2.io);
+        e2.io.await(sleep(u64(1), e2.io), e2.io);
         return(i32(2));
       });
       v := e.io.await(inner, e);
@@ -8227,7 +8226,7 @@ _fill_then_read_lent :: (fn(tag : u8, io : Io) -> Impl(Future(i32, Io)))(
       p.add(i).* = tag;
     });
     q.* = i32(tag);
-    io.await(sleep(u64(5)), io);
+    io.await(sleep(u64(5), io), io);
     (mut(bad) : i32) = i32(0);
     (mut(j) : usize) = usize(0);
     while(j < usize(64), j = (j + usize(1)), {

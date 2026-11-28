@@ -10,7 +10,6 @@
 { sleep } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
 IO_timer :: import("std/sys/timer");
-{ IoFuture } :: import("std/sys/future");
 
 give :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => usize(11))
@@ -105,9 +104,9 @@ test("an Io-bundled future keeps its bundle in the type", {
 _raw_as_io :: (fn(f : IoFuture) -> Impl(Future(i32, Io)))(f);
 _raw_as_ctx :: (fn(f : IoFuture) -> Impl(Future(i32, TellCtx)))(f);
 test("a raw IoFuture flows into Future(T, Io)", {
-  assert(io.await(_raw_as_io(IO_timer.sleep(u64(0))), io) >= i32(0), "an IoFuture viewed with the Io bundle");
+  assert(io.await(_raw_as_io(IO_timer.sleep(u64(0), io)), io) >= i32(0), "an IoFuture viewed with the Io bundle");
   t :: (fn(x : i32) -> i32)(x);
-  assert(io.await(_raw_as_ctx(IO_timer.sleep(u64(0))), TellCtx(io : io, tell : t)) >= i32(0), "an IoFuture viewed with a handler bundle");
+  assert(io.await(_raw_as_ctx(IO_timer.sleep(u64(0), io)), TellCtx(io : io, tell : t)) >= i32(0), "an IoFuture viewed with a handler bundle");
 });
 /// A struct-bundled task awaits `sleep` with the bundle's `io`.
 _SleepCtx :: struct(io : Io, n : i32);

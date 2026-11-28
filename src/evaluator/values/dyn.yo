@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { E_TYPE_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_DYN_UNCALLABLE, E_BORROW_ESCAPES, E_UNSIZING_A_VALUE } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime-fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape, judge_capture_fnmut_at_fn_slot } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, transfer_value_into, reject_second_class_escape, judge_capture_fnmut_at_fn_slot } :: import("../utils.yo");
 { closure_identity_of } :: import("../utils/closure.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type-trait-methods.yo");
 { find_methods_from_generic_impls, MethodCandidate, _substitute_self_in_method_ty } :: import("./impl.yo");
@@ -808,7 +808,7 @@ _monomorphize_default_fv :: (
   )
 );
 /// The trait method `fname` the receiver gets from a GENERIC impl
-/// (`impl(generic(T), where(T <: ToString), ArrayList(T), ToString(...))`),
+/// (`impl(generic(T), where(T <: Display), ArrayList(T), Display(...))`),
 /// specialized for the receiver. The type-trait registry is keyed by the
 /// concrete nominal id and a blanket impl registers against its pattern, so the
 /// lookup above misses while `type_implements_trait` (which consults the
@@ -852,7 +852,7 @@ _generic_impl_method_for_dyn :: (
         call_args.push(recv_atom);
         // Every parameter after the receiver gets a synthetic runtime
         // variable of its declared type (`Self` read as the receiver), lent
-        // the way the parameter takes it: a method such as ToString's
+        // the way the parameter takes it: a method such as Display's
         // `append_to(self : &Self, out : &mut String)` was called with the
         // receiver alone, `Argument count mismatch: expected 2 arguments, got 1`
         // (issues/fixed/2026-10-27-a-dyn-of-a-type-variable-fails-on-a-trait-default-with-a-parameter.md).
@@ -1722,7 +1722,7 @@ _evaluate_dyn_erasure :: (
     // corruption; see
     // issues/fixed/yo-self-dyn-throw-double-drop.md; repro /tmp/dd.yo).
     match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ne_final_expr)), .Some(sc_ne) => reject_second_class_escape(&sc_ne.ty(), String.from("made a `Dyn`"), ast_expr_token(&ne_final_expr), ctx, exn), .None => ());
-    set_expr_as_needs_to_call_dup(&ne_final_expr, ctx, exn, "dyn");
+    transfer_value_into(&ne_final_expr, ctx, exn, "dyn");
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
     out_info.set_runtime_arg_exprs_in_order(.Some(rt_args_ne));
@@ -1775,7 +1775,7 @@ _evaluate_dyn_erasure :: (
   (final_value_expr_ex : AstExpr) = eval_inner;
   // Same ownership-transfer consumption as the non-executing path above.
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&final_value_expr_ex)), .Some(sc_fv) => reject_second_class_escape(&sc_fv.ty(), String.from("made a `Dyn`"), ast_expr_token(&final_value_expr_ex), ctx, exn), .None => ());
-  set_expr_as_needs_to_call_dup(&final_value_expr_ex, ctx, exn, "dyn");
+  transfer_value_into(&final_value_expr_ex, ctx, exn, "dyn");
   // Determine the expected DynType:
   //   1. From context.expected_type when it is already a DynT.
   //   2. From final_value_type when it is a DynT.

@@ -86,7 +86,8 @@ primitive, the C11 atomic, the protected data) lives in a private `Box`, and eve
 `self : &Self`: the type mutates its own interior. A copy that would leave two owners is E0901.
 Threads share one through an `Arc` (`Arc(Mutex(T))`, `Arc(AtomicUsize)`): create it with
 `Arc.new(...)`, give each sharer its own `Arc.clone(...)`, and capture that clone by value in
-the thread's closure. A method call reaches the value through the `Arc` by auto-dereference.
+the thread's closure. `mine.*` names the shared value, and its `&Self` receiver borrows it:
+`mine.*.store(...)`, `total.*.with_lock(v => ...)`, `n.*.fetch_add(...)`.
 
 ```yo
 { AtomicBool, MemoryOrder } :: import("std/sync/atomic");
@@ -98,10 +99,10 @@ local_data := MyList.new(); // a value: one owner, on this thread
 ready := Arc.new(AtomicBool.new(false));
 mine := Arc.clone(ready); // the spawned thread's handle
 t := Thread(unit).spawn({ mine }(io : Io) => {
-  mine.store(true, MemoryOrder.Release);
+  mine.*.store(true, MemoryOrder.Release);
 });
 t.join();
-assert(ready.load(MemoryOrder.Acquire), "the thread stored true");
+assert(ready.*.load(MemoryOrder.Acquire), "the thread stored true");
 ```
 
 `Channel(T)` is itself a handle: it holds an `Arc` of its queue, so `ch.clone()` is another
@@ -128,18 +129,18 @@ bump_by_ten(c.*); // ERROR: cannot pass a &mut argument rooted in atomic object 
 
 A local copy is a value, so `k := c.*; k.bump()` is fine (it mutates the copy);
 `Mutex.with_lock`'s `v : &mut T` is a parameter, so the body may write through `v`; and a
-read-only `&mut self` method — `ToString`'s `${c.*.n}`, `Sender.clone` — is fine, because the
+read-only `&mut self` method — `Display`'s `${c.*.n}`, `Sender.clone` — is fine, because the
 compiler decides by what the callee's body does (`plans/reference/PARALLELISM_RULES.md` D3), not
 by the parameter mode alone.
 
 This prevents the most common data-race vector — two threads writing to the same memory without synchronization. To mutate shared state, compose with the right primitive:
 
-| Want to...                          | Use                                                   |
-| ----------------------------------- | ----------------------------------------------------- |
-| Share an atomic counter             | `Arc(AtomicI32)` → `counter.fetch_add(i32(1), ...)`   |
-| Share locked mutable data           | `Arc(Mutex(T))` → `arc.with_lock((v) => { ... })`     |
-| Share many-reader / one-writer data | `Arc(RwLock(T))` → `arc.with_read` / `arc.with_write` |
-| Share immutable config              | `Arc(T)` (read-only after construction)               |
+| Want to...                          | Use                                                       |
+| ----------------------------------- | --------------------------------------------------------- |
+| Share an atomic counter             | `Arc(AtomicI32)` → `counter.*.fetch_add(i32(1), ...)`     |
+| Share locked mutable data           | `Arc(Mutex(T))` → `arc.*.with_lock((v) => { ... })`       |
+| Share many-reader / one-writer data | `Arc(RwLock(T))` → `arc.*.with_read` / `arc.*.with_write` |
+| Share immutable config              | `Arc(T)` (read-only after construction)                   |
 
 Pragma'd code (files with `pragma(Pragma.AllowUnsafe)`) bypasses this rule — that's how `std/sync/` primitives mutate their internal state after acquiring locks.
 
@@ -256,7 +257,7 @@ A `Mutex(T)` is a move-only value; to lock it from several threads, share it as
 total := Arc.new(Mutex(i32).new(i32(0)));
 mine := Arc.clone(total);
 t := Thread(unit).spawn({ mine }(io : Io) => {
-  mine.with_lock(v => {
+  mine.*.with_lock(v => {
     v.* = (v.* + i32(1));
   });
 });
@@ -430,7 +431,7 @@ races under ThreadSanitizer:
   drop runs on the other thread, and the reach walk does not look at drop glue
   (`issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`).
 - **A user impl called back by std.** A thread body that calls a generic std function
-  (`xs.contains(&k)`, `println` of a user type) whose user `Eq` or `ToString` impl writes
+  (`xs.contains(&k)`, `println` of a user type) whose user `Eq` or `Display` impl writes
   the global: the walk stops at a body defined in std
   (`issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`).
 

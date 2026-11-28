@@ -85,7 +85,7 @@ impl(
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.read(i32(0), buf, u32(size), u64.MAX), e.io);
+        result := e.io.await(IO_file.read(i32(0), buf, u32(size), u64.MAX, e.io), e.io);
         usize(IoError.check(result, e.exn))
       })
     )
@@ -96,7 +96,7 @@ impl(
   Writer(
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.write(i32(1), buf, u32(size), u64.MAX), e.io);
+        result := e.io.await(IO_file.write(i32(1), buf, u32(size), u64.MAX, e.io), e.io);
         usize(IoError.check(result, e.exn))
       })
     ),
@@ -110,7 +110,7 @@ impl(
   Writer(
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.write(i32(2), buf, u32(size), u64.MAX), e.io);
+        result := e.io.await(IO_file.write(i32(2), buf, u32(size), u64.MAX, e.io), e.io);
         usize(IoError.check(result, e.exn))
       })
     ),

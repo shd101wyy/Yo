@@ -2,15 +2,15 @@
 
 `derive` is a compile-time builtin that automatically generates trait implementations for struct and enum types. It works similarly to Rust's `#[derive(...)]` attribute but uses function call syntax.
 
-Every derivable trait in `std` is **self-hosted** — the derive rules are written in Yo using the `derive_rule` mechanism, not hardcoded in the compiler. There are ten: `Eq`, `Hash`, `Clone`, `Ord`, `Default`, `ToString` and `Debug` (`std/prelude`, `std/fmt`), `Error` (`std/error`), and `ToJson` / `FromJson` (`std/encoding/json`).
+Every derivable trait in `std` is **self-hosted** — the derive rules are written in Yo using the `derive_rule` mechanism, not hardcoded in the compiler. There are nine: `Eq`, `Hash`, `Clone`, `Ord`, `Default` (`std/prelude`), `Debug` (`std/fmt`), `Error` (`std/error`), and `ToJson` / `FromJson` (`std/encoding/json`).
 
 ## Basic Usage
 
 ```yo
 { assert } :: import("std/assert");
-{ ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
+{ Debug } :: import("std/fmt"); // the Debug derive rule lives in std/fmt
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), Debug, Default);
 
 main :: (fn() -> unit)({
   p1 := Point(i32(1), i32(2));
@@ -20,7 +20,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`derive` accepts a type as the first argument followed by one or more trait expressions. Parameterized traits like `Eq` and `Ord` require explicit type arguments (e.g., `Eq(Point)`). Parameterless traits like `Hash`, `Clone`, and `ToString` can be passed as bare names.
+`derive` accepts a type as the first argument followed by one or more trait expressions. Parameterized traits like `Eq` and `Ord` require explicit type arguments (e.g., `Eq(Point)`). Parameterless traits like `Hash`, `Clone`, and `Debug` can be passed as bare names.
 
 ## Standard Derivable Traits
 
@@ -85,17 +85,6 @@ p2 := Point(i32(1), i32(3));
 assert(p1 < p2, "p1 < p2");
 ```
 
-### ToString
-
-Generates a string representation. Structs produce `TypeName(field1, field2, ...)` format. Enums produce `TypeName.Variant` or `TypeName.Variant(field1, ...)` format.
-
-```yo
-derive(Point, ToString);
-
-p := Point(i32(1), i32(2));
-// p.to_string() returns "Point(1, 2)"
-```
-
 ### Default
 
 Generates a value with every field set to its own type's default. **Structs only** — an enum has no canonical default variant, so write that impl by hand.
@@ -114,7 +103,7 @@ Pairs with `Option.unwrap_or_default` and `Result.unwrap_or_default`.
 
 ### Debug
 
-Generates the same structural render as `ToString` — `TypeName(field1, field2, …)` for structs, `TypeName.Variant(…)` for enums — but under the `Debug` trait's `debug_string`, so a type can have a *developer* render and a *user-facing* `to_string` at the same time.
+Generates a structural render: `TypeName(field1, field2, …)` for structs, `TypeName.Variant` or `TypeName.Variant(field1, …)` for enums. The derived `debug_fmt` writes each part into the `Formatter`, each field through its own `Debug`; `debug_string()` returns the text. A type can have this *developer* render and a *user-facing* `Display` at the same time.
 
 ```yo
 derive(Point, Debug);
@@ -123,11 +112,11 @@ p := Point(i32(1), i32(2));
 // p.debug_string() returns "Point(1, 2)"
 ```
 
-That split is the point: `derive(ToString)` produces a structural render, which is **not** a user-facing message, so an error type that derived `ToString` got `JsonError.UnexpectedEnd` where it wanted `unexpected end of input`. Reach for `Debug` when you want the structure, and for `Error` (below) or a hand-written `ToString` when you want prose.
+There is no derive for `Display`: a structural render is **not** a user-facing message, so an error type would print `JsonError.UnexpectedEnd` where it wants `unexpected end of input`. Reach for `Debug` when you want the structure, and for `Error` (below) or a hand-written `Display` when you want prose.
 
 ### Error
 
-Generates `ToString` **and** `Error` from one message per variant — `thiserror`'s `#[error("…")]`, in the syntax Yo already has. **Enums only**: a struct error has exactly one message, so write that `ToString` impl by hand.
+Generates `Display` **and** `Error` from one message per variant — `thiserror`'s `#[error("…")]`, in the syntax Yo already has. **Enums only**: a struct error has exactly one message, so write that `Display` impl by hand.
 
 ```yo
 JsonError :: enum(
@@ -150,7 +139,7 @@ The message is **ordinary Yo**, spliced into the match arm that binds the payloa
 Two things to know:
 
 - **Messages go in declaration order**, and each is checked against the variant it lands on — so adding, removing, renaming or reordering a variant is a compile error, not a silently swapped message.
-- It emits both traits because `Error` requires `Self <: ToString`. So one `derive` stands in for a `ToString` impl plus a separate `impl(T, Error());` line.
+- It emits both traits because `Error` requires `Self <: Display`. So one `derive` stands in for a `Display` impl plus a separate `impl(T, Error());` line.
 
 ### ToJson / FromJson
 
@@ -161,7 +150,7 @@ Registered by `std/encoding/json`. `derive(T, ToJson)` generates a `JsonValue` e
 You can derive multiple traits in a single call using variadic comptime parameters:
 
 ```yo
-derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), Debug);
 ```
 
 This is equivalent to calling `derive` separately for each trait.
@@ -173,11 +162,11 @@ All standard derives work with enums, including enums with fields:
 ```yo
 // Fieldless enum
 Direction :: enum(North, South, East, West);
-derive(Direction, Eq(Direction), Hash, Clone, Ord(Direction), ToString);
+derive(Direction, Eq(Direction), Hash, Clone, Ord(Direction), Debug);
 
 // Enum with fields
 Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
-derive(Shape, Eq(Shape), Clone, ToString);
+derive(Shape, Eq(Shape), Clone, Debug);
 ```
 
 For fieldless enums, equality and ordering are based on the variant discriminant. For enums with fields, the variant is checked first, then fields are compared.
@@ -192,10 +181,10 @@ A type can derive through a field that names the type itself, such as `ArrayList
 
 ```yo
 { ArrayList } :: import("std/collections/array-list");
-{ println, ToString } :: import("std/fmt");
+{ println } :: import("std/fmt");
 
 Node :: enum(Leaf, Branch(children : ArrayList(Self)));
-derive(Node, Eq(Node), ToString);
+derive(Node, Eq(Node));
 
 main :: (fn() -> unit)({
   mut(xs) := ArrayList(Node).new();
@@ -205,12 +194,11 @@ main :: (fn() -> unit)({
   a := Node.Branch(xs);
   println(a == Node.Branch(ys)); // true
   println(a == Node.Branch(ArrayList(Node).new())); // false
-  println(a.to_string()); // Node.Branch([Node.Leaf])
 });
 export(main);
 ```
 
-The requirement above applies to the container as well. `ArrayList` implements `Eq`, `Clone` and `ToString` but not `Hash`, `Ord` or `Debug`, so those three cannot be derived for `Node`: `Ord` and `Debug` fail at the `derive` line, while `Hash` is accepted there and fails at the first `hash` call (`No method "hash" on ArrayList(Self)`).
+The requirement above applies to the container as well. `ArrayList` implements `Eq`, `Clone` and `Display` but not `Hash`, `Ord` or `Debug`, so those three cannot be derived for `Node`: `Ord` and `Debug` fail at the `derive` line, while `Hash` is accepted there and fails at the first `hash` call (`No method "hash" on ArrayList(Self)`).
 
 `Clone` can be derived on this shape too: `derive(Node, Clone)` gives the clone its own `children` list, while a plain copy of a `Node` shares the list by handle.
 
@@ -337,8 +325,8 @@ When `derive(Type, Trait)` is called:
 Every derivable trait in `std` uses the same `derive_rule` mechanism, and each rule lives beside the trait it derives:
 
 - **Eq, Clone, Hash, Ord, Default** — `std/prelude.yo`
-- **ToString, Debug** — `std/fmt/to_string.yo`. They share one `__derive_structural_body(T, method)` helper, so the structural render exists once and each trait wraps it.
-- **Error** — `std/error.yo`. The only rule that emits TWO trait bodies from one call, because `Error` requires `Self <: ToString`; it therefore builds the `impl(T, ToString(…), Error())` expression itself rather than going through `DeriveContext.make_impl`, which wraps exactly one.
+- **Debug** — `std/fmt/to_string.yo`. `__derive_debug_body(T)` builds the `debug_fmt` body: one `f.write_str` per literal part and one `debug_fmt(f)` call per field.
+- **Error** — `std/error.yo`. The only rule that emits TWO trait bodies from one call, because `Error` requires `Self <: Display`; it therefore builds the `impl(T, Display(…), Error())` expression itself rather than going through `DeriveContext.make_impl`, which wraps exactly one.
 - **ToJson, FromJson** — `std/encoding/json.yo`
 
 These implementations use string-based code generation with `comptime_str` and `.to_expr()` to build impl blocks at compile time.

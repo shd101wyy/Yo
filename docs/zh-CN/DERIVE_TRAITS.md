@@ -2,15 +2,15 @@
 
 `derive` 是一个编译期内建函数，可以自动为结构体和枚举类型生成特征实现。它的功能类似于 Rust 的 `#[derive(...)]` 属性，但使用函数调用语法。
 
-`std` 中所有可派生特征都是**自宿主的**——派生规则使用 `derive_rule` 机制直接在 Yo 中编写，而非在编译器中硬编码。共有十个：`Eq`、`Hash`、`Clone`、`Ord`、`Default`、`ToString` 与 `Debug`（`std/prelude`、`std/fmt`），`Error`（`std/error`），以及 `ToJson` / `FromJson`（`std/encoding/json`）。
+`std` 中所有可派生特征都是**自宿主的**——派生规则使用 `derive_rule` 机制直接在 Yo 中编写，而非在编译器中硬编码。共有九个：`Eq`、`Hash`、`Clone`、`Ord`、`Default`（`std/prelude`），`Debug`（`std/fmt`），`Error`（`std/error`），以及 `ToJson` / `FromJson`（`std/encoding/json`）。
 
 ## 基本用法
 
 ```yo
 { assert } :: import("std/assert");
-{ ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
+{ Debug } :: import("std/fmt"); // Debug 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), Debug, Default);
 
 main :: (fn() -> unit)({
   p1 := Point(i32(1), i32(2));
@@ -20,7 +20,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`derive` 接受一个类型作为第一个参数，后面跟一个或多个特征表达式。参数化特征如 `Eq` 和 `Ord` 需要显式类型参数（例如 `Eq(Point)`）。无参数特征如 `Hash`、`Clone` 和 `ToString` 可以直接使用名称。
+`derive` 接受一个类型作为第一个参数，后面跟一个或多个特征表达式。参数化特征如 `Eq` 和 `Ord` 需要显式类型参数（例如 `Eq(Point)`）。无参数特征如 `Hash`、`Clone` 和 `Debug` 可以直接使用名称。
 
 ## 标准可派生特征
 
@@ -85,17 +85,6 @@ p2 := Point(i32(1), i32(3));
 assert(p1 < p2, "p1 < p2");
 ```
 
-### ToString
-
-生成字符串表示。结构体产生 `TypeName(field1, field2, ...)` 格式。枚举产生 `TypeName.Variant` 或 `TypeName.Variant(field1, ...)` 格式。
-
-```yo
-derive(Point, ToString);
-
-p := Point(i32(1), i32(2));
-// p.to_string() 返回 "Point(1, 2)"
-```
-
 ### Default
 
 生成一个各字段均取其自身类型默认值的值。**仅支持结构体**——枚举没有公认的默认变体，这种实现需要手写。
@@ -114,7 +103,7 @@ d := (Config <: Default).default();
 
 ### Debug
 
-生成与 `ToString` 相同的结构化渲染——结构体为 `TypeName(field1, field2, …)`，枚举为 `TypeName.Variant(…)`——但挂在 `Debug` 特征的 `debug_string` 上，于是一个类型可以同时拥有面向**开发者**的渲染和面向**用户**的 `to_string`。
+生成结构化渲染：结构体为 `TypeName(field1, field2, …)`，枚举为 `TypeName.Variant` 或 `TypeName.Variant(field1, …)`。派生出的 `debug_fmt` 把每一部分写入 `Formatter`，每个字段通过它自己的 `Debug` 写入；`debug_string()` 返回文本。于是一个类型可以同时拥有面向**开发者**的渲染和面向**用户**的 `Display`。
 
 ```yo
 derive(Point, Debug);
@@ -123,11 +112,11 @@ p := Point(i32(1), i32(2));
 // p.debug_string() 返回 "Point(1, 2)"
 ```
 
-这个拆分正是要点：`derive(ToString)` 产生的是结构化渲染，**不是**面向用户的消息，所以派生了 `ToString` 的错误类型只能得到 `JsonError.UnexpectedEnd`，而它想要的是 `unexpected end of input`。需要结构时用 `Debug`，需要文字消息时用下面的 `Error` 或手写 `ToString`。
+`Display` 没有派生规则：结构化渲染**不是**面向用户的消息，错误类型会打印出 `JsonError.UnexpectedEnd`，而它想要的是 `unexpected end of input`。需要结构时用 `Debug`，需要文字消息时用下面的 `Error` 或手写 `Display`。
 
 ### Error
 
-从每个变体一条消息，同时生成 `ToString` **和** `Error`——相当于 `thiserror` 的 `#[error("…")]`，只是用 Yo 已有的语法写。**仅支持枚举**：结构体错误只有一条消息，直接手写那个 `ToString` impl 即可。
+从每个变体一条消息，同时生成 `Display` **和** `Error`——相当于 `thiserror` 的 `#[error("…")]`，只是用 Yo 已有的语法写。**仅支持枚举**：结构体错误只有一条消息，直接手写那个 `Display` impl 即可。
 
 ```yo
 JsonError :: enum(
@@ -150,7 +139,7 @@ derive(
 两点需要知道：
 
 - **消息必须按声明顺序排列**，并且每条都会与它落在的变体逐一核对——因此新增、删除、重命名或重排变体都是编译错误，不会静默地把消息串位。
-- 它同时生成两个特征，是因为 `Error` 要求 `Self <: ToString`。因此一次 `derive` 就相当于「一个 `ToString` impl 加一行单独的 `impl(T, Error());`」。
+- 它同时生成两个特征，是因为 `Error` 要求 `Self <: Display`。因此一次 `derive` 就相当于「一个 `Display` impl 加一行单独的 `impl(T, Error());`」。
 
 ### ToJson / FromJson
 
@@ -161,7 +150,7 @@ derive(
 可以在一次调用中使用可变编译期参数派生多个特征：
 
 ```yo
-derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), Debug);
 ```
 
 这等同于为每个特征分别调用 `derive`。
@@ -173,11 +162,11 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 ```yo
 // 无字段枚举
 Direction :: enum(North, South, East, West);
-derive(Direction, Eq(Direction), Hash, Clone, Ord(Direction), ToString);
+derive(Direction, Eq(Direction), Hash, Clone, Ord(Direction), Debug);
 
 // 带字段枚举
 Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
-derive(Shape, Eq(Shape), Clone, ToString);
+derive(Shape, Eq(Shape), Clone, Debug);
 ```
 
 对于无字段枚举，相等性和排序基于变体判别值。对于带字段枚举，先检查变体，然后比较字段。
@@ -192,10 +181,10 @@ derive(Shape, Eq(Shape), Clone, ToString);
 
 ```yo
 { ArrayList } :: import("std/collections/array-list");
-{ println, ToString } :: import("std/fmt");
+{ println } :: import("std/fmt");
 
 Node :: enum(Leaf, Branch(children : ArrayList(Self)));
-derive(Node, Eq(Node), ToString);
+derive(Node, Eq(Node));
 
 main :: (fn() -> unit)({
   mut(xs) := ArrayList(Node).new();
@@ -205,12 +194,11 @@ main :: (fn() -> unit)({
   a := Node.Branch(xs);
   println(a == Node.Branch(ys)); // true
   println(a == Node.Branch(ArrayList(Node).new())); // false
-  println(a.to_string()); // Node.Branch([Node.Leaf])
 });
 export(main);
 ```
 
-上面的要求对容器同样适用。`ArrayList` 实现了 `Eq`、`Clone` 和 `ToString`，但没有实现 `Hash`、`Ord` 和 `Debug`，所以这三个特征无法为 `Node` 派生：`Ord` 和 `Debug` 在 `derive` 这一行就会报错，而 `Hash` 在这一行会被接受，直到第一次调用 `hash` 时才报错（`No method "hash" on ArrayList(Self)`）。
+上面的要求对容器同样适用。`ArrayList` 实现了 `Eq`、`Clone` 和 `Display`，但没有实现 `Hash`、`Ord` 和 `Debug`，所以这三个特征无法为 `Node` 派生：`Ord` 和 `Debug` 在 `derive` 这一行就会报错，而 `Hash` 在这一行会被接受，直到第一次调用 `hash` 时才报错（`No method "hash" on ArrayList(Self)`）。
 
 在这种形态上同样可以派生 `Clone`：`derive(Node, Clone)` 让克隆得到自己的 `children` 列表，而直接复制一个 `Node` 则通过句柄共享这个列表。
 
@@ -337,8 +325,8 @@ derive(generic(T1, T2), Pair(T1, T2), where(T1 <: MyEq(T1), T2 <: MyEq(T2)), MyE
 `std` 中每个可派生特征都使用相同的 `derive_rule` 机制，并且规则都与它所派生的特征放在一起：
 
 - **Eq、Clone、Hash、Ord、Default** — `std/prelude.yo`
-- **ToString、Debug** — `std/fmt/to_string.yo`。两者共用一个 `__derive_structural_body(T, method)` 辅助函数，结构化渲染只存在一份，各自的特征只是把它包起来。
-- **Error** — `std/error.yo`。唯一一个一次调用生成**两个**特征体的规则，因为 `Error` 要求 `Self <: ToString`；也正因此它自己构造 `impl(T, ToString(…), Error())` 表达式，而不走只包一个特征体的 `DeriveContext.make_impl`。
+- **Debug** — `std/fmt/to_string.yo`。`__derive_debug_body(T)` 构造 `debug_fmt` 的函数体：每个字面部分一次 `f.write_str`，每个字段一次 `debug_fmt(f)` 调用。
+- **Error** — `std/error.yo`。唯一一个一次调用生成**两个**特征体的规则，因为 `Error` 要求 `Self <: Display`；也正因此它自己构造 `impl(T, Display(…), Error())` 表达式，而不走只包一个特征体的 `DeriveContext.make_impl`。
 - **ToJson、FromJson** — `std/encoding/json.yo`
 
 这些实现使用基于字符串的代码生成，通过 `comptime_str` 和 `.to_expr()` 在编译期构建 impl 代码块。

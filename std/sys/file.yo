@@ -30,20 +30,19 @@
 //     close_result := await Io.close(fd);
 //   };
 pragma(Pragma.AllowUnsafe);
-{ IoFuture } :: import("./future.yo");
-{ __yo_async_read_start, __yo_async_write_start, __yo_async_openat_start, __yo_async_close_start, __yo_async_statx_start, __yo_async_fsync_start, __yo_async_fdatasync_start, __yo_async_ftruncate_start, __yo_file_open, __yo_file_close, __yo_file_size, __yo_fstat, __yo_sync_write } :: import("./externs.yo");
+{ __yo_file_open, __yo_file_close, __yo_file_size, __yo_fstat, __yo_sync_write } :: import("./externs.yo");
 // ============================================================================
 // Async File Operations (return IoFuture, use with await)
 // ============================================================================
 // Open a file relative to dirfd. Use AT_FDCWD for current directory.
 // Returns fd on success, -errno on failure.
-openat :: (fn(dirfd : i32, path : *u8, flags : i32, mode : i32) -> IoFuture)(
-  __yo_async_openat_start(dirfd, path, flags, mode)
+openat :: (fn(dirfd : i32, path : *u8, flags : i32, mode : i32, io : Io) -> IoFuture)(
+  io.vtable.*.openat(io.ctx, dirfd, path, flags, mode)
 );
 // Close a file descriptor.
 // Returns 0 on success, -errno on failure.
-close :: (fn(fd : i32) -> IoFuture)(
-  __yo_async_close_start(fd)
+close :: (fn(fd : i32, io : Io) -> IoFuture)(
+  io.vtable.*.close(io.ctx, fd)
 );
 // Read from fd into buffer at the given offset.
 // Offset `u64.MAX` means the descriptor's own position, which the transfer
@@ -51,34 +50,34 @@ close :: (fn(fd : i32) -> IoFuture)(
 // (pread(2)/pwrite(2)) and leaves the position alone, on every platform
 // (on Windows the runtime puts back the file pointer it would move).
 // Returns number of bytes read on success, -errno on failure.
-read :: (fn(fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture)(
-  __yo_async_read_start(fd, buffer, size, offset)
+read :: (fn(fd : i32, buffer : *u8, size : u32, offset : u64, io : Io) -> IoFuture)(
+  io.vtable.*.read(io.ctx, fd, buffer, size, offset)
 );
 // Write buffer to fd at the given offset (see `read` for the offset rules).
 // Returns number of bytes written on success, -errno on failure.
-write :: (fn(fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture)(
-  __yo_async_write_start(fd, buffer, size, offset)
+write :: (fn(fd : i32, buffer : *u8, size : u32, offset : u64, io : Io) -> IoFuture)(
+  io.vtable.*.write(io.ctx, fd, buffer, size, offset)
 );
 // Get file metadata via statx. Results are written to statxbuf.
 // Use Statx object to wrap and read the buffer.
 // Returns 0 on success, -errno on failure.
-statx :: (fn(dirfd : i32, path : *u8, flags : i32, mask : u32, statxbuf : *u8) -> IoFuture)(
-  __yo_async_statx_start(dirfd, path, flags, mask, statxbuf)
+statx :: (fn(dirfd : i32, path : *u8, flags : i32, mask : u32, statxbuf : *u8, io : Io) -> IoFuture)(
+  io.vtable.*.statx(io.ctx, dirfd, path, flags, mask, statxbuf)
 );
 // Sync file data and metadata to disk.
 // Returns 0 on success, -errno on failure.
-fsync :: (fn(fd : i32) -> IoFuture)(
-  __yo_async_fsync_start(fd)
+fsync :: (fn(fd : i32, io : Io) -> IoFuture)(
+  io.vtable.*.fsync(io.ctx, fd)
 );
 // Sync file data (but not metadata) to disk.
 // Returns 0 on success, -errno on failure.
-fdatasync :: (fn(fd : i32) -> IoFuture)(
-  __yo_async_fdatasync_start(fd)
+fdatasync :: (fn(fd : i32, io : Io) -> IoFuture)(
+  io.vtable.*.fdatasync(io.ctx, fd)
 );
 // Truncate file to the given length.
 // Returns 0 on success, -errno on failure.
-ftruncate :: (fn(fd : i32, length : i64) -> IoFuture)(
-  __yo_async_ftruncate_start(fd, length)
+ftruncate :: (fn(fd : i32, length : i64, io : Io) -> IoFuture)(
+  io.vtable.*.ftruncate(io.ctx, fd, length)
 );
 // ============================================================================
 // Sync File Helpers

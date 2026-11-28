@@ -140,13 +140,13 @@ test("format_error_messages: entry 0 is the error, later entries are notes (D6)"
 });
 // ─── reanchor_primary_at: an error inside std, reported at the user's call ───
 test("reanchor_primary_at moves the primary and keeps the old location as a note", {
-  std_tok := make_token(`std/fmt/index.yo`, `where(T <: ToString)`, usize(0), usize(8), `<:`);
+  std_tok := make_token(`std/fmt/index.yo`, `where(T <: Display)`, usize(0), usize(8), `<:`);
   call_tok := make_token(`main.yo`, `a\nb\nc\nd\n  println(p);`, usize(4), usize(2), `println`);
-  err := format_error_message_with_help(&std_tok, `Type P does not implement required trait ToString.`, Option(String).Some(`implement it`));
+  err := format_error_message_with_help(&std_tok, `Type P does not implement required trait Display.`, Option(String).Some(`implement it`));
   moved := reanchor_primary_at(&err, &call_tok, `raised here, inside the standard library`);
   assert(moved.diagnostics.len() == usize(2), `primary + note, got ${moved.diagnostics.len().to_string()}`);
   s := render_diagnostics_human(&moved.diagnostics);
-  expected := `error[E0602]: Type P does not implement required trait ToString.\n  --> main.yo:5:3\n  |\n5 |   println(p);\n  |   ^^^^^^^\nhelp: implement it\nhelp: run \`yo explain E0602\` for more information\n\nnote: raised here, inside the standard library\n  --> std/fmt/index.yo:1:9\n  |\n1 | where(T <: ToString)\n  |         ^^`;
+  expected := `error[E0602]: Type P does not implement required trait Display.\n  --> main.yo:5:3\n  |\n5 |   println(p);\n  |   ^^^^^^^\nhelp: implement it\nhelp: run \`yo explain E0602\` for more information\n\nnote: raised here, inside the standard library\n  --> std/fmt/index.yo:1:9\n  |\n1 | where(T <: Display)\n  |         ^^`;
   assert(s == expected, `re-anchored render, got:\n${s}`);
 });
 // ─── format_lexer_error (D3: lexer errors carry file + source line) ─────────
@@ -241,7 +241,7 @@ test("a coded diagnostic renders error[E0308] in both renderers", {
   assert(sh == `a.yo:1:1: error[E0308]: mismatched types`, `coded short, got:\n${sh}`);
 });
 // ─── YoError.to_string — the bare-tail Stage-0 shape ─────────────────────────
-// This pins the TRAIT-DISPATCH tail (impl(YoError, ToString) to_string =
+// This pins the TRAIT-DISPATCH tail (impl(YoError, Display) to_string =
 // render_diagnostics_human(self.diagnostics)): the bare-tail projection-
 // by-value call whose Stage-0 balancing drop went missing on the shared
 // begin node (issues/fixed/ref-local-scope-drop-missing-after-value-call.md) —

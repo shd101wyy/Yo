@@ -1,5 +1,5 @@
 { assert } :: import("std/assert");
-{ ToString, StringBuilder, Alignment, println } :: import("std/fmt");
+{ Display, Formatter, StringBuilder, Alignment, println } :: import("std/fmt");
 { rune } :: import("std/string/rune");
 { String } :: import("std/string");
 // Side-effect witness for the unit-receiver test at the bottom of this file.
@@ -120,7 +120,7 @@ test("C-interop integers, longdouble, and unit stringify (D3.8)", {
   assert(longlong(-5).to_string() == `-5`, "longlong");
   assert(ulonglong(5).to_string() == `5`, "ulonglong");
   assert(longdouble(1.5).to_string() == `1.5`, "longdouble");
-  // unit's own ToString has its own test below ("Test unit ToString").
+  // unit's own Display has its own test below ("Test unit Display").
 });
 test("ArrayList and Array stringify as bracketed lists (D3.8)", {
   { ArrayList } :: import("std/collections/array-list");
@@ -136,9 +136,9 @@ test("ArrayList and Array stringify as bracketed lists (D3.8)", {
   mut(nested) := ArrayList(Option(i32)).new();
   nested.push(Option(i32).Some(i32(4)));
   nested.push(Option(i32).None);
-  assert(nested.to_string() == `[Some(4), None]`, "nests through Option's ToString");
+  assert(nested.to_string() == `[Some(4), None]`, "nests through Option's Display");
 });
-test("Test unit ToString", {
+test("Test unit Display", {
   // The last D3.8 primitive: the receiver is `inout(self) : Self` at
   // Self = unit, which used to emit an invalid C ref-spill
   // (`void __yo_ref_spill_N = ;`) —
@@ -293,19 +293,19 @@ test("StringBuilder.write_hex renders lowercase hexadecimal", {
   w.write_hex(u64(3735928559));
   assert(w.to_string() == `deadbeef`, "and the classic one");
 });
-// A template of two or more parts builds ONE String: an empty builder, then
-// every part appended to it through `ToString.append_to` (`String` and `str`
-// append their bytes by borrow) instead of `part.to_string()` joined with `+`
-// (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D10). A one-part template is
-// still `part.to_string()`.
+// A template of two or more parts builds ONE String: an empty `Formatter`,
+// then every part written into it through `Display.fmt` (`String` and `str`
+// write their bytes by borrow) instead of `part.to_string()` joined with `+`
+// (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D10, VERDICTS-78 Q3). A one-part
+// template is still `part.to_string()`.
 _D10Plain :: struct(n : i32);
-impl(_D10Plain, ToString(to_string : (fn(self : &Self) -> String)(`p${self.n}`)));
+impl(_D10Plain, Display(fmt : ((self, f) -> f.write(&`p${self.n}`))));
 _D10Custom :: struct(n : i32);
 impl(
   _D10Custom,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(`to_string`),
-    append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str("append_to"))
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(f.write_str("fmt")),
+    to_string : (fn(self : &Self) -> String)(`to_string`)
   )
 );
 _d10_tick :: (fn(n : &mut i32) -> i32)({
@@ -334,10 +334,10 @@ test("D10: a String part is appended by borrow and stays usable", {
   long := `${a}${n}${a}${n}`;
   assert((long == `a7a7`) && (a == `a`), "the first String part keeps its bytes");
 });
-test("D10: a later part uses the trait's append_to, default or overridden", {
-  assert(`x ${_D10Plain(n : i32(4))} y` == `x p4 y`, "the default append_to renders through to_string");
-  assert(`x ${_D10Custom(n : i32(4))} y` == `x append_to y`, "an overriding append_to is the one a later part calls");
-  assert(`${_D10Custom(n : i32(4))} y` == `append_to y`, "the first part is appended too");
+test("D10: every part of a longer template is written by fmt, a one-part one by to_string", {
+  assert(`x ${_D10Plain(n : i32(4))} y` == `x p4 y`, "a later part is written by fmt");
+  assert(`x ${_D10Custom(n : i32(4))} y` == `x fmt y`, "an overriding to_string does not reach a later part");
+  assert(`${_D10Custom(n : i32(4))} y` == `fmt y`, "the first part is written by fmt too");
   assert(`${_D10Custom(n : i32(4))}` == `to_string`, "a one-part template is rendered by to_string");
 });
 test("D10: nested templates, specs and literal-only templates", {

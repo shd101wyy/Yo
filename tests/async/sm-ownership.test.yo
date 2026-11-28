@@ -11,10 +11,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array-list");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
-{ __yo_async_yield_start } :: import("std/sys/externs");
-{ IoFuture } :: import("std/sys/future");
 { Error, Exception, IoExn } :: import("std/error");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { Path } :: import("std/path");
 { remove_file, rename } :: import("std/fs/dir");
 { exists } :: import("std/fs/file");
@@ -77,7 +75,7 @@ test("awaiting an already-running future from a state machine releases it", {
   before := g_disposed;
   {
     f := io.async((io : Io) => {
-      io.await(sleep(u64(5)), io);
+      io.await(sleep(u64(5), io), io);
       _thing(i32(7))
     });
     hf := io.spawn(f, io);
@@ -434,7 +432,7 @@ _move_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     t := _thing(i32(7));
     _keep_thing(t);
-    e.await(sleep(u64(50)), e);
+    e.await(sleep(u64(50), e), e);
     i32(1)
   })
 );
@@ -481,7 +479,7 @@ _sibling_scope_things :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
     };
     {
       b := _thing(i32(2));
-      e.await(sleep(nap), e);
+      e.await(sleep(nap, e), e);
       sum = (sum + b.*.n);
     };
     sum
@@ -497,7 +495,7 @@ test("two heap locals of sibling scopes share a slot, each disposed once", {
 /// and drop the handle; the count seen before the abort is the result.
 _abort_in_the_second_block :: (fn(io : Io) -> i32)({
   h := io.spawn(_sibling_scope_things(u64(50), io), io);
-  io.await(sleep(u64(10)), io);
+  io.await(sleep(u64(10), io), io);
   seen := g_disposed;
   h.abort();
   _r := h.await(io);
@@ -518,13 +516,13 @@ test("aborting a task in the second of two sibling scopes that share a slot", {
 _alias_sleeper :: (fn(sink(t) : Thing, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     s := Rc.clone(&t);
-    e.await(sleep(u64(50)), e);
+    e.await(sleep(u64(50), e), e);
     s.*.n
   })
 );
 _abort_alias :: (fn(io : Io) -> unit)({
   h := io.spawn(_alias_sleeper(_thing(i32(1)), io), io);
-  io.await(sleep(u64(10)), io);
+  io.await(sleep(u64(10), io), io);
   h.abort();
   _r := h.await(io);
 });
@@ -555,13 +553,13 @@ _store_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     t := _thing(i32(3));
     e.await(yield(e), e);
     h := ThingHolder(t : Rc.clone(&t), n : t.*.n);
-    e.await(sleep(u64(50)), e);
+    e.await(sleep(u64(50), e), e);
     h.n + t.*.n
   })
 );
 _abort_store :: (fn(io : Io) -> unit)({
   h := io.spawn(_store_then_sleep(io), io);
-  io.await(sleep(u64(10)), io);
+  io.await(sleep(u64(10), io), io);
   h.abort();
   _r := h.await(io);
 });
@@ -577,7 +575,7 @@ test("aborting a task after it stored a local in a field releases the local once
 // move-out pair). `keep` shares the payload's Thing: exactly one release
 // leaves its count at 1, a double drop takes it to 0, a leak leaves it at 2.
 Oops :: struct(thing : Thing);
-impl(Oops, ToString(to_string : (self -> String.from("oops"))));
+impl(Oops, Display(fmt : ((self, f) -> f.write(&String.from("oops")))));
 impl(Oops, Error());
 impl(
   Oops,
@@ -850,13 +848,13 @@ _rebind_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     t := _thing(i32(5));
     e.await(yield(e), e);
     (cur : Thing) = Rc.clone(&t);
-    e.await(sleep(u64(200)), e);
+    e.await(sleep(u64(200), e), e);
     cur.*.n + t.*.n
   })
 );
 _abort_rebind_then_sleep :: (fn(io : Io) -> unit)({
   h := io.spawn(_rebind_then_sleep(io), io);
-  io.await(sleep(u64(20)), io);
+  io.await(sleep(u64(20), io), io);
   h.abort();
   _r := h.await(io);
 });
@@ -875,7 +873,7 @@ _move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
       if(i == i32(0), {
         e.await(yield(e), e);
       }, {
-        e.await(sleep(u64(200)), e);
+        e.await(sleep(u64(200), e), e);
       });
       // Read before the move: a `sink` move consumes the name, so a read
       // after it is E0901 (the test below).
@@ -888,7 +886,7 @@ _move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 );
 _abort_move_each_iteration :: (fn(io : Io) -> unit)({
   h := io.spawn(_move_each_iteration(io), io);
-  io.await(sleep(u64(20)), io);
+  io.await(sleep(u64(20), io), io);
   h.abort();
   _r := h.await(io);
 });
@@ -1149,7 +1147,7 @@ test("a capture list and a nested implicit capture of the same name compile", {
   ms := Rc(u64).new(u64(5));
   outer := io.async({ ms : Rc.clone(ms) }(io : Io) => {
     inner := io.async((io : Io) => {
-      io.await(sleep(ms.*), io);
+      io.await(sleep(ms.*, io), io);
       i32(1)
     });
     io.await(inner, io) + i32(1)
@@ -1165,7 +1163,7 @@ test("a nested implicit capture moving an enclosing capture is dropped once", {
   b := Box.new(u64(5));
   outer := io.async({ b }(io : Io) => {
     inner := io.async((io : Io) => {
-      io.await(sleep(u64(1)), io);
+      io.await(sleep(u64(1), io), io);
       b.* + u64(1)
     });
     io.await(inner, io) + u64(1)
@@ -1308,10 +1306,10 @@ impl(
     })
   )
 );
-impl(_DcThing, ToString(to_string : (self -> String.from("thing"))));
+impl(_DcThing, Display(fmt : ((self, f) -> f.write(&String.from("thing")))));
 _downcast_across_awaits :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io2 : Io) => {
-    (d : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcThing(h : Rc.new(_DcVal(n : i32(1))))));
+    (d : Box(Dyn(Display, Clone))) = dyn(Box.new(_DcThing(h : Rc.new(_DcVal(n : i32(1))))));
     (mut(hits) : i32) = i32(0);
     if(downcast(&d.*, _DcThing).is_some(), {
       hits = (hits + i32(1));

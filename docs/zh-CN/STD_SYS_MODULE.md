@@ -50,13 +50,13 @@ std/sys/
 ├── copy.yo         — copyfile、sendfile
 ├── dir.yo          — mkdir、unlink、rename、symlink、link、readlink、getdents/readdir
 ├── dns.yo          — getaddrinfo、getnameinfo、addrinfo 访问器
-├── errors.yo       — IoError 枚举与 errno 映射、ToString 实现
+├── errors.yo       — IoError 枚举与 errno 映射、Display 实现
 ├── events.yo       — TTY/poll/FS 事件常量 + FS 事件/poll 包装器
-├── externs.yo      — 所有 C extern 函数声明
+├── externs.yo      — 运行时辅助 extern（同步系统调用、访问器、waker）
 ├── fallocate.yo    — fallocate（预分配文件空间）
 ├── fcntl.yo        — getfl/setfl/getfd/setfd（文件描述符标志）
 ├── file.yo         — 异步 + 同步文件操作（openat、read、write、stat、fsync 等）
-├── future.yo       — IoFuture extern 类型，包装 __yo_io_future_t
+├── future.yo       — park、yield、completed（IoFuture 在 prelude 中）
 ├── iov.yo          — readv/writev/preadv/pwritev + iovec 辅助函数
 ├── lock.yo         — flock 建议性锁
 ├── mmap.yo         — mmap、munmap、mprotect、msync
@@ -92,6 +92,27 @@ tcp :: import("std/sys/tcp");
 timer :: import("std/sys/timer");
 ```
 
+**每个操作都接收 `Io`。** 返回 `IoFuture` 的函数（`openat`、`read`、`accept`、
+`sleep` 等）把它运行所在的 `Io` 作为最后一个参数，并调用该 `Io` 的表
+（`io.vtable.*.read(io.ctx, …)`，即 prelude 的 `IoVTable`）。`events.yo` 中的监视注册
+（`poll_*`、`fs_event_*`）也接收它。在创建操作的地方就 await 它：
+
+```yo
+pragma(Pragma.AllowUnsafe);
+file :: import("std/sys/file");
+{ AT_FDCWD, O_RDONLY } :: import("std/sys/constants");
+
+main :: (fn(io : Io) -> unit)({
+  fd := io.await(file.openat(AT_FDCWD, (*u8)("/etc/hostname"), O_RDONLY, i32(0), io), io);
+  if(fd >= i32(0), {
+    _c := io.await(file.close(fd, io), io);
+  });
+});
+export(main);
+```
+
+同步辅助函数（`open_sync`、`fcntl`、`mmap`、地址与 stat 访问器）是阻塞调用，不接收 `Io`。
+
 ---
 
 ## 组件状态
@@ -104,9 +125,9 @@ timer :: import("std/sys/timer");
 | Socket 常量 | `socket.yo`     | ✅ 已完成 | 平台感知的 AF*\*、SOCK*\_、SO\_\_、TCP*\*、NI*\*         |
 | 信号        | `signals.yo`    | ✅ 已完成 | 平台感知的 POSIX 信号编号                                |
 | 事件        | `events.yo`     | ✅ 已完成 | TTY/poll/FS 事件常量 + FS/poll 包装器                    |
-| IoError     | `errors.yo`     | ✅ 已完成 | 枚举与 errno 映射、ToString 实现                         |
-| IoFuture    | `future.yo`     | ✅ 已完成 | 包装 `__yo_io_future_t` 的 extern 类型                   |
-| Externs     | `externs.yo`    | ✅ 已完成 | 所有 C extern 函数声明                                   |
+| IoError     | `errors.yo`     | ✅ 已完成 | 枚举与 errno 映射、Display 实现                         |
+| Future      | `future.yo`     | ✅ 已完成 | `park`、`yield`、`completed`；`IoFuture` 在 prelude 中   |
+| Externs     | `externs.yo`    | ✅ 已完成 | 运行时辅助 extern；操作经过 `Io`                         |
 | Statx       | `statx.yo`      | ✅ 已完成 | 文件元数据访问器对象                                     |
 | Timer       | `timer.yo`      | ✅ 已完成 | `sleep(ms)`                                              |
 | File        | `file.yo`       | ✅ 已完成 | 异步+同步文件操作（openat、read、write 等）              |
@@ -335,29 +356,11 @@ IOCP 是 Windows 原生的异步 I/O 机制：
 
 ### 状态机集成
 
-当代码生成遇到 `await __yo_async_read(...)` 时，生成的 C 状态机如下：
-
-```c
-case STATE_AWAIT_READ:
-  // 首次进入：提交 I/O 并挂起
-  if (!sm->io_state.completed) {
-    sm->io_state.state_machine = sm;
-    sm->io_state.resume_fn = (void(*)(void*))this_resume_fn;
-    sm->io_state.completed = false;
-
-    __yo_async_read_start(sm->fd, sm->buffer, sm->size, sm->offset, &sm->io_state);
-
-    // 挂起——暂不加入就绪队列
-    // 平台后端完成后会唤醒我们
-    return;
-  }
-
-  // I/O 完成后恢复执行
-  sm->result = sm->io_state.result;
-  sm->io_state.completed = false;
-  sm->state = STATE_NEXT;
-  // 继续执行下一个状态...
-```
+任务内的 `io.await(file.read(fd, buf, n, offset, io), io)` 调用该 `Io` 的 `read`
+条目；对原生 `Io` 而言，它把操作提交给本线程的后端并返回其 `IoFuture`
+（`__yo_io_future_t`，布局与状态机相同：future 前缀加 `result`）。随后 await 读取
+future 的 `state`：已经完成的操作（`-1`，macOS 和 Windows 上普通文件的常见情况）
+内联继续；否则任务把自己登记为该 future 的续体并返回事件循环，由后端的完成事件唤醒它。
 
 ---
 

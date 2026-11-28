@@ -87,8 +87,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ reject_dyn_place_by_value, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type, legacy_str_type_arg, future_view_error } :: import("../utils.yo");
-{ function_may_mutate_rc_storage } :: import("../effects/mutation-summary.yo");
+{ reject_dyn_place_by_value, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, transfer_value_into, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type, legacy_str_type_arg, future_view_error } :: import("../utils.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, t_reference, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_is_binder_slot, t_value_slot, fn_result_slot } :: import("../../types/definitions.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash-map");
@@ -191,12 +190,9 @@ pragma(Pragma.AllowUnsafe);
   pop_active_where_trait_ids,
   expr_info_adopt_env,
   expr_info_capture_type,
-  expr_info_set_deferred_dup_expressions,
   has_any_control_flow,
   some_resolution,
   record_spec_instantiation,
-  expr_info_deferred_dup_expressions,
-  mark_by_value_param_share_dup,
   expr_info_index_trait_ptr_type,
   note_lent_temporary,
   note_self_lend_operand,
@@ -565,17 +561,7 @@ CheckParamResult :: struct(
   caller_env : Environment,
   arg_value : Option(EvalValue),
   arg_type : TypeValue,
-  resolved_param_type : TypeValue,
-  /// Aliasing Stage 0: the synthesized `___drop(<dup temp>)` balancing this
-  /// argument's projection dup — the CALLER attaches it to the call node's
-  /// deferred drops (single post-call emission; scope-end machinery emits
-  /// on non-exclusive exits, see the marker's note in utils.yo).
-  s0_drop : Option(AstExpr),
-  /// Aliasing Stage 1: the evaluated argument expr that received the
-  /// Stage-0 dup — the caller UNMARKS it (removes the deferred dup and
-  /// discards `s0_drop`) when the callee specialization proves read-only
-  /// (evaluator/effects/mutation-summary.yo).
-  s0_marked_arg : Option(AstExpr)
+  resolved_param_type : TypeValue
 );
 // ---------------------------------------------------------------------------
 // check_if_function_parameter_matches_argument
@@ -1519,64 +1505,6 @@ _unlabeled_argument :: (fn(arg : &AstExpr) -> AstExpr)(
     true => Rc.clone(arg.*)
   )
 );
-/// The variable a place argument is rooted in: `x`, `x.f.g`, `x.a(i)` → `x`.
-argument_root_name :: (fn(arg : &AstExpr) -> Option(String))({
-  (cur : AstExpr) = _unlabeled_argument(arg);
-  (walking : bool) = true;
-  while(walking, {
-    cond(
-      ast_expr_is_fn_call_of(&cur, ".", .Some(usize(2))) => {
-        cur = match(_h_get_fn_call_args(&cur).get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
-      },
-      ast_expr_is_fn_call(&cur) => {
-        cur = match(Rc.clone(cur), Rc(.FnCall(_, fc, _, _, _)) => Rc.clone(fc), Rc(.Atom(_, _)) => Rc.clone(cur));
-      },
-      true => {
-        walking = false;
-      }
-    );
-  });
-  cond(
-    ast_expr_is_atom(&cur) => Option(String).Some(ast_expr_token(&cur).*.value.*.clone()),
-    true => Option(String).None
-  )
-});
-/// The root variables of a call's arguments bound to `inout` parameters.
-inout_argument_roots :: (fn(args : &ArrayList(AstExpr), param_is_ref : &ArrayList(bool)) -> ArrayList(String))({
-  out := ArrayList(String).new();
-  (ai : usize) = usize(0);
-  while(ai < args.len(), {
-    if(match(param_is_ref.get(ai), .Some(r) => r, .None => false), {
-      match(args.get_cloned(ai), .Some(a) => match(argument_root_name(&a), .Some(n) => out.push(n), .None => ()), .None => ());
-    });
-    ai = (ai + usize(1));
-  });
-  out
-});
-/// Is a by-value argument the WHOLE variable that another argument of the same
-/// call passes `inout`? The callee can then replace the variable's value
-/// through the `inout` alias, dropping the value this argument borrows
-/// (`clobber(x, x)`, issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md
-/// addendum): the argument gets a caller-owned +1 for the call, like an
-/// aliased projection (Aliasing Stage 0).
-argument_is_aliased_by_inout :: (fn(arg : &AstExpr, param_is_ref : bool, inout_roots : &ArrayList(String)) -> bool)({
-  if(param_is_ref, {
-    return(false);
-  });
-  bare := _unlabeled_argument(arg);
-  if(!ast_expr_is_atom(&bare), {
-    return(false);
-  });
-  name := ast_expr_token(&bare).*.value.*.clone();
-  (ri : usize) = usize(0);
-  while(ri < inout_roots.len(), {
-    if(match(inout_roots.get_cloned(ri), .Some(r) => (r == name), .None => false), {
-      return(true);
-    });
-    ri = (ri + usize(1));
-  });
-  false
-});
 /// A closure or function value: one with an `Fn` trait, a `fn` type, or a
 /// closure capture struct (what a forwarded closure is typed as). It always
 /// moves into a by-value parameter (see `consume_argument_for_parameter`).
@@ -1621,34 +1549,6 @@ closure_argument_owned_type :: (fn(arg_info : &ExprInfo, decl_pt : &TypeValue, b
     .None => Option(TypeValue).None
   )
 });
-/// Mark the dups a by-value parameter's share just put on `arg`: the +1 is
-/// the callee's, so codegen emits it even for a state-machine slot argument,
-/// whose other deferred dups move with the slot (`_arg_carries_call_share`).
-_mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
-  match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(arg)),
-    .Some(ai) => match(
-      expr_info_deferred_dup_expressions(&ai),
-      .Some(dl) => {
-        (i : usize) = usize(0);
-        while(i < dl.len(), {
-          match(dl.get_cloned(i), .Some(d) => mark_by_value_param_share_dup(ast_expr_id(&d)), .None => ());
-          i = (i + usize(1));
-        });
-      },
-      .None => ()
-    ),
-    .None => ()
-  )
-);
-/// `YO_DEBUG_GUARD_OFF=1` turns the borrowed-argument guard (4c of
-/// `consume_argument_for_parameter`, Aliasing Stage 0) off: no caller-owned
-/// +1 is held for a projection or an `Rc`/`Arc` payload place lent to a
-/// call, so Stage 1 has nothing to elide. A debug knob for the evidence run
-/// that gates deleting the guard (VERDICTS-70 row 5): a program that is
-/// accepted and ASan-dirty only with it set is a hole the +1 masks
-/// (`tests/origins/guard/`, `scripts/guard-off-probes.sh`).
-(g_debug_guard_off : bool) = debug_knob(`YO_DEBUG_GUARD_OFF`).is_some();
 /// The argument-side ownership rule, one call per argument:
 ///
 /// - 4a: the argument must not already be CONSUMED (moved). Unconditional.
@@ -1659,13 +1559,6 @@ _mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
 ///   leaked into the real pass. A place LENT to a by-value reference
 ///   parameter (`param_takes_lend`, T9) transfers nothing: the callee gets
 ///   the place's address, and the place stays where it is.
-/// - 4c: an RC-typed field PROJECTION passed to a BORROWING parameter gets a
-///   caller-owned +1 for the call (Aliasing Stage 0). A place in the payload
-///   of an `Rc`/`Arc` (`xs(i).*`, an auto-dereferenced receiver
-///   `xs(i).m(...)`) takes that +1 on the HANDLE instead
-///   (`borrowed_place_read_only_handle`). Returns the share: its balancing
-///   drop, and the node whose deferred dup takes it (what Stage 1 elides).
-///   `YO_DEBUG_GUARD_OFF` skips 4c (`g_debug_guard_off`).
 consume_argument_for_parameter :: (
   fn(
     evaled_arg : &AstExpr,
@@ -1673,14 +1566,9 @@ consume_argument_for_parameter :: (
     arg_info : &ExprInfo,
     param_is_owning : bool,
     param_is_ct : bool,
-    param_is_ref : bool,
-    callee_is_extern : bool,
     caller_env : &Environment,
     ctx : &mut EvalContext,
     exn : Exception,
-    /// `argument_is_aliased_by_inout`: the argument is a whole variable that
-    /// the same call also passes `inout`.
-    (aliased_by_inout : bool) ?= false,
     /// The parameter is declared `sink(x)`: the argument moves, never shared.
     (param_is_sink : bool) ?= false,
     /// The slot accepts a second-class argument (`_param_accepts_second_class`:
@@ -1691,7 +1579,7 @@ consume_argument_for_parameter :: (
     /// `value : T`, `T := &X`): the evaluated argument is the PLACE, and the
     /// value the parameter takes is a reference to it, not the place's value.
     (param_takes_lend : bool) ?= false
-  ) -> Option(Tuple(AstExpr, AstExpr))
+  ) -> unit
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
   // Decision 38 A: a second-class value is never moved into a by-value
@@ -1723,14 +1611,13 @@ consume_argument_for_parameter :: (
             // copy is E0901 (a borrow, an `inout` binding, a projection, a
             // module-level binding).
             type_requires_explicit_copy(&arg_info.ty()) => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+              transfer_value_into(evaled_arg, ctx, exn);
             },
             // An `inout` parameter or `name := &mut place` binding names a
-            // slot it does not own: the callee gets a COPY (+1) of the
-            // referenced handle, and the binding stays usable — nothing is
-            // moved (issues/fixed/inout-arg-to-own-param-moves-without-dup.md).
+            // slot it does not own: the callee gets a copy of the implicitly
+            // copyable value, and the binding stays usable — nothing is moved.
             arg_var.*.is_ref() => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
+              transfer_value_into(evaled_arg, ctx, exn, "param");
             },
             // A `sink(x)` parameter takes the value, and so does every
             // parameter for a closure or function value: sharing an `FnOnce`
@@ -1740,52 +1627,21 @@ consume_argument_for_parameter :: (
                 set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
               },
               true => {
-                set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
+                transfer_value_into(evaled_arg, ctx, exn, "param");
                 set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
               }
             ),
-            // A value that is still implicitly copyable but holds a count (a
-            // `std/sync` handle, for one) is passed to a plain by-value
-            // parameter the way `t := s` binds it: a share (+1), and the
-            // caller keeps its value. The callee drops the share at its
-            // return.
+            // An implicitly copyable value is passed to a plain by-value
+            // parameter the way `t := s` binds it: a copy, and the caller
+            // keeps its value.
             true => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
-              _mark_by_value_param_shares(evaled_arg, ctx);
+              transfer_value_into(evaled_arg, ctx, exn, "param");
             }
           );
         });
       }
     );
   });
-  if(!param_is_owning && !param_is_ct && (!param_is_ref && !ctx.is_in_function_call_checking_phase) && !callee_is_extern && !g_debug_guard_off, {
-    // A place in an `Rc`/`Arc` payload lives while the cell does: the share
-    // goes on the handle, which a closure argument dropping the last other
-    // handle would otherwise free under the callee. A payload share cannot
-    // do that for a move-only payload (a `RefCell`), which has no +1
-    // (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
-    match(
-      borrowed_place_read_only_handle(evaled_arg, ctx),
-      .Some(handle) => if(!ast_expr_is_atom(&handle) && arg_is_rc_projection_place(&handle, caller_env), {
-        match(
-          set_expr_as_needs_to_call_dup_for_borrowed_projection(&handle, ctx, exn, aliased_by_inout),
-          .Some(handle_drop) => return(Option(Tuple(AstExpr, AstExpr)).Some((handle_drop, handle))),
-          .None => ()
-        );
-      }),
-      .None => ()
-    );
-    if(aliased_by_inout || arg_is_rc_projection_place(actual_arg, caller_env), {
-      return(
-        match(
-          set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn, aliased_by_inout),
-          .Some(payload_drop) => Option(Tuple(AstExpr, AstExpr)).Some((payload_drop, evaled_arg.clone())),
-          .None => Option(Tuple(AstExpr, AstExpr)).None
-        )
-      );
-    });
-  });
-  Option(Tuple(AstExpr, AstExpr)).None
 });
 /// The parameter slot accepts a second-class argument (decision 38 A's
 /// exceptions):
@@ -2033,12 +1889,6 @@ check_if_function_parameter_matches_argument :: (
     /// with a default so existing call sites need no change. See the Step-5b
     /// guard below.
     (param_assigned_value : &Option(EvalValue)) ?= Option(EvalValue).None,
-    /// Aliasing Stage 0: true when the CALLEE is extern/builtin (no Yo code
-    /// runs inside — its borrows cannot dangle), so Step 4c skips the
-    /// projection dup.
-    (callee_is_extern : bool) ?= false,
-    /// `argument_is_aliased_by_inout` for this argument.
-    (aliased_by_inout : bool) ?= false,
     /// The parameter is declared `sink(x)`: the argument moves, never shared.
     (param_is_sink : bool) ?= false,
     /// A projection's `&T` parameter, passed by pointer
@@ -2285,7 +2135,7 @@ check_if_function_parameter_matches_argument :: (
   if(!is_ct_only, {
     runtime_arg_exprs_in_order.push(Rc.clone(evaled_arg));
   });
-  // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
+  // Steps 4a–4b: the shared ownership rule (`consume_argument_for_parameter`).
   // A deferred closure literal of a by-value `Impl(Fn...)` parameter is
   // judged by its capture struct, not by the bitwise `fn(...)` type it was
   // given (`closure_argument_owned_type`): it moves into the parameter, and
@@ -2301,10 +2151,8 @@ check_if_function_parameter_matches_argument :: (
     },
     .None => ()
   );
-  s0_share := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot, arg_is_t9_lend);
+  consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, &caller_env_r, ctx, exn, param_is_sink, second_class_slot, arg_is_t9_lend);
   arg_info.set_ty(arg_ty_as_written);
-  s0_drop_captured := match(s0_share.clone(), .Some(sh) => Option(AstExpr).Some(Rc.clone(sh.0)), .None => Option(AstExpr).None);
-  s0_marked_arg_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(Rc.clone(sh.1)), .None => Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
   // check that the argument value matches it. This is used for overload
   // resolution based on value matching (e.g., TryInto(i32) vs TryInto(i64)).
@@ -2538,9 +2386,7 @@ ${ast_expr_to_string(&actual_arg)}`
     caller_env : caller_env_r,
     arg_value : arg_value,
     arg_type : arg_type,
-    resolved_param_type : final_pt,
-    s0_drop : s0_drop_captured,
-    s0_marked_arg : s0_marked_arg_captured
+    resolved_param_type : final_pt
   )
 });
 // ---------------------------------------------------------------------------
@@ -8003,8 +7849,7 @@ try_to_call_function_with_arguments :: (
       pref := fn_param_mut_ref_flags(&norm_func_type2);
       il := Rc.clone(__fm8.*.*.implicit_labels);
       fn_has_variadic := __fm8.*.*.has_variadic;
-      // Aliasing Stage 0: extern/builtin callees run no Yo code, so their
-      // borrows cannot dangle — Step 4c skips the projection dup for them.
+      // An extern/builtin callee has no Yo body.
       callee_is_extern := __fm8.*.*.extern_name.is_some();
       wt.*;
       // ----------------------------------------------------------------
@@ -9140,18 +8985,10 @@ try_to_call_function_with_arguments :: (
       io_async_param_direct := (is_io_async_call(expr) && !io_async_has_ret_constraint);
       (pi : usize) = usize(0);
       forall_seen := ArrayList(ForallBindingSeen).new();
-      // Aliasing Stage 0: per-call `___drop(<dup temp>)`s from the params
-      // (CheckParamResult.s0_drop) — attached to the call node via
-      // FuncCallResult.deferred_drop_expressions (post-call flush).
-      s0_call_drops := ArrayList(AstExpr).new();
       // D3 (plans/reference/PARALLELISM_RULES.md): `inout` arguments rooted in
       // an atomic object, decided after the callee is known (see
       // d3_check_pending below).
       d3_pending := ArrayList(D3PendingInout).new();
-      // Aliasing Stage 1: the marked argument exprs (parallel channel) —
-      // unmarked below when the callee specialization proves read-only.
-      s0_marked_args := ArrayList(AstExpr).new();
-      (s1_elided : bool) = false;
       // Function-literal arguments LAST (Phase 2.4; `fn_literal_arg_is_deferred`):
       // a `=>` closure or `->` function literal whose parameter is an
       // `Impl(Fn(...))` mentioning a binder is matched after the other
@@ -9165,7 +9002,6 @@ try_to_call_function_with_arguments :: (
       s7_rt_span_start := ArrayList(usize).new();
       s7_rt_span_end := ArrayList(usize).new();
       (s7_k : usize) = usize(0);
-      s7_inout_roots := inout_argument_roots(&adjusted_args, &pref.*.items);
       while(s7_k < n_params, {
         pi = match(s7_order.get(s7_k), .Some(o) => o, .None => s7_k);
         s7_k = (s7_k + usize(1));
@@ -9258,8 +9094,6 @@ try_to_call_function_with_arguments :: (
                 false,
                 false,
                 false,
-                false,
-                false,
                 match(pt.get(pi), .Some(pvs) => if(is_static_view_slot(&pvs), Option(TypeValue).Some(pvs), Option(TypeValue).None), .None => Option(TypeValue).None)
               );
               callee_env_m = Rc.clone(dpr.callee_env);
@@ -9335,8 +9169,6 @@ try_to_call_function_with_arguments :: (
           &mut rt_args,
           exn,
           match(call_param_assigned.get_cloned(pi), .Some(a) => a, .None => Option(EvalValue).None),
-          callee_is_extern,
-          argument_is_aliased_by_inout(&parg, match(pref.get(pi), .Some(b) => b, .None => false), &s7_inout_roots),
           p_sink,
           fn_param_is_ptr_borrow(&norm_func_type2, pi),
           _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0), ctx),
@@ -9374,20 +9206,6 @@ try_to_call_function_with_arguments :: (
             audit_record_copy_trait(ast_expr_token(&ct_arg), &pr.arg_type, "argument", &caller_env_m, &ct_arg, ctx, true);
           });
         });
-        match(
-          pr.s0_drop.clone(),
-          .Some(s0d) => {
-            s0_call_drops.push(Rc.clone(s0d));
-          },
-          .None => ()
-        );
-        match(
-          pr.s0_marked_arg.clone(),
-          .Some(s0ma) => {
-            s0_marked_args.push(Rc.clone(s0ma));
-          },
-          .None => ()
-        );
         callee_env_m = Rc.clone(pr.callee_env);
         caller_env_m = Rc.clone(pr.caller_env);
         _check_forall_bindings_after_arg(&fl.*.items, &callee_env_m, pi, &pl.*.items, &mut forall_seen, ast_expr_token(&parg), exn);
@@ -10593,54 +10411,6 @@ try_to_call_function_with_arguments :: (
           _ => d3_check_pending_unresolved_callee(&d3_pending, &ast_expr_to_string(callee_expr), expr, ctx, exn)
         );
       });
-      // Aliasing Stage 1 (mutation summaries, evaluator/effects/
-      // mutation-summary.yo): a READ-ONLY callee cannot reassign the
-      // aliased storage mid-call, so this call's Stage-0 dups are pure
-      // overhead — remove each marked argument's deferred dup and discard
-      // the balancing drops. The summary target is the specialization when
-      // one exists (its evaluated body is final); recursion forward-refs
-      // carry an unevaluated body and conservatively answer "may mutate".
-      // The consumed dup temps stay in their frames — inert (consumed, no
-      // scope-end drop; the dup that assigned them is gone).
-      if(s0_call_drops.len() > usize(0), {
-        (s1_target : Option(EvalValue)) = spec_func_val.clone();
-        if(s1_target.is_none(), {
-          s1_target = func_val.*.clone();
-        });
-        match(
-          s1_target,
-          .Some(s1_tv) => match(
-            s1_tv,
-            Rc(.FuncVal(s1_fvd, _)) => {
-              s1_fid := s1_fvd.*.func_id.clone();
-              if(!is_control_fn(s1_fid.clone()), {
-                if(!function_may_mutate_rc_storage(&s1_fid, &s1_fvd.*.body, ctx), {
-                  s1_elided = true;
-                });
-              });
-            },
-            _ => ()
-          ),
-          .None => ()
-        );
-        if(s1_elided, {
-          (s1i : usize) = usize(0);
-          while(s1i < s0_marked_args.len(), {
-            match(
-              s0_marked_args.get_cloned(s1i),
-              .Some(s1_ma) => match(
-                expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&s1_ma)),
-                .Some(s1_mai) => {
-                  expr_info_set_deferred_dup_expressions(&s1_mai, Option(ArrayList(AstExpr)).None);
-                },
-                .None => ()
-              ),
-              .None => ()
-            );
-            s1i = (s1i + usize(1));
-          });
-        });
-      });
       if(s9_dbg, {
         eprintln(`[s-final] ret=${type_to_string(&return_type)}`);
       });
@@ -10652,8 +10422,7 @@ try_to_call_function_with_arguments :: (
         return_value : Option(EvalValue).None,
         arg_values : call_av,
         runtime_arg_exprs_in_order : rt_args,
-        specialized_function_value : spec_func_val,
-        deferred_drop_expressions : if((s0_call_drops.len() > usize(0)) && !s1_elided, Option(ArrayList(AstExpr)).Some(s0_call_drops), Option(ArrayList(AstExpr)).None)
+        specialized_function_value : spec_func_val
       )
     },
     _ => {
@@ -10680,8 +10449,7 @@ try_to_call_function_with_arguments :: (
           variadic_args : ArrayList(VarArgEntry).new()
         ),
         runtime_arg_exprs_in_order : ArrayList(AstExpr).new(),
-        specialized_function_value : Option(EvalValue).None,
-        deferred_drop_expressions : Option(ArrayList(AstExpr)).None
+        specialized_function_value : Option(EvalValue).None
       )
     }
   )
@@ -10691,7 +10459,7 @@ export(_try_call_fn_with_args_trapped);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))(_forall_binding_now(env, label));
 export(closure_argument_owned_type);
-export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, peeled_lend_marker, judge_lend_at_solved_slot, t9_lend_type, LendSlotSource, lend_needs_place_error, note_lend_solved_binder, lend_solved_binder_note, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
+export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, peeled_lend_marker, judge_lend_at_solved_slot, t9_lend_type, LendSlotSource, lend_needs_place_error, note_lend_solved_binder, lend_solved_binder_note, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);

@@ -1,7 +1,7 @@
 // std/encoding/csv — RFC 4180 reader/writer (plans/archive/STD_API_AUDIT.md §7 P1).
 { assert } :: import("std/assert");
 { String } :: import("std/string");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
 csv :: import("std/encoding/csv");
 { LineEnding, CsvOptions } :: import("std/encoding/csv");
@@ -62,7 +62,7 @@ test("typed errors with byte positions", {
   e3 := csv.parse(String.from("a\rb\n"));
   assert(match(&e3, .Err(e) => match(e, .BareCarriageReturn({ pos }) => (pos.* == usize(1)), _ => false), .Ok(_) => false), "bare CR");
   msg := match(e3, .Err(e) => e.to_string(), .Ok(_) => String.new());
-  assert(msg == "bare carriage return at byte 1", "ToString");
+  assert(msg == "bare carriage return at byte 1", "Display");
 });
 test("strict parsing rejects uneven records", {
   ok := csv.parse_strict(String.from("a,b\n1,2\n"), CsvOptions.default());

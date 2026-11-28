@@ -19,7 +19,7 @@
 { assert } :: import("std/assert");
 { Error, AnyError, Context, root_cause, error_chain } :: import("std/error");
 { String } :: import("std/string");
-{ ToString } :: import("std/fmt/to_string");
+{ Display } :: import("std/fmt/to_string");
 _Inner :: enum(Boom);
 derive(_Inner, Copy, Clone);
 derive(_Inner, Error(.Boom => `boom`));
@@ -56,17 +56,17 @@ test("a one-link error reports no source", {
 // issues/fixed/dyn-selftrait-payload-never-matches-the-named-trait.md.
 _Node :: trait(
   (parent : (fn(self : &mut Self) -> Option(Box(Dyn(SelfTrait))))) ?= (self -> .None),
-  where(Self <: ToString)
+  where(Self <: Display)
 );
 _AnyNode :: Box(Dyn(_Node));
 _Root :: struct(tag : String);
-impl(_Root, ToString(to_string : (fn(self : &Self) -> String)(`root(${self.tag})`)));
+impl(_Root, Display(fmt : ((self, f) -> f.write(&`root(${self.tag})`))));
 impl(_Root, _Node());
 // The parent is built on each call: a `Dyn` owns its payload
 // (plans/VALUES_BY_DEFAULT.md decision 7), so a method cannot hand out a copy
 // of a `Dyn` field it only borrows.
 _Child :: struct(tag : String, up_tag : String);
-impl(_Child, ToString(to_string : (fn(self : &Self) -> String)(`child(${self.tag})`)));
+impl(_Child, Display(fmt : ((self, f) -> f.write(&`child(${self.tag})`))));
 impl(_Child, _Node(parent : (fn(self : &mut Self) -> Option(_AnyNode))(Option(_AnyNode).Some(dyn(Box.new(_Root(tag : self.up_tag.clone())))))));
 _handle :: (fn(n : &_AnyNode) -> String)(n.*.*.to_string());
 test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)", {
@@ -96,14 +96,14 @@ test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)",
 _Chain :: trait(
   (link : (fn(self : &Self) -> Option(Box(Dyn(SelfTrait))))) ?= (self -> .None),
   weight : (fn(self : &Self) -> i32),
-  where(Self <: ToString)
+  where(Self <: Display)
 );
 _AnyChain :: Box(Dyn(_Chain));
 _ChainLeaf :: struct(w : i32);
-impl(_ChainLeaf, ToString(to_string : (fn(self : &Self) -> String)(`leaf`)));
+impl(_ChainLeaf, Display(fmt : ((self, f) -> f.write(&`leaf`))));
 impl(_ChainLeaf, _Chain(weight : (fn(self : &Self) -> i32)(self.w)));
 _ChainLink :: struct(w : i32, leaf_w : i32);
-impl(_ChainLink, ToString(to_string : (fn(self : &Self) -> String)(`link`)));
+impl(_ChainLink, Display(fmt : ((self, f) -> f.write(&`link`))));
 impl(
   _ChainLink,
   _Chain(
@@ -116,7 +116,7 @@ test("a Dyn(SelfTrait) member's payload dispatches the members and constraints d
   (w : i32) = match(c.*.link(), .Some(p) => p.*.weight(), .None => i32(0));
   assert(w == i32(5), `the payload dispatched the last member wrongly, got ${w.to_string()}`);
   (s : String) = match(c.*.link(), .Some(p) => p.*.to_string(), .None => String.new());
-  assert(s == `leaf`, `the payload lost the where(Self <: ToString) constraint, got ${s}`);
+  assert(s == `leaf`, `the payload lost the where(Self <: Display) constraint, got ${s}`);
 });
 test("a trait's where(Self <: X), declared after a Dyn(SelfTrait) member, is checked at an impl", {
   comptime_expect_error({

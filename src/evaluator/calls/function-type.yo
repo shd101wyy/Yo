@@ -1035,8 +1035,7 @@ _build_def_time_body_env :: (
           //
           // Safe for the dup accounting that forbids UnknownVal on RUNTIME
           // params (see the `pv` comment below): a forall binder is
-          // compile-time by construction, never a runtime parameter, so no body
-          // read of it can reach set_expr_as_needs_to_call_dup's value branch.
+          // compile-time by construction, never a runtime parameter.
           Option(EvalValue).Some(create_unknown_val(fa_ty.clone()))
         );
         add_variable_to_env(
@@ -1099,11 +1098,8 @@ _build_def_time_body_env :: (
     // (field.yo:293) — the dominant def-time-eval swallow category. Mirrors the
     // SomeT binding in evaluate_function_parameters (function.yo:1169).
     // Runtime params bind with NO value.
-    // Binding them to `Some(UnknownVal)` made every body read of a param
-    // look like a comptime value, so set_expr_as_needs_to_call_dup's
-    // value-branch early-returned and a borrowed-param tail (`to_string :
-    // (...)(self)`) lost its balancing ___dup — println(s) then freed the
-    // caller's String buffer (net −1 per call).
+    // Binding them to `Some(UnknownVal)` would make every body read of a
+    // param look like a compile-time value.
     p_ct := match(param_is_comptime.get(pi), .Some(b) => b, .None => false);
     pv := if(
       is_type_kind(&pt),

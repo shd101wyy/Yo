@@ -52,7 +52,7 @@ The standard library defines an `Error` trait and `AnyError` type for dynamic er
 ```yo
 { Error, AnyError } :: import("std/error");
 
-// Error trait requires ToString. `derive(Error)` supplies both from one
+// Error trait requires Display. `derive(Error)` supplies both from one
 // message per variant, listed in declaration order:
 MathError :: enum(
   DivisionByZero,
@@ -109,7 +109,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
 (exn : Exception) = Exception(
   throw : (
     err -> {
-      println(`Error: ${err}`); // prints "Error: Division by zero"
+      println(`Error: ${err.*}`); // prints "Error: Division by zero"
       unwind(()); // discard continuation, return from enclosing fn
     }
   )
@@ -122,8 +122,8 @@ safe_divide(10, 0, exn); // handler fires, unwinds — code after this is unreac
 An `Exception` handler cannot resume the throw with a value. `throw`'s
 resume type is a type variable that each throw site picks, so a handler
 must `unwind`, diverge, or fall through with `()`. A handler that
-returns a value of a fixed type, such as `err -> { return(i32(7)); }`,
-is a compile error that points at `ResumableException`:
+`return`s, with a value (`err -> { return(i32(7)); }`) or with `()`,
+is E0627, which points at `ResumableException`.
 
 ## ResumableException
 
@@ -144,7 +144,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
 (exn : ResumableException(i32)) = ResumableException(i32)(
   throw : (
     err -> {
-      println(`Error: ${err}`);
+      println(`Error: ${err.*}`);
       return(i32(0)); // resume with recovery value 0
     }
   )

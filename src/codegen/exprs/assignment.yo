@@ -26,10 +26,8 @@
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { CapturedVariable } :: import("../../evaluator/async/await-analysis-types.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
-// §C dup-on-store: a field/index/deref store of a borrowed RC value must dup it
-// (the slot takes a new owned ref) so the value survives the source's scope-end
-// drop. The eval marks the RHS via set_expr_as_needs_to_call_dup (assignment.yo
-// eval :388); this emits it.
+// A field/index/deref store emits the RHS through `emit_deferred_dup_or_code`;
+// the evaluator decided the store (`transfer_value_into`).
 { emit_deferred_dup_or_code } :: import("./drop-dup.yo");
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state-machine-naming.yo");
 { declare_c_var_name, get_type_string, get_variable_type_string, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");

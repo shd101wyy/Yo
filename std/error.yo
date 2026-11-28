@@ -27,9 +27,9 @@
 // importer gained println, String, Format, ... — for the two names actually
 // used here).
 { String, ParseIntError, ParseFloatError, ParseBoolError } :: import("./string");
-{ ToString } :: import("./fmt/to_string.yo");
+{ Display, Formatter } :: import("./fmt/to_string.yo");
 /// Standard error trait for typed error propagation.
-/// All error types should implement this trait along with `ToString`.
+/// All error types implement this trait along with `Display`.
 Error :: trait(
   /// The error that caused this one, or `.None` at the root of the chain.
   ///
@@ -43,7 +43,7 @@ Error :: trait(
   /// The result is an `AnyError` (it lists `Clone`): the wrapper keeps its
   /// cause and hands back a clone.
   (source : (fn(self : &Self) -> Option(Box(Dyn(SelfTrait, Clone))))) ?= (self -> .None),
-  where(Self <: ToString)
+  where(Self <: Display)
 );
 export(Error);
 /// Type-erased dynamic error type. Wraps any type implementing `Error` and
@@ -90,7 +90,7 @@ __derive_error_head :: (fn(comptime(v) : VariantInfo) -> comptime(comptime_str))
     true => __s4(".", v.name, "(", __s2(binds, ")"))
   )
 });
-/// Generate `ToString` + `Error` for an enum from one message per variant —
+/// Generate `Display` + `Error` for an enum from one message per variant —
 /// `thiserror`'s `#[error("…")]`, in the syntax Yo already has.
 ///
 /// ```yo
@@ -104,14 +104,14 @@ __derive_error_head :: (fn(comptime(v) : VariantInfo) -> comptime(comptime_str))
 /// );
 /// ```
 ///
-/// **The calling file must have `ToString` in scope.** The rule splices an
-/// `impl(T, ToString(...), Error())` into the CALL SITE's scope, and the
+/// **The calling file must have `Display` in scope.** The rule splices an
+/// `impl(T, Display(...), Error())` into the CALL SITE's scope, and the
 /// derived body is unhygienic, so a file that imports `Error` but not
-/// `ToString` fails with `Variable "ToString" not found` pointing into
+/// `Display` fails with `Variable "Display" not found` pointing into
 /// `std/error.yo`
 /// (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md is the
 /// same defect for the structural derives). Import
-/// `{ ToString } :: import("../fmt/to_string")` alongside `Error`.
+/// `{ Display } :: import("std/fmt")` alongside `Error`.
 ///
 /// The message is ORDINARY YO, spliced into the arm that binds the payload, so
 /// `${pos}` is the variant's own field — not a positional `{0}` the way
@@ -143,7 +143,7 @@ __derive_error :: (
   info :: Type.get_info(T);
   __is_enum :: comptime_assert(
     info.is_enum(),
-    "derive(Error) supports enums only — a struct error has one message, so write the ToString impl"
+    "derive(Error) supports enums only — a struct error has one message, so write the Display impl"
   );
   variants :: Type.get_enum_variants(T);
   __count :: comptime_assert(
@@ -174,15 +174,15 @@ __derive_error :: (
   );
   body :: __s3("match(self,\n    ", arms, "\n  )");
   // Built directly rather than through `ctx.make_impl`, which wraps exactly
-  // ONE trait body: this needs TWO, because `Error` requires `Self <: ToString`
+  // ONE trait body: this needs TWO, because `Error` requires `Self <: Display`
   // and the whole point is to supply both from one declaration. Generic error
   // enums are not supported for the same reason — `make_impl` is where the
   // forall/where plumbing lives, and no error type in `std` is generic.
   quote(
     impl(
       unquote(ctx.target),
-      ToString(
-        to_string : (self -> unquote(body.to_expr()))
+      Display(
+        fmt : ((self, f) -> f.write(&unquote(body.to_expr())))
       ),
       Error()
     )
@@ -245,12 +245,11 @@ impl(
 );
 impl(
   Context,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
-      mut(out) := self.message.clone();
-      out.push_str(": ");
-      out.push_string(self.cause.*.to_string());
-      out
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+      f.write(&self.message);
+      f.write_str(": ");
+      self.cause.*.fmt(f);
     })
   )
 );

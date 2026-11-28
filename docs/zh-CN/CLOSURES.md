@@ -76,13 +76,13 @@ test_capture :: (fn() -> unit)({
 
   (mut(closure) : Impl(FnMut(increment : i32) -> i32)) = ({ counter, data : Rc.clone(data) }(increment) => {
     counter = (counter + increment); // 修改闭包自己的副本
-    data.replace_with(v => (v.* + increment)); // 修改共享单元
+    data.*.replace_with(v => (v.* + increment)); // 修改共享单元
     return(counter);
   });
 
   closure(5);
   // counter 仍然是 0（闭包有自己的副本）
-  // data.with(v => v.*) 现在是 47（共享单元）
+  // data.*.with(v => v.*) 现在是 47（共享单元）
 });
 ```
 
@@ -278,10 +278,10 @@ l1.push(k2); // 错误：k2 是另一种闭包类型
 
 make_incrementer :: (fn(start : Rc(RefCell(i32))) -> Impl(Fn() -> i32))({
   return(() => {
-    start.with_mut((n : &mut i32) => {
+    start.*.with_mut((n : &mut i32) => {
       n.* = (n.* + 1);
     });
-    start.with((n : &i32) => n.*)
+    start.*.with((n : &i32) => n.*)
   });
 });
 
@@ -291,7 +291,7 @@ test :: (fn() -> unit)({
 
   assert(inc() == 1);
   assert(inc() == 2);
-  assert(counter.with((n : &i32) => n.*) == 2);
+  assert(counter.*.with((n : &i32) => n.*) == 2);
 });
 ```
 

@@ -31,8 +31,6 @@
 //! not surfaced. Freezing needs that, plus the address rework. `std/net/udp`
 //! is the surface to build on.
 pragma(Pragma.AllowUnsafe);
-{ IoFuture } :: import("./future.yo");
-{ __yo_async_socket_start, __yo_async_bind_start, __yo_async_send_start, __yo_async_recv_start, __yo_async_sendto_start, __yo_async_recvfrom_start, __yo_async_close_start, __yo_async_setsockopt_start, __yo_async_getsockopt_start } :: import("./externs.yo");
 { SOCK_DGRAM } :: import("./socket.yo");
 // ============================================================================
 // Core UDP Operations (return IoFuture, use with await)
@@ -46,8 +44,8 @@ pragma(Pragma.AllowUnsafe);
 /// descriptor — the Linux datagram ops complete through io_uring
 /// (`IORING_OP_SENDMSG`/`RECVMSG`) and their inline fast path must see
 /// `-EAGAIN`, not block.
-socket :: (fn(domain : i32, protocol : i32) -> IoFuture)(
-  __yo_async_socket_start(domain, SOCK_DGRAM, protocol)
+socket :: (fn(domain : i32, protocol : i32, io : Io) -> IoFuture)(
+  io.vtable.*.socket(io.ctx, domain, SOCK_DGRAM, protocol)
 );
 /// Bind the socket to a local address — POSIX `bind(2)`. Resolves to 0, or a
 /// negative error code. A UDP socket must be bound to RECEIVE on a known
@@ -55,8 +53,8 @@ socket :: (fn(domain : i32, protocol : i32) -> IoFuture)(
 /// forgetting this shows up as "my replies never arrive" rather than as an
 /// error. Bind to port 0 and read it back with `std/sys/sockinfo`'s
 /// `getsockname` to learn the chosen one.
-bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
-  __yo_async_bind_start(sockfd, addr, addrlen)
+bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32, io : Io) -> IoFuture)(
+  io.vtable.*.bind(io.ctx, sockfd, addr, addrlen)
 );
 /// Send one datagram to `dest_addr` — POSIX `sendto(2)`. Resolves to the
 /// number of bytes sent, or a negative error code. This is the call for an
@@ -64,8 +62,8 @@ bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
 /// partially sent, so a short return does not happen the way it does for
 /// TCP. A `len` above the path MTU either fragments or fails with `-EMSGSIZE`
 /// depending on the platform and the `IP_DONTFRAG`-family options.
-sendto :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, dest_addr : *u8, addrlen : u32) -> IoFuture)(
-  __yo_async_sendto_start(sockfd, buf, len, flags, dest_addr, addrlen)
+sendto :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, dest_addr : *u8, addrlen : u32, io : Io) -> IoFuture)(
+  io.vtable.*.sendto(io.ctx, sockfd, buf, len, flags, dest_addr, addrlen)
 );
 /// Receive one datagram and learn who sent it — POSIX `recvfrom(2)`.
 /// Resolves to the number of bytes received, or a negative error code.
@@ -76,8 +74,8 @@ sendto :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, dest_addr : *u8
 /// the return value cannot tell you that happened — see the module's
 /// Stability note. Unlike TCP's `recv`, a 0 here is a legitimate
 /// zero-length datagram, not end-of-stream.
-recvfrom :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, src_addr : *u8, addrlen : *u32) -> IoFuture)(
-  __yo_async_recvfrom_start(sockfd, buf, len, flags, src_addr, addrlen)
+recvfrom :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, src_addr : *u8, addrlen : *u32, io : Io) -> IoFuture)(
+  io.vtable.*.recvfrom(io.ctx, sockfd, buf, len, flags, src_addr, addrlen)
 );
 /// Send one datagram on a CONNECTED UDP socket — POSIX `send(2)`. Resolves
 /// to the number of bytes sent, or a negative error code.
@@ -86,20 +84,20 @@ recvfrom :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, src_addr : *u
 /// peer, which lets you use this instead of `sendto` and makes the kernel
 /// deliver ICMP errors (`-ECONNREFUSED` when nothing is listening) that an
 /// unconnected socket never sees. `std/sys/tcp`'s `connect` is what sets it.
-send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
-  __yo_async_send_start(sockfd, buf, len, flags)
+send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.send(io.ctx, sockfd, buf, len, flags)
 );
 /// Receive one datagram on a connected UDP socket — POSIX `recv(2)`, i.e.
 /// `recvfrom` without the sender's address. Resolves to the byte count, or a
 /// negative error code. A connected socket drops datagrams from anyone else,
 /// which is the point of connecting. Same truncation caveat as `recvfrom`.
-recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
-  __yo_async_recv_start(sockfd, buf, len, flags)
+recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.recv(io.ctx, sockfd, buf, len, flags)
 );
 /// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
 /// error code. Do not retry on `-EINTR`; see `std/sys/tcp`'s `close`.
-close :: (fn(fd : i32) -> IoFuture)(
-  __yo_async_close_start(fd)
+close :: (fn(fd : i32, io : Io) -> IoFuture)(
+  io.vtable.*.close(io.ctx, fd)
 );
 // ============================================================================
 // Socket Options
@@ -109,13 +107,13 @@ close :: (fn(fd : i32) -> IoFuture)(
 /// the TCP module. Resolves to 0, or a negative error code. `SO_BROADCAST`
 /// and the `IP_ADD_MEMBERSHIP` multicast options are the UDP-specific ones
 /// worth knowing.
-setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> IoFuture)(
-  __yo_async_setsockopt_start(sockfd, level, optname, optval, optlen)
+setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32, io : Io) -> IoFuture)(
+  io.vtable.*.setsockopt(io.ctx, sockfd, level, optname, optval, optlen)
 );
 /// Read a socket option into raw bytes — `getsockopt(2)`. Resolves to 0, or
 /// a negative error code; `optlen` is in/out.
-getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> IoFuture)(
-  __yo_async_getsockopt_start(sockfd, level, optname, optval, optlen)
+getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32, io : Io) -> IoFuture)(
+  io.vtable.*.getsockopt(io.ctx, sockfd, level, optname, optval, optlen)
 );
 export(
   socket,

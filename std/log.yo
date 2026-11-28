@@ -5,7 +5,7 @@
 //! ```yo
 //! log :: import("std/log");
 //! log.set_level(log.Level.Debug);
-//! log.info(`server started on ${port}`); // any ToString value
+//! log.info(`server started on ${port}`); // any Display value
 //! log.info_lazy(() => expensive_summary()); // String, built only if it passes
 //! log.set_timestamps(true);
 //! log.warn_target(`db`, `slow query: ${ms}ms`); // "[WARN ] [db] ..."
@@ -47,7 +47,7 @@
 //! Freezing follows those decisions.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("./string");
-{ ToString } :: import("./fmt");
+{ Display } :: import("./fmt");
 { fwrite, stdout, stderr, FILE } :: import("./libc/stdio");
 { getenv } :: import("./libc/stdlib");
 { DateTime } :: import("./time/datetime");
@@ -80,16 +80,18 @@ _level_value :: (fn(l : Level) -> i32)(
 );
 impl(
   Level,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      match(
-        self,
-        .Trace => String.from("TRACE"),
-        .Debug => String.from("DEBUG"),
-        .Info => String.from("INFO "),
-        .Warn => String.from("WARN "),
-        .Error => String.from("ERROR"),
-        .Off => String.from("OFF  ")
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
+          self,
+          .Trace => String.from("TRACE"),
+          .Debug => String.from("DEBUG"),
+          .Info => String.from("INFO "),
+          .Warn => String.from("WARN "),
+          .Error => String.from("ERROR"),
+          .Off => String.from("OFF  ")
+        )
       )
     )
   )
@@ -308,12 +310,12 @@ _emit :: (fn(level : Level, target : &String, msg : &String) -> unit)({
   _write_string(String.from("\n"), dest);
   unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
-/// Log a `ToString` value at `level`.
-log :: (fn(generic(T : ?Sized), level : Level, msg : &T, where(T <: ToString)) -> unit)(
+/// Log a `Display` value at `level`.
+log :: (fn(generic(T : ?Sized), level : Level, msg : &T, where(T <: Display)) -> unit)(
   _emit(level, String.new(), msg.to_string())
 );
-/// Log a `ToString` value at `level`, tagged with a `target`/module string.
-log_target :: (fn(generic(T : ?Sized), level : Level, target : &str, msg : &T, where(T <: ToString)) -> unit)(
+/// Log a `Display` value at `level`, tagged with a `target`/module string.
+log_target :: (fn(generic(T : ?Sized), level : Level, target : &str, msg : &T, where(T <: Display)) -> unit)(
   _emit(level, String.from(target), msg.to_string())
 );
 /// Log at `level`, building the message from `make` ONLY when it passes the
@@ -330,18 +332,18 @@ export(log, log_target, log_lazy);
 // ============================================================================
 /// Per-step verbosity at `Trace` — Rust's `trace!`. Silent under the default
 /// `Info` filter.
-trace :: (fn(generic(T : ?Sized), msg : &T, where(T <: ToString)) -> unit)(log(Level.Trace, msg));
+trace :: (fn(generic(T : ?Sized), msg : &T, where(T <: Display)) -> unit)(log(Level.Trace, msg));
 /// Developer detail at `Debug` — Rust's `debug!`. Also silent under the
 /// default `Info` filter.
-debug :: (fn(generic(T : ?Sized), msg : &T, where(T <: ToString)) -> unit)(log(Level.Debug, msg));
+debug :: (fn(generic(T : ?Sized), msg : &T, where(T <: Display)) -> unit)(log(Level.Debug, msg));
 /// A line an operator should see, at `Info` — Rust's `info!`. This is the
 /// lowest level the default filter admits.
-info :: (fn(generic(T : ?Sized), msg : &T, where(T <: ToString)) -> unit)(log(Level.Info, msg));
+info :: (fn(generic(T : ?Sized), msg : &T, where(T <: Display)) -> unit)(log(Level.Info, msg));
 /// A hazard the program recovered from, at `Warn` — Rust's `warn!`.
-warn :: (fn(generic(T : ?Sized), msg : &T, where(T <: ToString)) -> unit)(log(Level.Warn, msg));
+warn :: (fn(generic(T : ?Sized), msg : &T, where(T <: Display)) -> unit)(log(Level.Warn, msg));
 /// A failure, at `Error` — Rust's `error!`. The highest level, but still
 /// suppressed by `Level.Off`, which drops everything.
-error :: (fn(generic(T : ?Sized), msg : &T, where(T <: ToString)) -> unit)(log(Level.Error, msg));
+error :: (fn(generic(T : ?Sized), msg : &T, where(T <: Display)) -> unit)(log(Level.Error, msg));
 export(trace, debug, info, warn, error);
 /// `trace` tagged with a subsystem name, which renders as `[db]` between the
 /// level and the message and reaches a `Sink` as its own argument — Rust's
@@ -349,15 +351,15 @@ export(trace, debug, info, warn, error);
 ///
 /// The tag is caller-supplied text; nothing derives or checks it, and it does
 /// not participate in filtering (the level is the only filter).
-trace_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Trace, target, msg));
+trace_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: Display)) -> unit)(log_target(Level.Trace, target, msg));
 /// `debug` with a subsystem tag; see `trace_target`.
-debug_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Debug, target, msg));
+debug_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: Display)) -> unit)(log_target(Level.Debug, target, msg));
 /// `info` with a subsystem tag; see `trace_target`.
-info_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Info, target, msg));
+info_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: Display)) -> unit)(log_target(Level.Info, target, msg));
 /// `warn` with a subsystem tag; see `trace_target`.
-warn_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Warn, target, msg));
+warn_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: Display)) -> unit)(log_target(Level.Warn, target, msg));
 /// `error` with a subsystem tag; see `trace_target`.
-error_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Error, target, msg));
+error_target :: (fn(generic(T : ?Sized), target : &str, msg : &T, where(T <: Display)) -> unit)(log_target(Level.Error, target, msg));
 export(trace_target, debug_target, info_target, warn_target, error_target);
 /// `trace`, with the message built by `make` ONLY if `Trace` passes the
 /// filter — the form to use when rendering costs real work (a formatted dump,

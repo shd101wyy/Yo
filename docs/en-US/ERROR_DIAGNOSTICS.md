@@ -166,12 +166,13 @@ parameter takes no marker: rebind it by hand (`mut(p_m) := p;`).
 (`[mut-binding] how=… kind=… marked=yes|no`) without rejecting it.
 
 A write through an `Rc` handle is E0919: an assignment to `h.*` or to a place
-under it (`h.n = v`, `h.items(i) = v`), a `&mut` argument (`bump(&mut h.n)`),
-or a `self : &mut Self` method called on such a place (`h.items.push(v)`). An
+under it (`h.*.n = v`, `h.*.items(i) = v`), a `&mut` argument
+(`bump(&mut h.*.n)`), or a `self : &mut Self` method called on such a place
+(`h.*.items.push(v)`). An
 `Rc(T)` is Rust's `Rc`: every copy of the handle shares one cell, so its
 payload is read-only through the handle. Shared state that is
 written goes through a door instead, and the error names them: an
-`Rc(RefCell(T))`, written inside `h.with_mut(v => ...)`
+`Rc(RefCell(T))`, written inside `h.*.with_mut(v => ...)`
 (`std/sync/refcell`); `Rc.get_mut(&mut h)`, `.Some(&mut T)` when no other
 handle shares the cell; `Rc.make_mut(&mut h)`, which moves `h` to a fresh cell
 first when the cell is shared (`T <: Clone`); `Rc.try_unwrap(h)`, the payload
@@ -280,7 +281,7 @@ standard library, while checking a call you wrote, is reported at that call,
 with the standard-library location as a note:
 
 ```
-error[E0602]: Type P does not implement required trait ToString.
+error[E0602]: Type P does not implement required trait Display.
   --> main.yo:5:3
   |
 5 |   println(p);

@@ -63,6 +63,7 @@ json :: import("std/encoding/json");
   E_TRAIT_BOUND_FORM,
   E_TRAIT_AS_VALUE_TYPE,
   E_VARIANT_PATTERN_SHAPE,
+  E_CTL_GENERIC_RESUME,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
@@ -1226,6 +1227,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Shape :: enum(Circle(r : i32), Empty);\nkind :: (fn(s : Shape) -> i32)(match(s, .Circle(..) => i32(1), .Empty => i32(0)));\nexport(kind);\n",
       "`Circle` has a field, so its pattern takes parentheses; `.Circle(..)` matches it whatever its payload.",
       "`Circle` 有字段，因此其模式带括号；`.Circle(..)` 匹配它而不论其载荷是什么。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CTL_GENERIC_RESUME,
+      "a generic-resume `ctl` is used as if it resumed",
+      "把泛型恢复类型的 `ctl` 当作可恢复的操作使用",
+      "A `ctl` type uses its own type parameter somewhere other than as its whole result type, or a handler of a `ctl(generic(R : Type), ...) -> R` operation resumes with `return(...)`.",
+      "`ctl` 类型在整个结果类型之外的位置使用了它自己的类型参数，或者 `ctl(generic(R : Type), ...) -> R` 操作的处理器用 `return(...)` 恢复。",
+      "A handler is one function that serves every throw site, chosen at run time. In `ctl(generic(R : Type), ...) -> R` each throw site picks `R`, so the handler cannot receive a value of type `R`, and it cannot build one to resume with. Such an operation does not resume. That is the only shape a `ctl` type parameter may take: the whole result type, as in `Exception.throw`, which reads \"this operation does not return\". Using `R` in a parameter (`v : R`, `v : &R`) or inside the result (`-> Option(R)`) is rejected where the type is written. A handler of such an operation must not `return(...)`, not even `return(())`: it ends with `unwind(value)`, or with `panic(msg)` when a throw is a bug. To resume with a value, fix the resume type when the handler record is built: a type constructor takes it as a `comptime` parameter, as `ResumableException(T)` does, and the handler is then checked at a concrete type.",
+      "处理器是一个在运行时选定、服务所有抛出点的函数。在 `ctl(generic(R : Type), ...) -> R` 中，每个抛出点各自选择 `R`，因此处理器既收不到类型为 `R` 的值，也构造不出一个用来恢复。这样的操作不会恢复。这是 `ctl` 类型参数唯一允许的形式：作为整个结果类型，如 `Exception.throw`，读作“该操作不会返回”。在参数中（`v : R`、`v : &R`）或结果内部（`-> Option(R)`）使用 `R` 会在类型书写处被拒绝。这类操作的处理器不得 `return(...)`，`return(())` 也不行：它以 `unwind(value)` 结束，若抛出属于程序缺陷则以 `panic(msg)` 结束。要带值恢复，请在构造处理器记录时固定恢复类型：让类型构造器以 `comptime` 参数接收它，如 `ResumableException(T)` 那样，这样处理器就在具体类型下检查。",
+      "Exn :: struct(throw : (ctl(generic(R : Type), code : i32) -> R));\nhalf :: (fn(x : i32, exn : Exn) -> i32)(cond((x < i32(0)) => exn.throw(x), true => (x / i32(2))));\nmain :: (fn() -> unit)({\n  exn := Exn(throw : (code -> return(code)));\n  _h := half(i32(-4), exn);\n});\nexport(main);\n",
+      "Recover :: (fn(comptime(R) : Type) -> comptime(Type))(struct(throw : (ctl(code : i32, fallback : R) -> R)));\nhalf :: (fn(x : i32, exn : Recover(i32)) -> i32)(cond((x < i32(0)) => exn.throw(x, i32(0)), true => (x / i32(2))));\nmain :: (fn() -> unit)({\n  exn := Recover(i32)(throw : ((code, fallback) -> return(fallback)));\n  _h := half(i32(-4), exn);\n});\nexport(main);\n",
+      "`Recover(i32)` fixes the resume type when the record is built, so the handler is checked at `i32` and its `return(fallback)` reaches the throw site.",
+      "`Recover(i32)` 在构造记录时固定了恢复类型，因此处理器在 `i32` 下检查，它的 `return(fallback)` 会到达抛出点。"
     )
   );
   // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────

@@ -390,8 +390,8 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   `&obj` / `&mut obj`, never `addr_of(obj)`.
 - Trait declarations follow the dominant impl: a method that writes its receiver (`Hasher.write*`,
   `Iterator.next`, `Index`/`IndexMut`, `ComptimeIndex`, `log.Sink.write_line`) takes `self : &mut Self`; one
-  that only reads it takes `self : &Self`, as in Rust: `Clone.clone`, `ToString.to_string`, `Hash.hash`,
-  `Hasher.finish`, `Debug.debug_string`, `Format.format`, `ToJson.to_json`, `Error.source`, `Reader`,
+  that only reads it takes `self : &Self`, as in Rust: `Clone.clone`, `Display.fmt`, `Hash.hash`,
+  `Hasher.finish`, `Debug.debug_fmt`, `Format.format`, `ToJson.to_json`, `Error.source`, `Reader`,
   `Writer`.
 - `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists writes through a borrowed copy.
 
@@ -574,9 +574,8 @@ main :: (fn() -> unit)({
   `c.clone()`); `where(T <: Copy)` rejects it (E0602).
 - `derive(T, Clone)` is always allowed. A HAND-WRITTEN `Clone` is an error only where every instantiation it
   serves is `Copy`.
-- A raw pointer's `p.clone()` copies the pointer. A member name both the pointer and its pointee have (a
-  pointee field named `clone`, `add`, `sub`, `offset_from`) makes `p.m(...)` an error naming `p.*.m(...)`
-  (or the copy `q := p`).
+- A raw pointer's `p.clone()` copies the pointer: `p.m(...)` is always the pointer's own member, and a
+  pointee member is `p.*.m(...)` (a pointee field read as `p.f` is E0623).
 - Exempt from the explicit-copy rule: compile-time-only types, control-bound records (`Exception`, effect
   records), unions, C opaque types, refinements of a `Copy` type, types still mentioning a type variable
   (judged per instantiation).
@@ -598,24 +597,33 @@ main :: (fn() -> unit)({
 - **Shared data** is an `Rc(S)` (payload read-only, E0919) or an `Rc(RefCell(S))` written through the door.
   There are no user-declared reference-semantics types (`ref(...)` / `atomic(...)` are E0009). Raw `*(T)` is
   for FFI.
-- **A second handle is `Rc.clone(h)` / `Arc.clone(h)`** (decisions 17, 32: `h.clone()` would also name the
-  payload's): a count bump, no bound on `T`. A handle's last use moves it; a copy whose source is used again,
+- **A second handle is `h.clone()` / `Rc.clone(h)` / `Arc.clone(h)`** (decision 17): a count bump, no bound
+  on `T`. `h.clone()` on a handle is always the handle's own `clone`, in a generic body too; `h.*.clone()` is
+  the payload's. A handle's last use moves it; a copy whose source is used again,
   or any copy out of a borrow, a field or a module-level binding (`return(h)` of a `&Rc(T)` parameter,
   `n.label`), is E0901 (its help names `Rc.clone(h)`). A value holding a handle is explicit-copy too
   (`x.clone()`, derive `Clone`). A deep copy is `Rc.new(h.*.clone())`. `&Rc(T)` parameters borrow without a
   copy.
-- **Auto-deref** (`Deref`): `b.x`, `b.x = v`, `b.m()`, `b.items.push(v)` on `Rc(P)` mean `b.*.x`, …; nested
-  wrappers recurse; callee position forwards (`b.items(i)`, `b.f(x)` for a function-typed field). A name the
-  wrapper and payload both have is E0616: `Rc.clone(b)` (the handle's) or `b.*.clone()` (the payload's). In
-  a safe file a write through an `Arc` is still rejected (`a.n = v`, a `&mut self` method). `data.*.x` is
-  equally valid.
+- **`.` never reads through a handle** (`Deref`): `x.name` is a member of `x`'s own type, read through any
+  number of `&`/`&mut` (`r.x`, `r.m()`, `r(i)` on `r : &T` stay bare). `x.*` is the only dereference (a
+  reference's referent, a raw pointer's pointee, a `Box`/`Rc`/`Arc` payload, an owner's view); `Deref` and
+  `DerefMut` define `.*` and nothing else. A payload member takes one star per layer: `b.*.x`, `b.*.m()`,
+  `b.*.items.push(v)` on a `Box(P)`, `bb.*.*.x` on `Rc(Rc(P))`, `h.*.items(i)` / `h.*.f(x)` in callee
+  position, `a.*.with_lock(v => …)` on `Arc(Mutex(T))`, `d.*.area()` on `Box(Dyn(Area))`, `q.*.x` on a raw
+  pointer. A reference to a handle takes two stars: `x : &Box(Node)` (a `for(&xs, x => …)` element, a
+  `match(&self.next, .Some(b) => …)` binding) reads `x.*.*.value`; the idiomatic forms are the `Box(n)`
+  pattern (`.Some(Box(n)) => n.total()`) and `x.as_ref().value`.
+- **`b.x` with `.` alone is E0623** (`E_MEMBER_BEHIND_DEREF`): its help spells the full chain and its
+  `yo fix` repair inserts the stars. `r(i)` on a handle is E0606 naming `r.*(i)`; `for(&r, …)` over a handle
+  is E0623 naming `for(&r.*, …)`. Operators and parameters never dereference (`r.* + 1`, `takes(&r.*)`). In
+  a safe file a write through an `Arc` is still rejected (`a.*.n = v`, a `&mut self` method).
 - **Writes through an `Rc` payload are E0919** (decision 46): `h.*.push(x)`, `h.*(i).f = v`,
   `addr_of(h.*(i))`. Use `Rc.make_mut(&mut h).push(x)` (payload `Clone`) or an `Rc(RefCell(...))`.
 - **`Deref` owners** (VERDICTS-63): `Deref` carries `deref : fn(self : &Self) -> &Self.Target`, `DerefMut`
   carries `deref_mut`, chosen like `Index`/`IndexMut` (a write, a `&mut` lend, a `&mut self` receiver and
   `addr_of` call `deref_mut`). `Box`/`Rc`/`Arc` are handles whose `.*` is native; any other `Deref` type is
   an owner (`Array(T, N)` with `Target : [T]`, a user type over `[T]`) whose `x.*` is its projection:
-  `v := &x.*` binds `x.deref()`, `w := &mut x.*` binds `x.deref_mut()`. An owner's own member wins over its view's. Nothing derefs at a parameter:
+  `v := &x.*` binds `x.deref()`, `w := &mut x.*` binds `x.deref_mut()`. `x.m()` is the owner's own member and `x.*.m()` reaches the view's (`a.is_empty()` on an array is E0623). Nothing derefs at a parameter:
   pass `f(&s.*)`, never `f(&s)` (E0601 naming `&s.*`). Outside the prelude a `Deref` impl needs an unsized
   `Target` (`[T]`, `str`, a `Dyn`), else E0622. `ArrayList(T)` is an owner too (`Target : [T]`, with
   `DerefMut`): `&list.*` is a `&[T]`, and `list.*.m()` calls a `[T]` method on the elements. `String` does
@@ -714,7 +722,8 @@ area :: (fn(s : Shape) -> i32)(
   linked `pop_front`). Read/write the fields you need BEFORE the assignments that drop handles.
 - `Option(&T).unwrap()` cannot reach the payload's methods yet (E0601 inside `unwrap`;
   `issues/2026-11-05-an-option-of-a-reference-cannot-reach-its-payloads-methods.md`). Use a `match`:
-  `match(h.get(), .Some(p) => p.len(), .None => usize(0))`.
+  `match(h.get(), .Some(p) => p.len(), .None => usize(0))` (the binding is a reference binding, and `.`
+  reads through it).
 
 ## Loops
 
@@ -1036,9 +1045,10 @@ result :: add1(i32(2)); // 3
 
 ### Derives
 
-- The prelude registers derive rules for `Eq`, `Hash`, `Clone`, `Ord`, `Default` only. `derive(X, ToString)`
-  needs `{ ToString } :: import("std/fmt");` first (rule in `std/fmt/to_string.yo`), `derive(X, Error(...))`
-  `std/error`; otherwise "derive: trait 'ToString' does not have a derive rule".
+- The prelude registers derive rules for `Eq`, `Hash`, `Clone`, `Ord`, `Default` only. `derive(X, Debug)`
+  needs `{ Debug } :: import("std/fmt");` first (rule in `std/fmt/to_string.yo`), `derive(X, Error(...))`
+  `std/error`; otherwise "derive: trait 'Debug' does not have a derive rule". `Display` has no derive rule:
+  write `impl(X, Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(...)))`.
 - A top-level `derive(T, …)` is order-independent like `impl(T, …)`.
 
 ## Modules
@@ -1066,7 +1076,7 @@ node_module :: import("./node.yo"); // whole module
 - **A bare `import("std/fmt");` binds no names**: it registers the module's impls and derive rules, but
   `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401).
 - `assert`/`panic` come from `std/assert` (`{ assert, panic } :: import("std/assert");`). Messages take any
-  `ToString` (template strings included); `assert(cond)` has a default message. The diverging builtin for
+  `Display` (template strings included); `assert(cond)` has a default message. The diverging builtin for
   value-position arms is `__yo_panic("str only")`. Its message is a literal, a `&str` parameter or a local:
   a method call in the argument (`__yo_panic(m.unwrap_or("x"))`) is E0601 against the arm's type, so bind
   it first (`issues/2026-11-24-yo-panic-with-a-method-call-message-reports-a-unify-error-against-the-arm-type.md`).

@@ -34,7 +34,7 @@ main :: (fn() -> unit)({
   (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(4)))); // owned
   m := speak_via(&b.*); // lend the boxed object
   (s : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(5)))); // shared
-  total := (a + m + s.speak() + c.n);
+  total := (a + m + s.*.speak() + c.n);
   println(&total);
 });
 export(main);
@@ -137,8 +137,8 @@ running tasks are kept as `JoinHandle(T)`: spawn each and collect the handles in
 ```yo ignore
 Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));
 (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
-d.speak(); // OK: `Self` only as the receiver
-d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
+d.*.speak(); // OK: `Self` only as the receiver
+d.*.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
 A blanket inherent method over a trait bound (`impl(generic(E), where(E <: Named), E, shout : ...)`)
@@ -149,7 +149,7 @@ through the vtable.
 An inherent impl on a `Dyn` type adds methods to that `Dyn`, like Rust's `impl dyn Error`:
 `std/error.yo`'s `impl(AnyError, is : ...)` is why `err.is(NotFound)` works on an `AnyError`.
 
-A trait implemented through a generic impl (`ArrayList(T)`'s `ToString` for `T <: ToString`) can be
+A trait implemented through a generic impl (`ArrayList(T)`'s `Display` for `T <: Display`) can be
 put behind a `Dyn`: `dyn(&xs)` specializes the generic impl's methods for the concrete type.
 
 **No implicit upcasting.** A `Dyn(Sp, Ot)` does not flow into a `Dyn(Sp)` slot: the two have
@@ -314,10 +314,10 @@ impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
 main :: (fn() -> unit)({
   (d : Box(Dyn(Speak, Clone))) = dyn(Box.new(Cat(n : i32(3))));
   e := d.clone(); // an independent payload: d and e share nothing
-  both := (d.speak() + e.speak());
+  both := (d.*.speak() + e.*.speak());
   println(&both);
   f := d; // the last use of d: a move
-  one := f.speak();
+  one := f.*.speak();
   println(&one);
 });
 export(main);
@@ -333,7 +333,7 @@ source afterwards is the use of a moved value:
 ```yo ignore
 (d : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(3))));
 e := d; // value moved here
-d.speak(); // error[E0901]: use of moved value: `d`
+d.*.speak(); // error[E0901]: use of moved value: `d`
 ```
 
 A copy out of storage that cannot give the value away (a field or element, a dereference, a
@@ -428,7 +428,7 @@ Shape :: trait(area : (fn(self : &Self) -> f64));
 mut(shapes) := ArrayList(Box(Dyn(Shape))).new();
 shapes.push(dyn(Box.new(Circle(r : f64(1.0)))));
 shapes.push(dyn(Box.new(Square(side : f64(2.0)))));
-for(&shapes, s => println(s.area()));
+for(&shapes, s => println(s.*.*.area()));
 ```
 
 The trait must be object-safe (a `&Self` or `&mut Self` receiver, no other
