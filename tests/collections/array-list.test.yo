@@ -171,8 +171,7 @@ test("ArrayList.shrink_to_fit reduces capacity to match length", {
   list.push(i32(2));
   list.push(i32(3));
   assert(list.capacity() == usize(20));
-  result := list.shrink_to_fit();
-  assert(result.is_ok());
+  list.shrink_to_fit();
   assert(list.capacity() == usize(3));
   assert(list.len() == usize(3));
 });
@@ -180,7 +179,7 @@ test("ArrayList.shrink_to_fit preserves elements", {
   mut(list) := ArrayList(i32).with_capacity(usize(10));
   list.push(i32(100));
   list.push(i32(200));
-  assert(list.shrink_to_fit().is_ok(), "shrink");
+  list.shrink_to_fit();
   assert(list(usize(0)) == i32(100));
   assert(list(usize(1)) == i32(200));
 });
@@ -191,14 +190,12 @@ test("ArrayList.shrink_to_fit on full capacity does nothing", {
     list.push(i32(i));
   });
   capacity_before := list.capacity();
-  result := list.shrink_to_fit();
-  assert(result.is_ok());
+  list.shrink_to_fit();
   assert(list.capacity() == capacity_before);
 });
 test("ArrayList.shrink_to_fit on empty list", {
   mut(list) := ArrayList(i32).with_capacity(usize(10));
-  result := list.shrink_to_fit();
-  assert(result.is_ok());
+  list.shrink_to_fit();
   assert(list.capacity() == usize(0));
 });
 // ===== Remove / Drain / Iter Tests =====
@@ -801,8 +798,7 @@ test("ArrayList of String - shrink_to_fit preserves String elements", {
   mut(list) := ArrayList(String).with_capacity(usize(20));
   list.push(String.from("keep1"));
   list.push(String.from("keep2"));
-  result := list.shrink_to_fit();
-  assert(result.is_ok());
+  list.shrink_to_fit();
   assert(list.capacity() == usize(2));
   assert(list(usize(0)) == String.from("keep1"));
   assert(list(usize(1)) == String.from("keep2"));
@@ -1495,7 +1491,7 @@ test("shrink_to_fit on an empty list keeps its explicit allocator", {
     mut(list) := ArrayList(i32).new(alloc : .Some(a));
     list.push(i32(1));
     list.clear();
-    assert(list.shrink_to_fit().is_ok(), "shrink");
+    list.shrink_to_fit();
     assert(list.allocator().is_some(), "still in the explicit allocator");
     list.push(i32(2));
     assert(list.allocator().unwrap().same(a), "growth after the shrink stays in the explicit allocator");

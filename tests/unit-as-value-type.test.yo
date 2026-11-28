@@ -293,7 +293,7 @@ test("an ArrayList of a zero-sized element type grows to any length", {
   assert(xs.get(usize(999)).is_some(), "the last unit is readable");
   assert(xs.pop().is_some(), "pop returns a unit");
   assert(xs.len() == usize(999), "pop shrinks the length");
-  assert(match(xs.shrink_to_fit(), .Ok(_) => true, .Err(_) => false), "shrink_to_fit is a no-op, not a realloc(p, 0)");
+  xs.shrink_to_fit(); // a no-op, not a realloc(p, 0)
   assert(xs.len() == usize(999), "shrink_to_fit keeps the elements");
   mut(ys) := ArrayList(unit).with_capacity(usize(10));
   ys.push(());

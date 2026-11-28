@@ -158,12 +158,12 @@ test("sort handles large shuffled input (heapsort, was O(n^2))", {
   assert(ordered, "2000 elements ascending");
   assert(list.len() == usize(2000), "length preserved");
 });
-test("sort_by orders by the supplied less", {
+test("sort_by orders by the supplied comparison", {
   mut(list) := ArrayList(i32).new();
   list.push(i32(3));
   list.push(i32(1));
   list.push(i32(2));
-  list.sort_by((a, b) => (a.* > b.*));
+  list.sort_by((a, b) => b.cmp(a));
   assert(list(usize(0)) == i32(3), "descending head");
   assert(list(usize(1)) == i32(2), "descending mid");
   assert(list(usize(2)) == i32(1), "descending tail");
@@ -221,7 +221,7 @@ test("sort and sort_by handle RC (String) elements", {
   list.sort();
   assert(list(usize(0)) == `apple`, "sorted head");
   assert(list(usize(3)) == `pear`, "sorted tail");
-  list.sort_by((a, b) => (b.* < a.*));
+  list.sort_by((a, b) => b.cmp(a));
   assert(list(usize(0)) == `pear`, "descending head");
   assert(list(usize(3)) == `apple`, "descending tail");
   assert(list.len() == usize(4), "no element lost");
@@ -270,7 +270,7 @@ test("sort_by is stable: equal keys keep their input order", {
     xs.push(_SortRec(key : (i % i32(2)), tag : i));
     i = (i + i32(1));
   });
-  xs.sort_by((a, b) => (a.key < b.key));
+  xs.sort_by((a, b) => a.key.cmp(&b.key));
   // Keys ascending, and within each key the tags stay in insertion order.
   mut(expect_tags) := ArrayList(i32).new();
   expect_tags.push(i32(0));
@@ -318,7 +318,7 @@ test("sort_unstable_by sorts by a supplied comparator", {
   us.push(i32(1));
   us.push(i32(9));
   us.push(i32(5));
-  us.sort_unstable_by((a, b) => (b.* < a.*));
+  us.sort_unstable_by((a, b) => b.cmp(a));
   assert(us(usize(0)) == i32(9), "descending head");
   assert(us(usize(2)) == i32(1), "descending tail");
 });
@@ -338,7 +338,7 @@ test("sort is stable across a larger run with many ties", {
     xs.push(_SortRec(key : (i % i32(4)), tag : i));
     i = (i + i32(1));
   });
-  xs.sort_by((a, b) => (a.key < b.key));
+  xs.sort_by((a, b) => a.key.cmp(&b.key));
   mut(ok) := true;
   mut(j) := usize(1);
   while(j < xs.len(), {

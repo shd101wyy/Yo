@@ -24,12 +24,10 @@
 //! unstable — D16 has only just re-based this module on `HashMap(T, unit)`,
 //! and it inherits that map's open item: the backing table's `ctrl`, `data`,
 //! `capacity` and `size` are still public fields there
-//! (`plans/archive/STD_API_STABILIZATION.md` §4). Two shapes of this file's own are
-//! also unsettled: the four set operations return
-//! `Result(Self, HashSetError)` while `insert` panics on the same allocation
-//! failure — D9 draws that line the other way round — and Rust returns lazy
-//! ITERATORS from `union`/`intersection`/`difference` rather than owned sets.
-//! Freezing follows those two decisions.
+//! (`plans/archive/STD_API_STABILIZATION.md` §4). One shape of this file's own is
+//! also unsettled: Rust returns lazy ITERATORS from
+//! `union`/`intersection`/`difference` rather than owned sets. Freezing
+//! follows that decision.
 pragma(Pragma.AllowUnsafe);
 { AllocError } :: import("../allocator.yo");
 { HashMap, HashMapError, HashMapIntoIter, HashMapRawIter } :: import("./hash-map");
@@ -239,20 +237,14 @@ impl(
     result
   }),
   /// Every element of either set.
-  union : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
+  union : (fn(self : &Self, other : &Self) -> Self)({
     mut(out) := Self.new();
     mut(it) := self.iter_raw();
     while(true, {
       match(
         it.next(),
         .Some(p) => {
-          match(
-            out.try_insert(p.*),
-            .Ok(_) => (),
-            .Err(e) => {
-              return(.Err(e));
-            }
-          );
+          out.insert(p.*);
         },
         .None => {
           break;
@@ -264,23 +256,17 @@ impl(
       match(
         it2.next(),
         .Some(p) => {
-          match(
-            out.try_insert(p.*),
-            .Ok(_) => (),
-            .Err(e) => {
-              return(.Err(e));
-            }
-          );
+          out.insert(p.*);
         },
         .None => {
           break;
         }
       );
     });
-    .Ok(out)
+    out
   }),
   /// Elements present in BOTH sets.
-  intersection : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
+  intersection : (fn(self : &Self, other : &Self) -> Self)({
     mut(out) := Self.new();
     mut(it) := self.iter_raw();
     while(true, {
@@ -289,13 +275,7 @@ impl(
         .Some(p) => {
           cond(
             other.contains(&p.*) => {
-              match(
-                out.try_insert(p.*),
-                .Ok(_) => (),
-                .Err(e) => {
-                  return(.Err(e));
-                }
-              );
+              out.insert(p.*);
             },
             true => ()
           );
@@ -305,10 +285,10 @@ impl(
         }
       );
     });
-    .Ok(out)
+    out
   }),
   /// Elements in `self` that are NOT in `other`.
-  difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
+  difference : (fn(self : &Self, other : &Self) -> Self)({
     mut(out) := Self.new();
     mut(it) := self.iter_raw();
     while(true, {
@@ -317,13 +297,7 @@ impl(
         .Some(p) => {
           cond(
             !other.contains(&p.*) => {
-              match(
-                out.try_insert(p.*),
-                .Ok(_) => (),
-                .Err(e) => {
-                  return(.Err(e));
-                }
-              );
+              out.insert(p.*);
             },
             true => ()
           );
@@ -333,10 +307,10 @@ impl(
         }
       );
     });
-    .Ok(out)
+    out
   }),
   /// Elements in exactly one of the two sets.
-  symmetric_difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
+  symmetric_difference : (fn(self : &Self, other : &Self) -> Self)({
     mut(out) := Self.new();
     mut(it) := self.iter_raw();
     while(true, {
@@ -345,13 +319,7 @@ impl(
         .Some(p) => {
           cond(
             !other.contains(&p.*) => {
-              match(
-                out.try_insert(p.*),
-                .Ok(_) => (),
-                .Err(e) => {
-                  return(.Err(e));
-                }
-              );
+              out.insert(p.*);
             },
             true => ()
           );
@@ -368,13 +336,7 @@ impl(
         .Some(p) => {
           cond(
             !self.contains(&p.*) => {
-              match(
-                out.try_insert(p.*),
-                .Ok(_) => (),
-                .Err(e) => {
-                  return(.Err(e));
-                }
-              );
+              out.insert(p.*);
             },
             true => ()
           );
@@ -384,7 +346,7 @@ impl(
         }
       );
     });
-    .Ok(out)
+    out
   })
 );
 /// Value iterator over a HashSet — yields elements BY VALUE (dup'ing a

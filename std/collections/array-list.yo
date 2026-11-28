@@ -443,16 +443,16 @@ impl(
   ///
   /// Reallocates (an empty list frees its buffer outright), so every pointer
   /// into the buffer is invalid afterwards and the next `push` grows again.
-  /// `.Err(.AllocError(.OutOfMemory))` when the shrinking `realloc` fails —
-  /// the list is left untouched and usable. A zero-sized element type is a
-  /// no-op: its anchor buffer cannot shrink.
-  shrink_to_fit : (fn(self : &mut Self) -> Result(unit, ArrayListError))(
+  /// Panics when the shrinking `realloc` fails, as an allocation failure does
+  /// everywhere (D9). A zero-sized element type is a no-op: its anchor buffer
+  /// cannot shrink.
+  shrink_to_fit : (fn(self : &mut Self) -> unit)(
     // If length equals capacity or both are zero, nothing to do. A zero-sized
     // element type has nothing to shrink either (its buffer is the one-byte
     // anchor; `realloc(p, 0)` would free it — see `_zst_anchor`).
     cond(
-      ((self._length == self._cap()) || (self._cap() == usize(0))) => .Ok(()),
-      (size_of(T) == usize(0)) => .Ok(()),
+      ((self._length == self._cap()) || (self._cap() == usize(0))) => (),
+      (size_of(T) == usize(0)) => (),
       true =>
         // If length is zero, free the buffer. A buffer from an explicit
         // allocator shrinks to its owner prefix instead, so the list keeps
@@ -468,7 +468,7 @@ impl(
               },
               .None => ()
             );
-            .Ok(())
+            ()
           },
           true =>
             // Otherwise, reallocate to exact size
@@ -482,9 +482,9 @@ impl(
                   .Some(new_ptr) => {
                     self._ptr = .Some((*T)(new_ptr));
                     self._set_cap(self._length);
-                    .Ok(())
+                    ()
                   },
-                  .None => .Err(.AllocError(.OutOfMemory))
+                  .None => __yo_panic("ArrayList.shrink_to_fit: out of memory")
                 )
               }
             )
@@ -1873,16 +1873,16 @@ impl(
 impl(
   generic(T : Type),
   ArrayList(T),
-  /// Sort by a caller-supplied strict "less" — `less(a, b)` is true when `a`
-  /// must come before `b`. STABLE: equal elements keep their input order,
-  /// matching Rust's `sort_by`. Use `sort_unstable_by` for the
-  /// allocation-free heapsort.
-  sort_by : (fn(self : &mut Self, less : &mut Impl(FnMut(a : &T, b : &T) -> bool)) -> unit)({
+  /// Sort by a caller-supplied comparison — Rust's `sort_by`: `compare(a, b)`
+  /// is `.Less` when `a` must come before `b` (`xs.sort_by((a, b) => a.cmp(b))`
+  /// sorts ascending). STABLE: equal elements keep their input order. Use
+  /// `sort_unstable_by` for the allocation-free heapsort.
+  sort_by : (fn(self : &mut Self, compare : &mut Impl(FnMut(a : &T, b : &T) -> Ordering)) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true => match(
         self._ptr,
-        .Some(_ptr) => _stable_sort_by(_ptr, self._length, less),
+        .Some(_ptr) => _stable_sort_by(_ptr, self._length, &mut ({ compare : &mut compare.* }(a, b) => match(compare(a, b), .Less => true, _ => false))),
         .None => ()
       )
     );
@@ -1905,7 +1905,7 @@ impl(
     self.sort_by({ key : &mut key.* }(a, b) => {
       ka := key(a);
       kb := key(b);
-      match(K.cmp(&ka, &kb), .Less => true, _ => false)
+      K.cmp(&ka, &kb)
     })
   ),
   /// Binary search over a list ordered by `cmp` — Rust's `binary_search_by`.
@@ -1962,14 +1962,14 @@ impl(
     });
     ArrayListWindows(T)(_src : self, _index : usize(0), _size : size)
   }),
-  /// Sort by a caller-supplied strict "less" WITHOUT preserving the order of
+  /// Sort by a caller-supplied comparison WITHOUT preserving the order of
   /// equal elements (heapsort). Rust's `sort_unstable_by`.
-  sort_unstable_by : (fn(self : &mut Self, less : &mut Impl(FnMut(a : &T, b : &T) -> bool)) -> unit)({
+  sort_unstable_by : (fn(self : &mut Self, compare : &mut Impl(FnMut(a : &T, b : &T) -> Ordering)) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true => match(
         self._ptr,
-        .Some(_ptr) => _heapsort_by(_ptr, self._length, less),
+        .Some(_ptr) => _heapsort_by(_ptr, self._length, &mut ({ compare : &mut compare.* }(a, b) => match(compare(a, b), .Less => true, _ => false))),
         .None => ()
       )
     );

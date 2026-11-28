@@ -270,8 +270,7 @@ test("HashSet.union creates combined set", {
   mut(set2) := HashSet(i32).new();
   set2.insert(i32(2));
   set2.insert(i32(3));
-  result := set1.union(&set2);
-  union_set := result.unwrap();
+  union_set := set1.union(&set2);
   assert(union_set.len() == usize(3));
   assert(union_set.contains(i32(1)));
   assert(union_set.contains(i32(2)));
@@ -282,8 +281,7 @@ test("HashSet.union with empty set", {
   set1.insert(i32(1));
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
-  result := set1.union(&set2);
-  union_set := result.unwrap();
+  union_set := set1.union(&set2);
   assert(union_set.len() == usize(2));
   assert(union_set.contains(i32(1)));
   assert(union_set.contains(i32(2)));
@@ -297,8 +295,7 @@ test("HashSet.intersection creates common elements set", {
   set2.insert(i32(2));
   set2.insert(i32(3));
   set2.insert(i32(4));
-  result := set1.intersection(&set2);
-  inter_set := result.unwrap();
+  inter_set := set1.intersection(&set2);
   assert(inter_set.len() == usize(2));
   assert(inter_set.contains(i32(2)));
   assert(inter_set.contains(i32(3)));
@@ -310,8 +307,7 @@ test("HashSet.intersection with empty set", {
   set1.insert(i32(1));
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
-  result := set1.intersection(&set2);
-  inter_set := result.unwrap();
+  inter_set := set1.intersection(&set2);
   assert(inter_set.is_empty());
 });
 test("HashSet.difference creates elements in first but not second", {
@@ -322,8 +318,7 @@ test("HashSet.difference creates elements in first but not second", {
   mut(set2) := HashSet(i32).new();
   set2.insert(i32(2));
   set2.insert(i32(4));
-  result := set1.difference(&set2);
-  diff_set := result.unwrap();
+  diff_set := set1.difference(&set2);
   assert(diff_set.len() == usize(2));
   assert(diff_set.contains(i32(1)));
   assert(diff_set.contains(i32(3)));
@@ -335,8 +330,7 @@ test("HashSet.difference with empty set returns copy", {
   set1.insert(i32(1));
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
-  result := set1.difference(&set2);
-  diff_set := result.unwrap();
+  diff_set := set1.difference(&set2);
   assert(diff_set.len() == usize(2));
   assert(diff_set.contains(i32(1)));
   assert(diff_set.contains(i32(2)));
@@ -350,8 +344,7 @@ test("HashSet.symmetric_difference creates elements in either but not both", {
   set2.insert(i32(2));
   set2.insert(i32(3));
   set2.insert(i32(4));
-  result := set1.symmetric_difference(&set2);
-  sym_diff := result.unwrap();
+  sym_diff := set1.symmetric_difference(&set2);
   assert(sym_diff.len() == usize(2));
   assert(sym_diff.contains(i32(1)));
   assert(sym_diff.contains(i32(4)));
@@ -365,8 +358,7 @@ test("HashSet.symmetric_difference with disjoint sets", {
   mut(set2) := HashSet(i32).new();
   set2.insert(i32(3));
   set2.insert(i32(4));
-  result := set1.symmetric_difference(&set2);
-  sym_diff := result.unwrap();
+  sym_diff := set1.symmetric_difference(&set2);
   assert(sym_diff.len() == usize(4));
   assert(sym_diff.contains(i32(1)));
   assert(sym_diff.contains(i32(2)));
