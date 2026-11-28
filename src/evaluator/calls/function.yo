@@ -149,7 +149,7 @@ pragma(Pragma.AllowUnsafe);
   type_clone_runs_no_user_code
 } :: import("../trait-checking.yo");
 { get_trait_type_from_env } :: import("../../types/env-lookup.yo");
-{ make_deref_expr } :: import("../exprs/property-access.yo");
+{ make_deref_expr, member_behind_deref_error, strip_synthesized_stars } :: import("../exprs/property-access.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
 { try_to_implement_module_with_arguments_by_module_type } :: import("./record-type.yo");
 {
@@ -226,6 +226,15 @@ _SaiMemo :: struct(epoch : u64, arg_keys : ArrayList(Option(String)), receiver :
 /// records the callee as `x.m` and the receiver's mode here, and the probe
 /// starts from `&C` / `&mut C`.
 (g_explicit_ref_receivers : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+/// E0623 for a method call whose receiver's own type lacks the method and
+/// whose `.*` place chain has it (VERDICTS-73), by the method name's node
+/// id (shared by every receiver retry of one call): the miss raises it in
+/// place of E0610.
+(g_member_behind_deref : RefCell(HashMap(usize, YoError))) = RefCell(HashMap(usize, YoError)).new(HashMap(usize, YoError).new());
+/// How many `.*` probes of a `Deref` receiver are in progress: the
+/// outermost one finds where the method is and reports it; the probes it
+/// starts read through the chain to get there.
+(mut(g_member_probe_depth) : usize) = usize(0);
 /// The receiver slot types R-PROBE tried for a `.` callee whose lookup found
 /// no method, by the callee's id: E0610's "probed" line.
 (g_probed_receiver_slots : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
@@ -609,17 +618,17 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
     _ => ()
   );
   obj_is_type := match(oi.value(), .Some(Rc(.TypeVal(_))) => true, _ => false);
-  (depth : u32) = u32(0);
-  while(found.is_empty() && recv_ty.is_some() && (depth < u32(8)), depth = (depth + u32(1)), {
-    cur := match(&recv_ty, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
-    recv_ty = Option(TypeValue).None;
-    // A field of that name: `x.drop` reads the field, never a method.
-    if(!obj_is_type && match(resolve_struct_shell(&cur), Rc(.Struct({ field_labels : dfl })) => _labels_contain(&dfl.*.items, &name), _ => false), {
-      return(());
-    });
-    if(!is_pointer_type(&cur), {
-      hits := get_receiver_methods_by_name_from_env(env, name.clone(), &cur, false);
-      if(hits.len() > usize(0), {
+  // The receiver's own type only: `.` reads no member of a `Deref` type's
+  // `.*` place (VERDICTS-73).
+  match(
+    recv_ty,
+    .Some(cur) => {
+      // A field of that name: `x.drop` reads the field, never a method.
+      if(!obj_is_type && match(resolve_struct_shell(&cur), Rc(.Struct({ field_labels : dfl })) => _labels_contain(&dfl.*.items, &name), _ => false), {
+        return(());
+      });
+      if(!is_pointer_type(&cur), {
+        hits := get_receiver_methods_by_name_from_env(env, name.clone(), &cur, false);
         (inherent : bool) = false;
         (hi : usize) = usize(0);
         while(hi < hits.len(), hi = (hi + usize(1)), {
@@ -640,11 +649,10 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
         if(inherent, {
           found = String.new();
         });
-      }, {
-        recv_ty = deref_target_type(resolve_struct_shell(&cur), env);
       });
-    });
-  });
+    },
+    .None => ()
+  );
   if(found.is_empty(), {
     return(());
   });
@@ -694,20 +702,34 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
 reject_destructor_member_read :: (fn(dot : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   _reject_explicit_destructor_call(dot, Option(ArrayList(AstExpr)).None, env, ctx, exn)
 );
-/// Decision 32 (plans/VALUES_BY_DEFAULT.md): `w.m(...)` where the `Deref`
-/// wrapper `w` has a method `m` AND its payload (through its own
-/// auto-dereference chain) has one too has two readings, the wrapper's
-/// `m` and `w.*.m(...)`. That is E0616 naming both spellings: the
-/// unapplied-constructor call `Rc.m(w, ...)` (decision 32 Generation A) for
-/// the wrapper's own member, `w.*.m(...)` for the payload's. The wrapper's
-/// member used to win silently, so `yo fix` applies the spelling that keeps
-/// that meaning.
-///
-/// Only where the receiver's type is written as the wrapper: a call inside a
-/// specialized generic body (`x.clone()` with `T := Rc(i32)` under
-/// `where(T <: Clone)`) is the bound's method, never ambiguous, so the check
-/// is off while a generic function or impl is specialized (the same gate as
-/// `match`'s GADT exactness).
+/// E0606 for a valueless callee `f(...)` that is not a function. When `f`
+/// is a `Deref` type (`Rc(ArrayList(T))`) the call means its `.*` place,
+/// which `f(...)` does not read (VERDICTS-73): the help names `f.*(...)`,
+/// and for a plain name the repair writes the star.
+_not_callable_error :: (fn(func_expr : &AstExpr, callee_ty : &TypeValue, env : &Environment) -> YoError)({
+  tok := ast_expr_token(func_expr);
+  shown := ast_expr_to_string(func_expr);
+  msg := `${shown} is not callable: it has type ${type_to_string(callee_ty)}.`;
+  match(
+    deref_target_type(resolve_struct_shell(callee_ty), env),
+    .Some(payload) => {
+      help_s := `\`${shown}\` has type \`${type_to_string(callee_ty)}\`, and \`${shown}(...)\` does not read through it: \`${shown}.*\` is its \`${type_to_string(&payload)}\`. Write \`${shown}.*(...)\``;
+      // The span is the name token's own: no source is read here.
+      cond(
+        (ast_expr_is_atom(func_expr) && (tok.*.kind == TokenKind.Identifier) && !tok.*.module_path.*.starts_with(String.from("auto-generated://"))) => format_error_message_with_repair_at(
+          &tok,
+          &msg,
+          Option(String).Some(help_s),
+          &Span(path : tok.*.module_path.*.clone(), row : usize(tok.*.row), col : usize(tok.*.column), len : tok.*.value.*.len()),
+          &`${tok.*.value.*}.*`,
+          &`call the place \`${shown}.*\` names: ${shown}.*(...)`
+        ),
+        true => format_error_message_with_help(&tok, &msg, &Option(String).Some(help_s))
+      )
+    },
+    .None => format_error_message(&tok, &msg)
+  )
+});
 /// `(&x).m()` / `(&mut x).m()` resolved by R-PROBE to a method whose slot
 /// the borrow cannot serve (VERDICTS-25 Q2 §1, §3): a `&mut Self` method
 /// through `(&x)` writes through a shared borrow (E0908), and a by-value
@@ -1926,30 +1948,32 @@ _find_receiver_method_of :: (
     });
   });
   if(hits.len() == usize(0), {
-    // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` wrapper
-    // (`Box`, `Rc`, `Arc`) without the method forwards the call to its payload —
-    // retry with the receiver `w.*`, recursively through nested wrappers.
-    // Reached only after the wrapper's own lookup (and its lazy-impl force)
-    // missed, so the wrapper's members always win (`b.clone()` stays the
-    // Rc's). On a hit the callee is recorded as rewritten with the receiver
-    // the `w.*` chain (`note_rewritten_node`, same id), so the call is the
-    // explicit `w.*.m(...)` to every later reader (codegen, the inout/D3/E0908
-    // root walks, through `ast_rewritten_node`); on a miss the callee is left
-    // as written for the E0610 message.
     // A receiver whose VALUE is a reference (`r.*.m()` with `r.* : &C`,
     // plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3) takes R-PROBE's
-    // deref step (VERDICTS-25 Q2): the retry reads through it, `r.*.*.m()`.
+    // deref step (VERDICTS-25 Q2): the retry reads through it, `r.*.*.m()`,
+    // and the callee is recorded as rewritten with that receiver
+    // (`note_rewritten_node`, same id), so the call is the explicit chain to
+    // every later reader (codegen, the inout/D3/E0908 root walks, through
+    // `ast_rewritten_node`).
+    // A `Deref` type's (`Box`, `Rc`, `Arc`, an owner) `.*` place is not read
+    // by `.` (VERDICTS-73): the outermost miss probes the place chain the same
+    // way, and when it has the method the miss is E0623, whose repair writes
+    // the stars (`w.*.m()`), raised where E0610 would be.
     recv_is_reference_value := (t_slot_is_borrow(&receiver_type) && !is_pointer_type(&receiver_type));
     if(!is_static && !is_pointer_type(&receiver_type), {
       match(
         cond(recv_is_reference_value => Option(TypeValue).Some(t_slot_pointee(&receiver_type)), true => deref_target_type(resolve_struct_shell(&receiver_type), env)),
         .Some(_) => {
+          is_member_probe := (!recv_is_reference_value && (g_member_probe_depth == usize(0)));
+          if(is_member_probe, {
+            g_member_probe_depth = (g_member_probe_depth + usize(1));
+          });
           recv_id := ast_expr_id(&receiver_expr_r);
           mark_node_preevaluated(recv_id);
           deref_out := ArrayList(AstExpr).new();
           _try_eval_receiver_node(make_deref_expr(&receiver_expr_r, ast_expr_token(callee), &method_tok), env, ctx, &mut deref_out);
           unmark_node_preevaluated(recv_id);
-          match(
+          deref_hit_opt := match(
             deref_out.get_cloned(usize(0)),
             .Some(deref_node) => {
               dc_args := ArrayList(AstExpr).new();
@@ -1960,21 +1984,34 @@ _find_receiver_method_of :: (
                 Rc(.FnCall(_, dc_fb, _, dc_infix, dc_tok)) => Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(dc_fb.*), Rc.new(dc_args), dc_infix.*, Rc.clone(dc_tok.*))),
                 _ => Rc.clone(callee.*)
               );
+              recur(&deref_callee, env, ctx)
+            },
+            .None => Option(ReceiverMethodResult).None
+          );
+          if(is_member_probe, {
+            g_member_probe_depth = (g_member_probe_depth - usize(1));
+          });
+          match(
+            deref_hit_opt,
+            .Some(deref_hit) => {
+              if(is_member_probe, {
+                (written, mb_stars) := strip_synthesized_stars(&deref_hit.receiver_expr);
+                written_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&written)), .Some(wi) => Rc.clone(wi.ty()), .None => Rc.clone(receiver_type));
+                landed_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&deref_hit.receiver_expr)), .Some(li) => Rc.clone(li.ty()), .None => Rc.clone(receiver_type));
+                mb_err := member_behind_deref_error(&written, &written_ty, &method_tok, mb_stars, &landed_ty, true, for_desugar_site_of(&ast_expr_token(callee)).is_some(), env);
+                mb_key := ast_expr_id(&method_name_expr);
+                g_member_behind_deref.with_mut({ mb_key, mb_err }(m) => m.insert(mb_key, mb_err.clone()));
+                return(Option(ReceiverMethodResult).None);
+              });
+              rw_args := ArrayList(AstExpr).new();
+              rw_args.push(deref_hit.receiver_expr.clone());
+              rw_args.push(method_name_expr.clone());
               match(
-                recur(&deref_callee, env, ctx),
-                .Some(deref_hit) => {
-                  rw_args := ArrayList(AstExpr).new();
-                  rw_args.push(deref_hit.receiver_expr.clone());
-                  rw_args.push(method_name_expr.clone());
-                  match(
-                    callee,
-                    Rc(.FnCall(rw_id, rw_fb, _, rw_infix, rw_tok)) => note_rewritten_node(&Rc.new(AstExprNode.FnCall(rw_id.*, Rc.clone(rw_fb.*), Rc.new(rw_args), rw_infix.*, Rc.clone(rw_tok.*)))),
-                    _ => ()
-                  );
-                  return(Option(ReceiverMethodResult).Some(deref_hit));
-                },
-                .None => ()
+                callee,
+                Rc(.FnCall(rw_id, rw_fb, _, rw_infix, rw_tok)) => note_rewritten_node(&Rc.new(AstExprNode.FnCall(rw_id.*, Rc.clone(rw_fb.*), Rc.new(rw_args), rw_infix.*, Rc.clone(rw_tok.*)))),
+                _ => ()
               );
+              return(Option(ReceiverMethodResult).Some(deref_hit));
             },
             .None => ()
           );
@@ -16177,7 +16214,6 @@ Fix: wrap the call:
       _reject_private_method_call(&method_info_opt, &m_callee, ctx, exn);
       _reject_class1_panic_method_call(&method_info_opt, &m_callee, ctx, exn);
       _reject_dyn_uncallable_method_call(&method_info_opt, &m_callee, ctx, exn);
-      _reject_wrapper_payload_clash(&method_info_opt, &m_callee, args.len(), &callee_env, ctx, exn);
       _lend_reference_receiver_at_double_slot(&method_info_opt, &m_callee, &callee_env, ctx, exn);
       _reject_explicit_ref_receiver_slot(&method_info_opt, &m_callee, ctx, exn);
       match(
@@ -16746,6 +16782,23 @@ Fix: wrap the call:
             if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[vcall-throw] callee=${ast_expr_to_string(&func_expr)} ty=${type_to_string(&callee_ty_none)}`);
             });
+            // A method the receiver lacks and its `.*` place has is E0623
+            // (VERDICTS-73, recorded by `_try_find_receiver_method`).
+            match(
+              match(&func_expr, Rc(.FnCall(_, _, Rc(mbd_a), _, _)) => cond(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).None) => mbd_a.get_cloned(usize(1)), true => Option(AstExpr).None), _ => Option(AstExpr).None),
+              .Some(mbd_name) => {
+                mbd_key := ast_expr_id(&mbd_name);
+                match(
+                  g_member_behind_deref.with(m => m.get_cloned(&mbd_key)),
+                  .Some(mbd_err) => {
+                    exn.throw(dyn(Box.new(mbd_err)));
+                    return(Rc.clone(expr.*));
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
             // A method the receiver lacks (`p.to_string()`, E0610) names the
             // method and the receiver's type; any other valueless callee is a
             // value that is not a function (`n(1)` for `n : i32`, E0606).
@@ -16761,13 +16814,7 @@ Fix: wrap the call:
                       &func_expr,
                       ctx
                     ),
-                    true => with_code(
-                      format_error_message(
-                        ast_expr_token(&func_expr),
-                        `${ast_expr_to_string(&func_expr)} is not callable: it has type ${type_to_string(&callee_ty_none)}.`
-                      ),
-                      E_NOT_CALLABLE
-                    )
+                    true => with_code(_not_callable_error(&func_expr, &callee_ty_none, &callee_env), E_NOT_CALLABLE)
                   )
                 )
               )

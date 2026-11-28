@@ -3,7 +3,7 @@
 **Severity:** S2 — passing `Eff(raise : raise, log : log)` straight into the call, in the frame that bound `raise`, does not install the handler: its `unwind` passes the installer and the process aborts with "unhandled effect unwind escaped to top level". Binding the record to a local first works.
 
 - Filed: 2026-11-28, finding F4 of VERDICTS-94 (Fable 5.2, §8), with its probes `p08`, `p08c` (fail) and `p08b` (works).
-- Status: open. Closed by K-1 of [`plans/backlog/CAPABILITIES_AND_HANDLERS.md`](../plans/backlog/CAPABILITIES_AND_HANDLERS.md) (v0.2.82).
+- Status: open, not fixed: retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
 - Related: the same root as `issues/2026-11-28-a-frame-that-installs-a-handler-catches-an-outer-frames-unwind.md` (F1).
 
 ## Reproducer
@@ -63,8 +63,10 @@ As VERDICTS-94 §8 states it: `_call_is_handler_installation` (`src/codegen/expr
 
 ## Fix
 
+Not built (VERDICTS-96 §5): no statement in `src/` or `std/` has this shape, and E-5 deletes the mechanism. The repair the doc was filed with, K-1 of [`plans/archive/CAPABILITIES_AND_HANDLERS.md`](../plans/archive/CAPABILITIES_AND_HANDLERS.md), was:
+
 K-1: the frame catches by identity (`__yo_unwind_target` against the frame's own handler literals), so where the record is built no longer matters, and `_call_is_handler_installation` is deleted.
 
 ## Test
 
-None in this filing: the bug is open with no fix. The test lands with K-1: this repro and the `run(...)` form as run-time tests that print `go=-1`.
+None: the bug is not fixed. Its reproducer stops compiling at E-5, when `ctl` and `unwind` leave the language.

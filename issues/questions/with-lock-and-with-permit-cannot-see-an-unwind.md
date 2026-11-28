@@ -2,7 +2,7 @@
 
 **Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
 
-**Status:** OPEN — doc/API accuracy, not a defect
+**Status:** ANSWERED 2026-11-28, moot: VERDICTS-96 deletes `unwind` ([`plans/backlog/ERRORS_AS_VALUES.md`](../../plans/backlog/ERRORS_AS_VALUES.md), E-5). With errors as values `with_lock(m, f)` and `with_permit` see `f`'s `Result` and release on every exit. The doc moves to `issues/retired/` with E-3, which rewrites `std/sync`: the comments in `std/sync/semaphore.yo` and `tests/sync/semaphore.test.yo` cite this path, and this docs-only adoption PR does not edit code.
 **Found:** 2026-09-08, trying to write the unwind test for the new
 `Semaphore.with_permit`.
 

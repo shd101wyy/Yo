@@ -25,7 +25,7 @@ impl(
 make_cycle :: (fn() -> unit)({
   a := _pair(i32(1), .None);
   b := _pair(i32(2), .Some(Rc.clone(&a)));
-  a.other.replace(.Some(b)); // a <-> b, unreachable after return
+  a.*.other.replace(.Some(b)); // a <-> b, unreachable after return
 });
 test("a garbage cycle", {
   make_cycle();
