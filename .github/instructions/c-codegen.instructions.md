@@ -197,7 +197,7 @@ Explicit allocators (`plans/reference/EXPLICIT_ALLOCATORS.md`):
 
 ### A `Box` payload projection masks the handle's placed bit
 
-`Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell pointer is the handle's "placed" bit (`plans/reference/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout"). Every payload projection (`b.*`, `b.field`, `b.method()`, `&b.*`, `addr_of(b.*)`, a `Box(p)` pattern) goes through `box_payload_place_code` (`src/codegen/utils/index.yo`), which writes `(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`, or masks the address word of the fat pointer for an unsized payload; never spell `(*b)` for a `Box`. A place that takes the address back strips the outer `(*…)` and keeps the masked pointer. `tests/box-layout.test.yo` covers every projection.
+`Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell pointer is the handle's "placed" bit (`plans/reference/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout"). Every payload projection (`b.*`, `b.*.field`, `b.*.method()`, `&b.*`, `addr_of(b.*)`, a `Box(p)` pattern) goes through `box_payload_place_code` (`src/codegen/utils/index.yo`), which writes `(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`, or masks the address word of the fat pointer for an unsized payload; never spell `(*b)` for a `Box`. A place that takes the address back strips the outer `(*…)` and keeps the masked pointer. `tests/box-layout.test.yo` covers every projection.
 
 ### A pointer to an unsized type is the fat `__yo_slice_t`
 

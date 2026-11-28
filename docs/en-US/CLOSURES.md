@@ -77,13 +77,13 @@ test_capture :: (fn() -> unit)({
 
   (mut(closure) : Impl(FnMut(increment : i32) -> i32)) = ({ counter, data : Rc.clone(data) }(increment) => {
     counter = (counter + increment); // Modifies the closure's own copy
-    data.replace_with(v => (v.* + increment)); // Modifies the shared cell
+    data.*.replace_with(v => (v.* + increment)); // Modifies the shared cell
     return(counter);
   });
 
   closure(5);
   // counter is still 0 (the closure has its own copy)
-  // data.with(v => v.*) is now 47 (the shared cell)
+  // data.*.with(v => v.*) is now 47 (the shared cell)
 });
 ```
 
@@ -324,10 +324,10 @@ A closure that captures a shared cell owns a handle to it; the cell's payload ch
 
 make_incrementer :: (fn(start : Rc(RefCell(i32))) -> Impl(Fn() -> i32))({
   return(() => {
-    start.with_mut((n : &mut i32) => {
+    start.*.with_mut((n : &mut i32) => {
       n.* = (n.* + 1);
     });
-    start.with((n : &i32) => n.*)
+    start.*.with((n : &i32) => n.*)
   });
 });
 
@@ -337,7 +337,7 @@ test :: (fn() -> unit)({
 
   assert(inc() == 1);
   assert(inc() == 2);
-  assert(counter.with((n : &i32) => n.*) == 2);
+  assert(counter.*.with((n : &i32) => n.*) == 2);
 });
 ```
 
