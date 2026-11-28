@@ -61,8 +61,8 @@ Yo 手册的总览：每一页讲什么、按什么顺序阅读，以及没有�
 - [ARC](./ARC.md)：`Arc(T)`，原子计数的共享所有权。
 - [WEAK](./WEAK.md)：`Weak(T)` 与 `ArcWeak(T)`，打破循环的非拥有句柄。
 - [EXPLICIT_ALLOCATORS](./EXPLICIT_ALLOCATORS.md)：用 `alloc :` 参数选择对象的字节存放在哪里。
-- [ALGEBRAIC_EFFECTS](./ALGEBRAIC_EFFECTS.md)：效应、处理器、`return`（恢复）与
-  `unwind`（丢弃）。
+- [ALGEBRAIC_EFFECTS](./ALGEBRAIC_EFFECTS.md)：处理器（`ctl`）、`return`（回答调用）与
+  `unwind`（结束构造该处理器的函数）。
 - [ASYNC_AWAIT](./ASYNC_AWAIT.md)：单线程事件循环上的 `io.async`/`io.await`。
 - [STD_SYS_MODULE](./STD_SYS_MODULE.md)：事件循环背后的各平台异步 I/O 后端。
 - [PARALLELISM](./PARALLELISM.md)：`Thread(T)` 与 `ThreadPool`。

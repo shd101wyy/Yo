@@ -20,7 +20,7 @@ non_ws :: (fn(toks : &ArrayList(Token)) -> ArrayList(Token))({
       toks.get_cloned(i),
       .None => (),
       .Some(tok) => {
-        if(tok.kind != TokenKind.Whitespace, {
+        if(tok.*.kind != TokenKind.Whitespace, {
           result.push(tok);
         });
       }
@@ -45,8 +45,8 @@ test("Single identifier", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
-      assert(tok.value.* == `hello`, "value must be 'hello'");
+      assert(tok.*.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.*.value.* == `hello`, "value must be 'hello'");
     }
   );
 });
@@ -65,8 +65,8 @@ test("Identifier with digits and underscore", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
-      assert(tok.value.* == `my_var_2`, "value must be 'my_var_2'");
+      assert(tok.*.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.*.value.* == `my_var_2`, "value must be 'my_var_2'");
     }
   );
 });
@@ -85,16 +85,16 @@ test("Bool literals true and false", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Bool, "expected Bool");
-      assert(tok.value.* == `true`, "value must be 'true'");
+      assert(tok.*.kind == TokenKind.Bool, "expected Bool");
+      assert(tok.*.value.* == `true`, "value must be 'true'");
     }
   );
   match(
     toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Bool, "expected Bool");
-      assert(tok.value.* == `false`, "value must be 'false'");
+      assert(tok.*.kind == TokenKind.Bool, "expected Bool");
+      assert(tok.*.value.* == `false`, "value must be 'false'");
     }
   );
 });
@@ -114,8 +114,8 @@ test("Decimal integer", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Integer, "expected Integer");
-      assert(tok.value.* == `42`, "value must be '42'");
+      assert(tok.*.kind == TokenKind.Integer, "expected Integer");
+      assert(tok.*.value.* == `42`, "value must be '42'");
     }
   );
 });
@@ -134,8 +134,8 @@ test("Hex integer", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Integer, "expected Integer");
-      assert(tok.value.* == `0xFF`, "value must be '0xFF'");
+      assert(tok.*.kind == TokenKind.Integer, "expected Integer");
+      assert(tok.*.value.* == `0xFF`, "value must be '0xFF'");
     }
   );
 });
@@ -154,8 +154,8 @@ test("Binary integer", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Integer, "expected Integer");
-      assert(tok.value.* == `0b1010`, "value must be '0b1010'");
+      assert(tok.*.kind == TokenKind.Integer, "expected Integer");
+      assert(tok.*.value.* == `0b1010`, "value must be '0b1010'");
     }
   );
 });
@@ -174,8 +174,8 @@ test("Octal integer", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Integer, "expected Integer");
-      assert(tok.value.* == `0o777`, "value must be '0o777'");
+      assert(tok.*.kind == TokenKind.Integer, "expected Integer");
+      assert(tok.*.value.* == `0o777`, "value must be '0o777'");
     }
   );
 });
@@ -194,8 +194,8 @@ test("Float with decimal point", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Float, "expected Float");
-      assert(tok.value.* == `3.14`, "value must be '3.14'");
+      assert(tok.*.kind == TokenKind.Float, "expected Float");
+      assert(tok.*.value.* == `3.14`, "value must be '3.14'");
     }
   );
 });
@@ -218,8 +218,8 @@ test("Bare exponent is a Float (1e5)", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Float, "expected Float (exponent makes the literal a float)");
-      assert(tok.value.* == `1e10`, "value must be '1e10'");
+      assert(tok.*.kind == TokenKind.Float, "expected Float (exponent makes the literal a float)");
+      assert(tok.*.value.* == `1e10`, "value must be '1e10'");
     }
   );
 });
@@ -238,8 +238,8 @@ test("Hex digits are not an exponent (0x1E5 stays Integer)", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Integer, "expected Integer (hex scan, no exponent branch)");
-      assert(tok.value.* == `0x1E5`, "value must be '0x1E5'");
+      assert(tok.*.kind == TokenKind.Integer, "expected Integer (hex scan, no exponent branch)");
+      assert(tok.*.value.* == `0x1E5`, "value must be '0x1E5'");
     }
   );
 });
@@ -260,8 +260,8 @@ test("Sign with no exponent digit leaves the token Integer", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Integer, "expected Integer for '1'");
-      assert(tok.value.* == `1`, "value must be '1'");
+      assert(tok.*.kind == TokenKind.Integer, "expected Integer for '1'");
+      assert(tok.*.value.* == `1`, "value must be '1'");
     }
   );
 });
@@ -280,8 +280,8 @@ test("Float with negative exponent", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Float, "expected Float");
-      assert(tok.value.* == `2.5e-3`, "value must be '2.5e-3'");
+      assert(tok.*.kind == TokenKind.Float, "expected Float");
+      assert(tok.*.value.* == `2.5e-3`, "value must be '2.5e-3'");
     }
   );
 });
@@ -301,8 +301,8 @@ test("Double-quoted string literal", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.StringLit, "expected StringLit");
-      assert(tok.value.* == `"hello"`, "value mismatch");
+      assert(tok.*.kind == TokenKind.StringLit, "expected StringLit");
+      assert(tok.*.value.* == `"hello"`, "value mismatch");
     }
   );
 });
@@ -326,8 +326,8 @@ test("Template string content", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.TemplateString, "expected TemplateString");
-      assert(tok.value.* == `hello`, "template string value must be 'hello'");
+      assert(tok.*.kind == TokenKind.TemplateString, "expected TemplateString");
+      assert(tok.*.value.* == `hello`, "template string value must be 'hello'");
     }
   );
 });
@@ -347,8 +347,8 @@ test("Arrow operator", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Operator, "expected Operator");
-      assert(tok.value.* == `->`, "value must be '->'");
+      assert(tok.*.kind == TokenKind.Operator, "expected Operator");
+      assert(tok.*.value.* == `->`, "value must be '->'");
     }
   );
 });
@@ -367,8 +367,8 @@ test("Dot token", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Dot, "expected Dot");
-      assert(tok.value.* == `.`, "value must be '.'");
+      assert(tok.*.kind == TokenKind.Dot, "expected Dot");
+      assert(tok.*.value.* == `.`, "value must be '.'");
     }
   );
 });
@@ -387,8 +387,8 @@ test("Range operator ..", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Operator, "expected Operator for '..'");
-      assert(tok.value.* == `..`, "value must be '..'");
+      assert(tok.*.kind == TokenKind.Operator, "expected Operator for '..'");
+      assert(tok.*.value.* == `..`, "value must be '..'");
     }
   );
 });
@@ -407,8 +407,8 @@ test("Range-inclusive operator ..=", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Operator, "expected Operator for '..='");
-      assert(tok.value.* == `..=`, "value must be '..='");
+      assert(tok.*.kind == TokenKind.Operator, "expected Operator for '..='");
+      assert(tok.*.value.* == `..=`, "value must be '..='");
     }
   );
 });
@@ -423,12 +423,12 @@ test("All bracket kinds", {
   );
   toks := non_ws(lex_or_panic(`()[]{}`, exn));
   assert(toks.len() == usize(6), "expected 6 tokens");
-  match(toks.get_cloned(usize(0)), .None => assert(false, "0"), .Some(tok) => assert(tok.kind == TokenKind.LParen, "0: LParen"));
-  match(toks.get_cloned(usize(1)), .None => assert(false, "1"), .Some(tok) => assert(tok.kind == TokenKind.RParen, "1: RParen"));
-  match(toks.get_cloned(usize(2)), .None => assert(false, "2"), .Some(tok) => assert(tok.kind == TokenKind.LBracket, "2: LBracket"));
-  match(toks.get_cloned(usize(3)), .None => assert(false, "3"), .Some(tok) => assert(tok.kind == TokenKind.RBracket, "3: RBracket"));
-  match(toks.get_cloned(usize(4)), .None => assert(false, "4"), .Some(tok) => assert(tok.kind == TokenKind.LCurlyBracket, "4: LCurlyBracket"));
-  match(toks.get_cloned(usize(5)), .None => assert(false, "5"), .Some(tok) => assert(tok.kind == TokenKind.RCurlyBracket, "5: RCurlyBracket"));
+  match(toks.get_cloned(usize(0)), .None => assert(false, "0"), .Some(tok) => assert(tok.*.kind == TokenKind.LParen, "0: LParen"));
+  match(toks.get_cloned(usize(1)), .None => assert(false, "1"), .Some(tok) => assert(tok.*.kind == TokenKind.RParen, "1: RParen"));
+  match(toks.get_cloned(usize(2)), .None => assert(false, "2"), .Some(tok) => assert(tok.*.kind == TokenKind.LBracket, "2: LBracket"));
+  match(toks.get_cloned(usize(3)), .None => assert(false, "3"), .Some(tok) => assert(tok.*.kind == TokenKind.RBracket, "3: RBracket"));
+  match(toks.get_cloned(usize(4)), .None => assert(false, "4"), .Some(tok) => assert(tok.*.kind == TokenKind.LCurlyBracket, "4: LCurlyBracket"));
+  match(toks.get_cloned(usize(5)), .None => assert(false, "5"), .Some(tok) => assert(tok.*.kind == TokenKind.RCurlyBracket, "5: RCurlyBracket"));
 });
 test("Comma and semicolon", {
   exn := Exception(
@@ -441,8 +441,8 @@ test("Comma and semicolon", {
   );
   toks := non_ws(lex_or_panic(`,;`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
-  match(toks.get_cloned(usize(0)), .None => assert(false, "0"), .Some(tok) => assert(tok.kind == TokenKind.Comma, "0: Comma"));
-  match(toks.get_cloned(usize(1)), .None => assert(false, "1"), .Some(tok) => assert(tok.kind == TokenKind.Semicolon, "1: Semicolon"));
+  match(toks.get_cloned(usize(0)), .None => assert(false, "0"), .Some(tok) => assert(tok.*.kind == TokenKind.Comma, "0: Comma"));
+  match(toks.get_cloned(usize(1)), .None => assert(false, "1"), .Some(tok) => assert(tok.*.kind == TokenKind.Semicolon, "1: Semicolon"));
 });
 // ─── Comments ────────────────────────────────────────────────────────────────
 test("Single-line comment //", {
@@ -460,8 +460,8 @@ test("Single-line comment //", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.SingleLineComment, "expected SingleLineComment");
-      assert(tok.value.* == `// this is a comment`, "comment value mismatch");
+      assert(tok.*.kind == TokenKind.SingleLineComment, "expected SingleLineComment");
+      assert(tok.*.value.* == `// this is a comment`, "comment value mismatch");
     }
   );
 });
@@ -480,8 +480,8 @@ test("Outer doc-line comment ///", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.DocLineComment, "expected DocLineComment");
-      assert(tok.value.* == `/// docs`, "value mismatch");
+      assert(tok.*.kind == TokenKind.DocLineComment, "expected DocLineComment");
+      assert(tok.*.value.* == `/// docs`, "value mismatch");
     }
   );
 });
@@ -499,7 +499,7 @@ test("Inner doc comment //!", {
   match(
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
-    .Some(tok) => assert(tok.kind == TokenKind.InnerDocLineComment, "expected InnerDocLineComment")
+    .Some(tok) => assert(tok.*.kind == TokenKind.InnerDocLineComment, "expected InnerDocLineComment")
   );
 });
 test("Block comment /* */", {
@@ -517,8 +517,8 @@ test("Block comment /* */", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.MultiLineComment, "expected MultiLineComment");
-      assert(tok.value.* == `/* block */`, "comment value mismatch");
+      assert(tok.*.kind == TokenKind.MultiLineComment, "expected MultiLineComment");
+      assert(tok.*.value.* == `/* block */`, "comment value mismatch");
     }
   );
 });
@@ -536,7 +536,7 @@ test("Nested block comment", {
   match(
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
-    .Some(tok) => assert(tok.kind == TokenKind.MultiLineComment, "expected MultiLineComment")
+    .Some(tok) => assert(tok.*.kind == TokenKind.MultiLineComment, "expected MultiLineComment")
   );
 });
 test("Doc block comment /**", {
@@ -553,7 +553,7 @@ test("Doc block comment /**", {
   match(
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
-    .Some(tok) => assert(tok.kind == TokenKind.DocBlockComment, "expected DocBlockComment")
+    .Some(tok) => assert(tok.*.kind == TokenKind.DocBlockComment, "expected DocBlockComment")
   );
 });
 // ─── Row and column tracking ─────────────────────────────────────────────────
@@ -577,16 +577,16 @@ test("Token row tracking across newlines", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token 0"),
     .Some(tok) => {
-      assert(usize(tok.row) == usize(0), "hello is on row 0");
-      assert(usize(tok.column) == usize(0), "hello starts at col 0");
+      assert(usize(tok.*.row) == usize(0), "hello is on row 0");
+      assert(usize(tok.*.column) == usize(0), "hello starts at col 0");
     }
   );
   match(
     toks.get_cloned(usize(1)),
     .None => assert(false, "no token 1"),
     .Some(tok) => {
-      assert(usize(tok.row) == usize(1), "world is on row 1");
-      assert(usize(tok.column) == usize(0), "world starts at col 0");
+      assert(usize(tok.*.row) == usize(1), "world is on row 1");
+      assert(usize(tok.*.column) == usize(0), "world starts at col 0");
     }
   );
 });
@@ -604,12 +604,12 @@ test("Column offset within a line", {
   match(
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token 0"),
-    .Some(tok) => assert(usize(tok.column) == usize(0), "abc at column 0")
+    .Some(tok) => assert(usize(tok.*.column) == usize(0), "abc at column 0")
   );
   match(
     toks.get_cloned(usize(1)),
     .None => assert(false, "no token 1"),
-    .Some(tok) => assert(usize(tok.column) == usize(4), "def at column 4")
+    .Some(tok) => assert(usize(tok.*.column) == usize(4), "def at column 4")
   );
 });
 // ─── find_matching_bracket ───────────────────────────────────────────────────
@@ -787,10 +787,10 @@ test("Tokenize x : (fn() -> i32) yields correct bracket count", {
       .None => (),
       .Some(tok) => {
         cond(
-          (tok.kind == TokenKind.LParen) => {
+          (tok.*.kind == TokenKind.LParen) => {
             lp = (lp + usize(1));
           },
-          (tok.kind == TokenKind.RParen) => {
+          (tok.*.kind == TokenKind.RParen) => {
             rp = (rp + usize(1));
           },
           true => ()
@@ -826,8 +826,8 @@ test("forall tokenizes as a plain identifier (V5 activates the quantifier)", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
-      assert(tok.value.* == `forall`, "value must be 'forall'");
+      assert(tok.*.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.*.value.* == `forall`, "value must be 'forall'");
     }
   );
 });
@@ -878,8 +878,8 @@ test("exists is NOT reserved — tokenizes as a plain identifier", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
-      assert(tok.value.* == `exists`, "value must be 'exists'");
+      assert(tok.*.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.*.value.* == `exists`, "value must be 'exists'");
     }
   );
 });
@@ -898,8 +898,8 @@ test("generic tokenizes as a plain identifier (the binder survives)", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
-      assert(tok.value.* == `generic`, "value must be 'generic'");
+      assert(tok.*.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.*.value.* == `generic`, "value must be 'generic'");
     }
   );
 });
@@ -920,17 +920,17 @@ test("closed operator set: ** splits into two * tokens", {
     toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Operator, "expected Operator");
-      assert(tok.value.* == `*`, "first * of the split");
-      first_star_col = usize(tok.column);
+      assert(tok.*.kind == TokenKind.Operator, "expected Operator");
+      assert(tok.*.value.* == `*`, "first * of the split");
+      first_star_col = usize(tok.*.column);
     }
   );
   match(
     toks.get_cloned(usize(2)),
     .None => assert(false, "no token at 2"),
     .Some(tok) => {
-      assert(tok.value.* == `*`, "second * of the split");
-      assert(usize(tok.column) == (first_star_col + usize(1)), "split pieces keep their own columns");
+      assert(tok.*.value.* == `*`, "second * of the split");
+      assert(usize(tok.*.column) == (first_star_col + usize(1)), "split pieces keep their own columns");
     }
   );
 });
@@ -948,12 +948,12 @@ test("closed operator set: greedy longest match splits <<= into << and =", {
   match(
     toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
-    .Some(tok) => assert(tok.value.* == `<<`, "greedy 2-char match first")
+    .Some(tok) => assert(tok.*.value.* == `<<`, "greedy 2-char match first")
   );
   match(
     toks.get_cloned(usize(2)),
     .None => assert(false, "no token at 2"),
-    .Some(tok) => assert(tok.value.* == `=`, "then the 1-char remainder")
+    .Some(tok) => assert(tok.*.value.* == `=`, "then the 1-char remainder")
   );
 });
 test("closed operator set: ?* splits into ? and * (Option of pointer)", {
@@ -970,7 +970,7 @@ test("closed operator set: ?* splits into ? and * (Option of pointer)", {
   match(
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
-    .Some(tok) => assert(tok.value.* == `?`, "? is the Option alias")
+    .Some(tok) => assert(tok.*.value.* == `?`, "? is the Option alias")
   );
   toks2 := non_ws(lex_or_panic(`??`, exn));
   assert(toks2.len() == usize(2), "?? splits into ? ?");
@@ -989,7 +989,7 @@ test("closed operator set: retired &+ splits into & and +", {
   match(
     toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
-    .Some(tok) => assert(tok.value.* == `&`, "retired &+ is no single token")
+    .Some(tok) => assert(tok.*.value.* == `&`, "retired &+ is no single token")
   );
 });
 test("closed operator set: unknown operator run is a lex error", {
@@ -1025,19 +1025,19 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
     toks.get_cloned(usize(2)),
     .None => assert(false, "no token at 2"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.StringLit, "token 2 is the string literal");
-      assert(usize(tok.character) == usize(5), "rune index of the opening quote");
-      assert(usize(tok.byte_offset) == usize(5), "byte offset agrees before any multibyte");
+      assert(tok.*.kind == TokenKind.StringLit, "token 2 is the string literal");
+      assert(usize(tok.*.character) == usize(5), "rune index of the opening quote");
+      assert(usize(tok.*.byte_offset) == usize(5), "byte offset agrees before any multibyte");
     }
   );
   match(
     toks.get_cloned(usize(3)),
     .None => assert(false, "no token at 3"),
     .Some(tok) => {
-      assert(tok.value.* == `;`, "token 3 is the semicolon");
+      assert(tok.*.value.* == `;`, "token 3 is the semicolon");
       // "a := \"名前\"" is 5 + 1 + 6 + 1 = 13 bytes but 5 + 1 + 2 + 1 = 9 runes.
-      assert(usize(tok.character) == usize(9), "rune index after the literal");
-      assert(usize(tok.byte_offset) == usize(13), "byte offset after the literal");
+      assert(usize(tok.*.character) == usize(9), "rune index after the literal");
+      assert(usize(tok.*.byte_offset) == usize(13), "byte offset after the literal");
     }
   );
   // Every token's byte_offset must index `input` back to its own first byte.
@@ -1047,9 +1047,9 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
       toks.get_cloned(i),
       .None => (),
       .Some(tok) => {
-        assert(tok.input.*.is_char_boundary(usize(tok.byte_offset)), "byte_offset is a rune boundary");
+        assert(tok.*.input.*.is_char_boundary(usize(tok.*.byte_offset)), "byte_offset is a rune boundary");
         assert(
-          tok.input.*.starts_with(tok.value.*.substring(usize(0), usize(1)), usize(tok.byte_offset)),
+          tok.*.input.*.starts_with(tok.*.value.*.substring(usize(0), usize(1)), usize(tok.*.byte_offset)),
           "byte_offset points at the token's own first byte"
         );
       }
@@ -1076,9 +1076,9 @@ test("Token.byte_offset tracks a multibyte operator run correctly", {
     toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
     .Some(tok) => {
-      assert(tok.value.* == `<=`, "the operator token");
-      assert(usize(tok.character) == usize(2), "rune index 2");
-      assert(usize(tok.byte_offset) == usize(4), "byte offset 4 (名 is 3 bytes + space)");
+      assert(tok.*.value.* == `<=`, "the operator token");
+      assert(usize(tok.*.character) == usize(2), "rune index 2");
+      assert(usize(tok.*.byte_offset) == usize(4), "byte offset 4 (名 is 3 bytes + space)");
     }
   );
 });
@@ -1106,13 +1106,13 @@ test("Leading UTF-8 BOM is skipped, not lexed into the first token", {
     toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
-      assert(tok.value.* == `open`, "value must be 'open' with no BOM rune");
-      assert(usize(tok.row) == usize(0), "row must not count the BOM");
-      assert(usize(tok.column) == usize(0), "column must not count the BOM");
-      assert(usize(tok.character) == usize(0), "rune index must not count the BOM");
+      assert(tok.*.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.*.value.* == `open`, "value must be 'open' with no BOM rune");
+      assert(usize(tok.*.row) == usize(0), "row must not count the BOM");
+      assert(usize(tok.*.column) == usize(0), "column must not count the BOM");
+      assert(usize(tok.*.character) == usize(0), "rune index must not count the BOM");
       assert(
-        usize(tok.byte_offset) == usize(3),
+        usize(tok.*.byte_offset) == usize(3),
         "byte_offset still points past the 3 BOM bytes in input"
       );
     }
@@ -1275,27 +1275,27 @@ test("Well-formed unicode escapes lex, and a template decodes them", {
     )
   );
   dq := non_ws(lex_or_panic(String.from("s :: \"x\\u0041y\";"), exn));
-  assert(dq.get_cloned(2).unwrap().kind == TokenKind.StringLit, "the literal lexed");
+  assert(dq.get_cloned(2).unwrap().*.kind == TokenKind.StringLit, "the literal lexed");
   assert(
-    dq.get_cloned(2).unwrap().value.* == String.from("\"x\\u0041y\""),
+    dq.get_cloned(2).unwrap().*.value.* == String.from("\"x\\u0041y\""),
     "a double-quoted literal keeps the escape raw, delimiters included"
   );
   tmpl := non_ws(lex_or_panic(String.from("s :: `x\\u0041y`;"), exn));
-  assert(tmpl.get_cloned(2).unwrap().kind == TokenKind.TemplateString, "the template lexed");
+  assert(tmpl.get_cloned(2).unwrap().*.kind == TokenKind.TemplateString, "the template lexed");
   assert(
-    tmpl.get_cloned(2).unwrap().value.* == String.from("xAy"),
+    tmpl.get_cloned(2).unwrap().*.value.* == String.from("xAy"),
     "a template DECODES the escape: four hex digits became one A"
   );
   braced := non_ws(lex_or_panic(String.from("s :: `x\\u{41}y`;"), exn));
   assert(
-    braced.get_cloned(2).unwrap().value.* == String.from("xAy"),
+    braced.get_cloned(2).unwrap().*.value.* == String.from("xAy"),
     "the braced spelling decodes to the same text"
   );
   astral := non_ws(lex_or_panic(String.from("s :: `\\u{1F600}`;"), exn));
-  assert(astral.get_cloned(2).unwrap().value.*.len() == usize(4), "U+1F600 is four UTF-8 bytes");
+  assert(astral.get_cloned(2).unwrap().*.value.*.len() == usize(4), "U+1F600 is four UTF-8 bytes");
   pair := non_ws(lex_or_panic(String.from("s :: `\\uD83D\\uDE00`;"), exn));
   assert(
-    pair.get_cloned(2).unwrap().value.* == astral.get_cloned(2).unwrap().value.*,
+    pair.get_cloned(2).unwrap().*.value.* == astral.get_cloned(2).unwrap().*.value.*,
     "a surrogate PAIR combines into the same code point"
   );
 });
@@ -1378,8 +1378,8 @@ test("A surrogate PAIR in a double-quoted literal keeps lexing", {
     toks.get_cloned(usize(2)),
     .None => assert(false, "no string token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.StringLit, "expected StringLit");
-      assert(tok.value.* == String.from("\"x\\uD83D\\uDE00y\""), "raw text preserved, delimiters included");
+      assert(tok.*.kind == TokenKind.StringLit, "expected StringLit");
+      assert(tok.*.value.* == String.from("\"x\\uD83D\\uDE00y\""), "raw text preserved, delimiters included");
     }
   );
 });
@@ -1468,8 +1468,8 @@ test("A multiline template token carries its START row", {
     toks.get_cloned(usize(2)),
     .None => assert(false, "no template token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.TemplateString, "expected the template token");
-      assert(tok.row == u32(1), "row is the OPENING backtick's 0-based line, not the end line 3");
+      assert(tok.*.kind == TokenKind.TemplateString, "expected the template token");
+      assert(tok.*.row == u32(1), "row is the OPENING backtick's 0-based line, not the end line 3");
     }
   );
 });
@@ -1492,9 +1492,9 @@ test("A comment inside an interpolation does not close the body", {
     block.get_cloned(usize(2)),
     .None => assert(false, "no template token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.TemplateString, "expected the template token");
-      assert(tok.value.*.contains(`/* } */`), "the commented brace stayed inside the body");
-      assert(tok.value.*.contains(`} b`), "the real closing brace and tail survived");
+      assert(tok.*.kind == TokenKind.TemplateString, "expected the template token");
+      assert(tok.*.value.*.contains(`/* } */`), "the commented brace stayed inside the body");
+      assert(tok.*.value.*.contains(`} b`), "the real closing brace and tail survived");
     }
   );
   line := non_ws(lex_or_panic(String.from("s :: `c ${x // don't}\n} d`;"), exn));
@@ -1502,9 +1502,9 @@ test("A comment inside an interpolation does not close the body", {
     line.get_cloned(usize(2)),
     .None => assert(false, "no template token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.TemplateString, "expected the template token");
-      assert(tok.value.*.contains(`// don't`), "the line comment stayed inside the body");
-      assert(tok.value.*.contains(`} d`), "the brace after the newline closed the body");
+      assert(tok.*.kind == TokenKind.TemplateString, "expected the template token");
+      assert(tok.*.value.*.contains(`// don't`), "the line comment stayed inside the body");
+      assert(tok.*.value.*.contains(`} d`), "the brace after the newline closed the body");
     }
   );
 });
@@ -1525,8 +1525,8 @@ test("Float with underscore separators is one Float token", {
     toks.get_cloned(usize(2)),
     .None => assert(false, "no float token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Float, "expected Float");
-      assert(tok.value.* == `1_000.5`, "the raw separator text is preserved");
+      assert(tok.*.kind == TokenKind.Float, "expected Float");
+      assert(tok.*.value.* == `1_000.5`, "the raw separator text is preserved");
     }
   );
 });

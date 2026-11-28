@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, register_struct_ctor_value, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr-info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, no_type_lists, t_slot_pointee, SharedList } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, stamp_enum_final_type_arguments, stamp_struct_final_type_arguments, ctor_phantom_flags, is_substituted_shell, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
@@ -200,9 +200,21 @@ _ctfe_same_id_type_args_agree :: (fn(aty : &TypeValue, bty : &TypeValue, d : usi
   });
   true
 });
+/// Whether either side is a substituted self-shell (`is_substituted_shell`).
+/// Such a shell shares its id with its constructor's shell and its final, and
+/// what it denotes is the list it carries, so neither the id nor the
+/// recorded-argument comparison below decides it (VERDICTS-77, step 5).
+_either_substituted_shell :: (fn(aty : &TypeValue, bty : &TypeValue) -> bool)(is_substituted_shell(aty) || is_substituted_shell(bty));
+/// Exact comparison of the two sides with their shells resolved.
+_ctfe_shells_resolved_exact :: (fn(aty : &TypeValue, bty : &TypeValue) -> bool)(
+  are_types_compatible_exact(&resolve_enum_shell(&resolve_struct_shell(aty)), &resolve_enum_shell(&resolve_struct_shell(bty)))
+);
 _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> bool)({
   if(d > usize(6), {
     return(are_types_compatible_exact(aty, bty));
+  });
+  if(_either_substituted_shell(aty, bty), {
+    return(_ctfe_shells_resolved_exact(aty, bty));
   });
   a_sid := match(aty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
   b_sid := match(bty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
@@ -310,6 +322,9 @@ _ctfe_args_equal :: (
         // `type_carries_origin`) for both.
         if(static_origin_marks_differ(&aty, &bty), {
           return(false);
+        });
+        if(_either_substituted_shell(&aty, &bty), {
+          return(_ctfe_shells_resolved_exact(&aty, &bty));
         });
         a_is_some := is_some_type(&aty);
         b_is_some := is_some_type(&bty);
@@ -1524,6 +1539,7 @@ evaluate_comptime_fn_call :: (
         // Mirror the shared-object stamp for copies that predate this one
         // (self-recursive shells, memoized embedders) — see expr-info.yo.
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
+        stamp_struct_final_type_arguments(sid.clone(), &inst_type_args);
         register_struct_ctor_value(&func_id_str, function_value);
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         Rc.new(

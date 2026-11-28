@@ -2,6 +2,8 @@
 
 **Severity:** S2 — when an effect handler `unwind`s out of a task, the task's locals are not dropped at the unwind: a local's `Drop` runs only when the task's last handle is released, and a `_Scoped` combinator operand the task holds (a `select` or `timeout` it was running) keeps running until then, on every backend.
 
+**Not fixed:** retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). The bug is documented only: `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5. AFA-3 carries no unwind into embedded frames, so K-8 of the archived `plans/archive/CAPABILITIES_AND_HANDLERS.md` is not built.
+
 - Filed: 2026-11-26 (lane abort-walk; the case VERDICTS-83 §7 left out of the abort walk, `issues/fixed/2026-11-25-an-aborted-tasks-locals-are-dropped-when-its-last-handle-is-released.md`).
 - Status: open.
 

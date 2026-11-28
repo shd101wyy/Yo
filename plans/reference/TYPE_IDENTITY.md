@@ -38,8 +38,8 @@ identity plus a short, listed set of coercions.
 
 | Variant | Identity |
 | --- | --- |
-| `struct` with a name, `newtype`, `ref(struct ...)`, `atomic(struct ...)` | the same declaration (id), and pairwise-identical type arguments for an instantiation. A named declaration is never identical to an anonymous record, however alike the fields. |
-| `enum` with a name | the same declaration, identical recorded type arguments, and identical variant payloads (instantiations share the declaration's id, so the id alone is not enough) |
+| `struct` with a name, `newtype`, `ref(struct ...)`, `atomic(struct ...)` | the same declaration (id), and pairwise-identical type arguments for an instantiation. A named declaration is never identical to an anonymous record, however alike the fields. "Named" is the declaration's `::` binding (`type_binding_name`), not the `name` field: a recursive struct's self-shell resolves to a registry final built before the binding stamped its name (`_struct_decls_differ`, `issues/fixed/2026-11-28-two-same-shaped-recursive-structs-share-one-generic-instance.md`) |
+| `enum` with a name | the same declaration, identical recorded type arguments, and identical variant payloads. The id decides nothing: each constructor call mints a fresh id per instantiation (`stable_type_id`), and substitution keeps the id it rewrites, so `GKind(T)` at `T := i32` carries the definition-era id while `GKind(i32)` carries its own |
 | `union` | the same declaration (a union's name is its id) and identical fields |
 | trait | the same trait id; trait ids carry their module (`issues/fixed/trait-ids-omit-the-module-so-two-traits-can-share-one-id.md`) |
 
@@ -57,6 +57,26 @@ identity plus a short, listed set of coercions.
 | SomeT | the same lineage: equal name and frame level, or binders that correspond inside two function types being compared. A **closure identity** (a resolved, non-`Future` `Impl` annotation wrapper, such as `(k : Impl(Fn() -> unit))` resolved to k's capture struct) is its resolution instead: every copy of one closure's wrapper is one type, and two closures are two types (`is_bound_closure_identity`, `issues/fixed/a-container-of-a-closure-type-does-not-compile.md`) |
 | extern opaque (`ExternOpaqueT`) | the same C spelling: two bindings of `FILE` (an `extern("Yo", FILE : Type)` and a `c_include` member) are one type; `FILE` is not `fpos_t`, and no `Dyn` or type parameter is either |
 | `never` | only `never` |
+
+### Recursive types
+
+A recursive declaration refers to itself through a self-shell (an empty enum or a fieldless
+struct) that the finals registries resolve to the final its constructor registered
+(`src/types/creators.yo`). Payload identity is read through that self-reference coinductively,
+and two rules make it hold (VERDICTS-77):
+
+- **Substitution commutes with the back-edge.** For a recursive instance `N` and a substitution
+  `σ`, the self-reference inside `σ(N)` denotes `σ(N)`. `substitute` maps a shell to a copy that
+  carries, in its `type_arguments` slot, the images of its final's recorded type arguments
+  followed by the images of the final's free type variables those do not mention, and registers
+  the substituted final for that list once (`g_shell_subst_finals`). The list covers every free
+  variable, so two substitutions that agree on it give one type, and two that differ give two.
+- **An evaluation-minted id never decides identity.** A substituted copy and the constructor's
+  own instance are one type: `type_key` renders a recursion cut (and an enum past its depth cap)
+  as the declaration identity and the keys of the instance's type arguments, never as the id.
+  Only a recursive declaration (one that names `Self`) is a node of the cut: a non-recursive
+  instance met twice on one path sits around a recursive type, and the recursive type inside it
+  is where the key cuts, whichever presentation the walk entered through.
 
 ## Flow: identity plus these coercions, and nothing else
 

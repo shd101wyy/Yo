@@ -5497,7 +5497,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     exactness. **Gap:** this also exempts a generic body that writes
     `w : Rc(T)`. The specialized body cannot tell a written wrapper from a
     substituted one
-    (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`, S3).
+    (`issues/retired/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`, S3).
   - **`derive(T, Clone)`** spells a `Deref` field's clone
     `(typeof(self.f) <: Clone).clone(&self.f)` (struct fields and enum
     variant fields), so the six derive-generated sites need no user edit.

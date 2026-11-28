@@ -9,7 +9,7 @@ Bag :: Rc(RefCell(BagState));
 rebuild :: (fn(self : &Bag) -> unit)({
   mut(fresh) := ArrayList(i32).new();
   fresh.push(i32(1)); // fresh storage: mutating it is not a mutation of the bag
-  self.with_mut({ fresh }(st) => {
+  self.*.*.with_mut({ fresh }(st) => {
     st.items = fresh; // now reachable from the cell (and moved by the store)
   });
   fresh.push(i32(2)); // use of moved value: the static rule, before any runtime panic

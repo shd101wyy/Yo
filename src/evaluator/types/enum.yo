@@ -42,7 +42,7 @@ import("std/fmt");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_type_lists, no_label_lists, SharedList, slot_pointee_at } :: import("../../types/definitions.yo");
-{ t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
+{ t_unit, register_enum_final, patch_self_shell_reporting, mark_enum_recursive } :: import("../../types/creators.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 {
   is_comptime_int_type,
@@ -859,6 +859,9 @@ evaluate_enum_type :: (
   // self-nesting resolves through the enum-final registry
   // (resolve_enum_shell).
   patched_fields := ArrayList(SharedList(TypeValue)).new();
+  // Whether a payload names `Self` (held the shell): only a recursive enum
+  // can occur inside itself (`enum_is_recursive`, read by `type_key`).
+  (names_self : bool) = false;
   (pf_i : usize) = usize(0);
   while(pf_i < variant_fields_s.len(), {
     vf_list := match(variant_fields_s.get(pf_i), .Some(l) => l, .None => no_types());
@@ -866,7 +869,9 @@ evaluate_enum_type :: (
     (pf_j : usize) = usize(0);
     while(pf_j < vf_list.len(), {
       ft := match(vf_list.get(pf_j), .Some(t) => t, .None => t_unit());
-      new_list.push(_patch_self_shell(&ft, shell_id.clone(), &pre_final_ty));
+      (patched_ft, held_shell) := patch_self_shell_reporting(&ft, shell_id.clone(), &pre_final_ty);
+      names_self = (names_self || held_shell);
+      new_list.push(Rc.clone(patched_ft));
       pf_j = (pf_j + usize(1));
     });
     patched_fields.push(shared_list(new_list));
@@ -889,6 +894,9 @@ evaluate_enum_type :: (
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
   register_enum_final(shell_id.clone(), &enum_ty);
+  if(names_self, {
+    mark_enum_recursive(&enum_id);
+  });
   // Auto-derive trait markers (Send, Sync, Comptime, Runtime).
   auto_derive_traits_for_enum_type(
     enum_id.clone(),

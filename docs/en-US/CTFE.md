@@ -411,8 +411,7 @@ if(true, {
 });
 ```
 
-> std has no `try` macro: one would hide a caller-frame `return`, which
-> collides with algebraic effects. Match on the `Result` instead.
+> std has no `try` macro. Match on the `Result` instead.
 
 ## Compile-Time Evaluation
 

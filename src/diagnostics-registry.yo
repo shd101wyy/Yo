@@ -59,8 +59,10 @@ json :: import("std/encoding/json");
   E_UNSIZING_A_VALUE,
   E_DEREF_OF_VALUE,
   E_DEREF_IMPL_SIZED_TARGET,
+  E_MEMBER_BEHIND_DEREF,
   E_TRAIT_BOUND_FORM,
   E_TRAIT_AS_VALUE_TYPE,
+  E_VARIANT_PATTERN_SHAPE,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
@@ -348,8 +350,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "没有这个字段",
       "A field read names no field of the struct, tuple or union.",
       "字段读取所用的名字不是该结构体、元组或联合体的字段。",
-      "The message lists the fields the type has and, when one is close, suggests it. A method is reached only through a call — `p.len()`, not `p.len` — so a name that is a method still needs its parentheses. On a `Rc` or `Arc` (a `Deref` type) a field the wrapper lacks is looked up on its payload (auto-dereference, `b.x` is `b.*.x`); when the payload lacks it too, the message names the payload and lists its fields.",
-      "错误信息会列出该类型拥有的字段，名字相近时还会给出建议。方法只能通过调用访问 —— 写 `p.len()`，而不是 `p.len` —— 所以即使这个名字是方法，也需要加上括号。对 `Rc` 或 `Arc`（`Deref` 类型），包装器没有的字段会到其载荷上查找（自动解引用，`b.x` 即 `b.*.x`）；若载荷也没有，错误信息会指出载荷并列出它的字段。",
+      "The message lists the fields the type has and, when one is close, suggests it. A method is reached only through a call — `p.len()`, not `p.len` — so a name that is a method still needs its parentheses. On a `Deref` type (`Box`, `Rc`, `Arc`) `.` reads the handle's own fields only: a field its payload has is E0623, written `b.*.x`; when the payload lacks it too, this message names the payload and lists its fields.",
+      "错误信息会列出该类型拥有的字段，名字相近时还会给出建议。方法只能通过调用访问 —— 写 `p.len()`，而不是 `p.len` —— 所以即使这个名字是方法，也需要加上括号。对 `Deref` 类型（`Box`、`Rc`、`Arc`），`.` 只读取句柄自己的字段：载荷才有的字段是 E0623，写作 `b.*.x`；若载荷也没有，此错误信息会指出载荷并列出它的字段。",
       "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.xx;\n});\nexport(main);\n",
       "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.x;\n});\nexport(main);\n",
       "`P` has the fields `x` and `y`; `xx` is neither.",
@@ -753,12 +755,12 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "经由 `Rc` 句柄的写入",
       "A place in an `Rc`'s payload is written: an assignment to `h.*` or to a place under it, a `&mut` argument, or a `self : &mut Self` receiver whose place crosses the handle's dereference.",
       "写入了 `Rc` 载荷中的位置：对 `h.*` 或其下的位置赋值，或者以 `&mut` 实参、`self : &mut Self` 接收者的形式借出跨过句柄解引用的位置。",
-      "An `Rc(T)` is Rust's `Rc`: copying the handle shares one cell, so the payload is read-only through the handle (plans/VALUES_BY_DEFAULT.md decision 46). A write through one handle would be seen through every other handle to the cell, and a borrow of the payload held elsewhere (a `&` lent to a future across an `await`, for one) would change under it. Shared state that is mutated goes through a door instead. `RefCell(T)` (`std/sync/refcell`) is the usual one: share an `Rc(RefCell(T))` and write inside `h.with_mut(v => ...)`, which checks at run time that no other access is running. `Rc.get_mut(&mut h)` gives `.Some(&mut T)` when no other `Rc` or `Weak` shares the cell, and `.None` otherwise; it never clones. `Rc.make_mut(&mut h)` (`T <: Clone`) gives `&mut T` after moving `h` to a fresh cell when the cell is shared, so the other handles keep the old value. `Rc.try_unwrap(h)` takes the payload out of the only handle. A value that is not shared at all is owned uniquely: a plain value, or a `Box(T)` for a stable address. Across threads, use `Arc(Mutex(T))`, `Arc(RwLock(T))` or atomics.",
-      "`Rc(T)` 就是 Rust 的 `Rc`：复制句柄会共享同一个单元，因此载荷经由句柄是只读的（plans/VALUES_BY_DEFAULT.md 决策 46）。经由一个句柄的写入会被指向该单元的所有其他句柄看到，而别处持有的载荷借用（例如跨越 `await` 借给 future 的 `&`）会在其下发生改变。需要修改的共享状态应改走“门”。最常用的是 `RefCell(T)`（`std/sync/refcell`）：共享 `Rc(RefCell(T))`，并在 `h.with_mut(v => ...)` 中写入，它会在运行时检查没有其他访问正在进行。`Rc.get_mut(&mut h)` 在没有其他 `Rc` 或 `Weak` 共享该单元时给出 `.Some(&mut T)`，否则为 `.None`；它从不克隆。`Rc.make_mut(&mut h)`（要求 `T <: Clone`）在单元被共享时先把 `h` 移到一个新单元，再给出 `&mut T`，因此其他句柄保留旧值。`Rc.try_unwrap(h)` 从唯一的句柄中取出载荷。根本不共享的值应唯一拥有：普通值，或需要稳定地址时用 `Box(T)`。跨线程请使用 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型。",
+      "An `Rc(T)` is Rust's `Rc`: copying the handle shares one cell, so the payload is read-only through the handle (plans/VALUES_BY_DEFAULT.md decision 46). A write through one handle would be seen through every other handle to the cell, and a borrow of the payload held elsewhere (a `&` lent to a future across an `await`, for one) would change under it. Shared state that is mutated goes through a door instead. `RefCell(T)` (`std/sync/refcell`) is the usual one: share an `Rc(RefCell(T))` and write inside `h.*.with_mut(v => ...)`, which checks at run time that no other access is running. `Rc.get_mut(&mut h)` gives `.Some(&mut T)` when no other `Rc` or `Weak` shares the cell, and `.None` otherwise; it never clones. `Rc.make_mut(&mut h)` (`T <: Clone`) gives `&mut T` after moving `h` to a fresh cell when the cell is shared, so the other handles keep the old value. `Rc.try_unwrap(h)` takes the payload out of the only handle. A value that is not shared at all is owned uniquely: a plain value, or a `Box(T)` for a stable address. Across threads, use `Arc(Mutex(T))`, `Arc(RwLock(T))` or atomics.",
+      "`Rc(T)` 就是 Rust 的 `Rc`：复制句柄会共享同一个单元，因此载荷经由句柄是只读的（plans/VALUES_BY_DEFAULT.md 决策 46）。经由一个句柄的写入会被指向该单元的所有其他句柄看到，而别处持有的载荷借用（例如跨越 `await` 借给 future 的 `&`）会在其下发生改变。需要修改的共享状态应改走“门”。最常用的是 `RefCell(T)`（`std/sync/refcell`）：共享 `Rc(RefCell(T))`，并在 `h.*.with_mut(v => ...)` 中写入，它会在运行时检查没有其他访问正在进行。`Rc.get_mut(&mut h)` 在没有其他 `Rc` 或 `Weak` 共享该单元时给出 `.Some(&mut T)`，否则为 `.None`；它从不克隆。`Rc.make_mut(&mut h)`（要求 `T <: Clone`）在单元被共享时先把 `h` 移到一个新单元，再给出 `&mut T`，因此其他句柄保留旧值。`Rc.try_unwrap(h)` 从唯一的句柄中取出载荷。根本不共享的值应唯一拥有：普通值，或需要稳定地址时用 `Box(T)`。跨线程请使用 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型。",
       "count := Rc.new(i32(0));\nother := Rc.clone(count);\nother.* = i32(1);\n",
-      "{ RefCell } :: import(\"std/sync/refcell\");\ncount := Rc.new(RefCell(i32).new(i32(0)));\nother := Rc.clone(count);\nother.with_mut(v => {\n  v.* = i32(1);\n});\n",
-      "`other` and `count` are two handles to one cell, whose payload is read-only through either; the `RefCell` inside the cell is the door that lets a handle write it, and `count.with(v => v)` then reads 1.",
-      "`other` 与 `count` 是指向同一单元的两个句柄，经由任一句柄载荷都是只读的；单元内的 `RefCell` 是让句柄写入它的门，之后 `count.with(v => v)` 读到 1。"
+      "{ RefCell } :: import(\"std/sync/refcell\");\ncount := Rc.new(RefCell(i32).new(i32(0)));\nother := Rc.clone(count);\nother.*.with_mut(v => {\n  v.* = i32(1);\n});\n",
+      "`other` and `count` are two handles to one cell, whose payload is read-only through either; the `RefCell` inside the cell is the door that lets a handle write it, and `count.*.with(v => v)` then reads 1.",
+      "`other` 与 `count` 是指向同一单元的两个句柄，经由任一句柄载荷都是只读的；单元内的 `RefCell` 是让句柄写入它的门，之后 `count.*.with(v => v)` 读到 1。"
     )
   );
   out.push(
@@ -963,8 +965,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "无效的 match 模式",
       "The arm's pattern cannot match a value of the scrutinee's type, or is not a pattern form.",
       "该分支的模式无法匹配被匹配值的类型，或者不是合法的模式形式。",
-      "A pattern is `_`, a binding name, a compile-time constant (a literal, a `::` constant, a typed literal such as `i32(5)`, a string), `.Variant`, `.Variant(p, …)` with sub-patterns at any depth, `.Variant(label : p)`, `.Variant({…})`, `(p | q)`, `(name := p)`, `(lo..hi)` / `(lo..=hi)`, `(p && (guard))`, a tuple `(p, q)`, a struct `S(x : p)` / `{x : p}`, or a wrapper `Rc(p)` / `Arc(p)` / `Box(p)` that looks through the cell at its position. At an `Rc(T)` or `Arc(T)` position the wrapper is required: a structural pattern `p` there without it is this error, written `Rc(p)`. A constant must fold at compile time and must be comparable with `==` to the value at its position; range bounds must be constants; a guard must be `bool`; or-pattern alternatives must bind the same names. Because Yo has no operator precedence, an infix pattern needs its own parentheses.",
-      "模式可以是 `_`、绑定名、编译期常量（字面量、`::` 常量、如 `i32(5)` 的带类型字面量、字符串）、`.Variant`、任意深度嵌套子模式的 `.Variant(p, …)`、`.Variant(label : p)`、`.Variant({…})`、`(p | q)`、`(name := p)`、`(lo..hi)` / `(lo..=hi)`、`(p && (guard))`、元组 `(p, q)`、结构体 `S(x : p)` / `{x : p}`，或穿透该位置单元的包装 `Rc(p)` / `Arc(p)` / `Box(p)`。在 `Rc(T)` 或 `Arc(T)` 位置上必须写出包装：不写包装的结构化模式 `p` 就是这个错误，应写作 `Rc(p)`。常量必须能在编译期折叠，并且必须能与该位置的值用 `==` 比较；范围边界必须是常量；守卫必须是 `bool`；或模式的各选项必须绑定相同的名字。由于 Yo 没有运算符优先级，中缀模式需要自己的括号。",
+      "A pattern is `_`, a binding name, a compile-time constant (a literal, a `::` constant, a typed literal such as `i32(5)`, a string), `.Variant` (a variant without fields), `.Variant(..)` (a variant with fields, whatever its payload), `.Variant(p, …)` with sub-patterns at any depth, `.Variant(label : p)`, `.Variant({…})`, `(p | q)`, `(name := p)`, `(lo..hi)` / `(lo..=hi)`, `(p && (guard))`, a tuple `(p, q)`, a struct `S(x : p)` / `{x : p}`, or a wrapper `Rc(p)` / `Arc(p)` / `Box(p)` that looks through the cell at its position. At an `Rc(T)` or `Arc(T)` position the wrapper is required: a structural pattern `p` there without it is this error, written `Rc(p)`. A constant must fold at compile time and must be comparable with `==` to the value at its position; range bounds must be constants; a guard must be `bool`; or-pattern alternatives must bind the same names. Because Yo has no operator precedence, an infix pattern needs its own parentheses. `..` stands for a variant's whole payload and is written alone, as `.V(..)`; anywhere else it is this error. A labeled variant pattern and a struct pattern name only the fields they need, so delete the `..` there; in a positional list (a tuple, `.V(a, ..)`) write one `_` for each element it stands for; alone as a whole pattern write `_`. `yo fix` applies each of these.",
+      "模式可以是 `_`、绑定名、编译期常量（字面量、`::` 常量、如 `i32(5)` 的带类型字面量、字符串）、`.Variant`（没有字段的变体）、`.Variant(..)`（有字段的变体，不论其载荷是什么）、任意深度嵌套子模式的 `.Variant(p, …)`、`.Variant(label : p)`、`.Variant({…})`、`(p | q)`、`(name := p)`、`(lo..hi)` / `(lo..=hi)`、`(p && (guard))`、元组 `(p, q)`、结构体 `S(x : p)` / `{x : p}`，或穿透该位置单元的包装 `Rc(p)` / `Arc(p)` / `Box(p)`。在 `Rc(T)` 或 `Arc(T)` 位置上必须写出包装：不写包装的结构化模式 `p` 就是这个错误，应写作 `Rc(p)`。常量必须能在编译期折叠，并且必须能与该位置的值用 `==` 比较；范围边界必须是常量；守卫必须是 `bool`；或模式的各选项必须绑定相同的名字。由于 Yo 没有运算符优先级，中缀模式需要自己的括号。`..` 代表变体的整个载荷，并且单独书写，即 `.V(..)`；在其他位置它就是这个错误。带标签的变体模式和结构体模式只写出需要的字段，因此在那里删掉 `..`；在按位置列出的模式中（元组、`.V(a, ..)`），为它代表的每个元素写一个 `_`；单独作为整个模式时写 `_`。`yo fix` 会应用这些修复。",
       "f :: (fn(n : i32) -> i32)(match(n, \"a\" => i32(1), _ => i32(0)));\n",
       "f :: (fn(n : i32) -> i32)(match(n, 1 => i32(1), _ => i32(0)));\n",
       "A string literal cannot match an `i32` scrutinee: there is no `==` between them. Match a constant of the scrutinee's type, a range, a variant or a binding.",
@@ -978,8 +980,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "没有匹配的调用",
       "No candidate accepts this call: the receiver has no such method, or no overload fits the arguments.",
       "没有候选者接受这次调用：接收者没有这个方法，或者没有重载适配这些参数。",
-      "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Rc` or `Arc` (a `Deref` type) a method the wrapper lacks is looked up on its payload (auto-dereference, `b.m()` is `b.*.m()`); when the payload lacks it too, the message says so and names the payload. The float math methods (`sqrt`, `sin`, `powf`, ...) on an `f32` or `f64` exist only after `import(\"std/math\");`, and the help says so.",
-      "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。对 `Rc` 或 `Arc`（`Deref` 类型），包装器没有的方法会到其载荷上查找（自动解引用，`b.m()` 即 `b.*.m()`）；若载荷也没有，错误信息会说明这一点并指出载荷。`f32` 或 `f64` 上的浮点数学方法（`sqrt`、`sin`、`powf` 等）只有在 `import(\"std/math\");` 之后才存在，帮助信息会这样提示。",
+      "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Deref` type (`Box`, `Rc`, `Arc`) `.` reaches the handle's own methods only: a method its payload has is E0623, written `b.*.m()`; when the payload lacks it too, this message says so and names the payload. The float math methods (`sqrt`, `sin`, `powf`, ...) on an `f32` or `f64` exist only after `import(\"std/math\");`, and the help says so.",
+      "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。对 `Deref` 类型（`Box`、`Rc`、`Arc`），`.` 只访问句柄自己的方法：载荷才有的方法是 E0623，写作 `b.*.m()`；若载荷也没有，此错误信息会说明这一点并指出载荷。`f32` 或 `f64` 上的浮点数学方法（`sqrt`、`sin`、`powf` 等）只有在 `import(\"std/math\");` 之后才存在，帮助信息会这样提示。",
       "Point :: struct(x : i32);\np := Point(x : i32(1));\n_s := p.norm();\n",
       "Point :: struct(x : i32);\nnorm :: (fn(p : &Point) -> i32)(p.x);\np := Point(x : i32(1));\n_s := norm(&p);\n",
       "`Point` has no `norm` method and no impl provides one, so the method-call syntax finds no candidate; define the function (or an `impl(Point, ...)` method) first. The same code fires when a trait method's impl lives in a std module that was not imported (`to_string` from `std/fmt`).",
@@ -1040,8 +1042,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "`Dyn(Trait)` 值会擦除具体类型，并通过 vtable（每个方法一个函数）调用方法。签名中除接收者外还提到 `Self` 的方法（`Self` 参数、`Self` 或 `Option(Self)` 结果）在具体类型被擦除后，在调用处没有唯一的 C 类型；带 `generic(...)` 参数的方法也没有唯一的函数可以放进 vtable。这类方法没有 vtable 槽位，因此通过 `Dyn` 调用它们是错误。构造该 `Dyn` 并调用其他方法不受影响。按值接收 `self` 的方法同样没有槽位，并且无论载荷是什么，都不能在包含它的 trait 上构造 `Dyn`（plans/VALUES_BY_DEFAULT.md 决策 49）：`Dyn` 是非定长的，只能位于拥有它的指针之后，因此没有可以交给该方法的值，调用会把载荷从那个指针中移出。\n\n`Future` 不能出现在 `Dyn` 中，任何位置都不行：参数、字段、列表元素。future 本身就是指向其状态机的一个指针，await 或 spawn 会消耗它。单个 future 的类型写作 `Impl(Future(T, E))`。多个不同的运行中任务保存为 `JoinHandle(T)`（`io.spawn(f, io)`；`std/async` 中的 `join_all` 和 `race` 接受 `ArrayList(JoinHandle(T))`）。",
       "Call the method on a concrete value instead, or declare it so that `Self` appears only as the receiver and it takes no `generic(...)` parameters. Before this was an error the call passed `check` and failed inside the C compiler.",
       "改为在具体值上调用该方法，或把它声明为 `Self` 只作为接收者出现、且不带 `generic(...)` 参数。在这成为错误之前，这种调用能通过 `check`，却在 C 编译器中失败。",
-      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));\n  c := d.me();\n});\n",
-      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));\n  n := d.speak();\n});\n",
+      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));\n  c := d.*.me();\n});\n",
+      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));\n  n := d.*.speak();\n});\n",
       "`me` returns `Self`, whose concrete type the `Dyn(Sp)` erased; `speak` returns `i32` and is callable.",
       "`me` 返回 `Self`，而它的具体类型已被 `Dyn(Sp)` 擦除；`speak` 返回 `i32`，可以调用。"
     )
@@ -1066,10 +1068,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_AMBIGUOUS_METHOD,
       "a method name has two readings",
       "一个方法名有两种解读",
-      "Two traits, or a wrapper and its payload, both supply a member with this name, and nothing says which one is meant.",
-      "两个 trait，或者一个包装类型和它的载荷，都提供了这个名字的成员，而代码没有说明指的是哪一个。",
-      "When a type implements two traits that both declare `get`, an unqualified `x.get()` could mean either. Name the trait with the qualified form `(T <: Trait).get(x)`, or call it inside a function whose `where(T <: Trait)` bound selects one. A type's own inherent method is never ambiguous with a trait method. A `Dyn` calls its methods through a vtable by name, so a `Dyn` may not carry two traits that both declare a method it can call under one name at all: keep only one of the two traits in the `Dyn`, or rename one of the methods. A `Deref` wrapper (`Box`, `Rc`, `Arc`) forwards a member it lacks to its payload, so when the wrapper and its payload both have the member, `w.clone()` could mean the wrapper's or the payload's: write `Rc.clone(w)` for the wrapper's own member, or `w.*.clone()` for the payload's. `yo fix` rewrites the call to `Rc.clone(w)`, the meaning it had before this was an error.",
-      "当一个类型实现了两个都声明了 `get` 的 trait 时，不加限定的 `x.get()` 可能指其中任何一个。请用限定形式 `(T <: Trait).get(x)` 指明 trait，或在由 `where(T <: Trait)` 约束选定其一的函数中调用。类型自身的固有方法永远不会与 trait 方法产生歧义。`Dyn` 通过 vtable 按名字调用方法，因此一个 `Dyn` 根本不能同时带有两个都声明了同名可调用方法的 trait：请在 `Dyn` 中只保留其中一个 trait，或者给其中一个方法改名。`Deref` 包装类型（`Rc`、`Arc`）会把自身没有的成员转发给载荷，因此当包装类型和载荷都有这个成员时，`w.clone()` 既可能指包装类型的成员，也可能指载荷的：用 `Rc.clone(w)` 调用包装类型自己的成员，用 `w.*.clone()` 调用载荷的。`yo fix` 会把调用改写为 `Rc.clone(w)`，即它在成为错误之前的含义。",
+      "Two traits both supply a member with this name, and nothing says which one is meant.",
+      "两个 trait 都提供了这个名字的成员，而代码没有说明指的是哪一个。",
+      "When a type implements two traits that both declare `get`, an unqualified `x.get()` could mean either. Name the trait with the qualified form `(T <: Trait).get(x)`, or call it inside a function whose `where(T <: Trait)` bound selects one. A type's own inherent method is never ambiguous with a trait method. A `Dyn` calls its methods through a vtable by name, so a `Dyn` may not carry two traits that both declare a method it can call under one name at all: keep only one of the two traits in the `Dyn`, or rename one of the methods.",
+      "当一个类型实现了两个都声明了 `get` 的 trait 时，不加限定的 `x.get()` 可能指其中任何一个。请用限定形式 `(T <: Trait).get(x)` 指明 trait，或在由 `where(T <: Trait)` 约束选定其一的函数中调用。类型自身的固有方法永远不会与 trait 方法产生歧义。`Dyn` 通过 vtable 按名字调用方法，因此一个 `Dyn` 根本不能同时带有两个都声明了同名可调用方法的 trait：请在 `Dyn` 中只保留其中一个 trait，或者给其中一个方法改名。",
       "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get : (fn(self : Self) -> i32));\nf :: (fn(d : &Dyn(A, B)) -> i32)(i32(0));\n",
       "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get_b : (fn(self : Self) -> i32));\nf :: (fn(d : &Dyn(A, B)) -> i32)(i32(0));\n",
       "`A` and `B` both give `Dyn(A, B)` a `get` slot; renaming `B`'s method removes the clash.",
@@ -1158,12 +1160,27 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "prelude 之外的 Deref 实现使用了定长的 Target",
       "A `Deref` or `DerefMut` impl outside the prelude names a `Target` that has a size, or a type variable that may have one.",
       "prelude 之外的 `Deref` 或 `DerefMut` 实现所给的 `Target` 有大小，或是一个可能有大小的类型变量。",
-      "`w.*` on a `Deref` type is the place its `deref` projection yields, and a member only that place has is reached through `w.*` (plans/VALUES_BY_DEFAULT.md §3.3, VERDICTS-63). Outside the prelude this is for an owner of unsized content: a `[T]`, a `str` or a `Dyn` cannot be a field of a sized owner, so a projection is the only way to name it, and forwarding is the only way to reach its methods without writing each one twice. A sized payload is a field: the owner names it as `w.inner`, and forwarding would add only implicitness. So a `Deref` or `DerefMut` impl outside the prelude needs a `Target` that is unsized: `[T]`, `str`, a `Dyn(...)` or a struct whose last field is unsized. A sized `Target` and an open type variable (a `?Sized` one included) are rejected. The prelude's handles (`Box`, `Rc`, `Arc`) and `Array(T, N)` implement it there. Reach a sized payload through the wrapper's own field or methods.",
-      "`Deref` 类型上的 `w.*` 是其 `deref` 投影给出的位置，只有该位置才有的成员通过 `w.*` 访问（plans/VALUES_BY_DEFAULT.md §3.3，VERDICTS-63）。在 prelude 之外，这一机制用于拥有非定长内容的所有者：`[T]`、`str` 或 `Dyn` 不能作为定长所有者的字段，因此投影是指代它的唯一方式，而转发是无需把每个方法写两遍就能调用其方法的唯一方式。定长载荷就是一个字段：所有者用 `w.inner` 指代它，转发只会增加隐式性。因此 prelude 之外的 `Deref` 或 `DerefMut` 实现需要一个非定长的 `Target`：`[T]`、`str`、`Dyn(...)`，或最后一个字段非定长的结构体。定长的 `Target` 和开放的类型变量（包括 `?Sized` 的）都会被拒绝。prelude 的句柄（`Box`、`Rc`、`Arc`）和 `Array(T, N)` 在 prelude 中实现它。请通过包装类型自己的字段或方法访问定长载荷。",
+      "`w.*` on a `Deref` type is the place its `deref` projection yields, and `w.*.m()` reaches a member of that place (VERDICTS-63). Outside the prelude this is for an owner of unsized content: a `[T]`, a `str` or a `Dyn` cannot be a field of a sized owner, so a projection is the only way to name it. A sized payload is a field: the owner names it as `w.inner`, and a projection would add only a second spelling. So a `Deref` or `DerefMut` impl outside the prelude needs a `Target` that is unsized: `[T]`, `str`, a `Dyn(...)` or a struct whose last field is unsized. A sized `Target` and an open type variable (a `?Sized` one included) are rejected. The prelude's handles (`Box`, `Rc`, `Arc`) and `Array(T, N)` implement it there. Reach a sized payload through the wrapper's own field or methods.",
+      "`Deref` 类型上的 `w.*` 是其 `deref` 投影给出的位置，`w.*.m()` 访问该位置的成员（VERDICTS-63）。在 prelude 之外，这一机制用于拥有非定长内容的所有者：`[T]`、`str` 或 `Dyn` 不能作为定长所有者的字段，因此投影是指代它的唯一方式。定长载荷就是一个字段：所有者用 `w.inner` 指代它，投影只会多出第二种写法。因此 prelude 之外的 `Deref` 或 `DerefMut` 实现需要一个非定长的 `Target`：`[T]`、`str`、`Dyn(...)`，或最后一个字段非定长的结构体。定长的 `Target` 和开放的类型变量（包括 `?Sized` 的）都会被拒绝。prelude 的句柄（`Box`、`Rc`、`Arc`）和 `Array(T, N)` 在 prelude 中实现它。请通过包装类型自己的字段或方法访问定长载荷。",
       "W :: struct(n : i32);\nimpl(W, Deref(Target : i32, deref : (fn(self : &Self) -> &Self.Target)(&self.n)));\nmain :: (fn() -> unit)({\n  w := W(n : i32(1));\n  _m := w.n;\n});\nexport(main);\n",
       "W :: struct(items : Array(i32, 3));\nimpl(W, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));\nmain :: (fn() -> unit)({\n  w := W(items : Array(i32, 3)(1, 2, 3));\n  _n := w.*.len();\n});\nexport(main);\n",
       "`[i32]` has no size of its own, so `W`'s `deref` is the only way to name its view; a sized `i32` payload is the field `w.n`.",
       "`[i32]` 没有自身的大小，因此 `W` 的 `deref` 是指代其视图的唯一方式；定长的 `i32` 载荷就是字段 `w.n`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MEMBER_BEHIND_DEREF,
+      "a member of the place `.*` names, read with `.` alone",
+      "用单独的 `.` 读取 `.*` 所指位置的成员",
+      "The value's own type has no member with this name; the place its `.*` names does.",
+      "该值自身的类型没有这个名字的成员；它的 `.*` 所指的位置有。",
+      "`x.name` reads a member of `x`'s own type, through any number of `&` and `&mut`, and nothing else. `x.*` is the only dereference: a reference's referent, a raw pointer's pointee, a handle's payload (`Box`, `Rc`, `Arc`), an owner's view (an `Array(T, N)`'s `[T]`). So a member of the payload is written with the star: `p.*.x`, `p.*.norm1()`, `h.*.items(i)`, and one star per layer: `pp.*.*.y` for an `Rc(Rc(Point))`, `x.*.*.value` for an `x : &Box(Node)` (the first star is the reference's). The handle's own members stay on `.`: `w.clone()` on an `Rc` is the `Rc`'s clone, a second handle. The help line spells the whole chain, and `yo fix` inserts the stars.",
+      "`x.name` 读取 `x` 自身类型的成员，可以穿过任意层 `&` 和 `&mut`，此外不做别的事。`x.*` 是唯一的解引用：引用的被引用值、裸指针的指向值、句柄（`Box`、`Rc`、`Arc`）的载荷、所有者的视图（`Array(T, N)` 的 `[T]`）。因此载荷的成员要带星号书写：`p.*.x`、`p.*.norm1()`、`h.*.items(i)`，每一层一个星号：`Rc(Rc(Point))` 写 `pp.*.*.y`，`x : &Box(Node)` 写 `x.*.*.value`（第一个星号属于引用）。句柄自己的成员仍然用 `.`：`Rc` 上的 `w.clone()` 是 `Rc` 的 clone，即第二个句柄。help 行会写出完整的链，`yo fix` 会插入星号。",
+      "P :: struct(x : i32);\nmain :: (fn() -> unit)({\n  p := Rc.new(P(x : i32(1)));\n  _n := p.x;\n});\nexport(main);\n",
+      "P :: struct(x : i32);\nmain :: (fn() -> unit)({\n  p := Rc.new(P(x : i32(1)));\n  _n := p.*.x;\n});\nexport(main);\n",
+      "`p` is an `Rc(P)`; `p.*` is its payload `P`, which has the field `x`.",
+      "`p` 是 `Rc(P)`；`p.*` 是它的载荷 `P`，`P` 有字段 `x`。"
     )
   );
   out.push(
@@ -1194,6 +1211,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Area :: trait(area : (fn(self : &Self) -> i32));\nSq :: struct(s : i32);\nimpl(Sq, Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));\ntotal :: (fn(a : &Dyn(Area)) -> i32)(a.area());\nmain :: (fn() -> unit)({\n  q := Sq(s : i32(2));\n  _t := total(dyn(&q));\n});\nexport(main);\n",
       "`&Dyn(Area)` borrows a value of any type implementing `Area`; `dyn(&q)` makes one.",
       "`&Dyn(Area)` 借用任意实现了 `Area` 的类型的值；`dyn(&q)` 构造它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_VARIANT_PATTERN_SHAPE,
+      "variant pattern does not match the variant's shape",
+      "变体模式与变体的形状不符",
+      "A variant pattern takes parentheses exactly when its variant has fields, and a positional list has one sub-pattern per field.",
+      "变体模式恰好在变体有字段时带括号，按位置列出的模式每个字段一个子模式。",
+      "A variant pattern mirrors the variant's declaration. A variant declared without fields is matched by its name alone: `.Empty`. A variant declared with fields is matched with parentheses: `.Rect(p, q)` has one sub-pattern per field in declaration order; `.Rect(w : p)` and `.Rect({ w, h : p })` name the fields they need and the others match anything; `.Rect(..)` matches the variant whatever its payload and binds nothing. `..` is written alone in the parentheses. `.Rect(_, _)` also matches every `Rect`, and unlike `.Rect(..)` it stops compiling when `Rect` gains a field. A bare `.Rect` on a variant with fields, an empty list (`.Rect()`, `.Rect({})`), parentheses on a variant without fields, and a positional list with the wrong count are this error. `yo fix` writes `.Rect(..)` for a bare `.Rect` or an empty list, and deletes the parentheses of a fieldless variant when they bind nothing; a wrong count has no single repair. On an owned scrutinee the payload that `..` or `_` leaves unbound is dropped when the arm is entered.",
+      "变体模式与变体的声明一致。没有字段的变体只用名字匹配：`.Empty`。有字段的变体带括号匹配：`.Rect(p, q)` 按声明顺序每个字段一个子模式；`.Rect(w : p)` 和 `.Rect({ w, h : p })` 只写出需要的字段，其余字段匹配任意值；`.Rect(..)` 匹配该变体而不论其载荷是什么，且不绑定任何东西。`..` 在括号中单独书写。`.Rect(_, _)` 同样匹配所有 `Rect`，但与 `.Rect(..)` 不同，`Rect` 增加字段后它就不再能通过编译。在有字段的变体上写不带括号的 `.Rect`、空列表（`.Rect()`、`.Rect({})`）、在没有字段的变体上写括号，以及个数不对的按位置列表，都是这个错误。`yo fix` 会把不带括号的 `.Rect` 或空列表改写为 `.Rect(..)`，并在没有字段的变体的括号不绑定任何东西时删掉括号；个数不对没有唯一的修复。被匹配值拥有所有权时，`..` 或 `_` 未绑定的载荷在进入该分支时被释放。",
+      "Shape :: enum(Circle(r : i32), Empty);\nkind :: (fn(s : Shape) -> i32)(match(s, .Circle => i32(1), .Empty => i32(0)));\nexport(kind);\n",
+      "Shape :: enum(Circle(r : i32), Empty);\nkind :: (fn(s : Shape) -> i32)(match(s, .Circle(..) => i32(1), .Empty => i32(0)));\nexport(kind);\n",
+      "`Circle` has a field, so its pattern takes parentheses; `.Circle(..)` matches it whatever its payload.",
+      "`Circle` 有字段，因此其模式带括号；`.Circle(..)` 匹配它而不论其载荷是什么。"
     )
   );
   // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────

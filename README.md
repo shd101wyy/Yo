@@ -28,7 +28,7 @@ mascot is Youyou (柚柚), a panda hugging a halved pomelo.
 - [Explicit allocators](./docs/en-US/EXPLICIT_ALLOCATORS.md) — a global allocator by default, or one argument at the creation site.
 - [Formal verification](./docs/en-US/FORMAL_VERIFICATION.md) — `requires`/`ensures` contracts and refinement types proved at compile time by Z3 (`yo verify`), with a counter-example when one fails.
 - [Compile-time evaluation](./docs/en-US/CTFE.md) — first-class types, and functions with `comptime` parameters run in the compiler.
-- [Algebraic effects](./docs/en-US/ALGEBRAIC_EFFECTS.md) and [async/await](./docs/en-US/ASYNC_AWAIT.md) — one-shot effect handlers; async is the builtin `Io` effect on a single-threaded event loop.
+- [Explicit capabilities](./docs/en-US/ALGEBRAIC_EFFECTS.md) and [async/await](./docs/en-US/ASYNC_AWAIT.md) — I/O, allocation and failure are parameters of the functions that use them; async is a compiler transform over `Io`, on a single-threaded event loop.
 - [Parallelism](./docs/en-US/PARALLELISM.md) — threads and an owned worker pool, each thread with its own event loop, separate from async.
 - [C interop](./docs/en-US/FFI.md) — `c_include(...)` and `extern(...)` bind C headers and symbols.
 - [One way to write each thing](./docs/en-US/GRAMMAR.md) — no operator precedence, no function overloading.

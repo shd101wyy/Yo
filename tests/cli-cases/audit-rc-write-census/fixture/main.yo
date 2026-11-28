@@ -15,7 +15,7 @@ main :: (fn() -> unit)({
   _p := peek(&mut c.n);
   // Not listed: a write behind RefCell's door.
   cell := Rc.new(RefCell(i32).new(i32(0)));
-  cell.with_mut(v => {
+  cell.*.with_mut(v => {
     v.* = i32(8);
   });
   // Not listed: `Rc.make_mut`'s result is a value place, not a write
@@ -26,6 +26,6 @@ main :: (fn() -> unit)({
   // codegen: with the `ref(struct(...))` form deleted (v0.2.79) no
   // user-spelled write through a counted handle can be listed at all — the
   // census is empty for user code.
-  comptime_expect_error(h.n = i32(5), "read-only through the handle");
+  comptime_expect_error(h.*.n = i32(5), "read-only through the handle");
 });
 export(main);

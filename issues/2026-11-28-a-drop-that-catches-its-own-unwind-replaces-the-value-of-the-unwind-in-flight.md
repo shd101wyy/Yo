@@ -3,7 +3,7 @@
 **Severity:** S1 — while an unwind is travelling, a destructor that calls a function which installs and catches its own handler overwrites the in-flight unwind's value and target: the installer returns the destructor's value instead of its own (`-1` for `100`), and with different types it reads a freed `String` as its result (ASan heap-use-after-free in safe code).
 
 - Filed: 2026-11-28, finding F5 of VERDICTS-95 (Fable 5.2, §7), with its probes `q01` and `q01b`.
-- Status: open. Closed by K-2 of [`plans/backlog/CAPABILITIES_AND_HANDLERS.md`](../plans/backlog/CAPABILITIES_AND_HANDLERS.md) (v0.2.82, after VBD row 14).
+- Status: open, not fixed: retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
 - Related: `issues/fixed/2026-10-22-an-unwind-is-lost-when-a-temporary-dropped-after-the-call-runs-a-destructor-that-calls-a-function.md` and `issues/fixed/an-unwind-through-a-frame-whose-destructor-calls-a-function-is-lost.md` fixed the flag half of this; the value and target were never saved.
 
 ## Reproducer
@@ -93,8 +93,10 @@ The docs' caveat ("Do not unwind from a `Drop` impl", `docs/en-US/ALGEBRAIC_EFFE
 
 ## Fix
 
+Not built (VERDICTS-96 §5): no statement in `src/` or `std/` has this shape, and E-5 deletes the mechanism. The repair the doc was filed with, K-2 of [`plans/archive/CAPABILITIES_AND_HANDLERS.md`](../plans/archive/CAPABILITIES_AND_HANDLERS.md), was:
+
 K-2: a frame saves the in-flight unwind's value and target before it runs drops on an escape path and restores both after, at every place that re-arms the flag today. The protocol H-3 builds on frames (an unwind is a status return with its target, not a global) removes the shared buffer.
 
 ## Test
 
-None in this filing: the bug is open with no fix. The test lands with K-2: both repros as run-time tests under ASan (`outer() = 100`; the typed variant prints `None` with no ASan report).
+None: the bug is not fixed. Its reproducer stops compiling at E-5, when `ctl` and `unwind` leave the language.

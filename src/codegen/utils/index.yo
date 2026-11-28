@@ -1669,7 +1669,7 @@ pointer_c_type_string :: (fn(pointee : &TypeValue, context : &mut CodeGenContext
     Rc(.Str) => String.from("__yo_str"),
     // A pointer to a `Dyn` is its registered fat struct `{ data, vtable }`
     // (decision 49 S2); the data word is the payload's address.
-    Rc(.DynT({})) => get_type_string(pointee, context),
+    Rc(.DynT(_, _, _, _)) => get_type_string(pointee, context),
     // A specialized type variable is its resolution (`r : &T` at `T = [E]`):
     // fat when the resolution is unsized, `T*` (spelled through the variable,
     // as `get_type_string` resolves it) otherwise.
@@ -1770,7 +1770,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
       }
     ),
     // Function pointers use void* (resolved by the prototype generator).
-    Rc(.Func({})) => String.from("void*"),
+    Rc(.Func(_, _, _, _, _, _, _)) => String.from("void*"),
     Rc(.Pointer(pointee)) => pointer_c_type_string(&pointee.*, context),
     // Concrete-length arrays lower to a generated struct wrapper so they are
     // returnable by value. (`length_var` non-empty = unresolved generic
@@ -1874,13 +1874,13 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
     // by value: return the registered fat-pointer C type name (keyed by
     // type_key).
-    Rc(.DynT({})) => match(
+    Rc(.DynT(_, _, _, _)) => match(
       context.get_type_c_name(type_key(t)),
       .Some(cn) => cn,
       .None => __yo_panic("No C type name found for dynamic dispatch type")
     ),
-    Rc(.FnTraitT({})) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
-    Rc(.FutureTraitT({})) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
+    Rc(.FnTraitT(_, _, _, _, _, _)) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
+    Rc(.FutureTraitT(_, _, _, _, _)) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
     // A `&T` / `&mut T` REFERENCE IN VALUE STRUCTURE (decision 43 step 3,
     // N2b: a reference field of an inline composite, a reference element of
     // a tuple or array) lowers as the design's C row: `const T*` shared,
@@ -2617,7 +2617,7 @@ dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
       }
     );
   });
-  match(&cur, Rc(.Func({})) => Option(TypeValue).Some(Rc.clone(cur)), _ => Option(TypeValue).None)
+  match(&cur, Rc(.Func(_, _, _, _, _, _, _)) => Option(TypeValue).Some(Rc.clone(cur)), _ => Option(TypeValue).None)
 });
 /// The C name of a `dyn(...)` impl's CONCRETE type: its registered C type
 /// name, else, for a `fn(...)` payload (`dyn(f)` of a named function, which has
