@@ -5,6 +5,8 @@ from the F\* audit (`plans/backlog/FSTAR_ADOPTION_CANDIDATES.md` F11(b)),
 which first parked the idea with the heap model (OQ1/L6); this doc asks
 whether it should come earlier.
 
+**Status:** RETIRED 2026-11-28 — not adopted: the operations are deleted. VERDICTS-96 deletes `ctl` and `unwind` ([`plans/backlog/ERRORS_AS_VALUES.md`](../../plans/backlog/ERRORS_AS_VALUES.md), E-5). A fallible function returns a `Result`, and its contract states the failure path as an arm of its `ensures` (`ensures(match(result, .Ok(v) => …, .Err(e) => …))`), which the verifier proves today; an early `return`, and so `try`, becomes an exit path that owes the `ensures` at E-1v.
+
 ## The question
 
 Effects are outside the verifiable subset by design: a verified body may

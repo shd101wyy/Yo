@@ -2,6 +2,8 @@
 
 **Severity:** S2 — a valid program fails to compile (the C compiler rejects the closure); an unwinding closure argument works only for a closure whose result type happens to accept the unwind value.
 
+**Not fixed:** retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). The bug is documented only: `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
+
 **Status:** OPEN — found 2026-10-23 by the adversarial review of `RefCell.replace_with`
 (step 0 of `issues/questions/2026-10-23-should-yo-add-a-flagless-cell.md`). It is why
 `tests/sync/refcell.test.yo` checks an unwinding `replace_with` only with an `i32`

@@ -1151,7 +1151,7 @@ _spelled_origin_names_list :: (fn(ts : &SharedList(TypeValue), out : &mut ArrayL
 fn_param_origin_links :: (fn(ft : &TypeValue) -> ArrayList(usize))({
   out := ArrayList(usize).new();
   slots := fn_param_slots(ft);
-  labels := match(ft, Rc(.Func({ meta : pl_m })) => Rc.clone(pl_m.param_labels), _ => return(out));
+  labels := match(ft, Rc(.Func({ meta : pl_m })) => Rc.clone(pl_m.*.*.param_labels), _ => return(out));
   sets := ArrayList(ArrayList(String)).new();
   (i : usize) = usize(0);
   while(i < slots.len(), i = (i + usize(1)), {
@@ -1206,7 +1206,7 @@ fn_param_origins_narrower :: (fn(actual : &TypeValue, expected : &TypeValue) -> 
   if(debug_knob(`YO_DEBUG_IMPL_ORIGINS`).is_some(), {
     eprintln(`[impl-origins] links actual=${a_links.len().to_string()} expected=${e_links.len().to_string()}`);
   });
-  labels := match(actual, Rc(.Func({ meta : pn_m })) => Rc.clone(pn_m.param_labels), _ => return(Option(String).None));
+  labels := match(actual, Rc(.Func({ meta : pn_m })) => Rc.clone(pn_m.*.*.param_labels), _ => return(Option(String).None));
   (i : usize) = usize(0);
   while((i + usize(1)) < a_links.len(), i = (i + usize(2)), {
     (found : bool) = false;
@@ -1299,18 +1299,27 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
 /// decides every origin-dependent fact (`Escapable`, `type_carries_origin`)
 /// for both
 /// (issues/fixed/2026-11-11-a-static-origin-in-a-pragmad-file-is-an-unchecked-assertion-until-v0278.md).
-_static_origin_marks :: (fn(ty : &TypeValue, out : &mut String, seen : &mut ArrayList(String), depth : u32) -> unit)({
+///
+/// A recursive type's `Self` shell (a fieldless struct sharing its final's
+/// id, a variantless `__self_shell` enum) is read AS its final: the shell is
+/// one type with the final, and its empty field list spells no origin, so
+/// `Option(ArrayList(Self))` written inside the declaration and
+/// `Option(ArrayList(Token))` written after it marked differently and became
+/// two instances, two C types for one Yo type
+/// (issues/fixed/2026-11-26-a-recursive-structs-self-field-type-is-a-second-instance-when-the-struct-holds-a-static-reference.md).
+_static_origin_marks :: (fn(ty_in : &TypeValue, out : &mut String, seen : &mut ArrayList(String), depth : u32) -> unit)({
   if(depth > u32(24), {
     return(());
   });
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
-    ty,
+    &ty,
     Rc(.Reference(som_p, _, som_o)) => {
       out.push_str(if(is_static_origin(&som_o.*), "s", "n"));
       _static_origin_marks(&som_p.*, out, seen, (depth + u32(1)));
     },
     Rc(.ValueSlot(som_vs)) => _static_origin_marks(&som_vs.*, out, seen, (depth + u32(1))),
-    Rc(.OriginSet(_, _)) => out.push_str(if(is_static_origin(ty), "s", "n")),
+    Rc(.OriginSet(_, _)) => out.push_str(if(is_static_origin(&ty), "s", "n")),
     Rc(.Pointer(som_inner)) => _static_origin_marks(&som_inner.*, out, seen, (depth + u32(1))),
     Rc(.SliceT(som_elem)) => _static_origin_marks(&som_elem.*, out, seen, (depth + u32(1))),
     Rc(.Array(element : som_elem)) => _static_origin_marks(&som_elem.*, out, seen, (depth + u32(1))),
@@ -1774,7 +1783,7 @@ origin_beyond_n2b_error :: (fn(ty : &TypeValue, tok : &Token) -> YoError)(
 reject_origin_carrying_signature :: (fn(ft : &TypeValue, tok : &Token, exn : Exception) -> unit)(
   match(
     ft,
-    Rc(.Func({ param_types : ps, result : r, meta : m })) => if(g_origin_types_exist && !m.result_is_comptime_only, {
+    Rc(.Func({ param_types : ps, result : r, meta : m })) => if(g_origin_types_exist && !m.*.*.result_is_comptime_only, {
       (i : usize) = usize(0);
       while(i < ps.len(), {
         match(
@@ -2017,21 +2026,21 @@ _holds_dyn_by_value_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
   match(
     ty,
     Rc(.DynT(required_trait_types : _)) => true,
-    Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref && _any_holds_dyn_by_value(&fields.items, depth + u32(1))),
+    Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref && _any_holds_dyn_by_value(&fields.*.items, depth + u32(1))),
     Rc(.EnumT({ variant_fields : all_fields, is_reference_semantics : e_is_ref })) => {
       if(e_is_ref, {
         return(false);
       });
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
-        if(match(all_fields.get(vi), .Some(vf) => _any_holds_dyn_by_value(&vf.items, depth + u32(1)), .None => false), {
+        if(match(all_fields.get(vi), .Some(vf) => _any_holds_dyn_by_value(&vf.*.items, depth + u32(1)), .None => false), {
           return(true);
         });
         vi = (vi + usize(1));
       });
       false
     },
-    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_holds_dyn_by_value(&fields.items, depth + u32(1)),
+    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_holds_dyn_by_value(&fields.*.items, depth + u32(1)),
     Rc(.SliceT(elem)) => _holds_dyn_by_value_inner(&elem, depth + u32(1)),
     Rc(.Array(element : elem, length : _)) => _holds_dyn_by_value_inner(&elem, depth + u32(1)),
     Rc(.SomeT({ resolution : resolved })) => match(resolved, .Some(concrete) => _holds_dyn_by_value_inner(&concrete, depth + u32(1)), .None => false),
@@ -2439,7 +2448,7 @@ _holds_counted_handle_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth
         _type_walk_enter(w, &ty, depth),
         .Some(seen) => seen,
         .None => {
-          found := _any_holds_counted_handle(&fields.items, w, depth + u32(1));
+          found := _any_holds_counted_handle(&fields.*.*.items, w, depth + u32(1));
           _type_walk_leave(w, &ty, depth, found)
         }
       ),
@@ -2447,7 +2456,7 @@ _holds_counted_handle_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth
         _type_walk_enter(w, &ty, depth),
         .Some(seen) => seen,
         .None => {
-          found := _any_holds_counted_handle(&fields.items, w, depth + u32(1));
+          found := _any_holds_counted_handle(&fields.*.*.items, w, depth + u32(1));
           _type_walk_leave(w, &ty, depth, found)
         }
       ),
@@ -2458,7 +2467,7 @@ _holds_counted_handle_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth
           (found : bool) = false;
           (vi : usize) = usize(0);
           while((vi < all_fields.len()) && !found, vi = (vi + usize(1)), {
-            found = _any_holds_counted_handle(&all_fields(vi).items, w, depth + u32(1));
+            found = _any_holds_counted_handle(&all_fields(vi).*.items, w, depth + u32(1));
           });
           _type_walk_leave(w, &ty, depth, found)
         }
@@ -2827,7 +2836,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, de
         _type_walk_enter(w, &ty, depth),
         .Some(seen) => seen,
         .None => {
-          found := (_any_reaches_non_atomic_cell(&fields.items, w, depth + u32(1)) || _any_reaches_non_atomic_cell(&buffer_element_types(&fields.items), w, depth + u32(1)));
+          found := (_any_reaches_non_atomic_cell(&fields.*.*.items, w, depth + u32(1)) || _any_reaches_non_atomic_cell(&buffer_element_types(&fields.*.*.items), w, depth + u32(1)));
           _type_walk_leave(w, &ty, depth, found)
         }
       )
@@ -2845,7 +2854,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, de
             match(
               all_fields.get(vi),
               .Some(v_fields) => {
-                found = _any_reaches_non_atomic_cell(&v_fields.items, w, depth + u32(1));
+                found = _any_reaches_non_atomic_cell(&v_fields.*.items, w, depth + u32(1));
               },
               .None => ()
             );
@@ -2859,7 +2868,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, de
       _type_walk_enter(w, &ty, depth),
       .Some(seen) => seen,
       .None => {
-        found := _any_reaches_non_atomic_cell(&fields.items, w, depth + u32(1));
+        found := _any_reaches_non_atomic_cell(&fields.*.*.items, w, depth + u32(1));
         _type_walk_leave(w, &ty, depth, found)
       }
     ),
@@ -2867,7 +2876,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, de
       _type_walk_enter(w, &ty, depth),
       .Some(seen) => seen,
       .None => {
-        found := _any_reaches_non_atomic_cell(&fields.items, w, depth + u32(1));
+        found := _any_reaches_non_atomic_cell(&fields.*.*.items, w, depth + u32(1));
         _type_walk_leave(w, &ty, depth, found)
       }
     ),
@@ -2898,7 +2907,7 @@ _type_is_control_bound_inner :: (fn(ty : &TypeValue, w : &mut _TypeWalk, depth :
       // regular `fn(...)` is a plain fn pointer — even if its params/return
       // reference `ctl`, the value does not carry a CF (it merely calls one
       // the caller provides).
-      Rc(.Func({ meta : __fm1 })) => __fm1.is_control,
+      Rc(.Func({ meta : __fm1 })) => __fm1.*.*.is_control,
       // Aggregates — control-bound iff any field is.
       Rc(.Struct({ field_types : fields })) => match(
         _type_walk_enter(w, ty, depth),
@@ -3070,7 +3079,7 @@ buffer_element_types :: (fn(fields : &ArrayList(TypeValue)) -> ArrayList(TypeVal
 value_type_owns_buffer :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref.* && (buffer_element_types(&fields.items).len() > usize(0))),
+    Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref.* && (buffer_element_types(&fields.*.*.items).len() > usize(0))),
     _ => false
   )
 );
@@ -3838,7 +3847,7 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
     Rc(.Func({ forall_types : fu_ft, param_types : fu_pt, result : fu_res, meta : fu_meta })) => {
-      if((fu_ft.len() > usize(0)) || (fu_meta.forall_labels.len() > usize(0)), {
+      if((fu_ft.len() > usize(0)) || (fu_meta.*.*.forall_labels.len() > usize(0)), {
         return(Option(TypeValue).None);
       });
       // The signature's OWN parameter and result types, and those of a
@@ -4075,19 +4084,19 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // str: pointer-aligned (fat pointer {ptr,len})
     Rc(.Str) => .Some(usize(get_target_pointer_size_bytes())),
     // Dyn: pointer-aligned (fat pointer {data, vtable}; see get_size_of_type).
-    Rc(.DynT({})) => .Some(usize(get_target_pointer_size_bytes())),
+    Rc(.DynT(_, _, _, _)) => .Some(usize(get_target_pointer_size_bytes())),
     // Struct: reference-semantics (object) → pointer-aligned; newtype →
     // inner field's alignment; otherwise the max field alignment.
     Rc(.Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt })) =>
       cond(
         s_ref.* => Option(usize).Some(usize(get_target_pointer_size_bytes())),
         (s_nt.* && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
-        true => _max_field_alignment(&sfts.items)
+        true => _max_field_alignment(&sfts.*.*.items)
       ),
     // Tuple: max field alignment.
-    Rc(.Tuple({ field_types : tfts })) => _max_field_alignment(&tfts.items),
+    Rc(.Tuple({ field_types : tfts })) => _max_field_alignment(&tfts.*.*.items),
     // Union: max field alignment.
-    Rc(.Union({ field_types : ufts })) => _max_field_alignment(&ufts.items),
+    Rc(.Union({ field_types : ufts })) => _max_field_alignment(&ufts.*.*.items),
     // Enum: reference-semantics (`ref(enum(…))`) → pointer-aligned (it is a heap
     // handle); otherwise the max alignment across all variants' fields. The
     // `e_ref` short-circuit matches the struct branch and prevents an infinite
@@ -4104,7 +4113,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
         while((vi < n_v) && !unknown, {
           vf := match(evf.get(vi), .Some(f) => f, .None => no_types());
           match(
-            _max_field_alignment(&vf.items),
+            _max_field_alignment(&vf.*.items),
             .Some(a) => {
               acc = _max_usize(acc, a);
             },
@@ -4299,7 +4308,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // `size_would_overflow(Dyn(Error), n)` emitted a reference to an
     // undeclared `x` / `type_size`
     // (issues/fixed/sizeof-of-a-dyn-type-is-not-a-compile-time-constant.md).
-    Rc(.DynT({})) => .Some(usize(u32(2) * get_target_pointer_size_bits())),
+    Rc(.DynT(_, _, _, _)) => .Some(usize(u32(2) * get_target_pointer_size_bits())),
     // Struct: reference-semantics (object) → pointer-sized; newtype → inner
     // field's size; otherwise the C-laid-out aggregate size. Value structs get
     // the same cycle backstop as value enums (see `g_size_walk_stack`).
@@ -4312,7 +4321,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
           g_size_walk_stack.with_mut({ s_sz_id_owned }(xs) => xs.push(s_sz_id_owned.clone()));
           out := cond(
             (s_nt.* && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
-            true => _c_aggregate_size(&sfts.items)
+            true => _c_aggregate_size(&sfts.*.*.items)
           );
           g_size_walk_stack.with_mut(xs => xs.pop());
           out
@@ -4320,7 +4329,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
       ),
     // Tuple: C-laid-out aggregate size (a member-less tuple carries the dummy
     // byte, see `_c_aggregate_size`).
-    Rc(.Tuple({ field_types : tfts })) => _c_aggregate_size(&tfts.items),
+    Rc(.Tuple({ field_types : tfts })) => _c_aggregate_size(&tfts.*.*.items),
     // Union: max field size (overlapping storage).
     Rc(.Union({ field_types : ufts })) => {
       (acc : usize) = usize(0);
@@ -4813,7 +4822,7 @@ _mentions_trait_self :: (fn(ty : &TypeValue) -> bool)({
 dyn_member_is_method :: (fn(member_ty : &TypeValue) -> bool)(
   match(
     member_ty,
-    Rc(.Func({ meta : m })) => match(m.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false),
+    Rc(.Func({ meta : m })) => match(m.*.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false),
     _ => false
   )
 );
@@ -4831,7 +4840,7 @@ dyn_member_unsafe_reason :: (fn(member_ty : &TypeValue) -> Option(String))(
       if(fts.len() > usize(0), {
         return(Option(String).Some(String.from("it takes generic(...) parameters, so there is no single function to put in the vtable")));
       });
-      labels := Rc.clone(m.param_labels);
+      labels := Rc.clone(m.*.*.param_labels);
       (i : usize) = usize(1);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t_slot_pointee(&t), .None => Rc.new(TypeValueNode.Unit));
@@ -5239,10 +5248,10 @@ _type_mentions_generic_length :: (fn(ty : &TypeValue, depth : u32) -> bool)(
       Rc(.Pointer(pointee : p)) => _type_mentions_generic_length(&p.*, depth + u32(1)),
       Rc(.Reference(pointee : rp)) => _type_mentions_generic_length(&rp.*, depth + u32(1)),
       Rc(.ValueSlot(vs_inner)) => _type_mentions_generic_length(&vs_inner.*, depth + u32(1)),
-      Rc(.Tuple(_, fts)) => _any_mentions_generic_length(&fts.items, depth),
-      Rc(.Struct({ field_types : sfts })) => _any_mentions_generic_length(&sfts.items, depth),
-      Rc(.TypeAppT(_, args)) => _any_mentions_generic_length(&args.items, depth),
-      Rc(.Func({ param_types : pts, result : r })) => (_any_mentions_generic_length(&pts.items, depth) || _type_mentions_generic_length(&r.*, depth + u32(1))),
+      Rc(.Tuple(_, fts)) => _any_mentions_generic_length(&fts.*.*.items, depth),
+      Rc(.Struct({ field_types : sfts })) => _any_mentions_generic_length(&sfts.*.*.items, depth),
+      Rc(.TypeAppT(_, args)) => _any_mentions_generic_length(&args.*.*.items, depth),
+      Rc(.Func({ param_types : pts, result : r })) => (_any_mentions_generic_length(&pts.*.*.items, depth) || _type_mentions_generic_length(&r.*, depth + u32(1))),
       _ => false
     )
   )
@@ -5435,7 +5444,7 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
     match(
       Rc.clone(cur),
       Rc(.FnTraitT(base_name : _)) => return(Option(TypeValue).Some(Rc.clone(cur))),
-      Rc(.DynT({ required_trait_types : cft_drtt })) => return(_first_fn_trait(&cft_drtt.items)),
+      Rc(.DynT({ required_trait_types : cft_drtt })) => return(_first_fn_trait(&cft_drtt.*.items)),
       (cft_box := Rc(.Struct({ id : _ }))) => match(
         unique_box_payload_type(&cft_box),
         .Some(cft_p) => if(is_dyn_type(&cft_p), {

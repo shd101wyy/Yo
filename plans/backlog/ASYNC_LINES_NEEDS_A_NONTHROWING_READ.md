@@ -1,5 +1,7 @@
 # An async `BufReader.lines` needs a non-throwing read
 
+> **2026-11-28: dissolves at E-3 of [`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md)** (v0.2.84). `ctl` and `unwind` are deleted and std's `io` path returns `Result`, so `read_line` returns a `Result` and an async `lines()` yields it as its item. No separate `Reader` decision is needed; close this doc when E-3 lands.
+
 > **Trued 2026-11-07 (plans audit after VBD):** BACKLOG, re-checked 2026-11-07: still blocked on the `Reader` primitive. Amended: under the no-compatibility rule, option 1 is a single Gen A/B change (`try_read` becomes the required method and `read` a default), with no deprecation window. Sequence it with IO_INTERFACE_AND_STD_RUNTIME, which reshapes `Io`.
 
 **Status:** BACKLOG — designed here, blocked on a `Reader` decision. Written

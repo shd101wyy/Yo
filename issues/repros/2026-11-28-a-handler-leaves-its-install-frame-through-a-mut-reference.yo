@@ -1,0 +1,20 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Raise :: (ctl(msg : &String) -> i32);
+
+stash :: (fn(slot : &mut Option(Raise)) -> i32)({
+  (h : Raise) = (
+    msg -> {
+      unwind(i32(5));
+    }
+  );
+  slot.* = .Some(h);
+  i32(1)
+});
+main :: (fn() -> unit)({
+  (mut(s) : Option(Raise)) = .None;
+  _ := stash(&mut s);
+  match(s, .Some(h) => println(`r=${h(`x`)}`), .None => println(`none`));
+  println(`after (a handler whose frame is dead was called)`);
+});
+export(main);

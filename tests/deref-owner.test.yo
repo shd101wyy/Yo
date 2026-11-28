@@ -35,11 +35,11 @@ test("&b.* lends the view: bound, as an argument, as a receiver", {
 });
 test("a member only the view has forwards through .*", {
   b := raw_buf(usize(2));
-  assert(!b.is_empty(), "is_empty is the view's");
-  assert(b.contains(&i32(2)), "contains is the view's");
-  assert(!b.contains(&i32(3)), "the third slot is outside the view");
+  assert(!b.*.is_empty(), "is_empty is the view's");
+  assert(b.*.contains(&i32(2)), "contains is the view's");
+  assert(!b.*.contains(&i32(3)), "the third slot is outside the view");
   e := raw_buf(usize(0));
-  assert(e.is_empty(), "an empty view");
+  assert(e.*.is_empty(), "an empty view");
 });
 test("&mut b.* lends the view exclusively, and writes reach the owner", {
   mut(b) := raw_buf(usize(3));
@@ -48,7 +48,7 @@ test("&mut b.* lends the view exclusively, and writes reach the owner", {
   assert(b.items(usize(1)) == i32(20), "written through the view");
   view_set(&mut b.*, usize(2), i32(30));
   assert(b.items(usize(2)) == i32(30), "written through a &mut lend of b.*");
-  b.zero_first();
+  b.*.zero_first();
   assert(b.items(usize(0)) == i32(0), "a &mut view method through the owner");
   b.push(i32(7));
   assert(b.*.len() == usize(4), "the owner grew its view");
@@ -63,10 +63,10 @@ test("a safe owner whose deref is &self.items.*", {
 });
 test("Box(owner) and Rc(owner) forward through both steps", {
   bx := Box.new(raw_buf(usize(2)));
-  assert(!bx.is_empty(), "Box -> owner -> view");
-  assert(bx.len() == usize(4), "the owner's len through the Box");
+  assert(!bx.*.*.is_empty(), "Box -> owner -> view");
+  assert(bx.*.len() == usize(4), "the owner's len through the Box");
   r := Rc.new(raw_buf(usize(1)));
-  assert(r.contains(&i32(1)), "Rc -> owner -> view");
+  assert(r.*.*.contains(&i32(1)), "Rc -> owner -> view");
   assert(_sum(&r.*.*) == i32(1), "the view of the Rc's payload");
 });
 test("an Array's .* is its [T] view", {

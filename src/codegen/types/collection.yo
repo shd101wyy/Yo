@@ -384,7 +384,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
     // Struct fields (skip function-typed fields — emitted inline at call sites).
     match(
       &type,
-      Rc(.Struct({})) => {
+      Rc(.Struct(_, _, _, _, _, _, _, _, _, _)) => {
         runtime_fields := get_runtime_struct_fields(&type);
         n := runtime_fields.len();
         (mut(i) : usize) = usize(0);
@@ -601,11 +601,11 @@ collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &m
 );
 /// func_id of a FuncVal EvalValue, or "".
 _fv_id :: (fn(v : &EvalValue) -> String)(
-  match(v, Rc(.FuncVal(__fvd1, _)) => __fvd1.func_id.clone(), _ => String.from(""))
+  match(v, Rc(.FuncVal(__fvd1, _)) => __fvd1.*.*.func_id.clone(), _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _fv_body :: (fn(v : &EvalValue) -> AstExpr)(
-  match(v, Rc(.FuncVal(__fvd2, _)) => Rc.clone(__fvd2.body), _ => make_err_expr())
+  match(v, Rc(.FuncVal(__fvd2, _)) => Rc.clone(__fvd2.*.*.body), _ => make_err_expr())
 );
 /// Collect types referenced by an expression (its evaluated type, any function
 /// value it resolves to, deferred drops, macro expansion, runtime

@@ -1224,11 +1224,11 @@ _d47_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
 );
 _d47_marked :: (fn(name : &AstExpr) -> bool)({
   t := ast_expr_token(name);
-  is_mut_binding(&t, &t.value.*)
+  is_mut_binding(&t, &t.*.value.*)
 });
 _d47_thread_local :: (fn(name : &AstExpr) -> bool)({
   t := ast_expr_token(name);
-  is_thread_local_binding(&t, &t.value.*)
+  is_thread_local_binding(&t, &t.*.value.*)
 });
 test("decision 47: a binder's mut(name) is stripped at desugar", {
   assert_str_eq(_d42(`mut(x) := 1`), _d42(`x := 1`), "mut(x) := v");
@@ -1366,16 +1366,16 @@ test("every token of a parse shares the module's source and path cells", {
     _tokens_of(&prog(i), &mut toks);
   });
   first := Rc.clone(toks(usize(0)));
-  src_cell := Rc.clone(first.input);
-  path_cell := Rc.clone(first.module_path);
+  src_cell := Rc.clone(first.*.input);
+  path_cell := Rc.clone(first.*.module_path);
   assert(src_cell.* == source, "the first token carries the source text");
   (mut(shared) : usize) = usize(0);
   (mut(j) : usize) = usize(0);
   while(j < toks.len(), j = (j + usize(1)), {
     t := Rc.clone(toks(j));
-    t_src := Rc.clone(t.input);
-    t_path := Rc.clone(t.module_path);
-    if(t.value.* == `b`, {
+    t_src := Rc.clone(t.*.input);
+    t_path := Rc.clone(t.*.module_path);
+    if(t.*.value.* == `b`, {
       assert(unsafe(__yo_ptr_eq(&t_src, &src_cell)), "an interpolation body's token shares the enclosing source cell");
       assert(unsafe(__yo_ptr_eq(&t_path, &path_cell)), "an interpolation body's token shares the enclosing path cell");
     });
@@ -1415,8 +1415,8 @@ test("a template's lowered tokens sit at the template, not at the start of the m
     (mut(k) : usize) = usize(0);
     while(k < toks.len(), k = (k + usize(1)), {
       t := Rc.clone(toks(k));
-      if((t.value.* == `y`) || ((t.value.* == `z`) || (t.value.* == `w`)), {
-        start = .Some(t.character);
+      if((t.*.value.* == `y`) || ((t.*.value.* == `z`) || (t.*.value.* == `w`)), {
+        start = .Some(t.*.character);
       });
     });
     match(
@@ -1425,8 +1425,8 @@ test("a template's lowered tokens sit at the template, not at the start of the m
         (mut(j) : usize) = usize(0);
         while(j < toks.len(), j = (j + usize(1)), {
           t := Rc.clone(toks(j));
-          if(t.character < c0, {
-            println(`token "${t.value.*}" at character ${t.character} precedes its statement at ${c0}`);
+          if(t.*.character < c0, {
+            println(`token "${t.*.value.*}" at character ${t.*.character} precedes its statement at ${c0}`);
             assert(false, "a template's lowered token precedes the template");
           });
         });
@@ -1449,8 +1449,8 @@ _value_cells_of :: (fn(toks : &ArrayList(Token), text : str) -> ArrayList(Rc(Str
   (mut(i) : usize) = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     t := Rc.clone(toks(i));
-    if(t.value.* == text, {
-      out.push(Rc.clone(t.value));
+    if(t.*.value.* == text, {
+      out.push(Rc.clone(t.*.value));
     });
   });
   out

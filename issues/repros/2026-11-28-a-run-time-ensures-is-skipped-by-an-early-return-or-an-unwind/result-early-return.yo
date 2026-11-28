@@ -1,0 +1,35 @@
+// F8 (VERDICTS-96 probe v09): the same through the `match` arm that `try(expr)` will produce.
+{ println } :: import("std/fmt");
+
+leaf_r :: (fn(x : i32) -> Result(i32, i32))(
+  cond(
+    (x > i32(10)) => .Err(x),
+    true => .Ok(x)
+  )
+);
+
+// promises: an Err never carries a value above 100
+pass :: (
+  fn(x : i32, ensures(match(result, .Ok(_) => true, .Err(e) => (e <= i32(100))))) -> (result : Result(i32, i32))
+)({
+  v := match(
+    leaf_r(x),
+    .Ok(v) => v,
+    .Err(e) => return(.Err(e))
+  );
+  Result(i32, i32).Ok(v + i32(1))
+});
+
+main :: (fn() -> unit)({
+  match(
+    pass(i32(5)),
+    .Ok(v) => println(`pass(5) ok ${v}`),
+    .Err(e) => println(`pass(5) err ${e}`)
+  );
+  match(
+    pass(i32(500)),
+    .Ok(v) => println(`pass(500) ok ${v}`),
+    .Err(e) => println(`pass(500) err ${e} (the contract says <= 100)`)
+  );
+});
+export(main);

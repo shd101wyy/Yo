@@ -1073,7 +1073,7 @@ eval_closure :: (fn(ck : &mut Ck, env : &mut Env, param : usize, pty : &Ty, caps
 /// is checked at this instantiation.
 eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node), live : u64) -> Ty)({
   case := Rc.clone(&ck.case);
-  def := case.fns.index(f);
+  def := case.*.fns.index(f);
   sig := Rc.clone(&ck.sigs(f));
   mut(types) := ArrayList(Ty).new();
   // Two-phase (P9): a `&mut` argument is reserved when evaluated (a read)
@@ -1144,16 +1144,16 @@ eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node
     });
     i = (i + usize(1));
   });
-  mut(sb) := new_subst(sig.vars);
+  mut(sb) := new_subst(sig.*.vars);
   i = usize(0);
-  while((i < types.len()) && (i < sig.params.len()), {
-    unify(ck, &mut sb, &sig.params(i), &types(i), false);
+  while((i < types.len()) && (i < sig.*.params.len()), {
+    unify(ck, &mut sb, &sig.*.params(i), &types(i), false);
     i = (i + usize(1));
   });
   resolve(ck, &mut sb);
   i = usize(0);
-  while((i < types.len()) && (i < sig.params.len()), {
-    pt := map_o(ck, &sig.params(i), OP_SUBST, u64(0), &sb);
+  while((i < types.len()) && (i < sig.*.params.len()), {
+    pt := map_o(ck, &sig.*.params(i), OP_SUBST, u64(0), &sb);
     if(!sub(&types(i), &pt, false) && !ablated(ck, ABLATE_INVARIANCE), {
       fail(ck, "ORIGIN_MISMATCH", "an argument's origins do not fit its parameter");
     });
@@ -1184,13 +1184,13 @@ eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node
   // union, or any origin of an unannotated local), where it is what the
   // substituted parameter's pointee allows.
   i = usize(0);
-  while((i < args.len()) && (i < sig.params.len()), {
+  while((i < args.len()) && (i < sig.*.params.len()), {
     arg := Rc.clone(&args(i));
     match(
       &arg.*,
       .Borrow(m, p) => {
         if(m.*, {
-          lent := map_o(ck, &sig.params(i), OP_SUBST, u64(0), &sb);
+          lent := map_o(ck, &sig.*.params(i), OP_SUBST, u64(0), &sb);
           match(
             &lent.*,
             .Ref(_, pointee, _) => {
@@ -1205,7 +1205,7 @@ eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node
     );
     i = (i + usize(1));
   });
-  map_o(ck, &sig.result, OP_SUBST, u64(0), &sb)
+  map_o(ck, &sig.*.result, OP_SUBST, u64(0), &sb)
 });
 /// Unification of a parameter type against an argument type. An origin
 /// position holding exactly one variable binds it: exactly in an invariant
@@ -1354,20 +1354,20 @@ normalize :: (fn(ck : &mut Ck, def : &FnDef) -> NSig)({
 /// generic callee (empty otherwise).
 check_fn_body :: (fn(ck : &mut Ck, f : usize, sb : &Subst) -> unit)({
   case := Rc.clone(&ck.case);
-  def := case.fns.index(f);
+  def := case.*.fns.index(f);
   sig := Rc.clone(&ck.sigs(f));
   mut(tsb) := new_subst(u64(0));
   tsb.types = sb.types.clone();
   tsb.tbound = sb.tbound;
-  mut(env) := new_env(map_o(ck, &sig.result, OP_SUBST, u64(0), &tsb));
+  mut(env) := new_env(map_o(ck, &sig.*.result, OP_SUBST, u64(0), &tsb));
   mut(i) := usize(0);
   while(i < def.params.len(), {
     p := def.params(i).p;
-    env.flow(p) = map_o(ck, &sig.params(i), OP_SUBST, u64(0), &tsb);
+    env.flow(p) = map_o(ck, &sig.*.params(i), OP_SUBST, u64(0), &tsb);
     env.defined = (env.defined | bit(p));
     i = (i + usize(1));
   });
-  env.byval = sig.byval;
+  env.byval = sig.*.byval;
   match(
     &def.body,
     .Some(b) => {
@@ -1388,14 +1388,14 @@ check_ablated :: (fn(c : Case, ablate : u64) -> Ck)({
   case := Rc.new(c);
   mut(ck) := Ck(case : Rc.clone(&case), sigs : ArrayList(Rc(NSig)).new(), err : String.from(""), why : String.from(""), next_fresh : FRESH0, fresh : u64(0), spec_depth : usize(0), ablate : ablate, call_after : u64(0), reserving : false);
   mut(i) := usize(0);
-  while(i < case.types.len(), {
+  while(i < case.*.types.len(), {
     mut(j) := usize(0);
-    while(j < case.types(i).fields.len(), {
-      o := orig(&case.types(i).fields(j), usize(0));
-      if((o & case.types(i).field_places) != u64(0), {
+    while(j < case.*.types(i).fields.len(), {
+      o := orig(&case.*.types(i).fields(j), usize(0));
+      if((o & case.*.types(i).field_places) != u64(0), {
         fail(&mut ck, "WF_SELF", "a type definition names its own field");
       });
-      if((o & ~(case.types(i).origin_params | case.types(i).field_places)) != u64(0), {
+      if((o & ~(case.*.types(i).origin_params | case.*.types(i).field_places)) != u64(0), {
         fail(&mut ck, "WF_UNDECLARED", "a field names an origin the type does not declare");
       });
       j = (j + usize(1));
@@ -1403,21 +1403,21 @@ check_ablated :: (fn(c : Case, ablate : u64) -> Ck)({
     i = (i + usize(1));
   });
   i = usize(0);
-  while(i < case.globals.len(), {
-    if(orig(&case.globals(i), usize(0)) != u64(0), {
+  while(i < case.*.globals.len(), {
+    if(orig(&case.*.globals(i), usize(0)) != u64(0), {
       fail(&mut ck, "E0909", "a module-level binding carries origins (not Escapable)");
     });
     i = (i + usize(1));
   });
   i = usize(0);
-  while(i < case.fns.len(), {
-    sig := normalize(&mut ck, &case.fns(i));
+  while(i < case.*.fns.len(), {
+    sig := normalize(&mut ck, &case.*.fns(i));
     ck.sigs.push(Rc.new(sig));
     i = (i + usize(1));
   });
   i = usize(0);
-  while((i < case.fns.len()) && ok(&ck), {
-    if(case.fns(i).type_params == usize(0), {
+  while((i < case.*.fns.len()) && ok(&ck), {
+    if(case.*.fns(i).type_params == usize(0), {
       check_fn_body(&mut ck, i, &new_subst(u64(0)));
     });
     i = (i + usize(1));

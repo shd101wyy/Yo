@@ -72,8 +72,8 @@ any page named here; `yo context --docs` lists them.
   cycles.
 - [EXPLICIT_ALLOCATORS](./EXPLICIT_ALLOCATORS.md): choosing where an object's
   bytes live with an `alloc :` argument.
-- [ALGEBRAIC_EFFECTS](./ALGEBRAIC_EFFECTS.md): effects, handlers, `return`
-  (resume) and `unwind` (discard).
+- [ALGEBRAIC_EFFECTS](./ALGEBRAIC_EFFECTS.md): handlers (`ctl`), `return`
+  (answer the call) and `unwind` (end the function that built the handler).
 - [ASYNC_AWAIT](./ASYNC_AWAIT.md): `io.async`/`io.await` on a single-threaded
   event loop.
 - [STD_SYS_MODULE](./STD_SYS_MODULE.md): the platform async-I/O backends behind

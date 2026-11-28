@@ -123,7 +123,7 @@ battery takes the next lane-F item.
   `issues/fixed/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
   and the both-modes fixture sweep; amended 2026-11-15), then S1 (`yo init`
   scaffolds `pragma(Pragma.VerifyOrAssert);`), with S2 (the S2 issue
-  `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`)
+  `issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`)
   and SD (the solver's distribution) beside them.
   Its S3 is phase 4's item 1, pulled forward: verified std bodies start as soon
   as S2 lands, not when lane C drains.
@@ -281,6 +281,20 @@ items occupy.
 Cadence stays patch releases, as in VBD: a release cuts when develop's battery
 is green on the tip. A row is a target, not a gate. An item that is not ready
 slides to the next row, and nothing waits for it.
+
+**Errors as values (added 2026-11-28,
+[`ERRORS_AS_VALUES.md`](ERRORS_AS_VALUES.md)).** `ctl` and `unwind` are
+deleted and errors become values (VERDICTS-96), beside the lanes above:
+
+| Release | Errors as values | ALLOCATION_FREE_ASYNC | Verification |
+| --- | --- | --- | --- |
+| v0.2.81 | E-0a (the adoption); VERDICTS-89 PR A | AFA-0 | SPEC_AND_PROOF PR 1a, 1b; S2 |
+| v0.2.82 | PR B; E-0b (the contract fix); E-0c (dead code) | — | E-0b is lane E's |
+| v0.2.83 | E-1 (`try`); E-2 (the migration tool and the measured pilot) | AFA-1, AFA-2 | E-1v; `logic` and `lemma` |
+| v0.2.84 | E-3 (std); E-4a, E-4b; E-6 answered | AFA-3 with no unwind in embedded frames; AFA-4 | S3 starts on modules E-3 has converted |
+| v0.2.85 | E-4c, E-4d | AFA-5, AFA-6 | — |
+| v0.2.86 | E-5 (`ctl` and `unwind` deleted) | AFA-7, after E-5 | — |
+| v0.2.88 or later | the generators question | — | — |
 
 ## 5. Decisions the maintainer may want to make (with recommendations)
 

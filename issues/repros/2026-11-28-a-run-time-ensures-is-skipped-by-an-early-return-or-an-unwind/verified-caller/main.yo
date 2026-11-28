@@ -1,0 +1,16 @@
+pragma(Pragma.Verify);
+// F8 (VERDICTS-96 probe v12): a verified caller proves its divisor nonzero from `nonzero`'s contract.
+{ println } :: import("std/fmt");
+{ nonzero } :: import("./lib.yo");
+
+ratio2 :: (
+  fn(n : u32, x : i32) -> (r : u32)
+)({
+  d := nonzero(x);
+  (n / u32(d))
+});
+
+main :: (fn() -> unit)({
+  println(`ratio2(100, 0) = ${ratio2(u32(100), i32(0))}`);
+});
+export(main);

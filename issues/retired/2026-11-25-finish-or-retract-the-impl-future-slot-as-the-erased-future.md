@@ -2,7 +2,7 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** DECIDED 2026-11-25 (VERDICTS-81): **B, retract**, adopted in full on the maintainer's request. See `## Verdict`; the `## Recommendation` below is the superseded original.
+**Status:** Answered: B (retract), VERDICTS-81 / ALLOCATION_FREE_ASYNC. Decided 2026-11-25 by VERDICTS-81 (Fable 5.2), adopted in full on the maintainer's request; the plan is [`plans/backlog/ALLOCATION_FREE_ASYNC.md`](../../plans/backlog/ALLOCATION_FREE_ASYNC.md). See `## Verdict`; the `## Recommendation` below is the superseded original.
 
 Filed 2026-11-25 by the dyn-future-reject lane, from VERDICTS-80's "Not in this PR" (Fable 5.2, adopted 2026-11-25). VERDICTS-80 rejects `Dyn(Future(...))` (E0614) and points the user at two spellings: `Impl(Future(T, E))` for one future, `JoinHandle(T)` for several running tasks. The first is only half built.
 

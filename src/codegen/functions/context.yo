@@ -445,7 +445,7 @@ note_state_machine_binding_id :: (fn(context : &mut FunctionGenerationContext, i
 _same_decl :: (fn(a : &Option(Token), b : &Option(Token)) -> bool)(
   match(
     a,
-    .Some(ta) => match(b, .Some(tb) => ((ta.module_path.* == tb.module_path.*) && ((ta.row == tb.row) && (ta.column == tb.column))), .None => false),
+    .Some(ta) => match(b, .Some(tb) => ((ta.*.*.module_path.* == tb.*.*.module_path.*) && ((ta.*.*.row == tb.*.*.row) && (ta.*.*.column == tb.*.*.column))), .None => false),
     .None => false
   )
 );
@@ -455,7 +455,7 @@ _same_decl :: (fn(a : &Option(Token), b : &Option(Token)) -> bool)(
 /// would hide that local from every drop the compiler emits inside the arm
 /// (`shadow_bindings`).
 shadow_binding_decl_name :: (fn(context : &FunctionGenerationContext, name : &String) -> String)(
-  if(context.base.declared_scopes.with({ name : &name.* }(ds) => scope_stack_contains(ds, name)), fresh_local_name(`${name}_s`, &context.base.current_function_name), name.clone())
+  if(context.base.declared_scopes.*.with({ name : &name.* }(ds) => scope_stack_contains(ds, name)), fresh_local_name(`${name}_s`, &context.base.current_function_name), name.clone())
 );
 /// The C local of the innermost pattern binding of the sanitized name `name`,
 /// or `name` when it has none.

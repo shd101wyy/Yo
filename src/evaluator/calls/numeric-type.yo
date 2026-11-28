@@ -188,12 +188,12 @@ _make_yo_as_node :: (
         TokenData(
           kind : TokenKind.Identifier,
           value : intern_token_str(String.from(BF_YO_AS)),
-          row : orig_tok.row,
-          column : orig_tok.column,
-          character : orig_tok.character,
-          byte_offset : orig_tok.byte_offset,
-          module_path : Rc.clone(orig_tok.module_path),
-          input : Rc.clone(orig_tok.input)
+          row : orig_tok.*.*.row,
+          column : orig_tok.*.*.column,
+          character : orig_tok.*.*.character,
+          byte_offset : orig_tok.*.*.byte_offset,
+          module_path : Rc.clone(orig_tok.*.*.module_path),
+          input : Rc.clone(orig_tok.*.*.input)
         )
       )
     )
@@ -261,7 +261,7 @@ try_to_convert_to_numeric_type :: (
                 &arg_type,
                 Rc(.EnumT(_, _, vnames, _, _, _, discs, _, _, _)) => {
                   match(
-                    _get_enum_discriminant(&variant, &vnames.items, &discs.items),
+                    _get_enum_discriminant(&variant, &vnames.*.*.items, &discs.*.*.items),
                     .Some(d) => {
                       enum_disc_raw = .Some(d.to_string());
                     },

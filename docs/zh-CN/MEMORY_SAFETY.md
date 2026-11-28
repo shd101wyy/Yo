@@ -24,7 +24,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 - **和类型 / Option / Result 类型。** `Option(T)`、`Result(T, E)`，以及你自定义的 `enum`。
 - **闭包和高阶函数** —— 在安全类型上。
 - **泛型、trait、GADT。** Yo 的全部类型系统特性。
-- **代数效应、async/await、comptime。** 完全可用。
+- **显式能力与处理器、async/await、comptime。** 完全可用。
 - **原地修改。** 通过 `name : &mut T` 参数 —— 下面会讲。
 
 这是默认的用户体验。不需要 pragma、不需要 `addr_of(...)` 调用、不需要 `*(T)` 类型、不需要 `unsafe(...)` 包装：

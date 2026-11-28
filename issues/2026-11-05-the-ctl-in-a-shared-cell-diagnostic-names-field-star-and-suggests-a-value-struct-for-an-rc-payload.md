@@ -2,6 +2,8 @@
 
 **Severity:** S3 — a misleading diagnostic: for `Rc(Slot)` where `Slot` is a value struct holding a `ctl` handler, the error says `Field "*" of a reference type cannot hold Slot` and advises "keep it in a value struct", which `Slot` already is.
 
+**Not fixed:** retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). The bug is documented only: `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
+
 Found while migrating `tests/cli-cases/ctl-handler-in-a-ref-struct-field-is-rejected` off
 `ref(struct)` (V5 part B, branch `vbd/v5-part-b-tests`), on develop 68b45b81d. The rule is right:
 an `Rc` payload outlives the frame a `ctl` handler unwinds into, exactly as a `ref` object did.
