@@ -785,12 +785,14 @@ static inline void __yo_note_spawn(void) {
     }
   }
 }
-// YO_ASYNC_STATS=1 prints, at exit, what the async lowering allocated and
-// started (plans/backlog/ALLOCATION_FREE_ASYNC.md, AFA-0). The hooks are
-// \`__YO_ASYNC_STAT(<counter>)\` at each allocation and start site; unset, each
-// is one load and a not-taken branch, and the variable is read once, by
-// \`__yo_async_stats_init\` at the top of \`main\`. Counters are atomic because
-// every thread runs its own loop.
+// A program built with -DYO_ASYNC_STATS (\`yo compile -D YO_ASYNC_STATS\`, or
+// \`add_c_flags("-DYO_ASYNC_STATS")\` on a build.yo artifact) prints, at exit,
+// what the async lowering allocated and started when it runs with
+// YO_ASYNC_STATS=1 (plans/backlog/ALLOCATION_FREE_ASYNC.md, AFA-0). The hooks
+// are \`__YO_ASYNC_STAT(<counter>)\` at each allocation and start site; the
+// variable is read once, by \`__yo_async_stats_init\` at the top of \`main\`.
+// Counters are atomic because every thread runs its own loop. Without the
+// define every hook is \`((void)0)\` and the program is the one it was before.
 //   sm_cells / sync_cells   state-machine and no-await futures built (one heap cell each)
 //   io_cells                I/O, park, yield, join-wait and completed futures built
 //   cell_starts             cold futures started in their own cell: an await
@@ -799,6 +801,7 @@ static inline void __yo_note_spawn(void) {
 //                           lowering embeds a frame yet)
 //   fused_awaits            await sites that ran a wrapper's body in the caller
 //   spawns / roots          tasks started by \`io.spawn\`, and by a sync-context await
+#ifdef YO_ASYNC_STATS
 enum {
   __YO_AS_SM_CELLS,
   __YO_AS_SYNC_CELLS,
@@ -832,6 +835,10 @@ static inline void __yo_async_stats_init(void) {
     atexit(__yo_async_stats_report);
   }
 }
+#else
+#define __YO_ASYNC_STAT(k) ((void)0)
+static inline void __yo_async_stats_init(void) {}
+#endif
 static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
   return atomic_load_explicit(obj, order);
 }

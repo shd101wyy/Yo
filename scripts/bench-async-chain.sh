@@ -7,9 +7,11 @@
 # `perf stat -e instructions:u` when perf can count, else
 # `valgrind --tool=callgrind`; the first line says which.
 #
-# A second table gives cells and starts per iteration from the program's own
-# `YO_ASYNC_STATS=1` report (the same N = 0 difference), when the compiler
-# emits one; a compiler without it prints a note instead.
+# A second table gives cells and starts per iteration from the report of a
+# second binary built with `-D YO_ASYNC_STATS` and run with `YO_ASYNC_STATS=1`
+# (the same N = 0 difference), when the compiler has the counters; a compiler
+# without them prints a note instead. The instruction table is always the plain
+# build, so the counters never enter it.
 #
 # Usage: YO=<yo-binary> YO_STD=<std-dir> [COUNT=100000] [MODES="chain select timeout spawn pingpong"] \
 #          scripts/bench-async-chain.sh
@@ -22,6 +24,7 @@ MODES="${MODES:-chain select timeout spawn pingpong}"
 OUT="$(mktemp -d)"
 trap 'rm -rf "${OUT}"' EXIT
 "${YO}" compile "${HERE}/bench/async-chain.yo" --std-path "${YO_STD}" --optimize 2 -o "${OUT}/bench" >/dev/null
+"${YO}" compile "${HERE}/bench/async-chain.yo" --std-path "${YO_STD}" --optimize 2 -D YO_ASYNC_STATS -o "${OUT}/bench-stats" >/dev/null
 
 if perf stat -x, -e instructions:u -o "${OUT}/probe" true 2>/dev/null &&
   grep -qE '^[0-9]+,,instructions' "${OUT}/probe"; then
@@ -52,11 +55,11 @@ for m in ${MODES}; do
 done
 
 stat() { # <mode> <count> <key>: one counter of the YO_ASYNC_STATS line of a run
-  YO_ASYNC_STATS=1 BENCH_MODE="$1" BENCH_COUNT="$2" "${OUT}/bench" 2>&1 >/dev/null |
+  YO_ASYNC_STATS=1 BENCH_MODE="$1" BENCH_COUNT="$2" "${OUT}/bench-stats" 2>&1 >/dev/null |
     sed -n 's/^yo: async-stats.* '"$3"'=\([0-9]*\).*/\1/p'
 }
 if [ -z "$(stat chain 0 sm_cells)" ]; then
-  echo "this compiler emits no YO_ASYNC_STATS report; the cells table is skipped"
+  echo "this compiler has no -D YO_ASYNC_STATS counters; the cells table is skipped"
   exit 0
 fi
 echo
