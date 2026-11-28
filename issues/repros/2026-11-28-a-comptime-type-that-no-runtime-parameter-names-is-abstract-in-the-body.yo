@@ -1,0 +1,20 @@
+// The callback of the p02a shape as an `Impl(FnOnce(...))` parameter (VERDICTS-97 probe p02b).
+// Expected: prints `1`. Actual (v0.2.80): E0610, no method `new` on ArrayList(T).
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+
+collect_with :: (
+  fn(comptime(T) : Type, sink(body) : Impl(FnOnce(g : &mut ArrayList(T)) -> unit)) -> ArrayList(T)
+)({
+  mut(out) := ArrayList(T).new();
+  body(&mut out);
+  out
+});
+
+main :: (fn() -> unit)({
+  xs := collect_with(i32, g => {
+    g.push(i32(1));
+  });
+  println(`${xs.len()}`);
+});
+export(main);

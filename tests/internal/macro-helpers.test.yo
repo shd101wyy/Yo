@@ -256,18 +256,18 @@ test("macro helpers: a gensym'd token shares its source token's input", {
         v,
         Rc(.ExprVal(atom)) => {
           synth := ast_expr_token(&atom);
-          assert(synth.input.* == source.*, "the synthesized token carries the source text");
+          assert(synth.*.input.* == source.*, "the synthesized token carries the source text");
           // `ptr()` is buffer identity; `to_bytes()` would compare two fresh copies.
-          assert(synth.input.*.ptr() == source.*.ptr(), "the synthesized token SHARES the source text instead of copying it");
-          assert(synth.module_path.*.ptr() == tok.module_path.*.ptr(), "the synthesized token shares the module path");
+          assert(synth.*.input.*.ptr() == source.*.ptr(), "the synthesized token SHARES the source text instead of copying it");
+          assert(synth.*.module_path.*.ptr() == tok.*.module_path.*.ptr(), "the synthesized token shares the module path");
           // `Token.input`/`module_path` are `Rc` cells: the synthesized
           // token holds its origin token's cells, not fresh cells over the
           // same buffer (a fresh cell would be a deep copy once `String` is a
           // value).
-          synth_input := Rc.clone(synth.input);
-          tok_input := Rc.clone(tok.input);
-          synth_path := Rc.clone(synth.module_path);
-          tok_path := Rc.clone(tok.module_path);
+          synth_input := Rc.clone(synth.*.input);
+          tok_input := Rc.clone(tok.*.input);
+          synth_path := Rc.clone(synth.*.module_path);
+          tok_path := Rc.clone(tok.*.module_path);
           assert(unsafe(__yo_ptr_eq(&synth_input, &tok_input)), "the synthesized token shares the source CELL");
           assert(unsafe(__yo_ptr_eq(&synth_path, &tok_path)), "the synthesized token shares the module path CELL");
         },

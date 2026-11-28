@@ -11,8 +11,8 @@ test("an Arc(Mutex(Node)) cycle is left closed", {
   comptime_assert(!Type.impls(Node, Acyclic), "the node reaches itself");
   a := Arc.new(Mutex(Node).new(Node(id : i32(1), peer : .None)));
   b := Arc.clone(a);
-  a.with_lock(v => {
+  a.*.with_lock(v => {
     v.* = Node(id : i32(1), peer : .Some(Arc.clone(b)));
   });
-  assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
+  assert(a.*.with_lock(v => v.peer.is_some()), "the cycle is closed");
 });

@@ -61,7 +61,7 @@ Spelling (what parses) lives in `yo-syntax.instructions.md`; this file holds sem
   - A cell payload whose type mentions a type variable (`dyn(Rc.new(<closure>))`, `f : Impl(Fn(...))`) is built by the prelude's compiler-internal `__yo_rc_cell` / `__yo_arc_cell` / `__yo_box_cell` function values bound to the callee node (`_prelude_cell_constructor`, `_dyn_cell_args_recognized`, `src/evaluator/values/dyn.yo`), so no name is looked up. `dyn(Rc.new(<closure>))` / `dyn(Arc.new(<closure>))` are recognized with or without `alloc`; `Rc(T).new(<closure>)` is not (a closure's type cannot be written). An `Impl(Fn(...))` parameter's type variable can dispatch `new` (`_is_open_fn_param_slot`, `values/impl.yo`). These helpers go once the open issue above is fixed.
   - The clone of a `Dyn` over a placed cell (`_emit_dyn_clone_function`) passes the source's owner (`__yo_scope_of_object`) as the fresh cell's allocator.
 - **Auto-dereference (`Deref`, `plans/VALUES_BY_DEFAULT.md` §3.3).** `Box`, `Rc` and `Arc` implement `Deref` (`Target := V`): a member the wrapper lacks is looked up on the payload (`w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively). Spelling, `Deref` owners and `DerefMut`: yo-syntax "`Rc` / `Arc` handles".
-  - A name both the wrapper and its payload have is E0616 (`_reject_wrapper_payload_clash`, `calls/function.yo`; the callee arm of `evaluate_property_access`), naming `Rc.m(w)` and `w.*.m()`; `yo fix` rewrites to `Rc.m(w)`. The check is off while a generic body is specialized (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`). `derive(T, Clone)` spells a `Deref` field's clone `(type_of(self.f) <: Clone).clone(&self.f)`.
+  - A name both the wrapper and its payload have is E0616 (`_reject_wrapper_payload_clash`, `calls/function.yo`; the callee arm of `evaluate_property_access`), naming `Rc.m(w)` and `w.*.m()`; `yo fix` rewrites to `Rc.m(w)`. The check is off while a generic body is specialized (`issues/retired/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`). `derive(T, Clone)` spells a `Deref` field's clone `(type_of(self.f) <: Clone).clone(&self.f)`.
   - Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it replaces the object argument with a `w.*` node from `make_deref_expr` and re-evaluates; in callee position only when the wrapper has no method of that name); the method hook is `_try_find_receiver_method`'s miss path. `deref_target_type` (`trait-checking.yo`) is the one predicate.
   - Outside the prelude a `Deref`/`DerefMut` impl needs an unsized `Target` (`[T]`, `str`, a `Dyn`), else E0622 (`_throw_if_deref_impl_outside_prelude`, `values/impl.yo`).
 
@@ -189,7 +189,7 @@ register_module :: (fn(comptime(config) : ModuleConfig) -> comptime(unit))({
 });
 ```
 
-## Algebraic effects
+## Handlers (`ctl`, `unwind`)
 
 The core rule (`return(expr)` in a handler resumes, `unwind(expr)` discards the continuation) is in AGENTS.md. Design: `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
@@ -433,6 +433,8 @@ Decided in `plans/archive/STD_API_AUDIT.md` D1. When you add or change a fallibl
 | I/O, and anything on the `io` path (fs, net, http, process) | **effects** — `exn : Exception` / `IoExn` |
 | pure fallible transforms: parsing, decoding, conversion | **`Result(T, TypedError)`** |
 | lookups where absence is not an error | **`Option(T)`** |
+
+**No new `exn` parameter and no new `ctl` type in `std/` or `src/`; a new fallible API returns `Result(T, TypedError)` on any path, the `io` path included.** `ctl` and `unwind` are being deleted and errors become values (`plans/backlog/ERRORS_AS_VALUES.md`): std's `io` path moves to `Result` at E-3 (v0.2.84) and `src/` at E-4. The effects row of the table describes the existing `io` API until then; it is not a style for new code.
 
 Rules that follow from it:
 

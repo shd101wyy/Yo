@@ -1,0 +1,42 @@
+// The same `Impl(Iterator(Item := i32))` result stepped by `.next()` (VERDICTS-97 probe p01b).
+// Expected: prints `manual: 6`. Actual (v0.2.80): `yo check` OK, the C compile fails.
+{ println } :: import("std/fmt");
+
+Evens :: struct(i : i32, n : i32);
+impl(
+  Evens,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))(
+      cond(
+        (self.i < self.n) => {
+          v := self.i;
+          self.i = (self.i + i32(2));
+          .Some(v)
+        },
+        true => .None
+      )
+    )
+  )
+);
+
+evens :: (fn(n : i32) -> Impl(Iterator(Item := i32)))(Evens(i : i32(0), n : n));
+
+main :: (fn() -> unit)({
+  mut(it) := evens(i32(6));
+  mut(sum) := i32(0);
+  while(
+    true,
+    match(
+      it.next(),
+      .Some(v) => {
+        sum = (sum + v);
+      },
+      .None => {
+        break;
+      }
+    )
+  );
+  println(`manual: ${sum}`);
+});
+export(main);

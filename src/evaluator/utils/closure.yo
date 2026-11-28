@@ -1675,9 +1675,9 @@ _clone_subst_receiver :: (fn(e : &AstExpr, recv : &AstExpr) -> AstExpr)(
 );
 /// The clone of the field read `read`, of type `ft`, in a clone template. A
 /// prelude handle's own clone is spelled through its constructor
-/// (`Rc.clone(r)`, `Arc.clone(r)`): `r.clone()` could also mean its
-/// payload's, which is E0616 (decision 32)
-/// (issues/fixed/2026-10-28-a-structural-clone-of-a-record-with-an-rc-field-is-e0616.md).
+/// (`Rc.clone(r)`, `Arc.clone(r)`): `r.clone()` is the handle's own clone
+/// (VERDICTS-73), and the constructor spelling keeps the clone template
+/// uniform with the E0901 help.
 _clone_template_of :: (fn(read : &String, ft : &TypeValue) -> String)({
   ctor := _rc_clone_spelling(ft);
   if((ctor == "Rc") || (ctor == "Arc"), `${ctor}.clone(${read})`, `${read}.clone()`)

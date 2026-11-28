@@ -7,6 +7,8 @@ gets no entry invalidation assert. Called through a second handle inside a
 borrowed `for(&mut bag, …)`, the callee's push reallocates the walked buffer
 and the loop writes through a dangling element pointer.
 
+**Not a `ctl`/`unwind` issue** (VERDICTS-96 §5): "effect" here is the callee's mutation summary (its mask is `all`), not a handler; the doc never involves `unwind`. It stays open, is unaffected by the deletion of the mechanism ([`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md)), and is fixed by lane A.
+
 **Status:** open. **Found:** 2026-10-24 while reviewing
 `issues/fixed/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md`.
 The v0.2.68 seed, develop `f271ed005` and that fix behave the same.

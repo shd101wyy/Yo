@@ -341,7 +341,7 @@ In a function returning `&T`/`&mut T` (`fn_result_is_ref`), a `cond` whose value
 - A fieldless enum target hides bugs here (it lowers to a C integer, so a bad pointer cast compiles); reproduce with a payload-carrying variant or a struct-shaped value type (`String`).
 - **`is_void_type` is false for `unit`, which still renders as C `void`.** An emitter that keeps a call result in a temp (the `Dyn(FnOnce(...))` call slot's `__yo_once_r`) must also test the rendered return type (`return_str == "void"`).
 
-## Algebraic effects codegen
+## Handlers (`ctl`, `unwind`) codegen
 
 The semantics (`return` resumes, `unwind` discards) are in AGENTS.md; the design is `docs/en-US/ALGEBRAIC_EFFECTS.md`. The load-bearing part here is the emitted C contract: `__yo_effect_escaped`, evidence records lowered to function pointers, the `sync_fut_t` resume shape. When a name does not resolve, grep the emitted C string (e.g. `__yo_effect_escaped`).
 

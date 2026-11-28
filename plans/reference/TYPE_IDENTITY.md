@@ -38,7 +38,7 @@ identity plus a short, listed set of coercions.
 
 | Variant | Identity |
 | --- | --- |
-| `struct` with a name, `newtype`, `ref(struct ...)`, `atomic(struct ...)` | the same declaration (id), and pairwise-identical type arguments for an instantiation. A named declaration is never identical to an anonymous record, however alike the fields. |
+| `struct` with a name, `newtype`, `ref(struct ...)`, `atomic(struct ...)` | the same declaration (id), and pairwise-identical type arguments for an instantiation. A named declaration is never identical to an anonymous record, however alike the fields. "Named" is the declaration's `::` binding (`type_binding_name`), not the `name` field: a recursive struct's self-shell resolves to a registry final built before the binding stamped its name (`_struct_decls_differ`, `issues/fixed/2026-11-28-two-same-shaped-recursive-structs-share-one-generic-instance.md`) |
 | `enum` with a name | the same declaration, identical recorded type arguments, and identical variant payloads. The id decides nothing: each constructor call mints a fresh id per instantiation (`stable_type_id`), and substitution keeps the id it rewrites, so `GKind(T)` at `T := i32` carries the definition-era id while `GKind(i32)` carries its own |
 | `union` | the same declaration (a union's name is its id) and identical fields |
 | trait | the same trait id; trait ids carry their module (`issues/fixed/trait-ids-omit-the-module-so-two-traits-can-share-one-id.md`) |

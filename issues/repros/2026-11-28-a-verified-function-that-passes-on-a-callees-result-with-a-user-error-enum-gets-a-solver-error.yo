@@ -1,0 +1,53 @@
+// F9 (VERDICTS-96 probe v06b): passing on a callee's `Result(i32, Odd)` without naming a variant of `Odd`.
+Odd :: enum(Odd);
+derive(Odd, Copy, Clone);
+
+half_e :: (
+  fn(x : i32, requires(x >= i32(0)), ensures(match(result, .Ok(q) => ((q >= i32(0)) && (q <= x)), .Err(_) => true))) -> (result : Result(i32, Odd))
+)(
+  cond(
+    ((x % i32(2)) != i32(0)) => Result(i32, Odd).Err(.Odd),
+    true => Result(i32, Odd).Ok(x / i32(2))
+  )
+);
+
+// A: forwards the bound error
+fwd_bound :: (
+  fn(x : i32, requires(x >= i32(0)), ensures(match(result, .Ok(q) => (q <= x), .Err(_) => true))) -> (result : Result(i32, Odd))
+)(
+  match(
+    half_e(x),
+    .Ok(v) => Result(i32, Odd).Ok(v),
+    .Err(e) => Result(i32, Odd).Err(e)
+  )
+);
+
+// B: rebuilds the error
+fwd_rebuilt :: (
+  fn(x : i32, requires(x >= i32(0)), ensures(match(result, .Ok(q) => (q <= x), .Err(_) => true))) -> (result : Result(i32, Odd))
+)(
+  match(
+    half_e(x),
+    .Ok(v) => Result(i32, Odd).Ok(v),
+    .Err(_) => Result(i32, Odd).Err(.Odd)
+  )
+);
+
+// C: returns the callee's result unchanged
+fwd_whole :: (
+  fn(x : i32, requires(x >= i32(0)), ensures(match(result, .Ok(q) => (q <= x), .Err(_) => true))) -> (result : Result(i32, Odd))
+)(half_e(x));
+
+// D: recovers to a plain value
+recover :: (
+  fn(x : i32, requires(x >= i32(0)), ensures(r <= x)) -> (r : i32)
+)(
+  match(
+    half_e(x),
+    .Ok(v) => v,
+    .Err(_) => i32(0)
+  )
+);
+
+main :: (fn() -> unit)(());
+export(main);
