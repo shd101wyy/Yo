@@ -156,7 +156,7 @@ pragma(Pragma.AllowUnsafe);
 { OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
 { type_carries_origin, is_dyn_fn_slot, is_future_value_type } :: import("../../types/utils.yo");
 { with_code } :: import("../../error.yo");
-{ E_USE_OF_MOVED_VALUE, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
+{ E_USE_OF_MOVED_VALUE, E_ORIGIN_MISMATCH, E_CTL_GENERIC_RESUME } :: import("../../diagnostics.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
@@ -2786,12 +2786,13 @@ Result type: ${type_to_string(&decl_result_ty)}`
         );
         // A `ctl` handler bound to a `ctl(generic(ResumeType), …) ->
         // ResumeType` (`Exception.throw`) inherits that type variable as its
-        // result: each throw site picks it. Only a body that diverges, falls
-        // through with `()`, or resumes with a value typed by the variable
-        // itself works for every choice; a concrete resume value has nowhere
-        // to go (the lowering erases the result, and the throw site read 0).
-        // That is parametricity, as the deferred trial checks for a closure
-        // against its own forall
+        // result: each throw site picks it, and one erased handler body
+        // serves them all, so no value it holds has that type (VERDICTS-89).
+        // The operation does not resume: a `return(...)`, `return(())`
+        // included, is E0627, and so is a tail of a concrete type (the
+        // lowering erases the result; the throw site read the zero-initialized
+        // temp). The body unwinds or diverges; a tail of `()` still falls
+        // through until VERDICTS-89 PR B makes it an error
         // (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md).
         rv_ret := match(&function_type, Rc(.Func({ result : rv_r })) => t_slot_pointee(&rv_r.*), _ => t_unit());
         rv_generic := match(
@@ -2812,7 +2813,11 @@ Result type: ${type_to_string(&decl_result_ty)}`
         if(ctl_force && !is_creating_closure && rv_generic, {
           rv_values := ArrayList(AstExpr).new();
           _collect_resume_args(&anon_eb, &mut rv_values);
-          // The tail resumes too, unless it unwinds.
+          // Every `return(...)` resumes, `return(())` included (VERDICTS-89
+          // R2): the operation does not resume.
+          rv_returns := rv_values.len();
+          // The tail resumes too, unless it unwinds; a tail of `()` falls
+          // through.
           rv_tail := match(
             Rc.clone(anon_eb),
             Rc(.FnCall(_, _, Rc(rv_targs), _, _)) => if(ast_expr_is_fn_call_of(&anon_eb, BK_BEGIN, .None), match(rv_targs.last_cloned(), .Some(t) => t, .None => Rc.clone(anon_eb)), Rc.clone(anon_eb)),
@@ -2824,23 +2829,25 @@ Result type: ${type_to_string(&decl_result_ty)}`
           (rv_k : usize) = usize(0);
           while(rv_k < rv_values.len(), {
             rv_e := match(rv_values.get_cloned(rv_k), .Some(x) => x, .None => make_err_expr());
-            match(
-              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rv_e)),
-              .Some(rv_info) => if(_is_concrete_resume_type(&rv_info.ty()), {
-                exn.throw(
-                  dyn(
-                    Box.new(
+            rv_vty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rv_e)), .Some(rv_info) => Option(TypeValue).Some(rv_info.ty()), .None => Option(TypeValue).None);
+            rv_concrete := match(&rv_vty, .Some(t) => _is_concrete_resume_type(t), .None => false);
+            if((rv_k < rv_returns) || rv_concrete, {
+              rv_with := match(&rv_vty, .Some(t) => if(rv_concrete, ` with a value of type \`${type_to_string(t)}\``, String.new()), .None => String.new());
+              exn.throw(
+                dyn(
+                  Box.new(
+                    with_code(
                       format_error_message_with_help(
                         ast_expr_token(&rv_e),
-                        `This handler resumes the throw with a value of type \`${type_to_string(&rv_info.ty())}\`, but its resume type \`${type_to_string(&rv_ret)}\` is chosen by each throw site, so no value of one fixed type can satisfy it.`,
-                        Option(String).Some(String.from("a handler of a generic-resume `ctl` (such as `Exception.throw`) must unwind, diverge, or fall through with `()`. To resume with a value, install a `ResumableException(T)`, whose resume type `T` is fixed when the handler is built."))
-                      )
+                        `This handler resumes the throw${rv_with}, but its resume type \`${type_to_string(&rv_ret)}\` is chosen by each throw site, so the operation does not resume.`,
+                        Option(String).Some(String.from("end the handler with `unwind(value)`, or with `panic(msg)` when a throw is a bug. To resume with a value, fix the resume type when the handler is built (for `Exception`: install a `ResumableException(T)`)."))
+                      ),
+                      E_CTL_GENERIC_RESUME
                     )
                   )
-                );
-              }),
-              .None => ()
-            );
+                )
+              );
+            });
             rv_k = (rv_k + usize(1));
           });
         });

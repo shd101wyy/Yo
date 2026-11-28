@@ -278,7 +278,7 @@ converts; E-5 starts when they are 0 in `src/` and `std/`.
 
 | Item | Decision (VERDICTS-96 §5) |
 | --- | --- |
-| VERDICTS-89 PR A (E0627) | Merge in v0.2.81. It closes an S1 in shipped compilers by rejecting programs, is evaluator-only and emit-identical, and files the `-> never` issues and the parked question. It moves `issues/2026-11-25-a-generic-ctl-handler-that-resumes-with-its-resume-value-loses-it-at-a-non-scalar-resume-type.md` to `issues/fixed/` |
+| VERDICTS-89 PR A (E0627) | Merge in v0.2.81. It closes an S1 in shipped compilers by rejecting programs, is evaluator-only and emit-identical, and files the `-> never` issues and the parked question. It moves the S1 doc to `issues/fixed/2026-11-25-a-generic-ctl-handler-cannot-resume-with-a-value-at-any-type.md` |
 | VERDICTS-89 PR B (no fall-through) | Merge after the v0.2.81 cut only if its Tier 1 is green as it stands; otherwise the branch is closed. No further work goes into it |
 | F1–F7 | Not fixed. Each doc says so and moves to `issues/retired/` with E-5. A census finds no statement in `src/` or `std/` that can reach F1, F4 or F5; F2, F3 and F6 need a program that moves a handler out of its frame. A user program on v0.2.81–85 can still meet F1 or F5, and the roadmap withholds the soundness claim while an S1 is open |
 | F8 | Fixed in v0.2.82 as a contract fix (E-0b) |
