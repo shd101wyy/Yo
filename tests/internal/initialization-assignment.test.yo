@@ -168,8 +168,8 @@ test("init_assign: name := rhs adds variable to env", {
   match(
     var_opt,
     .Some(v) => {
-      assert(v.name == String.from("myvar"), "variable name should be myvar");
-      assert(v.is_reassignable(), "variable should be reassignable");
+      assert(v.*.name == String.from("myvar"), "variable name should be myvar");
+      assert(v.*.is_reassignable(), "variable should be reassignable");
     },
     .None => assert(false, "variable myvar not found in env")
   );
@@ -206,10 +206,10 @@ test("init_assign: name :: rhs adds non-reassignable variable to env", {
   match(
     var_opt,
     .Some(v) => {
-      assert(v.name == String.from("constvar"), "variable name should be constvar");
+      assert(v.*.name == String.from("constvar"), "variable name should be constvar");
       // Both := and :: create reassignable variables; :: sets is_compile_time_only.
-      assert(v.is_reassignable(), "variable should be reassignable (:: sets is_compile_time_only instead)");
-      assert(v.is_compile_time_only(), "const variable should be compile-time only");
+      assert(v.*.is_reassignable(), "variable should be reassignable (:: sets is_compile_time_only instead)");
+      assert(v.*.is_compile_time_only(), "const variable should be compile-time only");
     },
     .None => assert(false, "variable constvar not found in env")
   );
