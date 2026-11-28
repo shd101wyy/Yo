@@ -3,7 +3,7 @@
 { ArrayList } :: import("std/collections/array-list");
 { HashSet } :: import("std/collections/hash-set");
 { AstExpr, ExprId, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_is_address_of_call, ast_expr_token, ast_expr_text, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT, BK_BORROW_MUT, ast_rewritten_node } :: import("../../expr.yo");
-{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, scope_variables, scope_release_note_hard, is_by_value_param_share_dup, is_call_scoped_share_dup, lookup_macro_expansion, expr_info_converted_runtime_type, expr_info_capture_type, expr_info_is_anonymous_function_definition, is_dyn_clone_into_witness, is_reference_self_place } :: import("../../expr-info.yo");
+{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, scope_variables, scope_release_note_hard, is_call_scoped_share_dup, lookup_macro_expansion, expr_info_converted_runtime_type, expr_info_capture_type, expr_info_is_anonymous_function_definition, is_dyn_clone_into_witness, is_reference_self_place } :: import("../../expr-info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type-trait-methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure, get_closure_capture_info } :: import("../../function-value.yo");
@@ -555,27 +555,19 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
           already_in_scope => vname_c.clone(),
           true => arg_code.clone()
         );
-        // dup-on-store for an owned param: emit the arg's deferred `___dup` (set by
-        // helper.yo's move-ownership branch) before the call uses it. Only in the
-        // value-pass case — ref/`inout`/comptime/sm args transfer no ownership.
-        // A deref read `(*name)` (an `inout` parameter or local binding passed
-        // BY VALUE) does carry one when the parameter is `own`: the callee
-        // receives a COPY of the referenced handle and releases it, so the
-        // dup must be emitted or the referenced slot is over-released
-        // (issues/fixed/inout-arg-to-own-param-moves-without-dup.md). The dup
-        // emitter keeps the `(*name)` spelling and declares nothing.
+        // Emit the arg's deferred `___dup`, if any, before the call uses it.
+        // Only in the value-pass case — ref/`inout`/comptime/sm args transfer
+        // no ownership. A deref read `(*name)` keeps its spelling, and the dup
+        // emitter declares nothing for it.
         // A state-machine slot argument moves with its slot, so it carries no
-        // dup, except the share a by-value parameter takes of a still
-        // implicitly copyable value (`_mark_by_value_param_shares`,
-        // calls/helper.yo): that +1 is the callee's, and the slot keeps its
-        // own reference; and except Aliasing Stage 0's caller-owned +1 of a
-        // borrowed projection or of an argument a `&mut` argument of the
-        // same call aliases (`mark_call_scoped_share_dup`,
-        // evaluator/utils.yo), which keeps the `&` argument alive while the
-        // callee replaces the value it borrows and which the call's own
-        // post-call drop releases, as outside a state machine
+        // dup, except Aliasing Stage 0's caller-owned +1 of a borrowed
+        // projection or of an argument a `&mut` argument of the same call
+        // aliases (`mark_call_scoped_share_dup`, evaluator/utils.yo), which
+        // keeps the `&` argument alive while the callee replaces the value it
+        // borrows and which the call's own post-call drop releases, as outside
+        // a state machine
         // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
-        // Both are emitted on the slot's own spelling.
+        // It is emitted on the slot's own spelling.
         sm_share := (is_sm && _arg_carries_call_share(arg, context));
         if(is_comptime_only || (is_sm && !sm_share) || param_is_ref, arg_code, emit_deferred_dup_or_code(arg, if(is_deref_read || sm_share, arg_code.clone(), sanitize_for_c_identifier(&final_name, false)), indent.clone(), context))
       },
@@ -584,9 +576,9 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
     .None => _call_generate_expr(arg, indent.clone(), context)
   )
 );
-/// Does `arg` carry a share taken for this call: a by-value parameter's
-/// (`is_by_value_param_share_dup`) or Aliasing Stage 0's caller-owned +1 of a
-/// borrowed projection or an aliased argument (`is_call_scoped_share_dup`)?
+/// Does `arg` carry a share taken for this call: Aliasing Stage 0's
+/// caller-owned +1 of a borrowed projection or an aliased argument
+/// (`is_call_scoped_share_dup`)?
 _arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(arg),
@@ -597,7 +589,7 @@ _arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerationCont
         while(i < dl.len(), {
           match(
             dl.get_cloned(i),
-            .Some(d) => if(is_by_value_param_share_dup(ast_expr_id(&d)) || is_call_scoped_share_dup(ast_expr_id(&d)), {
+            .Some(d) => if(is_call_scoped_share_dup(ast_expr_id(&d)), {
               return(true);
             }),
             .None => ()
@@ -2930,9 +2922,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                   cl_out.push_str(".");
                   cl_out.push_string(c_field_name(&wrapped, &flabel));
                   cl_out.push_str(" = ");
-                  // RC-managed args: the EVALUATOR attached a deferred `___dup`
-                  // to shared (non-owning / named) args and CONSUMED owning
-                  // temps (set_expr_as_needs_to_call_dup at the ctor-arg site,
+                  // RC-managed args: the EVALUATOR decided each store
+                  // (transfer_value_into at the ctor-arg site,
                   // calls/type.yo / record-type.yo) — mirror the other ctor
                   // paths (the ctor_list builder above) and emit/substitute it
                   // here. The earlier inline `(__yo_incr_rc(code), code)` comma

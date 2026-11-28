@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, EvalValueNode, is_unknown_val, value_cell_new } :: import("../../value.yo");
 {
-  set_expr_as_needs_to_call_dup,
+  transfer_value_into,
   attach_temp_variable_to_expr
 } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
@@ -138,7 +138,7 @@ try_to_implement_array_by_array_type :: (
       );
     });
     arg_info := match(arg_info_opt, .Some(it) => Rc.clone(it), .None => new_expr_info(&env, &expected_element_type));
-    set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");
+    transfer_value_into(&evaluated_arg, ctx, exn, "element");
     env_adopt(&env, &arg_info.env());
     // For first element: if expected element type is Array with unknown-length child,
     // update expected element type based on actual evaluated type.

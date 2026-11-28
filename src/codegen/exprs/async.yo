@@ -57,7 +57,7 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await-analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid, is_fnonce_capture_struct } :: import("../../function-value.yo");
-{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_consumed_variable_drop_expressions, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup, is_call_scoped_share_dup, emitted_block_statements } :: import("../../expr-info.yo");
+{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_consumed_variable_drop_expressions, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_call_scoped_share_dup, emitted_block_statements } :: import("../../expr-info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -1767,11 +1767,10 @@ _sm_capture_moved_out :: (fn(sm_code : &String, context : &mut FunctionGeneratio
 /// Every field's reference is taken exactly once
 /// (issues/fixed/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md):
 /// - a capture list's by-value entry is a field store the evaluator already
-///   decided (`set_expr_as_needs_to_call_dup`): a copy carries its own deferred
-///   dup, a move carries none and consumes its source. Its field is settled by
-///   its initializer.
+///   decided (`transfer_value_into`): a move consumes its source, a copy is
+///   bitwise. Its field is settled by its initializer.
 /// - an implicit capture that is not implicitly copyable was MOVED by the
-///   evaluator (`generate_captured_variable_dup_expressions`: no dup, the
+///   evaluator (`transfer_captured_variables`: no dup, the
 ///   variable is consumed and never dropped), so retaining it leaked the value
 ///   once per capture. Unless the evaluator gave it a dup anyway (a caller-owned
 ///   `sink` closure parameter), it takes no retain.
@@ -2538,8 +2537,7 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
   });
   tail
 });
-/// Does `arg` carry a share taken for this call: the one a by-value parameter
-/// takes of it (`is_by_value_param_share_dup`), or Aliasing Stage 0's
+/// Does `arg` carry a share taken for this call: Aliasing Stage 0's
 /// caller-owned +1 of a borrowed projection or of an argument a `&mut`
 /// argument of the same call aliases (`is_call_scoped_share_dup`; its
 /// post-call drop is the call's)? Its other deferred dups are not emitted in
@@ -2551,7 +2549,7 @@ _fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerati
   while(i < dl.len(), i = (i + usize(1)), {
     match(
       dl.get_cloned(i),
-      .Some(d) => if(is_by_value_param_share_dup(ast_expr_id(&d)) || is_call_scoped_share_dup(ast_expr_id(&d)), {
+      .Some(d) => if(is_call_scoped_share_dup(ast_expr_id(&d)), {
         return(true);
       }),
       .None => ()
