@@ -2405,9 +2405,7 @@ impl(
     )
   )
 );
-/// The read API on a run of strings — Rust's `[String]::join` / `concat`. An
-/// `ArrayList(String)` reaches it through its `[String]` view, so
-/// `items.join(sep)` joins a list.
+/// The read API on a run of strings — Rust's `[String]::join` / `concat`.
 impl(
   [String],
   /// The strings in order with `sep` between each pair; an empty run joins to
@@ -2446,6 +2444,13 @@ impl(
   }),
   /// The strings in order with nothing between them — Rust's `concat`.
   concat : (fn(self : &Self) -> String)(self.join(&String.new()))
+);
+/// `join` and `concat` on a list of strings, as on its `[String]` view
+/// (`items.*.join(sep)`), so `items.join(sep)` reads as Rust's `Vec<String>`.
+impl(
+  ArrayList(String),
+  join : (fn(self : &Self, sep : &String) -> String)(self.*.*.join(sep)),
+  concat : (fn(self : &Self) -> String)(self.*.*.concat())
 );
 // === Numeric parsing methods ===
 impl(
