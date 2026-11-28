@@ -18,7 +18,7 @@ main :: (fn() -> unit)({
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(7));
   x := first_of(xs.iter());
-  assert((x.unwrap() == i32(7)), "first");
+  assert(x.unwrap() == i32(7), "first");
 });
 export(main);
 ```

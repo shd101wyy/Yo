@@ -17,7 +17,7 @@ main :: (fn() -> unit)({
   mut(b) := i32(2);
   r := second(.Some((&a, &mut b))).unwrap();
   r.* = i32(5);
-  assert((b == i32(5)), "b");
+  assert(b == i32(5), "b");
 });
 export(main);
 ```

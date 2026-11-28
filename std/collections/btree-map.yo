@@ -114,10 +114,13 @@ impl(
         p := addr_of(self._entries(r.idx));
         old := __yo_ptr_read(p);
         drop(k);
-        match(old, (stored, old_value) => {
-          __yo_ptr_write(p, (stored, v));
-          .Some(old_value)
-        })
+        match(
+          old,
+          (stored, old_value) => {
+            __yo_ptr_write(p, (stored, v));
+            .Some(old_value)
+          }
+        )
       },
       true => {
         // The push moved OUT of a cond condition here: before D9 this arm's
