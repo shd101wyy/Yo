@@ -99,7 +99,7 @@ Filed this cycle and still open:
 | `issues/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md` | S2 | From FnOnce Gen A's review |
 | `issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md` | S2 | |
 | `issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md` | S2 | From the consuming match (#1305) |
-| `issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md` | S3 | Decision 32 gap |
+| `issues/retired/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md` | S3 | Decision 32 gap |
 | `issues/derive-clone-costs-17-ms-per-type.md` | S3 | Compile time |
 | `issues/tests-declared-under-src-are-never-run-by-ci.md` | S3 | |
 | `issues/a-closure-parameter-written-as-a-call-is-accepted-under-the-expected-label.md` | S3 | Filed during Gen B |

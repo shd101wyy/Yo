@@ -2,6 +2,8 @@
 
 **Kind:** design question — an open decision, not a defect. Filed 2026-11-28 with the adoption of VERDICTS-96 (§3), from [`plans/backlog/ERRORS_AS_VALUES.md`](../../plans/backlog/ERRORS_AS_VALUES.md). Not to be decided before AFA-7 and E-5, so v0.2.88 at the earliest.
 
+Design: [`plans/backlog/GENERATORS.md`](../../plans/backlog/GENERATORS.md) (VERDICTS-97).
+
 ## The question
 
 VERDICTS-95's audit of real effect handlers found one clearly valuable use: generators, a `gen` block that `yield`s and a `for` over it. std hand-writes 84 `next` state machines (34 in the prelude); a generator written today with a task and a capacity-1 channel costs about 580 ns per item against 0.9 ns for a hand-written `Iterator` (VERDICTS-95 §1, probes `g01a`/`g01b`). Rust's `gen` blocks are still unstable.

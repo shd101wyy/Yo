@@ -1,0 +1,27 @@
+// A closure at a generic `F <: FnOnce(g : &mut ArrayList(T))` with `T` a `comptime` parameter
+// (VERDICTS-97 probe p02a). Expected: prints `2`. Actual (v0.2.80): `yo check` OK, the C compile
+// fails: the closure is called with `ArrayList(i32)*` where its parameter is `ArrayList(T)*`.
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+
+collect_with :: (
+  fn(
+    generic(F : Type),
+    comptime(T) : Type,
+    sink(body) : F,
+    where(F <: (FnOnce(g : &mut ArrayList(T)) -> unit))
+  ) -> ArrayList(T)
+)({
+  mut(out) := ArrayList(T).new();
+  body(&mut out);
+  out
+});
+
+main :: (fn() -> unit)({
+  xs := collect_with(i32, g => {
+    g.push(i32(1));
+    g.push(i32(2));
+  });
+  println(`${xs.len()}`);
+});
+export(main);
