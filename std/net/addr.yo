@@ -849,7 +849,7 @@ impl(
     cond(
       s.starts_with(`[`) =>
         match(
-          s.index_of(`]`),
+          s.find(`]`),
           .Some(close) => {
             host := s.substring(usize(1), close);
             rest := s.substring(close + usize(1), s.len());
@@ -868,7 +868,7 @@ impl(
         ),
       true =>
         match(
-          s.last_index_of(`:`),
+          s.rfind(`:`),
           .Some(colon) => {
             host := s.substring(usize(0), colon);
             // A second colon means a bare V6 host, which must be bracketed.

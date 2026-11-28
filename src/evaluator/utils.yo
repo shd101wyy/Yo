@@ -1080,7 +1080,7 @@ expect_expr_to_have_been_evaluated :: (
 /// user's declaration is called.
 _copy_derive_target :: (fn(ty : &TypeValue) -> String)({
   shown := type_to_string(ty);
-  match(shown.index_of(`(`), .Some(p) => shown.substring(usize(0), p), .None => shown)
+  match(shown.find(`(`), .Some(p) => shown.substring(usize(0), p), .None => shown)
 });
 /// The E0901 note for a value named `name` of a type that is not implicitly
 /// copyable (`type_requires_explicit_copy`): for a move-only type, why it is
@@ -3779,7 +3779,7 @@ _rc_clone_spelling :: (fn(ty : &TypeValue) -> String)({
   // The constructor as the type is written (`TRc(i32)` -> `TRc`): a newtype
   // handle's stamped `name` may be empty, its display is not.
   shown := type_to_string(&inner);
-  ctor := match(shown.index_of(&String.from("(")), .Some(i) => shown.substring(usize(0), i), .None => shown.clone());
+  ctor := match(shown.find(&String.from("(")), .Some(i) => shown.substring(usize(0), i), .None => shown.clone());
   plain_ctor := (!ctor.is_empty() && !ctor.contains(&String.from(" ")) && !ctor.contains(&String.from("<")));
   cond(
     is_counted_handle_value_type(&inner) => cond(
@@ -6126,7 +6126,7 @@ parse_raw_float :: (fn(raw : &String) -> Option(f64))({
   // loops, but C `atof` stops at the first `_` — strip them the way
   // `parse_raw_int` does (src/utils.yo), or `1_000.5` parses as `1.0`
   // (issues/fixed/an-underscore-in-a-float-literal-silently-truncates-the-value.md).
-  stripped := raw.replace_all(`_`, ``);
+  stripped := raw.replace(`_`, ``);
   cs := stripped.to_cstr();
   match(
     cs.ptr(),
@@ -11502,7 +11502,7 @@ is_rigid_origin_name :: (fn(n : &String) -> bool)(n.contains("#"));
 /// `s`'s pointee", "the origin inside `x`" (VERDICTS-37 Q1 (a)).
 origin_name_phrase :: (fn(n : &String) -> String)(
   match(
-    n.index_of("#"),
+    n.find("#"),
     .Some(hi) => {
       p := n.substring(usize(0), hi);
       rest := n.substring((hi + usize(1)), n.len());
@@ -11835,7 +11835,7 @@ _join_comma :: (fn(parts : &ArrayList(String)) -> String)({
 });
 /// The parameter a rigid origin name was minted for (`s#1` → `s`).
 _rigid_origin_param :: (fn(n : &String) -> String)(
-  match(n.index_of("#"), .Some(hi) => n.substring(usize(0), hi), .None => n.clone())
+  match(n.find("#"), .Some(hi) => n.substring(usize(0), hi), .None => n.clone())
 );
 /// `ty` rendered with every origin in `targets` spelled `p`, the other rigid
 /// ones elided again, and the user's spelled ones kept: the declared type of
@@ -11902,7 +11902,7 @@ _spell_shared_origin_ctor :: (fn(ty : &TypeValue, tas : &SharedList(TypeValue), 
   if(tas.len() == usize(0), {
     return(shown);
   });
-  base := match(shown.index_of("("), .Some(pi) => shown.substring(usize(0), pi), .None => shown.clone());
+  base := match(shown.find("("), .Some(pi) => shown.substring(usize(0), pi), .None => shown.clone());
   parts := ArrayList(String).new();
   (ti : usize) = usize(0);
   while(ti < tas.len(), {

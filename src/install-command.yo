@@ -71,13 +71,13 @@ _url_to_dep_name :: (fn(url : &String) -> String)({
   });
   s2 := if(s.ends_with(String.from(".git")), s.substring(usize(0), s.len() - usize(4)), s);
   after_slash := match(
-    s2.last_index_of(String.from("/")),
+    s2.rfind(String.from("/")),
     .None => s2,
     .Some(idx) => s2.substring(idx + usize(1), s2.len())
   );
   // `git@host:user/repo` — the name is after the last `/`, or after `:`.
   match(
-    after_slash.last_index_of(String.from(":")),
+    after_slash.rfind(String.from(":")),
     .None => after_slash,
     .Some(idx) => after_slash.substring(idx + usize(1), after_slash.len())
   )
@@ -115,7 +115,7 @@ parse_package_specifier :: (fn(spec : &String) -> Result(ParsedPackage, String))
   (url_part : String) = spec.clone();
   (suffix : Option(String)) = Option(String).None;
   match(
-    spec.last_index_of(String.from("@")),
+    spec.rfind(String.from("@")),
     .None => (),
     .Some(idx) => {
       after := spec.substring(idx + usize(1), spec.len());

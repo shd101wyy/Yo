@@ -132,17 +132,17 @@ parse_semver :: (fn(tag : &String) -> Option(SemVer))({
   );
   // Drop build metadata, split off the pre-release.
   without_build := match(
-    stripped.index_of("+"),
+    stripped.find("+"),
     .Some(k) => stripped.substring(usize(0), k),
     .None => stripped
   );
   core := match(
-    without_build.index_of("-"),
+    without_build.find("-"),
     .Some(k) => without_build.substring(usize(0), k),
     .None => without_build.clone()
   );
   pre := match(
-    without_build.index_of("-"),
+    without_build.find("-"),
     .Some(k) => without_build.substring(k + usize(1), without_build.len()),
     .None => String.new()
   );
@@ -329,8 +329,8 @@ _parse_comparator :: (fn(raw : &String) -> Result(_Comparator, String))({
   if(rest == "*", {
     return(Result(_Comparator, String).Ok(_wildcard_all()));
   });
-  core := match(rest.index_of("-"), .Some(k) => rest.substring(usize(0), k), .None => rest.clone());
-  pre := match(rest.index_of("-"), .Some(k) => rest.substring(k + usize(1), rest.len()), .None => String.new());
+  core := match(rest.find("-"), .Some(k) => rest.substring(usize(0), k), .None => rest.clone());
+  pre := match(rest.find("-"), .Some(k) => rest.substring(k + usize(1), rest.len()), .None => String.new());
   parts := core.split(".");
   if((parts.len() == usize(0)) || (parts.len() > usize(3)), {
     return(Result(_Comparator, String).Err(`"${s}" is not a version requirement`));
@@ -641,7 +641,7 @@ resolve_default_branch :: (
       line := lines(i).clone();
       if(line.starts_with(prefix.clone()), {
         rest := line.substring(prefix.len(), line.len());
-        tab_opt := rest.index_of(String.from("\t"), usize(0));
+        tab_opt := rest.find(String.from("\t"), usize(0));
         branch := match(
           tab_opt,
           .None => rest,

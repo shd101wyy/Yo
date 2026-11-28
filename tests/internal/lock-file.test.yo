@@ -164,9 +164,9 @@ test("write_lock_file_content: packages are written sorted by name", {
   entries.push(_entry("alpha", "1.0.0", git_source(String.from("https://a"), String.from("v1.0.0")), "a", "sha256-a"));
   entries.push(_entry("mid", "", path_source(String.from("./mid")), "", ""));
   out := write_lock_file_content(_lock_of(&entries));
-  za := out.index_of(String.from("name = \"zeta\"")).unwrap();
-  aa := out.index_of(String.from("name = \"alpha\"")).unwrap();
-  ma := out.index_of(String.from("name = \"mid\"")).unwrap();
+  za := out.find(String.from("name = \"zeta\"")).unwrap();
+  aa := out.find(String.from("name = \"alpha\"")).unwrap();
+  ma := out.find(String.from("name = \"mid\"")).unwrap();
   assert((aa < ma) && (ma < za), "alpha < mid < zeta");
   reparsed := _parsed(&out);
   assert(reparsed.packages.len() == usize(3), "three after round-trip");

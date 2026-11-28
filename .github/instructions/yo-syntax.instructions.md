@@ -1125,7 +1125,7 @@ forced on the first lookup that would miss.
   (exactly four hex digits) and `\u{...}` (one to six, max 10FFFF, no surrogates) in both, a high+low
   `\uXXXX` pair combines (shared `scan_unicode_escape`, `src/utils.yo`; a malformed `\u` is a lex error).
   An unknown escape is silently literal; `\xNN` does not exist. Write a control byte with `push_byte`.
-- **Indexing is BYTE-based**: `len()` is the byte count (O(1)); `at`, `substring`, `s(a..b)`, `index_of` and
+- **Indexing is BYTE-based**: `len()` is the byte count (O(1)); `at`, `substring`, `s(a..b)`, `find` and
   every positional argument are byte offsets, at compile time and run time. `substring` panics inside a rune
   (`try_substring` does not); rune work goes through `chars()` / `char_indices()`, the rune count is
   `s.chars().count()` (`docs/en-US/STRINGS.md`).

@@ -677,7 +677,7 @@ _index_std_dir :: (
         });
       });
       if(collecting && buf.contains(String.from(")")), {
-        close := match(buf.index_of(String.from(")")), .Some(k) => k, .None => buf.len());
+        close := match(buf.find(String.from(")")), .Some(k) => k, .None => buf.len());
         parts := buf.substring(usize(0), close).split(String.from(","));
         (pi : usize) = usize(0);
         while(pi < parts.len(), {
@@ -1009,7 +1009,7 @@ _splice_runes :: (
           out.push_string(replacement.clone());
         });
         if((i < col) || (i >= (col + len)), {
-          out.push_rune(r);
+          out.push(r);
         });
         i = (i + usize(1));
       },
@@ -1107,7 +1107,7 @@ _mn_display :: (fn(abs : &String) -> String)({
 /// The parent directory of a normalized absolute path.
 _mn_parent :: (fn(abs : &String) -> String)(
   match(
-    abs.last_index_of("/"),
+    abs.rfind("/"),
     .Some(k) => if(k == usize(0), String.from("/"), abs.substring(usize(0), k)),
     .None => String.from(".")
   )
@@ -1115,7 +1115,7 @@ _mn_parent :: (fn(abs : &String) -> String)(
 /// The last component of a normalized path.
 _mn_base :: (fn(abs : &String) -> String)(
   match(
-    abs.last_index_of("/"),
+    abs.rfind("/"),
     .Some(k) => abs.substring(k + usize(1), abs.len()),
     .None => abs.clone()
   )
@@ -1219,7 +1219,7 @@ _mn_text_at :: (fn(line : &String, col : usize, raw : &String) -> bool)({
       it.next(),
       .Some(r) => {
         if((i >= col) && (i < (col + want)), {
-          got.push_rune(r);
+          got.push(r);
         });
         i = (i + usize(1));
         go = (i < (col + want));
@@ -1385,7 +1385,7 @@ _mn_modules_lines :: (fn(lines : &ArrayList(String)) -> ArrayList(_MnModLine))({
       continue;
     });
     eq := match(
-      line.index_of("="),
+      line.find("="),
       .Some(k) => k,
       .None => {
         continue;
@@ -1406,14 +1406,14 @@ _mn_modules_lines :: (fn(lines : &ArrayList(String)) -> ArrayList(_MnModLine))({
     });
     // The value: one `"…"` string without escapes.
     vq := match(
-      line.index_of("\"", eq),
+      line.find("\"", eq),
       .Some(k) => k,
       .None => {
         continue;
       }
     );
     ve := match(
-      line.index_of("\"", vq + usize(1)),
+      line.find("\"", vq + usize(1)),
       .Some(k) => k,
       .None => {
         continue;
@@ -4098,10 +4098,10 @@ run_warm_selfcheck_compile :: (fn(argv : &ArrayList(String), io : Io, exn : Exce
   // Count "Failed to transpile" markers in the WARM emission.
   (ftt : usize) = usize(0);
   marker := String.from("Failed to transpile");
-  (scan : Option(usize)) = b.index_of(marker.clone());
+  (scan : Option(usize)) = b.find(marker.clone());
   while(scan.is_some(), {
     ftt = (ftt + usize(1));
-    scan = b.index_of(marker.clone(), match(scan, .Some(k) => (k + marker.len()), .None => usize(0)));
+    scan = b.find(marker.clone(), match(scan, .Some(k) => (k + marker.len()), .None => usize(0)));
   });
   eprintln(
     `warm-selfcheck: pass1=${pass1_ms}ms pass2=${pass2_ms}ms identical=${identical.to_string()} ftt_pass2=${ftt.to_string()} bytes_a=${a.len().to_string()} bytes_b=${b.len().to_string()}`
@@ -4249,7 +4249,7 @@ _cc_plan_parse :: (fn(text : &String, exn : Exception) -> CcPlan)({
     line := match(lines.get_cloned(li), .Some(l) => l, .None => String.new());
     li = (li + usize(1));
     match(
-      line.index_of(String.from(" ")),
+      line.find(String.from(" ")),
       .Some(sp) => {
         key := line.substring(usize(0), sp);
         val := _cc_plan_unescape(line.substring(sp + usize(1), line.len()));
@@ -4459,7 +4459,7 @@ _parse_cc_diagnostic_line :: (fn(line : &String) -> Option(Diagnostic))({
     match(
       sevs.get_cloned(mi),
       .Some(marker) => match(
-        line.index_of(marker.clone()),
+        line.find(marker.clone()),
         .Some(idx) => match(
           best_idx,
           .Some(bi) => if(idx < bi, {
@@ -4492,13 +4492,13 @@ _parse_cc_diagnostic_line :: (fn(line : &String) -> Option(Diagnostic))({
     .Some(idx) => {
       // `line[0..idx]` must end in `:<col>` after `:<row>`; strip both.
       prefix := line.substring(usize(0), idx);
-      c2 := prefix.last_index_of(String.from(":"));
+      c2 := prefix.rfind(String.from(":"));
       match(
         c2,
         .Some(ci) => {
           col_str := prefix.substring(ci + usize(1), prefix.len());
           head := prefix.substring(usize(0), ci);
-          c1 := head.last_index_of(String.from(":"));
+          c1 := head.rfind(String.from(":"));
           match(
             c1,
             .Some(ri) => {
@@ -6483,14 +6483,14 @@ _remove_dead_code_spills :: (fn(output : &String, io : Io) -> unit)({
   swallow := Exception(throw : (_err -> unwind(())));
   (cut : usize) = usize(0);
   match(
-    output.last_index_of("/"),
+    output.rfind("/"),
     .Some(i) => {
       cut = (i + usize(1));
     },
     .None => ()
   );
   match(
-    output.last_index_of("\\"),
+    output.rfind("\\"),
     .Some(i) => {
       if((i + usize(1)) > cut, {
         cut = (i + usize(1));
@@ -7156,7 +7156,7 @@ run_test :: (
       },
       (a == "--shard") => {
         spec := _arg_val_req(argv, ai, a.clone(), exn);
-        slash := spec.index_of(String.from("/"));
+        slash := spec.find(String.from("/"));
         if(slash.is_none(), {
           exn.throw(dyn(Box.new(`test: --shard expects <index>/<total>, got '${spec}'`)));
         });
@@ -7766,7 +7766,7 @@ run_test :: (
         // the batch must inherit the test file's relative-import base, so a
         // /tmp placement breaks every `import("./...")` in non-test content.
         batch_dir := match(
-          file.last_index_of(`/`),
+          file.rfind(`/`),
           .Some(sidx) => file.substring(usize(0), sidx),
           .None => String.from(".")
         );
@@ -9315,7 +9315,7 @@ run_build_cmd :: (
       (arg.starts_with(String.from("-D")) && (arg.len() > usize(2))) => {
         body := arg.substring(usize(2), arg.len());
         match(
-          body.index_of(String.from("=")),
+          body.find(String.from("=")),
           .Some(pos) => {
             defines.insert(body.substring(usize(0), pos), body.substring(pos + usize(1), body.len()));
           },

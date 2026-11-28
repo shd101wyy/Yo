@@ -95,8 +95,8 @@ test("core: the thread-exit hook aborts and drains the ready queue", {
   );
   // The backend goes first: its teardown aborts the tasks parked on pending
   // operations, which is what puts them on the queue this drain empties.
-  first_cleanup := c.index_of(String.from("__yo_io_cleanup();")).unwrap_or(usize(0));
-  first_drain := c.index_of(String.from("__yo_future_abort(cont->state_machine);")).unwrap_or(usize(0));
+  first_cleanup := c.find(String.from("__yo_io_cleanup();")).unwrap_or(usize(0));
+  first_drain := c.find(String.from("__yo_future_abort(cont->state_machine);")).unwrap_or(usize(0));
   assert(
     (first_cleanup != usize(0)) && (first_drain != usize(0)) && (first_cleanup < first_drain),
     String.from("the release must clean the backend before draining the queue")
@@ -106,21 +106,21 @@ test("linux: every teardown that strands a pending future aborts its waiters", {
   c := emit_linux();
   // The timer heap, the deferred-SQE drain, the ring's in-flight fd buckets
   // and the epoll teardown each strand futures; each must call the helper.
-  first := c.index_of(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
+  first := c.find(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
   assert(first != usize(0), String.from("the linux teardown does not abort parked waiters"));
 });
 test("macos: the kqueue pending ops and the timer heap abort their waiters", {
   c := emit_macos();
-  first := c.index_of(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
+  first := c.find(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
   assert(first != usize(0), String.from("the macos teardown does not abort parked waiters"));
 });
 test("windows: the timer list teardown aborts its waiters", {
   c := emit_windows();
-  first := c.index_of(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
+  first := c.find(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
   assert(first != usize(0), String.from("the windows teardown does not abort parked waiters"));
 });
 test("wasm: the timer list teardown aborts its waiters", {
   c := emit_wasm();
-  first := c.index_of(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
+  first := c.find(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
   assert(first != usize(0), String.from("the wasm teardown does not abort parked waiters"));
 });

@@ -704,8 +704,8 @@ deep = true`
   assert(s.contains(`name = "x"`), "a quoted string");
   // Every scalar of a table must precede its first sub-table header, or a
   // reparse would file it under the wrong table.
-  port_at := s.index_of(`port = 8080`).unwrap();
-  inner_at := s.index_of(`[server.inner]`).unwrap();
+  port_at := s.find(`port = 8080`).unwrap();
+  inner_at := s.find(`[server.inner]`).unwrap();
   assert(port_at < inner_at, "scalars come before nested headers");
 });
 test("Serializer: keys, floats, arrays of tables, empty tables", {

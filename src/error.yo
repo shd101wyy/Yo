@@ -822,8 +822,8 @@ primary_diagnostic_path :: (fn(err : &AnyError) -> Option(String))(
 _replace_cannot_copy_subject :: (fn(msg : &String, subject : &String) -> String)({
   tag := String.from("cannot copy `");
   close_tag := String.from("`,");
-  start := match(msg.index_of(&tag), .Some(at) => (at + (tag.len() - usize(1))), .None => return(msg.clone()));
-  end := match(msg.index_of(&close_tag), .Some(close) => (close + usize(1)), .None => return(msg.clone()));
+  start := match(msg.find(&tag), .Some(at) => (at + (tag.len() - usize(1))), .None => return(msg.clone()));
+  end := match(msg.find(&close_tag), .Some(close) => (close + usize(1)), .None => return(msg.clone()));
   if(end < start, {
     return(msg.clone());
   });

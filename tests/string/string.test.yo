@@ -971,81 +971,81 @@ test("String substring entire string", {
   sub := s.substring(usize(0), s.len());
   assert(sub == s);
 });
-// ===== index_of Tests =====
-test("String index_of found at beginning", {
+// ===== find Tests =====
+test("String find found at beginning", {
   s := String.from("Hello, World!");
-  result := s.index_of(String.from("Hello"));
+  result := s.find(String.from("Hello"));
   assert(result.is_some());
   assert(result.unwrap() == usize(0));
 });
-test("String index_of found in middle", {
+test("String find found in middle", {
   s := String.from("Hello, World!");
-  result := s.index_of(String.from("World"));
+  result := s.find(String.from("World"));
   assert(result.is_some());
   assert(result.unwrap() == usize(7));
 });
-test("String index_of not found", {
+test("String find not found", {
   s := String.from("Hello, World!");
-  result := s.index_of(String.from("xyz"));
+  result := s.find(String.from("xyz"));
   assert(result.is_none());
 });
-test("String index_of single character", {
+test("String find single character", {
   s := String.from("Hello, World!");
-  result := s.index_of(String.from(","));
+  result := s.find(String.from(","));
   assert(result.is_some());
   assert(result.unwrap() == usize(5));
 });
-test("String index_of empty string", {
+test("String find empty string", {
   s := String.from("Hello");
-  result := s.index_of(String.from(""));
+  result := s.find(String.from(""));
   assert(result.is_some());
   assert(result.unwrap() == usize(0));
 });
-test("String index_of entire string", {
+test("String find entire string", {
   s := String.from("Hello");
-  result := s.index_of(String.from("Hello"));
+  result := s.find(String.from("Hello"));
   assert(result.is_some());
   assert(result.unwrap() == usize(0));
 });
-test("String index_of substring longer than string", {
+test("String find substring longer than string", {
   s := String.from("Hi");
-  result := s.index_of(String.from("Hello"));
+  result := s.find(String.from("Hello"));
   assert(result.is_none());
 });
-test("String index_of UTF-8 characters", {
+test("String find UTF-8 characters", {
   // BYTE offsets out, so the answer feeds straight back into `substring`.
   s := String.from("你好世界");
-  result1 := s.index_of(String.from("世界"));
+  result1 := s.find(String.from("世界"));
   assert(result1.is_some());
   assert(result1.unwrap() == usize(6));
-  result2 := s.index_of(String.from("你好"));
+  result2 := s.find(String.from("你好"));
   assert(result2.is_some());
   assert(result2.unwrap() == usize(0));
-  result3 := s.index_of(String.from("好世"));
+  result3 := s.find(String.from("好世"));
   assert(result3.is_some());
   assert(result3.unwrap() == usize(3));
   assert(s.substring(result3.unwrap(), result3.unwrap() + usize(6)) == String.from("好世"));
 });
-test("String index_of mixed ASCII and UTF-8", {
+test("String find mixed ASCII and UTF-8", {
   s := String.from("Hello 世界!");
-  result := s.index_of(String.from("世界"));
+  result := s.find(String.from("世界"));
   assert(result.is_some());
   assert(result.unwrap() == usize(6));
 });
-test("String index_of with emojis", {
+test("String find with emojis", {
   s := String.from("😀😁😂");
-  result := s.index_of(String.from("😁"));
+  result := s.find(String.from("😁"));
   assert(result.is_some());
   assert(result.unwrap() == usize(4));
 });
-test("String index_of case sensitive", {
+test("String find case sensitive", {
   s := String.from("Hello World");
-  result := s.index_of(String.from("world"));
+  result := s.find(String.from("world"));
   assert(result.is_none());
 });
-test("String index_of multiple occurrences returns first", {
+test("String find multiple occurrences returns first", {
   s := String.from("abcabc");
-  result := s.index_of(String.from("abc"));
+  result := s.find(String.from("abc"));
   assert(result.is_some());
   assert(result.unwrap() == usize(0));
 });
@@ -1223,87 +1223,87 @@ test("String split only separator", {
   assert(parts(usize(0)).is_empty());
   assert(parts(usize(1)).is_empty());
 });
-// ===== index_of with from_index Tests =====
-test("String index_of with from_index at start", {
+// ===== find with from_index Tests =====
+test("String find with from_index at start", {
   s := String.from("hello world hello");
-  result := s.index_of(String.from("hello"), usize(0));
+  result := s.find(String.from("hello"), usize(0));
   assert(result.is_some());
   assert(result.unwrap() == usize(0));
 });
-test("String index_of with from_index finds second occurrence", {
+test("String find with from_index finds second occurrence", {
   s := String.from("hello world hello");
-  result := s.index_of(String.from("hello"), usize(1));
+  result := s.find(String.from("hello"), usize(1));
   assert(result.is_some());
   assert(result.unwrap() == usize(12));
 });
-test("String index_of with from_index skips first match", {
+test("String find with from_index skips first match", {
   s := String.from("abc abc abc");
-  result := s.index_of(String.from("abc"), usize(5));
+  result := s.find(String.from("abc"), usize(5));
   assert(result.is_some());
   assert(result.unwrap() == usize(8));
 });
-test("String index_of with from_index beyond string", {
+test("String find with from_index beyond string", {
   s := String.from("hello");
-  result := s.index_of(String.from("hello"), usize(10));
+  result := s.find(String.from("hello"), usize(10));
   assert(result.is_none());
 });
-test("String index_of with from_index UTF-8", {
+test("String find with from_index UTF-8", {
   // 你@0 好@3 世@6 界@9 你@12 好@15 — 18 bytes.
   s := String.from("你好世界你好");
-  result1 := s.index_of(String.from("你好"), usize(0));
+  result1 := s.find(String.from("你好"), usize(0));
   assert(result1.is_some());
   assert(result1.unwrap() == usize(0));
   // `from_index` is a BYTE offset, and it need not be a rune boundary:
   // a valid-UTF-8 needle can never match starting inside a rune, so
   // starting the scan at byte 1 skips the match at 0 and finds the one at 12.
-  result2 := s.index_of(String.from("你好"), usize(1));
+  result2 := s.find(String.from("你好"), usize(1));
   assert(result2.is_some());
   assert(result2.unwrap() == usize(12));
 });
-// ===== last_index_of Tests =====
-test("String last_index_of finds last occurrence", {
+// ===== rfind Tests =====
+test("String rfind finds last occurrence", {
   s := String.from("hello world hello");
-  result := s.last_index_of(String.from("hello"));
+  result := s.rfind(String.from("hello"));
   assert(result.is_some());
   assert(result.unwrap() == usize(12));
 });
-test("String last_index_of single occurrence", {
+test("String rfind single occurrence", {
   s := String.from("hello world");
-  result := s.last_index_of(String.from("world"));
+  result := s.rfind(String.from("world"));
   assert(result.is_some());
   assert(result.unwrap() == usize(6));
 });
-test("String last_index_of not found", {
+test("String rfind not found", {
   s := String.from("hello world");
-  result := s.last_index_of(String.from("xyz"));
+  result := s.rfind(String.from("xyz"));
   assert(result.is_none());
 });
-test("String last_index_of empty string", {
+test("String rfind empty string", {
   s := String.from("hello");
-  result := s.last_index_of(String.from(""));
+  result := s.rfind(String.from(""));
   assert(result.is_some());
   assert(result.unwrap() == s.len());
 });
-test("String last_index_of at end", {
+test("String rfind at end", {
   s := String.from("test");
-  result := s.last_index_of(String.from("st"));
+  result := s.rfind(String.from("st"));
   assert(result.is_some());
   assert(result.unwrap() == usize(2));
 });
-test("String last_index_of UTF-8", {
+test("String rfind UTF-8", {
   s := String.from("你好世界你好");
-  result := s.last_index_of(String.from("你好"));
+  result := s.rfind(String.from("你好"));
   assert(result.is_some());
   assert(result.unwrap() == usize(12));
   // Capping the start at byte 11 excludes the last occurrence and finds the
   // first one instead.
-  capped := s.last_index_of(String.from("你好"), usize(11));
+  capped := s.rfind(String.from("你好"), usize(11));
   assert(capped.is_some());
   assert(capped.unwrap() == usize(0));
 });
-test("String last_index_of multiple same characters", {
+test("String rfind multiple same characters", {
   s := String.from("aaaa");
-  result := s.last_index_of(String.from("a"));
+  result := s.rfind(String.from("a"));
   assert(result.is_some());
   assert(result.unwrap() == usize(3));
 });
@@ -1394,11 +1394,6 @@ test("String replacen bounds the count", {
   assert(s.replacen(String.from("a"), String.from("b"), usize(2)) == String.from("b b a a"), "count 2");
   assert(s.replacen(String.from("a"), String.from("b"), usize(9)) == String.from("b b b b"), "count past the end");
 });
-test("String replace_first is the pre-D10 replace", {
-  s := String.from("hello world hello");
-  result := s.replace_first(String.from("hello"), String.from("hi"));
-  assert(result == String.from("hi world hello"));
-});
 test("String replace only occurrence", {
   s := String.from("hello world");
   result := s.replace(String.from("world"), String.from("universe"));
@@ -1453,45 +1448,45 @@ test("String replace at end", {
   result := s.replace(String.from("world"), String.from("universe"));
   assert(result == String.from("hello universe"));
 });
-// ===== replace_all Tests =====
-test("String replace_all multiple occurrences", {
+// ===== replace (every occurrence) Tests =====
+test("String replace, every occurrence: multiple occurrences", {
   s := String.from("foo foo foo");
-  result := s.replace_all(String.from("foo"), String.from("bar"));
+  result := s.replace(String.from("foo"), String.from("bar"));
   assert(result == String.from("bar bar bar"));
 });
-test("String replace_all single occurrence", {
+test("String replace, every occurrence: single occurrence", {
   s := String.from("hello world");
-  result := s.replace_all(String.from("world"), String.from("universe"));
+  result := s.replace(String.from("world"), String.from("universe"));
   assert(result == String.from("hello universe"));
 });
-test("String replace_all not found", {
+test("String replace, every occurrence: not found", {
   s := String.from("hello world");
-  result := s.replace_all(String.from("xyz"), String.from("abc"));
+  result := s.replace(String.from("xyz"), String.from("abc"));
   assert(result == s);
 });
-test("String replace_all with empty string removes all", {
+test("String replace, every occurrence: with empty string removes all", {
   s := String.from("hello world");
-  result := s.replace_all(String.from("o"), String.from(""));
+  result := s.replace(String.from("o"), String.from(""));
   assert(result == String.from("hell wrld"));
 });
-test("String replace_all UTF-8", {
+test("String replace, every occurrence: UTF-8", {
   s := String.from("你好世界你好");
-  result := s.replace_all(String.from("你好"), String.from("再见"));
+  result := s.replace(String.from("你好"), String.from("再见"));
   assert(result == String.from("再见世界再见"));
 });
-test("String replace_all emoji", {
+test("String replace, every occurrence: emoji", {
   s := String.from("😀😁😀😁😀");
-  result := s.replace_all(String.from("😀"), String.from("😂"));
+  result := s.replace(String.from("😀"), String.from("😂"));
   assert(result == String.from("😂😁😂😁😂"));
 });
-test("String replace_all consecutive matches", {
+test("String replace, every occurrence: consecutive matches", {
   s := String.from("aaa");
-  result := s.replace_all(String.from("a"), String.from("b"));
+  result := s.replace(String.from("a"), String.from("b"));
   assert(result == String.from("bbb"));
 });
-test("String replace_all overlapping pattern", {
+test("String replace, every occurrence: overlapping pattern", {
   s := String.from("aaaa");
-  result := s.replace_all(String.from("aa"), String.from("b"));
+  result := s.replace(String.from("aa"), String.from("b"));
   assert(result == String.from("bb"));
 });
 // ===== to_uppercase Tests =====
@@ -1996,9 +1991,9 @@ test("String str-pattern overloads (StrPattern trait)", {
   assert(!x.starts_with("world"), "starts_with str negative");
   assert(x.ends_with("world"), "ends_with str");
   assert(!x.ends_with("hello"), "ends_with str negative");
-  assert(match(x.index_of("lo"), .Some(i) => (i == usize(3)), .None => false), "index_of str");
-  assert(match(x.index_of("zz"), .Some(_) => false, .None => true), "index_of str none");
-  assert(match(x.last_index_of("o"), .Some(i) => (i == usize(7)), .None => false), "last_index_of str");
+  assert(match(x.find("lo"), .Some(i) => (i == usize(3)), .None => false), "find str");
+  assert(match(x.find("zz"), .Some(_) => false, .None => true), "find str none");
+  assert(match(x.rfind("o"), .Some(i) => (i == usize(7)), .None => false), "rfind str");
   parts := x.split(" ");
   assert(parts.len() == usize(2), "split str count");
   assert(match(parts.get_cloned(usize(0)), .Some(p) => (p == "hello"), .None => false), "split str first");
@@ -2081,14 +2076,14 @@ test("String to_ascii_* maps ASCII only, byte-for-byte", {
   assert(String.from("AbC").to_ascii_uppercase() == String.from("ABC"), "plain ASCII upper");
 });
 // ===== rune as a Pattern =====
-test("rune pattern: contains / index_of / last_index_of", {
+test("rune pattern: contains / find / rfind", {
   s := String.from("a,é,b");
   assert(s.contains(rune(u32(0x2C))), "comma contained");
   assert(s.contains(rune(u32(0xE9))), "é contained");
   assert(!s.contains(rune(u32(0x2F))), "/ not contained");
-  assert(s.index_of(rune(u32(0xE9))).unwrap_or(usize(999)) == usize(2), "é starts at byte 2");
-  assert(s.last_index_of(rune(u32(0x2C))).unwrap_or(usize(999)) == usize(4), "last comma at byte 4 (a, comma, 2-byte é, then this comma)");
-  assert(s.index_of(rune(u32(0xE9)), usize(3)).is_none(), "from_index past the é finds nothing");
+  assert(s.find(rune(u32(0xE9))).unwrap_or(usize(999)) == usize(2), "é starts at byte 2");
+  assert(s.rfind(rune(u32(0x2C))).unwrap_or(usize(999)) == usize(4), "last comma at byte 4 (a, comma, 2-byte é, then this comma)");
+  assert(s.find(rune(u32(0xE9)), usize(3)).is_none(), "from_index past the é finds nothing");
 });
 test("rune pattern: starts_with / ends_with / split / split_once", {
   s := String.from("é,x");
@@ -2106,11 +2101,10 @@ test("rune pattern: starts_with / ends_with / split / split_once", {
     .None => assert(false, "split_once on a rune")
   );
 });
-test("rune pattern: replace / replace_all", {
+test("rune pattern: replace / replacen", {
   s := String.from("aébéc");
   assert(s.replace(rune(u32(0xE9)), String.from("E")) == String.from("aEbEc"), "replace every é");
   assert(s.replacen(rune(u32(0xE9)), String.from("E"), usize(1)) == String.from("aEbéc"), "replacen 1 é");
-  assert(s.replace_all(rune(u32(0xE9)), String.from("E")) == String.from("aEbEc"), "replace_all é");
   assert(s.replace(rune(u32(0xFF)), String.from("X")) == s, "absent rune replaces nothing");
 });
 // ===== split_once =====
@@ -2145,14 +2139,14 @@ test("String strip_suffix", {
   assert(String.from("aaa").strip_suffix(String.from("aa")).unwrap_or(String.from("?")) == String.from("a"), "last starting occurrence wins (Rust parity)");
   assert(String.from("café").strip_suffix(String.from("é")).unwrap_or(String.from("?")) == String.from("caf"), "multibyte suffix");
 });
-// ===== replace_all with an empty (zero-width) pattern =====
+// ===== replace with an empty (zero-width) pattern =====
 // Rust semantics, adopted with the Pattern-generic rewrite: an empty pattern
 // matches between every pair of runes and at both ends. (It used to return
 // `self` unchanged.)
-test("String replace_all with empty search inserts everywhere", {
+test("String replace, every occurrence: with empty search inserts everywhere", {
   s := String.from("abc");
-  assert(s.replace_all(String.from(""), String.from("-")) == String.from("-a-b-c-"), "Rust: \"abc\".replace_all(\"\", \"-\") == \"-a-b-c-\"");
-  assert(String.from("").replace_all(String.from(""), String.from("-")) == String.from("-"), "the empty string still has one boundary");
+  assert(s.replace(String.from(""), String.from("-")) == String.from("-a-b-c-"), "Rust: \"abc\".replace(\"\", \"-\") == \"-a-b-c-\"");
+  assert(String.from("").replace(String.from(""), String.from("-")) == String.from("-"), "the empty string still has one boundary");
 });
 // ===== FromString / s.parse(T) (D12) =====
 test("parse(i32) distinguishes empty, garbage and overflow", {
@@ -2344,11 +2338,11 @@ test("rsplit over edge cases", {
   assert(empties.len() == usize(3), "adjacent separators keep the empty piece");
   assert(empties(usize(1)) == ``, "which is in the middle after reversing");
 });
-// ===== push_rune / insert / remove / pop =====
-test("push_rune appends a UTF-8 encoded rune", {
+// ===== push / insert / remove / pop =====
+test("push appends a UTF-8 encoded rune", {
   mut(s) := String.new();
-  s.push_rune(rune(65));
-  s.push_rune(rune(0x00E9));
+  s.push(rune(65));
+  s.push(rune(0x00E9));
   assert(s.len() == usize(3), "one ASCII byte plus a two-byte rune");
   assert(s.clone().chars().count() == usize(2), "but two runes");
   assert(s.starts_with(`A`), "the ASCII rune came first");
@@ -2623,10 +2617,10 @@ test("every mutator writes only its own clone", {
   c6.clear();
   mut(c7) := base.clone();
   c7.reserve(usize(64));
-  c7.push_rune(rune(u32(0x21)));
+  c7.push(rune(u32(0x21)));
   assert(base == "héllo", "the original is untouched by all seven");
   assert((c1 == "h") && (c2 == ">héllo") && (c3 == "<héllo"), "truncate / insert_str / insert");
-  assert((c4 == "éllo") && (c5 == "héll") && (c6 == "") && (c7 == "héllo!"), "remove / pop / clear / reserve+push_rune");
+  assert((c4 == "éllo") && (c5 == "héll") && (c6 == "") && (c7 == "héllo!"), "remove / pop / clear / reserve+push");
 });
 // Decision 28's value-root rule: the receiver is lent `&mut`, so an argument
 // lending the same string overlaps it (E0910). A copy appends it to itself.

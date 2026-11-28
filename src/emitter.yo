@@ -27,7 +27,7 @@ _emitter_is_ident_byte :: (fn(b : u8) -> bool)(
 _emitter_is_minted_temp :: (fn(cn : &String) -> bool)({
   marker := String.from("_temp_");
   match(
-    cn.index_of(&marker),
+    cn.find(&marker),
     .None => false,
     .Some(idx) => {
       start := (idx + marker.len());
@@ -61,7 +61,7 @@ _emitter_record_declared_temp :: (fn(set : &mut HashSet(String), line : &String)
   if(!line.contains(String.from("_temp_")), {
     return(());
   });
-  eq_opt := line.index_of(String.from(" = "));
+  eq_opt := line.find(String.from(" = "));
   match(
     eq_opt,
     .None => (),
@@ -120,7 +120,7 @@ _emitter_pop_block :: (fn(stack : &mut ArrayList(String)) -> unit)({
 /// compound-literal decl (`Type name = { … }`) records `name` in the enclosing
 /// frame, above the `{` its initializer opens.
 _emitter_record_scope_decl :: (fn(stack : &mut ArrayList(String), line : &String) -> unit)({
-  eq_opt := line.index_of(String.from(" = "));
+  eq_opt := line.find(String.from(" = "));
   match(
     eq_opt,
     .None => (),

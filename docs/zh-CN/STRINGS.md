@@ -27,11 +27,11 @@ s := String.from("aé中𝄞");
 s.len(); // usize(10) —— 字节数，O(1)
 s.chars().count(); // usize(4)  —— rune 数量，O(n)
 s.substring(usize(3), usize(6)); // "中" —— 字节区间 [3, 6)
-s.index_of(String.from("中")); // .Some(usize(3)) —— 字节偏移，
+s.find(String.from("中")); // .Some(usize(3)) —— 字节偏移，
 //   可直接回喂给 substring
 ```
 
-`index_of`、`last_index_of`、`s(a..b)` / `s(a..=b)` 区间语法糖，以及
+`find`、`rfind`、`s(a..b)` / `s(a..=b)` 区间语法糖，以及
 `contains` / `starts_with` / `ends_with` 的可选位置参数，全部使用同一单位。
 `Pattern` trait 的各个方法也是。
 
@@ -66,7 +66,7 @@ s.substring(usize(0), usize(99)); // "aé中𝄞" —— 越界钳制
 
 ## 搜索方法从不 panic —— 但有一个被钉住的例外
 
-`index_of` / `last_index_of` / `contains` / `starts_with` / `ends_with` 有意
+`find` / `rfind` / `contains` / `starts_with` / `ends_with` 有意
 不对位置参数做边界检查：UTF-8 是自同步编码，合法 UTF-8 的 needle 不可能从
 续延字节处开始匹配。落在 rune 中间的 `from_index` / `position` 无法凭空制造
 命中，只会得到 `false` / `.None`。对非空 needle，这些方法返回的每个索引都是
@@ -74,10 +74,10 @@ rune 边界。
 
 **空 needle 是例外，其行为已被钉住：**
 
-- `index_of("", i)` **原样返回 `.Some(i)`，不做任何校验** —— 包括落在 rune
+- `find("", i)` **原样返回 `.Some(i)`，不做任何校验** —— 包括落在 rune
   内部的 `i` 和超过 `len()` 的 `i`。（JavaScript 的 `indexOf("")` 会钳制到
   长度；这里不钳制。）
-- `last_index_of("", i)` 无视 `i`，一律返回 `len()`（Rust `rfind("")` 的
+- `rfind("", i)` 无视 `i`，一律返回 `len()`（Rust `rfind("")` 的
   形状），因此这是结果可能超过调用者所给上限的唯一情形。
 
 超出末尾的偏移在下游是无害的，因为 `substring` 会钳制；但 rune 中间的偏移会
@@ -156,7 +156,7 @@ export(main);
 
 ## 副本、克隆与字节列表
 
-每个修改方法（`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、
+每个修改方法（`push_str`、`push_string`、`push_byte`、`push`、`reserve`、
 `clear`、`truncate`、`insert_str`、`insert`、`remove`、`pop`）都接受
 `self : &mut Self` 并就地写入。`String` 独占自己的字节：它是一个值
 （`newtype(_bytes : ArrayList(u8))`），从不共享。`t := s` 会**移动**字符串，之后再使用
@@ -222,7 +222,7 @@ comptime_assert(s(3 .. 6) == "中"); // 字节区间
 ## 实用规则
 
 - 字节循环用 `len()` 做上界、用 `byte_at(i)` 读取 —— 两个基准现在天然一致。
-- `index_of` 返回什么就直接喂回 `substring`（空 needle 除外 —— 见上文）。
+- `find` 返回什么就直接喂回 `substring`（空 needle 除外 —— 见上文）。
 - 永远不要在字节上做"索引 + 1 个 rune"这类算术；用 `char_indices()` 或
   `ceil_char_boundary`。
 - 想表达"有多少个字符"时，写 `s.chars().count()`；想表达"缓冲区多大"时，写
@@ -240,7 +240,7 @@ s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 ## String（可增长字符串）
 
 堆分配的可增长 UTF-8 字符串，与 Rust 的 `String` 形态一致。它**不是**不可变的：
-`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、`clear`、
+`push_str`、`push_string`、`push_byte`、`push`、`reserve`、`clear`、
 `truncate`、`insert_str`、`insert`、`remove` 和 `pop` 接受 `self : &mut Self`
 并就地修改；而 `+` 之类的运算符仍然产生新字符串。
 

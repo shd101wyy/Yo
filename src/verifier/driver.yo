@@ -884,7 +884,7 @@ _proved_ensures :: (fn(obligations : &ArrayList(VerifyFnObligation)) -> ArrayLis
 _ens_obligation_index :: (fn(name : &String) -> Option(usize))({
   marker := String.from("/ensures#");
   match(
-    name.index_of(marker.clone()),
+    name.find(marker.clone()),
     .Some(at) => {
       digits := name.substring(at + marker.len(), name.len());
       match(
@@ -1541,7 +1541,7 @@ _unmangle_pairs :: (fn(fn_id : &String, ce : &ArrayList(String)) -> ArrayList(St
     match(
       ce.get_cloned(i),
       .Some(pair) => {
-        sep := pair.index_of(String.from(" = "));
+        sep := pair.find(String.from(" = "));
         match(
           sep,
           .Some(at) => {

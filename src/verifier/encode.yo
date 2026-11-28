@@ -438,7 +438,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
         dt_entries.get_cloned(ti),
         .Some(entry) => {
           // Each entry is "<name>|<ctors...>": split at the first '|'.
-          bar := entry.index_of(String.from("|"));
+          bar := entry.find(String.from("|"));
           nm := match(
             bar,
             .Some(b) => entry.substring(usize(0), b),
@@ -456,7 +456,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
       match(
         dt_entries.get_cloned(tj),
         .Some(entry) => {
-          bar := entry.index_of(String.from("|"));
+          bar := entry.find(String.from("|"));
           ctors := match(
             bar,
             .Some(b) => entry.substring(b + usize(1), entry.len()),

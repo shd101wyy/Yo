@@ -186,8 +186,8 @@ test("windows runtime: an accept AcceptEx cannot serve runs on a pool worker, ne
   mut(wem) := Emitter.new();
   generate_async_runtime_io_windows(&mut wem);
   c := wem.print();
-  start := c.index_of(String.from("static __yo_io_future_t* __yo_async_accept_start(")).unwrap_or(usize(0));
-  end := c.index_of(String.from("static __yo_io_future_t* __yo_async_connect_start(")).unwrap_or(usize(0));
+  start := c.find(String.from("static __yo_io_future_t* __yo_async_accept_start(")).unwrap_or(usize(0));
+  end := c.find(String.from("static __yo_io_future_t* __yo_async_connect_start(")).unwrap_or(usize(0));
   assert((start != usize(0)) && (start < end), String.from("the accept start is not emitted before the connect start"));
   body := c.substring(start, end);
   assert(!body.contains(String.from("= accept(")), String.from("the accept start still calls a blocking accept() on the loop thread"));

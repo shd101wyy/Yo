@@ -1173,7 +1173,7 @@ _root_shape_name :: (fn(t : &TypeValue) -> String)(
 /// `Rc(i32)` → `Rc`, `HashMap(K, V)` → `HashMap`, `Foo` → `Foo`.
 _root_shape_base_name :: (fn(name : &String) -> String)(
   match(
-    name.index_of(`(`),
+    name.find(`(`),
     .Some(pidx) => name.substring(usize(0), pidx),
     .None => name.clone()
   )
@@ -1393,7 +1393,7 @@ _bind_forall_from_type_args :: (
             if(!is_some_type(&cell_cur) && !match(&cell_cur, Rc(.Unit) => true, _ => false), {
               if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
                 cw_res := type_to_string(&cell_cur);
-                if((cw_res.index_of(String.from("Doc")) != .None) || (cw_res.index_of(String.from("GenericImplEntry")) != .None), {
+                if((cw_res.find(String.from("Doc")) != .None) || (cw_res.find(String.from("GenericImplEntry")) != .None), {
                   (cw_ids : String) = String.from("");
                   (cwi : usize) = usize(0);
                   while(cwi < cell_seen.len(), {

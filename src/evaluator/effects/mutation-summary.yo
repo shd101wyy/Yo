@@ -3550,7 +3550,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
                     g_d1_written.with({ &k }(m) => m.get_cloned(k.clone())),
                     .Some(wloc) => {
                       rloc := match(reads.get_cloned(k.clone()), .Some(l) => l, .None => String.new());
-                      gname := match(k.last_index_of(":"), .Some(ci) => k.substring(ci + usize(1), k.len()), .None => k.clone());
+                      gname := match(k.rfind(":"), .Some(ci) => k.substring(ci + usize(1), k.len()), .None => k.clone());
                       violation = Option(String).Some(`reads the module-level global '${gname}' (at ${rloc}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${gname}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state`);
                     },
                     .None => ()

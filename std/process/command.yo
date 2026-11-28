@@ -338,7 +338,7 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
       self._env_overrides.get_cloned(i),
       .Some(entry) => {
         match(
-          entry.index_of("=", usize(0)),
+          entry.find("=", usize(0)),
           .Some(eq) => keys.push(entry.substring(usize(0), eq)),
           .None => keys.push(entry.clone())
         );
@@ -361,7 +361,7 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
         .Some(entry_ptr) => {
           entry := String.from_cstr((*u8)(entry_ptr)).unwrap();
           key := match(
-            entry.index_of("=", usize(0)),
+            entry.find("=", usize(0)),
             .Some(eq2) => entry.substring(usize(0), eq2),
             .None => entry.clone()
           );

@@ -598,7 +598,7 @@ b := s(usize(0)); // u8(72) — 该字节（'H'）；越界时 panic
 c := s.get_byte(usize(9)); // .None — 带检查的形式
 ```
 
-`s(i) = b` 是编译错误，并指出缺少 `IndexMut`：写入会改变所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。Rust 的 `String` 同样没有可写的字节索引。如需字符级访问，请使用 `chars()` 迭代器。区间语法糖 `s(a..b)` 构建一个新字符串；它和其余所有字符串索引（`substring`、`index_of` 等）都是字节偏移 —— 完整契约见 [STRINGS.md](./STRINGS.md)。
+`s(i) = b` 是编译错误，并指出缺少 `IndexMut`：写入会改变所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。Rust 的 `String` 同样没有可写的字节索引。如需字符级访问，请使用 `chars()` 迭代器。区间语法糖 `s(a..b)` 构建一个新字符串；它和其余所有字符串索引（`substring`、`find` 等）都是字节偏移 —— 完整契约见 [STRINGS.md](./STRINGS.md)。
 
 ### 错误处理
 

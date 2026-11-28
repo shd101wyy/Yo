@@ -354,7 +354,7 @@ _type_head_name :: (fn(ty : &TypeValue) -> String)({
   match(
     type_display_name(&id),
     .Some(d) => match(
-      d.index_of(String.from("(")),
+      d.find(String.from("(")),
       .Some(p) => d.substring(usize(0), p),
       .None => d
     ),
@@ -1041,7 +1041,7 @@ handle_document_links :: (
 /// no slash comes back as `.`).
 _dir_of :: (fn(path : &String) -> String)(
   match(
-    path.last_index_of(String.from("/")),
+    path.rfind(String.from("/")),
     .Some(slash) => cond(
       (slash == usize(0)) => String.from("/"),
       true => path.substring(

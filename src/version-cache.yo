@@ -77,10 +77,10 @@ _json_string_for_key :: (fn(json : &String, key : &String) -> Option(String))({
   pat1 := `"${key}":"`;
   pat2 := `"${key}": "`;
   start_opt := match(
-    json.index_of(&pat1),
+    json.find(&pat1),
     .Some(i) => Option(usize).Some(i + pat1.len()),
     .None => match(
-      json.index_of(&pat2),
+      json.find(&pat2),
       .Some(i) => Option(usize).Some(i + pat2.len()),
       .None => Option(usize).None
     )
@@ -91,7 +91,7 @@ _json_string_for_key :: (fn(json : &String, key : &String) -> Option(String))({
     .Some(start) => {
       rest := json.substring(start, json.len());
       match(
-        rest.index_of(String.from("\"")),
+        rest.find(String.from("\"")),
         .None => Option(String).None,
         .Some(end) => .Some(rest.substring(usize(0), end))
       )

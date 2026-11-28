@@ -1103,12 +1103,12 @@ module_expr_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
 forward_ref_diagnostic :: (fn(msg : &String) -> Option(String))({
   marker := String.from("Variable \"");
   match(
-    msg.index_of(&marker),
+    msg.find(&marker),
     .None => Option(String).None,
     .Some(ms) => {
       after := (ms + marker.len());
       match(
-        msg.index_of(String.from("\""), after),
+        msg.find(String.from("\""), after),
         .None => Option(String).None,
         .Some(me) => {
           name := msg.substring(after, me);
@@ -1192,7 +1192,7 @@ _hard_swallow_classes :: (fn(msg : &String, include_generated : bool) -> Option(
           cond(
             msg.starts_with(&err_prefix) => Option(String).Some(msg.substring(err_prefix.len(), msg.len())),
             msg.starts_with(String.from("error[")) => match(
-              msg.index_of(String.from("]: ")),
+              msg.find(String.from("]: ")),
               .Some(k) => Option(String).Some(msg.substring(k + usize(3), msg.len())),
               .None => Option(String).Some(msg.clone())
             ),
@@ -1767,7 +1767,7 @@ force_pending_count :: (fn() -> usize)(g_force_pending_count);
 /// path as typed), so the invalidator resolves walks straight from it.
 def_key_module :: (fn(key : &String) -> String)(
   match(
-    key.index_of(String.from("#")),
+    key.find(String.from("#")),
     .Some(h) => key.substring(usize(0), h),
     .None => key.clone()
   )
@@ -1776,9 +1776,9 @@ def_key_module :: (fn(key : &String) -> String)(
 /// invalidator mints these keys itself.
 def_key_index :: (fn(key : &String) -> Option(usize))(
   match(
-    key.index_of(String.from("#")),
+    key.find(String.from("#")),
     .Some(h1) => match(
-      key.index_of(String.from("#"), (h1 + usize(1))),
+      key.find(String.from("#"), (h1 + usize(1))),
       .Some(h2) => Option(usize).Some(
         match(
           key.substring((h1 + usize(1)), h2).parse(usize),
@@ -3665,7 +3665,7 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
     _ => String.new()
   );
   match(
-    raw.index_of(String.from("(")),
+    raw.find(String.from("(")),
     .Some(p) => raw.substring(usize(0), p),
     .None => raw
   )

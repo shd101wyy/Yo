@@ -217,7 +217,7 @@ _scan_quoted_value_after :: (fn(content : &String, marker : &String, connector :
   (done : bool) = false;
   while(!done, {
     idx := match(
-      content.index_of(marker, search_from),
+      content.find(marker, search_from),
       .Some(x) => x,
       .None => {
         done = true;
@@ -257,7 +257,7 @@ _scan_quoted_value_after :: (fn(content : &String, marker : &String, connector :
       if((j < content.len()) && (content.byte_at(j) == u8(34)), {
         j = (j + usize(1));
         end := match(
-          content.index_of(`"`, j),
+          content.find(`"`, j),
           .Some(e) => e,
           .None => {
             done = true;

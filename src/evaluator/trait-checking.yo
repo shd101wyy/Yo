@@ -1586,7 +1586,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   if(is_value_nominal_type(&ty), {
     if(!type_has_impl_shape_for(&ty, copy_tt), {
       raw := type_to_string(&ty);
-      base := match(raw.index_of(String.from("(")), .Some(p) => raw.substring(usize(0), p), .None => raw);
+      base := match(raw.find(String.from("(")), .Some(p) => raw.substring(usize(0), p), .None => raw);
       if(!out.contains(&base), {
         out.push(base);
       });

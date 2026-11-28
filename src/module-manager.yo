@@ -2046,7 +2046,7 @@ _load_imports_file :: (fn(exn : Exception) -> unit)({
         line := lines(i).trim();
         if(!((line.len() == usize(0)) || line.starts_with(String.from("#"))), {
           match(
-            line.index_of("="),
+            line.find("="),
             .None => {
               exn.throw(dyn(Box.new(`--imports ${p}: line ${(i + usize(1)).to_string()} is not "name=/path/to/root.yo": ${line}`)));
             },

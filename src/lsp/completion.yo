@@ -811,7 +811,7 @@ _import_items :: (
 )({
   items := ArrayList(JsonValue).new();
   start := match(
-    up_to_cursor.last_index_of(String.from("import(\"")),
+    up_to_cursor.rfind(String.from("import(\"")),
     .Some(s) => s,
     .None => {
       return(items);
@@ -824,7 +824,7 @@ _import_items :: (
   (dir_part : String) = String.new();
   (prefix : String) = full_path.clone();
   match(
-    full_path.last_index_of(String.from("/")),
+    full_path.rfind(String.from("/")),
     .Some(slash) => {
       dir_part = full_path.substring(usize(0), slash);
       prefix = full_path.substring(slash + usize(1), full_path.len());

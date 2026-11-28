@@ -77,7 +77,7 @@ parse_yo_version :: (fn(content : &String) -> Result(String, String))({
   // We look for the first two '.' separators and verify:
   //   - MAJOR and MINOR are non-empty all-digit strings
   //   - PATCH starts with at least one digit
-  dot1_opt := version.index_of(String.from("."));
+  dot1_opt := version.find(String.from("."));
   match(
     dot1_opt,
     .None => {
@@ -85,7 +85,7 @@ parse_yo_version :: (fn(content : &String) -> Result(String, String))({
     },
     .Some(dot1) => {
       rest1 := version.substring(dot1 + usize(1), version.len());
-      dot2_opt := rest1.index_of(String.from("."));
+      dot2_opt := rest1.find(String.from("."));
       match(
         dot2_opt,
         .None => {

@@ -28,11 +28,11 @@ s := String.from("aé中𝄞");
 s.len(); // usize(10) — BYTES, O(1)
 s.chars().count(); // usize(4)  — runes, O(n)
 s.substring(usize(3), usize(6)); // "中" — byte range [3, 6)
-s.index_of(String.from("中")); // .Some(usize(3)) — a byte offset,
+s.find(String.from("中")); // .Some(usize(3)) — a byte offset,
 //   feed it straight back into substring
 ```
 
-`index_of`, `last_index_of`, the `s(a..b)` / `s(a..=b)` range sugar, and the
+`find`, `rfind`, the `s(a..b)` / `s(a..=b)` range sugar, and the
 optional positional arguments of `contains` / `starts_with` / `ends_with` all
 speak the same unit. So do the `Pattern` trait's methods.
 
@@ -70,7 +70,7 @@ loop over `at(i)` therefore visits continuation bytes — iterate runes with
 
 ## Search methods never panic — with one pinned exception
 
-`index_of` / `last_index_of` / `contains` / `starts_with` / `ends_with` do
+`find` / `rfind` / `contains` / `starts_with` / `ends_with` do
 not boundary-check their positional arguments, deliberately: UTF-8 is
 self-synchronizing, so a valid-UTF-8 needle can never match starting at a
 continuation byte. A mid-rune `from_index` / `position` cannot invent a hit;
@@ -79,10 +79,10 @@ methods return is a rune boundary.
 
 **The empty needle is the exception, and its behaviour is pinned:**
 
-- `index_of("", i)` returns `.Some(i)` **verbatim, unvalidated** — including
+- `find("", i)` returns `.Some(i)` **verbatim, unvalidated** — including
   an `i` inside a rune and an `i` past `len()`. (JavaScript's `indexOf("")`
   clamps to the length; this does not.)
-- `last_index_of("", i)` returns `len()` regardless of `i` (Rust's
+- `rfind("", i)` returns `len()` regardless of `i` (Rust's
   `rfind("")` shape), so it is the one case where the result can exceed the
   cap the caller asked for.
 
@@ -171,7 +171,7 @@ argument such as `ArrayList(str)`) means `&(str, static)`: a view of static byte
 
 ## Copies, clones and the byte list
 
-Every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`,
+Every mutator (`push_str`, `push_string`, `push_byte`, `push`,
 `reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`)
 takes `self : &mut Self` and writes in place. A `String` owns its bytes: it is
 a value (`newtype(_bytes : ArrayList(u8))`), never shared. `t := s` MOVES the
@@ -247,7 +247,7 @@ Two comptime-specific points:
 
 - A byte loop bounds with `len()` and reads with `byte_at(i)` — the bases
   agree by construction now.
-- Whatever `index_of` returns goes straight back into `substring` (empty
+- Whatever `find` returns goes straight back into `substring` (empty
   needle aside — see above).
 - Never do arithmetic like "index + 1 rune" in bytes; use `char_indices()`
   or `ceil_char_boundary`.
@@ -267,7 +267,7 @@ s3 := (*u8)("Hi"); // Or use a pointer cast to get a C string pointer.
 ## String (Growable UTF-8 String)
 
 Heap-allocated, growable UTF-8 string — the same shape as Rust's `String`. It is
-NOT immutable: `push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`,
+NOT immutable: `push_str`, `push_string`, `push_byte`, `push`, `reserve`,
 `clear`, `truncate`, `insert_str`, `insert`, `remove` and `pop` take
 `self : &mut Self` and mutate in place. Operators like `+` still produce a new string.
 

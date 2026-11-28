@@ -198,40 +198,40 @@ test("String range slicing uses the same byte offsets", {
   assert(s(usize(0) ..= usize(0)) == `a`, "inclusive ASCII");
 });
 // ===========================================================================
-// index_of / last_index_of / contains — BYTE offsets in AND out
+// find / rfind / contains — BYTE offsets in AND out
 // ===========================================================================
-test("String index_of answers a byte offset that feeds back into substring", {
+test("String find answers a byte offset that feeds back into substring", {
   s := _subject();
   // pre-D4: 2 (rune index)
-  m := s.index_of(`中`);
+  m := s.find(`中`);
   assert(m.is_some(), "found");
   assert(m.unwrap() == usize(3), "byte offset of 中");
   assert(s.substring(m.unwrap(), m.unwrap() + `中`.len()) == `中`, "round trip");
   // pre-D4: 3
-  assert(s.index_of(`𝄞`).unwrap() == usize(6), "byte offset of 𝄞");
-  assert(s.index_of(`a`).unwrap() == usize(0), "byte offset of a");
-  assert(s.index_of(`é`).unwrap() == usize(1), "byte offset of é");
-  assert(s.index_of(`zz`).is_none(), "absent");
+  assert(s.find(`𝄞`).unwrap() == usize(6), "byte offset of 𝄞");
+  assert(s.find(`a`).unwrap() == usize(0), "byte offset of a");
+  assert(s.find(`é`).unwrap() == usize(1), "byte offset of é");
+  assert(s.find(`zz`).is_none(), "absent");
 });
-test("String index_of from_index is a byte offset", {
+test("String find from_index is a byte offset", {
   s := `你好世界你好`;
   // 你@0 好@3 世@6 界@9 你@12 好@15 — 18 bytes, 6 runes.
   assert(s.len() == usize(18), "18 bytes");
-  // pre-D4: index_of("你好", 1) was 4 (rune index of the second occurrence)
-  assert(s.index_of(`你好`, usize(1)).unwrap() == usize(12), "second occurrence");
-  assert(s.index_of(`你好`, usize(0)).unwrap() == usize(0), "first occurrence");
-  assert(s.index_of(`你好`, usize(13)).is_none(), "past the last start");
+  // pre-D4: find("你好", 1) was 4 (rune index of the second occurrence)
+  assert(s.find(`你好`, usize(1)).unwrap() == usize(12), "second occurrence");
+  assert(s.find(`你好`, usize(0)).unwrap() == usize(0), "first occurrence");
+  assert(s.find(`你好`, usize(13)).is_none(), "past the last start");
   // A mid-rune from_index cannot invent a match: UTF-8 is self-synchronizing.
-  assert(s.index_of(`好`, usize(4)).unwrap() == usize(15), "skips the match at 3");
+  assert(s.find(`好`, usize(4)).unwrap() == usize(15), "skips the match at 3");
 });
-test("String last_index_of answers a byte offset", {
+test("String rfind answers a byte offset", {
   s := `你好世界你好`;
   // pre-D4: 4
-  assert(s.last_index_of(`你好`).unwrap() == usize(12), "last occurrence");
+  assert(s.rfind(`你好`).unwrap() == usize(12), "last occurrence");
   // pre-D4 `from_index` was a rune cap; it is now a byte cap.
-  assert(s.last_index_of(`你好`, usize(11)).unwrap() == usize(0), "capped before the last");
-  assert(s.last_index_of(`你好`, usize(12)).unwrap() == usize(12), "cap ON the last start");
-  assert(s.last_index_of(``).unwrap() == s.len(), "empty needle is at len()");
+  assert(s.rfind(`你好`, usize(11)).unwrap() == usize(0), "capped before the last");
+  assert(s.rfind(`你好`, usize(12)).unwrap() == usize(12), "cap ON the last start");
+  assert(s.rfind(``).unwrap() == s.len(), "empty needle is at len()");
 });
 test("String contains from_index is a byte offset", {
   s := _subject();
@@ -249,23 +249,23 @@ test("String contains from_index is a byte offset", {
 // to feed straight back into `substring`, and `substring` PANICS at a
 // non-boundary, so the exception has to be visible rather than folklore.
 // ===========================================================================
-test("String index_of with an empty needle answers from_index verbatim", {
+test("String find with an empty needle answers from_index verbatim", {
   s := _subject();
   e := String.new();
   // Boundary case: the ordinary answer.
-  assert(s.index_of(e.clone(), usize(0)).unwrap() == usize(0), "empty needle at 0");
-  assert(s.index_of(e.clone(), usize(3)).unwrap() == usize(3), "empty needle at a boundary");
-  // NOT a boundary — `index_of` hands the offset straight back, so this is the
+  assert(s.find(e.clone(), usize(0)).unwrap() == usize(0), "empty needle at 0");
+  assert(s.find(e.clone(), usize(3)).unwrap() == usize(3), "empty needle at a boundary");
+  // NOT a boundary — `find` hands the offset straight back, so this is the
   // one result that must NOT be fed to `substring` unchecked.
-  assert(s.index_of(e.clone(), usize(2)).unwrap() == usize(2), "empty needle mid-rune");
+  assert(s.find(e.clone(), usize(2)).unwrap() == usize(2), "empty needle mid-rune");
   assert(!s.is_char_boundary(usize(2)), "and byte 2 really is inside a rune");
   assert(s.try_substring(usize(0), usize(2)).is_none(), "which try_substring refuses");
   // And past the end: unclamped (JavaScript's indexOf("") would clamp to len).
-  assert(s.index_of(e.clone(), usize(99)).unwrap() == usize(99), "empty needle past the end");
-  assert(s.contains(e.clone(), usize(2)), "contains agrees with index_of");
-  // last_index_of's empty-needle arm ignores from_index entirely.
-  assert(s.last_index_of(e.clone()).unwrap() == usize(10), "empty needle is at len()");
-  assert(s.last_index_of(e.clone(), usize(2)).unwrap() == usize(10), "even under a lower cap");
+  assert(s.find(e.clone(), usize(99)).unwrap() == usize(99), "empty needle past the end");
+  assert(s.contains(e.clone(), usize(2)), "contains agrees with find");
+  // rfind's empty-needle arm ignores from_index entirely.
+  assert(s.rfind(e.clone()).unwrap() == usize(10), "empty needle is at len()");
+  assert(s.rfind(e.clone(), usize(2)).unwrap() == usize(10), "even under a lower cap");
 });
 // ===========================================================================
 // floor / ceil char boundary — the arithmetic escape hatch named by
@@ -325,13 +325,13 @@ test("String ends_with end_position counts bytes", {
 // ===========================================================================
 test("Pattern methods answer byte offsets for str patterns too", {
   s := _subject();
-  assert(s.index_of("中").unwrap() == usize(3), "str pattern index_of");
-  assert(s.last_index_of("中").unwrap() == usize(3), "str pattern last_index_of");
+  assert(s.find("中").unwrap() == usize(3), "str pattern find");
+  assert(s.rfind("中").unwrap() == usize(3), "str pattern rfind");
   assert(s.contains("中", usize(3)), "str pattern contains");
   assert(s.starts_with("中", usize(3)), "str pattern starts_with");
   assert(s.ends_with("中", usize(6)), "str pattern ends_with");
   // The String-pattern and str-pattern paths must not disagree.
-  assert(s.index_of("中") == s.index_of(`中`), "both Pattern impls agree");
+  assert(s.find("中") == s.find(`中`), "both Pattern impls agree");
 });
 // ===========================================================================
 // Byte access that was ALREADY byte-based must be unchanged

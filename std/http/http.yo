@@ -581,7 +581,7 @@ derive(
 /// concatenation at a time: quadratic in the body size, and a `substring` over
 /// a UTF-8 continuation byte panics.
 parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
-  header_end := match(raw.index_of(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
+  header_end := match(raw.find(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
   head := raw.substring(usize(0), header_end);
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
@@ -611,7 +611,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
     true => ()
   );
   sp1 := match(
-    status_line.index_of(` `),
+    status_line.find(` `),
     .Some(p) => p,
     .None => {
       return(.Err(HttpParseError.InvalidStatusLine(status_line)));
@@ -622,7 +622,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   // The reason phrase is OPTIONAL (RFC 9112 SS4): `HTTP/1.1 204` with no
   // trailing space is well-formed, and rejecting it made this parser stricter
   // than the protocol.
-  sp2 := match(rest.index_of(` `), .Some(p) => p, .None => rest.len());
+  sp2 := match(rest.find(` `), .Some(p) => p, .None => rest.len());
   code_str := rest.substring(usize(0), sp2);
   status_text := cond(
     (sp2 < rest.len()) => rest.substring(sp2 + usize(1), rest.len()),
@@ -654,7 +654,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
       lines(j).is_empty() => (),
       true => {
         match(
-          lines(j).index_of(`:`),
+          lines(j).find(`:`),
           .Some(colon) => {
             hname := lines(j).substring(usize(0), colon).trim();
             hval := lines(j).substring(colon + usize(1), lines(j).len()).trim();
@@ -674,7 +674,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
 /// already decoded chunked framing when it read the message. Errors name the
 /// defect (`Invalid request line`, unknown method, unsupported HTTP version).
 parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
-  header_end := match(raw.index_of(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
+  header_end := match(raw.find(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
   head := raw.substring(usize(0), header_end);
   // The body is sliced as BYTES: it may be binary (a body starting with a
   // UTF-8 continuation byte panicked the boundary-checked `substring`) —
@@ -727,7 +727,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
   while(j < lines.len(), j = (j + usize(1)), {
     // Read in place; only the error copies the line out.
     match(
-      lines(j).index_of(`:`),
+      lines(j).find(`:`),
       .Some(colon) => {
         hname := lines(j).substring(usize(0), colon).trim();
         hval := lines(j).substring(colon + usize(1), lines(j).len()).trim();

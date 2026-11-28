@@ -607,7 +607,7 @@ b := s(usize(0)); // u8(72) — the byte ('H'); panics past the end
 c := s.get_byte(usize(9)); // .None — the checked form
 ```
 
-`s(i) = b` is a compile error naming the missing `IndexMut`: a write would change every string sharing the buffer, and it could leave invalid UTF-8 behind. Rust's `String` has no writable byte index either. For character-level access, use the `chars()` iterator. The range sugar `s(a..b)` builds a new string; it and every other string index (`substring`, `index_of`, …) are byte offsets — see [STRINGS.md](./STRINGS.md) for the full contract.
+`s(i) = b` is a compile error naming the missing `IndexMut`: a write would change every string sharing the buffer, and it could leave invalid UTF-8 behind. Rust's `String` has no writable byte index either. For character-level access, use the `chars()` iterator. The range sugar `s(a..b)` builds a new string; it and every other string index (`substring`, `find`, …) are byte offsets — see [STRINGS.md](./STRINGS.md) for the full contract.
 
 ### Error Handling
 

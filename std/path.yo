@@ -77,7 +77,7 @@ impl(
     // on the ORIGINAL string — before separators are folded to `/`.
     is_unc := path_str.starts_with(String.from("\\\\"));
     // Normalize backslashes to forward slashes for cross-platform support
-    normalized := path_str.replace_all(String.from("\\"), String.from("/"));
+    normalized := path_str.replace(String.from("\\"), String.from("/"));
     // Windows drive letter (`C:`): the root marker, not a segment.
     (mut(is_drive) : bool) = false;
     cond(
@@ -297,7 +297,7 @@ impl(
       .Some(name) => {
         // Find the last dot using String methods
         dot := String.from(".");
-        last_dot_result := name.last_index_of(&dot);
+        last_dot_result := name.rfind(&dot);
         match(
           last_dot_result,
           .Some(idx) => {
@@ -331,7 +331,7 @@ impl(
       .Some(name) => {
         // Find the last dot using String methods
         dot := String.from(".");
-        last_dot_result := name.last_index_of(&dot);
+        last_dot_result := name.rfind(&dot);
         match(
           last_dot_result,
           .Some(idx) => {

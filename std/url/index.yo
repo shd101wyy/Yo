@@ -913,7 +913,7 @@ _split_ref :: (fn(s : &String) -> _UrlRef)({
   mut(rest) := s.clone();
   // 4. fragment — everything after the FIRST '#'.
   frag := match(
-    rest.index_of(`#`),
+    rest.find(`#`),
     .Some(i) => {
       f := rest.substring(i + usize(1), rest.len());
       rest = rest.substring(usize(0), i);
@@ -923,7 +923,7 @@ _split_ref :: (fn(s : &String) -> _UrlRef)({
   );
   // 3. query — everything after the first '?' in what remains.
   qry := match(
-    rest.index_of(`?`),
+    rest.find(`?`),
     .Some(i) => {
       q := rest.substring(i + usize(1), rest.len());
       rest = rest.substring(usize(0), i);
@@ -934,10 +934,10 @@ _split_ref :: (fn(s : &String) -> _UrlRef)({
   // 1. scheme — a colon BEFORE any '/', and only if what precedes it is a
   // valid scheme. `a/b:c` is a relative path, not scheme `a/b`.
   sch := match(
-    rest.index_of(`:`),
+    rest.find(`:`),
     .Some(i) => {
       candidate := rest.substring(usize(0), i);
-      slash_first := match(rest.index_of(`/`), .Some(j) => (j < i), .None => false);
+      slash_first := match(rest.find(`/`), .Some(j) => (j < i), .None => false);
       cond(
         (!slash_first && _is_scheme(&candidate)) => {
           rest = rest.substring(i + usize(1), rest.len());
@@ -952,7 +952,7 @@ _split_ref :: (fn(s : &String) -> _UrlRef)({
   auth := cond(
     rest.starts_with(`//`) => {
       after := rest.substring(usize(2), rest.len());
-      end := match(after.index_of(`/`), .Some(i) => i, .None => after.len());
+      end := match(after.find(`/`), .Some(i) => i, .None => after.len());
       a := after.substring(usize(0), end);
       rest = after.substring(end, after.len());
       Option(String).Some(a)
@@ -1027,7 +1027,7 @@ _merge_paths :: (fn(base : &Url, ref_path : &String) -> String)(
   cond(
     (base._host.is_some() && (base._path.len() == usize(0))) => `/${ref_path}`,
     true => match(
-      base._path.last_index_of(`/`),
+      base._path.rfind(`/`),
       .Some(i) => base._path.substring(usize(0), i + usize(1)).concat(ref_path),
       .None => ref_path.clone()
     )
@@ -1195,7 +1195,7 @@ impl(
       // Each pair is read where it lives in `parts`: no copy of it is taken.
       if(parts(i).len() > usize(0), {
         match(
-          parts(i).index_of(`=`),
+          parts(i).find(`=`),
           .Some(j) => {
             k := _form_decode(parts(i).substring(usize(0), j));
             v := _form_decode(parts(i).substring(j + usize(1), parts(i).len()));

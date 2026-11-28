@@ -228,7 +228,7 @@ compute_content_hash :: (
       );
       // Compute entry name from rel_path (last segment)
       entry_name := {
-        slash_idx := item.rel_path.last_index_of(String.from("/"));
+        slash_idx := item.rel_path.rfind(String.from("/"));
         match(
           slash_idx,
           .None => item.rel_path.clone(),
@@ -804,7 +804,7 @@ _source_url :: (fn(source : &String) -> Option(String))({
   });
   rest := source.substring(prefix.len(), source.len());
   match(
-    rest.last_index_of(String.from("#")),
+    rest.rfind(String.from("#")),
     .Some(i) => Option(String).Some(rest.substring(usize(0), i)),
     .None => Option(String).Some(rest)
   )

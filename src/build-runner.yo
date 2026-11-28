@@ -1195,7 +1195,7 @@ _entry_is_dir :: (fn(entries : &ArrayList(DirEntry), name : &String) -> bool)({
 _MemberSplit :: struct(parent : String, leaf : String);
 _split_member_pattern :: (fn(pattern : &String) -> _MemberSplit)(
   match(
-    pattern.last_index_of(String.from("/")),
+    pattern.rfind(String.from("/")),
     .Some(ix) => _MemberSplit(parent : pattern.substring(usize(0), ix), leaf : pattern.substring(ix + usize(1), pattern.len())),
     .None => _MemberSplit(parent : String.new(), leaf : pattern.clone())
   )

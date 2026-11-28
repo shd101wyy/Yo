@@ -2,7 +2,7 @@
 //! and `FromString` traits.
 //!
 //! `String` owns heap bytes and is MUTABLE — `push_str` / `push_string` /
-//! `push_byte` / `push_rune` / `insert` / `insert_str` / `remove` / `pop` /
+//! `push_byte` / `push` / `insert` / `insert_str` / `remove` / `pop` /
 //! `truncate` / `reserve` / `clear` take `self : &mut Self` and change the value in
 //! place. Everything else (the operators, `trim*`, `to_*case`, `replace*`,
 //! `substring`, …) returns a new string. For a mutable text buffer that
@@ -12,7 +12,7 @@
 //! ## Every index is a BYTE offset
 //!
 //! `len()` is the byte count at O(1), and `at` / `substring` / `s(a..b)` /
-//! `index_of` / `last_index_of`, the positional arguments of `contains` /
+//! `find` / `rfind`, the positional arguments of `contains` /
 //! `starts_with` / `ends_with`, and every method of the `Pattern` trait speak
 //! the same unit (D4, 2026-08-26). `substring` CLAMPS an endpoint past the end
 //! but PANICS on one inside a rune; `try_substring` refuses instead, and
@@ -26,7 +26,7 @@
 //!
 //! unstable — the surface is Rust-shaped and settled, but this module still
 //! EXPORTS the aliases the v0.2.28 breaking window deprecated for one release
-//! and has not yet deleted: `replace_first` / `replace_all` (D10) and the eight
+//! and has not yet deleted: the eight
 //! `parse_*() -> Option(T)` spellings superseded by `s.parse(T)` (D12). Each
 //! carries a `DEPRECATED` line at its definition. Removing an export is not an
 //! additive change, so the module cannot be frozen while the deletion is still
@@ -86,7 +86,7 @@ _release_bytes :: (fn(sink(_b) : ArrayList(u8)) -> unit)(());
 /// Growable UTF-8 encoded string — the same shape as Rust's `String`.
 ///
 /// NOT immutable: every mutator (`push_str`, `push_string`, `push_byte`,
-/// `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`,
+/// `push`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`,
 /// `remove`, `pop`) takes `self : &mut Self` and writes in place. `clone()` copies
 /// the bytes (O(n)): the clone is independent of the original. A string is a
 /// value (B8, plans/archive/STRING_VALUE_SEMANTICS.md §0): it is the only owner of its
@@ -212,7 +212,7 @@ impl(
   ///
   /// **BYTE basis.** This is the unit every index-taking method on `String`
   /// speaks: `at`, `substring`, the `s(a..b)` / `s(a..=b)` slice sugar,
-  /// `index_of`, `last_index_of`, `contains(from_index)`,
+  /// `find`, `rfind`, `contains(from_index)`,
   /// `starts_with(position)`, `ends_with(end_position)` and the `Pattern`
   /// trait. It agrees with `str.len()`, `StringBuilder.len()`, `byte_at` /
   /// `get_byte` (which read a `u8`) and Rust's `str::len()`.
@@ -356,7 +356,7 @@ impl(
   /// `push_byte` appends a single BYTE and will happily build invalid UTF-8;
   /// this is the rune-level counterpart, so it is what you want for anything
   /// outside ASCII.
-  push_rune : (fn(self : &mut Self, r : rune) -> unit)({
+  push : (fn(self : &mut Self, r : rune) -> unit)({
     utf8.encode_into(r, &mut self._bytes);
   }),
   /// Reserve capacity for at least `additional` more bytes.
@@ -459,7 +459,7 @@ impl(
   /// boundary at or before `len()`.
   ///
   /// **The empty needle is the one exception, and it is deliberate.** It
-  /// matches everywhere, so `index_of(``, i)` answers `.Some(i)` verbatim —
+  /// matches everywhere, so `find(``, i)` answers `.Some(i)` verbatim —
   /// including an `i` inside a rune and an `i` past `len()` (JavaScript's
   /// `indexOf("")` clamps to the length; this does not, and neither did the
   /// pre-D4 rune-indexed version). An offset past the end is harmless
@@ -467,7 +467,7 @@ impl(
   /// `substring` panics there. Callers that feed a search result straight back
   /// into a slice and can be handed an empty needle should go through
   /// `try_substring`, or snap with `floor_char_boundary`.
-  /// Not called directly — go through `index_of`.
+  /// Not called directly — go through `find`.
   _index_of_impl : (fn(self : &Self, substr : &Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(from_index),
@@ -663,7 +663,7 @@ impl(
   /// `rfind("")` shape), so it is the one case where the result can exceed the
   /// cap the caller asked for. That is the pre-D4 behaviour carried over
   /// unchanged — only the unit changed, from a rune count to a byte count.
-  /// Not called directly — go through `last_index_of`.
+  /// Not called directly — go through `rfind`.
   _last_index_of_impl : (fn(self : &Self, substr : &Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(self.len()),
@@ -1222,7 +1222,7 @@ Pattern :: trait(
   /// answering with the byte offset of the last such match.
   last_index_in : (fn(self : &Self, haystack : &String, from_index : usize) -> Option(usize)),
   /// Number of BYTES the match STARTING EXACTLY at byte offset `at` occupies
-  /// — 0 when no match starts there. `replace`, `replace_all`, `split_once`
+  /// — 0 when no match starts there. `replace`, `replacen`, `split_once`
   /// and `strip_prefix` cut the haystack by it; a zero-width pattern (empty
   /// string, empty-matching regex) legitimately answers 0.
   length_in : (fn(self : &Self, haystack : &String, at : usize) -> usize),
@@ -1414,7 +1414,7 @@ impl(
 /// trait dispatch — no overload resolution. See plans/archive/OVERLOADING_REDESIGN.md §4.
 ///
 /// **Every index below is a BYTE offset** (`plans/archive/STD_API_AUDIT_D4_PLAN.md`
-/// D4 PR 3), matching `len()` and `substring`, so `index_of`'s answer can be
+/// D4 PR 3), matching `len()` and `substring`, so `find`'s answer can be
 /// fed straight back into `substring` with nothing in between.
 impl(
   String,
@@ -1433,13 +1433,14 @@ impl(
     substr.is_contained_in(self, from_index)
   ),
   /// BYTE offset of the first occurrence of `substr` at or after BYTE offset
-  /// `from_index` (default 0), or `.None`.
-  index_of : (fn(generic(P : ?Sized), self : &Self, substr : &P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
+  /// `from_index` (default 0), or `.None` (Rust's `str::find`).
+  find : (fn(generic(P : ?Sized), self : &Self, substr : &P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
     substr.index_in(self, from_index)
   ),
   /// BYTE offset of the last occurrence of `substr` starting at or before BYTE
-  /// offset `from_index` (default `usize.MAX`, meaning anywhere), or `.None`.
-  last_index_of : (fn(generic(P : ?Sized), self : &Self, substr : &P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
+  /// offset `from_index` (default `usize.MAX`, meaning anywhere), or `.None`
+  /// (Rust's `str::rfind`).
+  rfind : (fn(generic(P : ?Sized), self : &Self, substr : &P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
     substr.last_index_in(self, from_index)
   ),
   /// Split on runs of ASCII whitespace, discarding empty pieces — Rust's
@@ -1486,7 +1487,7 @@ impl(
         (mut(go) : bool) = true;
         while(go && (made < n), {
           match(
-            rest.index_of(separator),
+            rest.find(separator),
             .Some(at) => {
               out.push(rest.substring(usize(0), at));
               rest = rest.substring(at + separator.length_in(&rest, at), rest.len());
@@ -1664,7 +1665,7 @@ impl(
   /// `insert_str`.
   insert : (fn(self : &mut Self, idx : usize, r : rune) -> unit)({
     mut(one) := Self.new();
-    one.push_rune(r);
+    one.push(r);
     self.insert_str(idx, &one);
   }),
   /// Remove and return the rune STARTING at byte index `idx` — Rust's
@@ -1758,8 +1759,7 @@ impl(
       .None => .None
     )
   }),
-  /// Shared left-to-right scanner behind `replace`, `replacen` and
-  /// `replace_first`. When `bounded` is true it stops after `limit`
+  /// Shared left-to-right scanner behind `replace` and `replacen`. When `bounded` is true it stops after `limit`
   /// replacements and copies the rest of the string verbatim; `limit == 0`
   /// with `bounded` replaces nothing.
   _replace_scan : (
@@ -1851,15 +1851,14 @@ impl(
   /// "-a-b-c-"` — by stepping one rune past each zero-width match so the scan
   /// always advances. Returns `self` unchanged when the pattern never matches.
   ///
-  /// NOTE this replaced only the FIRST occurrence before D10. Use `replacen`
-  /// for a bounded count.
+  /// `replacen` is the bounded count.
   replace : (fn(generic(P : ?Sized), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(0), false)
   ),
   /// Replace the first `count` occurrences of `search_value` with `new_value`,
   /// leaving any later ones alone — Rust's `str::replacen`.
   ///
-  /// `replacen(p, v, usize(1))` is the pre-D10 meaning of `replace`.
+  /// `replacen(p, v, usize(1))` replaces the first occurrence only.
   /// `count == 0` returns `self` unchanged.
   replacen : (
     fn(
@@ -1872,20 +1871,6 @@ impl(
     ) -> Self
   )(
     Self._replace_scan(self, search_value, new_value, count, true)
-  ),
-  /// Replace the FIRST occurrence of `search_value` with `new_value`.
-  ///
-  /// DEPRECATED (D10), kept for one release: this is what `replace` used to
-  /// mean. Write `replacen(search_value, new_value, usize(1))` instead.
-  replace_first : (fn(generic(P : ?Sized), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
-    Self._replace_scan(self, search_value, new_value, usize(1), true)
-  ),
-  /// Replace EVERY occurrence of `search_value` with `new_value`.
-  ///
-  /// DEPRECATED (D10), kept for one release: `replace` now means this. Rust
-  /// spells it `replace`, with no `replace_all` on `str`.
-  replace_all : (fn(generic(P : ?Sized), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
-    Self._replace_scan(self, search_value, new_value, usize(0), false)
   )
 );
 /// Hash trait implementation — FNV-1a hash over the string's bytes.

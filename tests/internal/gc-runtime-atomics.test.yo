@@ -64,7 +64,7 @@ emit_parallelism_runtime :: (fn() -> String)({
 /// loudly instead of slicing from index 0).
 must_find :: (fn(hay : &String, needle : str, from : usize) -> usize)(
   match(
-    hay.index_of(&needle, from),
+    hay.find(&needle, from),
     .Some(i) => i,
     .None => {
       mut(msg) := String.from("codegen pin marker not found in emitted C: ");
@@ -165,7 +165,7 @@ test("a dispose thunk is a void* forwarder, emitted once per dispose function", 
   c := ctx.base.emitter.print();
   thunk := "static inline void __yo_dispose_thunk_yo_id_7(void* ptr) { yo_id_7(ptr); }";
   at := must_find(&c, thunk, usize(0));
-  assert(match(c.index_of(&thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
+  assert(match(c.find(&thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
   assert(c.contains("static inline void __yo_dispose_thunk_yo_id_8(void* ptr) { yo_id_8(ptr); }"), "the second thunk is emitted");
 });
 /// Pin: a `Drop` impl's `___dispose` takes `self : &mut Self`, so its thunk

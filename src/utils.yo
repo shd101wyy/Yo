@@ -1336,7 +1336,7 @@ _parse_prefixed_int :: (fn(bytes : &String, start : usize, base : i64) -> Option
 /// beyond it (no integer type can hold that, and every caller treats `.None`
 /// as "not representable").
 parse_raw_int :: (fn(raw : &String) -> Option(i64))({
-  stripped := raw.replace_all(`_`, ``);
+  stripped := raw.replace(`_`, ``);
   cond(
     (stripped.starts_with(`0x`) || stripped.starts_with(`0X`)) =>
       _parse_prefixed_int(&stripped, usize(2), i64(16)),
