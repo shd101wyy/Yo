@@ -206,7 +206,7 @@ VERDICTS-94 §7's E-0a to E-5 stand, with VERDICTS-96 §6's five amendments:
 | --- | --- | --- | --- | --- | --- |
 | **E-0a** | v0.2.81 | no | This plan, the edits of VERDICTS-96 §8, F8–F10 filed. Markdown and `issues/` only | S | refs check; fmt |
 | PR A | v0.2.81 | no | VERDICTS-89 PR A (E0627) as it stands: the last mechanism fix | — | its own |
-| PR B | v0.2.82, after the cut | no | VERDICTS-89 PR B as it stands, only if its Tier 1 is green; otherwise the branch is closed | — | its own |
+| PR B | — | no | VERDICTS-89 PR B: closed 2026-11-28 by maintainer decision, without merging (the fall-through it rejects goes with `ctl` at E-5; `issues/2026-11-27-a-generic-resume-handler-that-falls-through-aborts-the-process-with-no-message.md` stays open until then) | — | — |
 | **E-0b** | v0.2.82 | no | A contracted body's `ensures` is asserted on every `return(...)`; an `ensures` on a function that installs an unwinding handler is an error. F8, F10 | S–M, lane E | VERDICTS-96 `v01`–`v03`, `v09`, `v11`, `v12` as fixtures |
 | **E-0c** | v0.2.82 | no | Delete the dead effect code (about 1,200 lines: `effect-analysis.yo` and its types, `get_evidence_parameters`, `_module_type_contains_ctl_field`, three write-only context fields) | S | emit-diff identity |
 | **E-1** | v0.2.83 | A | L-1, the `try(expr)` builtin, with VERDICTS-94 §6's additions: inside a closure or an `io.async` body it returns from that body; `try` on `Option`; the error conversion through `From` by value | M | L-1's |
@@ -255,7 +255,7 @@ converts; E-5 starts when they are 0 in `src/` and `std/`.
 | Release | Errors as values | ALLOCATION_FREE_ASYNC | Verification |
 | --- | --- | --- | --- |
 | v0.2.81 | E-0a; PR A | AFA-0 | SPEC_AND_PROOF PR 1a, 1b; DEFAULT_ON_VERIFICATION S2 |
-| v0.2.82 | PR B; E-0b; E-0c | — | E-0b is lane E's |
+| v0.2.82 | E-0b; E-0c | — | E-0b is lane E's |
 | v0.2.83 | E-1; E-2 | AFA-1, AFA-2 | E-1v; `logic` and `lemma` |
 | v0.2.84 | E-3; E-4a, E-4b; E-6 answered | AFA-3 with no unwind in embedded frames; AFA-4 | S3 starts on modules E-3 has converted |
 | v0.2.85 | E-4c, E-4d | AFA-5, AFA-6: std's async files change once more, after E-3 | — |
@@ -279,7 +279,7 @@ converts; E-5 starts when they are 0 in `src/` and `std/`.
 | Item | Decision (VERDICTS-96 §5) |
 | --- | --- |
 | VERDICTS-89 PR A (E0627) | Merge in v0.2.81. It closes an S1 in shipped compilers by rejecting programs, is evaluator-only and emit-identical, and files the `-> never` issues and the parked question. It moves the S1 doc to `issues/fixed/2026-11-25-a-generic-ctl-handler-cannot-resume-with-a-value-at-any-type.md` |
-| VERDICTS-89 PR B (no fall-through) | Merge after the v0.2.81 cut only if its Tier 1 is green as it stands; otherwise the branch is closed. No further work goes into it |
+| VERDICTS-89 PR B (no fall-through) | Closed 2026-11-28 by maintainer decision, without merging; the branch `wip/v0281-ctl-resume-b` is kept for the record. Its issue stays open and retires with E-5 |
 | F1–F7 | Not fixed. Each doc says so and moves to `issues/retired/` with E-5. A census finds no statement in `src/` or `std/` that can reach F1, F4 or F5; F2, F3 and F6 need a program that moves a handler out of its frame. A user program on v0.2.81–85 can still meet F1 or F5, and the roadmap withholds the soundness claim while an S1 is open |
 | F8 | Fixed in v0.2.82 as a contract fix (E-0b) |
 | F9 | Fixed by E-1v |

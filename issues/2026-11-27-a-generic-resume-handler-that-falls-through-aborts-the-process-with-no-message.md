@@ -3,7 +3,11 @@
 **Severity:** S2. `yo check` accepts the program, and the docs call it legal. At run time the process aborts (exit 134) with no diagnostic when the handler falls off its end.
 
 - Filed 2026-11-27 from VERDICTS-89 §9 finding 1 (Fable 5.2, probes p3, p4, p6, p10 in `~/Workspace/Yo-wt/v0273/probe-ctl/`). Reproduced with a stage 1 of `wip/v0281-dupdrop-r9` merged with develop `bc706b0a3` (v0.2.80).
-- Closed by VERDICTS-89 PR B: the fall-through half of R2 makes this handler a compile error. That PR also carries the sweep of 88 `assert(false, msg);` handler tails to `panic(msg)` and the docs correction.
+- **No fix is planned, and no test lands.** VERDICTS-89 PR B, the fall-through half of R2 with its sweep, was closed without merging on 2026-11-28 by maintainer decision. VERDICTS-96 deletes `ctl` and `unwind` in v0.2.86 (`plans/backlog/ERRORS_AS_VALUES.md`, E-5), which retires this doc. Its branch `wip/v0281-ctl-resume-b` is kept for the record.
+- It still reproduces after PR A (#2140): checked 2026-11-28 with a stage 1 of `01ac3ec0b` (PR A merged with develop `d014c8bdd`). `yo check` passes; the binary prints `swallowed` and exits 134.
+- **Workaround:** end every path of the handler with `panic(msg)` or `unwind(...)`. Make that call the handler's value: with a `;` after `panic(msg)`, or after a `cond` whose arms all diverge, the block's value is `()` and the handler still falls through. `assert(false, msg)` is not known to diverge.
+
+The reproducer is `issues/repros/2026-11-27-a-generic-resume-handler-that-falls-through.yo`.
 
 ## Reproducer
 
@@ -45,4 +49,4 @@ The handler is emitted as `void* fn(int32_t err)`. Its body ends with a statemen
 
 Before the trap existed, the fall-through resumed with a zeroed `ResumeType`: a null `Rc` or `Box` in safe code. Restoring that ordering is therefore not the fix.
 
-The fix is VERDICTS-89 R2's second half. A handler of a `ctl(generic(R : Type), ...) -> R` does not resume, so every path must end in `unwind(value)` or in an expression of type `never`. Falling off the end is an error at the handler. `docs/en-US/ERROR_HANDLING.md` ("must `unwind`, diverge, or fall through with `()`") and `tests/algebraic-effects.test.yo`'s `_falls` line are corrected with it. The test that fails before and passes after is a `comptime_expect_error` row for `err -> { println(...); }` in `tests/algebraic-effects.test.yo`.
+The fix would be VERDICTS-89 R2's second half. A handler of a `ctl(generic(R : Type), ...) -> R` does not resume, so every path would have to end in `unwind(value)` or in an expression of type `never`, and falling off the end would be an error at the handler. PR B implemented that check, but it was not merged: the operation itself is deleted at E-5.
