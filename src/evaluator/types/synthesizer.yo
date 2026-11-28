@@ -186,21 +186,15 @@ synthesis_type_id :: (fn(ty : &TypeValue) -> String)(
     _ => type_to_string_key(ty)
   )
 );
-/// Check if a `TypePair` is already in the checked-pairs list.
+/// Check if a `TypePair` is already in the checked-pairs list. Reads each
+/// pair in place: the list grows with every synthesis step, and a copied
+/// pair is two string copies per element per question.
 _has_type_pair :: (fn(pairs : &ArrayList(TypePair), exp_id : &String, giv_id : &String) -> bool)({
   n := pairs.len();
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < n) && !found, {
-    p := match(
-      pairs.get_cloned(i),
-      .Some(p) => p,
-      .None => {
-        i = n;
-        break;
-      }
-    );
-    if((p.expected_id == exp_id.*) && (p.given_id == giv_id.*), {
+    if((pairs(i).expected_id == exp_id.*) && (pairs(i).given_id == giv_id.*), {
       found = true;
     });
     i = (i + usize(1));

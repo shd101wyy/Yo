@@ -3338,19 +3338,7 @@ type_contains_some_type_for_codegen_param :: (
     _ => String.from("")
   );
   if(!nominal_id.is_empty(), {
-    (seen : bool) = false;
-    (ci : usize) = usize(0);
-    while((ci < checked_ids.len()) && !seen, {
-      match(
-        checked_ids.get_cloned(ci),
-        .Some(k) => if(k == nominal_id, {
-          seen = true;
-        }),
-        .None => ()
-      );
-      ci = (ci + usize(1));
-    });
-    if(seen, {
+    if(checked_ids.contains(&nominal_id), {
       return(false);
     });
     checked_ids.push(nominal_id.clone());
