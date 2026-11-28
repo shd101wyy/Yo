@@ -176,7 +176,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, peeled_lend_marker, judge_lend_at_solved_slot, t9_lend_type, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr, reference_argument_as_referent, _try_call_fn_with_args_trapped } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function-value.yo");
 { structural_clone_expansion } :: import("../utils/closure.yo");
-{ is_ghost_fn } :: import("../builtins/contracts.yo");
+{ check_spec_context_call } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation-summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
@@ -13663,21 +13663,11 @@ Fix: wrap the call:
           match(&callee_info_opt, .Some(fv_ci0) => Rc.clone(fv_ci0.ty()), .None => t_unit()),
           &forall_names
         );
-        // V5 task 3: a `ghost_fn(...)` definition is callable ONLY from
-        // ghost context (contract clauses, ghost bindings, ghost_fn bodies,
-        // and the verifier's predicate pass) — it has no runtime semantics.
-        if(is_ghost_fn(func_id_fv.clone()) && !ctx.is_ghost_context, {
-          exn.throw(
-            dyn(
-              Box.new(
-                format_error_message(
-                  ast_expr_token(expr),
-                  String.from("a ghost_fn is callable only from ghost context (contract clauses, ghost(...) bindings, ghost_fn bodies) — it has no runtime semantics")
-                )
-              )
-            )
-          );
-        });
+        // V5 task 3, SPEC_AND_PROOF.md §4.2: a `ghost_fn(...)` definition is
+        // callable ONLY from ghost context — it has no runtime semantics — and
+        // erased code may call neither a lemma from a specification nor a
+        // contracted function.
+        check_spec_context_call(&func_id_fv, ast_expr_id(&body_box), expr, ctx, exn);
         n_p := param_names.len();
         n_ev := evidence_names.len();
         (n_a : usize) = args.len();

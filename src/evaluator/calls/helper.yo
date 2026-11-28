@@ -210,7 +210,7 @@ pragma(Pragma.AllowUnsafe);
   unsize_reference_mode
 } :: import("../../expr-info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ call_promote_index_places_for_write } :: import("../context.yo");
+{ call_promote_index_places_for_write, in_ghost_context } :: import("../context.yo");
 {
   SynthesizeResult,
   SynthesizeOptions,
@@ -1012,7 +1012,7 @@ check_call_site_borrow_marker :: (
     exn : Exception
   ) -> unit
 )({
-  if(param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase || ctx.is_ghost_context, {
+  if(param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase || in_ghost_context(ctx), {
     return(());
   });
   if(is_type_parameter_type(param_ty) || is_pointer_type(param_ty), {

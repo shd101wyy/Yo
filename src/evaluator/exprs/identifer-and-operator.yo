@@ -22,7 +22,7 @@
 } :: import("../../expr-info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note, variable_value_type, variable_slot_type } :: import("../../env.yo");
-{ EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition, is_unlabeled_ensures_atom }
+{ EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition, is_unlabeled_ensures_atom, in_ghost_context }
 :: import("../context.yo");
 { TypeValue, t_origin_kind, t_slot_is_mut_ref, t_refine_inner } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -249,12 +249,12 @@ evaluate_identifier_and_operator :: (
       // V5 task 3: a `ghost(name := e)` binding is spec-only. Reading it
       // from ordinary code is the "ghost value escapes specification
       // context" error; contract predicates, ghost bindings and ghost_fn
-      // bodies (all under is_ghost_context) read it freely. The gate asks
+      // bodies (all in a ghost context) read it freely. The gate asks
       // the RESOLVED Variable's own flag — not a global name set — so an
       // unrelated binding that merely shares the name (another module, or
       // another function of the same module) stays ordinary
       // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
-      if(v.*.is_ghost_binding() && !ctx.is_ghost_context, {
+      if(v.*.is_ghost_binding() && !in_ghost_context(ctx), {
         exn.throw(
           dyn(
             Box.new(

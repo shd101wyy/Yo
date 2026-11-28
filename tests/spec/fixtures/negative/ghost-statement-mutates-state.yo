@@ -1,0 +1,13 @@
+// A `ghost(...)` statement takes a ghost binding or a lemma call, nothing
+// else. Codegen erases the statement, so a push the verifier walked would
+// never happen at run time: `r == 1` was proved and the program returned 0
+// (issues/fixed/2026-11-27-a-ghost-statement-mutates-state-the-program-reads.md).
+// The evaluator rejects it (E0929) in every mode.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array-list");
+
+wrong :: (fn(ensures(r == usize(1))) -> (r : usize))({
+  mut(xs) := ArrayList(i32).new();
+  ghost(xs.push(i32(7)));
+  xs.len()
+});

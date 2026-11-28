@@ -2,7 +2,7 @@
 
 **Severity:** S1 — `yo verify --strict` passes a function whose `ensures(r == 1)` is false (the binary prints `0`): `ghost(xs.push(i32(7)))` is walked as a real push, and codegen erases it.
 
-**Status:** open. **Found:** 2026-11-27 by the VERDICTS-91 probes (`p05b`, `r05` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
+**Status:** fixed by PR 1a of the plan (§8). **Found:** 2026-11-27 by the VERDICTS-91 probes (`p05b`, `r05` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
 
 ## Reproducer
 
@@ -45,4 +45,15 @@ This is not a bug to patch alone: each of the seven false proofs of `plans/backl
 
 ## Fix
 
-PR 1a of `plans/backlog/SPEC_AND_PROOF.md` §8 (`ghost(e)` takes a binding or a proof step). The fixing PR adds a `tests/spec/fixtures/negative/` fixture of this program that the tree binary rejects and v0.2.80 accepts, and moves this doc to `issues/fixed/`.
+PR 1a of `plans/backlog/SPEC_AND_PROOF.md` §8. `ghost(e)` now takes a ghost binding `ghost(name := e)` or one proof step, a lemma call; any other statement is E0929 (E_GHOST_STATEMENT_FORM). The reproducer now fails evaluation, so `yo verify --strict` exits 1:
+
+```text
+error[E0929]: 'ghost(...)' takes a ghost binding 'ghost(name := e)' or a proof step, a lemma call 'ghost(lemma(args))'; erased code may not do anything else, got:
+ghost((xs.push)(i32(7)))
+  --> issues/repros/2026-11-27-a-ghost-statement-mutates-state-the-program-reads.yo:8:3
+  |
+8 |   ghost(xs.push(i32(7)));
+  |   ^^^^^
+```
+
+Test: `tests/spec/fixtures/negative/ghost-statement-mutates-state.yo` (this program; the tree binary rejects it, v0.2.80 accepts it), checked by `tests/internal/verifier-ghost.test.yo` "ghost(...) takes a binding or a lemma call — a push is E0929".

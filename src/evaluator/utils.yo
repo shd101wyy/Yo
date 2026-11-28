@@ -130,7 +130,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../env.yo");
 { get_value_of_some_type_from_env } :: import("../types/env-lookup.yo");
 { Token, TokenKind, TokenData } :: import("../token.yo");
-{ EvalContext, ExpectedTypeCtx, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
+{ EvalContext, ExpectedTypeCtx, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing, in_ghost_context } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
 {
   format_error_message,
@@ -2242,7 +2242,7 @@ _is_handle_own_field_step :: (fn(step : &AstExpr, base_ty : &TypeValue) -> bool)
 /// candidates are trial-checked, and in ghost (spec) code, which never
 /// writes.
 reject_write_through_rc :: (fn(place : &AstExpr, kind : &(str, static), param_ty : Option(TypeValue), ctx : &EvalContext, exn : Exception) -> unit)({
-  if(ctx.is_in_function_call_checking_phase || ctx.is_ghost_context, {
+  if(ctx.is_in_function_call_checking_phase || in_ghost_context(ctx), {
     return(());
   });
   (handle : Option(AstExpr)) = place_rc_handle(place, ctx);

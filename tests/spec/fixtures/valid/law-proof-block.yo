@@ -1,0 +1,46 @@
+// A law with a proof block (plans/backlog/SPEC_AND_PROOF.md §3.3): a
+// specification cannot call a lemma, so a law that needs induction cites the
+// lemma in its proof block, over the law's own parameters. Without the block
+// Z3 cannot prove the claim (it does no induction).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array-list");
+
+// v occurs in xs[0..n).
+member :: ghost_fn(
+  (fn(xs : &ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => false,
+      true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
+    )
+  )
+);
+
+member_frame :: ghost_fn(
+  (
+    fn(
+      a : &ArrayList(i32),
+      b : &ArrayList(i32),
+      n : usize,
+      v : i32,
+      requires(n <= a.len(), n <= b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
+      ensures(member(a, n, v) == member(b, n, v)),
+      decreases(n)
+    ) -> unit
+  )(
+    cond(
+      (n == usize(0)) => (),
+      true => member_frame(a, b, n - usize(1), v)
+    )
+  )
+);
+
+// Two lists with the same elements have the same members.
+same_members :: law(fn(
+  a : &ArrayList(i32),
+  b : &ArrayList(i32),
+  v : i32,
+  requires(a.len() == b.len(), forall(i : usize, (i < a.len()) ==> (a(i) == b(i)))),
+  ensures(member(a, a.len(), v) == member(b, b.len(), v))
+) -> unit, {
+  member_frame(a, b, a.len(), v);
+});

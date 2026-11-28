@@ -1,0 +1,11 @@
+// A lemma is a proof step that never runs: an executable body calls it only
+// as the statement `ghost(lem(x));` (E0928 otherwise).
+pragma(Pragma.Verify);
+
+pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
+lem :: ghost_fn((fn(x : i32, requires(x > i32(1)), ensures(pos(x))) -> unit)(()));
+
+use_it :: (fn(x : i32, requires(x > i32(1)), ensures(r > i32(0))) -> (r : i32))({
+  lem(x);
+  x
+});

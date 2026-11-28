@@ -249,6 +249,8 @@ member_frame :: ghost_fn(
 
 使用引理时，把它写成幽灵语句：`ghost(member_frame(xs, out, xs.len(), v));`。这次调用在这些实参上证明引理的 `requires`，此后假设其 `ensures`。错误的引理证不出来；`requires` 不成立的使用会被反驳。
 
+引理是证明步骤。可执行代码只能以上述语句调用它。引理体和 law 的证明块（§法则）本身就是证明，因此在其中直接调用，正如上面的递归调用。规约不能调用引理：应在需要该事实之前，在证明中引用它（§被擦除的代码可以调用什么）。
+
 返回值的 `ghost_fn` 仍会被内联，递归时则被公理化。调用处不检查它的 `requires`：它的 SMT 解读是全函数。
 
 ### 列表上的序列：`seq_of`
@@ -309,7 +311,27 @@ append_all :: (
 
 ### 规约中的纯函数
 
-没有契约、函数体可被验证器表达、且不改变任何实参的函数是透明的：规约可以调用它，调用的含义就是其函数体。因此对 `sq :: (fn(x : i32) -> i32)(x * x)`，`r = x * x` 时 `ensures(r == sq(x))` 能证出，无需把 `sq` 重写成 `ghost_fn`。递归函数只有带 `decreases(...)` 时才透明：其自身任务证明度量递减，因此其定义会终止。其他函数保持不透明，子集错误会指出缺少的性质（"not spec-transparent: it changes an argument"、"... its body is outside the verifier subset (...)"、"... it calls itself without decreases(...)"）。
+没有契约、函数体可被验证器表达、不改变任何实参、且不调用带契约函数的函数是透明的：规约可以调用它，调用的含义就是其函数体。因此对 `sq :: (fn(x : i32) -> i32)(x * x)`，`r = x * x` 时 `ensures(r == sq(x))` 能证出，无需把 `sq` 重写成 `ghost_fn`。递归函数只有带 `decreases(...)` 时才透明：其自身任务证明度量递减，因此其定义会终止。其他函数保持不透明，子集错误会指出缺少的性质（"not spec-transparent: it changes an argument"、"... its body is outside the verifier subset (...)"、"... it calls itself without decreases(...)"、"... it calls 'f', which has a contract"）。
+
+### 被擦除的代码可以调用什么
+
+规约与证明从不运行。代码生成会擦除它们，已证明的 `ensures` 也会失去运行时检查。因此它们有自己的调用规则，由求值器在所有模式下检查：
+
+| 上下文 | 位置 |
+| --- | --- |
+| 规约 | `requires`、`ensures`、`invariant` 或 `decreases` 子句；返回值的 `ghost_fn`；`ghost(name := e)` 的右侧；verify 模式文件中的 `assert`；law 的子句 |
+| 证明 | 引理体；`ghost(...)` 语句；law 的证明块 |
+
+| 被调方 | 从可执行代码 | 从规约 | 从证明 |
+| --- | --- | --- | --- |
+| 返回值的 `ghost_fn` | 不可 | 可以 | 可以 |
+| 引理 | 只能写成 `ghost(lemma(args));` | 不可 | 可以 |
+| 带契约的函数 | 可以 | 不可，law 的子句除外 | 不可 |
+| 不带契约的函数 | 可以 | 可以：调用的含义就是其函数体 | 可以 |
+
+带契约的函数只对能返回的运行才正确：永不返回的函数满足任何 `ensures`。运行中的代码到达这样的调用就不会越过它；而被擦除的代码若假设了它的 `ensures`，就会从一个没有任何运行确立过的事实继续推下去。因此规约或证明只调用 `ghost_fn` 或不带契约的函数。law 的子句是例外：它们陈述的是关于契约的断言，且没有任何东西能引用 law。每种违例都是 `E0928`。
+
+`ghost(...)` 接受幽灵绑定 `ghost(name := e)` 或证明步骤 `ghost(lemma(args))`。其他任何东西都是 `E0929`：该语句会被擦除，因此像 `ghost(xs.push(v))` 这样的步骤会让验证器证明一个程序从未有过的长度。在规约或证明内部，代码本来就是幽灵的，那里的 `ghost(...)` 同样是 `E0929`。
 
 ### std 的受信契约：`assumed()`
 
@@ -459,6 +481,22 @@ abs_doubles_nonneg :: law(
 | `assumed()` | 它会让断言不经证明就通过 |
 | `decreases(...)` | 法则没有可度量的递归 |
 | 用别名而非就地写出的 `fn(...)` 类型 | 无法扫描其子句，隐藏的 `assumed()` 会被忽略 |
+
+law 的子句是唯一可以调用带契约函数的规约（§被擦除的代码可以调用什么）。规约不能调用引理，因此需要引理的 law 带一个**证明块**，即作用于 law 参数之上的可选第二个实参：
+
+```yo
+same_members :: law(fn(
+  a : &ArrayList(i32),
+  b : &ArrayList(i32),
+  v : i32,
+  requires(a.len() == b.len(), forall(i : usize, (i < a.len()) ==> (a(i) == b(i)))),
+  ensures(member(a, a.len(), v) == member(b, b.len(), v))
+) -> unit, {
+  member_frame(a, b, a.len(), v);
+});
+```
+
+证明块是证明：其中直接调用引理，引理的 `requires` 在 law 的 `requires` 之下被证明，其 `ensures` 在证明 law 的 `ensures` 之前被假设。
 
 法则以自己的 `law@<文件>:<行>:<列>` 标识报告，因此同一行上的两条法则不会混淆：
 
@@ -663,8 +701,8 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 `forall((k : T), P)`/`exists((k : T), P)` 降级为带注解
 绑定器的 SMT 量词（这些小目标由 z3 的基于模型的实例化求解；
 显式 `:pattern` 触发器推迟到有基准需要时），`a ==> b` 是布尔
-蕴含。三者都**仅限幽灵上下文** —— 只允许出现在契约子句、
-`ghost(...)` 绑定和 `ghost_fn` 体内，其他位置是编译错误（它们
+蕴含。三者都**仅限幽灵上下文** —— 只允许出现在规约与证明中
+（§被擦除的代码可以调用什么），其他位置是编译错误（它们
 没有运行期语义）。`&mut` 参数是子集中唯一可重赋值的绑定：
 函数体内的 `=` 重绑定当前值，而 `old(v)` 始终读入口快照。
 定长 `Array(T, N)` 值按 **BV64 下标的 SMT 数组**建模：`a(i)`

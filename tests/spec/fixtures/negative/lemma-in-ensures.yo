@@ -1,0 +1,18 @@
+// A specification cannot call a lemma: a lemma is a proof step, and a clause
+// is not a proof. A law cites a lemma in its proof block instead
+// (valid/law-proof-block.yo). The evaluator rejects the call (E0928).
+pragma(Pragma.Verify);
+
+pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
+lem :: ghost_fn((fn(x : i32, requires(x > i32(1)), ensures(pos(x))) -> unit)(()));
+
+uses_lemma :: law(
+  fn(
+    x : i32,
+    requires(x > i32(1)),
+    ensures({
+      lem(x);
+      pos(x)
+    })
+  ) -> unit
+);

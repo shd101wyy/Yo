@@ -97,7 +97,8 @@ pragma(Pragma.AllowUnsafe);
   forward_ref_diagnostic,
   publish_pending_phase_a,
   forcing_depths,
-  truncate_forcing_depths
+  truncate_forcing_depths,
+  in_ghost_context
 } :: import("../context.yo");
 { stable_func_id, display_module_path, debug_knob } :: import("../../utils.yo");
 { register_func_type, get_func_type, mark_fn_unemittable } :: import("../../function-value.yo");
@@ -189,14 +190,14 @@ _pred_eval_failed :: (fn() -> bool)(g_pred_eval_failed);
 /// (issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md).
 ///
 /// An unwind also skips `evaluated_for_verify`'s own restore of
-/// `ctx.is_ghost_context`, so this fn restores it on both paths.
+/// `ctx.spec_context`, so this fn restores it on both paths.
 _soft_evaluated_for_verify :: (
   fn(p : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> Option(AstExpr)
 )({
   _reset_pred_eval_failed();
-  saved_ghost := ctx.is_ghost_context;
+  saved_ghost := ctx.spec_context;
   out := _soft_evaluated_for_verify_inner(p, env, ctx);
-  ctx.is_ghost_context = saved_ghost;
+  ctx.spec_context = saved_ghost;
   out
 });
 _soft_evaluated_for_verify_inner :: (
@@ -1404,7 +1405,7 @@ Result type: ${type_to_string(&result_box)}`
         get_func_return_label(contract_key.clone()),
         result_is_comptime_only,
         is_unit_type(&result_box),
-        ctx.is_ghost_context,
+        in_ghost_context(ctx),
         &ck_requires_checkable,
         &ck_ensures_checkable
       );
@@ -1852,7 +1853,7 @@ Result type: ${type_to_string(&result_box)}`
               // assumed spec, `r.len()`, was untyped before — R1 slice 2).
               body_assumed : is_assumed,
               body_abstract : should_defer_ft,
-              requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), ctx.is_ghost_context, &ctx.expr_info_table)
+              requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), in_ghost_context(ctx), &ctx.expr_info_table)
             )
           );
           ()

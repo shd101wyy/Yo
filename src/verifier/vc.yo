@@ -53,9 +53,9 @@ pragma(Pragma.AllowUnsafe);
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
 { type_key } :: import("../types/type-key.yo");
-{ is_unit_type } :: import("../types/guards.yo");
 {
   is_ghost_fn,
+  ghost_fn_is_lemma,
   ghost_fn_def_of,
   refine_pred_chain_of,
   callsite_contracts_for,
@@ -6833,8 +6833,7 @@ _callee_call_term :: (
   // nothing (it is `unit`), so the call goes through the contracted path:
   // prove the lemma's `requires`, assume its `ensures` at these arguments.
   if(is_ghost_fn(fid.clone()), {
-    is_lemma := (is_unit_type(&info.ty()) && (get_func_ensures_exprs(fid.clone()).len() > usize(0)));
-    if(!is_lemma, {
+    if(!ghost_fn_is_lemma(fid.clone()), {
       return(_ghost_fn_inline_term(ctx, e, args, fid.clone()));
     });
   });
@@ -6933,6 +6932,24 @@ _callee_call_term :: (
     );
     reason := g_transparent_reason.clone();
     _fail_subset(ctx, `call to a callee without contracts (not spec-transparent: ${reason})`, e);
+    return(Option(VcTerm).None);
+  });
+  // SPEC_AND_PROOF.md §4.2: a definition walked for its meaning (a
+  // spec-transparent function's, a recursive ghost_fn's) is a specification,
+  // and a specification may not call a contracted function: its contract
+  // holds only for runs that return, and nothing runs a definition. The
+  // evaluator rejects such a call written in a specification; this one is
+  // reached through an uncontracted function's body. A ghost_fn callee
+  // (a specialization's base included) is a definition itself, not code.
+  callee_is_ghost := (is_ghost_fn(fid.clone()) || match(specialized_base_of(fid.clone()), .Some(gb) => is_ghost_fn(gb.clone()), .None => false));
+  if((ctx.func_id == "__yo_gfn_definition") && !callee_is_ghost, {
+    callee_text := match(
+      e,
+      Rc(.FnCall(_, cf, _, _, _)) => ast_expr_to_string(&cf.*),
+      Rc(.Atom(_, _)) => ast_expr_to_string(e)
+    );
+    g_transparent_reason = `it calls '${callee_text}', which has a contract`;
+    _fail_subset(ctx, `a definition calls '${callee_text}', which has a contract`, e);
     return(Option(VcTerm).None);
   });
   // Evaluate the argument terms FIRST (a failure aborts the call), then

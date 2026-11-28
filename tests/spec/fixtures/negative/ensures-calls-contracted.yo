@@ -1,0 +1,21 @@
+// An `ensures` clause is a specification, and a specification cannot call a
+// function with a contract: the clause below was proved from `spin`'s
+// `ensures(r > r)`, its run-time check was erased, and `caller` proved
+// `r == 42` for a program that returns 7
+// (issues/fixed/2026-11-27-an-ensures-clause-calls-a-diverging-function.md).
+// The evaluator rejects the call (E0928) in every mode; a law may state such a
+// claim, because nothing can cite a law.
+pragma(Pragma.Verify);
+
+spin :: (fn(x : i32, ensures(r > r)) -> (r : i32))({
+  mut(i) := x;
+  while(true, {
+    invariant(true);
+    i = i;
+  });
+  i
+});
+
+wrong :: (fn(x : i32, ensures((spin(x) == spin(x)) && (r == i32(42)))) -> (r : i32))(x);
+
+caller :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))(wrong(x));

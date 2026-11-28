@@ -172,6 +172,15 @@ test("law: assumed() is rejected — it would pass without proving", {
     io
   );
 });
+// plans/backlog/SPEC_AND_PROOF.md §4.2: a specification cannot call a lemma; a
+// law cites one in its proof block instead.
+test("law: a lemma called in a clause is rejected (E0928)", {
+  _expect_rejected(
+    String.from("./tests/spec/fixtures/negative/lemma-in-ensures.yo"),
+    String.from("a specification cannot call a lemma"),
+    io
+  );
+});
 test("law: an aliased function type is rejected — its clauses cannot be scanned", {
   _expect_rejected(
     String.from("./tests/spec/fixtures/negative/law-not-literal.yo"),
@@ -224,25 +233,25 @@ test("law: a law over an IMPORTED callee proves like a same-file one", {
     .None => assert(false, "no law@ report was produced")
   );
 });
-test("contracts: an ensures that calls an IMPORTED contracted fn proves", {
+test("law: a law's ensures that calls an IMPORTED contracted fn proves", {
   if(!_have_z3(), {
     return(());
   });
   reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/ensures-imported-callee.yo"), io);
-  (mut(seen) : bool) = false;
+  (mut(seen) : usize) = usize(0);
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get_cloned(i),
       .Some(rp) => if(rp.fn_id.contains(String.from("ensures-imported-callee.yo")), {
-        seen = true;
-        assert(rp.outcome == "ok", `plus_abs must prove, got '${rp.outcome}': ${rp.subset_construct}`);
+        seen = (seen + usize(1));
+        assert(rp.outcome == "ok", `${rp.fn_id} must prove, got '${rp.outcome}': ${rp.subset_construct}`);
       }),
       .None => ()
     );
     i = (i + usize(1));
   });
-  assert(seen, "no report for plus_abs");
+  assert(seen == usize(2), "plus_abs and the law both report");
 });
 test("contracts: a callee fact in the right operand of && is kept", {
   if(!_have_z3(), {
@@ -262,7 +271,7 @@ test("contracts: a callee fact in the right operand of && is kept", {
     );
     i = (i + usize(1));
   });
-  assert(seen == usize(2), "abs_value and plus_abs both report");
+  assert(seen == usize(3), "abs_value, plus_abs and the law all report");
 });
 test("law: a false law REFUTES with a counter-example", {
   if(!_have_z3(), {
@@ -293,6 +302,35 @@ test("law: a false law REFUTES with a counter-example", {
         i = (i + usize(1));
       });
       assert(named, "the counter-example must name x = 0 — a refutation without one is not actionable");
+    },
+    .None => assert(false, "no law@ report was produced — the law did not register")
+  );
+});
+// plans/backlog/SPEC_AND_PROOF.md §3.3: `law(fn-type, { proof })`. Without the
+// block the claim needs induction, which Z3 does not do; the block cites the
+// lemma over the law's parameters.
+test("law: a proof block cites a lemma and the law PROVES", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/law-proof-block.yo"), io);
+  match(
+    _first_law(&reports),
+    .Some(rp) => {
+      assert(rp.outcome == "ok", `the law must prove through its proof block, got '${rp.outcome}': ${rp.subset_construct}`);
+    },
+    .None => assert(false, "no law@ report was produced — the law did not register")
+  );
+});
+test("law: a proof block's lemma citation owes the lemma's requires", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/law-proof-block-false.yo"), io);
+  match(
+    _first_law(&reports),
+    .Some(rp) => {
+      assert(rp.outcome != "ok", `a citation whose requires does not hold must not prove the law, got '${rp.outcome}'`);
     },
     .None => assert(false, "no law@ report was produced — the law did not register")
   );

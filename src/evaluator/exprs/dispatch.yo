@@ -231,7 +231,7 @@ import("std/fmt");
 { is_never_type } :: import("../../types/guards.yo");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
-{ EvalContext, is_dot_callee } :: import("../context.yo");
+{ EvalContext, is_dot_callee, in_ghost_context, SpecContext } :: import("../context.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, with_code, note_eval_attempt, note_swallowed_error, format_eval_failure } :: import("../../error.yo");
 { E_DELETED_SPELLING } :: import("../../diagnostics.yo");
 { TypeValue, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -564,10 +564,10 @@ _evaluate_assert_ghost_args :: (
   if(!_is_verify_target(&tok0.*.module_path.*), {
     return(evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn));
   });
-  prev_ghost := ctx.is_ghost_context;
-  ctx.is_ghost_context = true;
+  prev_ghost := ctx.spec_context;
+  ctx.spec_context = SpecContext.Spec;
   out := evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn);
-  ctx.is_ghost_context = prev_ghost;
+  ctx.spec_context = prev_ghost;
   out
 });
 /// `exists` is BOTH the ghost-only verification quantifier (V5,
@@ -587,7 +587,7 @@ _evaluate_exists_or_call :: (
   ) -> AstExpr
 )(
   cond(
-    ctx.is_ghost_context => evaluate_exists(expr, env, ctx, exn),
+    in_ghost_context(ctx) => evaluate_exists(expr, env, ctx, exn),
     true => evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)
   )
 );

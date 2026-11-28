@@ -1,0 +1,11 @@
+// A lemma body is already a proof: a lemma call there is bare, and
+// `ghost(...)` is the statement form error (E0929).
+pragma(Pragma.Verify);
+
+pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
+lem :: ghost_fn((fn(x : i32, requires(x > i32(1)), ensures(pos(x))) -> unit)(()));
+lem2 :: ghost_fn(
+  (fn(x : i32, requires(x > i32(2)), ensures(pos(x))) -> unit)({
+    ghost(lem(x));
+  })
+);

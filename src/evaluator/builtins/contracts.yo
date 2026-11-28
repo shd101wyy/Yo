@@ -52,7 +52,7 @@
 { ExprInfo, ExprInfoTable, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr-info.yo");
 { snapshot_env, Environment, add_variable_to_env, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
-{ EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
+{ EvalContext, SpecContext, in_ghost_context, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
 { EvalValue, EvalValueNode, create_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { get_func_type } :: import("../../function-value.yo");
@@ -76,7 +76,8 @@
 } :: import("../values/type-trait-methods.yo");
 { HashMap } :: import("std/collections/hash-map");
 { HashSet } :: import("std/collections/hash-set");
-{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
+{ E_SPEC_CONTEXT_CALL, E_GHOST_STATEMENT_FORM } :: import("../../diagnostics.yo");
 { display_module_path, canonical_module_path, debug_knob } :: import("../../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -122,15 +123,16 @@ _evaluate_contract_marker :: (
     // their real bindings in the splice lowering and the verifier's
     // registration env), so unbound identifiers soft-fall-back to unknowns
     // instead of the hard `Variable not found` error (Phase V3). The same
-    // bracket sets ghost context (V5): contract clauses are where the
-    // ghost-only builtins (forall/exists/==>) are legal.
+    // bracket sets the spec context (V5, SPEC_AND_PROOF.md §4.1): contract
+    // clauses are where the ghost-only builtins (forall/exists/==>) are
+    // legal, and they follow the spec call rules.
     prev_pred_flag := ctx.is_evaluating_contract_predicate;
-    prev_ghost_flag := ctx.is_ghost_context;
+    prev_ghost_flag := ctx.spec_context;
     ctx.is_evaluating_contract_predicate = true;
-    ctx.is_ghost_context = true;
+    ctx.spec_context = SpecContext.Spec;
     evaluated := evaluate_expression_raw(&arg, &cur_env, ctx, exn);
     ctx.is_evaluating_contract_predicate = prev_pred_flag;
-    ctx.is_ghost_context = prev_ghost_flag;
+    ctx.spec_context = prev_ghost_flag;
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
       .Some(info) => {
@@ -163,6 +165,26 @@ _evaluate_contract_marker :: (
 /// (evaluate_ghost and friends) read `_is_verify_target`, and importers
 /// can force those lazily before line 900 evaluates.
 (g_verify_target_paths : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+/// The `ghost_fn`s that are lemmas (SPEC_AND_PROOF.md §8, PR 1a): written by
+/// `evaluate_ghost_fn` from `_ghost_fn_literal_is_lemma`, read by
+/// `ghost_fn_is_lemma`, which both the evaluator's call rules and the
+/// verifier's walk ask. Declared EARLY: `evaluate_ghost` reads it, and a
+/// runtime global must be bound before the first definition that reaches it.
+(g_ghost_fn_lemma_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The bodies of the `ghost_fn` literals being defined right now, by the body's
+/// node id. A recursive `ghost_fn` calls itself while its own body is
+/// evaluated, before `evaluate_ghost_fn` registers its func_id, so the call
+/// rules recognize that callee by the body its FuncVal carries.
+(g_ghost_fn_bodies_in_definition : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
+/// The call nodes inside the `requires`/`ensures` predicates that
+/// `wrap_function_body_with_contracts` splices into a body as run-time asserts.
+/// The splice is evaluated as executable code, but each predicate is still a
+/// specification (SPEC_AND_PROOF.md §4.1), so `check_spec_context_call` holds
+/// these calls to the specification rules in every mode.
+(g_spliced_clause_call_ids : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
+/// `specialized_base_of`'s table (declared here, early: the ghost-fn call rules
+/// above its accessors reach it).
+(g_specialized_base : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Declared HERE, above `set_verify_target_paths`, which resets it (a runtime
 /// global must be bound before the first definition that reaches it).
 /// 5b container bounds elision
@@ -305,6 +327,23 @@ BF_SET_CONTAINS :: "set_contains";
 /// while codegen erased the binding. Other `ghost(...)` shapes keep the
 /// transparent no-op marker.
 evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  // A specification and a proof are already ghost: a binding or a lemma call
+  // there is written without the wrapper (SPEC_AND_PROOF.md §4.3).
+  if(in_ghost_context(ctx), {
+    exn.throw(
+      dyn(
+        Box.new(
+          with_code(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("'ghost(...)' in a specification or a proof: the code here is already ghost, so write the binding or the lemma call without 'ghost(...)'")
+            ),
+            E_GHOST_STATEMENT_FORM
+          )
+        )
+      )
+    );
+  });
   {
     match(
       expr,
@@ -327,11 +366,11 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
               .Some(r0) => r0,
               .None => make_err_expr()
             );
-            // The RHS is ghost code (quantifiers are legal in it).
-            prev_ghost := ctx.is_ghost_context;
-            ctx.is_ghost_context = true;
+            // The RHS is a specification (quantifiers are legal in it).
+            prev_ghost := ctx.spec_context;
+            ctx.spec_context = SpecContext.Spec;
             evaluated := evaluate_expression_raw(&rhs, env, ctx, exn);
-            ctx.is_ghost_context = prev_ghost;
+            ctx.spec_context = prev_ghost;
             r_info := match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
               .Some(ri) => ri,
@@ -374,7 +413,78 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
       Rc(.Atom(_, _)) => ()
     );
   };
-  _evaluate_contract_marker(expr, env, ctx, exn)
+  _evaluate_ghost_proof_step(expr, env, ctx, exn)
+});
+/// `ghost(step)`: a proof step in an executable body. The one step today is a
+/// lemma call; it is evaluated as a proof (SPEC_AND_PROOF.md §4.1), and
+/// anything else is the statement's form error. Codegen erases the statement,
+/// so a step that changed state the program reads (`ghost(xs.push(v))`) or
+/// called a function that is correct only if it returns would let the
+/// verifier prove what the program does not do
+/// (issues/fixed/2026-11-27-a-ghost-statement-mutates-state-the-program-reads.md).
+_evaluate_ghost_proof_step :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  args := match(
+    expr,
+    Rc(.FnCall(_, _, a, _, _)) => Rc.clone(a).*.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+  );
+  if(args.len() != usize(1), {
+    _throw_ghost_statement_form(expr, exn);
+  });
+  step := match(args.get_cloned(usize(0)), .Some(x_) => x_, .None => make_err_expr());
+  prev_pred_flag := ctx.is_evaluating_contract_predicate;
+  prev_ghost := ctx.spec_context;
+  prev_statement := ctx.ghost_statement_call;
+  ctx.is_evaluating_contract_predicate = true;
+  ctx.spec_context = SpecContext.Proof;
+  ctx.ghost_statement_call = Option(ExprId).Some(ast_expr_id(&step));
+  evaluated := evaluate_expression_raw(&step, env, ctx, exn);
+  ctx.is_evaluating_contract_predicate = prev_pred_flag;
+  ctx.spec_context = prev_ghost;
+  ctx.ghost_statement_call = prev_statement;
+  // A call whose callee did not reach the call arm (a builtin, a macro, an
+  // operator) is checked here.
+  is_lemma_call := match(
+    &evaluated,
+    Rc(.FnCall(_, f, _, _, _)) => match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&f.*)),
+      .Some(fi) => match(
+        fi.value(),
+        .Some(Rc(.FuncVal(gfvd, _))) => ghost_fn_is_lemma(gfvd.*.func_id.clone()),
+        .Some(_) => false,
+        .None => false
+      ),
+      .None => false
+    ),
+    Rc(.Atom(_, _)) => false
+  );
+  if(!is_lemma_call, {
+    _throw_ghost_statement_form(expr, exn);
+  });
+  cur_env := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+    .Some(info) => expr_info_adopt_env(&info),
+    .None => Rc.clone(env)
+  );
+  out_info := new_expr_info(&cur_env, t_unit());
+  out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+  Rc.clone(expr.*)
+});
+_throw_ghost_statement_form :: (fn(at : &AstExpr, exn : Exception) -> unit)({
+  exn.throw(
+    dyn(
+      Box.new(
+        with_code(
+          format_error_message(
+            ast_expr_token(at),
+            `'ghost(...)' takes a ghost binding 'ghost(name := e)' or a proof step, a lemma call 'ghost(lemma(args))'; erased code may not do anything else, got:\n${ast_expr_to_string(at)}`
+          ),
+          E_GHOST_STATEMENT_FORM
+        )
+      )
+    )
+  );
 });
 /// Shared transparent pass-through for `ghost_fn(inner)` / `old(inner)`:
 /// evaluate the single inner argument and propagate its ExprInfo to the outer
@@ -425,6 +535,181 @@ register_ghost_fn :: (fn(func_id : &String) -> unit)({
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
   g_ghost_fn_ids.with({ func_id : &func_id.* }(s) => s.contains(func_id))
 );
+/// Whether `func_id` (or the generic it specializes) is a lemma: a `ghost_fn`
+/// that returns `unit` and carries an `ensures`.
+ghost_fn_is_lemma :: (fn(func_id : &String) -> bool)(
+  cond(
+    _is_lemma_id(func_id) => true,
+    true => match(
+      specialized_base_of(func_id.clone()),
+      .Some(b) => _is_lemma_id(&b),
+      .None => false
+    )
+  )
+);
+_is_lemma_id :: (fn(func_id : &String) -> bool)(
+  g_ghost_fn_lemma_ids.with({ func_id : &func_id.* }(s) => s.contains(func_id))
+);
+/// Whether `func_id` (or the generic it specializes) is a `ghost_fn`.
+_is_ghost_fn_or_base :: (fn(func_id : &String) -> bool)(
+  cond(
+    is_ghost_fn(func_id) => true,
+    true => match(
+      specialized_base_of(func_id.clone()),
+      .Some(b) => is_ghost_fn(&b),
+      .None => false
+    )
+  )
+);
+/// The shape that tells a lemma from a spec function today: the literal
+/// `(fn(..., ensures(...), ...) -> unit)(body)`. `.None` when the argument is
+/// not a function literal written out in place.
+_ghost_fn_literal_is_lemma :: (fn(literal : &AstExpr) -> Option(bool))({
+  fn_type := match(
+    literal,
+    Rc(.FnCall(_, f, _, _, _)) => Option(AstExpr).Some(Rc.clone(f.*)),
+    Rc(.Atom(_, _)) => Option(AstExpr).None
+  );
+  // The argument is the literal's body: `(fn-type)(body)` has exactly one.
+  arg_count := match(
+    literal,
+    Rc(.FnCall(_, _, Rc(la), _, _)) => la.len(),
+    Rc(.Atom(_, _)) => usize(0)
+  );
+  if(arg_count != usize(1), {
+    return(Option(bool).None);
+  });
+  ft := match(fn_type, .Some(x_) => x_, .None => make_err_expr());
+  if(!ast_expr_is_fn_call_of(&ft, "->", Option(usize).Some(usize(2))), {
+    return(Option(bool).None);
+  });
+  ft_args := match(
+    &ft,
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+  );
+  fn_head := match(ft_args.get_cloned(usize(0)), .Some(x_) => x_, .None => make_err_expr());
+  if(!ast_expr_is_fn_call_of(&fn_head, BK_FN, Option(usize).None), {
+    return(Option(bool).None);
+  });
+  result := match(ft_args.get_cloned(usize(1)), .Some(x_) => x_, .None => make_err_expr());
+  returns_unit := (ast_expr_is_atom(&result) && (ast_expr_text(&result).* == "unit"));
+  params := match(
+    &fn_head,
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+  );
+  (has_ensures : bool) = false;
+  (pi : usize) = usize(0);
+  while(pi < params.len(), {
+    param := match(params.get_cloned(pi), .Some(x_) => x_, .None => make_err_expr());
+    if(ast_expr_is_fn_call_of(&param, BF_ENSURES, Option(usize).None), {
+      has_ensures = true;
+    });
+    pi = (pi + usize(1));
+  });
+  Option(bool).Some(returns_unit && has_ensures)
+});
+/// Whether `func_id` carries a contract: a `requires` or an `ensures`.
+_has_contract :: (fn(func_id : &String) -> bool)({
+  own := ((hook_func_requires(func_id.clone()).len() > usize(0)) || (hook_func_ensures(func_id.clone()).len() > usize(0)));
+  cond(
+    own => true,
+    true => match(
+      specialized_base_of(func_id.clone()),
+      .Some(b) => ((hook_func_requires(b.clone()).len() > usize(0)) || (hook_func_ensures(b.clone()).len() > usize(0))),
+      .None => false
+    )
+  )
+});
+_callee_text :: (fn(call : &AstExpr) -> String)(
+  match(
+    call,
+    Rc(.FnCall(_, f, _, _, _)) => ast_expr_to_string(&f.*),
+    Rc(.Atom(_, _)) => ast_expr_to_string(call)
+  )
+);
+_throw_spec_context_call :: (fn(call : &AstExpr, message : String, exn : Exception) -> unit)({
+  exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(call), &message), E_SPEC_CONTEXT_CALL))));
+});
+/// The call rules of erased code (SPEC_AND_PROOF.md §4.2), checked where a
+/// call reaches its callee:
+///
+/// | callee            | exec                  | spec                  | proof |
+/// | spec `ghost_fn`   | no                    | yes                   | yes   |
+/// | lemma             | only as `ghost(...)`  | no                    | yes   |
+/// | contracted fn     | yes                   | no (a law's clauses: yes) | no |
+///
+/// A contracted function's `ensures` was proved for runs that return; nothing
+/// runs it here, so a spec or a proof that called one would assume a fact no
+/// run established
+/// (issues/fixed/2026-11-27-a-ghost-binding-calls-a-diverging-function.md,
+/// issues/fixed/2026-11-27-an-ensures-clause-calls-a-diverging-function.md).
+/// The argument of a `ghost(...)` statement is a proof step: its callee must
+/// be a lemma.
+check_spec_context_call :: (fn(func_id : &String, callee_body : ExprId, call : &AstExpr, ctx : &mut EvalContext, exn : Exception) -> unit)({
+  is_statement := match(ctx.ghost_statement_call, .Some(sid) => (sid == ast_expr_id(call)), .None => false);
+  is_ghost := (
+    _is_ghost_fn_or_base(func_id) || g_ghost_fn_bodies_in_definition.with({ callee_body }(s) => s.contains(&callee_body))
+  );
+  is_lemma := (is_ghost && ghost_fn_is_lemma(func_id));
+  name := _callee_text(call);
+  if(is_statement && !is_lemma, {
+    _throw_ghost_statement_form(call, exn);
+  });
+  call_id := ast_expr_id(call);
+  in_spliced_clause := g_spliced_clause_call_ids.with({ call_id }(s) => s.contains(&call_id));
+  call_context := match(
+    ctx.spec_context,
+    .Exec => cond(in_spliced_clause => SpecContext.Spec, true => SpecContext.Exec),
+    .Spec => SpecContext.Spec,
+    .Proof => SpecContext.Proof
+  );
+  match(
+    call_context,
+    .Exec => {
+      if(is_lemma, {
+        _throw_spec_context_call(
+          call,
+          `'${name}' is a lemma, a proof step that never runs: it is callable only from ghost context, as the statement 'ghost(${name}(...));'`,
+          exn
+        );
+      });
+      if(is_ghost, {
+        _throw_spec_context_call(
+          call,
+          String.from("a ghost_fn is callable only from ghost context (contract clauses, ghost(...) bindings, ghost_fn bodies) — it has no runtime semantics"),
+          exn
+        );
+      });
+    },
+    .Spec => {
+      if(is_lemma, {
+        _throw_spec_context_call(
+          call,
+          `'${name}' is a lemma, and a specification cannot call a lemma: cite it as a proof step before the fact is needed ('ghost(${name}(...));' in a body, or a law's proof block)`,
+          exn
+        );
+      });
+      if(!is_ghost && !ctx.is_law_clause && _has_contract(func_id), {
+        _throw_spec_context_call(
+          call,
+          `'${name}' has a contract, so its body is not its meaning, and a specification cannot call it: the contract holds only for runs that return, and nothing runs a specification. Use a ghost_fn, or remove the contract; a law can state claims about '${name}'`,
+          exn
+        );
+      });
+    },
+    .Proof => {
+      if(!is_ghost && _has_contract(func_id), {
+        _throw_spec_context_call(
+          call,
+          `'${name}' has a contract, so its body is not its meaning, and a proof cannot call it: the contract holds only for runs that return, and nothing runs a proof. Use a ghost_fn, or remove the contract`,
+          exn
+        );
+      });
+    }
+  );
+});
 /// V6 task 3: the ghost-fn DEF registry — `func_id → (params, body)` for
 /// every registered ghost_fn. The refinement machinery reads it: a
 /// `refine(T, p)` predicate is a ghost_fn VALUE whose func_id rides the
@@ -645,12 +930,44 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCon
       )
     );
   });
-  // A ghost_fn's body IS ghost context (V5): quantifier builtins are
-  // well-formed there.
-  prev_ghost := ctx.is_ghost_context;
-  ctx.is_ghost_context = true;
+  // A ghost_fn's body IS ghost (V5): quantifier builtins are well-formed
+  // there. A lemma's body is a proof, a spec function's a specification
+  // (SPEC_AND_PROOF.md §4.1): the shape says which.
+  literal := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(x_) => x_, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
+  );
+  is_lemma := match(
+    _ghost_fn_literal_is_lemma(&literal),
+    .Some(b) => b,
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `'ghost_fn(...)' takes a function literal written out in place, '(fn(x : T) -> R)(body)', got:\n${ast_expr_to_string(expr)}`
+            )
+          )
+        )
+      );
+      false
+    }
+  );
+  body_id := match(
+    &literal,
+    Rc(.FnCall(_, _, Rc(lb), _, _)) => match(lb.get_cloned(usize(0)), .Some(b) => ast_expr_id(&b), .None => ast_expr_id(&literal)),
+    Rc(.Atom(_, _)) => ast_expr_id(&literal)
+  );
+  inserted := g_ghost_fn_bodies_in_definition.with_mut({ body_id }(s) => s.insert(body_id));
+  prev_ghost := ctx.spec_context;
+  ctx.spec_context = cond(is_lemma => SpecContext.Proof, true => SpecContext.Spec);
   out := _evaluate_transparent_unary(expr, env, ctx, exn);
-  ctx.is_ghost_context = prev_ghost;
+  ctx.spec_context = prev_ghost;
+  if(inserted, {
+    _ := g_ghost_fn_bodies_in_definition.with_mut({ body_id }(s) => s.remove(&body_id));
+  });
   // Register the wrapped function as ghost: its func_id goes into the
   // ghost-fn registry so every later CALL from non-ghost context errors.
   args := match(
@@ -671,6 +988,10 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCon
                 gv,
                 Rc(.FuncVal(gfvd, _)) => {
                   register_ghost_fn(gfvd.*.func_id.clone());
+                  if(is_lemma, {
+                    lemma_id := gfvd.*.func_id.clone();
+                    g_ghost_fn_lemma_ids.with_mut({ lemma_id }(ls) => ls.insert(lemma_id.clone()));
+                  });
                   // V6 task 3: record the def so type-level refinement
                   // predicates can be INLINED by the verifier's walk (the
                   // predicate rides its func_id on TypeValue.RefineT — no
@@ -713,10 +1034,7 @@ _evaluate_spec_collection :: (
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get_cloned(i), .Some(x) => x, .None => make_err_expr());
-    prev_ghost := ctx.is_ghost_context;
-    ctx.is_ghost_context = true;
     evaluated := evaluate_expression_raw(&arg, &cur_env, ctx, exn);
-    ctx.is_ghost_context = prev_ghost;
     bi_info := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
       .Some(x) => x,
@@ -837,7 +1155,7 @@ evaluate_set_contains :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eva
 /// runtime semantics — outside ghost context they are a compile error,
 /// the same stance as `unwind(...)` outside `ctl(...) -> R`.
 _reject_not_ghost_context :: (fn(expr : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(!ctx.is_ghost_context, {
+  if(!in_ghost_context(ctx), {
     exn.throw(
       dyn(
         Box.new(
@@ -1131,6 +1449,30 @@ _note_unlabeled_ensures_atoms :: (fn(e : &AstExpr) -> unit)(
       note_unlabeled_ensures_atom(ast_expr_id(e));
     },
     Rc(.FnCall(_, f_box, Rc(f_args), _, _)) => {
+      recur(&f_box.*);
+      (ai : usize) = usize(0);
+      while(ai < f_args.len(), {
+        match(
+          f_args.get_cloned(ai),
+          .Some(a) => {
+            recur(&a);
+          },
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    }
+  )
+);
+/// Record the call nodes of a predicate about to be spliced as a run-time
+/// assert (`g_spliced_clause_call_ids`).
+_note_spliced_clause_calls :: (fn(e : &AstExpr) -> unit)(
+  match(
+    e,
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, f_box, Rc(f_args), _, _)) => {
+      call_id := ast_expr_id(e);
+      g_spliced_clause_call_ids.with_mut({ call_id }(s) => s.insert(call_id));
       recur(&f_box.*);
       (ai : usize) = usize(0);
       while(ai < f_args.len(), {
@@ -1678,12 +2020,12 @@ register_verify_task :: (fn(sink(t) : VerifyTask) -> unit)({
 evaluated_for_verify :: (
   fn(p : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr
 )({
-  // The verifier's diagnostic predicate pass IS ghost context (V5):
+  // The verifier's diagnostic predicate pass IS a specification (V5):
   // quantifier builtins inside requires/ensures/decreases evaluate here.
-  prev_ghost_flag := ctx.is_ghost_context;
-  ctx.is_ghost_context = true;
+  prev_ghost_flag := ctx.spec_context;
+  ctx.spec_context = SpecContext.Spec;
   out := evaluate_expression_raw(p, env, ctx, exn);
-  ctx.is_ghost_context = prev_ghost_flag;
+  ctx.spec_context = prev_ghost_flag;
   out
 });
 /// Drain the registry (move the tasks out and reset it) for the verifier
@@ -1945,7 +2287,6 @@ callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
 /// was minted from. Written at the specialization mint (calls/helper.yo)
 /// so the verifier's mutual-recursion cliques can be spelled in BASE fids
 /// while the walk sees SPECIALIZED callee ids (`..._ret_N`).
-(g_specialized_base : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)({
   spec_id_owned := spec_id.clone();
   base_id_owned := base_id.clone();
@@ -2277,11 +2618,11 @@ _stash_callsite_contracts :: (
     match(
       raw_enss.get_cloned(ei),
       .Some(p) => {
-        prev_ghost := ctx.is_ghost_context;
+        prev_ghost := ctx.spec_context;
         depth := site_env.frames_len();
         _callsite_ensures_or_drop(clone_expr_fresh_ids(p.clone()), &site_env, ctx, &mut ev_enss);
         // An unwound evaluation leaves its flag and frames behind.
-        ctx.is_ghost_context = prev_ghost;
+        ctx.spec_context = prev_ghost;
         while(site_env.frames_len() > depth, {
           site_env.pop_frame();
         });
@@ -3075,9 +3416,11 @@ wrap_function_body_with_contracts :: (
     match(
       splice_requires.get_cloned(ri),
       .Some(p) => {
+        spliced_req := clone_expr_fresh_ids(p.clone());
+        _note_spliced_clause_calls(&spliced_req);
         requires_asserts.push(
           _build_assert_call(
-            clone_expr_fresh_ids(p.clone()),
+            &spliced_req,
             &p,
             String.from("requires failed"),
             is_comptime_fn
@@ -3135,7 +3478,10 @@ wrap_function_body_with_contracts :: (
     match(
       splice_ensures.get_cloned(ei),
       .Some(p) => {
+        // The hoist rebuilds the predicate's nodes, so its calls are recorded
+        // on the result (and the `old(...)` snapshots after the loop).
         rewritten := _hoist_old_in(clone_expr_fresh_ids(p.clone()), &mut snapshots, bind_op.clone());
+        _note_spliced_clause_calls(&rewritten);
         if(return_label.is_none(), {
           // Phase V1: unlabeled return — register the spliced predicate's
           // atom ids so an unbound-name failure can carry the
@@ -3156,6 +3502,17 @@ wrap_function_body_with_contracts :: (
       .None => ()
     );
     ei = (ei + usize(1));
+  });
+  (nsi : usize) = usize(0);
+  while(nsi < snapshots.len(), {
+    match(
+      snapshots.get_cloned(nsi),
+      .Some(sn) => {
+        _note_spliced_clause_calls(&sn);
+      },
+      .None => ()
+    );
+    nsi = (nsi + usize(1));
   });
   out_args := ArrayList(AstExpr).new();
   (si : usize) = usize(0);
@@ -3250,7 +3607,14 @@ _reject_law_clause :: (
   });
 });
 /// `law(fn(..., requires(P), ensures(Q)) -> unit)` — a standalone CLAIM
-/// (B1, plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A2).
+/// (B1, plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A2), with an
+/// optional proof block, `law(fn-type, { lemma(...); })`
+/// (SPEC_AND_PROOF.md §3.3): a proof over the law's parameters, which is how
+/// a law cites a lemma (a specification cannot call one).
+///
+/// The clauses are the one specification that may call a contracted
+/// function: nothing can cite a law, so its claim about a contract is never
+/// assumed anywhere (§4.2).
 ///
 /// The argument is a function TYPE with contract clauses and NO body: the
 /// `ensures` predicates are the obligations, the `requires` are assumed on
@@ -3266,13 +3630,13 @@ _reject_law_clause :: (
 /// could not even be walked.
 evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   law_tok := ast_expr_token(expr);
-  if(!ast_expr_is_fn_call_of(expr, BF_LAW, Option(usize).Some(usize(1))), {
+  if(!(ast_expr_is_fn_call_of(expr, BF_LAW, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(expr, BF_LAW, Option(usize).Some(usize(2)))), {
     exn.throw(
       dyn(
         Box.new(
           format_error_message(
             &law_tok,
-            `'law(...)' takes exactly one argument — a function type: 'law(fn(x : T, ensures(Q)) -> unit)'. Got:\n${ast_expr_to_string(expr)}`
+            `'law(...)' takes a function type and an optional proof block: 'law(fn(x : T, ensures(Q)) -> unit)' or 'law(fn(x : T, ensures(Q)) -> unit, { lemma(x); })'. Got:\n${ast_expr_to_string(expr)}`
           )
         )
       )
@@ -3284,6 +3648,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
     Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   arg := match(args.get_cloned(usize(0)), .Some(x) => x, .None => make_err_expr());
+  proof_block := args.get_cloned(usize(1));
   // The argument must be a fn-type LITERAL. An alias would hide its clauses
   // from the scan below — there is no side-table hook for `assumed`/`decreases`.
   fn_head := match(
@@ -3309,7 +3674,10 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   _reject_law_clause(&fn_head, BF_DECREASES, &law_tok, exn);
   // Evaluate the signature through the ORDINARY path: a contract-marker
   // evaluation would soft-swallow unbound names in it.
+  prev_law_clause := ctx.is_law_clause;
+  ctx.is_law_clause = true;
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
+  ctx.is_law_clause = prev_law_clause;
   // The law node itself is unit — the value the `::` binding takes.
   out_info := new_expr_info(env, t_unit());
   out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
@@ -3391,14 +3759,13 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
       )
     );
   });
-  // Validation above runs in EVERY mode; registration only for a verify
-  // target. `--verify-mode` is global, so resolve_verify_mode alone would arm
-  // every law in std/ and in every dependency.
-  if(!_is_verify_target(&law_tok.*.module_path.*), {
-    return(Rc.clone(expr.*));
-  });
+  // Validation above runs in EVERY mode, and so does the proof block's
+  // evaluation (its call rules are evaluator errors); registration only for
+  // a verify target. `--verify-mode` is global, so resolve_verify_mode alone
+  // would arm every law in std/ and in every dependency.
   law_mode := resolve_verify_mode(&law_tok.*.module_path.*);
-  if((law_mode != "verify") && (law_mode != "verify+"), {
+  is_registered := (_is_verify_target(&law_tok.*.module_path.*) && ((law_mode == "verify") || (law_mode == "verify+")));
+  if(!is_registered && proof_block.is_none(), {
     return(Rc.clone(expr.*));
   });
   pred_env := Rc.clone(env);
@@ -3422,6 +3789,24 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
     });
     bi = (bi + usize(1));
   });
+  // The proof block is a proof (SPEC_AND_PROOF.md §4.1): a lemma call is
+  // bare there, and a contracted function is not callable.
+  proof_ev := match(
+    proof_block,
+    .Some(pb) => {
+      prev_proof_ctx := ctx.spec_context;
+      ctx.spec_context = SpecContext.Proof;
+      pev := evaluate_expression_raw(&pb, &pred_env, ctx, exn);
+      ctx.spec_context = prev_proof_ctx;
+      Option(AstExpr).Some(pev)
+    },
+    .None => Option(AstExpr).None
+  );
+  if(!is_registered, {
+    pred_env.pop_frame();
+    return(Rc.clone(expr.*));
+  });
+  ctx.is_law_clause = true;
   ev_reqs := ArrayList(AstExpr).new();
   (ri : usize) = usize(0);
   while(ri < raw_reqs.len(), {
@@ -3442,19 +3827,26 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
     );
     si = (si + usize(1));
   });
-  // The body is a synthetic unit literal: a law has no code. It must be the
-  // parser's zero-arg `tuple()` call rather than a bare "()" atom, which would
-  // go down identifier lookup and die on `Variable "()" not found`.
-  body := Rc.new(
-    AstExprNode.FnCall(
-      alloc_global_expr_id(),
-      _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, law_tok.clone()),
-      Rc.new(ArrayList(AstExpr).new()),
-      false,
-      law_tok.clone()
-    )
+  // The body is the proof block, or a synthetic unit literal when there is
+  // none: a law has no code. It must be the parser's zero-arg `tuple()` call
+  // rather than a bare "()" atom, which would go down identifier lookup and
+  // die on `Variable "()" not found`.
+  body_ev := match(
+    proof_ev,
+    .Some(pev) => pev,
+    .None => {
+      body := Rc.new(
+        AstExprNode.FnCall(
+          alloc_global_expr_id(),
+          _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, law_tok.clone()),
+          Rc.new(ArrayList(AstExpr).new()),
+          false,
+          law_tok.clone()
+        )
+      );
+      evaluated_for_verify(&body, &pred_env, ctx, exn)
+    }
   );
-  body_ev := evaluated_for_verify(&body, &pred_env, ctx, exn);
   // A law's calls live in its clauses (its body is a unit literal), so the
   // callee contract instances are stashed from them: without the stash the
   // walk read an imported callee's raw clauses, typed only in the callee's
@@ -3470,6 +3862,9 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
     match(ev_enss.get_cloned(cj), .Some(c) => _prepare_callsite_contracts(&c, &pred_env, ctx, exn), .None => ());
     cj = (cj + usize(1));
   });
+  ctx.is_law_clause = prev_law_clause;
+  // The proof block's lemma calls: their contract instances at these sites.
+  _prepare_callsite_contracts(&body_ev, &pred_env, ctx, exn);
   pred_env.pop_frame();
   register_verify_task(
     VerifyTask(
@@ -3517,6 +3912,8 @@ export(
   register_ghost_fn,
   ghost_fn_def_of,
   is_ghost_fn,
+  ghost_fn_is_lemma,
+  check_spec_context_call,
   requires_is_runtime_checkable,
   ensures_is_runtime_checkable,
   requires_enforced_flags,

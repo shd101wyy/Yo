@@ -253,3 +253,58 @@ test("the same contracted ghost_fn still verifies from ghost context", {
     `the caller proves, got: [${_reports_dump(&reports)}]`
   );
 });
+
+// ---------------------------------------------------------------------------
+// The call rules of erased code (plans/backlog/SPEC_AND_PROOF.md §4.1–§4.2):
+// evaluator errors, so they need no solver.
+// ---------------------------------------------------------------------------
+test("ghost(...) takes a binding or a lemma call — a push is E0929", {
+  // issues/fixed/2026-11-27-a-ghost-statement-mutates-state-the-program-reads.md
+  msg := _load_error(String.from("./tests/spec/fixtures/negative/ghost-statement-mutates-state.yo"), io);
+  assert(msg.contains(String.from("E0929")), `the statement form error is E0929, got: ${msg}`);
+  assert(msg.contains(String.from("takes a ghost binding")), `the message names the two forms, got: ${msg}`);
+});
+
+test("a ghost binding cannot call a contracted function (E0928)", {
+  // issues/fixed/2026-11-27-a-ghost-binding-calls-a-diverging-function.md
+  msg := _load_error(String.from("./tests/spec/fixtures/negative/ghost-binding-calls-contracted.yo"), io);
+  assert(msg.contains(String.from("E0928")), `the spec call error is E0928, got: ${msg}`);
+  assert(msg.contains(String.from("'spin' has a contract")), `the message names the callee, got: ${msg}`);
+});
+
+test("an ensures clause cannot call a contracted function (E0928)", {
+  // issues/fixed/2026-11-27-an-ensures-clause-calls-a-diverging-function.md
+  msg := _load_error(String.from("./tests/spec/fixtures/negative/ensures-calls-contracted.yo"), io);
+  assert(msg.contains(String.from("E0928")), `the spec call error is E0928, got: ${msg}`);
+  assert(msg.contains(String.from("'spin' has a contract")), `the message names the callee, got: ${msg}`);
+});
+
+test("a lemma called from an executable body is E0928, naming the ghost statement", {
+  msg := _load_error(String.from("./tests/spec/fixtures/negative/lemma-called-from-runtime.yo"), io);
+  assert(msg.contains(String.from("E0928")), `a lemma outside a proof is E0928, got: ${msg}`);
+  assert(msg.contains(String.from("ghost(lem(...));")), `the message gives the ghost statement, got: ${msg}`);
+});
+
+test("ghost(...) inside a lemma body is E0929 — the body is already a proof", {
+  msg := _load_error(String.from("./tests/spec/fixtures/negative/ghost-inside-lemma-body.yo"), io);
+  assert(msg.contains(String.from("E0929")), `ghost(...) in a proof is E0929, got: ${msg}`);
+  assert(msg.contains(String.from("already ghost")), `the message says why, got: ${msg}`);
+});
+
+test("an uncontracted function that calls a contracted one is not spec-transparent", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/transparent-calls-contracted.yo"), io, true);
+  (mut(found) : bool) = false;
+  (mut(i) : usize) = usize(0);
+  while(i < reports.len(), {
+    rp := reports.get_cloned(i).unwrap();
+    if(rp.subset_construct.contains(String.from("it calls 'spin', which has a contract")), {
+      found = true;
+      assert(rp.outcome == "subset-error", `wrong must not prove through wrap, got: [${_reports_dump(&reports)}]`);
+    });
+    i = (i + usize(1));
+  });
+  assert(found, `a report must name the contracted call inside wrap, got: [${_reports_dump(&reports)}]`);
+});

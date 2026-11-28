@@ -1288,9 +1288,13 @@ while(i < n, {
 });
 ```
 
-- `ghost(name := expr)` is a spec-only binding; `ghost_fn(fn_value)` declares a spec-only function — separate
-  builtins (never `ghost(some_fn)`):
-  `permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)( /* ... */));`
+- `ghost(name := expr)` is a spec-only binding and `ghost(lemma(args));` a proof step — nothing else goes in
+  `ghost(...)` (E0929), and never inside a clause, a `ghost_fn` body or a law's proof block, which are ghost
+  already. `ghost_fn(fn-literal)` declares a spec-only function (a lemma when it returns `unit` with an
+  `ensures`): `permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)( /* ... */));`
+- Erased code (clauses, ghost bindings, `ghost_fn` bodies, proof steps) never calls a function with a contract,
+  and a clause never calls a lemma (E0928); a law's clauses may call contracted functions, and a law cites a
+  lemma in its proof block: `law(fn(..., ensures(q)) -> unit, { lemma(args); })`.
 - Pragmas: `pragma(Pragma.NoContracts);` erases all clauses; `pragma(Pragma.Verify);` proves them (a
   refutation is a compile error); `pragma(Pragma.VerifyOrAssert);` proves and falls back to the run-time
   assert when the solver budget runs out.

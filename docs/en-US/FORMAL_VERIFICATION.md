@@ -285,6 +285,11 @@ xs.len(), v));`. The call proves the lemma's `requires` at those arguments and
 assumes its `ensures` from then on. A false lemma is not proved, and a use
 whose `requires` does not hold is refuted.
 
+A lemma is a proof step. Executable code calls it only as that statement. A
+lemma body and a law's proof block (§Laws) are proofs already, so they call it
+bare, as the recursive call above does. A specification cannot call a lemma:
+cite it in a proof before the fact is needed (§What erased code may call).
+
 A `ghost_fn` that returns a value is still inlined, or axiomatized when it
 recurses. Its `requires` is not checked at a call: its SMT reading is total.
 
@@ -370,15 +375,47 @@ requires must state `distinct` for the pair. `append_all(xs, xs)` refutes.
 
 ### Pure functions in specs
 
-A function with no contracts whose body the verifier can express, and which
-changes none of its arguments, is transparent: a spec may call it, and the
-call means its body. So `ensures(r == sq(x))` proves for `r = x * x` with
+A function with no contracts whose body the verifier can express, which
+changes none of its arguments and calls no function with a contract, is
+transparent: a spec may call it, and the call means its body. So `ensures(r == sq(x))` proves for `r = x * x` with
 `sq :: (fn(x : i32) -> i32)(x * x)`, without restating `sq` as a `ghost_fn`.
 A recursive one is transparent only with `decreases(...)`: its own task
 proves that the measure drops, so its definition terminates. Any other
 function stays opaque, and the subset error names the missing property
 ("not spec-transparent: it changes an argument", "... its body is outside
-the verifier subset (...)", "... it calls itself without decreases(...)").
+the verifier subset (...)", "... it calls itself without decreases(...)",
+"... it calls 'f', which has a contract").
+
+### What erased code may call
+
+Specifications and proofs never run. Codegen erases them, and a proved
+`ensures` loses its run-time check too. So they have call rules of their own,
+which the evaluator checks in every mode:
+
+| Context | Where |
+| --- | --- |
+| specification | a `requires`, `ensures`, `invariant` or `decreases` clause; a `ghost_fn` that returns a value; the right-hand side of `ghost(name := e)`; an `assert` in a verify-mode file; a law's clauses |
+| proof | a lemma body; a `ghost(...)` statement; a law's proof block |
+
+| Callee | from executable code | from a specification | from a proof |
+| --- | --- | --- | --- |
+| a `ghost_fn` that returns a value | no | yes | yes |
+| a lemma | only as `ghost(lemma(args));` | no | yes |
+| a function with a contract | yes | no, except in a law's clauses | no |
+| a function with no contract | yes | yes: the call means its body | yes |
+
+A function with a contract is correct only for runs that return: one that never
+returns satisfies every `ensures`. Code that runs and reaches such a call never
+gets past it. Erased code that assumed the `ensures` would go on from a fact no
+run established, so a specification or a proof calls a `ghost_fn`, or a
+function with no contract. A law's clauses are the exception: they state a
+claim about contracts, and nothing can cite a law. Each violation is `E0928`.
+
+`ghost(...)` takes a ghost binding, `ghost(name := e)`, or a proof step,
+`ghost(lemma(args))`. Anything else is `E0929`: the statement is erased, so a
+step such as `ghost(xs.push(v))` would let the verifier prove a length the
+program never has. Inside a specification or a proof the code is already
+ghost, and `ghost(...)` there is `E0929` too.
 
 ### std's trusted contracts: `assumed()`
 
@@ -574,6 +611,27 @@ Rules, each of which is a compile error rather than a silent pass:
 | `assumed()` | it would let the claim pass without being proved |
 | `decreases(...)` | a law has no recursion to measure |
 | a named alias instead of a written-out `fn(...)` type | its clauses cannot be scanned, so a hidden `assumed()` would be ignored |
+
+A law's clauses are the one specification that may call a function with a
+contract (§What erased code may call). A specification cannot call a lemma, so a
+law that needs one takes a **proof block**, an optional second argument over the
+law's parameters:
+
+```yo
+same_members :: law(fn(
+  a : &ArrayList(i32),
+  b : &ArrayList(i32),
+  v : i32,
+  requires(a.len() == b.len(), forall(i : usize, (i < a.len()) ==> (a(i) == b(i)))),
+  ensures(member(a, a.len(), v) == member(b, b.len(), v))
+) -> unit, {
+  member_frame(a, b, a.len(), v);
+});
+```
+
+The block is a proof: the lemma is called bare, its `requires` is proved under
+the law's `requires`, and its `ensures` is assumed before the law's `ensures`
+are proved.
 
 Laws are reported under their own `law@<file>:<row>:<column>` id, so two laws on
 one line stay distinct:
@@ -826,9 +884,9 @@ identity marker (a condition spelled `runtime(c)` walks like `c`).
 quantifiers over the annotated binders (z3's model-based instantiation
 discharges them in these small goals; explicit `:pattern` triggers are
 deferred until a benchmark needs them), and `a ==> b` is boolean
-implication. All three are **ghost-only** — legal inside contract
-clauses, `ghost(...)` bindings, and `ghost_fn` bodies, a compile error
-anywhere else (they have no runtime semantics). A `&mut` parameter is
+implication. All three are **ghost-only** — legal in specifications and
+proofs (§What erased code may call), a compile error anywhere else (they
+have no runtime semantics). A `&mut` parameter is
 the one REASSIGNABLE binding in the subset: the body's `=` rebinds the
 current value while `old(v)` keeps reading the entry snapshot.
 The exact-width bitvector model means **wraparound is real**: a spec

@@ -1,0 +1,23 @@
+// A function with no contract is spec-transparent only when its body is one a
+// specification could have, and a specification cannot call a function with a
+// contract (SPEC_AND_PROOF.md §4.2). `wrap` calls `spin`, so `wrap` is not
+// transparent: the verifier reports `wrong` as a subset error ("not
+// spec-transparent: it calls 'spin', which has a contract") that names the
+// rule, where it used to refute it as an opaque call.
+pragma(Pragma.Verify);
+
+spin :: (fn(x : i32, ensures(r > r)) -> (r : i32))({
+  mut(i) := x;
+  while(true, {
+    invariant(true);
+    i = i;
+  });
+  i
+});
+
+wrap :: (fn(x : i32) -> i32)(spin(x));
+
+wrong :: (fn(x : i32, ensures(r == i32(42))) -> (r : i32))({
+  ghost(v := wrap(x));
+  x
+});

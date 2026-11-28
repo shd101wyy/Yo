@@ -1,0 +1,43 @@
+// A law's proof block is checked: a lemma cited there owes its `requires`, and
+// here the law's own `requires` does not give it (the lists may differ), so the
+// law REFUTES instead of proving from an unproved citation.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array-list");
+
+member :: ghost_fn(
+  (fn(xs : &ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => false,
+      true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
+    )
+  )
+);
+
+member_frame :: ghost_fn(
+  (
+    fn(
+      a : &ArrayList(i32),
+      b : &ArrayList(i32),
+      n : usize,
+      v : i32,
+      requires(n <= a.len(), n <= b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
+      ensures(member(a, n, v) == member(b, n, v)),
+      decreases(n)
+    ) -> unit
+  )(
+    cond(
+      (n == usize(0)) => (),
+      true => member_frame(a, b, n - usize(1), v)
+    )
+  )
+);
+
+same_members_wrong :: law(fn(
+  a : &ArrayList(i32),
+  b : &ArrayList(i32),
+  v : i32,
+  requires(a.len() == b.len()),
+  ensures(member(a, a.len(), v) == member(b, b.len(), v))
+) -> unit, {
+  member_frame(a, b, a.len(), v);
+});

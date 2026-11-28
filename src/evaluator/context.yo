@@ -126,6 +126,22 @@ FuncOrAsyncBlockKind :: enum(
   TestBlock
 );
 derive(FuncOrAsyncBlockKind, Copy, Clone);
+/// Where an expression sits with respect to proof (plans/backlog/SPEC_AND_PROOF.md
+/// §4.1). Erased code has its own call rules (§4.2,
+/// `check_spec_context_call` in builtins/contracts.yo): it never runs, so it
+/// may not call what is correct only for runs that return.
+SpecContext :: enum(
+  /// An ordinary function body: the code runs.
+  Exec,
+  /// A `requires`, `ensures`, `invariant` or `decreases` predicate, a value
+  /// `ghost_fn` body, a `refine` predicate, a law's clauses, the right-hand
+  /// side of `ghost(name := e)`, an `assert` predicate in a verify target.
+  Spec,
+  /// A lemma body (a `unit` `ghost_fn` with an `ensures`), the argument of a
+  /// `ghost(...)` statement, a law's proof block.
+  Proof
+);
+derive(SpecContext, Copy, Clone);
 /// Evaluation sub-context for a function body or async / test block.
 FuncOrAsyncBlockCtx :: struct(
   kind : FuncOrAsyncBlockKind,
@@ -428,12 +444,22 @@ EvalContext :: (
     /// a predicate therefore soft-falls-back to an unknown value instead of
     /// the hard `Variable not found` error; type errors still surface.
     is_evaluating_contract_predicate : bool,
-    /// Ghost context (V5, plans/backlog/FORMAL_VERIFICATION.md §6):
-    /// inside contract-clause predicates, `ghost(...)` args, and
-    /// `ghost_fn` bodies — the ONLY places the ghost-only builtins
-    /// (`forall`, `exists`, `==>`) are well-formed. They have no
-    /// runtime semantics, so ordinary code using them is a compile error.
-    is_ghost_context : bool,
+    /// The spec context (plans/backlog/SPEC_AND_PROOF.md §4.1). Anything but
+    /// `Exec` is ghost (V5, plans/backlog/FORMAL_VERIFICATION.md §6): the
+    /// ONLY places the ghost-only builtins (`forall`, `exists`, `==>`) are
+    /// well-formed. They have no runtime semantics, so ordinary code using
+    /// them is a compile error. Read it through `in_ghost_context`.
+    spec_context : SpecContext,
+    /// Evaluating a law's clauses: the one spec position that may call a
+    /// contracted executable function, because nothing can cite a law
+    /// (SPEC_AND_PROOF.md §4.2). A function body never inherits it.
+    is_law_clause : bool,
+    /// The argument of the `ghost(...)` statement being evaluated: when the
+    /// call arm reaches that call, a callee that is not a lemma is reported as
+    /// the statement's form error rather than as the callee's. An id, not a
+    /// flag: a definition forced while the argument evaluates reaches the
+    /// call arm with calls of its own.
+    ghost_statement_call : Option(ExprId),
     /// Whether we are evaluating the RHS of a `given(...)` assignment.
     is_inside_given_handler : bool,
     /// Whether we are re-evaluating type expressions during generic impl specialisation.
@@ -514,7 +540,9 @@ eval_context_new :: (fn(std_path : &String, module_path : &String) -> EvalContex
     is_in_function_call_checking_phase : false,
     is_inside_io_async_call : false,
     is_evaluating_contract_predicate : false,
-    is_ghost_context : false,
+    spec_context : SpecContext.Exec,
+    is_law_clause : false,
+    ghost_statement_call : Option(ExprId).None,
     is_inside_given_handler : false,
     is_evaluating_generic_impl_specialization : false,
     currently_specializing_function : Option(SpecializingFunctionInfo).None,
@@ -2129,7 +2157,9 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_inside_where_clause : ctx.is_inside_where_clause,
     is_lhs_of_assignment : ctx.is_lhs_of_assignment,
     is_evaluating_contract_predicate : ctx.is_evaluating_contract_predicate,
-    is_ghost_context : ctx.is_ghost_context,
+    spec_context : ctx.spec_context,
+    is_law_clause : ctx.is_law_clause,
+    ghost_statement_call : ctx.ghost_statement_call,
     function_return_impl_concrete_type : ctx.function_return_impl_concrete_type.clone(),
     force_compile_time_bindings : ctx.force_compile_time_bindings,
     is_analyzing_ctfe_capability : ctx.is_analyzing_ctfe_capability,
@@ -4095,6 +4125,16 @@ take_pending_impl_force_error :: (fn() -> Option(String))({
 in_def_time_trial :: (fn() -> bool)(trial_flag_get());
 set_in_def_time_trial :: (fn(v : bool) -> bool)(trial_flag_set(v));
 /// Creates a fresh evaluation context for function body evaluation.
+/// Whether the expression being evaluated is ghost (a spec or a proof): the
+/// code never runs.
+in_ghost_context :: (fn(ctx : &EvalContext) -> bool)(
+  match(
+    ctx.spec_context,
+    .Exec => false,
+    .Spec => true,
+    .Proof => true
+  )
+);
 create_function_body_evaluation_context :: (
   fn(
     function_type : &TypeValue,
@@ -4179,7 +4219,11 @@ create_function_body_evaluation_context :: (
     is_inside_where_clause : ctx.is_inside_where_clause,
     is_lhs_of_assignment : ctx.is_lhs_of_assignment,
     is_evaluating_contract_predicate : ctx.is_evaluating_contract_predicate,
-    is_ghost_context : ctx.is_ghost_context,
+    spec_context : ctx.spec_context,
+    // A function body is never a law's clause, nor the argument of a ghost
+    // statement.
+    is_law_clause : false,
+    ghost_statement_call : Option(ExprId).None,
     is_in_function_call_checking_phase : ctx.is_in_function_call_checking_phase,
     // The flag marks the closure LITERAL that is `io.async`'s argument, and a
     // function body is a new scope: carried into the body, it made every
@@ -4237,6 +4281,8 @@ export(
   LoadModuleResult,
   FuncOrAsyncBlockKind,
   FuncOrAsyncBlockCtx,
+  SpecContext,
+  in_ghost_context,
   fn_ctx_returns_comptime,
   LoopKind,
   LoopFlowSnapshot,

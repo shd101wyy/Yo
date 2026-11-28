@@ -2,7 +2,7 @@
 
 **Severity:** S1 — `yo verify --strict` proves a caller's `ensures(r == 42)` that is false (the binary prints `7`): `wrong`'s `ensures` calls `spin`, a function that never returns, so the clause is proved under partial correctness, its run-time assert is erased, and `caller` assumes it.
 
-**Status:** open. **Found:** 2026-11-27 by the VERDICTS-91 probes (`p17`, `r17` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
+**Status:** fixed by PR 1a of the plan (§8). **Found:** 2026-11-27 by the VERDICTS-91 probes (`p17`, `r17` in the coordinator's `probe-ghost/` scratch), reproduced on v0.2.80 with Z3 5.1.0. **Plan:** `plans/backlog/SPEC_AND_PROOF.md` §2.1 (one of the seven false proofs).
 
 ## Reproducer
 
@@ -46,7 +46,7 @@ $ yo compile issues/repros/2026-11-27-an-ensures-clause-calls-a-diverging-functi
 
 ## Root cause
 
-The same rule as the ghost binding (`issues/2026-11-27-a-ghost-binding-calls-a-diverging-function.md`), for a clause. Walking `spin(x)` inside `wrong`'s `ensures` assumes `spin`'s `ensures(r > r)`, which is `false`, so `wrong`'s clause is proved; a proved clause's run-time assert is erased, so the program never evaluates `spin(x)`, and `caller` assumes `r == 42` from `wrong`'s contract.
+The same rule as the ghost binding (`issues/fixed/2026-11-27-a-ghost-binding-calls-a-diverging-function.md`), for a clause. Walking `spin(x)` inside `wrong`'s `ensures` assumes `spin`'s `ensures(r > r)`, which is `false`, so `wrong`'s clause is proved; a proved clause's run-time assert is erased, so the program never evaluates `spin(x)`, and `caller` assumes `r == 42` from `wrong`'s contract.
 
 The missing rule: a specification (a `requires`, `ensures`, `invariant` or `decreases` predicate) may not call a contracted executable function, except in a `law`'s clauses, which nothing can cite (`plans/backlog/SPEC_AND_PROOF.md` §4.2, diagnostic 9).
 
@@ -54,4 +54,14 @@ This is not a bug to patch alone: each of the seven false proofs of `plans/backl
 
 ## Fix
 
-PR 1a of `plans/backlog/SPEC_AND_PROOF.md` §8 (the call rules; `tests/spec/fixtures/valid/ensures-call-in-and.yo`, the one existing clause of this shape, moves into a `law`). The fixing PR adds a `tests/spec/fixtures/negative/` fixture of this program that the tree binary rejects and v0.2.80 accepts, and moves this doc to `issues/fixed/`.
+PR 1a of `plans/backlog/SPEC_AND_PROOF.md` §8. A `requires`/`ensures` clause is a specification, and a specification may not call a function that has a contract (§4.2); only a `law`'s clauses may, because a law's proof obligation covers that use. The call is E0928 (E_SPEC_CONTEXT_CALL). `tests/spec/fixtures/valid/ensures-call-in-and.yo` and `ensures-imported-callee.yo`, the existing clauses of this shape, now state their claim as a `law`. The reproducer now fails evaluation, so `yo verify --strict` exits 1:
+
+```text
+error[E0928]: 'spin' has a contract, so its body is not its meaning, and a specification cannot call it: the contract holds only for runs that return, and nothing runs a specification. Use a ghost_fn, or remove the contract; a law can state claims about 'spin'
+   --> issues/repros/2026-11-27-an-ensures-clause-calls-a-diverging-function.yo:14:32
+   |
+14 | wrong :: (fn(x : i32, ensures((spin(x) == spin(x)) && (r == i32(42)))) -> (r : i32))(x);
+   |                                ^^^^
+```
+
+Test: `tests/spec/fixtures/negative/ensures-calls-contracted.yo` (this program; the tree binary rejects it, v0.2.80 accepts it), checked by `tests/internal/verifier-ghost.test.yo` "an ensures clause cannot call a contracted function (E0928)".

@@ -84,6 +84,8 @@ json :: import("std/encoding/json");
   E_ORIGIN_NAMES_ITSELF,
   E_REFERENCE_READ_WITHOUT_DEREF,
   E_BORROW_OF_NON_PLACE,
+  E_SPEC_CONTEXT_CALL,
+  E_GHOST_STATEMENT_FORM,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -851,6 +853,36 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "{ ArrayList } :: import(\"std/collections/array-list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  xs.push(i32(1));\n  r := xs.index(usize(0));\n  _n := r.*;\n});\nexport(main);\n",
       "`xs(i)` is an element the collection owns, not a place a local borrow can name; `xs.index(i)` borrows it and freezes `xs` while `r` lives.",
       "`xs(i)` 是集合拥有的元素，而不是局部借用可以命名的位置；`xs.index(i)` 借用它，并在 `r` 存活期间冻结 `xs`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_SPEC_CONTEXT_CALL,
+      "a call that erased code cannot make",
+      "被擦除的代码不能进行的调用",
+      "A specification or a proof called a function with a contract, a specification called a lemma, or executable code called a lemma outside `ghost(...)`.",
+      "规约或证明调用了带契约的函数，规约调用了引理，或可执行代码在 `ghost(...)` 之外调用了引理。",
+      "Specifications (a `requires`, `ensures`, `invariant` or `decreases` clause, a value `ghost_fn` body, the right-hand side of `ghost(name := e)`, an `assert` in a verify-mode file) and proofs (a lemma body, a `ghost(...)` statement, a law's proof block) never run: they are erased, and a proved clause's run-time check is erased with them. A function with a contract is correct only for runs that return, because a function that never returns satisfies every `ensures`. Code that runs and reaches such a call never gets past it, but erased code that assumed its `ensures` would go on from a fact no run established. So a specification or a proof calls a `ghost_fn`, or a function with no contract (its body is its meaning). A law's clauses are the exception: a law states a claim about contracts, and nothing can cite a law. A lemma is a proof step: executable code calls it only as the statement `ghost(lemma(args));`, a proof calls it bare, and a specification cannot call it at all; a law cites one in its proof block, `law(fn-type, { lemma(args); })`.",
+      "规约（`requires`、`ensures`、`invariant` 或 `decreases` 子句、返回值的 `ghost_fn` 函数体、`ghost(name := e)` 的右侧、verify 模式文件中的 `assert`）与证明（引理体、`ghost(...)` 语句、law 的证明块）从不运行：它们会被擦除，已证明子句的运行时检查也随之擦除。带契约的函数只对能返回的运行才正确，因为永不返回的函数满足任何 `ensures`。运行中的代码到达这样的调用就不会越过它，而被擦除的代码若假设了它的 `ensures`，就会从一个没有任何运行确立过的事实继续推下去。因此规约或证明只调用 `ghost_fn`，或不带契约的函数（其函数体就是其含义）。law 的子句是例外：law 陈述的是关于契约的断言，且没有任何东西能引用 law。引理是证明步骤：可执行代码只能以语句 `ghost(lemma(args));` 调用它，证明中直接调用，规约则完全不能调用；law 在其证明块中引用引理，即 `law(fn-type, { lemma(args); })`。",
+      "next :: (fn(x : i32, requires(x < i32(100)), ensures(r == (x + i32(1)))) -> (r : i32))(x + i32(1));\ntwice :: (fn(x : i32, requires(x < i32(50)), ensures(r == next(next(x)))) -> (r : i32))(x + i32(2));\nmain :: (fn() -> unit)({\n  _t := twice(i32(1));\n});\nexport(main);\n",
+      "next :: (fn(x : i32) -> i32)(x + i32(1));\ntwice :: (fn(x : i32, requires(x < i32(50)), ensures(r == next(next(x)))) -> (r : i32))(x + i32(2));\nmain :: (fn() -> unit)({\n  _t := twice(i32(1));\n});\nexport(main);\n",
+      "With no contract, `next`'s body is its meaning, so the `ensures` may call it.",
+      "`next` 不带契约，其函数体就是其含义，因此 `ensures` 可以调用它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_GHOST_STATEMENT_FORM,
+      "a `ghost(...)` statement of the wrong form",
+      "形式错误的 `ghost(...)` 语句",
+      "`ghost(...)` takes a ghost binding `ghost(name := e)` or a proof step, a lemma call `ghost(lemma(args))`, and appears only in executable code.",
+      "`ghost(...)` 接受幽灵绑定 `ghost(name := e)` 或证明步骤（引理调用 `ghost(lemma(args))`），且只出现在可执行代码中。",
+      "`ghost(...)` is the one door from executable code into proof, and codegen erases it. Its argument is a ghost binding, `ghost(name := e)`, which names a value that only specifications read, or a proof step, `ghost(lemma(args))`, which proves the lemma's `requires` and assumes its `ensures` from then on. Anything else would be walked by the verifier and never run: `ghost(xs.push(v))` would let the verifier prove a length the program never has. Inside a specification or a proof (a lemma body, a law's proof block) the code is already ghost, so a binding or a lemma call there is written without the wrapper.",
+      "`ghost(...)` 是从可执行代码进入证明的唯一入口，代码生成会擦除它。它的实参是幽灵绑定 `ghost(name := e)`（命名一个只有规约读取的值），或证明步骤 `ghost(lemma(args))`（证明引理的 `requires`，此后假设其 `ensures`）。其他任何东西都会被验证器遍历却从不运行：`ghost(xs.push(v))` 会让验证器证明一个程序从未有过的长度。在规约或证明内部（引理体、law 的证明块），代码本来就是幽灵的，因此那里的绑定或引理调用不加这层包装。",
+      "{ ArrayList } :: import(\"std/collections/array-list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  ghost(xs.push(i32(1)));\n  _n := xs.len();\n});\nexport(main);\n",
+      "{ ArrayList } :: import(\"std/collections/array-list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  xs.push(i32(1));\n  _n := xs.len();\n});\nexport(main);\n",
+      "The push is code that runs, so it is written without `ghost(...)`.",
+      "push 是会运行的代码，因此不加 `ghost(...)`。"
     )
   );
   out.push(
