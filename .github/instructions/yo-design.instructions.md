@@ -473,6 +473,9 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
 | set insert | `insert(v) -> bool` | `add` |
 | sequence append | `push` / `push_front` / `push_back` | — |
 | membership | `contains` (sequence/set), `contains_key` (map) | — |
+| substring position | `find` / `rfind` on `String` (`index_of` is a list's element position) | `index_of` on a string |
+| joining strings | `items.join(sep)`, `items.concat()` on `[String]` | `sep.join(&items)` |
+| comparison callback | `sort_by((a, b) => a.cmp(b))`, an `Ordering` | a `less` predicate |
 | owning iterator | `into_iter()`, `into_keys()`, `into_values()` (type `XIntoIter`) | — |
 | lending iterator | `iter()` / `iter_mut()`, `keys()` / `values()` / `values_mut()` (types `XIter`, `XIterMut`) | `keys_cloned`-style list snapshots (`m.keys().cloned().collect(ArrayList(K))`) |
 | raw pointer iterator (unsafe-capable files) | `iter_raw()` (type `XRawIter`) | `iter_ptr` |
