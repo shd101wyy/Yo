@@ -25,7 +25,12 @@ names), `keys_cloned`/`values_cloned`/`items_cloned` deleted, `MapEntry` → `Tu
 and `Iterator.cloned()`/`copied()` (moved here from S-2). Two defects it worked around are filed:
 `issues/2026-11-28-an-associated-type-binding-to-a-reference-type-is-read-as-a-local-borrow.md` (the prelude spells
 `Item := _RefTo(A)`) and `issues/2026-11-28-a-mut-reference-field-of-a-matched-tuple-is-rooted-in-the-arm-binding.md`.
-S-2, S-4 to S-6, L-1 and P-1 to P-4 are not started.
+S-4a is built (branch `wip/v0281-s4a`, on S-3): §3.7's collections, strings and sync rows (`find`/`rfind`, `push(r)`,
+`items.join(sep)`/`concat` on `[String]` and `ArrayList(String)` (the tree has no auto-deref, so the list carries a forwarding
+pair), `sort_by`/`sort_unstable_by` with an `Ordering`, `Condvar`/`notify_one`/`notify_all` (module `std/sync/condvar`),
+`Once.call_once`, `OnceLock`, `recv -> Result(T, RecvError)` on `std/sync/channel`'s `Channel` and `Receiver`, the `HashSet`
+set operations `-> Self`, `shrink_to_fit -> unit`, `replace_first`/`replace_all` deleted). `std/async/channel` keeps its own
+`recv` shapes. S-2, S-4b, S-5, S-6, L-1 and P-1 to P-4 are not started.
 
 ## 1. Headline
 
