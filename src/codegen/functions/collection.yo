@@ -1305,9 +1305,8 @@ _destructor_receiver :: (fn(method : &String) -> String)(
   )
 );
 /// The synthesized `___dispose`'s call of the user destructor. The
-/// trait-qualified call: a `Deref` wrapper with a `Drop` (the unique `Box`)
-/// over a payload with its own `drop` would make `self.drop()` decision 32's
-/// E0616. Its tokens are `auto-generated://`, so E0915 (an explicit
+/// trait-qualified call names `Drop`'s `drop`, never an inherent method of
+/// that name. Its tokens are `auto-generated://`, so E0915 (an explicit
 /// destructor call) exempts it.
 _destructor_call_code :: (fn() -> String)(String.from("(Self <: Drop).drop(self); "));
 /// Synthesize + register the auto-derived `___dispose` (recursive RC-field drop) for a
