@@ -33,7 +33,10 @@
   default_verify_run_config,
   resolve_solver_sync,
   verify_and_strip_tasks,
-  VerifyFnReport
+  verify_report_is_failure,
+  verify_report_is_degraded,
+  VerifyFnReport,
+  VerifyVerdict
 } :: import("../../src/verifier/driver.yo");
 
 _have_z3 :: (fn() -> bool)(
@@ -209,6 +212,36 @@ _first_refuted_with :: (
   )
 });
 
+/// The one report with the given outcome; asserts there is exactly one.
+_only_report :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -> VerifyFnReport)({
+  assert(
+    _count_outcome(reports, outcome) == usize(1),
+    `exactly one ${outcome} report expected, got: [${_reports_dump(reports)}]`
+  );
+  (mut(i) : usize) = usize(0);
+  while(i < reports.len(), {
+    rp := reports.get_cloned(i).unwrap();
+    if(rp.outcome == outcome.*, {
+      return(rp);
+    });
+    i = (i + usize(1));
+  });
+  reports.get_cloned(usize(0)).unwrap()
+});
+/// The result of the report's only probe of `kind`; "" when it has none.
+_probe_result :: (fn(rp : &VerifyFnReport, kind : &String) -> String)({
+  (mut(out) : String) = String.new();
+  (mut(i) : usize) = usize(0);
+  while(i < rp.probes.len(), {
+    pr := rp.probes.get_cloned(i).unwrap();
+    if(pr.kind == kind.*, {
+      out = pr.result.clone();
+    });
+    i = (i + usize(1));
+  });
+  out
+});
+
 test("an assumed fn reports assumed and its caller proves through the assumed contracts", {
   if(!_have_z3(), {
     return(());
@@ -297,4 +330,102 @@ test("an uncontracted fn whose body fails the subset degrades to the passing out
     rp.subset_construct.len() > usize(0),
     `the degraded report keeps the subset construct as its note, got: '${rp.subset_construct}'`
   );
+});
+
+// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md: the satisfiability and
+// feasibility probes over assumed() contracts
+// (issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md).
+test("a contradictory assumed contract is reported, and a proof through it is infeasible, not ok", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/assumed-contradictory.yo"), io, true);
+  oracle := _only_report(&reports, String.from("contradictory"));
+  assert(
+    _probe_result(&oracle, String.from("contract-sat")) == "unsat",
+    `oracle's contract probe must answer unsat, got: [${_reports_dump(&reports)}]`
+  );
+  bad := _only_report(&reports, String.from("infeasible"));
+  (mut(by) : String) = String.new();
+  (mut(i) : usize) = usize(0);
+  while(i < bad.obligations.len(), {
+    obl := bad.obligations.get_cloned(i).unwrap();
+    if(obl.name.contains(String.from("ensures#0")), {
+      by = match(&obl.verdict, .Infeasible(b) => b.clone(), _ => String.from("(not infeasible)"));
+    });
+    i = (i + usize(1));
+  });
+  assert(by == oracle.fn_id, `bad's ensures#0 must be infeasible by ${oracle.fn_id}, got '${by}'`);
+  assert(
+    _probe_result(&bad, String.from("call-feasible")) == "unsat",
+    `the probe after bad's call to oracle must answer unsat`
+  );
+  denied := ArrayList(String).new();
+  assert(verify_report_is_failure(&oracle, &denied), "a contradictory contract fails a verify-mode run");
+  assert(verify_report_is_failure(&bad, &denied), "an infeasible proof fails a verify-mode run");
+  // verify+: a contradictory contract still fails; an infeasible proof
+  // degrades to its runtime assert like any proof that did not hold.
+  mut(oracle_plus) := oracle.clone();
+  oracle_plus.mode = String.from("verify+");
+  mut(bad_plus) := bad.clone();
+  bad_plus.mode = String.from("verify+");
+  assert(verify_report_is_failure(&oracle_plus, &denied), "a contradictory contract fails in verify+ too");
+  assert(
+    !verify_report_is_failure(&bad_plus, &denied) && verify_report_is_degraded(&bad_plus, &denied),
+    "an infeasible proof degrades to the runtime assert in verify+"
+  );
+});
+
+test("an assumed contract that contradicts the caller's own facts makes the caller infeasible", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/assumed-infeasible-after-call.yo"), io, true);
+  above := _only_report(&reports, String.from("assumed"));
+  assert(
+    _probe_result(&above, String.from("contract-sat")) == "sat",
+    `above's contract is satisfiable alone, got: [${_reports_dump(&reports)}]`
+  );
+  at_max := _only_report(&reports, String.from("infeasible"));
+  assert(
+    _probe_result(&at_max, String.from("call-feasible")) == "unsat",
+    `the path after at_max's call to above must be infeasible`
+  );
+});
+
+test("a satisfiable assumed contract keeps its callers ok, and each ok names it", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/assumed-satisfiable-callers-list-it.yo"), io, true);
+  bump := _only_report(&reports, String.from("assumed"));
+  assert(
+    _probe_result(&bump, String.from("contract-sat")) == "sat",
+    `bump's contract must be satisfiable, got: [${_reports_dump(&reports)}]`
+  );
+  assert(
+    _count_outcome(&reports, String.from("ok")) == usize(3),
+    `above_zero, at_least_one and guarded must stay ok, got: [${_reports_dump(&reports)}]`
+  );
+  (mut(listing) : usize) = usize(0);
+  (mut(dead) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
+  while(i < reports.len(), {
+    rp := reports.get_cloned(i).unwrap();
+    if(rp.outcome == "ok", {
+      // above_zero directly, at_least_one through above_zero's ensures,
+      // guarded through the branch's guarded fact (its proof of ensures#0
+      // carries `(x < 0) ==> (ret > x)`).
+      if((rp.assumes.len() == usize(1)) && (rp.assumes.get_cloned(usize(0)).unwrap() == bump.fn_id), {
+        listing = (listing + usize(1));
+      });
+      // guarded: the path is dead before its call, so the probe says so.
+      if(_probe_result(&rp, String.from("call-feasible")) == "dead-path", {
+        dead = (dead + usize(1));
+      });
+    });
+    i = (i + usize(1));
+  });
+  assert(listing == usize(3), `every ok report must list exactly ${bump.fn_id}, got ${listing.to_string()}: [${_reports_dump(&reports)}]`);
+  assert(dead == usize(1), `guarded's call probe must answer dead-path, got ${dead.to_string()}`);
 });

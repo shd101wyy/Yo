@@ -1,0 +1,12 @@
+// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md: an assumed() contract that
+// is satisfiable alone (`above` returns something greater than its argument)
+// and contradicts a caller's own facts. `at_max` may only be called with the
+// largest i32, which nothing exceeds, so the path after `above(x)` is
+// infeasible and `ensures(r == 0)` discharges vacuously. The feasibility
+// probe after the call finds it: `above` stays `assumed`, `at_max` is
+// `infeasible`.
+pragma(Pragma.Verify);
+
+above :: (fn(x : i32, ensures(r > x), assumed()) -> (r : i32))(x);
+
+at_max :: (fn(x : i32, requires(x == i32(2147483647)), ensures(r == i32(0))) -> (r : i32))(above(x));

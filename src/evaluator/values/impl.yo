@@ -97,7 +97,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view, is_type_0 } :: import("../../types/guards.yo");
-{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
 { get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str, static_origin_marks_text } :: import("../../types/utils.yo");
@@ -2976,6 +2976,29 @@ _inject_forall_captures :: (
     )
   )
 );
+/// `YO_DEBUG_SELF_PATTERN_CHECK=1` (VERDICTS-77, gate 3): a generic impl's
+/// receiver pattern substituted by the match's bindings, WITHOUT the `Self`
+/// binding that `_is_self_pattern` answers, must be the receiver itself: one
+/// `type_key` and exact compatibility both ways. A recursive pattern reaches
+/// its self-shell, so this checks that substitution re-ties the back-edge
+/// (I1) and that the key does not split the two presentations (I2). Each
+/// mismatch is reported on stderr as `[self-pattern-mismatch]`.
+_check_self_pattern_substitution :: (fn(spec_s : &Substitution, pattern : &TypeValue, receiver : &TypeValue) -> unit)({
+  // A receiver that is itself generic compares its type variables by
+  // lineage, which is not this check's question.
+  if(type_mentions_some_type(receiver), {
+    return(());
+  });
+  mut(chk) := _subst_clone(spec_s);
+  got := substitute(&mut chk, pattern);
+  got_key := type_key(&got);
+  recv_key := type_key(receiver);
+  exact_fwd := are_types_compatible_exact(&got, receiver);
+  exact_back := are_types_compatible_exact(receiver, &got);
+  if((got_key != recv_key) || !exact_fwd || !exact_back, {
+    eprintln(`[self-pattern-mismatch] pattern=${type_to_string(pattern)} receiver=${type_to_string(receiver)} keys_equal=${(got_key == recv_key).to_string()} exact=${exact_fwd.to_string()}/${exact_back.to_string()} got_key=${got_key} recv_key=${recv_key}`);
+  });
+});
 /// The uncached scan behind `find_methods_from_generic_impls`: every registry
 /// bucket, the name prefilter, `try_match_generic_impl`, visibility judged
 /// among the MATCHING candidates, per-field specialization and the
@@ -3201,6 +3224,9 @@ _find_methods_from_generic_impls_scan :: (
               // substituting it, so substituting the key first makes the
               // exact-equality test compare EnumT(id, Some(T)) against
               // EnumT(id, Some(Node)) and silently never fire.
+              if(debug_knob(`YO_DEBUG_SELF_PATTERN_CHECK`).is_some(), {
+                _check_self_pattern_substitution(&spec_s, &entry.receiver_type_pattern, resolved);
+              });
               subst_set_self(&mut spec_s, &entry.receiver_type_pattern, resolved);
               fmg_spec_ty := substitute(&mut spec_s, &ftype);
               if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {

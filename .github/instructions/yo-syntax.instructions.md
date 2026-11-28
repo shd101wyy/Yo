@@ -667,7 +667,7 @@ infix pattern needs its own parentheses.
 | `_` | `_ => …` | wildcard |
 | identifier | `other => (other + 1)` | binds — unless it names a `::` constant holding a literal or enum value, which is COMPARED (`TEN => …`) |
 | constant | `0`, `-1`, `true`, `'a'`, `"lit"`, `i32(5)`, `Color.Red` | compared with `==`; a `str` literal matches a `String` or `str` |
-| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | sub-patterns at any depth: `.Ok(.Some(v))`, `.Of((48..=57))` |
+| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })`, `.V(..)` | `.V` only for a variant without fields; `.V(..)` = any payload; sub-patterns at any depth: `.Ok(.Some(v))`, `.Of((48..=57))` |
 | or | `(.Red \| .Green) => …`, `.Some((.A \| .B))` | alternatives bind the same names |
 | range | `(0..10) => …`, `(10..=19) => …` | compile-time bounds |
 | whole-value binding | `(whole := .Some(v)) => …` | binds the value AND matches |
@@ -695,8 +695,15 @@ area :: (fn(s : Shape) -> i32)(
 
 - **Prefer the curly form** `.Variant({ field1, field2 : alias })`: adding a field never shifts positions.
   `{ a }` binds `a`; `{ a : x }` renames; `{ a : _ }` asserts the field and ignores it; partial lists are
-  fine; `.Variant({})` and bare `.Variant` match without binding (even with fields); a bare `{ _ }` is
-  rejected (`tests/match-curly.test.yo`, `tests/match-bind-nothing.test.yo`).
+  fine; a bare `{ _ }` is rejected (`tests/match-curly.test.yo`).
+- **A variant pattern has parentheses exactly when the variant has fields** (VERDICTS-88): `.Empty`;
+  `.Rect(w, h)` / `.Rect(w : p)` / `.Rect({ w })`; `.Rect(..)` matches any payload and binds nothing (`..`
+  written alone). A bare `.Rect` on a variant with fields, `.Rect()`, `.Rect({})` and `.Empty(..)` /
+  `.Empty()` / `.Empty(_)` are E0626, a wrong positional count too; `yo fix` writes `.Rect(..)` or deletes
+  the group. `..` anywhere else is E0609 (positional: one `_` per skipped element; labeled or struct:
+  delete it) (`tests/match-bind-nothing.test.yo`).
+- **`src/`, `std/` and seed-run test files write `.V(_, _)`, not `.V(..)`, until `SEED_VERSION` is
+  v0.2.81**: the v0.2.80 seed rejects `.Rect(..)` and reads `.Circle(..)` as a binding named `..`.
 - In a VARIANT payload, a nested struct sub-pattern uses the NAMED form: `.Holding(Outer(inner : { a, b }, tag))`;
   `.Holding({ inner : { a, b } })` is E0406 (its labels are read against the variant). Otherwise nesting is
   free: `.Foo({ a : .Some(x) })`, `.V((0, y))`, `.V(Point(x : 0, y))`.

@@ -123,7 +123,7 @@ battery takes the next lane-F item.
   `issues/fixed/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
   and the both-modes fixture sweep; amended 2026-11-15), then S1 (`yo init`
   scaffolds `pragma(Pragma.VerifyOrAssert);`), with S2 (the S2 issue
-  `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`)
+  `issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`)
   and SD (the solver's distribution) beside them.
   Its S3 is phase 4's item 1, pulled forward: verified std bodies start as soon
   as S2 lands, not when lane C drains.

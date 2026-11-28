@@ -94,7 +94,7 @@ The two modes differ in one case only:
 - **A proving mode is the less safe mode when an assumption is wrong.** It erases
   runtime checks on the strength of proofs that rest on `assumed()` contracts nothing
   validates
-  (`issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`:
+  (`issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`:
   the same program aborts in `runtime` mode and silently returns the wrong value in
   `verify` mode). Most std bodies are `assumed()`.
 - **Memory at scale.** `yo verify ./src` peaked at 9.33 GB and 195 s (2026-09-18)
@@ -290,7 +290,7 @@ In order. S0, S2 and SD need nothing else and start at v0.2.80. S1 follows S0 (D
 | **S0** | **Done** (branch `wip/v0281-dov-s0`). `verify+` verifies what `verify` verifies: `issues/fixed/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md` (the requires-only splice flattened a block body, so the walked body node had no `ExprInfo`) and `issues/fixed/2026-11-22-a-quantified-contract-clause-compiles-only-under-pragma-verify.md` (no mode splices a clause that cannot run, and none splices into a `ghost_fn`) are fixed. The both-modes sweep is `scripts/verify-both-modes.py`, a step of the formal-verification job's harness leg run with stage 1: every fixture of `tests/spec/fixtures/valid/` runs under `Pragma.Verify` and under `Pragma.VerifyOrAssert` and must prove the same set of functions. All 77 fixtures do; the known-divergence list `tests/spec/verify-both-modes-known.tsv` is empty | S to M | nothing |
 | **S1** | `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` in the source modules it generates, and the scaffolded `AGENTS.md` says so. `src/init.yo` already scaffolds a verified `spec/` | S: `src/init.yo` plus a cli-case golden | S0 |
 | **SD** | Solver distribution (D9): a static build of the pinned Z3 for each release target, published with the release, and an install that keeps only that binary; the installer and `yo version install` fetch it with the compiler, and `yo build` fetches it on first need; a missing solver and one that cannot execute are probed once and reported in one line for the build; `--require-solver` / `YO_REQUIRE_SOLVER=1` for CI; solver presence in the artifact's input stamp (§5 items 8 and 9) | M | nothing |
-| **S2** | A proved result is capped by what it rests on: the satisfiability probe per `assumed()` contract, the feasibility probe after a call, and `ok` naming the assumed contracts it used | about a week, with the vacuity probes of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) | nothing |
+| **S2** | **Done.** A proved result is capped by what it rests on: the satisfiability probe per `assumed()` contract (`contradictory`, a failure in every mode), the feasibility probe after a call to an `assumed()` callee (`infeasible`: the proofs on that path are voided, a failure in `verify`, the assert kept in `verify+`), and `ok` naming the assumed contracts it used (`assumes`, transitively through the run's verified callees). Cost and design: §3.1. Not in it: the entry-premise and conclusion probes of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)'s vacuity gate | about a week | nothing |
 | **S3** | std bodies the verifier walks instead of `assumed()` | weeks; it is the shared bottleneck of [`POST_VBD_PLAN.md`](POST_VBD_PLAN.md) phase 4, item 1 | the raw-buffer model ([`THEOREM_PROVING_DIRECTION.md`](THEOREM_PROVING_DIRECTION.md) R1) |
 | **S4** | Incremental verification: an edit re-proves only the functions it changed, and a default-on `yo check` does not hold every function's state at once. Its three parts by §2.2: a solver pool, a per-function cache key, and a small budget for automatic obligations (§5 items 5 to 7) | L (SELF_VERIFICATION lever L8) | nothing |
 | **S5** | Subset growth until the coverage gate holds: strings, exceptions as exit paths, trees as datatypes, collections through contracts | L (SELF_VERIFICATION levers L1–L4) | S3 for L4 |
@@ -343,6 +343,56 @@ What S6b contains:
 - the default mode becomes `verify+`: the two erasures are switched on for it;
 - `Pragma.VerifyOrAssert` is deleted, with no alias and no deprecation window (D4).
 
+### 3.1 S2 as built
+
+- **The contract probe** (`probe_assumed_contract`, `src/verifier/vc.yo`): per
+  `assumed()` function, one query with its `requires`, parameter refinements and
+  `ensures` assumed and the goal `false`. A parameter the function may change (`&mut`,
+  or named in `old(...)`) is a fresh post-call value in the `ensures`. `unsat` is the
+  outcome `contradictory`, a failure in every mode (`--deny` can name it too). A
+  contract the walk cannot express is reported as not probed, with the construct. std's
+  nine `ArrayList` contracts are in that case today: their `Self` and `T` come from the
+  `impl`'s type parameter, which the abstract walk does not model (`assumed … ; contract
+  not probed (outside the subset: …)`); the call probe still checks each use.
+- **The call probe** (`_record_callee_fact`, `vc.yo`; `_run_call_probes`,
+  `src/verifier/driver.yo`): after each call to an `assumed()` callee, one query asks
+  whether the path, with the callee's `ensures` added, is satisfiable. Only when it is
+  not: one query for the path before the call (`unsat` again is `dead-path`: dead code,
+  not a finding), then one per proved obligation whose path carries the call's facts,
+  re-asked with the goal `false`; an `unsat` turns its verdict into `Infeasible`. The
+  function's outcome is `infeasible`: a failure in `verify`, the runtime-assert fallback
+  in `verify+` (the strip pass removes only `Proved` asserts), denied by `--strict`.
+- **`assumes`**: per report, the sorted ids of the `assumed()` contracts on its proved
+  obligations' paths (a fact keeps its callee through a branch's guard), closed over the
+  callees the same run verified. Syntactic reachability, an over-approximation of what
+  the proofs used, until unsat cores render (`LEAN_ADOPTION_CANDIDATES.md` LE2).
+- **Output, for S6a to reuse:** text `rests on assumed: …` on the `ok` line,
+  `; contract satisfiable` (or why not probed) on the `assumed` line, the failing probe
+  under an `infeasible` report; JSON per function `assumes` and `probes[]` (`name`,
+  `kind`, `callee`, `result` ∈ `sat`/`unsat`/`dead-path`/`unknown`/`solver-error`/
+  `outside-subset`, `detail`, `queries`, `cached`), per obligation `verdict:
+  "infeasible"` with `infeasible_by`, summary `probe_queries` and `probe_cached`. Probe
+  queries are counted apart from `queries` (obligations). A probe runs at a twenty-fifth
+  of the run's `rlimit` (200,000 by default) and is never escalated: finding a model for
+  a quantified path can exhaust any budget (`dml-sorted-insert.yo`'s two calls cost
+  1.8 s each at the full one), and a probe that gives up only leaves a contract
+  unchecked.
+- **Cost, measured 2026-11-26** (`yo verify`, the tree binary against the `wip/v0281-dov-s0`
+  binary of the same develop, Z3 5.1.0, the 32-core box at load 17 to 38): every
+  satisfiable probe is one query, so the added count is the number of calls to
+  `assumed()` functions plus one per `assumed()` definition. `std/collections`: 0
+  queries before and after (its nine `assumed()` contracts are not probed, see above,
+  and none of its walked functions calls one). A generated module in the §2.2 shape
+  plus a `push` pair in one function of eight (320 functions, 1,043 lines): 440 → 440
+  obligation queries plus 80 probe queries (+18 %); cold solving, three interleaved
+  runs, 15.1 / 15.7 / 18.0 s → 18.5 / 19.1 / 21.0 s (about 42 ms a probe, the cost of
+  one cold obligation); warm, every probe answers from the cache (88 to 183 ms of
+  solving for the whole module, as before). Over the 165 fixtures of `tests/spec/fixtures/`:
+  542 obligation queries and 84 probe queries (+15.5 %) from 79 probes, of which 63 `sat`,
+  3 `unsat` (the two new negative fixtures), 1 `dead-path` and 12 `unknown` (a quantified
+  path: 7 at the probe budget, 5 "smt tactic failed"); every fixture's outcomes are the
+  same as before S2 but those two.
+
 ## 4. The gates for the flip
 
 Each is a number or a verdict a CI job re-derives. None is asserted in prose.
@@ -350,7 +400,7 @@ Each is a number or a verdict a CI job re-derives. None is asserted in prose.
 | Gate | Holds when |
 | --- | --- |
 | **G1** std is proved | the std modules a default-on program reaches report no `assumed` outcome outside the published FFI and raw-pointer list (S3) |
-| **G2** assumptions are checked | the issue of S2 is in `issues/fixed/`, with its fixtures |
+| **G2** assumptions are checked | the issue of S2 is in `issues/fixed/`, with its fixtures. **Holds** (S2) |
 | **G3** the overhead is bounded | on the compiler's front-end modules, a warm default-on `yo check` after a one-function edit is within a stated factor of the unverified time and a stated RSS; both numbers are set from the first S4 measurement, not before |
 | **G4** the subset covers real code | a stated share of the functions in `tests/` and `std/` is inside the subset; the share is set from the first measurement after S5's first lever |
 | **G5** no flaky builds | over the language suite, no obligation's verdict differs between two cold runs on two machines (the pinned Z3 and `rlimit` budgets make this checkable) |

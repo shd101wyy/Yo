@@ -45,4 +45,4 @@ The failing body is `ArrayList(Job).with_capacity_in(a, cap)`, called from `Arra
 
 ## Root cause
 
-Not determined. `YO_DEBUG_SWALLOW=1 yo check` prints several thousand trial-evaluation lines, and the one that kills `with_capacity_in` for `Job` was not isolated. The element type's field is an unresolved `SomeT` (`Impl(Future(i32, Io))`), the same shape that makes `ArrayList(Impl(Future(i32, Io)))` raise E0610 inside `std/collections/array-list.yo` (`issues/questions/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md`).
+Not determined. `YO_DEBUG_SWALLOW=1 yo check` prints several thousand trial-evaluation lines, and the one that kills `with_capacity_in` for `Job` was not isolated. The element type's field is an unresolved `SomeT` (`Impl(Future(i32, Io))`), the same shape that makes `ArrayList(Impl(Future(i32, Io)))` raise E0610 inside `std/collections/array-list.yo` (`issues/retired/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md`).

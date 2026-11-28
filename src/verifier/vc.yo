@@ -714,8 +714,37 @@ VcObligation :: struct(
   (elision_only : bool) ?= false,
   /// Literal-construction CTFE folding: the goal constant-folded to a
   /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
-  (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
+  (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None,
+  /// S2: this entry is a satisfiability probe, not an obligation.
+  (probe : Option(VcProbe)) ?= Option(VcProbe).None,
+  /// S2: the FuncVal ids of the contracted callees whose `ensures` are on
+  /// this obligation's path: what its proof may rest on (syntactically).
+  uses : ArrayList(String),
+  /// S2: the names of the `call-feasible` probes whose callee's `ensures`
+  /// are on this obligation's path.
+  after_probes : ArrayList(String)
 );
+/// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md: a satisfiability PROBE.
+/// It rides the obligation list with the goal `false`, so "proved" (unsat)
+/// means its assumptions contradict each other. The driver reads it apart
+/// from the obligations: it never counts toward an outcome by itself.
+VcProbe :: struct(
+  /// `contract-sat`: an `assumed()` contract alone (`probe_assumed_contract`).
+  /// `call-feasible`: the path after a call to an `assumed()` callee.
+  kind : String,
+  /// The FuncVal id of the `assumed()` function the probe is about.
+  callee : String,
+  /// `call-feasible`: how many trailing assumptions the callee's contract
+  /// added at the call. Dropping them gives the path BEFORE the call.
+  pre_drop : usize
+);
+derive(VcProbe, Clone);
+/// A callee contract spliced onto the path at a call (S2): the encoded
+/// terms it added (the keys `_emit` matches against the path), and the name
+/// of the `call-feasible` probe that checked the path after it (empty for a
+/// callee that is not `assumed()`).
+CalleeFact :: struct(callee : String, keys : ArrayList(String), probe : String);
+derive(CalleeFact, Clone);
 /// The pre-resolved verdict for a constant-folded obligation.
 VcPreVerdict :: enum(PreProved, PreRefuted);
 derive(VcPreVerdict, Copy, Clone);
@@ -873,7 +902,9 @@ VcCtx :: struct(
   /// Calls that may change caller state beyond the call's result — an
   /// open-frame callee, or an argument written through `&mut`. A
   /// spec-transparent attempt that adds one is not transparent.
-  frame_effects : usize
+  frame_effects : usize,
+  /// S2: every contracted call's spliced `ensures` so far (`CalleeFact`).
+  callee_facts : ArrayList(CalleeFact)
 );
 derive(ForFrame, Clone);
 _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String) -> VcCtx)(
@@ -917,7 +948,8 @@ _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String)
     gfn_keys : ArrayList(String).new(),
     for_frames : ArrayList(ForFrame).new(),
     label_depth : usize(0),
-    frame_effects : usize(0)
+    frame_effects : usize(0),
+    callee_facts : ArrayList(CalleeFact).new()
   )
 );
 _next_fresh :: (fn(ctx : &mut VcCtx) -> usize)({
@@ -1244,7 +1276,8 @@ _emit :: (
     extra_assumptions : &ArrayList(VcTerm),
     goal : &VcTerm,
     (site : &Option(GuardSite)) ?= Option(GuardSite).None,
-    (elision_only : bool) ?= false
+    (elision_only : bool) ?= false,
+    (probe : Option(VcProbe)) ?= Option(VcProbe).None
   ) -> unit
 )({
   // Unique within the function: a guard obligation carries its 1-based
@@ -1476,19 +1509,27 @@ _emit :: (
   // literals (e.g. `refine#1` = `5 != 0` at `use_nz(i32(5))`) folds to a
   // BoolLit — record the verdict directly and let the driver skip the
   // solver for it.
+  // A probe's goal is the literal `false` by construction: its question is
+  // the satisfiability of the assumptions, which folding cannot answer.
   pre := match(
-    _fold_term(&q.goal),
-    Rc(.BoolLit(v)) => if(
-      v,
-      Option(VcPreVerdict).Some(VcPreVerdict.PreProved),
-      Option(VcPreVerdict).Some(VcPreVerdict.PreRefuted)
-    ),
-    _ => Option(VcPreVerdict).None
+    probe.is_some(),
+    true => Option(VcPreVerdict).None,
+    false => match(
+      _fold_term(&q.goal),
+      Rc(.BoolLit(v)) => if(
+        v,
+        Option(VcPreVerdict).Some(VcPreVerdict.PreProved),
+        Option(VcPreVerdict).Some(VcPreVerdict.PreRefuted)
+      ),
+      _ => Option(VcPreVerdict).None
+    )
   );
   // Elidable: a guard obligation with no unenforced assumption on the path.
   (elidable : bool) = (site.is_some() && !ctx.body_abstract);
-  if(elidable && (ctx.unenforced.len() > usize(0)), {
-    on_path := HashMap(String, bool).new();
+  // The path's terms, encoded: the elidable test and the S2 callee facts
+  // both look terms up in it.
+  on_path := HashMap(String, bool).new();
+  if((elidable && (ctx.unenforced.len() > usize(0))) || (ctx.callee_facts.len() > usize(0)), {
     (pk : usize) = usize(0);
     while(pk < ctx.path.len(), {
       match(
@@ -1500,6 +1541,8 @@ _emit :: (
       );
       pk = (pk + usize(1));
     });
+  });
+  if(elidable && (ctx.unenforced.len() > usize(0)), {
     (uk : usize) = usize(0);
     while(uk < ctx.unenforced.len(), {
       match(
@@ -1512,7 +1555,38 @@ _emit :: (
       uk = (uk + usize(1));
     });
   });
-  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site.clone(), elidable : elidable, elision_only : elision_only));
+  // S2: the callee contracts this obligation's path carries.
+  uses := ArrayList(String).new();
+  after_probes := ArrayList(String).new();
+  for(&ctx.callee_facts, cf => {
+    (hit : bool) = false;
+    for(&cf.keys, k => {
+      if(on_path.get(k.clone()).is_some(), {
+        hit = true;
+      });
+    });
+    if(hit, {
+      if(!uses.contains(cf.callee.clone()), {
+        uses.push(cf.callee.clone());
+      });
+      if((cf.probe.len() > usize(0)) && !after_probes.contains(cf.probe.clone()), {
+        after_probes.push(cf.probe.clone());
+      });
+    });
+  });
+  ctx.obligations.push(
+    VcObligation(
+      name : obl_name,
+      query : q,
+      pre : pre,
+      site : site.clone(),
+      elidable : elidable,
+      elision_only : elision_only,
+      probe : probe,
+      uses : uses,
+      after_probes : after_probes
+    )
+  );
   ()
 });
 /// The strict-decrease comparison for a measure, in its own type's order:
@@ -3110,6 +3184,18 @@ _guarded_fact :: (fn(ctx : &mut VcCtx, guard : &VcTerm, fact : &VcTerm) -> VcTer
     });
     if(found, {
       ctx.unenforced.push(Rc.clone(wrapped));
+    });
+  });
+  // S2: a callee's fact stays that callee's under its guard, so an
+  // obligation after the branch still names the contract it rests on.
+  if(ctx.callee_facts.len() > usize(0), {
+    fact_key := encode_term(fact);
+    (ci : usize) = usize(0);
+    while(ci < ctx.callee_facts.len(), {
+      if(ctx.callee_facts(ci).keys.contains(fact_key.clone()), {
+        ctx.callee_facts(ci).keys.push(encode_term(&wrapped));
+      });
+      ci = (ci + usize(1));
     });
   });
   wrapped
@@ -7143,6 +7229,7 @@ _callee_call_term :: (
     },
     .None => ()
   );
+  path_mark := ctx.path.len();
   (ei : usize) = usize(0);
   while(ei < enss.len(), {
     match(
@@ -7166,6 +7253,7 @@ _callee_call_term :: (
     );
     ei = (ei + usize(1));
   });
+  _record_callee_fact(ctx, e, &fid, &walk_base_fid, path_mark);
   ctx.call_pre = Option(HashMap(String, VcTerm)).None;
   ctx.label_depth = saved_label_depth;
   // Restore the caller's bindings (a missing binding goes back to missing).
@@ -7217,6 +7305,50 @@ _callee_call_term :: (
     _frame_havoc_lists(ctx, &havoc_names);
   });
   Option(VcTerm).Some(ret_var)
+});
+/// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md: record the facts a call
+/// spliced onto the path (`ctx.path` from `path_mark` on: the callee's
+/// `ensures`, and whatever walking them added). After a call to an
+/// `assumed()` callee, a `call-feasible` probe asks whether the path is
+/// still satisfiable: nothing checks an assumed contract, so one that
+/// contradicts the caller's facts would make every later obligation on the
+/// path "proved" (issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md).
+/// The probe is emitted before the fact is recorded, so it does not count
+/// its own call among the facts its path rests on.
+_record_callee_fact :: (
+  fn(ctx : &mut VcCtx, e : &AstExpr, fid : &String, base_fid : &String, path_mark : usize) -> unit
+)({
+  if(ctx.path.len() <= path_mark, {
+    return(());
+  });
+  keys := ArrayList(String).new();
+  (ki : usize) = path_mark;
+  while(ki < ctx.path.len(), {
+    match(
+      ctx.path.get_cloned(ki),
+      .Some(pt) => {
+        keys.push(encode_term(&pt));
+      },
+      .None => ()
+    );
+    ki = (ki + usize(1));
+  });
+  probe_name := String.new();
+  if(has_func_assumed_body(fid.clone()) || has_func_assumed_body(base_fid.clone()), {
+    ctok := ast_expr_token(e);
+    _emit(
+      ctx,
+      `feasible@${(usize(ctok.row) + usize(1)).to_string()}:${(usize(ctok.column) + usize(1)).to_string()}`,
+      ArrayList(VcTerm).new(),
+      Rc.new(VcTermNode.BoolLit(false)),
+      Option(GuardSite).None,
+      false,
+      Option(VcProbe).Some(VcProbe(kind : String.from("call-feasible"), callee : fid.clone(), pre_drop : (ctx.path.len() - path_mark)))
+    );
+    probe_name = ctx.obligations(ctx.obligations.len() - usize(1)).name.clone();
+  });
+  ctx.callee_facts.push(CalleeFact(callee : fid.clone(), keys : keys, probe : probe_name));
+  ()
 });
 /// The argument list a callee's params bind to: for a method call
 /// (`recv.m(args)`, the callee is the dot-call `.(recv, m)` and the callee's
@@ -7509,9 +7641,10 @@ VerifyFnInput :: struct(
   /// elidable (§5.1 rule 5 of SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
   (body_abstract : bool) ?= false
 );
-/// Symbolically execute one function definition. Always returns a result —
-/// subset violations land in `.error`, never thrown.
-verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
+/// The function-entry state every walk of a function starts from: the
+/// parameters bound as declared variables (a refined one assumes its
+/// predicate) and the entry snapshot `old(e)` reads.
+_enter_function :: (fn(input : &VerifyFnInput) -> VcCtx)({
   ctx := _new_vc_ctx(&input.table, input.fn_name.clone(), input.func_id.clone());
   ctx.elision_obligations = input.elision_obligations;
   ctx.body_abstract = input.body_abstract;
@@ -7581,7 +7714,6 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
     );
     i = (i + usize(1));
   });
-  ctx.decreases = input.decreases_expr.clone();
   // V5 two-state: snapshot the ENTRY state (params; module constants fold
   // into literals) — `old(e)` walks against this, never the live bindings.
   eit0 := ctx.vars.keys_cloned().into_iter();
@@ -7603,6 +7735,120 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
       }
     );
   });
+  ctx
+});
+/// Callee-side: ASSUME the function's own `requires`; one no runtime entry
+/// assert enforces is also an unenforced assumption.
+_assume_own_requires :: (fn(ctx : &mut VcCtx, input : &VerifyFnInput) -> unit)({
+  (ri : usize) = usize(0);
+  while(ri < input.requires_exprs.len(), {
+    req_enforced := match(input.requires_enforced.get(ri), .Some(b) => b, .None => false);
+    match(
+      input.requires_exprs.get_cloned(ri),
+      .Some(r) => {
+        ctx.requires_phase = usize(1);
+        rt := _expr_term(ctx, &r);
+        ctx.requires_phase = usize(0);
+        match(
+          rt,
+          .Some(rtt) => {
+            ctx.path.push(Rc.clone(rtt));
+            if(!req_enforced, {
+              ctx.unenforced.push(Rc.clone(rtt));
+            });
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  ()
+});
+/// S2 of plans/backlog/DEFAULT_ON_VERIFICATION.md: the satisfiability probe
+/// of an `assumed()` contract. Nothing proves an assumed contract, and an
+/// unsatisfiable one proves every obligation that rests on it
+/// (issues/fixed/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md),
+/// so one query asks whether some input meets the `requires` and parameter
+/// refinements while some result meets the `ensures`. A parameter the
+/// function may change (a `&mut` one, or one its contract names in
+/// `old(...)`) is a fresh post-call value in the `ensures`, and `old(...)`
+/// reads the entry snapshot, as at a call site. The result holds the one
+/// `contract-sat` probe, or the subset error that kept the contract from
+/// being expressed.
+probe_assumed_contract :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
+  ctx := _enter_function(input);
+  _assume_own_requires(&mut ctx, input);
+  (pi : usize) = usize(0);
+  while(pi < input.param_names.len(), {
+    match(
+      input.param_names.get_cloned(pi),
+      .Some(pn) => if(_callee_param_is_mut_ref(&input.func_id, pi) || _contracts_mention_old_of(&input.requires_exprs, &input.ensures_exprs, pn.clone()), {
+        match(
+          ctx.vars.get_cloned(pn.clone()),
+          .Some(cur) => {
+            post_sort := _binding_sort(&ctx, pn.clone(), &cur);
+            fresh := _next_fresh(&mut ctx);
+            ctx.vars.insert(pn.clone(), Rc.new(VcTermNode.Var(name : `__yo_post${fresh.to_string()}_${pn}`, sort : post_sort)));
+            ()
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  match(
+    &input.return_label,
+    .Some(lbl) => match(
+      _type_sort(&input.result_type),
+      .Some(rs) => {
+        ctx.vars.insert(lbl.clone(), Rc.new(VcTermNode.Var(name : lbl.clone(), sort : rs)));
+        ()
+      },
+      .None => _fail_subset(&mut ctx, String.from("result type outside the integer/bool/array subset"), &input.body)
+    ),
+    .None => ()
+  );
+  (ei : usize) = usize(0);
+  while(ei < input.ensures_exprs.len(), {
+    match(
+      input.ensures_exprs.get_cloned(ei),
+      .Some(ens) => match(
+        _expr_term(&mut ctx, &ens),
+        .Some(ett) => {
+          ctx.path.push(ett);
+        },
+        .None => _fail_subset(&mut ctx, String.from("an ensures clause outside the subset"), &ens)
+      ),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  if(ctx.subset_error.is_none(), {
+    _emit(
+      &mut ctx,
+      String.from("contract-sat"),
+      ArrayList(VcTerm).new(),
+      Rc.new(VcTermNode.BoolLit(false)),
+      Option(GuardSite).None,
+      false,
+      Option(VcProbe).Some(VcProbe(kind : String.from("contract-sat"), callee : input.func_id.clone(), pre_drop : usize(0)))
+    );
+  });
+  VcBodyResult(
+    obligations : replace(&mut ctx.obligations, ArrayList(VcObligation).new()),
+    value : Option(VcTerm).None,
+    error : replace(&mut ctx.subset_error, Option(VcSubsetError).None)
+  )
+});
+/// Symbolically execute one function definition. Always returns a result —
+/// subset violations land in `.error`, never thrown.
+verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
+  ctx := _enter_function(input);
+  ctx.decreases = input.decreases_expr.clone();
   // A body whose ROOT has no ExprInfo was never evaluated as a node. A
   // definition-time trial that swallowed an error is reported by the driver
   // with the recorded message before the walk, so reaching this means no
@@ -7621,30 +7867,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
     );
   });
   // Callee-side: ASSUME the requires.
-  (ri : usize) = usize(0);
-  while(ri < input.requires_exprs.len(), {
-    req_enforced := match(input.requires_enforced.get(ri), .Some(b) => b, .None => false);
-    match(
-      input.requires_exprs.get_cloned(ri),
-      .Some(r) => {
-        ctx.requires_phase = usize(1);
-        rt := _expr_term(&mut ctx, &r);
-        ctx.requires_phase = usize(0);
-        match(
-          rt,
-          .Some(rtt) => {
-            ctx.path.push(Rc.clone(rtt));
-            if(!req_enforced, {
-              ctx.unenforced.push(Rc.clone(rtt));
-            });
-          },
-          .None => ()
-        );
-      },
-      .None => ()
-    );
-    ri = (ri + usize(1));
-  });
+  _assume_own_requires(&mut ctx, input);
   // V4 termination: with a `decreases(M)` measure, prove M >= 0 on entry
   // (the well-foundedness ground for every recursive call's decrease) —
   // under the assumed requires, where it is actually provable.
@@ -8072,10 +8295,12 @@ export(
   _pointer_width,
   GuardSite,
   VcObligation,
+  VcProbe,
   VcSubsetError,
   VcBodyResult,
   VerifyFnInput,
   verify_function_body,
+  probe_assumed_contract,
   register_recursion_cliques,
   register_frame_tasks
 );

@@ -99,6 +99,7 @@ pragma(Pragma.AllowUnsafe);
   record_elidable_guard_sites,
   VerifyResult,
   VerifyFnReport,
+  VerifyProbeReport,
   verify_report_is_vacuous,
   verify_outcome_names,
   is_verify_outcome_name,
@@ -2434,12 +2435,15 @@ run_verify_cmd :: (
       },
       // `--strict` is the laws gate: a run must not pass because every
       // contract was `assumed()` away, or because a body quietly fell out of
-      // the verifiable subset. It is exactly `--deny assumed,outside-subset,unproven`.
+      // the verifiable subset, or because a proof rests on a path an
+      // assumed() contract makes infeasible. It is exactly
+      // `--deny assumed,outside-subset,unproven,infeasible`.
       (a_name == "--strict") => {
         strict = true;
         denied.push(String.from("assumed"));
         denied.push(String.from("outside-subset"));
         denied.push(String.from("unproven"));
+        denied.push(String.from("infeasible"));
         ai = (ai + usize(1));
       },
       (a_name == "--deny") => {
@@ -2707,8 +2711,8 @@ run_verify_cmd :: (
     if(strict, {
       println(
         tr(
-          String.from("verify: strict — assumed, outside-subset and unproven count as failures"),
-          String.from("verify：strict —— assumed、outside-subset 与 unproven 均视为失败")
+          String.from("verify: strict — assumed, outside-subset, unproven and infeasible count as failures"),
+          String.from("verify：strict —— assumed、outside-subset、unproven 与 infeasible 均视为失败")
         )
       );
     });
@@ -2755,7 +2759,7 @@ _verify_summary_line :: (fn(sum : &VerifySummary, elapsed_ms : i64) -> String)({
     i = (i + usize(1));
   });
   sb.write_string(
-    ` (${sum.vacuous.to_string()} of the ok vacuous) — ${sum.queries.to_string()} queries, ${sum.cached.to_string()} cached${_verify_hit_rate(sum)}, ${sum.folded.to_string()} folded, ${elapsed_ms.to_string()} ms`
+    ` (${sum.vacuous.to_string()} of the ok vacuous) — ${sum.queries.to_string()} queries, ${sum.cached.to_string()} cached${_verify_hit_rate(sum)}, ${sum.folded.to_string()} folded, ${sum.probe_queries.to_string()} probe queries (${sum.probe_cached.to_string()} cached), ${elapsed_ms.to_string()} ms`
   );
   sb.to_string()
 });
@@ -2797,6 +2801,10 @@ _verify_summary_json :: (
   vs.push(JsonValue.Int(i64(sum.cached)));
   ks.push(String.from("folded"));
   vs.push(JsonValue.Int(i64(sum.folded)));
+  ks.push(String.from("probe_queries"));
+  vs.push(JsonValue.Int(i64(sum.probe_queries)));
+  ks.push(String.from("probe_cached"));
+  vs.push(JsonValue.Int(i64(sum.probe_cached)));
   ks.push(String.from("elapsed_ms"));
   vs.push(JsonValue.Int(elapsed_ms));
   ks.push(String.from("strict"));
@@ -2819,7 +2827,8 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
       .Proved(_) => String.from("proved"),
       .Refuted(_) => String.from("refuted"),
       .Unproven(_) => String.from("unproven"),
-      .SolverError(_) => String.from("solver-error")
+      .SolverError(_) => String.from("solver-error"),
+      .Infeasible(_) => String.from("infeasible")
     );
     ks := ArrayList(String).new();
     ks.push(String.from("name"));
@@ -2864,7 +2873,37 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
       ks.push(String.from("elision_only"));
       vs.push(JsonValue.Bool(true));
     });
+    // S2: present only on an infeasible obligation — the report id of the
+    // assumed() contract that made its path infeasible.
+    match(
+      &obl.verdict,
+      .Infeasible(by) => {
+        ks.push(String.from("infeasible_by"));
+        vs.push(JsonValue.Str(by.clone()));
+      },
+      _ => ()
+    );
     obl_entries.push(JsonValue.Object(keys : ks, values : vs));
+  });
+  probe_entries := ArrayList(JsonValue).new();
+  for(&rp.probes, pr => {
+    pk := ArrayList(String).new();
+    pk.push(String.from("name"));
+    pk.push(String.from("kind"));
+    pk.push(String.from("callee"));
+    pk.push(String.from("result"));
+    pk.push(String.from("detail"));
+    pk.push(String.from("queries"));
+    pk.push(String.from("cached"));
+    pv := ArrayList(JsonValue).new();
+    pv.push(JsonValue.Str(pr.name.clone()));
+    pv.push(JsonValue.Str(pr.kind.clone()));
+    pv.push(JsonValue.Str(pr.callee.clone()));
+    pv.push(JsonValue.Str(pr.result.clone()));
+    pv.push(JsonValue.Str(pr.detail.clone()));
+    pv.push(JsonValue.Int(i64(pr.queries)));
+    pv.push(JsonValue.Int(i64(pr.cached)));
+    probe_entries.push(JsonValue.Object(keys : pk, values : pv));
   });
   ks2 := ArrayList(String).new();
   ks2.push(String.from("fn_id"));
@@ -2874,6 +2913,8 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
   ks2.push(String.from("obligations"));
   ks2.push(String.from("subset_construct"));
   ks2.push(String.from("subset_source"));
+  ks2.push(String.from("assumes"));
+  ks2.push(String.from("probes"));
   vs2 := ArrayList(JsonValue).new();
   vs2.push(JsonValue.Str(rp.fn_id.clone()));
   vs2.push(JsonValue.Str(rp.mode.clone()));
@@ -2886,6 +2927,8 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
   vs2.push(JsonValue.Array(obl_entries));
   vs2.push(JsonValue.Str(rp.subset_construct.clone()));
   vs2.push(JsonValue.Str(rp.subset_source.clone()));
+  vs2.push(_verify_json_strs(&rp.assumes));
+  vs2.push(JsonValue.Array(probe_entries));
   JsonValue.Object(keys : ks2, values : vs2)
 });
 /// The self-test results as JSON (the V2 shape, kept verbatim).
@@ -2897,7 +2940,8 @@ _verify_self_test_json :: (fn(results : &ArrayList(VerifyResult)) -> ArrayList(J
       .Proved(_) => JsonValue.Str(String.from("proved")),
       .Refuted(ce) => _verify_json_strs(&ce.*),
       .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
-      .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
+      .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`),
+      .Infeasible(by) => JsonValue.Str(`infeasible: ${by}`)
     );
     ks := ArrayList(String).new();
     ks.push(String.from("query"));
@@ -2937,7 +2981,13 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
     },
     (rp.outcome == "assumed") => {
       println(
-        `  assumed  ${rp.fn_id} [${rp.mode}] — ${rp.subset_construct}`
+        `  assumed  ${rp.fn_id} [${rp.mode}] — ${rp.subset_construct}${_verify_contract_probe_note(rp)}`
+      );
+      ()
+    },
+    (rp.outcome == "contradictory") => {
+      println(
+        `  contradictory  ${rp.fn_id} [${rp.mode}] — the assumed() contract is unsatisfiable: no input meets its requires while a result meets its ensures, so every proof that uses it is void`
       );
       ()
     },
@@ -2961,7 +3011,7 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
       n_kept := (rp.obligations.len() - _verify_proved_count(rp));
       kept_note := if(n_kept > usize(0), `; ${n_kept.to_string()} guard(s) kept (elision-only, not proved)`, String.new());
       println(
-        `  ok       ${rp.fn_id} [${rp.mode}] — ${_verify_proved_count(rp).to_string()} obligation(s) proved${kept_note}`
+        `  ok       ${rp.fn_id} [${rp.mode}] — ${_verify_proved_count(rp).to_string()} obligation(s) proved${kept_note}${_verify_assumes_note(rp)}`
       );
       ()
     },
@@ -2987,7 +3037,8 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
               `REFUTED  counter-example: ${_verify_join_strs(&ce.*, String.from(", "))}`
             ),
             .Unproven(reason) => `UNPROVEN  ${reason}`,
-            .SolverError(msg) => `SOLVER-ERROR  ${msg}`
+            .SolverError(msg) => `SOLVER-ERROR  ${msg}`,
+            .Infeasible(by) => `INFEASIBLE  proved only because the assumed() contract of ${by} makes the path infeasible`
           );
           // A cached `unknown` (only an rlimit-exhausted one is stored)
           // was not asked again: say how to ask.
@@ -3006,8 +3057,55 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
           });
         });
       });
+      // S2: a call probe that found the path infeasible is the finding
+      // itself; with `--explain` every probe is listed.
+      for(&rp.probes, pr => {
+        if((pr.result == "unsat") || detailed, {
+          println(`    ${pr.name}: ${_verify_probe_text(pr)}`);
+        });
+      });
+      if(rp.assumes.len() > usize(0), {
+        println(`    rests on assumed: ${_verify_join_strs(&rp.assumes, String.from(", "))}`);
+      });
       ()
     }
+  )
+);
+/// S2: how the `contract-sat` probe of an `assumed` report came out, as a
+/// suffix of its line (a contradictory contract has its own outcome).
+_verify_contract_probe_note :: (fn(rp : &VerifyFnReport) -> String)({
+  (note : String) = String.new();
+  (i : usize) = usize(0);
+  while(i < rp.probes.len(), {
+    pr := rp.probes.get_cloned(i).unwrap();
+    note = cond(
+      (pr.result == "sat") => String.from("; contract satisfiable"),
+      (pr.result == "outside-subset") => `; contract not probed (outside the subset: ${pr.detail})`,
+      (pr.result == "unknown") => `; contract satisfiability unknown (${pr.detail})`,
+      (pr.result == "solver-error") => `; contract not probed (solver error: ${pr.detail})`,
+      true => note.clone()
+    );
+    i = (i + usize(1));
+  });
+  note
+});
+/// S2: `; rests on assumed: <ids>` for an `ok` line whose proofs use
+/// `assumed()` contracts; empty when they use none.
+_verify_assumes_note :: (fn(rp : &VerifyFnReport) -> String)(
+  if(
+    rp.assumes.len() > usize(0),
+    `; rests on assumed: ${_verify_join_strs(&rp.assumes, String.from(", "))}`,
+    String.new()
+  )
+);
+/// S2: one probe's line in a detailed or failing report.
+_verify_probe_text :: (fn(pr : &VerifyProbeReport) -> String)(
+  cond(
+    ((pr.kind == "call-feasible") && (pr.result == "unsat")) => `INFEASIBLE after the call to ${pr.callee}: its assumed() ensures contradict the facts the path held before the call`,
+    (pr.result == "unsat") => `UNSATISFIABLE  the assumed() contract of ${pr.callee}`,
+    (pr.result == "dead-path") => `the path was already infeasible before the call to ${pr.callee} (dead code, not the call's doing)`,
+    (pr.result == "sat") => String.from("SATISFIABLE"),
+    true => `${pr.result} ${pr.detail}`
   )
 );
 /// JSON array of strings (the verify subcommand's counter-example shape).
@@ -10504,14 +10602,14 @@ Options:
   --no-cache                Skip the verification cache
   --elision                 Also prove the overflow obligations that let
                             yo compile remove a guard (they never fail a run)
-  --strict                  Fail on assumed, outside-subset and unproven too
-                            (= --deny assumed,outside-subset,unproven). Without
-                            it a run passes even when every contract was
-                            assumed() away — use it as the gate for a spec/
-                            directory.
+  --strict                  Fail on assumed, outside-subset, unproven and
+                            infeasible too (= --deny assumed,outside-subset,
+                            unproven,infeasible). Without it a run passes even
+                            when every contract was assumed() away — use it as
+                            the gate for a spec/ directory.
   --deny <outcomes>         Comma-separated outcomes that fail the run, from
-                            ok, assumed, outside-subset, unproven, refuted,
-                            solver-error, subset-error
+                            ok, assumed, outside-subset, unproven, infeasible,
+                            contradictory, refuted, solver-error, subset-error
 
 Examples:
   $ yo verify ./src
@@ -10539,13 +10637,14 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
   --no-cache               跳过验证缓存
   --elision                同时证明让 yo compile 移除守卫的溢出义务
                            （它们从不导致运行失败）
-  --strict                 assumed、outside-subset 与 unproven 也算失败
-                           （等价于 --deny assumed,outside-subset,unproven）。
-                           不加此选项时，即使所有契约都被 assumed() 掉，
-                           运行仍会通过 —— 用它作为 spec/ 目录的门禁。
+  --strict                 assumed、outside-subset、unproven 与 infeasible
+                           也算失败（等价于 --deny assumed,outside-subset,
+                           unproven,infeasible）。不加此选项时，即使所有
+                           契约都被 assumed() 掉，运行仍会通过 —— 用它作为
+                           spec/ 目录的门禁。
   --deny <结果>            以逗号分隔、视为失败的结果名，取值来自
-                           ok、assumed、outside-subset、unproven、refuted、
-                           solver-error、subset-error
+                           ok、assumed、outside-subset、unproven、infeasible、
+                           contradictory、refuted、solver-error、subset-error
 
 示例：
   $ yo verify ./src

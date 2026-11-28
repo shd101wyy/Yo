@@ -902,17 +902,17 @@ _dep_named_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationC
 _dep_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     t,
-    Rc(.FnTraitT({})) => Option(String).None,
-    Rc(.FutureTraitT({})) => Option(String).None,
+    Rc(.FnTraitT(_, _, _, _, _, _)) => Option(String).None,
+    Rc(.FutureTraitT(_, _, _, _, _)) => Option(String).None,
     Rc(.Tuple(_, _)) => _dep_named_type_string(t, context),
     Rc(.Union(_, _, _)) => _dep_named_type_string(t, context),
-    Rc(.Struct({})) => _dep_named_type_string(t, context),
-    Rc(.EnumT({})) => match(
+    Rc(.Struct(_, _, _, _, _, _, _, _, _, _)) => _dep_named_type_string(t, context),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => match(
       can_optimize_as_nullable_pointer(t),
       .Some(_) => Option(String).Some(get_type_string(t, &mut context.base)),
       .None => _dep_named_type_string(t, context)
     ),
-    Rc(.DynT({})) => _dep_named_type_string(t, context),
+    Rc(.DynT(_, _, _, _)) => _dep_named_type_string(t, context),
     _ => Option(String).Some(get_type_string(t, &mut context.base))
   )
 );
