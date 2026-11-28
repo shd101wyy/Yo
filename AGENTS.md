@@ -94,7 +94,7 @@ The linked doc is authoritative.
 - **No runtime dependent types**; runtime properties go through the verifier (`plans/reference/DEPENDENT_TYPES_POSITION.md`).
 - **`match` is real pattern matching** (`plans/reference/MATCH_PATTERN_MATCHING.md`): exhaustiveness is usefulness (integer constants and ranges are intervals); an arm covered only collectively by earlier arms is a warning, single-arm subsumption an error; every infix pattern is parenthesized (`(p && (g))`, `(x := p)`); a bare identifier binds unless it names a literal/enum `::` constant.
 - **No backward-compatibility scaffolding** (no external users): no deprecation windows, aliases or shims; the only gate is the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
-- **Algebraic effects**: in a handler, `return(expr)` **resumes** the continuation; `unwind(expr)` **discards** it and exits the enclosing `fn` (an unwound async task enters `FutureState.Aborted`, state -2). C's `abort()` (process termination on panic) is unrelated.
+- **Handlers (`ctl`/`unwind`; being deleted, `plans/backlog/ERRORS_AS_VALUES.md`)**: in a handler, `return(expr)` **resumes** the continuation; `unwind(expr)` **discards** it and exits the enclosing `fn` (an unwound async task enters `FutureState.Aborted`, state -2). C's `abort()` (process termination on panic) is unrelated. Why they go: that plan's "Why `ctl` and `unwind` are removed".
 - **Async is single-threaded per thread** (like JavaScript's event loop or tokio's `current_thread`, not C#): one event-loop thread owns all I/O submissions and completions, and a started task never migrates. No mutexes or atomics on async runtime variables. The parallelism runtime (`src/codegen/parallelism/`) is a separate, multi-threaded concern.
 
 ---

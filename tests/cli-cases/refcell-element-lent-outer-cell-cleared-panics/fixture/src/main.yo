@@ -7,11 +7,11 @@
 { RefCell } :: import("std/sync/refcell");
 main :: (fn() -> unit)({
   hs := Rc.new(RefCell(ArrayList(RefCell(String))).new(ArrayList(RefCell(String)).new()));
-  hs.with_mut(xs => xs.push(RefCell(String).new(String.from("hello"))));
+  hs.*.with_mut(xs => xs.push(RefCell(String).new(String.from("hello"))));
   hs2 := Rc.clone(hs);
-  hs.with(
+  hs.*.with(
     xs => xs(usize(0)).with_mut({ h : &hs2 }(v) => {
-      h.with_mut(xs2 => xs2.clear());
+      h.*.*.with_mut(xs2 => xs2.clear());
       println(&v.*);
     })
   );

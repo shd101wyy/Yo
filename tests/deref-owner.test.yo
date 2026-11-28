@@ -1,9 +1,10 @@
 // Owners (VERDICTS-63; plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` type that
 // is not a handle. `x.*` is the place its `deref` projection yields, `&x.*` is
 // `x.deref()` and `&mut x.*` is `x.deref_mut()`; a write through `x.*` calls
-// `deref_mut` (`DerefMut`, chosen as `IndexMut` is). An owner's own member
-// wins over its view's, and a member only the view has forwards through
-// `.*`. Outside the prelude the `Target` must be unsized (E0622).
+// `deref_mut` (`DerefMut`, chosen as `IndexMut` is). An owner's own member is
+// what `.` reads; the view's members are reached through `.*`, and a view
+// member read with `.` alone is E0623 (VERDICTS-73). Outside the prelude the
+// `Target` must be unsized (E0622).
 { assert } :: import("std/assert");
 { RawBuf, raw_buf, view_sum, view_set, ZeroFirst } :: import("./fixtures/deref-owner.yo");
 
@@ -33,8 +34,10 @@ test("&b.* lends the view: bound, as an argument, as a receiver", {
   assert(_sum(&RawBuf.deref(&b).*) == i32(3), "a projection call's place as an argument");
   assert(RawBuf.deref(&b).*.len() == usize(2), "and as a receiver");
 });
-test("a member only the view has forwards through .*", {
+test("a view member is read through .*; `.` alone is E0623", {
   b := raw_buf(usize(2));
+  comptime_expect_error(b.is_empty(), "which has no member \"is_empty\"");
+  comptime_expect_error(b.is_empty(), "write `b.*.is_empty(...)`: `b.*` names the view");
   assert(!b.*.is_empty(), "is_empty is the view's");
   assert(b.*.contains(&i32(2)), "contains is the view's");
   assert(!b.*.contains(&i32(3)), "the third slot is outside the view");
@@ -61,10 +64,10 @@ test("a safe owner whose deref is &self.items.*", {
   r.*.zero_first();
   assert(r.items(usize(0)) == i32(0), "written through deref_mut");
 });
-test("Box(owner) and Rc(owner) forward through both steps", {
+test("Box(owner) and Rc(owner) reach the view through their stars", {
   bx := Box.new(raw_buf(usize(2)));
   assert(!bx.*.*.is_empty(), "Box -> owner -> view");
-  assert(bx.*.len() == usize(4), "the owner's len through the Box");
+  assert(bx.*.len() == usize(4), "the owner's len, one star");
   r := Rc.new(raw_buf(usize(1)));
   assert(r.*.*.contains(&i32(1)), "Rc -> owner -> view");
   assert(_sum(&r.*.*) == i32(1), "the view of the Rc's payload");

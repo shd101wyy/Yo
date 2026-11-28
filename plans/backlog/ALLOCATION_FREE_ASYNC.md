@@ -12,8 +12,8 @@ starts at v0.2.83 and ends around v0.2.87.** The fact base is `origin/develop`
 This plan answers one question: how does a Yo future stop being a separately
 allocated, reference-counted cell, without `Pin`, without immovable types and
 without a rule against borrowing a body local across an `await`? It also
-answers the open question
-[`issues/questions/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md`](../../issues/questions/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md):
+answers the design question
+[`issues/retired/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md`](../../issues/retired/2026-11-25-finish-or-retract-the-impl-future-slot-as-the-erased-future.md):
 **retract** (B). `Impl(Future(T, E))` becomes static dispatch at every slot,
 and the erased future gets its own type, `BoxFuture(T, E)`.
 
@@ -129,12 +129,19 @@ operations cold like every other future.
   one block per task. This is the "where possible" limit of the design.
 - **Effect bundles.** `io.await(f, e)` stores `e` into the frame's bundle slot
   with a typed assignment. `vt.bundle_offset` and `set_effect` remain only for
-  a `BoxFuture`, whose `E` is in its type.
+  a `BoxFuture`, whose `E` is in its type. Whether a future keeps the row at all
+  once every row is `Io` is E-6 of [`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md)
+  (`issues/questions/2026-11-28-does-future-keep-an-effect-row.md`), answered
+  before AFA-5 declares `BoxFuture`.
 - **Abort and `unwind`.** A child's resume returns pending, ready or aborted,
   and the parent propagates statically. `JoinHandle.abort()` marks the header
   and runs the root's generated abort walk: a switch on the state that drops
   the live locals in place and descends into the live child, down to the
-  operation's cancel.
+  operation's cancel. No `unwind` is carried into embedded frames: `ctl` and
+  `unwind` are deleted at E-5 of [`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md) (VERDICTS-96 §6, amendment 4). An
+  `io.async` body that names a handler type, in its row or in a handler
+  literal, keeps today's cell lowering, the fallback AFA-3 already keeps for
+  cycles, and AFA-7 deletes that fallback after E-5.
 - **Drop.** Dropping a cold future drops its captures; there is no cell. A
   started child is dropped only through its task.
 - **Threads.** A cold future is a plain value, so it is `Send` when its
@@ -360,11 +367,11 @@ name std must spell (`BoxFuture`, `io.spawn_scoped`, `alloc` on `spawn`,
 | **AFA-0** | v0.2.81–82 | no | This plan. `scripts/bench/async-chain.yo` (`p2`), a `select`/`timeout`/spawn bench, a channel ping-pong. `YO_ASYNC_STATS=1`: frames started as cell / embedded / fused, cells per task. The question file answered B. §4's guard rails in IO-1b | The baseline table below: 1,412 instructions per iteration; 1 cell per cold await, 1 per I/O call, per `select` and per `timeout` (counted) |
 | **AFA-1** | v0.2.83 | no | Evaluator: each `io.async` instance is its own concrete type; a by-value `Impl(Future)` parameter is generic; the await graph and its cycles are recorded. No frame change | The async emit-diff changes only in instances of future-taking generics. Printed: share of await sites with a static child in `std/` and `src/`, the cycles, the instance count, `yo.c` size and C-compile RSS |
 | **AFA-2** | v0.2.83 | no | Codegen: the future value is the capture struct; the frame cell is allocated at the start | A future made and dropped costs 0 cells. The async suites. `async-chain` no slower |
-| **AFA-3** | v0.2.83–84 | no | Embedding: the child frame in the await-slot union for a static, acyclic operand; `resume(frame, task)`; the static abort walk; stack frames for sync-context awaits; ASan poisoning; `--max-frame-size`. A cycle still falls back to a cell. `YO_ASYNC_EMBED=0` for one release | `async-chain` ≤ 400 instructions per iteration (model 160). 0 cells per await at static sites. Pools off under valgrind: allocations = tasks + a constant. `std-vs-raw` stays 1.00–1.01; `bench-vs-libuv.sh` rows and `io-floors.env` no worse. Then measure fusion off: if within noise, delete fusion |
+| **AFA-3** | v0.2.83–84 | no | Embedding: the child frame in the await-slot union for a static, acyclic operand; `resume(frame, task)`; the static abort walk; stack frames for sync-context awaits; ASan poisoning; `--max-frame-size`. A cycle still falls back to a cell, and so does a body that names a handler type (in its row or in a literal): no unwind is ported into embedded frames ([`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md) amendment 4). `YO_ASYNC_EMBED=0` for one release | `async-chain` ≤ 400 instructions per iteration (model 160). 0 cells per await at static sites. Pools off under valgrind: allocations = tasks + a constant. `std-vs-raw` stays 1.00–1.01; `bench-vs-libuv.sh` rows and `io-floors.env` no worse. Then measure fusion off: if within noise, delete fusion |
 | **AFA-4** | with AFA-3 | A | `BoxFuture` in the compiler: the builtins, await in the box, `io.spawn` of a box reuses its block; `io.spawn_scoped` and the `alloc` argument of `io.spawn`. The abort walk aborts each live `io.spawn_scoped` child of the frame, and the block lingers until every one it could not take back retires (VERDICTS-83) | Tests call the `__yo_*` builtins directly; a cli-case. VERDICTS-83's abort reproducers on `io.spawn_scoped` children, io_uring and epoll: `p1` (safe `select(timeout(read_line), ready)`, then the buffer is freed), `p4` (the holder is aborted while `select` joins its aborted loser), `p5` (`timeout(read)`), `q6h` (`select(read)`), each 0 bytes written after the abort is observed |
-| **AFA-5** | next release | B | The prelude declares `BoxFuture`; `std/`, `src/` and tests box their recursion (`yo fix`). The compiler rejects: an unboxed cycle, two futures at one slot, an `Impl(Future)` field, a `Dyn` method or function-pointer type returning `Impl(Future)`. That rejection deletes the interim `fix/dyn-fn-future-result` lowering: the `Dyn(Fn)` call wrappers' future-result upcast (`src/codegen/functions/dyn.yo`) and its `Box(Dyn(Fn(...) -> Impl(Future(...))))` test in `tests/async-await.test.yo` | The four issues move to `issues/fixed/`. cli goldens for the four diagnostics |
+| **AFA-5** | next release, after E-6 is answered | B | The prelude declares `BoxFuture` with the arity E-6 decides; `std/`, `src/` and tests box their recursion (`yo fix`). The compiler rejects: an unboxed cycle, two futures at one slot, an `Impl(Future)` field, a `Dyn` method or function-pointer type returning `Impl(Future)`. That rejection deletes the interim `fix/dyn-fn-future-result` lowering: the `Dyn(Fn)` call wrappers' future-result upcast (`src/codegen/functions/dyn.yo`) and its `Box(Dyn(Fn(...) -> Impl(Future(...))))` test in `tests/async-await.test.yo` | The four issues move to `issues/fixed/`. cli goldens for the four diagnostics |
 | **AFA-6** | with AFA-5 | B | std: `select`, `timeout` and `both` on scoped children; `_Scoped` and the three `unsafe` go; the prelude's `spawn` takes `alloc` | `select` and `timeout`: 0 cells (today, read from `std/async/index.yo`: a task cell per operand, a join-wait cell per wait, two join futures, and for `timeout` a deadline task, its timer and an `Rc`; AFA-0 counts them). The timeout bench |
-| **AFA-7** | next | C | Delete the cell fallback, the erased-parameter lowering, `_future_field_upcast`, `YO_ASYNC_EMBED` | `check ./src`; the same files |
+| **AFA-7** | next, after E-5 of [`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md) | C | Delete the cell fallback (cycles and handler-naming bodies), the erased-parameter lowering, `_future_field_upcast`, `YO_ASYNC_EMBED` | `check ./src`; the same files |
 | **AFA-8** | after AFA-7 | A, B, C | In-place operations for the executor entries: `IoOp`, `yield`, `park`, `sleep`, the join wait. The lingering rule | Channel ping-pong, `Mutex.lock` and a `yield` loop: 1 cell per operation → 0 |
 | **AFA-9** | gated on AFA-8's numbers | A, B, C | The ~90 backend entries on four backends, ordered against NO_LIBC P4 | Mallocs per std I/O call 1 → 0; `bench-vs-libuv.sh`; `LINUX_ASYNC_IO_PERFORMANCE.md` §4 |
 
@@ -375,12 +382,31 @@ column is the stage's acceptance number.
 
 | Measure | Baseline (VERDICTS-81 probes; AFA-0 re-measures on `async-chain`) | Target | Stage |
 | --- | --- | --- | --- |
-| instructions per `p2` iteration | 1,412 (~92 ns) | ≤ 400 (model `m1`: 160, ~8.5 ns) | AFA-3 |
+| instructions per `p2` iteration (`async-chain`, mode `chain`) | **1,416** (AFA-0, `perf stat`; the probe's callgrind figure was 1,412, ~92 ns) | ≤ 400 (model `m1`: 160, ~8.5 ns) | AFA-3 |
+| instructions per `select` of two no-await operands (mode `select`) | **1,795** | recorded; AFA-6's acceptance is cells, this is its cost | AFA-6 |
+| instructions per `timeout` of a no-await operand, one-second deadline (mode `timeout`) | **3,677** | recorded; AFA-6's acceptance names this bench | AFA-6 |
+| instructions per `io.spawn` of a no-await task plus its `join` (mode `spawn`) | **147** | recorded; AFA-4 keeps the block count at one | AFA-4 |
+| instructions per channel round trip, two tasks and two capacity-1 channels (mode `pingpong`) | **3,935** | recorded; AFA-8's acceptance is cells | AFA-8 |
 | cells per cold await at a static site | 1 | 0 | AFA-3 |
 | cells per `select` / `timeout` | counted by AFA-0 (a task cell per operand, a join-wait cell per wait, two join futures; `timeout` adds a deadline task, its timer and an `Rc`) | 0 | AFA-6 |
 | cells per executor operation (`yield`, `park`, `sleep`, join wait, channel ping-pong, `Mutex.lock`) | 1 | 0 | AFA-8 |
 | mallocs per std I/O call | 1 | 0 | AFA-9 |
 | std I/O versus the raw operation (`std-vs-raw`) | 1.00–1.01 | no worse | every stage |
+
+How the instruction rows are measured (AFA-0, 2026-11-27, x86_64 WSL2, `-O2`,
+the tree-built compiler of develop `9b350465d` with its `std/`, 100,000 iterations):
+
+```bash
+YO=$(which yo) YO_STD=$PWD/std bash scripts/bench-async-chain.sh
+```
+
+Each mode runs at N = 0 and at N = 100,000; the figure is the difference
+over N. The counter is `perf stat -e instructions:u` (user-space
+instructions, a count and not a clock); where perf cannot count the script
+uses `valgrind --tool=callgrind` and says so on its first line (callgrind
+gives 1,425 for `chain`). One mode alone: `BENCH_MODE=select BENCH_COUNT=100000
+./bench`, with the binary from
+`yo compile scripts/bench/async-chain.yo --optimize 2 -o bench`.
 
 ## 6. Rejected
 

@@ -1,0 +1,13 @@
+// A `.None` argument at `x : Option(T)` with `T` a `comptime` parameter.
+// Expected: prints `0`. Actual (v0.2.80): `yo check` OK, the C compile fails: the argument is
+// built as `Option(T)` where the specialization takes `Option(i32)`.
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+make :: (fn(comptime(T) : Type, x : Option(T)) -> usize)({
+  out := ArrayList(T).new();
+  out.len()
+});
+main :: (fn() -> unit)({
+  println(`${make(i32, .None)}`);
+});
+export(main);

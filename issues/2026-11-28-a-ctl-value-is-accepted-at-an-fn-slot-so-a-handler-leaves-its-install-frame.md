@@ -3,7 +3,7 @@
 **Severity:** S2 — a handler returned from its install frame as a plain `fn` passes `yo check`; calling it later unwinds with no installer, and `main` ends silently with rc 0, skipping the rest of the program. With F1 (`issues/2026-11-28-a-frame-that-installs-a-handler-catches-an-outer-frames-unwind.md`) the unwind can instead be caught by an unrelated frame that reads its value as its own result type: S1 then.
 
 - Filed: 2026-11-28, finding F3 of VERDICTS-94 (Fable 5.2, §8), with its probe `p05`.
-- Status: open. Closed by K-3 of [`plans/backlog/CAPABILITIES_AND_HANDLERS.md`](../plans/backlog/CAPABILITIES_AND_HANDLERS.md) (v0.2.82).
+- Status: open, not fixed: retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
 
 ## Reproducer
 
@@ -51,8 +51,10 @@ As VERDICTS-94 §8 states it: the `Func` branch of `src/types/compatibility.yo` 
 
 ## Fix
 
+Not built (VERDICTS-96 §5): no statement in `src/` or `std/` has this shape, and E-5 deletes the mechanism. The repair the doc was filed with, K-3 of [`plans/archive/CAPABILITIES_AND_HANDLERS.md`](../plans/archive/CAPABILITIES_AND_HANDLERS.md), was:
+
 K-3: a `ctl` value is not an `fn` (the direction check in the `Func` branch, with a coded diagnostic); a closure at a `ctl` slot is an error (F2); a control-bound value cannot be written through a `&mut` (F6's stopgap). A call through a plain function value then never unwinds, so the may-unwind decision is exact.
 
 ## Test
 
-None in this filing: the bug is open with no fix. The test lands with K-3: this repro as a `comptime_expect_error` case.
+None: the bug is not fixed. Its reproducer stops compiling at E-5, when `ctl` and `unwind` leave the language.

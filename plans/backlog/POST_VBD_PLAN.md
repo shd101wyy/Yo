@@ -282,14 +282,19 @@ Cadence stays patch releases, as in VBD: a release cuts when develop's battery
 is green on the tip. A row is a target, not a gate. An item that is not ready
 slides to the next row, and nothing waits for it.
 
-**Capabilities and handlers (added 2026-11-28,
-[`CAPABILITIES_AND_HANDLERS.md`](CAPABILITIES_AND_HANDLERS.md)).** `ctl` and
-`unwind` are kept and made correct, beside the lanes above. The core
-(K-1–K-6, K-8, K-10) lands in v0.2.82–84, one lane for v0.2.82–83, with K-7 in
-lane A and K-8 inside AFA-3. The error-style pilot (STD_RUST_ALIGNMENT L-1 plus
-E-2) decides in v0.2.83 whether `std/` and `src/` move to `Result`. H-0, the
-go/no-go for real handlers, is in v0.2.85–86; H-1 to H-4 follow in v0.2.87–90
-if it says go.
+**Errors as values (added 2026-11-28,
+[`ERRORS_AS_VALUES.md`](ERRORS_AS_VALUES.md)).** `ctl` and `unwind` are
+deleted and errors become values (VERDICTS-96), beside the lanes above:
+
+| Release | Errors as values | ALLOCATION_FREE_ASYNC | Verification |
+| --- | --- | --- | --- |
+| v0.2.81 | E-0a (the adoption); VERDICTS-89 PR A | AFA-0 | SPEC_AND_PROOF PR 1a, 1b; S2 |
+| v0.2.82 | PR B; E-0b (the contract fix); E-0c (dead code) | — | E-0b is lane E's |
+| v0.2.83 | E-1 (`try`); E-2 (the migration tool and the measured pilot) | AFA-1, AFA-2 | E-1v; `logic` and `lemma` |
+| v0.2.84 | E-3 (std); E-4a, E-4b; E-6 answered | AFA-3 with no unwind in embedded frames; AFA-4 | S3 starts on modules E-3 has converted |
+| v0.2.85 | E-4c, E-4d | AFA-5, AFA-6 | — |
+| v0.2.86 | E-5 (`ctl` and `unwind` deleted) | AFA-7, after E-5 | — |
+| v0.2.88 or later | the generators question | — | — |
 
 ## 5. Decisions the maintainer may want to make (with recommendations)
 

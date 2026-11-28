@@ -2,6 +2,8 @@
 
 **Severity:** S2: a generic function whose effect binder `E` appears only in its future parameter (`fut : Impl(Future(T, E))`) gets `E = Io` whatever the operand's bundle is. Awaiting or spawning an `IoExn` operand with the `io.async` body's bundle `(e : E)` is then rejected with "Effect argument does not match the future's effect bundle … The argument's type: Io". The workaround is to take the bundle as a plain parameter too (`e0 : E`), which binds `E` correctly. Because of this, `std/async`'s `timeout` and `select` take only `Io` futures, and `std/http` keeps a private copy of the deadline race for its `IoExn` exchange.
 
+**Not fixed:** retired with the effect row at E-6 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5; `issues/questions/2026-11-28-does-future-keep-an-effect-row.md`). The bug is documented only: once no handler rides in a bundle the row goes, and this doc moves to `issues/retired/` with it.
+
 **Status:** OPEN (triaged). **Found:** 2026-10-20, while rebasing VBD §3.13 A4's std half (`feat/vbd-a4-std-half`). `plans/VALUES_BY_DEFAULT.md` §3.13 A4 says an effect-generic `timeout` "hit the same binder family"; this doc is the reproduction of that remark. It fails the same way with the v0.2.66 seed, with develop `fc15a6092`'s tree-built compiler, and with the A4 branches' compilers.
 
 ## Reproducer

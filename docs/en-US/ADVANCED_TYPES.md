@@ -235,7 +235,7 @@ GADTs have the **same C representation as regular enums**. All type refinement i
 
 - **HKT**: Orthogonal. A GADT can be used as an HKT type constructor.
 - **Partial application**: Works unchanged with `_` placeholder.
-- **Algebraic effects**: No interaction — effects operate at function call level.
+- **Handlers (`ctl`, `unwind`)**: No interaction — handlers operate at function call level.
 
 ### Limitations
 

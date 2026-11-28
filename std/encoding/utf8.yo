@@ -107,12 +107,12 @@ impl(
   message : (fn(self : Self) -> &(str, static))(
     match(
       self,
-      .InvalidStart => "invalid UTF-8 start byte",
-      .UnexpectedEnd => "truncated UTF-8 sequence",
-      .InvalidContinuation => "invalid UTF-8 continuation byte",
-      .Overlong => "overlong UTF-8 encoding",
-      .Surrogate => "UTF-8 encoded a UTF-16 surrogate",
-      .OutOfRange => "UTF-8 code point above U+10FFFF"
+      .InvalidStart(_, _) => "invalid UTF-8 start byte",
+      .UnexpectedEnd(_, _, _) => "truncated UTF-8 sequence",
+      .InvalidContinuation(_, _, _) => "invalid UTF-8 continuation byte",
+      .Overlong(_, _) => "overlong UTF-8 encoding",
+      .Surrogate(_, _) => "UTF-8 encoded a UTF-16 surrogate",
+      .OutOfRange(_, _) => "UTF-8 code point above U+10FFFF"
     )
   ),
   /// The byte offset the offending sequence starts at.

@@ -1,0 +1,147 @@
+//! async-chain — the allocation-free async benchmarks of
+//! plans/backlog/ALLOCATION_FREE_ASYNC.md (AFA-0): what one cold future, one
+//! combinator, one spawned task and one channel hop cost today. Every mode
+//! runs `BENCH_COUNT` iterations on ONE event loop and prints a checksum, so
+//! the work cannot be dropped. `scripts/bench-async-chain.sh` runs each mode
+//! at N = 0 and at N = BENCH_COUNT and prints instructions per iteration
+//! (the difference over N), the figure the plan's benchmark table records.
+//!
+//!   chain     the `p2` shape of VERDICTS-81: one two-await `mid`, which awaits
+//!             a two-await `leaf` twice, each `leaf` awaiting two no-await
+//!             blocks (7 futures: 1 + 2 + 4). Awaited in sequence from `main`.
+//!   select    `select` of two no-await operands, per iteration
+//!   timeout   `timeout` of a no-await operand with a one-second deadline: the
+//!             deadline task arms a timer that the operand's completion cancels
+//!   spawn     `io.spawn` of a no-await task, then `join`
+//!   pingpong  two tasks and two capacity-1 channels: one round trip per
+//!             iteration (a send and a receive on each side)
+//!
+//! `BENCH_MODE` picks the mode (default `chain`); `BENCH_COUNT` the count
+//! (default 100000; 0 measures the fixed start-up and shut-down cost).
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ env } :: import("std/env");
+{ String } :: import("std/string");
+{ select, timeout } :: import("std/async");
+{ Channel } :: import("std/async/channel");
+{ Duration } :: import("std/time/duration");
+
+_env_count :: (fn(name : String, deflt : i32) -> i32)(
+  match(
+    env.get(&name),
+    .Some(c) => match(
+      c.parse(i32),
+      .Ok(n) => n,
+      .Err(_) => deflt
+    ),
+    .None => deflt
+  )
+);
+
+// ---------------------------------------------------------------------------
+// chain: `leaf` has two awaits (not fusable), `mid` awaits `leaf` twice.
+// ---------------------------------------------------------------------------
+leaf :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ n }(io : Io) => {
+    a := io.await(io.async({ n }(io : Io) => (n + i32(1))), io);
+    b := io.await(io.async({ a }(io : Io) => (a + i32(1))), io);
+    b
+  })
+);
+mid :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ n }(io : Io) => {
+    a := io.await(leaf(n, io), io);
+    b := io.await(leaf(a, io), io);
+    a + b
+  })
+);
+
+_run_chain :: (fn(count : i32, io : Io) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  while(i < count, i = (i + i32(1)), {
+    r := io.await(mid(i, io), io);
+    acc = (acc ^ r);
+  });
+  acc
+});
+
+// ---------------------------------------------------------------------------
+// select / timeout / spawn: a no-await operand, so the figure is the
+// combinator's (or the task's) own cost.
+// ---------------------------------------------------------------------------
+value :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async({ n }(io : Io) => (n + i32(1))));
+
+_run_select :: (fn(count : i32, io : Io) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  while(i < count, i = (i + i32(1)), {
+    r := io.await(select(value(i, io), value(i + i32(1), io), io), io);
+    acc = (acc ^ match(r, .Some(.First(v)) => v, .Some(.Second(v)) => v, .None => i32(-1)));
+  });
+  acc
+});
+
+_run_timeout :: (fn(count : i32, io : Io) -> i32)({
+  limit := Duration.from_millis(i64(1000));
+  (mut(i) : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  while(i < count, i = (i + i32(1)), {
+    r := io.await(timeout(value(i, io), limit, io), io);
+    acc = (acc ^ match(r, .Ok(v) => v, .Err(_) => i32(-1)));
+  });
+  acc
+});
+
+_run_spawn :: (fn(count : i32, io : Io) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  while(i < count, i = (i + i32(1)), {
+    h := io.spawn(value(i, io), io);
+    acc = (acc ^ match(h.await(io), .Some(v) => v, .None => i32(-1)));
+  });
+  acc
+});
+
+// ---------------------------------------------------------------------------
+// pingpong: the echo task receives from `ping` and sends back on `pong`.
+// ---------------------------------------------------------------------------
+_run_pingpong :: (fn(count : i32, io : Io) -> i32)({
+  ping := Channel(i32).new(usize(1));
+  pong := Channel(i32).new(usize(1));
+  echo := io.async({ ping : ping.clone(), pong : pong.clone(), count }(io : Io) => {
+    (mut(i) : i32) = i32(0);
+    while(i < count, i = (i + i32(1)), {
+      v := match(io.await(ping.recv(io), io), .Some(x) => x, .None => i32(-1));
+      _s := io.await(pong.send(v + i32(1), io), io);
+    });
+    return(());
+  });
+  h := io.spawn(echo, io);
+  (mut(i) : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  while(i < count, i = (i + i32(1)), {
+    _s := io.await(ping.send(i, io), io);
+    acc = (acc ^ match(io.await(pong.recv(io), io), .Some(x) => x, .None => i32(-1)));
+  });
+  _done := h.await(io);
+  acc
+});
+
+main :: (fn(io : Io) -> unit)({
+  mode := match(
+    env.get(`BENCH_MODE`),
+    .Some(m) => m.to_string(),
+    .None => `chain`.to_string()
+  );
+  count := _env_count(`BENCH_COUNT`.to_string(), i32(100000));
+  acc := cond(
+    (mode == `select`) => _run_select(count, io),
+    (mode == `timeout`) => _run_timeout(count, io),
+    (mode == `spawn`) => _run_spawn(count, io),
+    (mode == `pingpong`) => _run_pingpong(count, io),
+    true => _run_chain(count, io)
+  );
+  println(&acc);
+});
+export(main);

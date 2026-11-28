@@ -55,8 +55,8 @@
 { debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ suggest_name, E_FIELD_NOT_FOUND } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, with_code } :: import("../../error.yo");
+{ suggest_name, E_FIELD_NOT_FOUND, E_INVALID_PATTERN, E_VARIANT_PATTERN_SHAPE, Span, Repair } :: import("../../diagnostics.yo");
 /// The `did you mean` help for a label among `labels`.
 _did_you_mean :: (fn(lbl : &String, labels : &ArrayList(String)) -> Option(String))(
   match(suggest_name(lbl, labels), .Some(near) => Option(String).Some(`did you mean "${near}"?`), .None => Option(String).None)
@@ -74,6 +74,258 @@ _did_you_mean :: (fn(lbl : &String, labels : &ArrayList(String)) -> Option(Strin
 } :: import("../../pattern.yo");
 { Exception } :: import("std/error");
 { flow_violation_pending, clear_flow_violation } :: import("../../types/flowability.yo");
+/// `..` where a pattern stands. It stands for a variant's whole payload and
+/// is written alone, as `.V(..)` (VERDICTS-88); anywhere else it is E0609: a
+/// labeled variant or struct pattern names only the fields it needs, and a
+/// positional list writes `_` for each element it skips. Unchecked, `..` read
+/// as a BINDING named `..` (`.V(a, ..)` and `(1, ..)` compiled).
+_is_rest_atom :: (fn(e : &AstExpr) -> bool)(ast_expr_is_atom_of(e, ".."));
+/// The first `..` of `args`, if any.
+_first_rest :: (fn(args : &ArrayList(AstExpr)) -> Option(AstExpr))({
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    a := match(args.get_cloned(i), .Some(x) => x, .None => make_err_expr());
+    if(_is_rest_atom(&a), {
+      return(Option(AstExpr).Some(a));
+    });
+    i = (i + usize(1));
+  });
+  Option(AstExpr).None
+});
+/// How many of `args` are `..`.
+_rest_count :: (fn(args : &ArrayList(AstExpr)) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    if(match(args.get_cloned(i), .Some(a) => _is_rest_atom(&a), .None => false), {
+      n = (n + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  n
+});
+/// Throw E0609 for the `..` atom `dots`, with `help` and, when exactly one
+/// edit fixes it, `repair`.
+_throw_rest_pattern :: (fn(dots : &AstExpr, help : String, repair : Option(Repair), exn : Exception) -> unit)({
+  tok := ast_expr_token(dots);
+  msg := String.from("`..` stands for a variant's whole payload and is written alone, as `.V(..)`");
+  hlp := Option(String).Some(help);
+  err := match(
+    repair,
+    .Some(rp) => format_error_message_with_repair_at(&tok, &msg, &hlp, &rp.span, &rp.replacement, &rp.description),
+    .None => format_error_message_with_help(&tok, &msg, &hlp)
+  );
+  exn.throw(dyn(Box.new(with_code(&err, E_INVALID_PATTERN))));
+});
+/// Throw E0626 (VERDICTS-88) at the variant name `name_tok`: the pattern's
+/// shape is not its variant's. `span`, when known, is where the one repair
+/// writes `replacement`; `fix` describes that edit.
+_throw_variant_shape :: (
+  fn(name_tok : &Token, msg : String, help : String, span : Option(Span), replacement : String, fix : String, exn : Exception) -> unit
+)({
+  hlp := Option(String).Some(help);
+  err := match(
+    span,
+    .Some(sp) => format_error_message_with_repair_at(name_tok, &msg, &hlp, &sp, &replacement, &fix),
+    .None => format_error_message_with_help(name_tok, &msg, &hlp)
+  );
+  exn.throw(dyn(Box.new(with_code(&err, E_VARIANT_PATTERN_SHAPE))));
+});
+/// `a`, `b` as the message lists a variant's fields: each in backticks.
+_backticked_list :: (fn(names : &ArrayList(String)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    out.push_str("`");
+    match(names.get_cloned(i), .Some(n) => out.push_string(&n), .None => ());
+    out.push_str("`");
+    i = (i + usize(1));
+  });
+  out
+});
+/// `a, b`: a variant's field names as a positional pattern binds them.
+_comma_list :: (fn(names : &ArrayList(String)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    match(names.get_cloned(i), .Some(n) => out.push_string(&n), .None => ());
+    i = (i + usize(1));
+  });
+  out
+});
+/// Is byte `i` of `src` a blank (space or tab)?
+_is_blank_byte :: (fn(src : &String, i : usize) -> bool)(
+  match(src.get_byte(i), .Some(b) => ((b == u8(32)) || (b == u8(9))), .None => false)
+);
+/// Is byte `i` of `src` the ASCII character `c`?
+_is_byte :: (fn(src : &String, i : usize, c : u8) -> bool)(
+  match(src.get_byte(i), .Some(b) => (b == c), .None => false)
+);
+/// Does `tok` sit in its own source text (a token the compiler synthesized
+/// carries its origin's text at another offset)?
+_token_in_source :: (fn(tok : &Token) -> bool)({
+  off := usize(tok.*.*.byte_offset);
+  n := tok.*.*.value.*.len();
+  ((off + n) <= tok.*.*.input.*.len()) && (tok.*.*.input.*.substring(off, (off + n)) == tok.*.*.value.*)
+});
+/// The zero-width span right after the variant name `name_tok`, where the
+/// repair of a bare `.V` on a variant with fields inserts `(..)`.
+_after_name_span :: (fn(name_tok : &Token) -> Option(Span))(
+  cond(
+    _token_in_source(name_tok) => Option(Span).Some(
+      Span(
+        path : name_tok.*.*.module_path.*.clone(),
+        row : usize(name_tok.*.*.row),
+        col : (usize(name_tok.*.*.column) + name_tok.*.*.value.*.clone().chars().count()),
+        len : usize(0)
+      )
+    ),
+    true => Option(Span).None
+  )
+);
+/// The span of the parenthesized group right after the variant name
+/// `name_tok`, `(` through its matching `)`, which a repair replaces or
+/// deletes. `.None` when the group spans lines, holds a string or a non-ASCII
+/// byte (a `Span` counts runes on one row), or the name is synthesized.
+_variant_group_span :: (fn(name_tok : &Token) -> Option(Span))({
+  if(!_token_in_source(name_tok), {
+    return(Option(Span).None);
+  });
+  src := Rc.clone(name_tok.*.*.input);
+  start := (usize(name_tok.*.*.byte_offset) + name_tok.*.*.value.*.len());
+  (i : usize) = start;
+  while(_is_blank_byte(&src.*, i), {
+    i = (i + usize(1));
+  });
+  if(!_is_byte(&src.*, i, u8(40)), {
+    return(Option(Span).None);
+  });
+  (depth : usize) = usize(0);
+  (closed : bool) = false;
+  while(!closed, {
+    b := match(
+      src.*.get_byte(i),
+      .Some(x) => x,
+      .None => {
+        return(Option(Span).None);
+      }
+    );
+    // A line break, a string or char literal, or a non-ASCII byte.
+    if((b == u8(10)) || ((b == u8(13)) || ((b == u8(34)) || ((b == u8(39)) || ((b == u8(96)) || (b >= u8(128)))))), {
+      return(Option(Span).None);
+    });
+    if((b == u8(40)) || (b == u8(123)), {
+      depth = (depth + usize(1));
+    });
+    if((b == u8(41)) || (b == u8(125)), {
+      depth = (depth - usize(1));
+      if(depth == usize(0), {
+        closed = true;
+      });
+    });
+    i = (i + usize(1));
+  });
+  Option(Span).Some(
+    Span(
+      path : name_tok.*.*.module_path.*.clone(),
+      row : usize(name_tok.*.*.row),
+      col : (usize(name_tok.*.*.column) + name_tok.*.*.value.*.clone().chars().count()),
+      len : (i - start)
+    )
+  )
+});
+/// The span of `, ..` (a `..` after a comma, blanks allowed, on one row).
+_rest_with_comma_span :: (fn(dots_tok : &Token) -> Option(Span))({
+  src := Rc.clone(dots_tok.*.*.input);
+  d := usize(dots_tok.*.*.byte_offset);
+  (back : usize) = usize(0);
+  while((back < d) && _is_blank_byte(&src.*, ((d - back) - usize(1))), {
+    back = (back + usize(1));
+  });
+  if((back >= d) || (!_is_byte(&src.*, ((d - back) - usize(1)), u8(44)) || (usize(dots_tok.*.*.column) < (back + usize(1)))), {
+    return(Option(Span).None);
+  });
+  Option(Span).Some(
+    Span(
+      path : dots_tok.*.*.module_path.*.clone(),
+      row : usize(dots_tok.*.*.row),
+      col : (usize(dots_tok.*.*.column) - (back + usize(1))),
+      len : (back + usize(3))
+    )
+  )
+});
+/// The repair deleting the `..` (with the comma before it), the fix wherever
+/// `..` stands for nothing; a lone `(..)` keeps its parentheses.
+_rest_drop_repair :: (fn(dots : &AstExpr) -> Option(Repair))({
+  tok := ast_expr_token(dots);
+  desc := String.from("delete the `..`");
+  match(
+    _rest_with_comma_span(&tok),
+    .Some(sp) => {
+      return(Option(Repair).Some(Repair(span : sp, replacement : String.new(), description : desc.clone())));
+    },
+    .None => ()
+  );
+  src := Rc.clone(tok.*.input);
+  (i : usize) = (usize(tok.*.byte_offset) + usize(2));
+  while(_is_blank_byte(&src.*, i), {
+    i = (i + usize(1));
+  });
+  cond(
+    _is_byte(&src.*, i, u8(41)) => Option(Repair).Some(
+      Repair(span : Span(path : tok.*.module_path.*.clone(), row : usize(tok.*.row), col : usize(tok.*.column), len : usize(2)), replacement : String.new(), description : desc)
+    ),
+    true => Option(Repair).None
+  )
+});
+/// Reject a `..` among the POSITIONAL sub-patterns `args` of a list over
+/// `n_slots` elements (a tuple, a variant's fields). With one `..` the
+/// repair writes `_` for each element it stands for, or deletes `, ..` when
+/// it stands for none. `what` names the elements in the help.
+_reject_positional_rest :: (fn(args : &ArrayList(AstExpr), n_slots : usize, what : str, extra_help : String, exn : Exception) -> unit)({
+  dots := match(
+    _first_rest(args),
+    .Some(d) => d,
+    .None => {
+      return(());
+    }
+  );
+  tok := ast_expr_token(&dots);
+  n_args := args.len();
+  (repair : Option(Repair)) = Option(Repair).None;
+  (help : String) = `write \`_\` for each ${what} it stands for${extra_help}`;
+  if((_rest_count(args) == usize(1)) && (n_slots >= (n_args - usize(1))), {
+    k := (n_slots - (n_args - usize(1)));
+    if(k == usize(0), {
+      repair = _rest_drop_repair(&dots);
+      help = `delete the \`..\`: every ${what} is already listed`;
+    }, {
+      fill := String.new();
+      (j : usize) = usize(0);
+      while(j < k, {
+        if(j > usize(0), {
+          fill.push_str(", ");
+        });
+        fill.push_str("_");
+        j = (j + usize(1));
+      });
+      repair = Option(Repair).Some(
+        Repair(
+          span : Span(path : tok.*.module_path.*.clone(), row : usize(tok.*.row), col : usize(tok.*.column), len : usize(2)),
+          replacement : fill.clone(),
+          description : `write \`${fill}\`, one \`_\` per ${what} \`..\` stands for`
+        )
+      );
+    });
+  });
+  _throw_rest_pattern(&dots, help, repair, exn);
+});
 /// A binding the pattern introduces, collected during compilation and added
 /// to the arm's env frame by the caller once the WHOLE pattern is compiled
 /// (an or-pattern compiles every alternative but binds each name once).
@@ -763,43 +1015,103 @@ _compile_variant :: (
       .None => false
     )
   );
-  dparams := cond(
+  listed := cond(
     is_curly => match(params.get_cloned(usize(0)), .Some(p0) => _args_of(&p0), .None => params.clone()),
     true => params.clone()
   );
   (has_labeled : bool) = is_curly;
   (li : usize) = usize(0);
-  while((li < dparams.len()) && !has_labeled, {
-    if(match(dparams.get_cloned(li), .Some(p) => ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), .None => false), {
+  while((li < listed.len()) && !has_labeled, {
+    if(match(listed.get_cloned(li), .Some(p) => ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), .None => false), {
       has_labeled = true;
     });
     li = (li + usize(1));
   });
+  // The variant's shape (VERDICTS-88): parentheses exactly when the variant
+  // has fields. `.V(..)` matches it whatever its payload: a variant test with
+  // no sub-patterns. A `..` anywhere else is E0609.
+  is_bare := (ast_expr_id(e) == ast_expr_id(head));
+  name_tok := ast_expr_token(&name_expr);
+  is_whole := (!is_curly && ((listed.len() == usize(1)) && match(listed.get_cloned(usize(0)), .Some(p0) => _is_rest_atom(&p0), .None => false)));
   if(arity == usize(0), {
-    if(dparams.len() > usize(0), {
-      exn.throw(
-        dyn(
-          Box.new(
-            format_error_message(
-              ast_expr_token(e),
-              `Variant "${vname}" has no fields, but destructuring parameters were provided`
-            )
-          )
-        )
+    if(!is_bare, {
+      // The parentheses bind nothing when every entry is `_` or `..`: then
+      // deleting them is the one repair (`.Empty(x)` may feed the arm).
+      (binds_nothing : bool) = true;
+      (bi : usize) = usize(0);
+      while(bi < listed.len(), {
+        if(match(listed.get_cloned(bi), .Some(p) => (!ast_expr_is_atom_of(&p, "_") && !_is_rest_atom(&p)), .None => false), {
+          binds_nothing = false;
+        });
+        bi = (bi + usize(1));
+      });
+      _throw_variant_shape(
+        &name_tok,
+        `Variant "${vname}" has no fields`,
+        `write \`.${vname}\``,
+        cond(binds_nothing => _variant_group_span(&name_tok), true => Option(Span).None),
+        String.new(),
+        `write \`.${vname}\``,
+        exn
       );
       return(Pattern.Wildcard);
     });
   }, {
+    if(is_bare, {
+      _throw_variant_shape(
+        &name_tok,
+        `Variant "${vname}" has fields (${_backticked_list(&labels.*.items)}); its pattern takes parentheses`,
+        `write \`.${vname}(..)\` to match it whatever its payload, or bind the fields: \`.${vname}(${_comma_list(&labels.*.items)})\``,
+        _after_name_span(&name_tok),
+        String.from("(..)"),
+        `write \`.${vname}(..)\``,
+        exn
+      );
+      return(Pattern.Wildcard);
+    });
+    if(listed.len() == usize(0), {
+      _throw_variant_shape(
+        &name_tok,
+        `An empty list names none of the fields of variant "${vname}"`,
+        `write \`.${vname}(..)\``,
+        _variant_group_span(&name_tok),
+        String.from("(..)"),
+        `write \`.${vname}(..)\``,
+        exn
+      );
+      return(Pattern.Wildcard);
+    });
+  });
+  if(!is_whole, {
+    match(
+      _first_rest(&listed),
+      .Some(dots) => {
+        if(has_labeled, {
+          _throw_rest_pattern(&dots, `delete the \`..\`: a labeled pattern matches only the fields it names`, _rest_drop_repair(&dots), exn);
+        }, {
+          _reject_positional_rest(&listed, arity, "field", ` (\`.${vname}(..)\` ignores the whole payload)`, exn);
+        });
+        return(Pattern.Wildcard);
+      },
+      .None => ()
+    );
+  });
+  dparams := cond(
+    is_whole => ArrayList(AstExpr).new(),
+    true => listed.clone()
+  );
+  if(arity > usize(0), {
     if(!has_labeled && (dparams.len() > usize(0)) && (dparams.len() != arity), {
-      exn.throw(
-        dyn(
-          Box.new(
-            format_error_message(
-              ast_expr_token(e),
-              `Variant "${vname}" expects ${arity} parameters, got ${dparams.len()}`
-            )
-          )
-        )
+      fields_word := if(arity == usize(1), "field", "fields");
+      subs_word := if(dparams.len() == usize(1), "sub-pattern", "sub-patterns");
+      _throw_variant_shape(
+        &name_tok,
+        `Variant "${vname}" has ${arity} ${fields_word} (${_backticked_list(&labels.*.items)}); the pattern has ${dparams.len()} ${subs_word}`,
+        `write one sub-pattern per field, name the fields you need (\`.${vname}(label : p)\`), or write \`.${vname}(..)\` to ignore the payload`,
+        Option(Span).None,
+        String.new(),
+        String.new(),
+        exn
       );
       return(Pattern.Wildcard);
     });
@@ -808,15 +1120,14 @@ _compile_variant :: (
     // bound nothing and the extra binder silently read a unit
     // (issues/fixed/a-variant-pattern-mixing-labels-and-positions-skips-the-arity-check.md).
     if(has_labeled && (dparams.len() > arity), {
-      exn.throw(
-        dyn(
-          Box.new(
-            format_error_message(
-              ast_expr_token(e),
-              `Variant "${vname}" has ${arity} fields, but the pattern lists ${dparams.len()}`
-            )
-          )
-        )
+      _throw_variant_shape(
+        &name_tok,
+        `Variant "${vname}" has ${arity} fields, but the pattern lists ${dparams.len()}`,
+        `name each field at most once, or write \`.${vname}(..)\` to ignore the payload`,
+        Option(Span).None,
+        String.new(),
+        String.new(),
+        exn
       );
       return(Pattern.Wildcard);
     });
@@ -1058,6 +1369,10 @@ _compile_tuple :: (
     );
     return(Pattern.Wildcard);
   });
+  if(_first_rest(&args).is_some(), {
+    _reject_positional_rest(&args, elem_tys.len(), "element", String.new(), exn);
+    return(Pattern.Wildcard);
+  });
   if(elem_tys.len() != args.len(), {
     exn.throw(
       dyn(
@@ -1118,6 +1433,14 @@ _compile_struct :: (
     .Some(Rc(.StructVal(_, _, fvs))) => Option(ValueCell).Some(Rc.clone(fvs)),
     .Some(_) => Option(ValueCell).None,
     .None => Option(ValueCell).None
+  );
+  match(
+    _first_rest(params),
+    .Some(dots) => {
+      _throw_rest_pattern(&dots, String.from("delete the `..`: a struct pattern matches only the fields it names"), _rest_drop_repair(&dots), exn);
+      return(Pattern.Wildcard);
+    },
+    .None => ()
   );
   field_idx := ArrayList(usize).new();
   subs := ArrayList(Pattern).new();
@@ -1422,6 +1745,20 @@ compile_pattern :: (
   // this position (checked before the Rc look-through so an Rc position
   // binds the cell itself; a constant identifier falls through and is looked
   // through like every other structural pattern).
+  // A `..` that no enclosing list claimed (`(..)`, `(.. | p)`): it would
+  // bind a variable named `..`.
+  if(_is_rest_atom(e), {
+    tok := ast_expr_token(e);
+    _throw_rest_pattern(
+      e,
+      String.from("write `_`, which matches any value"),
+      Option(Repair).Some(
+        Repair(span : Span(path : tok.*.module_path.*.clone(), row : usize(tok.*.row), col : usize(tok.*.column), len : usize(2)), replacement : String.from("_"), description : String.from("write `_`"))
+      ),
+      exn
+    );
+    return(Pattern.Wildcard);
+  });
   if(ast_expr_is_atom(e) && !_is_literal_atom(e), {
     nm := _atom_name(e);
     if(!_constant_in_scope(nm.clone(), env), {
