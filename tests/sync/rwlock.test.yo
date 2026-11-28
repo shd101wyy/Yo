@@ -442,10 +442,10 @@ test("try_with_write fails while a reader holds the lock", {
   reader := Thread(unit).spawn({ lock : Arc.clone(lock), reading : reading.clone(), release : release.clone() }(io) => {
     lock.*.with_read(v => {
       _ := reading.send(i32(1));
-      release.recv();
+      _ := release.recv();
     });
   });
-  reading.recv();
+  _ := reading.recv();
   assert(lock.*.try_with_write(v => v.*).is_none(), "one reader blocks the writer");
   // But another reader still gets in.
   assert(lock.*.try_with_read(v => v.*).is_some(), "a reader does not block a reader");
@@ -460,11 +460,11 @@ test("try_with_read fails while a writer holds the lock", {
   writer := Thread(unit).spawn({ lock : Arc.clone(lock), writing : writing.clone(), release : release.clone() }(io) => {
     lock.*.with_write(v => {
       _ := writing.send(i32(1));
-      release.recv();
+      _ := release.recv();
       v.* = i64(42);
     });
   });
-  writing.recv();
+  _ := writing.recv();
   assert(lock.*.try_with_read(v => v.*).is_none(), "a writer excludes readers");
   assert(lock.*.try_with_write(v => v.*).is_none(), "and excludes other writers");
   _ := release.send(i32(1));
@@ -480,10 +480,10 @@ test("a failed try_with_read leaves the reader count untouched", {
   writer := Thread(unit).spawn({ lock : Arc.clone(lock), writing : writing.clone(), release : release.clone() }(io) => {
     lock.*.with_write(v => {
       _ := writing.send(i32(1));
-      release.recv();
+      _ := release.recv();
     });
   });
-  writing.recv();
+  _ := writing.recv();
   // Fail a few times while the writer holds it.
   (mut(i) : i64) = i64(0);
   while(i < i64(5), {

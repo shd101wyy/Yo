@@ -193,11 +193,11 @@ test("try_with_lock returns None while ANOTHER thread holds the mutex", {
   holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
     m.*.with_lock(v => {
       _ := held.send(i32(1));
-      release.recv();
+      _ := release.recv();
       v.* = i64(99);
     });
   });
-  held.recv();
+  _ := held.recv();
   blocked := m.*.try_with_lock(v => v.*);
   assert(blocked.is_none(), "a held mutex gives .None, and the body never ran");
   _ := release.send(i32(1));
@@ -217,10 +217,10 @@ test("try_with_lock does not run the body when it fails", {
   holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
     m.*.with_lock(v => {
       _ := held.send(i32(1));
-      release.recv();
+      _ := release.recv();
     });
   });
-  held.recv();
+  _ := held.recv();
   // The body borrows `ran` (`&ran`): an implicit capture would move the
   // move-only atomic into the closure.
   m.*.try_with_lock({ &ran }(v) => {
@@ -241,10 +241,10 @@ test("is_unlocked answers about the past, and says so", {
   holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
     m.*.with_lock(v => {
       _ := held.send(i32(1));
-      release.recv();
+      _ := release.recv();
     });
   });
-  held.recv();
+  _ := held.recv();
   assert(!m.*.is_unlocked(), "a held mutex reports locked");
   _ := release.send(i32(1));
   holder.join();

@@ -271,10 +271,10 @@ _move_points :: (fn() -> i32)({
   while(k < i32(4), {
     match(
       ch.recv(),
-      .Some(p) => {
+      .Ok(p) => {
         sum = (sum + (p.x + p.y));
       },
-      .None => ()
+      .Err(_) => ()
     );
     k = (k + i32(1));
   });
@@ -321,8 +321,8 @@ test("Mutex and Channel take a Send type that is not Sync", {
   _sent := ch.send(SsNotSync(n : i32(5)));
   match(
     ch.recv(),
-    .Some(v) => assert(v.n == i32(5), "the payload moved through"),
-    .None => assert(false, "a value was sent")
+    .Ok(v) => assert(v.n == i32(5), "the payload moved through"),
+    .Err(_) => assert(false, "a value was sent")
   );
 });
 // Regression (issues/fixed/2026-10-15-a-closure-parameter-captured-by-an-inner-closure-is-e0901.md):
@@ -390,8 +390,8 @@ test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
   _sent := ch.send(SsCyclic(v : i32(4), next : .None));
   match(
     ch.recv(),
-    .Some(n) => assert(n.v == i32(4), "the node moved through the Channel"),
-    .None => assert(false, "a node was sent")
+    .Ok(n) => assert(n.v == i32(4), "the node moved through the Channel"),
+    .Err(_) => assert(false, "a node was sent")
   );
   t := Thread(SsCyclic).spawn((tio : Io) => SsCyclic(v : i32(5), next : .None));
   assert(t.join().v == i32(5), "the node came back from the thread");

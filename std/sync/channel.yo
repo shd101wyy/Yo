@@ -49,7 +49,7 @@
 //!   tx.send(i32(1));
 //! }; // last sender dropped -> closed
 //! rx.recv().unwrap(); // 1
-//! rx.recv(); // .Err(Disconnected)
+//! rx.recv(); // .Err(RecvError())
 //! ```
 //!
 //! ## Producers on other threads
@@ -67,7 +67,7 @@
 //!   w.join();
 //! };
 //! rx.recv().unwrap(); // 7
-//! rx.recv(); // .Err(Disconnected)
+//! rx.recv(); // .Err(RecvError())
 //! ```
 //!
 //! This did NOT work before 2026-09-11: a spawn closure's captures were never
@@ -110,6 +110,24 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("../assert");
 { Display } :: import("../fmt/to_string.yo");
 { String } :: import("../string");
+/// Why a blocking `recv` returned without a value — Rust's `RecvError`: the
+/// channel is closed and drained, so no value will ever arrive.
+RecvError :: struct();
+derive(RecvError, Copy, Clone);
+export(RecvError);
+impl(
+  RecvError,
+  Display(
+    fmt : ((self, f) -> f.write(&String.from("receiving on a closed channel")))
+  )
+);
+impl(
+  RecvError,
+  Eq(RecvError)(
+    (==) : ((lhs, rhs) -> true),
+    (!=) : ((lhs, rhs) -> false)
+  )
+);
 /// Why a non-blocking receive came back empty-handed — Rust's
 /// `TryRecvError`.
 ///
@@ -305,10 +323,10 @@ impl(
     self._shared.*._mutex._raw_unlock();
     return(.Ok(()));
   }),
-  /// Receive a value from the channel.
-  /// Blocks if the channel is empty until a value is available.
-  /// Returns .Some(value) on success, .None if the channel is closed and empty.
-  recv : (fn(self : &Self) -> Option(T))({
+  /// Receive a value from the channel — Rust's `Receiver::recv`.
+  /// Blocks while the channel is empty and open. `.Err(RecvError)` once it is
+  /// closed and drained; values queued before the close are handed out first.
+  recv : (fn(self : &Self) -> Result(T, RecvError))({
     self._shared.*._mutex._raw_lock();
     // Wait while buffer is empty and channel is not closed
     while((self._shared.*._len.load(MemoryOrder.Relaxed) == usize(0))
@@ -318,7 +336,7 @@ impl(
     cond(
       (self._shared.*._len.load(MemoryOrder.Relaxed) == usize(0)) => {
         self._shared.*._mutex._raw_unlock();
-        return(.None);
+        return(.Err(RecvError()));
       },
       true => ()
     );
@@ -331,7 +349,7 @@ impl(
     self._shared.*._len.store(self._shared.*._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._shared.*._not_full.signal();
     self._shared.*._mutex._raw_unlock();
-    return(.Some(val));
+    return(.Ok(val));
   }),
   /// Try to send a value without blocking.
   /// Returns .Ok(()) if sent, .Err(value) if full or closed — the failed
@@ -579,21 +597,14 @@ impl(
   ),
   /// Receive the oldest value, blocking while the channel is empty.
   ///
-  /// `.Err(TryRecvError.Disconnected)` once the channel is closed AND
-  /// drained — which happens on its own when the last `Sender` is dropped.
-  /// It is the same `TryRecvError` `try_recv` reports rather than a second
-  /// error type, and `Empty` is impossible here: a blocking receive that
-  /// found the channel empty and open would have kept waiting.
+  /// `.Err(RecvError)` once the channel is closed AND drained — which happens
+  /// on its own when the last `Sender` is dropped.
   ///
   /// Values already queued when the last sender went away are still handed
   /// out, one per call, BEFORE the disconnect is reported — closing a channel
   /// must not lose what it already accepted (Rust guarantees the same).
-  recv : (fn(self : &Self) -> Result(T, TryRecvError))(
-    match(
-      self._ch.recv(),
-      .Some(v) => Result(T, TryRecvError).Ok(v),
-      .None => Result(T, TryRecvError).Err(TryRecvError.Disconnected)
-    )
+  recv : (fn(self : &Self) -> Result(T, RecvError))(
+    self._ch.recv()
   ),
   /// Receive without blocking: `.Ok(value)`, `Empty` while the channel is
   /// open but has nothing buffered, `Disconnected` once it is closed and

@@ -2,7 +2,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
 { arch, Arch } :: import("std/process");
 import("std/libc/stdio");
-{ Channel, Sender, Receiver, TryRecvError } :: import("std/sync/channel");
+{ Channel, Sender, Receiver, RecvError, TryRecvError } :: import("std/sync/channel");
 { Thread, ThreadPool, spawn } :: import("std/thread");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
@@ -23,7 +23,7 @@ test("Channel send and recv single value", {
   assert(result.is_ok(), "send should succeed");
   assert(ch.len() == usize(1), "channel should have 1 item");
   val := ch.recv();
-  assert(val.is_some(), "recv should return value");
+  assert(val.is_ok(), "recv should return value");
   assert(val.unwrap() == i32(42), "recv should return 42");
   assert(ch.is_empty(), "channel should be empty after recv");
 });
@@ -150,13 +150,13 @@ test("Channel recv drains remaining values after close", {
   _ := ch.send(i32(20));
   ch.close();
   v1 := ch.recv();
-  assert(v1.is_some(), "recv should return buffered value after close");
+  assert(v1.is_ok(), "recv should return buffered value after close");
   assert(v1.unwrap() == i32(10), "first value should be 10");
   v2 := ch.recv();
-  assert(v2.is_some(), "recv should return second buffered value");
+  assert(v2.is_ok(), "recv should return second buffered value");
   assert(v2.unwrap() == i32(20), "second value should be 20");
   v3 := ch.recv();
-  assert(v3.is_none(), "recv should return None when closed and empty");
+  assert(v3.is_err(), "recv should return None when closed and empty");
 });
 test("Channel try_recv drains remaining values after close", {
   ch := Channel(i32).new(usize(5));
@@ -208,7 +208,7 @@ test("Channel single producer single consumer with Thread", {
   while(count < i32(5), {
     val := ch.recv();
     cond(
-      val.is_some() => {
+      val.is_ok() => {
         sum = (sum + val.unwrap());
         count = (count + i32(1));
       },
@@ -235,7 +235,7 @@ test("Channel thread producer sends many values", {
   while(count < i32(10), {
     val := ch.recv();
     cond(
-      val.is_some() => {
+      val.is_ok() => {
         sum = (sum + val.unwrap());
         count = (count + i32(1));
       },
@@ -252,7 +252,7 @@ test("Channel consumer thread blocks until producer sends", {
   ch := Channel(i32).new(usize(1));
   consumer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     val := ch.recv();
-    assert(val.is_some(), "consumer should receive a value");
+    assert(val.is_ok(), "consumer should receive a value");
     assert(val.unwrap() == i32(999), "value should be 999");
   });
   // Sleep briefly so consumer has time to block on recv
@@ -265,7 +265,7 @@ test("Channel close wakes blocked consumer Thread", {
   ch := Channel(i32).new(usize(5));
   consumer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     val := ch.recv();
-    assert(val.is_none(), "recv should return None after close");
+    assert(val.is_err(), "recv should return None after close");
   });
   // Sleep briefly so consumer blocks on recv
   sleep_blocking(Duration.from_millis(i64(50)));
@@ -331,7 +331,7 @@ test("Channel send from pool task recv from main", {
   });
   wg.*.wait();
   val := ch.recv();
-  assert(val.is_some(), "should receive value from worker");
+  assert(val.is_ok(), "should receive value from worker");
   assert(val.unwrap() == i32(42), "value should be 42");
 });
 test("Channel pool task sends multiple values", {
@@ -381,8 +381,8 @@ test("a cyclic element type is accepted", {
   _sent := ch.send(CyclicNode(v : i32(1), next : .None));
   match(
     ch.recv(),
-    .Some(n) => assert(n.v == i32(1), "the node moved through"),
-    .None => assert(false, "a node was sent")
+    .Ok(n) => assert(n.v == i32(1), "the node moved through"),
+    .Err(_) => assert(false, "a node was sent")
   );
 });
 // ============================================================================
@@ -473,7 +473,7 @@ test("values queued when the last Sender drops are still received first", {
   assert(rx.recv().unwrap() == i32(7), "buffered 7 survives the close");
   assert(rx.recv().unwrap() == i32(8), "buffered 8 survives the close");
   assert(
-    match(rx.recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    match(rx.recv(), .Ok(_) => false, .Err(e) => (e == RecvError())),
     "only THEN is it Disconnected"
   );
 });
@@ -530,7 +530,7 @@ test("dropping the last Sender wakes a Receiver already blocked in recv", {
         _a := verdict.send(i32(1));
       },
       .Err(e) => {
-        _b := verdict.send(cond((e == TryRecvError.Disconnected) => i32(-1), true => i32(-2)));
+        _b := verdict.send(cond((e == RecvError()) => i32(-1), true => i32(-2)));
       }
     );
   });

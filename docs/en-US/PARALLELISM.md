@@ -310,7 +310,7 @@ rx := ch.clone();
 consumer := Thread(unit).spawn({ rx }(io : Io) => {
   val := rx.recv();
   cond(
-    val.is_some() => printf("Got %d\n", val.unwrap()),
+    val.is_ok() => printf("Got %d\n", val.unwrap()),
     true => ()
   );
 });
@@ -323,7 +323,7 @@ is `Send`. `ch.clone()` is another handle on the same queue (no `Arc.new()` wrap
 and the queue is freed with the last handle. An implicit copy (`ch2 := ch` with `ch` used
 again) is E0901: clone it once per thread that needs it and capture the clone by value.
 
-Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
+Channel uses a `Mutex` + `Condvar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
 
 ### Sender / Receiver - end of stream without a manual `close()`
 
@@ -343,15 +343,15 @@ rx := Channel(i32).receiver(usize(4)); // the queue and its one consumer
 }; // last sender dropped -> channel closed
 rx.recv().unwrap(); // 1  - buffered values come out first
 rx.recv().unwrap(); // 2
-rx.recv(); // .Err(TryRecvError.Disconnected)
+_ := rx.recv(); // .Err(RecvError())
 ```
 
 - `Sender` is cloneable (`tx.clone()`); every clone is another counted producer, and only
   the LAST one to be dropped closes the queue.
 - Dropping the `Receiver` makes every further `send` fail with the unsent value, instead of
   blocking on a queue nobody will drain.
-- `Receiver.recv()` returns `Result(T, TryRecvError)`; the error is always `Disconnected`,
-  and it is reported only once the buffer is drained, so no accepted value is lost.
+- `recv()` on a `Channel` and on a `Receiver` returns `Result(T, RecvError)`; the error
+  is reported only once the buffer is drained, so no accepted value is lost.
 - `Channel(T).pair(capacity)` returns both halves as a tuple for a Rust-like one-liner, but
   the tuple keeps both handles alive for its whole scope - so dropping the sender early does
   *not* close the channel. Prefer `receiver()` + `sender()` whenever the end of the stream

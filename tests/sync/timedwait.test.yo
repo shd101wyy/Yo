@@ -37,11 +37,11 @@ test("__yo_mutex_trylock fails while ANOTHER thread holds the mutex", {
   holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
     m.*.with_lock({ &held, &release }(_v) => {
       _ := held.send(i32(1));
-      release.recv();
+      _ := release.recv();
     });
   });
   // Block until the other thread is definitely holding it.
-  held.recv();
+  _ := held.recv();
   assert(m.*.try_with_lock(_v => ()).is_none(), "trylock fails on a held mutex");
   _ := release.send(i32(1));
   holder.join();
@@ -72,7 +72,7 @@ test("__yo_cond_timedwait returns early when signalled", {
     // Wait until the main thread is inside the wait, then signal. Taking the
     // mutex is what guarantees that: the waiter releases it atomically on
     // entering the wait, so acquiring it here means the wait has begun.
-    ready.recv();
+    _ := ready.recv();
     m.*.with_lock({ &cv }(_v) => cv.*.*.notify_one());
   });
   start := Instant.now();

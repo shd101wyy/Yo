@@ -37,7 +37,7 @@ test("wait_timeout returns true when signalled before the deadline", {
   cv := Arc.new(Condvar.new());
   ready := Channel(i32).new(usize(1));
   signaller := Thread(unit).spawn({ m : Arc.clone(m), cv : Arc.clone(cv), ready : ready.clone() }(io) => {
-    ready.recv();
+    _ := ready.recv();
     m.*.with_lock({ &cv }(_v) => cv.*.*.notify_one());
   });
   woken := m.*.with_lock({ &m, &cv, &ready }(_v) => {
@@ -85,7 +85,7 @@ test("wait blocks until signalled, with the predicate re-checked", {
   flag := Arc.new(AtomicI32.new(i32(0)));
   waiting := Channel(i32).new(usize(1));
   setter := Thread(unit).spawn({ m : Arc.clone(m), cv : Arc.clone(cv), flag : Arc.clone(flag), waiting : waiting.clone() }(io) => {
-    waiting.recv();
+    _ := waiting.recv();
     m.*.with_lock({ &flag, &cv }(_v) => {
       flag.*.*.store(i32(1), MemoryOrder.SeqCst);
       cv.*.*.notify_one();
@@ -133,7 +133,7 @@ test("notify_all releases every waiter", {
   // Every waiter has taken the mutex and is about to wait (or already is).
   (mut(p) : i64) = i64(0);
   while(p < i64(4), {
-    parked.recv();
+    _ := parked.recv();
     p = (p + i64(1));
   });
   m.*.with_lock({ &flag, &cv }(_v) => {

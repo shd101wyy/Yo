@@ -282,7 +282,7 @@ rx := ch.clone();
 consumer := Thread(unit).spawn({ rx }(io : Io) => {
   val := rx.recv();
   cond(
-    val.is_some() => printf("Got %d\n", val.unwrap()),
+    val.is_ok() => printf("Got %d\n", val.unwrap()),
     true => ()
   );
 });
@@ -294,7 +294,7 @@ consumer.join();
 队列上的另一个句柄（不需要额外的 `Arc.new()` 包装），队列随最后一个句柄释放。隐式复制（`ch2 := ch`
 之后仍使用 `ch`）是 E0901：为每个需要它的线程克隆一次，并按值捕获这个克隆。
 
-Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 阻塞；当 Channel 空时 recv 阻塞。
+Channel 内部使用 `Mutex` + `Condvar` 进行同步。当 Channel 满时 send 阻塞；当 Channel 空时 recv 阻塞。
 
 ### Sender / Receiver - 无需手动 `close()` 的流结束信号
 
@@ -313,14 +313,14 @@ rx := Channel(i32).receiver(usize(4)); // 队列及其唯一的消费者
 }; // 最后一个 sender 被丢弃 -> Channel 关闭
 rx.recv().unwrap(); // 1  - 已缓冲的值先被取出
 rx.recv().unwrap(); // 2
-rx.recv(); // .Err(TryRecvError.Disconnected)
+_ := rx.recv(); // .Err(RecvError())
 ```
 
 - `Sender` 可克隆（`tx.clone()`）；每个克隆都是又一个被计数的生产者，只有**最后**一个被丢弃时
   才关闭队列。
 - 丢弃 `Receiver` 后，之后的每次 `send` 都会失败并把未发送的值交还给调用者，而不是阻塞在一个
   没人消费的队列上。
-- `Receiver.recv()` 返回 `Result(T, TryRecvError)`；错误恒为 `Disconnected`，并且只有在缓冲区
+- `Channel` 与 `Receiver` 的 `recv()` 都返回 `Result(T, RecvError)`；错误只有在缓冲区
   被取空之后才会报告，因此已经被接受的值不会丢失。
 - `Channel(T).pair(capacity)` 以元组形式一次返回两端，写法更接近 Rust，但元组会在其整个作用域内
   持有两个句柄——所以提前丢弃 sender **并不会**关闭 Channel。只要流的结束时机重要，就优先使用
