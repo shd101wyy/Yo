@@ -37,9 +37,6 @@
   BF_YO_RETURN_SELF,
   BF_YO_MS_SLEEP,
   BF_YO_DECR_RC,
-  BF_YO_BORROW_ASSERT_UNBORROWED,
-  BF_YO_BORROW_ACQUIRE,
-  BF_YO_BORROW_RELEASE,
   BF_YO_PTR_ADD,
   BF_YO_PTR_SUB,
   BF_YO_PTR_DIFF,
@@ -530,9 +527,6 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str(")");
       out
     },
-    // The prelude's borrow-mark externs (`__yo_borrow_acquire`, `__yo_borrow_release`,
-    // `__yo_borrow_assert_unborrowed`) lower to nothing: the runtime has no borrow flag.
-    ((function_name.* == BF_YO_BORROW_ASSERT_UNBORROWED) || (function_name.* == BF_YO_BORROW_ACQUIRE) || (function_name.* == BF_YO_BORROW_RELEASE)) => String.from(""),
     (function_name.* == BF_YO_MS_SLEEP) => if(is_target_windows(&context.base.target_info), {
       out := String.from("Sleep(");
       out.push_string(_a(args, usize(0)));
