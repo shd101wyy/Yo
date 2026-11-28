@@ -393,15 +393,19 @@ export(main);
 ## Sharing: Box, Rc, Arc, Weak, RefCell, std/sync
 
 - `Box(T)` is a unique heap cell (`Option(Box(Self))`). `Rc(T)` (one thread) and `Arc(T)` (threads) share one cell; a second handle
-  is `Rc.clone(&h)`. Members forward (`h.x`, `h.len()`; `h.*` is the
-  payload), which is read-only (E0919): mutate through `RefCell(T)` (`with`,
-  `with_mut`), `Rc.make_mut(&mut h)` or `Rc.get_mut(&mut h)`.
+  is `h.clone()` (`Rc.clone(&h)`). `h.*` is the payload: `.` never reads
+  through a handle, so a payload member is `h.*.x` / `h.*.len()` (`h.x` is
+  E0623, whose `yo fix` repair inserts the star), and a `&Box(T)` binding
+  takes two stars, `b.*.*.x`. The payload is read-only (E0919): mutate
+  through `RefCell(T)` (`h.*.with`, `h.*.with_mut`), `Rc.make_mut(&mut h)` or
+  `Rc.get_mut(&mut h)`.
 - A cycle of strong handles leaks; put a `Weak` on the back edge
   (`Rc.downgrade(&h)`, `w.upgrade()`).
 - `Mutex(T)`, `RwLock(T)`, `WaitGroup`, the `Atomic*` types and the other
   `std/sync` types are move-only values. Share one across threads as
   `Arc(Mutex(T))`: give each thread its own `Arc.clone(&a)`, captured by
-  value. `RefCell` is single-threaded.
+  value; `a.*` names the `Mutex` (`a.*.with_lock(v => ...)`). `RefCell` is
+  single-threaded.
 - `Dyn(Trait)` lives behind `Box`, `Rc` or `&`: `dyn(Box.new(v))`.
 
 ```yo
@@ -413,20 +417,20 @@ export(main);
 main :: (fn() -> unit)({
   shared := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(&shared); // a second handle to the same cell
-  other.with_mut(v => {
+  other.*.with_mut(v => {
     v.* = (v.* + i32(1)); // written through the RefCell door
   });
-  seen := shared.with(v => v.*);
+  seen := shared.*.with(v => v.*);
 
   total := Arc.new(Mutex(i32).new(i32(0)));
   mine := Arc.clone(&total); // the spawned thread's own handle
   t := Thread(unit).spawn({ mine }(io : Io) => {
-    mine.with_lock(v => {
+    mine.*.with_lock(v => {
       v.* = (v.* + i32(1));
     });
   });
   t.join();
-  assert((seen == i32(1)) && (total.with_lock(v => v.*) == i32(1)), "shared");
+  assert((seen == i32(1)) && (total.*.with_lock(v => v.*) == i32(1)), "shared");
 });
 export(main);
 ```

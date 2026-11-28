@@ -104,7 +104,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
 (exn : Exception) = Exception(
   throw : (
     err -> {
-      println(`Error: ${err}`); // 打印 "Error: Division by zero"
+      println(`Error: ${err.*}`); // 打印 "Error: Division by zero"
       unwind(()); // 丢弃续延，从外围函数返回
     }
   )
@@ -137,7 +137,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
 (exn : ResumableException(i32)) = ResumableException(i32)(
   throw : (
     err -> {
-      println(`Error: ${err}`);
+      println(`Error: ${err.*}`);
       return(i32(0)); // 以恢复值 0 恢复续延
     }
   )

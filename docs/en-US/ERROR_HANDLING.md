@@ -109,7 +109,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
 (exn : Exception) = Exception(
   throw : (
     err -> {
-      println(`Error: ${err}`); // prints "Error: Division by zero"
+      println(`Error: ${err.*}`); // prints "Error: Division by zero"
       unwind(()); // discard continuation, return from enclosing fn
     }
   )
@@ -144,7 +144,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
 (exn : ResumableException(i32)) = ResumableException(i32)(
   throw : (
     err -> {
-      println(`Error: ${err}`);
+      println(`Error: ${err.*}`);
       return(i32(0)); // resume with recovery value 0
     }
   )
