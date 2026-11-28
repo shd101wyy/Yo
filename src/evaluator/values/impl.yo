@@ -5401,7 +5401,7 @@ _impl_bound_not_on_a_binder_error :: (fn(lhs : &AstExpr, forall_names : &ArrayLi
   lhs_text := ast_expr_to_string(lhs);
   shown := cond(
     (forall_names.len() == usize(0)) => String.from("this impl declares no `generic(...)` binder"),
-    true => `its binders are \`${String.from("`, `").join(forall_names)}\``
+    true => `its binders are \`${forall_names.join(String.from("`, `"))}\``
   );
   example := match(forall_names.get_cloned(usize(0)), .Some(n) => n, .None => String.from("T"));
   with_code(

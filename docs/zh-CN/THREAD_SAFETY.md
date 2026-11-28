@@ -58,7 +58,7 @@ Raw :: struct(p : ?*u8);
 
 ### 共享 `std/sync` 值
 
-`Mutex(T)`、`RawMutex`、`RwLock(T)`、`Cond`、`Barrier`、`Semaphore`、`WaitGroup`、`Once`、`OnceCell(T)` 和 `Atomic*` 类型与 Rust 一样是只能移动的值。它们的状态（操作系统原语、C11 原子量、受保护的数据）存放在私有的 `Box` 中，每个方法都以 `self : &Self` 为接收者：类型修改的是它自己的内部。会留下两个所有者的复制是 E0901。线程通过 `Arc` 共享它（`Arc(Mutex(T))`、`Arc(AtomicUsize)`）：用 `Arc.new(...)` 创建，给每个共享者一个它自己的 `Arc.clone(...)`，并在线程闭包中按值捕获这个克隆。`mine.*` 指称共享的值，其 `&Self` 接收者借用它：`mine.*.store(...)`、`total.*.with_lock(v => ...)`、`n.*.fetch_add(...)`。
+`Mutex(T)`、`RawMutex`、`RwLock(T)`、`Condvar`、`Barrier`、`Semaphore`、`WaitGroup`、`Once`、`OnceLock(T)` 和 `Atomic*` 类型与 Rust 一样是只能移动的值。它们的状态（操作系统原语、C11 原子量、受保护的数据）存放在私有的 `Box` 中，每个方法都以 `self : &Self` 为接收者：类型修改的是它自己的内部。会留下两个所有者的复制是 E0901。线程通过 `Arc` 共享它（`Arc(Mutex(T))`、`Arc(AtomicUsize)`）：用 `Arc.new(...)` 创建，给每个共享者一个它自己的 `Arc.clone(...)`，并在线程闭包中按值捕获这个克隆。`mine.*` 指称共享的值，其 `&Self` 接收者借用它：`mine.*.store(...)`、`total.*.with_lock(v => ...)`、`n.*.fetch_add(...)`。
 
 ```yo
 { AtomicBool, MemoryOrder } :: import("std/sync/atomic");
@@ -178,7 +178,7 @@ compare-exchange 循环。该循环是无锁的，产生相同的返回值和相
 
 ## Mutex(T) — 闭包作用域锁定
 
-`std/sync` 中的每把锁都记录持有者，因此误用在每个平台上都是带有 API 名称的 **panic**，而不是操作系统原语的未定义行为：持有线程再次加锁、其他线程解锁、未持有 `m` 时调用 `Cond.wait_with(m)`、以及 `Once` 初始化器重入自己的 `Once`，都会触发陷阱（`plans/reference/PARALLELISM_RULES.md` 规则 D5）。`try_with_lock` 对持有者在 Windows 上也返回 `.None`（底层 `CRITICAL_SECTION` 本会递归进入）。
+`std/sync` 中的每把锁都记录持有者，因此误用在每个平台上都是带有 API 名称的 **panic**，而不是操作系统原语的未定义行为：持有线程再次加锁、其他线程解锁、未持有 `m` 时调用 `Condvar.wait_with(m)`、以及 `Once` 初始化器重入自己的 `Once`，都会触发陷阱（`plans/reference/PARALLELISM_RULES.md` 规则 D5）。`try_with_lock` 对持有者在 Windows 上也返回 `.None`（底层 `CRITICAL_SECTION` 本会递归进入）。
 
 `Mutex(T)` 将受保护的数据包装在锁内部。通过闭包进行访问：
 

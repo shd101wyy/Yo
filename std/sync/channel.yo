@@ -105,7 +105,7 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 { Mutex } :: import("./mutex");
-{ Cond } :: import("./cond");
+{ Condvar } :: import("./condvar");
 { AtomicBool, AtomicUsize, MemoryOrder } :: import("./atomic");
 { assert } :: import("../assert");
 { Display } :: import("../fmt/to_string.yo");
@@ -176,8 +176,8 @@ _ChannelState :: (fn(comptime(T) : Type) -> comptime(Type))(
     _len : AtomicUsize,
     _capacity : usize,
     _mutex : Mutex(bool),
-    _not_empty : Cond,
-    _not_full : Cond,
+    _not_empty : Condvar,
+    _not_full : Condvar,
     _closed : AtomicBool,
     /// How many live `Sender(T)` handles share this queue. Zero for a
     /// `Channel` created with `new` and used directly: nothing counts
@@ -273,8 +273,8 @@ impl(
             _len : AtomicUsize.new(usize(0)),
             _capacity : capacity,
             _mutex : Mutex(bool).new(false),
-            _not_empty : Cond.new(),
-            _not_full : Cond.new(),
+            _not_empty : Condvar.new(),
+            _not_full : Condvar.new(),
             _closed : AtomicBool.new(false),
             _senders : AtomicUsize.new(usize(0)),
             _recv_dropped : AtomicBool.new(false)
@@ -319,7 +319,7 @@ impl(
     // without copying `value`, which a move-only `T` forbids.
     __yo_ptr_write(self._ring().add(tail), value);
     self._shared.*._len.store(current_len + usize(1), MemoryOrder.Release);
-    self._shared.*._not_empty.signal();
+    self._shared.*._not_empty.notify_one();
     self._shared.*._mutex._raw_unlock();
     return(.Ok(()));
   }),
@@ -347,7 +347,7 @@ impl(
     (val : T) = __yo_ptr_read(self._ring().add(self._shared.*._head));
     unsafe(consume(self._st().*._head = ((self._shared.*._head + usize(1)) % self._shared.*._capacity)));
     self._shared.*._len.store(self._shared.*._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
-    self._shared.*._not_full.signal();
+    self._shared.*._not_full.notify_one();
     self._shared.*._mutex._raw_unlock();
     return(.Ok(val));
   }),
@@ -376,7 +376,7 @@ impl(
     // without copying `value`, which a move-only `T` forbids.
     __yo_ptr_write(self._ring().add(tail), value);
     self._shared.*._len.store(current_len + usize(1), MemoryOrder.Release);
-    self._shared.*._not_empty.signal();
+    self._shared.*._not_empty.notify_one();
     self._shared.*._mutex._raw_unlock();
     return(.Ok(()));
   }),
@@ -407,7 +407,7 @@ impl(
     (val : T) = __yo_ptr_read(self._ring().add(self._shared.*._head));
     unsafe(consume(self._st().*._head = ((self._shared.*._head + usize(1)) % self._shared.*._capacity)));
     self._shared.*._len.store(self._shared.*._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
-    self._shared.*._not_full.signal();
+    self._shared.*._not_full.notify_one();
     self._shared.*._mutex._raw_unlock();
     return(Result(T, TryRecvError).Ok(val));
   }),
@@ -417,8 +417,8 @@ impl(
   close : (fn(self : &Self) -> unit)({
     self._shared.*._mutex._raw_lock();
     self._shared.*._closed.store(true, MemoryOrder.Release);
-    self._shared.*._not_empty.broadcast();
-    self._shared.*._not_full.broadcast();
+    self._shared.*._not_empty.notify_all();
+    self._shared.*._not_full.notify_all();
     self._shared.*._mutex._raw_unlock();
   }),
   /// Record that this queue's `Receiver` handle is gone: every further
@@ -432,7 +432,7 @@ impl(
   _mark_receiver_dropped : (fn(self : &Self) -> unit)({
     self._shared.*._mutex._raw_lock();
     self._shared.*._recv_dropped.store(true, MemoryOrder.Release);
-    self._shared.*._not_full.broadcast();
+    self._shared.*._not_full.notify_all();
     self._shared.*._mutex._raw_unlock();
   }),
   // The queue in the `Arc`: `_head` is written through it, under `_mutex`

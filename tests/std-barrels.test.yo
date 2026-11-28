@@ -5,7 +5,7 @@
 //! `{ HashMap } :: import("std/collections")`, binds a usable name.
 { assert } :: import("std/assert");
 { HashMap, ArrayList, Deque, PriorityQueue, BTreeMap, HashSet, OrderedMap } :: import("std/collections");
-{ Mutex, Channel, Cond, MemoryOrder, AtomicUsize, RwLock } :: import("std/sync");
+{ Mutex, Channel, Condvar, MemoryOrder, AtomicUsize, RwLock } :: import("std/sync");
 { Duration, Instant } :: import("std/time");
 { IpAddr, SocketAddr } :: import("std/net");
 { File, OpenMode } :: import("std/fs");
@@ -36,7 +36,7 @@ time_sleep :: import("std/time/sleep");
 sync_atomic :: import("std/sync/atomic");
 sync_barrier :: import("std/sync/barrier");
 sync_channel :: import("std/sync/channel");
-sync_cond :: import("std/sync/cond");
+sync_condvar :: import("std/sync/condvar");
 sync_mutex :: import("std/sync/mutex");
 sync_once :: import("std/sync/once");
 sync_refcell :: import("std/sync/refcell");
@@ -118,7 +118,8 @@ test("std/sync names are the modules' names", {
   comptime_assert(Type.eq(sync.Sender(i32), sync_channel.Sender(i32)));
   comptime_assert(Type.eq(sync.Receiver(i32), sync_channel.Receiver(i32)));
   comptime_assert(Type.eq(sync.TryRecvError, sync_channel.TryRecvError));
-  comptime_assert(Type.eq(sync.Cond, sync_cond.Cond));
+  comptime_assert(Type.eq(sync.Condvar, sync_condvar.Condvar));
+  comptime_assert(Type.eq(sync.RecvError, sync_channel.RecvError));
   comptime_assert(Type.eq(sync.Barrier, sync_barrier.Barrier));
   comptime_assert(Type.eq(sync.RwLock(i32), sync_rwlock.RwLock(i32)));
   comptime_assert(Type.eq(sync.Semaphore, sync_semaphore.Semaphore));
@@ -134,7 +135,7 @@ test("std/sync barrel names are usable", {
   m := Mutex(i32).new(i32(3));
   _ := m;
   comptime_assert(Type.eq(Channel(i32), sync_channel.Channel(i32)));
-  comptime_assert(Type.eq(Cond, sync_cond.Cond));
+  comptime_assert(Type.eq(Condvar, sync_condvar.Condvar));
   comptime_assert(Type.eq(RwLock(i32), sync_rwlock.RwLock(i32)));
 });
 test("std/net names are the modules' names", {

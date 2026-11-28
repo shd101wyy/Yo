@@ -603,7 +603,7 @@ trait_constructor_params_of :: (fn(value : &Option(EvalValue), ty : &TypeValue) 
 );
 /// `Eq(Rhs)` for the trait constructor `name` with parameters `params`.
 trait_constructor_spelling :: (fn(name : &String, params : &ArrayList(String)) -> String)(
-  `${name}(${String.from(", ").join(params)})`
+  `${name}(${params.join(String.from(", "))})`
 );
 /// E0603 at a bound whose right side is a trait constructor given no
 /// arguments: `T <: Eq` is `T <: Eq(T)` (VERDICTS-84 §4). The example
@@ -620,7 +620,7 @@ bare_trait_constructor_bound_error :: (fn(tok : &Token, lhs : &String, name : &S
   with_code(
     format_error_message(
       tok,
-      `\`${name}\` takes ${count}, \`${trait_constructor_spelling(name, params)}\`, and none was given: a bound names the trait applied, as in \`${lhs} <: ${name}(${String.from(", ").join(&args)})\`.`
+      `\`${name}\` takes ${count}, \`${trait_constructor_spelling(name, params)}\`, and none was given: a bound names the trait applied, as in \`${lhs} <: ${name}(${args.join(String.from(", "))})\`.`
     ),
     E_ARGUMENT_COUNT_MISMATCH
   )
