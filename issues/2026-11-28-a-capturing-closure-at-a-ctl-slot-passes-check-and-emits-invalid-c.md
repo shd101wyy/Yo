@@ -3,7 +3,7 @@
 **Severity:** S2 — a `=>` closure that captures a local, bound to a `ctl(...)` type, passes `yo check`; `yo compile` then fails in the C compiler on a `void *` initialised with the closure's capture struct.
 
 - Filed: 2026-11-28, finding F2 of VERDICTS-94 (Fable 5.2, §8), with its probe `p03b`.
-- Status: open. Closed by K-3 of [`plans/backlog/CAPABILITIES_AND_HANDLERS.md`](../plans/backlog/CAPABILITIES_AND_HANDLERS.md) (v0.2.82).
+- Status: open, not fixed: retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
 
 ## Reproducer
 
@@ -40,8 +40,10 @@ As VERDICTS-94 §8 states it, a capturing closure bound to a `ctl` slot passes `
 
 ## Fix
 
+Not built (VERDICTS-96 §5): no statement in `src/` or `std/` has this shape, and E-5 deletes the mechanism. The repair the doc was filed with, K-3 of [`plans/archive/CAPABILITIES_AND_HANDLERS.md`](../plans/archive/CAPABILITIES_AND_HANDLERS.md), was:
+
 K-3: a closure at a `ctl` slot is an error with a coded diagnostic, whether or not its body unwinds. Capturing clauses arrive later, under a delimiter that keeps them in their frame (H-1, after K-7).
 
 ## Test
 
-None in this filing: the bug is open with no fix. The test lands with K-3: this repro as a `comptime_expect_error` case.
+None: the bug is not fixed. Its reproducer stops compiling at E-5, when `ctl` and `unwind` leave the language.

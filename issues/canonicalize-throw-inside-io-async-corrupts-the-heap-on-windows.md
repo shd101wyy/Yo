@@ -2,6 +2,8 @@
 
 **Severity:** S2 — deterministic STATUS_HEAP_CORRUPTION crash of a user program on a primary platform, in the textbook error path of a common fs API
 
+**Not fixed:** retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). The bug is documented only: `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5. E-3 (v0.2.84) already removes the throwing `fs` path it needs: `canonicalize` returns a `Result`.
+
 **Found**: 2026-10-03, while reproducing `issues/fixed/s3-fs-wrappers-windows-semantics-audit.md` (the triage repro's phase 3 hit it at the `fs_dir.symlink` permission-denied throw; minimised to `fs_file.canonicalize`).
 
 **Status**: OPEN. Measured on Windows 10 (10.0.26200) with a tree-built `yo`
