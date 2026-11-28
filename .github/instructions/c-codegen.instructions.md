@@ -241,15 +241,7 @@ The evaluator places each drop; codegen emits it there:
 
 ### Where a `___dup` comes from
 
-A dup is a second owner of counted data: `Rc.clone(h)` / `Arc.clone(h)` (an explicit `___dup` in the prelude) and the aliasing guard below. No implicit copy is a dup: every store (`transfer_value_into`, `src/evaluator/utils.yo`) moves a value that needs a drop (`type_needs_drop_glue` is part of `type_requires_explicit_copy`) or rejects the copy (E0901), and copies any other value bitwise. A type that still mentions an open type variable is judged at its instantiation. A last-use move has no count traffic; plain data copies without a count; a `Box` moves and is never counted. `ref_count` reads a count.
-
-### The borrowed-argument aliasing guard
-
-A place inside an `Rc`/`Arc` payload lent to a `&T` parameter could dangle if the callee released its container through another handle. `consume_argument_for_parameter` (`src/evaluator/calls/helper.yo`) closes that:
-
-- **Stage 0.** An RC-typed field projection lent to a borrowing parameter gets a caller-owned +1 for the call (`set_expr_as_needs_to_call_dup_for_borrowed_projection`, `src/evaluator/utils.yo`), released by the call's post-call drop (`mark_call_scoped_share_dup`); a place reached through a read-only handle takes the +1 on the handle (`borrowed_place_read_only_handle`). Plain locals, owned temps, `&mut` parameters and extern/builtin callees stay +0.
-- **Stage 1.** `function_may_mutate_rc_storage` (`src/evaluator/effects/mutation-summary.yo`) gives a read-only callee its +0 back. A callee MAY mutate if it (transitively) assigns an RC-typed place, decrements explicitly (`___drop`, `__yo_decr_rc`, …), calls a runtime/allocator extern or libc `free`/`realloc`, takes a callback, yields through an io builtin, is a control function, or calls anything unresolved. Compiler-generated drops are no hazard: they target owning variables, and a borrow owns nothing.
-- The guard emits almost every remaining `___dup`. `YO_DEBUG_GUARD_OFF=1` (an internal knob, not a user flag) skips it, to see what the +1 masks; `scripts/guard-off-probes.sh` runs `tests/origins/guard/` both ways against each program's `// expect:` / `// guard-off:` headers, and test 7's guard-off axis runs its corpus with it set. A program accepted and ASan-dirty only with the knob set blocks deleting the guard (VERDICTS-70 row 5).
+A dup is a second owner of counted data: `Rc.clone(h)` / `Arc.clone(h)` (an explicit `___dup` in the prelude), nothing else. A place lent to a call takes no count: a `&` argument borrows it, and the checker keeps its owner alive for the call (E0910, E0911, E0913, E0916; an `Rc`/`Arc` payload is read-only through the handle, decision 46). No implicit copy is a dup: every store (`transfer_value_into`, `src/evaluator/utils.yo`) moves a value that needs a drop (`type_needs_drop_glue` is part of `type_requires_explicit_copy`) or rejects the copy (E0901), and copies any other value bitwise. A type that still mentions an open type variable is judged at its instantiation. A last-use move has no count traffic; plain data copies without a count; a `Box` moves and is never counted. `ref_count` reads a count.
 
 ### Owning result temps
 

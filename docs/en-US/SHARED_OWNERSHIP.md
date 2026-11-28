@@ -9,7 +9,7 @@ depth are in [ARC.md](./ARC.md) and [WEAK.md](./WEAK.md).
 
 ## Shared Cells and Memory Management
 
-Yo uses **reference-counted cells** (`Rc`, `Arc`) for shared ownership. `Rc(T)` counts its handles non-atomically, and `Arc(T)` counts them atomically. The non-atomic count is sound because an `Rc` is not `Send`: it never leaves its thread, so one thread touches its count ([PARALLELISM.md](./PARALLELISM.md)). Share across threads with `Arc` ([ARC.md](./ARC.md)).
+Yo uses **reference-counted cells** (`Rc`, `Arc`) for shared ownership. `Rc(T)` counts its handles non-atomically, and `Arc(T)` counts them atomically. The non-atomic count is sound because an `Rc` is not `Send`: it never leaves its thread, so one thread touches its count ([PARALLELISM.md](./PARALLELISM.md)). Share across threads with `Arc` ([ARC.md](./ARC.md)). A clone is one increment, dropping a handle is one decrement, and a move is free: the compiler adds no other count operation.
 
 ### Reference-Counted Cells
 

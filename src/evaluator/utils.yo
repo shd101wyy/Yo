@@ -27,7 +27,6 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_capture_list_params,
   ast_expr_to_string,
   make_err_expr,
-  BF_DUP,
   BF_DROP,
   BF_DOT,
   BK_BEGIN,
@@ -84,13 +83,10 @@ pragma(Pragma.AllowUnsafe);
   branch_init_log_len,
   new_expr_info,
   expr_info_capture_type,
-  expr_info_set_deferred_dup_expressions,
   expr_info_index_trait_ptr_type,
   lookup_method_callee_type,
   lookup_generic_callee_type,
   lookup_method_callee_value,
-  mark_call_scoped_share_dup,
-  mark_call_scoped_share_drop,
   expr_info_converted_runtime_type,
   expr_info_set_converted_runtime_type,
   record_skipped_operand_drops,
@@ -151,7 +147,7 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { EvalValue, EvalValueNode, is_unknown_val, is_type_value, is_var_ref, is_func_val, lookup_type_ctor_value, lookup_enum_cfid } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, fn_result_spells_static, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided, is_static_origin, origin_names_contain } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
 { are_types_compatible, are_types_compatible_exact, future_view_drops_a_bundle, future_view_drops_only_io, future_view_explanation, impl_dispatch_hint } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message, type_key_epoch } :: import("../types/string.yo");
@@ -159,8 +155,7 @@ pragma(Pragma.AllowUnsafe);
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized, type_spells_checked_static } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
 { is_global_mut_rule_exempt } :: import("./memory-safety.yo");
-// The scope-end drops and the borrowed-argument guard build + evaluate
-// `___drop(name)` / `___dup(name)` calls.
+// The scope-end drops build + evaluate `___drop(name)` calls.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
 { generate_expr_from_code } :: import("../parser.yo");
@@ -4000,283 +3995,6 @@ transfer_value_into :: (
     )
   );
 });
-/// Aliasing Stage 0 (issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md):
-/// dup an RC-typed PROJECTION argument passed to a BORROWING parameter,
-/// keeping the +1 in the CALLER.
-///
-/// The dup result is left OWNING and UNCONSUMED so the caller's normal
-/// scope-end drop is the balancing -1, and the SOURCE binding is never
-/// consumed (a borrow stays usable). No-ops when the argument's temp already
-/// OWNS its value (alive to scope end regardless — no aliasing hole) or when
-/// the value is a codegen-inlinable comptime constant (no RC traffic).
-set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
-  fn(
-    rhs : &AstExpr,
-    ctx : &EvalContext,
-    exn : Exception,
-    /// Dup even when the argument's variable OWNS its value: the same call
-    /// passes that variable `inout`, so the callee can replace the value the
-    /// argument borrows (`argument_is_aliased_by_inout`, calls/helper.yo).
-    (force : bool) ?= false
-  ) -> Option(AstExpr)
-)({
-  var_name_opt := match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)),
-    .Some(info) => info.variable_name(),
-    .None => Option(String).None
-  );
-  (s0_result : Option(AstExpr)) = Option(AstExpr).None;
-  match(
-    var_name_opt,
-    .None => (),
-    .Some(variable_name) => {
-      ei := match(
-        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)),
-        .Some(info) => info,
-        .None => new_expr_info_placeholder_for_unreachable_(rhs)
-      );
-      // The concrete-value inlinability gate: only a value codegen actually
-      // INLINES has no C variable to dup.
-      has_concrete_value := match(
-        ei.value(),
-        .Some(cv) => (!is_unknown_val(&cv) && !type_contains_rc_type(&ei.ty())),
-        .None => false
-      );
-      if(has_concrete_value, {
-        return(Option(AstExpr).None);
-      });
-      if(!type_contains_rc_type(&ei.ty()), {
-        return(Option(AstExpr).None);
-      });
-      // A move-only value has no +1 to take: its "dup" is a bitwise copy,
-      // and the copy's scope-end drop disposed the element the container
-      // still owns (a double `Drop`;
-      // issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md).
-      // A borrow of it stays a borrow; exclusivity keeps the container alive.
-      if(type_is_move_only(&ei.ty()), {
-        return(Option(AstExpr).None);
-      });
-      match(
-        find_variable_in_env(&ei.env(), &variable_name),
-        .None => (),
-        .Some(v) => {
-          if(v.*.is_owning_the_rc_value() && !force, {
-            return(Option(AstExpr).None);
-          });
-          // SYNTHESIZE the evaluated dup form instead of evaluating it.
-          // Evaluating a fresh `___dup(...)` expression from INSIDE a
-          // derive/quote-generated body's def-time eval corrupts the
-          // enclosing module evaluation through shared state (no throw —
-          // bisected in issues/yo-self-dup-eval-inside-macro-generated-body-
-          // corrupts-module-eval.md). A dup of a KNOWN temp needs no general
-          // evaluation: mint the result temp OWNING in the rhs env (its
-          // scope-end drop is the balancing -1), and stamp the dup
-          // node + its arg atom with the ExprInfo codegen's deferred-dup
-          // emitter reads (dei.variable_name / target atom env); the
-          // nested eval is unsound in def-time contexts.
-          dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
-          // Phase 2: no source position exists for the synthesized dup — key
-          // the occurrence by module + the variable being duped.
-          dup_temp := generate_new_temp_variable_name(
-            &ei.env().module_path().*,
-            usize(0),
-            usize(0),
-            .Some(`dup:${variable_name}`)
-          );
-          reg_var := add_variable_to_begin_block_frame(
-            &ei.env(),
-            dup_temp.clone(),
-            &ei.ty(),
-            Option(EvalValue).None,
-            false,
-            true,
-            ast_expr_token(rhs)
-          );
-          // CONSUME the dup temp immediately: the balancing -1 is the
-          // EXPLICIT `___drop` returned below, attached by the caller to the
-          // CALL node's deferred drops (single post-call emission). Leaving
-          // the temp unconsumed-owning lets the multi-exit cleanup
-          // machinery (match-arm exits + escape paths + scope end) emit its
-          // drop on NON-exclusive paths — the stage-2 binary over-released
-          // context.base and corrupted the whole emit (FIXPOINT_BROKEN,
-          // recycled-name garbage; gmalloc-traced to dup-for-value's enum
-          // arm).
-          match(
-            reg_var,
-            .Some(rv) => {
-              rv.*.set_consumed_at_token(Option(Token).Some(ast_expr_token(rhs)));
-            },
-            .None => ()
-          );
-          dup_info := new_expr_info(&ei.env(), &ei.ty());
-          dup_info.set_variable_name(Option(String).Some(dup_temp.clone()));
-          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&dup_expr), &dup_info);
-          match(
-            Rc.clone(dup_expr),
-            Rc(.FnCall(_, _, Rc(dd_args), _, _)) => match(
-              dd_args.get_cloned(usize(0)),
-              .Some(dd_atom) => {
-                dd_atom_info := new_expr_info(&ei.env(), &ei.ty());
-                dd_atom_info.set_variable_name(Option(String).Some(variable_name.clone()));
-                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&dd_atom), &dd_atom_info);
-              },
-              .None => ()
-            ),
-            Rc(.Atom(_, _)) => ()
-          );
-          // The post-call drop below balances this +1
-          // (`mark_call_scoped_share_dup`).
-          mark_call_scoped_share_dup(ast_expr_id(&dup_expr));
-          dup_list := ArrayList(AstExpr).new();
-          dup_list.push(dup_expr);
-          expr_info_set_deferred_dup_expressions(&ei, Option(ArrayList(AstExpr)).Some(dup_list));
-          // Synthesize the balancing `___drop(dup_temp)` for the CALLER to
-          // attach to the call node's deferred drops.
-          s0_drop_expr := generate_expr_from_code(`${BF_DROP}(${dup_temp})`, exn);
-          mark_call_scoped_share_drop(ast_expr_id(&s0_drop_expr));
-          s0_drop_info := new_expr_info(&ei.env(), &ei.ty());
-          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&s0_drop_expr), &s0_drop_info);
-          match(
-            Rc.clone(s0_drop_expr),
-            Rc(.FnCall(_, _, Rc(sd_args), _, _)) => match(
-              sd_args.get_cloned(usize(0)),
-              .Some(sd_atom) => {
-                sd_atom_info := new_expr_info(&ei.env(), &ei.ty());
-                sd_atom_info.set_variable_name(Option(String).Some(dup_temp.clone()));
-                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&sd_atom), &sd_atom_info);
-              },
-              .None => ()
-            ),
-            Rc(.Atom(_, _)) => ()
-          );
-          s0_result = Option(AstExpr).Some(s0_drop_expr);
-          // NOTE: deliberately NOT propagating the dup eval's env onto the
-          // rhs ExprInfo. The dup temp was added IN PLACE to ei.env's current frame, so the
-          // rhs env already resolves it — and REPLACING ei.env here leaked a
-          // def-time BODY env into the enclosing statement flow: the
-          // evaluator threads env through statement infos, so a module-level derive's
-          // generated-body eval replaced the MODULE env mid-module
-          // ("Variable Tok not found" on the impl FOLLOWING derive(Eq) of a
-          // String-field ref struct — the tok_i minimal repro).
-        }
-      );
-    }
-  );
-  s0_result
-});
-/// True when walking `e`'s place steps reaches an ATOM bound to a RUNTIME
-/// variable — the root of a place expression. A step is a field or deref
-/// (`w.b`, `h.*`) or a call `c(...)`, whose callee is the place (an element
-/// read `xs(i)`), so a field after an index (`xs(i).f`, `xs(i).*`) is a
-/// projection like `w.xs(i)`. A method call (`x.f()`, its callee the method
-/// `x.f`) is walked too: its result temp OWNS its value, which the Stage 0
-/// marker skips, and a projection call's (decision 24) is a place.
-_place_root_is_runtime_variable :: (fn(e : &AstExpr, env : &Environment) -> bool)({
-  (root : AstExpr) = Rc.clone(e.*);
-  (walking : bool) = true;
-  while(walking, {
-    cond(
-      ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))) => {
-        r_args := match(Rc.clone(root), Rc(.FnCall(_, _, Rc(__prv_ra), _, _)) => __prv_ra.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-        r_a1 := match(r_args.get_cloned(usize(1)), .Some(x) => x, .None => return(false));
-        if(!ast_expr_is_atom(&r_a1), {
-          return(false);
-        });
-        root = match(r_args.get_cloned(usize(0)), .Some(x) => x, .None => return(false));
-      },
-      true => match(
-        Rc.clone(root),
-        Rc(.FnCall(_, __prv_callee, _, __prv_infix, _)) => {
-          if(__prv_infix, {
-            return(false);
-          });
-          root = Rc.clone(__prv_callee);
-        },
-        Rc(.Atom(_, _)) => {
-          walking = false;
-        }
-      )
-    );
-  });
-  vars := get_variables_from_env(env, ast_expr_token(&root).*.value.*);
-  if(vars.len() == usize(0), {
-    return(false);
-  });
-  match(
-    vars.last_cloned(),
-    .Some(v) => !v.*.is_compile_time_only(),
-    .None => false
-  )
-});
-/// Aliasing Stage 0 predicate: a PROJECTION place rooted at a RUNTIME
-/// variable — a field or deref chain (`w.b`, `a.b.c`, `r.*`), an element read
-/// (`arr(i)`, `w.items(i)`), or any mix (`xs(i).f`, `xs(i).*`). A bare atom is
-/// NOT a projection (the caller's binding keeps a plain local alive for the
-/// call, +0).
-///
-/// An element read is a view into container storage exactly as a field read
-/// is, and a callee can release it the same way — a callee replacing the
-/// container in a loop freed the borrowed box and the caller read the
-/// recycled allocation. A field or deref AFTER an element read (`xs(i).f`)
-/// is in that storage too: the predicate used to stop at the first non-atom
-/// dot base, so `peek(&xs(i).f, () => xs2.clear())` read the freed element
-/// (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
-/// Widening is safe by construction: the marker no-ops when the argument's
-/// temp already OWNS its value.
-arg_is_rc_projection_place :: (fn(e0 : &AstExpr, env : &Environment) -> bool)({
-  // `r.*` on a reference binding reads as the name `r` (decision 43 step 2
-  // N1e-1): it lends the referent, as the bare `r` did, and projects nothing.
-  e := ast_rewritten_node(e0);
-  match(
-    &e,
-    Rc(.Atom(_, _)) => false,
-    Rc(.FnCall(_, _, _, e_infix, _)) => ((!e_infix.* || ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2)))) && _place_root_is_runtime_variable(&e, env))
-  )
-});
-/// Aliasing Stage 0 through a read-only handle: the `Rc`/`Arc` whose payload
-/// holds the evaluated place `ev` (`h` in `h.*`, `h.*.f`), or `.None`.
-///
-/// The walk follows `.*` and value-field steps outwards from `ev` and stops at
-/// the first `.*` whose base is a handle with a read-only payload
-/// (`handle_payload_is_read_only`). Through such a handle the place changes
-/// only when the cell is freed: no safe code writes the payload (decision 46),
-/// so the +1 that keeps the CELL alive for a call keeps the place valid, and it
-/// works for a move-only payload (a `RefCell`), which has no +1 of its own. A
-/// `Box` deref is part of the storage that owns it, so the walk goes on. Any
-/// other cell (a field of a `ref` object, a pointer deref, an element read)
-/// can be overwritten in place while the handle lives, so it ends the walk
-/// with `.None` and the payload keeps its own Stage 0 share.
-borrowed_place_read_only_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
-  (cur : AstExpr) = Rc.clone(ev.*);
-  while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-    // A step an evaluator rewrite replaced reads as rewritten.
-    cur = ast_rewritten_node(&cur);
-    d_args := match(Rc.clone(cur), Rc(.FnCall(_, _, __bh_a, _, _)) => Rc.clone(__bh_a).*.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-    base := match(d_args.get_cloned(usize(0)), .Some(b) => b, .None => return(Option(AstExpr).None));
-    fld := match(d_args.get_cloned(usize(1)), .Some(f) => f, .None => return(Option(AstExpr).None));
-    if(!ast_expr_is_atom(&fld), {
-      return(Option(AstExpr).None);
-    });
-    base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => Rc.clone(bi.ty()), .None => return(Option(AstExpr).None));
-    is_deref := ast_expr_is_atom_of(&fld, "*");
-    cond(
-      (is_deref && handle_payload_is_read_only(&base_ty)) => {
-        return(Option(AstExpr).Some(base));
-      },
-      (is_deref && is_unique_box_type(&base_ty)) => (),
-      is_deref => {
-        return(Option(AstExpr).None);
-      },
-      (is_struct_type(&base_ty) && !is_reference_struct_type(&base_ty) && !is_atomic_reference_struct_type(&base_ty)) => (),
-      is_tuple_type(&base_ty) => (),
-      true => {
-        return(Option(AstExpr).None);
-      }
-    );
-    cur = base;
-  });
-  Option(AstExpr).None
-});
 // ---------------------------------------------------------------------------
 // doc_comment_lookup_key_from_token
 // ---------------------------------------------------------------------------
@@ -6616,7 +6334,7 @@ export(check_where_clause_form, witness_as_bool_note, throw_if_bound_rhs_is_not_
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(move_only_help, move_only_type_help, use_of_moved_value_error, moved_value_type, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
-export(transfer_value_into, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle);
+export(transfer_value_into);
 export(audit_copy_trait_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy);
 export(attach_temp_variable_to_expr);

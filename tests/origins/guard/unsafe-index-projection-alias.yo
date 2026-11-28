@@ -1,8 +1,8 @@
-// expect: accept
-// guard-off: DIRTY heap-use-after-free
-// Unsafe-capable code (outside claim (S)): tests/rc.test.yo's indexed Stage 0
-// row. An element of a fixed-size array of `Rc`s lent to a callee that
-// replaces the element through a raw pointer to the container.
+// expect: DIRTY heap-use-after-free
+// Unsafe-capable code (outside claim (S)). An element of a fixed-size array of
+// `Rc`s lent to a callee that replaces the element through a raw pointer to
+// the container. No count is taken for a lend, so the borrowed box is freed
+// under the callee.
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
 Arr :: struct(a : Array(Rc(i32), 2));

@@ -681,10 +681,8 @@ _place_root_atom :: (fn(expr_in : &AstExpr) -> Option(AstExpr))({
 /// parameter. `f(h.s, h)` with `f :: fn(x : &mut String, own(victim) :
 /// Holder)` moves the caller's count into the callee, which can release
 /// it while `x` still points into the object — a use-after-free no
-/// same-scope gate can see. A by-value argument overlapping an `inout` one is
-/// not rejected: it is kept alive with a caller-owned +1 for the call
-/// (`argument_is_aliased_by_inout`, calls/helper.yo), since the callee can
-/// replace the `inout` variable's value.
+/// same-scope gate can see. A borrowed argument overlapping an `inout` one is
+/// argument exclusivity's (E0910, decision 28).
 require_ref_own_argument_exclusivity :: (
   fn(
     param_labels : &ArrayList(String),
