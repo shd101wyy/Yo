@@ -98,8 +98,10 @@ Instantiated generics render as written — `ArrayList(i32)`, `Option(String)`,
   already listed), whether or not the document parses at that moment.
 - **Dot completion** (`expr.`): struct fields, enum variants, union fields,
   module members, trait methods, inherent and generic-impl methods, with
-  parameter snippets. Type-valued receivers work too (`Point.`, `Option(i32).`);
-  pointers are auto-dereferenced.
+  parameter snippets. Type-valued receivers work too (`Point.`, `Option(i32).`).
+  On a handle (`Box`, `Rc`, `Arc`), a raw pointer or a `Deref` owner, the
+  receiver's own members come first, then the payload's, each inserting the
+  star that reaches it (`*.name`).
 - **Enum variant prefix** (`.` after `=`, `(`, `,`, `{`, `;`, `=>`, `:=` or
   `return`): the variants of the expected enum, inferred from a typed
   declaration or the subject of the enclosing `match`.

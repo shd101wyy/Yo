@@ -358,7 +358,7 @@ generate_async_runtime_io_wasm :: (
     `
 // --- Helper to create a completed IoFuture with a result ---
 static __yo_io_future_t* __yo_wasm_io_completed(int32_t result) {
-  __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_io_cell_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
@@ -779,7 +779,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   __yo_io_init();
 
-  __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_io_cell_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->state, 0);  // pending

@@ -1,4 +1,4 @@
-# A cursor held in a reference field cannot be re-pointed through its match binding: `c.cur = &mut n.next` is E0911
+# A cursor held in a reference field cannot be re-pointed through its match binding: `c.cur = &mut n.*.*.next` is E0911
 
 **Severity:** S3: a sound program is rejected (a precision gap, not a soundness one); the workaround walks in a function over the slot (`push_last(&mut c.cur.*, v)` with `push_last :: (fn(slot : &mut Option(Box(Node)), v : i32) -> unit)`, whose local `cur := &mut slot.*` the VERDICTS-71 re-point exception admits); a local cursor `cur := &mut c.cur.*` in the holder's own body is rejected ("A local borrow cannot reach through a pointer dereference").
 
@@ -18,7 +18,7 @@ main :: (fn() -> unit)({
     match(
       &mut c.cur.*,
       .Some(n) => {
-        c.cur = &mut n.next;
+        c.cur = &mut n.*.*.next;
       },
       .None => ()
     )
@@ -37,7 +37,7 @@ Rust accepts the same walk (`c.cur = &mut n.next` with `c.cur : &mut Option<Box<
 
 ## Root cause
 
-The local-borrow place model (`LocalBorrowPlace`, `src/evaluator/utils.yo`) records the arm binding of `match(&mut c.cur.*, …)` as a borrow of the place `c.cur`: the referent of a reference field and the field's slot are one place there. The store `c.cur = &mut n.next` writes the slot, so `local_borrow_access` sees a write of the place `n` freezes and raises `_lb_raise_conflict`. A local cursor is admitted by the VERDICTS-71 re-point exception (`local_borrow_require_no_live_derived`'s `through`: the binding the right-hand side goes through is skipped), which is keyed on a local borrow binding, so a field place never reaches it.
+The local-borrow place model (`LocalBorrowPlace`, `src/evaluator/utils.yo`) records the arm binding of `match(&mut c.cur.*, …)` as a borrow of the place `c.cur`: the referent of a reference field and the field's slot are one place there. The store `c.cur = &mut n.*.*.next` writes the slot, so `local_borrow_access` sees a write of the place `n` freezes and raises `_lb_raise_conflict`. A local cursor is admitted by the VERDICTS-71 re-point exception (`local_borrow_require_no_live_derived`'s `through`: the binding the right-hand side goes through is skipped), which is keyed on a local borrow binding, so a field place never reaches it.
 
 ## Fix direction
 

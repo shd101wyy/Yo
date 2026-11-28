@@ -1,5 +1,5 @@
 // expect: E0911
-// VERDICTS-78 edge 7, the cursor in a field: `c.cur = &mut n.next` re-points a `&mut` reference field
+// VERDICTS-78 edge 7, the cursor in a field: `c.cur = &mut n.*.*.next` re-points a `&mut` reference field
 // through the arm binding of `match(&mut c.cur.*, …)`. Sound (Rust accepts it); E0911 today because the
 // VERDICTS-71 re-point exception is keyed on a local borrow, not on a place. A precision gap, not a
 // soundness one: issues/2026-11-25-a-cursor-held-in-a-reference-field-cannot-be-re-pointed-through-its-match-binding.md.
@@ -15,7 +15,7 @@ main :: (fn() -> unit)({
     match(
       &mut c.cur.*,
       .Some(n) => {
-        c.cur = &mut n.next;
+        c.cur = &mut n.*.*.next;
       },
       .None => ()
     )

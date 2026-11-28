@@ -1667,6 +1667,7 @@ generate_async_block_constructor :: (
   context.base.emitter.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
   emit_text5 := `  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
   context.base.emitter.emit_string_line(&emit_text5);
+  context.base.emitter.emit_string_line(`  __YO_ASYNC_STAT(__YO_AS_SM_CELLS);`);
   context.base.emitter.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
   context.base.emitter.emit_string_line(`  ${struct_name.clone()}_init_move_flags((struct ${struct_name.clone()}_struct*)sm);`);
   context.base.emitter.emit_line("");
@@ -2612,6 +2613,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
     .None => ()
   );
   context.base.emitter.emit_string_line(`${indent}// fused await (plans/reference/ASYNC_AWAIT_SITE_FUSION.md): the wrapper runs here`);
+  context.base.emitter.emit_string_line(`${indent}__YO_ASYNC_STAT(__YO_AS_FUSED_AWAITS);`);
   // Or a C local, declared outside the site's block, when no suspension
   // separates the await from its statement's use of the value.
   (mut(outer_local) : String) = String.from("");
@@ -4284,6 +4286,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &mut context.base);
   emit_text11 := `${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
   context.base.emitter.emit_string_line(&emit_text11);
+  context.base.emitter.emit_string_line(`${indent.clone()}__YO_ASYNC_STAT(__YO_AS_SYNC_CELLS);`);
   context.base.emitter.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
   context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u;`);
   tid := context.base.dispose_type_id_for(dispose_function_name.clone());
