@@ -185,7 +185,7 @@ strip_doc_block_comment :: (fn(value : &String) -> String)({
       break;
     });
   });
-  `\n`.join(&processed)
+  processed.join(`\n`)
 });
 // Internal alias.
 strip_doc_block_comment_ :: (fn(value : &String) -> String)(
@@ -357,7 +357,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
           );
         });
         doc_comment := DocComment(
-          content : `\n`.join(&doc_parts),
+          content : doc_parts.join(`\n`),
           inner : false,
           row : start_row,
           column : start_col,
@@ -402,7 +402,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
       if(inner_doc_parts.len() > usize(0), {
         module_doc = Option(DocComment).Some(
           DocComment(
-            content : `\n`.join(&inner_doc_parts),
+            content : inner_doc_parts.join(`\n`),
             inner : true,
             row : pos.row,
             column : pos.column,
@@ -505,7 +505,7 @@ extract_inline_docs :: (fn(tokens : &ArrayList(Token), start_index : usize, end_
       });
       name := find_next_identifier_(tokens, i, end);
       if(!(name == ``), {
-        docs.insert(name, `\n`.join(&doc_parts));
+        docs.insert(name, doc_parts.join(`\n`));
       });
     }, {
       if(token.*.kind == TokenKind.DocBlockComment, {

@@ -2403,9 +2403,15 @@ impl(
         Self(_bytes : buf)
       }
     )
-  ),
-  /// Join an `ArrayList(String)` with this string as separator.
-  /// Returns an empty string when `items` is empty.
+  )
+);
+/// The read API on a run of strings — Rust's `[String]::join` / `concat`. An
+/// `ArrayList(String)` reaches it through its `[String]` view, so
+/// `items.join(sep)` joins a list.
+impl(
+  [String],
+  /// The strings in order with `sep` between each pair; an empty run joins to
+  /// the empty string.
   ///
   /// ## Example
   /// ```yo
@@ -2413,75 +2419,30 @@ impl(
   /// items.push(`a`);
   /// items.push(`b`);
   /// items.push(`c`);
-  /// result := `, `.join(items);
-  /// assert(result == `a, b, c`, "join");
+  /// assert(items.join(`, `) == `a, b, c`, "join");
   /// ```
-  join : (fn(self : &Self, items : &ArrayList(Self)) -> Self)({
-    count := items.len();
-    cond(
-      (count == usize(0)) => Self(_bytes : ArrayList(u8).new()),
-      true => {
-        sep_byte_len := self.len();
-        mut(total_bytes) := usize(0);
-        mut(k) := usize(0);
-        while(k < count, k = (k + usize(1)), {
-          total_bytes = (total_bytes + items(k).len());
-        });
-        cond(
-          (count > usize(1)) => {
-            total_bytes = (total_bytes + (sep_byte_len * (count - usize(1))));
-          },
-          true => ()
-        );
-        mut(buf) := ArrayList(u8).with_capacity(total_bytes);
-        mut(m) := usize(0);
-        while(m < count, m = (m + usize(1)), {
-          {
-            {
-              {
-                mut(p) := usize(0);
-                while(p < items(m).len(), p = (p + usize(1)), {
-                  byte_opt := items(m).get_byte(p);
-                  match(
-                    byte_opt,
-                    .Some(b) => {
-                      buf.push(b);
-                    },
-                    .None => ()
-                  );
-                });
-
-              };
-              cond(
-                (m < (count - usize(1))) => {
-                  {
-                    sep_al := &self._bytes;
-                    mut(q) := usize(0);
-                    while(q < sep_byte_len, q = (q + usize(1)), {
-                      byte_opt := sep_al.get(q);
-                      match(
-                        byte_opt,
-                        .Some(b) => {
-                          buf.push(b);
-                        },
-                        .None => ()
-                      );
-                    });
-
-                  };
-                },
-                true => ()
-              );
-            };
-          };
-        });
-        cond(
-          (buf.len() == usize(0)) => Self(_bytes : ArrayList(u8).new()),
-          true => Self(_bytes : buf)
-        )
-      }
-    )
-  })
+  join : (fn(self : &Self, sep : &String) -> String)({
+    n := self.len();
+    mut(total) := usize(0);
+    mut(k) := usize(0);
+    while(k < n, k = (k + usize(1)), {
+      total = (total + self(k).len());
+    });
+    if(n > usize(1), {
+      total = (total + (sep.len() * (n - usize(1))));
+    });
+    mut(out) := String.with_capacity(total);
+    mut(i) := usize(0);
+    while(i < n, i = (i + usize(1)), {
+      if(i > usize(0), {
+        out.push_string(sep);
+      });
+      out.push_string(&self(i));
+    });
+    out
+  }),
+  /// The strings in order with nothing between them — Rust's `concat`.
+  concat : (fn(self : &Self) -> String)(self.join(&String.new()))
 );
 // === Numeric parsing methods ===
 impl(

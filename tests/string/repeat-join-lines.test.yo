@@ -21,32 +21,41 @@ test("String repeat utf8", {
   s := `αβ`.repeat(usize(2));
   assert(s == `αβαβ`, "utf8 repeat");
 });
-test("String join basic", {
+test("[String] join basic", {
   mut(items) := ArrayList(String).new();
   items.push(`a`);
   items.push(`b`);
   items.push(`c`);
-  s := `, `.join(&items);
+  s := items.join(`, `);
   assert(s == `a, b, c`, "join with comma");
 });
-test("String join empty list returns empty", {
+test("[String] join empty list returns empty", {
   items := ArrayList(String).new();
-  s := `, `.join(&items);
+  s := items.join(`, `);
   assert(s.is_empty(), "join empty list");
 });
-test("String join single item no separator", {
+test("[String] join single item no separator", {
   mut(items) := ArrayList(String).new();
   items.push(`only`);
-  s := `, `.join(&items);
+  s := items.join(`, `);
   assert(s == `only`, "join single item");
 });
-test("String join with empty separator", {
+test("[String] join with empty separator", {
   mut(items) := ArrayList(String).new();
   items.push(`a`);
   items.push(`b`);
   items.push(`c`);
-  s := ``.join(&items);
+  s := items.join(``);
   assert(s == `abc`, "empty separator concatenates");
+});
+test("[String] concat joins with nothing between", {
+  mut(items) := ArrayList(String).new();
+  items.push(`a`);
+  items.push(`bc`);
+  assert(items.concat() == `abc`, "concat");
+  sep := `-`;
+  assert(items.join(&sep) == `a-bc`, "a separator held in a binding is lent");
+  assert(ArrayList(String).new().concat().is_empty(), "an empty run concatenates to empty");
 });
 test("String lines iterates over lines", {
   input :=

@@ -756,7 +756,7 @@ _evaluate_dependency_builds :: (
         // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
         dep_unknown := undeclared_options(&dep_reg);
         if(dep_unknown.len() > usize(0), {
-          dep_joined := `", "`.join(&dep_unknown);
+          dep_joined := dep_unknown.join(`", "`);
           e.exn.throw(
             dyn(
               Box.new(`Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`)
@@ -1323,7 +1323,7 @@ _resolve_workspace_member :: (
     sep := String.from(", ");
     e.exn.throw(
       dyn(
-        Box.new(`-p ${name}: no workspace member is named that. Members of ${root_manifest_path}: ${sep.join(&available)}`)
+        Box.new(`-p ${name}: no workspace member is named that. Members of ${root_manifest_path}: ${available.join(&sep)}`)
       )
     );
     Option(String).None
@@ -1583,7 +1583,7 @@ artifact_input_stamp :: (
     compiler_id := e.io.await(_compiler_identity(e.io), e);
     _stamp_push_str(&mut acc, `yo-binary ${compiler_id}`);
     sep := String.from(" ");
-    _stamp_push_str(&mut acc, `argv ${sep.join(&owned_argv)}`);
+    _stamp_push_str(&mut acc, `argv ${owned_argv.join(&sep)}`);
     // §5.4: every `build.env` read the build file made. The invoking shell is
     // an INPUT once a build file branches on it, so a changed variable must
     // rebuild rather than serve a stale artifact. Recorded as `name=value`
@@ -1856,7 +1856,7 @@ compile_artifact :: (
     import_lines := _package_import_lines(artifact.package_dir.clone());
     imports_path := `${output_path.to_string()}.imports`;
     nl := String.from("\n");
-    imports_text := if(import_lines.len() > usize(0), `${nl.join(&import_lines)}\n`, String.new());
+    imports_text := if(import_lines.len() > usize(0), `${import_lines.join(&nl)}\n`, String.new());
     e.io.await(_write_stamp(imports_path.clone(), imports_text.clone(), e.io), e);
     mut(cmd) := Command.new(_self_exe());
     cmd = cmd.arg(String.from("compile"));
@@ -2120,7 +2120,7 @@ compile_artifact :: (
       i = (i + usize(1));
     });
     if(all_cflags.len() > usize(0), {
-      joined := ` `.join(&all_cflags);
+      joined := all_cflags.join(` `);
       cmd = cmd.arg(String.from("--cflags"));
       cmd = cmd.arg(&joined);
     });
@@ -3039,7 +3039,7 @@ _plan_step :: (
   missing := ArrayList(String).new();
   dag := build_dag_checked(&ctx.registry, step_name.clone(), &mut missing);
   if(missing.len() > usize(0), {
-    joined := `", "`.join(&missing);
+    joined := missing.join(`", "`);
     exn.throw(
       dyn(
         Box.new(`Error: step "${step_name}" depends on "${joined}", which no artifact, test, run, doc or step defines.`)
@@ -3076,7 +3076,7 @@ _print_plan :: (fn(step_name : &String, dag : &ArrayList(DAGNode)) -> unit)({
     // issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md,
     // and the SEED builds this file.
     sep := String.from(", ");
-    deps := if(node.depends_on.len() == usize(0), String.new(), ` <- ${sep.join(&node.depends_on)}`);
+    deps := if(node.depends_on.len() == usize(0), String.new(), ` <- ${node.depends_on.join(&sep)}`);
     println(`[dry-run]   ${kind_label} ${node.name}${deps}`);
     i = (i + usize(1));
   });
@@ -3383,7 +3383,7 @@ run_build :: (
     });
     unknown_opts := undeclared_options(&registry);
     if(unknown_opts.len() > usize(0), {
-      joined := `", "`.join(&unknown_opts);
+      joined := unknown_opts.join(`", "`);
       e.exn.throw(
         dyn(
           Box.new(`Error: -D"${joined}" is not an option of this build file. Run 'yo build --list-options' to see the ones it declares.`)

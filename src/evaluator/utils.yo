@@ -3918,7 +3918,7 @@ audit_record_copy_trait :: (
     true => text
   );
   first := match(needs.get_cloned(usize(0)), .Some(n) => n, .None => String.new());
-  line := `${display_module_path(&site_tok.*.*.module_path.*)}:${(site_tok.*.*.row + u32(1)).to_string()}:${(site_tok.*.*.column + u32(1)).to_string()} [copy-trait] ${first} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} needs=${String.from(",").join(&needs)} \`${shown_text.replace("\n", String.from(" "))}\``;
+  line := `${display_module_path(&site_tok.*.*.module_path.*)}:${(site_tok.*.*.row + u32(1)).to_string()}:${(site_tok.*.*.column + u32(1)).to_string()} [copy-trait] ${first} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} needs=${needs.join(String.from(","))} \`${shown_text.replace("\n", String.from(" "))}\``;
   match(
     pending_id,
     .Some(vid) => {

@@ -195,7 +195,7 @@ module_name_kebab :: (fn(name : &String) -> String)({
     });
     out_parts.push(String.from_bytes(kept));
   });
-  String.from(".").join(&out_parts)
+  out_parts.join(String.from("."))
 });
 // ---------------------------------------------------------------------------
 // Module path resolution (shared with main.yo's preload_module_tree)
@@ -383,7 +383,7 @@ renamed_module_candidates :: (
       });
       bit = (bit * usize(2));
     });
-    v := String.from("/").join(&variant);
+    v := variant.join(String.from("/"));
     match(
       resolve_module_path_ex(v.clone(), current_dir.clone(), std_path.clone(), true),
       .Found(p) => if(_file_exists_sync(&p.replace(String.from("file://"), String.new())) && !reached.contains(&p), {
@@ -431,7 +431,7 @@ _throw_module_not_found :: (
           format_error_message_with_help(
             ast_expr_token(module_arg),
             msg,
-            &Option(String).Some(`module file and directory names are kebab-case; these modules match: ${String.from(", ").join(&cands)}`)
+            &Option(String).Some(`module file and directory names are kebab-case; these modules match: ${cands.join(String.from(", "))}`)
           )
         )
       )
@@ -453,7 +453,7 @@ _throw_module_not_found :: (
           format_error_message_with_help(
             ast_expr_token(module_arg),
             msg,
-            &Option(String).Some(`"${module_path_to_import}" is a directory of modules, not a module; import one of them: ${String.from(", ").join(&std_dir_modules)}`)
+            &Option(String).Some(`"${module_path_to_import}" is a directory of modules, not a module; import one of them: ${std_dir_modules.join(String.from(", "))}`)
           )
         )
       )

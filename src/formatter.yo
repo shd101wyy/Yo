@@ -3680,7 +3680,7 @@ format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn :
                       )
                     );
                   });
-                  src := `${String.from("\n").join(&body)}\n`;
+                  src := `${body.join(String.from("\n"))}\n`;
                   formatted := format_yo_source(&src, `${file}:${(i + usize(2)).to_string()}`, exn).trim_end();
                   out.push(line.clone());
                   fl := formatted.split("\n");
@@ -3712,7 +3712,7 @@ format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn :
       i = (i + usize(1));
     });
   });
-  String.from("\n").join(&out)
+  out.join(String.from("\n"))
 });
 /// Format every `.yo` file found under `input_paths`. Returns the list of
 /// files visited and the subset whose content would change. In `check` mode

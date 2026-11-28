@@ -1074,7 +1074,7 @@ _apply_fixes_to_file :: (
     );
     fi = (fi + usize(1));
   });
-  io.await(write_string(Path.new(path.clone()), String.from("\n").join(&lines), io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(path.clone()), lines.join(String.from("\n")), io), IoExn(io : io, exn : exn));
   applied
 });
 /// `parse`, or `.None` when the file does not parse.
@@ -1330,7 +1330,7 @@ _mn_walk :: (
     out.push(new_seg);
     cur = next;
   });
-  if(changed, Option(String).Some(String.from("/").join(&out)), Option(String).None)
+  if(changed, Option(String).Some(out.join(String.from("/"))), Option(String).None)
 });
 /// The new spelling of the import path `spec` written in a file in
 /// `file_dir`, or `.None` when it reaches nothing the fix renames. The
@@ -1597,7 +1597,7 @@ _run_module_names :: (
         lines(en.row) = `${line.substring(usize(0), en.key_start)}${new_key}${line.substring(en.key_end, en.val_start)}${new_value}${line.substring(en.val_end, line.len())}`;
       });
     });
-    manifest_texts.push(if(changed, String.from("\n").join(&lines), String.new()));
+    manifest_texts.push(if(changed, lines.join(String.from("\n")), String.new()));
   });
   if(conflicts.len() > usize(0), {
     (mut(ck) : usize) = usize(0);
@@ -1683,7 +1683,7 @@ _run_module_names :: (
               );
             });
             if(cands.len() > usize(1), {
-              println(`fix: ${_mn_display(&file)}:${(lit.row + usize(1)).to_string()}:${(lit.col + usize(1)).to_string()}: import("${spec}") does not resolve and several modules match its kebab-case spelling (${String.from(", ").join(&cands)}); left as written`);
+              println(`fix: ${_mn_display(&file)}:${(lit.row + usize(1)).to_string()}:${(lit.col + usize(1)).to_string()}: import("${spec}") does not resolve and several modules match its kebab-case spelling (${cands.join(String.from(", "))}); left as written`);
             });
           });
           if(!reach.is_empty(), {
@@ -3592,7 +3592,7 @@ _cc_command :: (fn(program : &String, argv : &ArrayList(String)) -> Command)({
 /// a flag's arrival at the C compiler assertable from a log: a silently
 /// dropped `-fsanitize=…` is otherwise indistinguishable from a clean run.
 _print_cc_argv :: (fn(program : &String, argv : &ArrayList(String)) -> unit)(
-  println(`Compiling with: ${program} ${String.from(" ").join(argv)}`)
+  println(`Compiling with: ${program} ${argv.join(String.from(" "))}`)
 );
 /// Single-quote `s` for POSIX `sh`, escaping embedded single quotes as
 /// `'\''`. Flag values can carry user text (`-D`, `-I`, `--cflags`), so the
@@ -3664,7 +3664,7 @@ _compile_chunks_parallel :: (
 )({
   objs := ArrayList(String).new();
   no_cache := (force_recompile || match(proc_env.get(`YO_BUILD_NO_CACHE`), .Some(v) => (v == "1"), .None => false));
-  flags_key := String.from(" ").join(flags);
+  flags_key := flags.join(String.from(" "));
   // Per-chunk decision: reuse the cached `.o`, or add a compile line.
   lines := ArrayList(String).new();
   stamps := ArrayList(String).new();
@@ -6411,7 +6411,7 @@ _export_without_main :: (fn(e : &AstExpr) -> Option(String))({
   );
   cond(
     (kept.len() == usize(0)) => Option(String).None,
-    true => Option(String).Some(String.from("export(") + String.from(", ").join(&kept) + String.from(")"))
+    true => Option(String).Some(String.from("export(") + kept.join(String.from(", ")) + String.from(")"))
   )
 });
 /// One extracted `test("name", { body })` declaration (source-string form).

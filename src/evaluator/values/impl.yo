@@ -2608,7 +2608,7 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
     // The receiver keys by declaration identity (`_decl_identity_key_of`): a
     // printed name splits one declaration's spellings apart (an alias, a
     // binder rename) and merges two modules' same-named types.
-    inh_shape := `${_decl_identity_key_of(substitute(&mut canon_k, &entry.receiver_type_pattern), usize(0))}\n${String.from(", ").join(&bounds)}`;
+    inh_shape := `${_decl_identity_key_of(substitute(&mut canon_k, &entry.receiver_type_pattern), usize(0))}\n${bounds.join(String.from(", "))}`;
     (fi : usize) = usize(0);
     while(fi < entry.field_names.len(), {
       f_name := match(entry.field_names.get_cloned(fi), .Some(n) => n, .None => String.new());
@@ -3691,7 +3691,7 @@ _format_generic_impl_signature :: (fn(entry : &GenericImplEntry) -> String)({
       fa_parts.push(`${fa_name} : ${fa_ty}`);
       fi = (fi + usize(1));
     });
-    parts.push(`generic(${String.from(", ").join(&fa_parts)})`);
+    parts.push(`generic(${fa_parts.join(String.from(", "))})`);
   });
   if(entry.where_constraint_some_types.len() > usize(0), {
     w_parts := ArrayList(String).new();
@@ -3710,13 +3710,13 @@ _format_generic_impl_signature :: (fn(entry : &GenericImplEntry) -> String)({
       w_parts.push(`${w_name} <: ${w_trait}`);
       wi = (wi + usize(1));
     });
-    parts.push(`where(${String.from(", ").join(&w_parts)})`);
+    parts.push(`where(${w_parts.join(String.from(", "))})`);
   });
   parts.push(type_to_string(&entry.receiver_type_pattern));
   if(_type_name_for_doc(&entry.trait_type).len() > usize(0), {
     parts.push(type_to_string(&entry.trait_type));
   });
-  `impl(${String.from(", ").join(&parts)})`
+  `impl(${parts.join(String.from(", "))})`
 });
 /// The VALUE (normally a `FuncVal`) an impl block provides for method `name`
 /// on `concrete_type`, searching the generic-impl registry with the same
@@ -3880,7 +3880,7 @@ get_generic_impl_doc_entries :: (
             signature := _format_generic_impl_signature(&entry);
             // Dedup key: `${signature}\0${methodNames.join("\0")}`.
             nul_sep := `\0`;
-            key := `${signature}\0${nul_sep.join(&method_names)}`;
+            key := `${signature}\0${method_names.join(&nul_sep)}`;
             (already : bool) = false;
             (si : usize) = usize(0);
             while((si < seen.len()) && !already, {

@@ -123,7 +123,7 @@ format_type_params_ :: (fn(params : &Option(ArrayList(DocParam))) -> String)(
             i = (i + usize(1));
           });
           sep := `, `;
-          `(${sep.join(&names)})`
+          `(${names.join(&sep)})`
         }
       )
   )
@@ -149,7 +149,7 @@ render_fields_ :: (fn(fields : &ArrayList(DocField)) -> String)({
     i = (i + usize(1));
   });
   lines.push(``);
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 // Render a list of DocVariant as "**Variants:**\n\n- `Name`...".
 render_variants_ :: (fn(variants : &ArrayList(DocVariant)) -> String)({
@@ -188,7 +188,7 @@ render_variants_ :: (fn(variants : &ArrayList(DocVariant)) -> String)({
             parts.push(`${f.name}: ${f.type_}`);
             fi = (fi + usize(1));
           });
-          `, `.join(&parts)
+          parts.join(`, `)
         }
       );
       lines.push(`- \`${v.name}(${field_parts})\`${disc}${doc}`);
@@ -198,7 +198,7 @@ render_variants_ :: (fn(variants : &ArrayList(DocVariant)) -> String)({
     i = (i + usize(1));
   });
   lines.push(``);
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 // Render a list of DocAssociatedType as "**Associated Types:**\n\n- ...".
 render_associated_types_ :: (fn(types : &ArrayList(DocAssociatedType)) -> String)({
@@ -221,7 +221,7 @@ render_associated_types_ :: (fn(types : &ArrayList(DocAssociatedType)) -> String
     i = (i + usize(1));
   });
   lines.push(``);
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 // ── Public renderers ──────────────────────────────────────────────────────────
 /// Render a single DocFunction as Markdown (### heading + signature + docs).
@@ -311,7 +311,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
       lines.push(``);
     }
   );
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 /// Render a single DocType as Markdown (### heading + signature + fields/variants + methods).
 render_type_md :: (fn(t : &DocType) -> String)({
@@ -375,7 +375,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
       ti = (ti + usize(1));
     });
     sep := `, `;
-    lines.push(`**Implements:** ${sep.join(&impl_names)}`);
+    lines.push(`**Implements:** ${impl_names.join(&sep)}`);
     lines.push(``);
   });
   has_impls := match(&t.impls, .None => false, .Some(impls) => (impls.len() > usize(0)));
@@ -471,7 +471,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
               ui = (ui + usize(1));
             });
             sep2 := `, `;
-            lines.push(`Methods: ${sep2.join(&unresolved_quoted)}`);
+            lines.push(`Methods: ${unresolved_quoted.join(&sep2)}`);
             lines.push(``);
           });
           ii = (ii + usize(1));
@@ -522,7 +522,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
       lines.push(``);
     }
   );
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 /// Render a single DocTrait as Markdown.
 render_trait_md :: (fn(t : &DocTrait) -> String)({
@@ -594,7 +594,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
       i = (i + usize(1));
     });
     sep := `, `;
-    lines.push(`**Implementors:** ${sep.join(&impl_quoted)}`);
+    lines.push(`**Implementors:** ${impl_quoted.join(&sep)}`);
     lines.push(``);
   });
   match(
@@ -607,7 +607,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
       lines.push(``);
     }
   );
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 /// Render a single DocConstant as Markdown.
 render_constant_md :: (fn(c : &DocConstant) -> String)({
@@ -633,7 +633,7 @@ render_constant_md :: (fn(c : &DocConstant) -> String)({
       lines.push(``);
     }
   );
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 /// Render a single DocModule as a Markdown page.
 render_module_md :: (fn(mod : &DocModule) -> String)({
@@ -817,7 +817,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
       i = (i + usize(1));
     });
   });
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 /// Render the index page listing all modules in a DocModel.
 render_index_md :: (fn(model : &DocModel) -> String)({
@@ -855,7 +855,7 @@ render_index_md :: (fn(model : &DocModel) -> String)({
     i = (i + usize(1));
   });
   lines.push(``);
-  `\n`.join(&lines)
+  lines.join(`\n`)
 });
 export(
   render_function_md,

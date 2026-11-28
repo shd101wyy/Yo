@@ -879,7 +879,7 @@ _render_params_table :: (
     );
     doc_cell := if(has_doc, match(&p.doc, .Some(d) => `<td>${_render_markdown(&d.*)}</td>`, .None => String.from("<td></td>")), String.new());
     type_html := _type_html(p.type_.clone(), links, current_mod_file.clone(), use_links);
-    notes_joined := String.from(", ").join(&notes);
+    notes_joined := notes.join(String.from(", "));
     html.push_string(`\n<tr><td><code>${_escape_html(&p.name)}</code></td><td class="type-col">${type_html}</td><td>${notes_joined}</td>${doc_cell}</tr>`);
     i = (i + usize(1));
   });
@@ -943,7 +943,7 @@ _render_variants_table :: (
           parts.push(`${_escape_html(&f.name)}: ${type_html}`);
           j = (j + usize(1));
         });
-        String.from(", ").join(&parts)
+        parts.join(String.from(", "))
       },
       .None => String.new()
     );
@@ -1180,7 +1180,7 @@ _render_impl_blocks :: (
           ni = (ni + usize(1));
         });
         if(unresolved.len() > usize(0), {
-          joined := String.from(", ").join(&unresolved);
+          joined := unresolved.join(String.from(", "));
           html.push_string(`\n<div class="method-body"><p>Methods: ${joined}</p></div>`);
         });
         html.push_str("\n</details>");
@@ -1421,7 +1421,7 @@ _render_module_card :: (fn(m : &DocModule) -> String)({
   if(m.constants.len() > usize(0), {
     stats.push(`${m.constants.len()} const`);
   });
-  stats_joined := String.from(" · ").join(&stats);
+  stats_joined := stats.join(String.from(" · "));
   `\n<div class="module-card">\n  <h3><a href="module/${_escape_html(_module_to_filename(&m.name))}.html">${_escape_html(&m.name)}</a></h3>\n  <div class="module-desc">${_render_markdown(&desc)}</div>\n  <div class="module-stats">${stats_joined}</div>\n</div>`
 });
 _render_index_content :: (fn(model : &DocModel) -> String)({

@@ -912,7 +912,7 @@ _strip_doc_block_comment :: (fn(text : &String) -> String)({
     });
     i = (i + usize(1));
   });
-  String.from("\n").join(&out_lines).trim()
+  out_lines.join(String.from("\n")).trim()
 });
 /// Collect `///` / `/** */` doc comment lines immediately preceding the token
 /// at (row, character) in the FULL (trivia-included) token array.
@@ -966,7 +966,7 @@ _collect_doc_comment_before :: (
     return(Option(String).None);
   });
   collected_rev.reverse();
-  Option(String).Some(String.from("\n").join(&collected_rev).trim())
+  Option(String).Some(collected_rev.join(String.from("\n")).trim())
 });
 // ---------------------------------------------------------------------------
 // impl(...) token scanning
@@ -1612,7 +1612,7 @@ extract_impl_info_from_tokens :: (
           });
           entry.impls.push(
             DocImpl(
-              signature : `impl(${String.from(", ").join(&full_parts)})`,
+              signature : `impl(${full_parts.join(String.from(", "))})`,
               trait_name : Option(String).Some(first.*.value.*.clone()),
               method_names : trait_method_names,
               associated_types : assoc_opt
@@ -1632,7 +1632,7 @@ extract_impl_info_from_tokens :: (
     if(anonymous_method_names.len() > usize(0), {
       entry.impls.push(
         DocImpl(
-          signature : `impl(${String.from(", ").join(&signature_parts)}, ...)`,
+          signature : `impl(${signature_parts.join(String.from(", "))}, ...)`,
           trait_name : Option(String).None,
           method_names : anonymous_method_names,
           associated_types : Option(ArrayList(DocImplAssocType)).None
