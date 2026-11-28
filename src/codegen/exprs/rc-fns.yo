@@ -205,6 +205,25 @@ generate_drop :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
     .None => codegen_fatal_expr(String.from("___drop requires exactly 1 argument"))
   )
 );
+/// `__yo_drop_in_place(p)`, `drop_in_place`'s intrinsic: the drop glue of the
+/// value `p : *T` addresses, emitted as statements; the bytes stay. A sized
+/// pointee drops as the place `(*p)`, an unsized one (decision 49) through
+/// its fat pointer.
+generate_yo_drop_in_place :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
+  ptr_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_drop_in_place requires exactly 1 argument"))));
+  pointee := match(t_refine_inner(&_ty(&ptr_arg, context)), Rc(.Pointer(p)) => Rc.clone(p), _ => return(codegen_fatal_expr(String.from("__yo_drop_in_place requires a raw pointer argument"))));
+  pointee_type := resolve_some_type_param_type(&ptr_arg, &pointee, context);
+  ptr_code := _rc_operand(&ptr_arg, indent, context);
+  if(!type_is_sized(&pointee_type), {
+    _emit_unsized_place_drop(&pointee_type, &ptr_code, indent, context);
+    return(String.new());
+  });
+  drop_code := generate_drop_code_for_value(`(*(${ptr_code}))`, &pointee_type, context);
+  if(drop_code.len() > usize(0), {
+    context.base.emitter.emit_string_line(`${indent.clone()}${drop_code};`);
+  });
+  String.new()
+});
 /// Drop the unsized place a fat pointer `fat` addresses (decision 49): each
 /// element of a `[E]`; a tail struct's sized fields in order, then its tail.
 _emit_unsized_place_drop :: (fn(ty : &TypeValue, fat : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
@@ -519,4 +538,4 @@ generate_ref_count_call :: (fn(expr : &AstExpr, indent : &String, context : &mut
     String.from("1")
   )
 });
-export(generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_dyn_drop, generate_drop, generate_drop_of_operand, generate_yo_drop_array_element, generate_yo_drop_tuple_element, generate_yo_sometype_drop, generate_ref_count_call);
+export(generate_yo_drop_in_place, generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_dyn_drop, generate_drop, generate_drop_of_operand, generate_yo_drop_array_element, generate_yo_drop_tuple_element, generate_yo_sometype_drop, generate_ref_count_call);

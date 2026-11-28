@@ -221,6 +221,12 @@ test("___drop and the RC-release builtins are rejected in safe code", {
     __yo_decr_rc_atomic(h.xs);
     h.xs.len()
   }, "'__yo_decr_rc_atomic(...)' is not available in safe code");
+  // `drop_in_place`'s intrinsic destroys the value a pointer addresses.
+  comptime_expect_error({
+    mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+    __yo_drop_in_place(addr_of(h.xs));
+    h.xs.len()
+  }, "'__yo_drop_in_place(...)' is not available in safe code");
   comptime_expect_error({
     words := Array(String, 1)(String.from("a"));
     __yo_drop_array_element(words, usize(0));

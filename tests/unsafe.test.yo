@@ -129,6 +129,20 @@ test("drop_in_place(p) destroys the value a raw pointer owns", {
   assert(DROPPED_IDS == i32(7), "freeing the dead slot runs nothing");
 });
 
+// `__yo_drop_in_place(p)` is `drop_in_place`'s intrinsic (VERDICTS-70 row 14):
+// the same in-place destructor, on the pointer rather than on the place.
+test("__yo_drop_in_place(p) destroys the value a raw pointer owns, once", {
+  DROPPED_IDS = i32(0);
+  raw := unsafe(malloc(size_of(TrackedHolder)));
+  slot := match(raw, .Some(r) => (*TrackedHolder)(r), .None => panic("malloc failed"));
+  unsafe(consume(slot.* = TrackedHolder(t : Tracked(id : i32(11)))));
+  unsafe(__yo_drop_in_place(slot));
+  assert(DROPPED_IDS == i32(11), "the intrinsic ran the field's destructor once");
+  unsafe(free(.Some((*void)(slot))));
+  assert(DROPPED_IDS == i32(11), "freeing the dead slot runs nothing");
+  comptime_expect_error(unsafe(__yo_drop_in_place(i32(1))), "takes a raw pointer");
+});
+
 // The gate asks where `___drop` is WRITTEN, not whether the call runs under
 // `unsafe(...)`: a generic body is evaluated at its call site, so wrapping a
 // call into a safe file's generic function must not admit the `___drop` that

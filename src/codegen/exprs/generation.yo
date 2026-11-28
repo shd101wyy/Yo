@@ -32,6 +32,7 @@
   BF_YO_OP_BIT_LEFT_SHIFT,
   BF_YO_OP_BIT_RIGHT_SHIFT,
   BF_YO_DECR_RC,
+  BF_YO_DROP_IN_PLACE,
   BF_YO_INCR_RC,
   BF_YO_RC_OWN,
   BF_YO_RC_FORGET_PAYLOAD,
@@ -103,7 +104,7 @@
 { set_generate_expr_fn, _call_generate_expr, call_projection_mode } :: import("./dispatch.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
 { generate_atom } :: import("./atom.yo");
-{ generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_drop, generate_yo_drop_array_element, generate_yo_drop_tuple_element, generate_yo_sometype_drop, generate_ref_count_call } :: import("./rc-fns.yo");
+{ generate_yo_drop_in_place, generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_drop, generate_yo_drop_array_element, generate_yo_drop_tuple_element, generate_yo_sometype_drop, generate_ref_count_call } :: import("./rc-fns.yo");
 { generate_panic } :: import("./panic.yo");
 { generate_asm, generate_global_asm } :: import("./asm.yo");
 { generate_dyn_call } :: import("./dyn.yo");
@@ -769,6 +770,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
   // struct construction + register the impl-closure-call mapping.
   if(is_closure_construction(expr, context), return(generate_closure_construction(expr, indent.clone(), context)));
   // RC builtins.
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_IN_PLACE, Option(usize).None), return(generate_yo_drop_in_place(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, Option(usize).None), return(generate_yo_decr_rc(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC, Option(usize).None), return(generate_yo_incr_rc(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN, Option(usize).None), return(generate_yo_rc_own(expr, indent.clone(), context)));

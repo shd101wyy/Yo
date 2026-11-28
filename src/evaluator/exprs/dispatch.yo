@@ -138,6 +138,7 @@ import("std/fmt");
   BF_DOWNCAST,
   BF_UPCAST,
   BF_YO_DECR_RC,
+  BF_YO_DROP_IN_PLACE,
   BF_YO_INCR_RC,
   BF_YO_DECR_RC_ATOMIC,
   BF_YO_INCR_RC_ATOMIC,
@@ -326,7 +327,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_derive } :: import("../builtins/derive.yo");
 { evaluate_derive_rule } :: import("../builtins/derive-rule.yo");
 { evaluate_downcast, evaluate_upcast } :: import("../builtins/downcast.yo");
-{ evaluate_drop } :: import("../builtins/drop.yo");
+{ evaluate_drop, evaluate_yo_drop_in_place } :: import("../builtins/drop.yo");
 {
   evaluate_yo_expr_eq,
   evaluate_yo_expr_get_args,
@@ -1109,6 +1110,8 @@ _evaluate_expression :: (
           evaluate_consume(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_DROP, .None)) =>
           evaluate_drop(expr, env, ctx, exn),
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_IN_PLACE, .None)) =>
+          evaluate_yo_drop_in_place(expr, env, ctx, exn),
         ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, .None)) =>
           evaluate_yo_decr_rc(expr, env, ctx, exn),
         ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC, .None)) =>

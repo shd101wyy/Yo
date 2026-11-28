@@ -47,6 +47,32 @@ impl(
     })
   )
 );
+// VERDICTS-70 Q1.4: a handle releases its cell in its own `Drop`, as
+// `Box` frees its block. A cell handle with a `Drop` impl is dropped by the
+// impl alone, never by the builtin decrement as well (the prelude's `Rc`
+// and `Arc` take this shape in row 15).
+impl(
+  generic(T : Type),
+  TRc(T),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      // SAFETY: the handle owns one count on its live cell, released here.
+      cell := unsafe(unsafe.cast(self, *T));
+      __yo_decr_rc((*void)(cell));
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  TArc(T),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      // SAFETY: as `TRc`'s, with the atomic decrement.
+      cell := unsafe(unsafe.cast(self, *T));
+      __yo_decr_rc_atomic((*void)(cell));
+    })
+  )
+);
 /// Replaces the handle's cell: a write to the handle's own field `_cell`, not
 /// through the handle (V5's `make_mut` writes it), so it is not E0919, and
 /// the method-entry borrow assert reads the cell behind `h`.

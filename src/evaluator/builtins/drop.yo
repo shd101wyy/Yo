@@ -5,7 +5,7 @@
 //! Since `type_contains_rc_type` is currently a stub returning `false`, those
 //! paths are unreachable and only the simple (non-RC) path is implemented here.
 { String } :: import("std/string");
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, BF_DROP } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, BF_DROP, BF_YO_DROP_IN_PLACE } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -18,6 +18,8 @@
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ is_pointer_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { is_destroying_builtin_call_capable, destroying_builtin_error_message } :: import("../memory-safety.yo");
@@ -107,4 +109,47 @@ evaluate_drop :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   Rc.clone(expr.*)
 });
-export(evaluate_drop);
+/// Evaluate `__yo_drop_in_place(p)`: `drop_in_place`'s intrinsic, Rust's
+/// `ptr::drop_in_place`. It runs the drop glue of the value `p : *T`
+/// addresses and leaves its bytes in place, so the caller must not use the
+/// value again. Gated like `___drop`: only an unsafe-capable file calls it.
+evaluate_yo_drop_in_place :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  fargs := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => return(_dip_arity_error(expr, exn)));
+  if(fargs.len() != usize(1), {
+    return(_dip_arity_error(expr, exn));
+  });
+  arg_expr := match(fargs.get_cloned(usize(0)), .Some(a) => a, .None => return(_dip_arity_error(expr, exn)));
+  tok := ast_expr_token(expr);
+  if(!is_destroying_builtin_call_capable(Option(String).Some(tok.*.module_path.*.clone())), {
+    name := String.from(BF_YO_DROP_IN_PLACE);
+    place := ast_expr_to_string(&arg_expr);
+    exn.throw(dyn(Box.new(format_error_message(&tok, destroying_builtin_error_message(&name, &place)))));
+  });
+  eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+  arg_info := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
+    .Some(i) => Rc.clone(i),
+    .None => {
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg_expr), String.from("__yo_drop_in_place: failed to evaluate the argument expression.")))));
+      return(Rc.clone(expr.*))
+    }
+  );
+  if(!is_pointer_type(&arg_info.ty()), {
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg_expr), `__yo_drop_in_place takes a raw pointer \`*T\` to the value it drops, not a \`${type_to_string(&arg_info.ty())}\`.`))));
+  });
+  out_info := new_expr_info(&expr_info_adopt_env(&arg_info), t_unit());
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+  Rc.clone(expr.*)
+});
+_dip_arity_error :: (fn(expr : &AstExpr, exn : Exception) -> AstExpr)({
+  exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), String.from("__yo_drop_in_place takes exactly one argument, the pointer to the value it drops.")))));
+  Rc.clone(expr.*)
+});
+export(evaluate_drop, evaluate_yo_drop_in_place);
