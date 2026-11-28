@@ -58,9 +58,10 @@ arguments' comparison was the one that answered wrongly.
 
 `_struct_decls_differ` in `src/types/compatibility.yo`, the struct twin of `enum_decls_differ`: two
 different `struct_decl_` ids (module-level declarations, keyed by source position) of which a `::` binding
-named one (`type_binding_name`), with no type arguments and no constructor id, are two types. Both the
-lenient and the exact struct arms apply it before comparing fields. Anonymous records and generic
-instances keep the structural rule.
+named one (`type_binding_name`), with no type arguments and no constructor id, are two types. The exact
+struct arm (identity, the CTFE memo's relation) applies it before comparing fields. Two anonymous records
+and generic instances keep the structural rule, and flow is unchanged (an anonymous record with the same
+fields still flows into a named struct, the `type-soundness` canary).
 
 Test: the "Two same-shaped recursive structs" rows in `tests/recursive-enum.test.yo` (a `Box(Self)` pair and
 an `Arc(Mutex(Self))` pair).
