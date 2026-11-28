@@ -1,0 +1,20 @@
+{ println } :: import("std/fmt");
+Exn :: struct(
+  throw : (ctl(generic(ResumeType : Type), code : i32) -> ResumeType)
+);
+op :: (fn(exn : Exn) -> unit)({
+  exn.throw(i32(1));
+  println(`after the throw`);
+});
+main :: (fn() -> unit)({
+  exn := Exn(
+    throw : (
+      err -> {
+        println(`swallowed`);
+      }
+    )
+  );
+  op(exn);
+  println(`done`);
+});
+export(main);
