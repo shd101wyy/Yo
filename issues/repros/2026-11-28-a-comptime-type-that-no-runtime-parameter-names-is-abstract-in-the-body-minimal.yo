@@ -1,0 +1,12 @@
+// Narrowed: `T` appears in no runtime parameter type. Expected: prints `4`.
+// Actual (v0.2.80): E0610, no method `with_capacity` on ArrayList(T).
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+make :: (fn(comptime(T) : Type, n : usize) -> usize)({
+  out := ArrayList(T).with_capacity(n);
+  out.capacity()
+});
+main :: (fn() -> unit)({
+  println(`${make(i32, usize(4))}`);
+});
+export(main);

@@ -44,3 +44,20 @@ error[E0914]: Parameter "t" is a `&` borrow (`t : &T`): lend `name` with `&name`
 ## Fix direction
 
 When the operator-candidate trial raises an error that came from forcing a definition, rather than from the candidate's own parameter match, re-raise that error. The regression test is the reproducer above: its `yo check` must name E0914 at line 6. It belongs in a `comptime_expect_error`-free CLI or `tests/` check case, because the error sits in a top-level definition.
+
+## Also: an error directly in the operand (2026-11-24, VERDICTS-73 F2 lane)
+
+The callee need not be lazily forced: any error raised while the operand of
+`!` is evaluated is reported the same way. With the v0.2.79 seed and with the
+F2 tree binary:
+
+```yo ignore
+O :: struct(html : bool);
+f :: (fn(o : O) -> bool)(!(o.htm));    // E0406 expected; reported: E0610 No matching call found with arguments: !(o.htm)
+```
+
+Under F2 the same happens to E0623: markdown-yo 0.0.28's
+`src/inline/html-inline.yo:335`, `if(!(state.*.options.html), …)` with
+`options : *Options`, reports `E0610 … !((((state.(*)).options).html))` instead
+of E0623 naming `state.*.options.*.html` (its repair is then not offered to
+`yo fix`).

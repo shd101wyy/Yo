@@ -12,7 +12,7 @@ test("a Weak outlives its Rc, and a Weak self-loop frees itself", {
   assert(w.upgrade().is_none(), "upgrade after the last Rc is .None");
   l := Rc.new(RefCell(Loop).new(Loop(me : Weak(RefCell(Loop)).new(), n : i32(2))));
   me := Rc.downgrade(&l);
-  l.with_mut({ me }(v) => {
+  l.*.with_mut({ me }(v) => {
     v.me = Weak.clone(&me);
   });
 });
