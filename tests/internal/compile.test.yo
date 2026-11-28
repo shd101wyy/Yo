@@ -85,7 +85,7 @@ test("the --sanitize address probe consults the chosen --c-compiler, not the sys
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error while driving run_compile with the fake cc: ${err.to_string()}`);
+        assert(false, `unexpected error while driving run_compile with the fake cc: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -175,7 +175,7 @@ test("a value enum's drop and dup are one function each, not a switch per site",
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error while compiling the value-enum fixture: ${err.to_string()}`);
+        assert(false, `unexpected error while compiling the value-enum fixture: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -233,7 +233,7 @@ test("a specialization reached through a call gets the hashed C name, not its ra
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error while compiling the long-signature fixture: ${err.to_string()}`);
+        assert(false, `unexpected error while compiling the long-signature fixture: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -294,13 +294,13 @@ test("a specialization reached through a call gets the hashed C name, not its ra
 /// The message `_check_code_spill` throws, "" when the spill checks out (a
 /// handler is capture-free, so the text travels as the fn's value).
 _spill_check_error :: (fn(path : &String, expected : usize, io : Io) -> String)({
-  exn := Exception(throw : (err -> unwind(err.to_string())));
+  exn := Exception(throw : (err -> unwind(err.*.to_string())));
   _check_code_spill(path, expected, io, exn);
   String.new()
 });
 /// The message `_copy_code_spill_into` throws, "" when it copied `expected` bytes.
 _spill_copy_error :: (fn(path : &String, expected : usize, dst : &File, io : Io) -> String)({
-  exn := Exception(throw : (err -> unwind(err.to_string())));
+  exn := Exception(throw : (err -> unwind(err.*.to_string())));
   _copy_code_spill_into(path, expected, dst, io, exn);
   String.new()
 });
@@ -308,7 +308,7 @@ test("a code spill that is gone or holds other bytes fails the compile", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error while setting up the spill files: ${err.to_string()}`);
+        assert(false, `unexpected error while setting up the spill files: ${err.*.to_string()}`);
         unwind(());
       }
     )
@@ -336,7 +336,7 @@ test("a compile splices only its own spill, by its byte count, and removes dead 
   exn := Exception(
     throw : (
       err -> {
-        assert(false, `unexpected error while compiling the spill fixture: ${err.to_string()}`);
+        assert(false, `unexpected error while compiling the spill fixture: ${err.*.to_string()}`);
         unwind(());
       }
     )

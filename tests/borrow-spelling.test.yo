@@ -63,7 +63,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next;
+        cur = &mut n.*.*.next;
       },
       .None => ()
     );
@@ -77,8 +77,8 @@ sum_list :: (fn(list : &List) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.value);
-        cur = &n.next;
+        total = (total + n.*.*.value);
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -490,6 +490,92 @@ comptime_expect_error(
   }),
   "Cannot store a reference to `x2` in `slot` here"
 );
+// A lend at a parameter typed by a binder is judged at the slot the call
+// solved before its arguments, not at the declared slot (VERDICTS-90 R3): a
+// static call's type arguments (`Option(&i32).replace(&mut s, &y)`), a
+// written `generic(...)` and the expected type make `T` a reference, and the
+// marker lends the place as `slot.replace(&x)` does. `f(&x)` gets the verdict
+// of `{ r := &x; f(r) }` (the named form, beside each marker form)
+// (issues/fixed/2026-11-23-a-lend-to-a-by-value-reference-parameter-in-a-static-method-call-is-e0601.md).
+BsW :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), BsW(T), make : (fn(v : T) -> Self)(Self(v : v)));
+bs_id :: (fn(generic(T : Type), v : T) -> T)(v);
+bs_keep :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+test("a lend at a slot the call solved to a reference lends the place", {
+  y := i32(3);
+  mut(islot) := Option(&i32).None;
+  _p := Option(&i32).replace(&mut islot, &y);
+  assert(match(islot, .Some(r) => (r.* == i32(3)), .None => false), "the static call lends `y`");
+  ry := &y;
+  _q := Option(&i32).replace(&mut islot, ry);
+  assert(y == i32(3), "`y` stays usable");
+  x := BsLent(n : i32(4));
+  w := BsW(&BsLent).make(&x);
+  assert(w.v.*.n == i32(4), "a user generic type's static call lends `x`");
+  rx := &x;
+  w2 := BsW(&BsLent).make(rx);
+  assert(w2.v.*.n == i32(4), "the named form");
+  q := bs_id(generic(&BsLent), &x);
+  assert(q.*.n == i32(4), "a written `generic(&X)` makes the slot a reference");
+  q2 := bs_id(generic(&BsLent), rx);
+  assert(q2.*.n == i32(4), "the named form");
+  (q3 : &BsLent) = bs_id(&x);
+  assert(q3.*.n == i32(4), "the expected type makes the slot a reference");
+  (q4 : &BsLent) = bs_id(rx);
+  assert(q4.*.n == i32(4), "the named form");
+  assert(x.n == i32(4), "`x` was lent, not moved");
+  mut(m) := BsLent(n : i32(5));
+  mq := bs_id(generic(&mut BsLent), &mut m);
+  mq.*.n = i32(6);
+  assert(m.n == i32(6), "the `&mut` lend writes `m` through the result");
+  x2 := BsLent(n : i32(7));
+  mut(slot) := Option(&BsLent).None;
+  bs_keep(generic(&BsLent), &mut slot, &x2);
+  assert(match(slot, .Some(r) => (r.*.n == i32(7)), .None => false), "the slot holds the lend");
+  assert(x2.n == i32(7), "a move-only `x2` was lent, not moved");
+});
+comptime_expect_error(
+  bs_solved_lend_freezes_move :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    q := bs_id(generic(&BsLent), &x);
+    _m := x;
+    _ := q.*.n;
+  }),
+  "Cannot move `x` here"
+);
+comptime_expect_error(
+  bs_solved_lend_mode_mismatch :: (fn() -> unit)({
+    mut(x) := BsLent(n : i32(1));
+    _q := bs_id(generic(&BsLent), &mut x);
+  }),
+  "takes `&BsLent` by value: lend the place with `&x`"
+);
+comptime_expect_error(
+  bs_solved_static_lend_mode_mismatch :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    mut(x2) := BsLent(n : i32(2));
+    mut(s) := Option(&BsLent).Some(&x);
+    _o := Option(&BsLent).replace(&mut s, &mut x2);
+  }),
+  "takes `&BsLent` by value: lend the place with `&x2`"
+);
+comptime_expect_error(
+  bs_solved_value_slot :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    _q := bs_id(generic(BsLent), &x);
+  }),
+  "takes its argument by value"
+);
+comptime_expect_error(
+  bs_solved_static_lend :: (fn() -> unit)({
+    x := BsLent(n : i32(1));
+    mut(s) := Option(&(BsLent, static)).None;
+    _o := Option(&(BsLent, static)).replace(&mut s, &x);
+  }),
+  "empty origin `static`"
+);
 comptime_expect_error(
   bs_field_undeclared_origin :: (fn() -> unit)({
     S :: struct(next : &(i32, q));
@@ -785,7 +871,7 @@ test("an impl may narrow its trait's result origin, and a trait call maps from t
   r := b.pick_any(&o);
   assert(bs_ret_read(r) == i32(21), "an impl narrower than its trait (`self` within the elided union)");
   (d : Box(Dyn(BsPick))) = dyn(Box.new(BsOne(v : i32(22))));
-  s := d.pick(&o);
+  s := d.*.pick(&o);
   o = i32(3);
   assert((bs_ret_read(s) == i32(22)) && (o == i32(3)), "a Dyn call's result origin is the trait's `self`: `o` stays writable");
 });
@@ -797,7 +883,7 @@ impl(BsOne, BsPk(pk : (fn(self : &Self, other : &i32) -> &i32)(&self.v)));
 test("a Dyn over a trait with an elided-origin projection method", {
   (d : Box(Dyn(BsPk))) = dyn(Box.new(BsOne(v : i32(23))));
   o := i32(2);
-  r := d.pk(&o);
+  r := d.*.pk(&o);
   assert(bs_ret_read(r) == i32(23), "the Dyn projection call reads the payload's field");
 });
 // A projection called through a value (decision 43 step 2, N1c): a

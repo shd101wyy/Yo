@@ -61,6 +61,7 @@ json :: import("std/encoding/json");
   E_DEREF_IMPL_SIZED_TARGET,
   E_TRAIT_BOUND_FORM,
   E_TRAIT_AS_VALUE_TYPE,
+  E_VARIANT_PATTERN_SHAPE,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
@@ -963,8 +964,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "无效的 match 模式",
       "The arm's pattern cannot match a value of the scrutinee's type, or is not a pattern form.",
       "该分支的模式无法匹配被匹配值的类型，或者不是合法的模式形式。",
-      "A pattern is `_`, a binding name, a compile-time constant (a literal, a `::` constant, a typed literal such as `i32(5)`, a string), `.Variant`, `.Variant(p, …)` with sub-patterns at any depth, `.Variant(label : p)`, `.Variant({…})`, `(p | q)`, `(name := p)`, `(lo..hi)` / `(lo..=hi)`, `(p && (guard))`, a tuple `(p, q)`, a struct `S(x : p)` / `{x : p}`, or a wrapper `Rc(p)` / `Arc(p)` / `Box(p)` that looks through the cell at its position. At an `Rc(T)` or `Arc(T)` position the wrapper is required: a structural pattern `p` there without it is this error, written `Rc(p)`. A constant must fold at compile time and must be comparable with `==` to the value at its position; range bounds must be constants; a guard must be `bool`; or-pattern alternatives must bind the same names. Because Yo has no operator precedence, an infix pattern needs its own parentheses.",
-      "模式可以是 `_`、绑定名、编译期常量（字面量、`::` 常量、如 `i32(5)` 的带类型字面量、字符串）、`.Variant`、任意深度嵌套子模式的 `.Variant(p, …)`、`.Variant(label : p)`、`.Variant({…})`、`(p | q)`、`(name := p)`、`(lo..hi)` / `(lo..=hi)`、`(p && (guard))`、元组 `(p, q)`、结构体 `S(x : p)` / `{x : p}`，或穿透该位置单元的包装 `Rc(p)` / `Arc(p)` / `Box(p)`。在 `Rc(T)` 或 `Arc(T)` 位置上必须写出包装：不写包装的结构化模式 `p` 就是这个错误，应写作 `Rc(p)`。常量必须能在编译期折叠，并且必须能与该位置的值用 `==` 比较；范围边界必须是常量；守卫必须是 `bool`；或模式的各选项必须绑定相同的名字。由于 Yo 没有运算符优先级，中缀模式需要自己的括号。",
+      "A pattern is `_`, a binding name, a compile-time constant (a literal, a `::` constant, a typed literal such as `i32(5)`, a string), `.Variant` (a variant without fields), `.Variant(..)` (a variant with fields, whatever its payload), `.Variant(p, …)` with sub-patterns at any depth, `.Variant(label : p)`, `.Variant({…})`, `(p | q)`, `(name := p)`, `(lo..hi)` / `(lo..=hi)`, `(p && (guard))`, a tuple `(p, q)`, a struct `S(x : p)` / `{x : p}`, or a wrapper `Rc(p)` / `Arc(p)` / `Box(p)` that looks through the cell at its position. At an `Rc(T)` or `Arc(T)` position the wrapper is required: a structural pattern `p` there without it is this error, written `Rc(p)`. A constant must fold at compile time and must be comparable with `==` to the value at its position; range bounds must be constants; a guard must be `bool`; or-pattern alternatives must bind the same names. Because Yo has no operator precedence, an infix pattern needs its own parentheses. `..` stands for a variant's whole payload and is written alone, as `.V(..)`; anywhere else it is this error. A labeled variant pattern and a struct pattern name only the fields they need, so delete the `..` there; in a positional list (a tuple, `.V(a, ..)`) write one `_` for each element it stands for; alone as a whole pattern write `_`. `yo fix` applies each of these.",
+      "模式可以是 `_`、绑定名、编译期常量（字面量、`::` 常量、如 `i32(5)` 的带类型字面量、字符串）、`.Variant`（没有字段的变体）、`.Variant(..)`（有字段的变体，不论其载荷是什么）、任意深度嵌套子模式的 `.Variant(p, …)`、`.Variant(label : p)`、`.Variant({…})`、`(p | q)`、`(name := p)`、`(lo..hi)` / `(lo..=hi)`、`(p && (guard))`、元组 `(p, q)`、结构体 `S(x : p)` / `{x : p}`，或穿透该位置单元的包装 `Rc(p)` / `Arc(p)` / `Box(p)`。在 `Rc(T)` 或 `Arc(T)` 位置上必须写出包装：不写包装的结构化模式 `p` 就是这个错误，应写作 `Rc(p)`。常量必须能在编译期折叠，并且必须能与该位置的值用 `==` 比较；范围边界必须是常量；守卫必须是 `bool`；或模式的各选项必须绑定相同的名字。由于 Yo 没有运算符优先级，中缀模式需要自己的括号。`..` 代表变体的整个载荷，并且单独书写，即 `.V(..)`；在其他位置它就是这个错误。带标签的变体模式和结构体模式只写出需要的字段，因此在那里删掉 `..`；在按位置列出的模式中（元组、`.V(a, ..)`），为它代表的每个元素写一个 `_`；单独作为整个模式时写 `_`。`yo fix` 会应用这些修复。",
       "f :: (fn(n : i32) -> i32)(match(n, \"a\" => i32(1), _ => i32(0)));\n",
       "f :: (fn(n : i32) -> i32)(match(n, 1 => i32(1), _ => i32(0)));\n",
       "A string literal cannot match an `i32` scrutinee: there is no `==` between them. Match a constant of the scrutinee's type, a range, a variant or a binding.",
@@ -1194,6 +1195,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Area :: trait(area : (fn(self : &Self) -> i32));\nSq :: struct(s : i32);\nimpl(Sq, Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));\ntotal :: (fn(a : &Dyn(Area)) -> i32)(a.area());\nmain :: (fn() -> unit)({\n  q := Sq(s : i32(2));\n  _t := total(dyn(&q));\n});\nexport(main);\n",
       "`&Dyn(Area)` borrows a value of any type implementing `Area`; `dyn(&q)` makes one.",
       "`&Dyn(Area)` 借用任意实现了 `Area` 的类型的值；`dyn(&q)` 构造它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_VARIANT_PATTERN_SHAPE,
+      "variant pattern does not match the variant's shape",
+      "变体模式与变体的形状不符",
+      "A variant pattern takes parentheses exactly when its variant has fields, and a positional list has one sub-pattern per field.",
+      "变体模式恰好在变体有字段时带括号，按位置列出的模式每个字段一个子模式。",
+      "A variant pattern mirrors the variant's declaration. A variant declared without fields is matched by its name alone: `.Empty`. A variant declared with fields is matched with parentheses: `.Rect(p, q)` has one sub-pattern per field in declaration order; `.Rect(w : p)` and `.Rect({ w, h : p })` name the fields they need and the others match anything; `.Rect(..)` matches the variant whatever its payload and binds nothing. `..` is written alone in the parentheses. `.Rect(_, _)` also matches every `Rect`, and unlike `.Rect(..)` it stops compiling when `Rect` gains a field. A bare `.Rect` on a variant with fields, an empty list (`.Rect()`, `.Rect({})`), parentheses on a variant without fields, and a positional list with the wrong count are this error. `yo fix` writes `.Rect(..)` for a bare `.Rect` or an empty list, and deletes the parentheses of a fieldless variant when they bind nothing; a wrong count has no single repair. On an owned scrutinee the payload that `..` or `_` leaves unbound is dropped when the arm is entered.",
+      "变体模式与变体的声明一致。没有字段的变体只用名字匹配：`.Empty`。有字段的变体带括号匹配：`.Rect(p, q)` 按声明顺序每个字段一个子模式；`.Rect(w : p)` 和 `.Rect({ w, h : p })` 只写出需要的字段，其余字段匹配任意值；`.Rect(..)` 匹配该变体而不论其载荷是什么，且不绑定任何东西。`..` 在括号中单独书写。`.Rect(_, _)` 同样匹配所有 `Rect`，但与 `.Rect(..)` 不同，`Rect` 增加字段后它就不再能通过编译。在有字段的变体上写不带括号的 `.Rect`、空列表（`.Rect()`、`.Rect({})`）、在没有字段的变体上写括号，以及个数不对的按位置列表，都是这个错误。`yo fix` 会把不带括号的 `.Rect` 或空列表改写为 `.Rect(..)`，并在没有字段的变体的括号不绑定任何东西时删掉括号；个数不对没有唯一的修复。被匹配值拥有所有权时，`..` 或 `_` 未绑定的载荷在进入该分支时被释放。",
+      "Shape :: enum(Circle(r : i32), Empty);\nkind :: (fn(s : Shape) -> i32)(match(s, .Circle => i32(1), .Empty => i32(0)));\nexport(kind);\n",
+      "Shape :: enum(Circle(r : i32), Empty);\nkind :: (fn(s : Shape) -> i32)(match(s, .Circle(..) => i32(1), .Empty => i32(0)));\nexport(kind);\n",
+      "`Circle` has a field, so its pattern takes parentheses; `.Circle(..)` matches it whatever its payload.",
+      "`Circle` 有字段，因此其模式带括号；`.Circle(..)` 匹配它而不论其载荷是什么。"
     )
   );
   // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────

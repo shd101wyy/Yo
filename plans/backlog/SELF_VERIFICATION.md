@@ -170,7 +170,7 @@ its explicit clones (`VALUES_BY_DEFAULT.md` V2c/V5; the B4 sweep):
 | 43.8% | `AstExpr` / `ExprInfo` / `TypeValue` / `EvalValue` — post-V5 explicit-clone `Rc` trees | **datatypes, with the immutability guaranteed by TYPE** (decision 46: `Rc` is read-only through every handle) — lever L3, whose syntactic discipline check is deleted |
 | 20.1% | `ArrayList` / `HashMap` / `HashSet` — post-V2b VALUES over raw buffers | collections through their std contracts — lever L4, whose aliasing exclusion becomes unrepresentable in owned code (decision 42) |
 | 14.0% | `EvalContext` / `Environment` (mutated in place at 646 pre-VBD sites) | the mutable-place model — lever L6. Whether each shape lands as `&mut` paths (in the subset through the alias model) or behind `RefCell` (outside it) is decided by the post-V5 census |
-| 13.7% | `Exception` (1,413 `exn.throw` sites) | exceptions as exit paths — lever L2 |
+| 13.7% | `Exception` (1,413 `exn.throw` sites) | none after E-4 of [`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md): the parameter is deleted and the failure is a `Result`, an ordinary datatype. Lever L2 is withdrawn |
 | 4.6% | `Io` | not verified, by design (effects are the frame rule) |
 | 2.9% / 0.6% | `&T`/`&mut T` params / closures | `&T`/`&mut T` are IN the subset as root-alias places (decision 43's verifier rule); closures stay out |
 
@@ -382,7 +382,11 @@ new `ok`-with-obligations count in its PR description.
   `seq.len` / `seq.nth` / `=` / `seq.++`; string literals as byte
   sequences. `str_bytes` (V5) becomes the identity view. UTF-8 validity
   stays axiomatized (FV Open Question 3). Unlocks 43% of signatures.
-- **L2 Exceptions as exit paths.** `exn.throw(e)` is an abnormal exit:
+- **L2 Exceptions as exit paths — WITHDRAWN 2026-11-28** (VERDICTS-96): `ctl`
+  and `unwind` are deleted and errors become values ([`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md)); E-4
+  removes the `Exception` parameter from `src/`, and E-1v makes an early
+  `return` (what `try` produces) an exit path. The lever as it was written:
+  `exn.throw(e)` is an abnormal exit:
   like `panic`, no `ensures` obligation on that path, but *recoverable*, so
   a call to a throwing callee splits into a normal path (assume `ensures`)
   and a throwing path (nothing assumed, control leaves the caller unless a
@@ -529,7 +533,8 @@ true and documented.
 
 ### M2 — The front end (one quarter)
 
-Levers **L1, L2, L3, L4** (in that order — each re-measured), then annotate
+Levers **L1, L3, L4** (in that order — each re-measured; L2 is withdrawn, its
+share served by ERRORS_AS_VALUES E-4 and E-1v), then annotate
 `src/lexer.yo`, `token.yo`, `parser.yo`, `expr.yo`, `formatter.yo` under
 `Pragma.Verify` with hand-written invariants (96 functions; count the
 loops when starting — this is also the calibration for L7's value). Fix

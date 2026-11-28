@@ -180,7 +180,7 @@ impl(
   // Fast-scan: find the next byte position where the literal prefix matches.
   // Returns the byte position or input_len if not found.
   _find_prefix_pos : (fn(self : &Self, input_bytes : &String, from_byte : usize) -> usize)({
-    prefix := &self._program.literal_prefix;
+    prefix := &self._program.*.literal_prefix;
     prefix_len := prefix.len();
     input_len := input_bytes.len();
     cond(
@@ -294,7 +294,7 @@ impl(
         )
       },
       true => {
-        has_prefix := (self._program.literal_prefix.len() > usize(0));
+        has_prefix := (self._program.*.literal_prefix.len() > usize(0));
         mut(byte_pos) := cond(
           ((has_prefix && (from_byte <= input_len))) => self._find_prefix_pos(&bytes.*, from_byte),
           true => from_byte
@@ -381,7 +381,7 @@ impl(
         });
       },
       true => {
-        has_prefix := (self._program.literal_prefix.len() > usize(0));
+        has_prefix := (self._program.*.literal_prefix.len() > usize(0));
         mut(byte_pos) := cond(
           has_prefix => self._find_prefix_pos(&bytes.*, usize(0)),
           true => usize(0)
@@ -462,7 +462,7 @@ impl(
   Iterator(
     Item : RegexMatch,
     next : (fn(self : &mut Self) -> Option(RegexMatch))({
-      input_len := self._input.len();
+      input_len := self._input.*.len();
       while(self._byte_pos <= input_len, {
         result := self._vm.exec_at(self._byte_pos);
         cond(
@@ -479,7 +479,7 @@ impl(
                     self._byte_pos = (input_len + usize(1));
                   },
                   true => {
-                    b := self._input.byte_at(self._byte_pos);
+                    b := self._input.*.byte_at(self._byte_pos);
                     char_len := utf8.step_len(b);
                     next_pos := (self._byte_pos + char_len);
                     self._byte_pos = cond(
@@ -510,7 +510,7 @@ impl(
                 self._byte_pos = (input_len + usize(1));
               },
               true => {
-                b := self._input.byte_at(self._byte_pos);
+                b := self._input.*.byte_at(self._byte_pos);
                 char_len := utf8.step_len(b);
                 next_pos := (self._byte_pos + char_len);
                 self._byte_pos = cond(
@@ -538,7 +538,7 @@ impl(
     // The sticky flag only matches at the start/end of previous matches —
     // the literal-prefix scan would skip legal positions, so it is off for
     // sticky (find_all's sticky arm never consults it either).
-    has_prefix := ((self._program.literal_prefix.len() > usize(0)) && !self._flags.sticky);
+    has_prefix := ((self._program.*.literal_prefix.len() > usize(0)) && !self._flags.sticky);
     byte_pos := cond(
       has_prefix => self._find_prefix_pos(input, usize(0)),
       true => usize(0)

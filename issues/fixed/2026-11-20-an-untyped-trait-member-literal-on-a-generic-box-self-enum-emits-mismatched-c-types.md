@@ -84,3 +84,39 @@ A separate question is why the untyped literal's `rhs`, typed by the trait's `Rh
 is not recognized as the receiver pattern. The spec reads `fn(lhs : &GKind(i32), rhs : &GKind(T))`
 (`YO_DEBUG_DISPATCH=1`, `[fmg-cand]`). This is not investigated. Fixing it would rescue only the
 reproducer, not the other rows.
+
+## Fix
+
+VERDICTS-77 (lane `v81-v77`, two stacked PRs: the `type_key` rendering, then substitution and the registries).
+
+- **Substitution re-ties the back-edge** (`src/types/substitution.yo`, `_subst_shell`). At a self-shell,
+  `substitute` maps the shell's list (the images of its final's recorded type arguments, then of the
+  final's type variables those do not mention) and returns the shell carrying the new list. The final
+  under the same substitution is registered once per (shell id, list) in `g_shell_subst_finals`
+  (`src/types/creators.yo`), and `resolve_enum_shell` / `resolve_struct_shell` read it, so the
+  self-reference inside `GKind(T)[T := i32]` is `GKind(T)[T := i32]`, not `GKind(T)`. A struct's
+  registry final records no arguments, so the comptime-fn call site stamps them by id
+  (`stamp_struct_final_type_arguments`).
+- **One key for the two presentations.** `type_key` renders a recursion cut and an enum past its
+  depth cap as `rec:` + declaration identity + argument keys instead of the instance id; a
+  recursive enum's pre-final reads its final's recorded arguments (it is the same instance) for its
+  node and its substituted copy records them; a generic struct instance's cut renders as its full
+  `gs_` key. The CTFE memo compares a substituted shell by what it resolves to.
+- **Only a recursive enum is a node of the cut.** `type_key`'s cycle guard pushed every enum
+  instance by (id, type arguments), so a non-recursive instance around a recursive type
+  (`Option(Rc(N))`, a field of `N`) cut at different depths depending on whether the walk entered
+  through a substituted copy (def-era id) or the constructor's instance (its own id). The enum
+  definition records whether a payload held the self-shell (`mark_enum_recursive`), and only those
+  enums are guard nodes. `YO_DEBUG_SELF_PATTERN_CHECK=1` (at `fmg_spec_ty`, `_is_self_pattern`
+  bypassed: the substituted receiver pattern against the receiver, by key and exact compatibility
+  both ways) counted 258 such mismatches over `check ./src` before this and 0 after; 0 over
+  `check ./std` either way.
+- **Exact struct identity** no longer rejects two instances of one constructor whose stamped names
+  differ (`Box(<struct:…n0>)` against `Box(<struct:…n2>)`): the type arguments decide, as in the
+  lenient rule. This was the struct twin's E0605.
+
+Every row of the table above now compiles and runs, plus the verdict's p3/p5/p6/p7 probes, a
+six-deep `Option` nesting and an origin-parameter holder (`tests/recursive-enum.test.yo`, "Substituted
+recursive instance"), including the `Option(Box(Self))`, `ArrayList(Self)` and `Rc(Self)` payload rows.
+The untyped literal's `rhs` still is not recognized as the receiver
+pattern; it no longer needs to be.

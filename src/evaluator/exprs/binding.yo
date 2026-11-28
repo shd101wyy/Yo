@@ -307,13 +307,13 @@ evaluate_binding :: (
   // Reserved operators cannot be bound or overloaded
   // (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md Part 1).
   res_tok := ast_expr_token(&lhs);
-  if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.*.clone()), {
+  if((res_tok.*.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.*.value.*.clone()), {
     exn.throw(
       dyn(
         Box.new(
           format_error_message(
             &res_tok,
-            `Operator "${res_tok.value.*}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
+            `Operator "${res_tok.*.value.*}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
           )
         )
       )
@@ -324,11 +324,11 @@ evaluate_binding :: (
   // spelled with the name dispatches to the builtin, silently. Reject the
   // binding instead (the `consume` arm leaked the argument's reference before
   // this gate: issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md).
-  if(is_reserved_builtin_binding_name(res_tok.value.*.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
+  if(is_reserved_builtin_binding_name(res_tok.*.value.*.clone()) && !res_tok.*.module_path.*.ends_with(String.from("std/prelude.yo")), {
     raise_flow_violation(
       format_error_message(
         &res_tok,
-        reserved_builtin_binding_message(res_tok.value.*.clone())
+        reserved_builtin_binding_message(res_tok.*.value.*.clone())
       ),
       ctx,
       exn
@@ -459,7 +459,7 @@ evaluate_binding :: (
           );
           sh_entries.push(
             TokenAndError(
-              token : Rc.clone(shadow_var.token),
+              token : Rc.clone(shadow_var.*.token),
               error_message : `Variable "${variable_name}" is already defined here (variable shadowing is not allowed):`
             )
           );
@@ -493,15 +493,15 @@ evaluate_binding :: (
   match(
     _var_opt,
     .Some(new_binding_var) => {
-      new_binding_var.set_initialized_at_token(.None);
+      new_binding_var.*.set_initialized_at_token(.None);
       // Stamp module-level-ness — computed above but previously never
       // patched onto the variable for the `(name : T) = ...` binding form
       // (add_variable_to_env has no is_module_level parameter). Also record
       // it in the data-keyed registry, which survives env copies (see
       // expr-info.yo g_module_level_globals).
-      new_binding_var.set_is_module_level(is_module_level.clone());
+      new_binding_var.*.set_is_module_level(is_module_level.clone());
       if(is_module_level, {
-        register_module_level_global(&ast_expr_token(&lhs).module_path.*, variable_name.clone());
+        register_module_level_global(&ast_expr_token(&lhs).*.module_path.*, variable_name.clone());
       });
     },
     .None => ()

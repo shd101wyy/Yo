@@ -13,11 +13,11 @@ Ev :: struct(name : String, kind : i32);
 WState :: struct(q : ArrayList(Ev), active : bool, hits : i32);
 W :: Rc(RefCell(WState));
 _new_w :: (fn() -> W)(Rc.new(RefCell(WState).new(WState(q : ArrayList(Ev).new(), active : true, hits : i32(0)))));
-_hits :: (fn(w : &W) -> i32)(w.with(s => s.hits));
+_hits :: (fn(w : &W) -> i32)(w.*.*.with(s => s.hits));
 // A callback-shaped function: the object arrives as an opaque pointer.
 bump_through_cast :: (fn(ud : *u8) -> unit)({
   // The cast is a borrowed view: it is used in place, never bound as an owner.
-  unsafe.cast(&ud, W).with_mut(s => {
+  unsafe.cast(&ud, W).*.with_mut(s => {
     if(s.active, {
       s.q.push(Ev(name : String.from("x"), kind : i32(2)));
       s.hits = (s.hits + i32(1));
@@ -33,13 +33,13 @@ test("the caller's object survives a casting callee", {
   bump_through_cast(unsafe.cast(&w, *u8));
   bump_through_cast(unsafe.cast(&w, *u8));
   assert(_hits(&w) == i32(3), "three callbacks ran");
-  assert(w.with(s => s.q.len()) == usize(3), "three events queued");
-  assert(w.with(s => (s.q(usize(0)).name == "x")), "the pushed String is intact");
+  assert(w.*.with(s => s.q.len()) == usize(3), "three events queued");
+  assert(w.*.with(s => (s.q(usize(0)).name == "x")), "the pushed String is intact");
 });
 test("a cast-derived handle stored and read later stays valid", {
   w := _new_w();
   w2 := identity_through_cast(unsafe.cast(&w, *u8));
-  w2.with_mut(s => {
+  w2.*.with_mut(s => {
     s.hits = i32(7);
   });
   assert(_hits(&w) == i32(7), "same object through the round trip");
@@ -47,7 +47,7 @@ test("a cast-derived handle stored and read later stays valid", {
   holder.push(w2);
   bump_through_cast(unsafe.cast(&w, *u8));
   assert(_hits(&holder(usize(0))) == i32(8), "the held handle sees the callback's write");
-  assert(w.with(s => s.q.len()) == usize(1), "queue intact after the round trip");
+  assert(w.*.with(s => s.q.len()) == usize(1), "queue intact after the round trip");
 });
 // P-18 (plans/archive/PARALLELISM_SOUNDNESS.md Phase 6): a user `Index` impl
 // reached through an interior `inout` argument. The caller takes the

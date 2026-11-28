@@ -115,3 +115,41 @@ A `tests/spec/fixtures/negative/` twin of the reproducer that must fail
 `yo verify` without `--strict`, and a `valid/` twin with a satisfiable
 `assumed()` contract whose caller stays `ok` and lists the callee. Both land
 with the fix.
+
+## Fix (2026-11-26, DEFAULT_ON_VERIFICATION step S2)
+
+The three parts of the proposed fix, as built:
+
+1. **The contract probe** (`probe_assumed_contract`, `src/verifier/vc.yo`):
+   every `assumed()` task gets one query, its `requires`, parameter
+   refinements and `ensures` together with the goal `false`. A parameter
+   the function may change (`&mut`, or named in `old(...)`) is a fresh
+   post-call value in the `ensures`. `unsat` makes the outcome
+   `contradictory`, a failure in every mode.
+2. **The call probe** (`_record_callee_fact`, `vc.yo`; `_run_call_probes`,
+   `src/verifier/driver.yo`): after a call to an `assumed()` callee, one
+   query asks whether the path with the callee's `ensures` is satisfiable.
+   On `unsat` a second asks about the path before the call: `unsat` again is
+   `dead-path` (dead code, not the call's doing); otherwise each proved
+   obligation whose path carries the call's facts is re-asked with the goal
+   `false`, and an `unsat` turns its verdict into `Infeasible`. The function
+   is `infeasible`: a failure in `verify`, a runtime-assert fallback in
+   `verify+` (the strip pass keeps only `Proved` asserts out).
+3. **What `ok` rests on**: each report carries `assumes`, the sorted ids of
+   the `assumed()` contracts on its proved obligations' paths, closed over
+   the callees verified in the same run (syntactic reachability: the unsat
+   cores of LE2 are not used yet). The text report prints
+   `rests on assumed: …` on the `ok` line.
+
+After the fix, `yo verify` on the reproducer reports `oracle` as
+`contradictory` and `bad` as `infeasible` (its `ensures#0` is
+`INFEASIBLE … fn@…:3`), and exits 1 without `--strict`. `yo compile` of the
+same file fails instead of producing the binary that printed `1`.
+
+Fixtures: `tests/spec/fixtures/negative/assumed-contradictory.yo` (this
+reproducer), `tests/spec/fixtures/negative/assumed-infeasible-after-call.yo`
+(a contract satisfiable alone that contradicts the caller's `requires`) and
+the valid twin `tests/spec/fixtures/valid/assumed-satisfiable-callers-list-it.yo`
+(callers stay `ok` and list the callee, directly and through a verified
+callee; a call on a path dead before it is `dead-path`). Tests:
+`tests/internal/verifier-assumed.test.yo`.

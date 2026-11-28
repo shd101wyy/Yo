@@ -1,0 +1,29 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+Raise :: (ctl(code : i32) -> i32);
+Plain :: (fn(code : i32) -> i32);
+
+// the install frame hands its handler out as a plain fn: the frame-bound rule
+// only looks for `ctl` in the result type
+make :: (fn() -> Plain)({
+  (raise : Raise) = (
+    code -> {
+      unwind(Plain_dummy);
+    }
+  );
+  raise
+});
+Plain_dummy :: (fn(code : i32) -> i32)(code);
+
+use_later :: (fn(p : Plain) -> String)({
+  r := p(i32(5));
+  `use_later saw ${r}`
+});
+
+main :: (fn() -> unit)({
+  p := make();
+  s := use_later(p);
+  println(&s);
+});
+export(main);

@@ -307,6 +307,10 @@ export(main);
 - Forms: literals, `_`, bindings, nested variants, or-patterns `(a | b)`,
   ranges `(0 .. 10)` / `(0 ..= 9)`, guards `(p && (cond))`, `(whole := p)`,
   tuples, struct patterns, `Rc(p)`, `Box(p)`.
+- A variant pattern has parentheses exactly when the variant has fields:
+  `.Empty`, `.Rect(w, h)`, `.Rect(w : p)`, and `.Rect(..)` for "any payload"
+  (`..` alone; elsewhere it is E0609). A bare `.Rect`, `.Rect()` or
+  `.Empty(..)` is E0626, which `yo fix` repairs.
 - Exhaustiveness is checked (E0607 names the missing case); an arm that can
   never run is E0608. A bare name binds unless it is a `::` constant in scope.
 

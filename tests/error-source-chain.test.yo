@@ -33,7 +33,7 @@ test("an Error.source() result re-erases as AnyError, so a chain can be walked",
   (mut(walking) : bool) = true;
   while(walking, {
     match(
-      cur.source(),
+      cur.*.source(),
       .Some(next) => {
         cur = next;
         links = (links + usize(1));
@@ -44,11 +44,11 @@ test("an Error.source() result re-erases as AnyError, so a chain can be walked",
     );
   });
   assert(links == usize(2), `the chain has two links, got ${links.to_string()}`);
-  assert(cur.to_string() == `boom`, `the root cause is the inner error, got ${cur.to_string()}`);
+  assert(cur.*.to_string() == `boom`, `the root cause is the inner error, got ${cur.*.to_string()}`);
 });
 test("a one-link error reports no source", {
   (c : AnyError) = dyn(Box.new(_Inner.Boom));
-  assert(c.source().is_none(), "an error with nothing underneath has no source");
+  assert(c.*.source().is_none(), "an error with nothing underneath has no source");
 });
 // The defect was never std-specific: ANY user trait declaring a member that
 // returns `Dyn(SelfTrait)` hit it, because the nameless-trait capture happens
@@ -68,21 +68,21 @@ impl(_Root, _Node());
 _Child :: struct(tag : String, up_tag : String);
 impl(_Child, ToString(to_string : (fn(self : &Self) -> String)(`child(${self.tag})`)));
 impl(_Child, _Node(parent : (fn(self : &mut Self) -> Option(_AnyNode))(Option(_AnyNode).Some(dyn(Box.new(_Root(tag : self.up_tag.clone())))))));
-_handle :: (fn(n : &_AnyNode) -> String)(n.to_string());
+_handle :: (fn(n : &_AnyNode) -> String)(n.*.*.to_string());
 test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)", {
   (c : _AnyNode) = dyn(Box.new(_Child(tag : `C`, up_tag : `R`)));
   // Binding the payload into a named local is one half of the defect...
   (bound : String) = match(
-    c.parent(),
+    c.*.parent(),
     .Some(p) => {
       (q : _AnyNode) = p;
-      q.to_string()
+      q.*.to_string()
     },
     .None => `root`
   );
   assert(bound == `root(R)`, `binding the payload lost the trait, got ${bound}`);
   // ...and passing it straight to a parameter is the other.
-  (passed : String) = match(c.parent(), .Some(p) => _handle(&p), .None => `root`);
+  (passed : String) = match(c.*.parent(), .Some(p) => _handle(&p), .None => `root`);
   assert(passed == `root(R)`, `passing the payload lost the trait, got ${passed}`);
 });
 // A trait's node is minted before its body is evaluated, so a member typed
@@ -113,9 +113,9 @@ impl(
 );
 test("a Dyn(SelfTrait) member's payload dispatches the members and constraints declared after it", {
   (c : _AnyChain) = dyn(Box.new(_ChainLink(w : i32(2), leaf_w : i32(5))));
-  (w : i32) = match(c.link(), .Some(p) => p.weight(), .None => i32(0));
+  (w : i32) = match(c.*.link(), .Some(p) => p.*.weight(), .None => i32(0));
   assert(w == i32(5), `the payload dispatched the last member wrongly, got ${w.to_string()}`);
-  (s : String) = match(c.link(), .Some(p) => p.to_string(), .None => String.new());
+  (s : String) = match(c.*.link(), .Some(p) => p.*.to_string(), .None => String.new());
   assert(s == `leaf`, `the payload lost the where(Self <: ToString) constraint, got ${s}`);
 });
 test("a trait's where(Self <: X), declared after a Dyn(SelfTrait) member, is checked at an impl", {
@@ -130,14 +130,14 @@ test("root_cause returns the innermost error, and is identity on a lone error", 
   (base : AnyError) = dyn(Box.new(_Inner.Boom));
   (top : AnyError) = dyn(Box.new(Context.new(`while loading`, base)));
   assert(
-    root_cause(&top).to_string() == `boom`,
-    `root_cause of a wrapped error is the inner one, got ${root_cause(&top).to_string()}`
+    root_cause(&top).*.to_string() == `boom`,
+    `root_cause of a wrapped error is the inner one, got ${root_cause(&top).*.to_string()}`
   );
   // An error with nothing underneath is its own root cause — never .None, so
   // callers need no unwrapping.
   (lone : AnyError) = dyn(Box.new(_Inner.Boom));
   assert(
-    root_cause(&lone).to_string() == `boom`,
+    root_cause(&lone).*.to_string() == `boom`,
     "root_cause of a lone error is that error"
   );
 });
@@ -158,7 +158,7 @@ test("error_chain yields every link, outermost first", {
       it.next(),
       .Some(link) => {
         links = (links + usize(1));
-        last = link.to_string();
+        last = link.*.to_string();
       },
       .None => {
         going = false;
