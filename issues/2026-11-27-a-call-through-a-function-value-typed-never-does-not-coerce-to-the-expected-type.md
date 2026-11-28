@@ -3,7 +3,7 @@
 **Severity:** S3. A valid program is rejected with a misleading E0601. Calling a named `-> never` function directly works, so the workaround is to call through a name.
 
 - Filed 2026-11-27 from VERDICTS-89 §9 finding 3 (probes p17, p21, p23). Reproduced with a stage 1 of `wip/v0281-dupdrop-r9` merged with develop `bc706b0a3` (v0.2.80).
-- It blocks the `-> never` spelling of a non-resuming operation (`issues/questions/2026-11-27-a-non-resuming-operation-is-ctl-returning-never.md`).
+- It blocks the `-> never` spelling of a non-resuming operation (`issues/retired/2026-11-27-a-non-resuming-operation-is-ctl-returning-never.md`).
 
 ## Reproducer
 

@@ -1,6 +1,8 @@
 # Should a non-resuming operation be spelled `ctl(ps) -> never` instead of `ctl(generic(R : Type), ps) -> R`?
 
-**Kind:** design question. It is an open decision, not a defect. Filed 2026-11-27 from VERDICTS-89 §10 (Fable 5.2).
+**Kind:** design question (decided; retired).
+
+**Status:** NOT ADOPTED 2026-11-28: the operation is deleted. The maintainer adopted VERDICTS-96, which deletes `ctl` and `unwind` by v0.2.86, so no spelling of a non-resuming `ctl` is needed. Filed 2026-11-27 from VERDICTS-89 §10 (Fable 5.2).
 
 ## The question
 
