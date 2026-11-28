@@ -318,12 +318,12 @@ test("find_matching_parens finds parens for struct", {
       match(
         tokens.get_cloned(p.open),
         .None => assert(false, "no open tok"),
-        .Some(t) => assert(t.kind == TokenKind.LParen, "open is LParen")
+        .Some(t) => assert(t.*.kind == TokenKind.LParen, "open is LParen")
       );
       match(
         tokens.get_cloned(p.close),
         .None => assert(false, "no close tok"),
-        .Some(t) => assert(t.kind == TokenKind.RParen, "close is RParen")
+        .Some(t) => assert(t.*.kind == TokenKind.RParen, "close is RParen")
       );
     }
   );
@@ -355,8 +355,8 @@ test("find_matching_parens handles nested parens", {
             break;
           }
         );
-        if(tok.kind != TokenKind.Whitespace, {
-          assert(tok.kind == TokenKind.Semicolon, "token after outer close paren should be semicolon");
+        if(tok.*.kind != TokenKind.Whitespace, {
+          assert(tok.*.kind == TokenKind.Semicolon, "token after outer close paren should be semicolon");
           break;
         });
         i = (i + usize(1));
@@ -403,7 +403,7 @@ test("find_matching_parens starts searching from given index", {
         break;
       }
     );
-    if(tok.kind == TokenKind.Semicolon, {
+    if(tok.*.kind == TokenKind.Semicolon, {
       semi_idx = i;
       break;
     });
@@ -416,7 +416,7 @@ test("find_matching_parens starts searching from given index", {
       match(
         tokens.get_cloned(p.open),
         .None => assert(false, "no tok"),
-        .Some(t) => assert(t.kind == TokenKind.LParen, "found LParen")
+        .Some(t) => assert(t.*.kind == TokenKind.LParen, "found LParen")
       );
     }
   );

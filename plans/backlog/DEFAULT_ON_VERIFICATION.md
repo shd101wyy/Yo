@@ -293,7 +293,7 @@ In order. S0, S2 and SD need nothing else and start at v0.2.80. S1 follows S0 (D
 | **S2** | **Done.** A proved result is capped by what it rests on: the satisfiability probe per `assumed()` contract (`contradictory`, a failure in every mode), the feasibility probe after a call to an `assumed()` callee (`infeasible`: the proofs on that path are voided, a failure in `verify`, the assert kept in `verify+`), and `ok` naming the assumed contracts it used (`assumes`, transitively through the run's verified callees). Cost and design: §3.1. Not in it: the entry-premise and conclusion probes of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)'s vacuity gate | about a week | nothing |
 | **S3** | std bodies the verifier walks instead of `assumed()` | weeks; it is the shared bottleneck of [`POST_VBD_PLAN.md`](POST_VBD_PLAN.md) phase 4, item 1 | the raw-buffer model ([`THEOREM_PROVING_DIRECTION.md`](THEOREM_PROVING_DIRECTION.md) R1) |
 | **S4** | Incremental verification: an edit re-proves only the functions it changed, and a default-on `yo check` does not hold every function's state at once. Its three parts by §2.2: a solver pool, a per-function cache key, and a small budget for automatic obligations (§5 items 5 to 7) | L (SELF_VERIFICATION lever L8) | nothing |
-| **S5** | Subset growth until the coverage gate holds: strings, exceptions as exit paths, trees as datatypes, collections through contracts | L (SELF_VERIFICATION levers L1–L4) | S3 for L4 |
+| **S5** | Subset growth until the coverage gate holds: strings, early return as an exit path ([`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md) E-1v; it replaces "exceptions as exit paths", lever L2, withdrawn), trees as datatypes, collections through contracts | L (SELF_VERIFICATION levers L1, L3, L4) | S3 for L4 |
 | **S6a** | **Report by default** (D7). One PR, seed-gated where it adds or renames a pragma | M, plus the tree sweep below | S0, S4, SD; gates G3, G5, G6 |
 | **S6b** | **Erase by default** (D7). One PR, seed-gated where it removes a pragma name | S | S6a; gates G1, G2 |
 
@@ -305,7 +305,7 @@ In order. S0, S2 and SD need nothing else and start at v0.2.80. S1 follows S0 (D
 2. **Then two tracks in parallel (from v0.2.82, when VALUES_BY_DEFAULT closes):**
    - SPEC_AND_PROOF PR 2 to PR 4 finish the split (`logic` and `lemma` as builtins, then `std/spec` in the new forms one seed later; about v0.2.83).
    - SD and S4 start at once. They touch neither specifications nor proofs, and they are the long poles of S6a.
-3. **S3 after SPEC_AND_PROOF PR 4.** Proving std bodies needs the std lemma library (T1), which is written as `lemma` and `logic` from its first line, so no std proof is written in `ghost_fn` and migrated afterwards. S4 continues meanwhile.
+3. **S3 after SPEC_AND_PROOF PR 4.** Proving std bodies needs the std lemma library (T1), which is written as `lemma` and `logic` from its first line, so no std proof is written in `ghost_fn` and migrated afterwards. S4 continues meanwhile. S3 takes an `io`-path module after E-3 of [`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md) converts it (v0.2.84), so a std contract is written once, against a `Result` signature, and none on an `exn`-taking function.
 4. **S6a** when S4 and SD have landed and G3, G5 and G6 hold.
 5. **S6b** when S3 has landed and G1 holds (G2 holds with S2).
 

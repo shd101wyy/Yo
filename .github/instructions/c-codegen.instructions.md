@@ -197,7 +197,7 @@ Explicit allocators (`plans/reference/EXPLICIT_ALLOCATORS.md`):
 
 ### A `Box` payload projection masks the handle's placed bit
 
-`Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell pointer is the handle's "placed" bit (`plans/reference/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout"). Every payload projection (`b.*`, `b.field`, `b.method()`, `&b.*`, `addr_of(b.*)`, a `Box(p)` pattern) goes through `box_payload_place_code` (`src/codegen/utils/index.yo`), which writes `(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`, or masks the address word of the fat pointer for an unsized payload; never spell `(*b)` for a `Box`. A place that takes the address back strips the outer `(*…)` and keeps the masked pointer. `tests/box-layout.test.yo` covers every projection.
+`Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell pointer is the handle's "placed" bit (`plans/reference/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout"). Every payload projection (`b.*`, `b.*.field`, `b.*.method()`, `&b.*`, `addr_of(b.*)`, a `Box(p)` pattern) goes through `box_payload_place_code` (`src/codegen/utils/index.yo`), which writes `(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`, or masks the address word of the fat pointer for an unsized payload; never spell `(*b)` for a `Box`. A place that takes the address back strips the outer `(*…)` and keeps the masked pointer. `tests/box-layout.test.yo` covers every projection.
 
 ### A pointer to an unsized type is the fat `__yo_slice_t`
 
@@ -340,7 +340,7 @@ In a function returning `&T`/`&mut T` (`fn_result_is_ref`), a `cond` whose value
 - A fieldless enum target hides bugs here (it lowers to a C integer, so a bad pointer cast compiles); reproduce with a payload-carrying variant or a struct-shaped value type (`String`).
 - **`is_void_type` is false for `unit`, which still renders as C `void`.** An emitter that keeps a call result in a temp (the `Dyn(FnOnce(...))` call slot's `__yo_once_r`) must also test the rendered return type (`return_str == "void"`).
 
-## Algebraic effects codegen
+## Handlers (`ctl`, `unwind`) codegen
 
 The semantics (`return` resumes, `unwind` discards) are in AGENTS.md; the design is `docs/en-US/ALGEBRAIC_EFFECTS.md`. The load-bearing part here is the emitted C contract: `__yo_effect_escaped`, evidence records lowered to function pointers, the `sync_fut_t` resume shape. When a name does not resolve, grep the emitted C string (e.g. `__yo_effect_escaped`).
 

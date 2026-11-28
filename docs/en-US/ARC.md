@@ -94,7 +94,8 @@ copied := value.*;
 assert(copied == i32(42), "inner value is 42");
 ```
 
-`value.field` and `value.method()` reach the payload by auto-dereference.
+A payload member is reached through `.*`: `value.*.field`, `value.*.method()`.
+`.` alone reads only the `Arc`'s own members (`value.field` is E0623).
 `value.as_ref()` lends the whole payload as a `&T`, for a `&T` parameter
 (`Arc.as_ref(value)` is the same call through the type).
 
@@ -103,7 +104,8 @@ assert(copied == i32(42), "inner value is 42");
 `Arc.clone(a)` makes a second handle: it increments the reference count and keeps sharing the
 same value. A second handle is spelled, as in Rust: an implicit copy whose source is
 used again is E0901, whose note names `Arc.clone(a)`, and a handle's last use moves it. `Arc(T)` is `Clone` for every `T`, and its clone is always a second
-handle; a deep copy of the value is spelled `Arc.new(a.*.clone())`.
+handle (`a.clone()` is the same call); a deep copy of the value is spelled
+`Arc.new(a.*.clone())`.
 
 ```yo
 a := Arc.new(i32(42));
@@ -191,7 +193,7 @@ Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 
 a := Arc.new(Mutex(Node).new(Node(id : i32(1), peer : .None)));
 b := Arc.clone(a);
-a.with_lock(v => {
+a.*.with_lock(v => {
   v.peer = .Some(b); // a -> mutex -> node -> a: this cell is never freed
 });
 ```

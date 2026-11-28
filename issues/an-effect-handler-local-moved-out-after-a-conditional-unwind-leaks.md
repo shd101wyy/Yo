@@ -2,6 +2,8 @@
 
 **Severity:** S3 — a silent RC leak per unwind: a local of an effect-handler body that is later moved into an `own` argument is never released when a conditional `unwind` fires first
 
+**Not fixed:** retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). The bug is documented only: `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
+
 **Found**: 2026-10-04, while gating the M3 early-return-drop hoist
 (`issues/yo-self-compile-performance-rc-string-eq.md`, "Negative result
 2026-10-04" section) with an unwind-shaped probe. The hoist is

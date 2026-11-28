@@ -448,7 +448,7 @@ then. A few more rules decide liveness:
   is live, and freezes what it borrows, until the value's own last use.
 - Two references conflict only if one place is a prefix of the other.
   Sibling fields are independent: `&mut s.left` beside `&mut s.right`.
-- A `&` reference through an `Rc` or `Arc` (`r := &h.x`) borrows the handle:
+- A `&` reference through an `Rc` or `Arc` (`r := &h.*.x`) borrows the handle:
   `h` cannot be moved, reassigned or dropped while `r` lives.
 
 ### A `&` reference is read-only
@@ -501,7 +501,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next; // re-point to the next slot
+        cur = &mut n.*.*.next; // re-point to the next slot
       },
       .None => ()
     );
@@ -516,8 +516,8 @@ sum :: (fn(list : &List) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.value);
-        cur = &n.next;
+        total = (total + n.*.*.value);
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -933,11 +933,13 @@ and dropping the owner frees it.
 
 ### `Rc` and `Arc`
 
-- Members forward through the handle: `r.n` reads the payload's field and
-  `r.len()` calls the payload's method. `r.*` names the payload.
-- A member both the handle and its payload have is E0616, which names both
-  spellings: `Rc.clone(&r)` copies the handle, `r.*.clone()` the payload.
-  `Box` works the same way: `Box.clone(&b)`.
+- `r.*` names the payload, and a payload member is reached through it:
+  `r.*.n` reads the payload's field and `r.*.len()` calls the payload's
+  method. `.` alone reads only the handle's own members; `r.n` is E0623,
+  whose help spells `r.*.n`.
+- `r.clone()` is the handle's own `clone`, a second handle (`Rc.clone(&r)`
+  is the same call); `r.*.clone()` clones the payload. `Box` works the same
+  way: `b.clone()` is a new cell holding a clone of the payload.
 - A cycle of `Rc` handles leaks, as in Rust: put a `Weak` on the back edge
   ([WEAK.md](./WEAK.md)). `--allocator debug` reports the leak.
 
@@ -963,10 +965,10 @@ names the doors:
 main :: (fn() -> unit)({
   count := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(&count); // a second handle to the same cell
-  other.with_mut(v => {
+  other.*.with_mut(v => {
     v.* = (v.* + i32(1)); // checked at run time: no other access is running
   });
-  assert(count.with(v => v.*) == i32(1), "both handles see the write");
+  assert(count.*.with(v => v.*) == i32(1), "both handles see the write");
 
   mut(h) := Rc.new(i32(1));
   a := Rc.clone(&h);
@@ -996,12 +998,12 @@ main :: (fn() -> unit)({
   total := Arc.new(Mutex(i32).new(i32(0)));
   mine := Arc.clone(&total); // the spawned thread's handle
   t := Thread(unit).spawn({ mine }(io : Io) => {
-    mine.with_lock(v => {
+    mine.*.with_lock(v => {
       v.* = (v.* + i32(1));
     });
   });
   t.join();
-  assert(total.with_lock(v => v.*) == i32(1), "the thread's write is visible");
+  assert(total.*.with_lock(v => v.*) == i32(1), "the thread's write is visible");
 });
 export(main);
 ```
@@ -1114,7 +1116,7 @@ Run tests under `--sanitize address` when a change leans on the borrow rules.
 | default parameter | by value: copy if `Copy`, else move | by value (move) |
 | read-only borrow | `x : &T`, call `f(&x)` | `x: &T`, `f(&x)` |
 | exclusive borrow | `x : &mut T`, call `f(&mut x)` | `x: &mut T`, `f(&mut x)` |
-| dereference | `r.*`; fields, methods and indexing auto-dereference | `*r`; auto-deref on `.` |
+| dereference | `r.*`, the only dereference; `.` reads through `&`/`&mut` only (`h.*.x` on a handle) | `*r`; auto-deref on `.` |
 | lifetimes | origins: `&(T, p)`, `generic(p : Origin)`, `-> &(T, xs)`; elided by default | `&'a T`, `<'a>` |
 | a struct holding a reference | `View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(T, p)))` | `struct View<'a> { xs: &'a T }` |
 | implicit copy | `derive(T, Copy, Clone)` | `#[derive(Copy, Clone)]` |

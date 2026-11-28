@@ -3,7 +3,7 @@ CounterInner :: struct(n : i32);
 Counter :: Rc(CounterInner);
 bump_later :: (fn(c : &Counter, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    n := &c.*.n;
+    n := &c.*.*.n;
     e.await(yield(e), e);
     n.*
   })

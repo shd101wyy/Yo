@@ -24,7 +24,7 @@ Everything you'd expect from a modern general-purpose language:
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
 - **Closures and higher-order functions** over safe types.
 - **Generics, traits, GADTs.** All of Yo's type-system features.
-- **Algebraic effects, async/await, comptime.** Full access.
+- **Explicit capabilities and handlers, async/await, comptime.** Full access.
 - **In-place mutation.** Via `name : &mut T` parameters — covered below.
 
 This is the default user experience. No pragma needed, no `addr_of(...)` calls, no `*(T)` types, no `unsafe(...)` wraps:
@@ -174,7 +174,7 @@ Node :: struct(value : i32, next : Option(Rc(RefCell(Self))));
 test("a cycle of strong handles is never freed", {
   a := Rc.new(RefCell(Node).new(Node(value : i32(1), next : .None)));
   b := Rc.new(RefCell(Node).new(Node(value : i32(2), next : .Some(Rc.clone(a)))));
-  a.with_mut((n : &mut Node) => {
+  a.*.with_mut((n : &mut Node) => {
     n.next = .Some(Rc.clone(b)); // a -> b -> a: both counts stay above zero
   });
 });

@@ -1,0 +1,36 @@
+// The raw-pointer rows of VERDICTS-73's test 1-2: a raw pointer exists only
+// in an unsafe-capable file (`pragma(Pragma.AllowUnsafe)`), so they live
+// beside deref-explicit.test.yo instead of inside it (that file is
+// deliberately NOT pragma'd, so the D3 write-through-Arc rule still fires).
+// `q.x` on `q : *P` is E0623 naming `q.*.x`, one star per pointer layer.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+_P2 :: struct(x : i32, y : i32);
+test("explicit: a raw pointer's pointee is read through .*", {
+  mut(p) := _P2(x : i32(1), y : i32(2));
+  q := addr_of(p);
+  assert(unsafe(q.*.x) == i32(1), "q.*.x reads the pointee's field");
+  qq := addr_of(q);
+  assert(unsafe(qq.*.*.y) == i32(2), "one star per pointer layer");
+});
+test("E0623: a raw pointer's pointee member read with . alone", {
+  mut(p) := _P2(x : i32(1), y : i32(2));
+  q := addr_of(p);
+  comptime_expect_error(q.x, "`.` does not read through a raw pointer");
+  comptime_expect_error(q.x, "write `q.*.x`: `q.*` names the pointee");
+});
+// A re-point's step through a raw pointer is not one deref forwarding took,
+// so spelling it does not admit it: it stays P1b.
+comptime_expect_error(
+  _repoint_through_a_raw_pointer :: (fn() -> i32)(
+    unsafe({
+      x := i32(1);
+      cur := &x;
+      mut(p) := _P2(x : i32(1), y : i32(2));
+      q := addr_of(p);
+      cur = &q.*.y;
+      cur.*
+    })
+  ),
+  "Cannot re-point `cur` through a pointer dereference"
+);

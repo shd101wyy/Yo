@@ -385,7 +385,7 @@ z := y.*; // ……因为 y 在这里被使用
 - 持有引用的值（struct、元组、`Option`、闭包）一直存活并冻结它借用的东西，直到该值自己的最后一次使用。
 - 只有当一个位置是另一个位置的前缀时，两个引用才冲突。兄弟字段互相独立：`&mut s.left` 与
   `&mut s.right` 可以并存。
-- 穿过 `Rc` 或 `Arc` 的 `&` 引用（`r := &h.x`）借用的是句柄：`r` 存活期间，`h` 不能被移动、
+- 穿过 `Rc` 或 `Arc` 的 `&` 引用（`r := &h.*.x`）借用的是句柄：`r` 存活期间，`h` 不能被移动、
   重新赋值或丢弃。
 
 ### `&` 引用是只读的
@@ -431,7 +431,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.next; // 重新指向下一个槽位
+        cur = &mut n.*.*.next; // 重新指向下一个槽位
       },
       .None => ()
     );
@@ -446,8 +446,8 @@ sum :: (fn(list : &List) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.value);
-        cur = &n.next;
+        total = (total + n.*.*.value);
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -813,9 +813,10 @@ export(main);
 
 ### `Rc` 与 `Arc`
 
-- 成员会穿过句柄转发：`r.n` 读取载荷的字段，`r.len()` 调用载荷的方法。`r.*` 指称载荷。
-- 句柄和载荷都有的成员是 E0616，它会给出两种写法：`Rc.clone(&r)` 拷贝句柄，`r.*.clone()` 拷贝载荷。
-  `Box` 同理：`Box.clone(&b)`。
+- `r.*` 指称载荷，载荷的成员经由它访问：`r.*.n` 读取载荷的字段，`r.*.len()` 调用载荷的方法。
+  单独的 `.` 只读取句柄自身的成员；`r.n` 是 E0623，其帮助信息写出 `r.*.n`。
+- `r.clone()` 是句柄自身的 `clone`，得到第二个句柄（`Rc.clone(&r)` 是同一个调用）；`r.*.clone()` 克隆载荷。
+  `Box` 同理：`b.clone()` 是一个持有载荷克隆的新单元。
 - 由 `Rc` 句柄构成的环会泄漏，与 Rust 相同：在回边上放一个 `Weak`（[WEAK.md](./WEAK.md)）。
   `--allocator debug` 会报告这种泄漏。
 
@@ -836,10 +837,10 @@ export(main);
 main :: (fn() -> unit)({
   count := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(&count); // 指向同一单元的第二个句柄
-  other.with_mut(v => {
+  other.*.with_mut(v => {
     v.* = (v.* + i32(1)); // 运行时检查：没有其他访问正在进行
   });
-  assert(count.with(v => v.*) == i32(1), "两个句柄都看到这次写入");
+  assert(count.*.with(v => v.*) == i32(1), "两个句柄都看到这次写入");
 
   mut(h) := Rc.new(i32(1));
   a := Rc.clone(&h);
@@ -868,12 +869,12 @@ main :: (fn() -> unit)({
   total := Arc.new(Mutex(i32).new(i32(0)));
   mine := Arc.clone(&total); // 派生线程的句柄
   t := Thread(unit).spawn({ mine }(io : Io) => {
-    mine.with_lock(v => {
+    mine.*.with_lock(v => {
       v.* = (v.* + i32(1));
     });
   });
   t.join();
-  assert(total.with_lock(v => v.*) == i32(1), "线程的写入可见");
+  assert(total.*.with_lock(v => v.*) == i32(1), "线程的写入可见");
 });
 export(main);
 ```
@@ -974,7 +975,7 @@ export(main);
 | 默认参数 | 按值：`Copy` 则拷贝，否则移动 | 按值（移动） |
 | 只读借用 | `x : &T`，调用 `f(&x)` | `x: &T`，`f(&x)` |
 | 独占借用 | `x : &mut T`，调用 `f(&mut x)` | `x: &mut T`，`f(&mut x)` |
-| 解引用 | `r.*`；字段、方法和索引自动解引用 | `*r`；`.` 自动解引用 |
+| 解引用 | `r.*`，唯一的解引用；`.` 只穿过 `&`/`&mut` 读取（句柄上写 `h.*.x`） | `*r`；`.` 自动解引用 |
 | 生命周期 | 来源：`&(T, p)`、`generic(p : Origin)`、`-> &(T, xs)`；默认省略 | `&'a T`、`<'a>` |
 | 持有引用的 struct | `View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(T, p)))` | `struct View<'a> { xs: &'a T }` |
 | 隐式拷贝 | `derive(T, Copy, Clone)` | `#[derive(Copy, Clone)]` |

@@ -565,7 +565,7 @@ Open Question 7.
 
 **Verdict: (a) and (c) are inputs to OQ1, not items; (b) is a design
 question, filed as
-`issues/questions/2026-10-14-effect-operation-contracts.md` with the
+`issues/retired/2026-10-14-effect-operation-contracts.md` with the
 recommendation that it come after L2 and before the heap model** (the
 assessment that followed this audit found it is the difference between
 `VerifyOrAssert` verifying user code and verifying only its pure leaves).
@@ -731,7 +731,7 @@ and `--strict` as the honest gate (F15's `assume` counts against it).
   `issues/questions/2026-10-14-overflow-trap-freedom-as-a-default-obligation.md`
   (the model wraps where safe code traps; make the overflow obligations
   default and measure the integer theory),
-  `issues/questions/2026-10-14-effect-operation-contracts.md` (F11(b),
+  `issues/retired/2026-10-14-effect-operation-contracts.md` (F11(b),
   pulled ahead of the heap model), and the counter-position appended to
   `issues/questions/modifies-clause-for-callee-side-effects.md` (an
   explicit frame, with ownership as the default).

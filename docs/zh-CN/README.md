@@ -26,7 +26,7 @@ Yo 是一门编译型系统编程语言，其设计目标是让 LLM 写出安全
 - [显式分配器](./EXPLICIT_ALLOCATORS.md) —— 默认使用全局分配器，也可以在创建处传一个参数指定。
 - [形式化验证](./FORMAL_VERIFICATION.md) —— `requires`/`ensures` 契约与精化类型在编译期由 Z3 证明（`yo verify`），不成立时给出反例。
 - [编译期求值](./CTFE.md) —— 类型是一等值，带 `comptime` 参数的函数在编译器中运行。
-- [代数效应](./ALGEBRAIC_EFFECTS.md)与 [async/await](./ASYNC_AWAIT.md) —— 一次性效应处理器；async 是内置的 `Io` 效应，运行在单线程事件循环上。
+- [显式能力](./ALGEBRAIC_EFFECTS.md)与 [async/await](./ASYNC_AWAIT.md) —— I/O、内存分配与失败都是使用它们的函数的参数；async 是编译器基于 `Io` 做的变换，运行在单线程事件循环上。
 - [并行](./PARALLELISM.md) —— 线程与自有工作线程的线程池，每个线程一个事件循环，与 async 相互独立。
 - [C 互操作](./FFI.md) —— `c_include(...)` 与 `extern(...)` 绑定 C 头文件和符号。
 - [每件事只有一种写法](./GRAMMAR.md) —— 没有运算符优先级，没有函数重载。

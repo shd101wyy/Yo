@@ -170,9 +170,9 @@ _is_byte :: (fn(src : &String, i : usize, c : u8) -> bool)(
 /// Does `tok` sit in its own source text (a token the compiler synthesized
 /// carries its origin's text at another offset)?
 _token_in_source :: (fn(tok : &Token) -> bool)({
-  off := usize(tok.byte_offset);
-  n := tok.value.*.len();
-  ((off + n) <= tok.input.*.len()) && (tok.input.*.substring(off, (off + n)) == tok.value.*)
+  off := usize(tok.*.*.byte_offset);
+  n := tok.*.*.value.*.len();
+  ((off + n) <= tok.*.*.input.*.len()) && (tok.*.*.input.*.substring(off, (off + n)) == tok.*.*.value.*)
 });
 /// The zero-width span right after the variant name `name_tok`, where the
 /// repair of a bare `.V` on a variant with fields inserts `(..)`.
@@ -180,9 +180,9 @@ _after_name_span :: (fn(name_tok : &Token) -> Option(Span))(
   cond(
     _token_in_source(name_tok) => Option(Span).Some(
       Span(
-        path : name_tok.module_path.*.clone(),
-        row : usize(name_tok.row),
-        col : (usize(name_tok.column) + name_tok.value.*.clone().chars().count()),
+        path : name_tok.*.*.module_path.*.clone(),
+        row : usize(name_tok.*.*.row),
+        col : (usize(name_tok.*.*.column) + name_tok.*.*.value.*.clone().chars().count()),
         len : usize(0)
       )
     ),
@@ -197,8 +197,8 @@ _variant_group_span :: (fn(name_tok : &Token) -> Option(Span))({
   if(!_token_in_source(name_tok), {
     return(Option(Span).None);
   });
-  src := Rc.clone(name_tok.input);
-  start := (usize(name_tok.byte_offset) + name_tok.value.*.len());
+  src := Rc.clone(name_tok.*.*.input);
+  start := (usize(name_tok.*.*.byte_offset) + name_tok.*.*.value.*.len());
   (i : usize) = start;
   while(_is_blank_byte(&src.*, i), {
     i = (i + usize(1));
@@ -233,29 +233,29 @@ _variant_group_span :: (fn(name_tok : &Token) -> Option(Span))({
   });
   Option(Span).Some(
     Span(
-      path : name_tok.module_path.*.clone(),
-      row : usize(name_tok.row),
-      col : (usize(name_tok.column) + name_tok.value.*.clone().chars().count()),
+      path : name_tok.*.*.module_path.*.clone(),
+      row : usize(name_tok.*.*.row),
+      col : (usize(name_tok.*.*.column) + name_tok.*.*.value.*.clone().chars().count()),
       len : (i - start)
     )
   )
 });
 /// The span of `, ..` (a `..` after a comma, blanks allowed, on one row).
 _rest_with_comma_span :: (fn(dots_tok : &Token) -> Option(Span))({
-  src := Rc.clone(dots_tok.input);
-  d := usize(dots_tok.byte_offset);
+  src := Rc.clone(dots_tok.*.*.input);
+  d := usize(dots_tok.*.*.byte_offset);
   (back : usize) = usize(0);
   while((back < d) && _is_blank_byte(&src.*, ((d - back) - usize(1))), {
     back = (back + usize(1));
   });
-  if((back >= d) || (!_is_byte(&src.*, ((d - back) - usize(1)), u8(44)) || (usize(dots_tok.column) < (back + usize(1)))), {
+  if((back >= d) || (!_is_byte(&src.*, ((d - back) - usize(1)), u8(44)) || (usize(dots_tok.*.*.column) < (back + usize(1)))), {
     return(Option(Span).None);
   });
   Option(Span).Some(
     Span(
-      path : dots_tok.module_path.*.clone(),
-      row : usize(dots_tok.row),
-      col : (usize(dots_tok.column) - (back + usize(1))),
+      path : dots_tok.*.*.module_path.*.clone(),
+      row : usize(dots_tok.*.*.row),
+      col : (usize(dots_tok.*.*.column) - (back + usize(1))),
       len : (back + usize(3))
     )
   )
@@ -272,14 +272,14 @@ _rest_drop_repair :: (fn(dots : &AstExpr) -> Option(Repair))({
     },
     .None => ()
   );
-  src := Rc.clone(tok.input);
-  (i : usize) = (usize(tok.byte_offset) + usize(2));
+  src := Rc.clone(tok.*.input);
+  (i : usize) = (usize(tok.*.byte_offset) + usize(2));
   while(_is_blank_byte(&src.*, i), {
     i = (i + usize(1));
   });
   cond(
     _is_byte(&src.*, i, u8(41)) => Option(Repair).Some(
-      Repair(span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)), replacement : String.new(), description : desc)
+      Repair(span : Span(path : tok.*.module_path.*.clone(), row : usize(tok.*.row), col : usize(tok.*.column), len : usize(2)), replacement : String.new(), description : desc)
     ),
     true => Option(Repair).None
   )
@@ -317,7 +317,7 @@ _reject_positional_rest :: (fn(args : &ArrayList(AstExpr), n_slots : usize, what
       });
       repair = Option(Repair).Some(
         Repair(
-          span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)),
+          span : Span(path : tok.*.module_path.*.clone(), row : usize(tok.*.row), col : usize(tok.*.column), len : usize(2)),
           replacement : fill.clone(),
           description : `write \`${fill}\`, one \`_\` per ${what} \`..\` stands for`
         )
@@ -1060,8 +1060,8 @@ _compile_variant :: (
     if(is_bare, {
       _throw_variant_shape(
         &name_tok,
-        `Variant "${vname}" has fields (${_backticked_list(&labels.items)}); its pattern takes parentheses`,
-        `write \`.${vname}(..)\` to match it whatever its payload, or bind the fields: \`.${vname}(${_comma_list(&labels.items)})\``,
+        `Variant "${vname}" has fields (${_backticked_list(&labels.*.items)}); its pattern takes parentheses`,
+        `write \`.${vname}(..)\` to match it whatever its payload, or bind the fields: \`.${vname}(${_comma_list(&labels.*.items)})\``,
         _after_name_span(&name_tok),
         String.from("(..)"),
         `write \`.${vname}(..)\``,
@@ -1106,7 +1106,7 @@ _compile_variant :: (
       subs_word := if(dparams.len() == usize(1), "sub-pattern", "sub-patterns");
       _throw_variant_shape(
         &name_tok,
-        `Variant "${vname}" has ${arity} ${fields_word} (${_backticked_list(&labels.items)}); the pattern has ${dparams.len()} ${subs_word}`,
+        `Variant "${vname}" has ${arity} ${fields_word} (${_backticked_list(&labels.*.items)}); the pattern has ${dparams.len()} ${subs_word}`,
         `write one sub-pattern per field, name the fields you need (\`.${vname}(label : p)\`), or write \`.${vname}(..)\` to ignore the payload`,
         Option(Span).None,
         String.new(),
@@ -1753,7 +1753,7 @@ compile_pattern :: (
       e,
       String.from("write `_`, which matches any value"),
       Option(Repair).Some(
-        Repair(span : Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(2)), replacement : String.from("_"), description : String.from("write `_`"))
+        Repair(span : Span(path : tok.*.module_path.*.clone(), row : usize(tok.*.row), col : usize(tok.*.column), len : usize(2)), replacement : String.from("_"), description : String.from("write `_`"))
       ),
       exn
     );
