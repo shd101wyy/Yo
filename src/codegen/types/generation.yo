@@ -785,6 +785,60 @@ static inline void __yo_note_spawn(void) {
     }
   }
 }
+// A program built with -DYO_ASYNC_STATS (\`yo compile -D YO_ASYNC_STATS\`, or
+// \`add_c_flags("-DYO_ASYNC_STATS")\` on a build.yo artifact) prints, at exit,
+// what the async lowering allocated and started when it runs with
+// YO_ASYNC_STATS=1 (plans/backlog/ALLOCATION_FREE_ASYNC.md, AFA-0). The hooks
+// are \`__YO_ASYNC_STAT(<counter>)\` at each allocation and start site; the
+// variable is read once, by \`__yo_async_stats_init\` at the top of \`main\`.
+// Counters are atomic because every thread runs its own loop. Without the
+// define every hook is \`((void)0)\` and the program is the one it was before.
+//   sm_cells / sync_cells   state-machine and no-await futures built (one heap cell each)
+//   io_cells                I/O, park, yield, join-wait and completed futures built
+//   cell_starts             cold futures started in their own cell: an await
+//                           site, a spawn, or a sync-context await
+//   embedded_starts         frames started inside their parent's block (no
+//                           lowering embeds a frame yet)
+//   fused_awaits            await sites that ran a wrapper's body in the caller
+//   spawns / roots          tasks started by \`io.spawn\`, and by a sync-context await
+#ifdef YO_ASYNC_STATS
+enum {
+  __YO_AS_SM_CELLS,
+  __YO_AS_SYNC_CELLS,
+  __YO_AS_IO_CELLS,
+  __YO_AS_CELL_STARTS,
+  __YO_AS_EMBEDDED_STARTS,
+  __YO_AS_FUSED_AWAITS,
+  __YO_AS_SPAWNS,
+  __YO_AS_ROOTS,
+  __YO_AS_COUNT
+};
+static int __yo_async_stats_on = 0;
+static _Atomic size_t __yo_async_stats_counts[__YO_AS_COUNT];
+#define __YO_ASYNC_STAT(k) \\
+  do { \\
+    if (__yo_async_stats_on) atomic_fetch_add_explicit(&__yo_async_stats_counts[k], 1, memory_order_relaxed); \\
+  } while (0)
+static void __yo_async_stats_report(void) {
+  size_t c[__YO_AS_COUNT];
+  for (int i = 0; i < __YO_AS_COUNT; i++) c[i] = atomic_load_explicit(&__yo_async_stats_counts[i], memory_order_relaxed);
+  size_t cells = c[__YO_AS_SM_CELLS] + c[__YO_AS_SYNC_CELLS] + c[__YO_AS_IO_CELLS];
+  size_t tasks = c[__YO_AS_SPAWNS] + c[__YO_AS_ROOTS];
+  fprintf(stderr, "yo: async-stats sm_cells=%zu sync_cells=%zu io_cells=%zu cell_starts=%zu embedded_starts=%zu fused_awaits=%zu spawns=%zu roots=%zu", c[__YO_AS_SM_CELLS], c[__YO_AS_SYNC_CELLS], c[__YO_AS_IO_CELLS], c[__YO_AS_CELL_STARTS], c[__YO_AS_EMBEDDED_STARTS], c[__YO_AS_FUSED_AWAITS], c[__YO_AS_SPAWNS], c[__YO_AS_ROOTS]);
+  if (tasks == 0) fprintf(stderr, " cells_per_task=n/a\\n");
+  else fprintf(stderr, " cells_per_task=%.2f\\n", (double)cells / (double)tasks);
+}
+static inline void __yo_async_stats_init(void) {
+  const char* v = getenv("YO_ASYNC_STATS");
+  if (v && v[0] && v[0] != '0') {
+    __yo_async_stats_on = 1;
+    atexit(__yo_async_stats_report);
+  }
+}
+#else
+#define __YO_ASYNC_STAT(k) ((void)0)
+static inline void __yo_async_stats_init(void) {}
+#endif
 static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
   return atomic_load_explicit(obj, order);
 }

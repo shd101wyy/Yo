@@ -425,6 +425,8 @@ _generate_io_spawn :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
       if(!is_io_future, {
         context.base.emitter.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->vt && ${spawn_var.clone()}->vt->resume) {`);
         context.base.emitter.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
+        context.base.emitter.emit_string_line(`${indent.clone()}  __YO_ASYNC_STAT(__YO_AS_CELL_STARTS);`);
+        context.base.emitter.emit_string_line(`${indent.clone()}  __YO_ASYNC_STAT(__YO_AS_SPAWNS);`);
         context.base.emitter.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->vt->resume((void*)${spawn_var.clone()});`);
         context.base.emitter.emit_string_line(`${indent.clone()}}`);
       });
