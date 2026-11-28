@@ -76,7 +76,7 @@ reading the code (S up to two days, M up to a week, L one to two weeks).
 
 | # | What | Closes | Size | Release | Depends on |
 | --- | --- | --- | --- | --- | --- |
-| — | VERDICTS-89 PR A (the resume rule R1, R2's `return` half) and PR B (R2's fall-through half and its sweep) | `issues/2026-11-25-a-generic-ctl-handler-that-resumes-with-its-resume-value-loses-it-at-a-non-scalar-resume-type.md` (S1); the fall-through abort | S; S–M | v0.2.81; v0.2.81–82 | — (unchanged by this plan) |
+| — | VERDICTS-89 PR A (the resume rule R1, R2's `return` half) and PR B (R2's fall-through half and its sweep) | `issues/fixed/2026-11-25-a-generic-ctl-handler-cannot-resume-with-a-value-at-any-type.md` (S1); the fall-through abort, `issues/fixed/2026-11-27-a-generic-resume-handler-that-falls-through-aborts-the-process-with-no-message.md` (S2) | S; S–M | v0.2.81; v0.2.81–82 | — (unchanged by this plan) |
 | **K-1** | A synchronous frame catches an unwind only when `__yo_unwind_target` is one of its own handler literals (`unwind_catch_condition` over `context.unwind_catches`, as `await.yo` does). `_call_is_handler_installation` is deleted | F1 (S1), F4 (S2) | M | v0.2.82 | — |
 | **K-2** | A frame saves the in-flight unwind's value and target before it runs drops on an escape path and restores them after, wherever it re-arms the flag today | F5 (S1); the docs' "do not unwind from a `Drop` impl" caveat | M | v0.2.82 | VBD row 14 (implicit drop deleted) |
 | **K-3** | A `ctl` value is not an `fn`; a closure at a `ctl` slot is an error; a control-bound value cannot be written through a `&mut` (F6's stopgap). A call through a plain function value never unwinds, so the may-unwind decision is exact | F3, F2, F6; a hello-world's 26 flag tests go to 0 | M | v0.2.82 | — |
