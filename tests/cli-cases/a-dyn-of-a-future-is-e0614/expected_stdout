@@ -14,7 +14,7 @@ Example — this fails:
   impl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));
   main :: (fn() -> unit)({
     (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
-    c := d.me();
+    c := d.*.me();
   });
   
 Example — write this instead:
@@ -24,7 +24,7 @@ Example — write this instead:
   impl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));
   main :: (fn() -> unit)({
     (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
-    n := d.speak();
+    n := d.*.speak();
   });
   
   `me` returns `Self`, whose concrete type the `Dyn(Sp)` erased; `speak` returns `i32` and is callable.

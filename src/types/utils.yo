@@ -1299,18 +1299,27 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
 /// decides every origin-dependent fact (`Escapable`, `type_carries_origin`)
 /// for both
 /// (issues/fixed/2026-11-11-a-static-origin-in-a-pragmad-file-is-an-unchecked-assertion-until-v0278.md).
-_static_origin_marks :: (fn(ty : &TypeValue, out : &mut String, seen : &mut ArrayList(String), depth : u32) -> unit)({
+///
+/// A recursive type's `Self` shell (a fieldless struct sharing its final's
+/// id, a variantless `__self_shell` enum) is read AS its final: the shell is
+/// one type with the final, and its empty field list spells no origin, so
+/// `Option(ArrayList(Self))` written inside the declaration and
+/// `Option(ArrayList(Token))` written after it marked differently and became
+/// two instances, two C types for one Yo type
+/// (issues/fixed/2026-11-26-a-recursive-structs-self-field-type-is-a-second-instance-when-the-struct-holds-a-static-reference.md).
+_static_origin_marks :: (fn(ty_in : &TypeValue, out : &mut String, seen : &mut ArrayList(String), depth : u32) -> unit)({
   if(depth > u32(24), {
     return(());
   });
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
-    ty,
+    &ty,
     Rc(.Reference(som_p, _, som_o)) => {
       out.push_str(if(is_static_origin(&som_o.*), "s", "n"));
       _static_origin_marks(&som_p.*, out, seen, (depth + u32(1)));
     },
     Rc(.ValueSlot(som_vs)) => _static_origin_marks(&som_vs.*, out, seen, (depth + u32(1))),
-    Rc(.OriginSet(_, _)) => out.push_str(if(is_static_origin(ty), "s", "n")),
+    Rc(.OriginSet(_, _)) => out.push_str(if(is_static_origin(&ty), "s", "n")),
     Rc(.Pointer(som_inner)) => _static_origin_marks(&som_inner.*, out, seen, (depth + u32(1))),
     Rc(.SliceT(som_elem)) => _static_origin_marks(&som_elem.*, out, seen, (depth + u32(1))),
     Rc(.Array(element : som_elem)) => _static_origin_marks(&som_elem.*, out, seen, (depth + u32(1))),
@@ -4075,7 +4084,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // str: pointer-aligned (fat pointer {ptr,len})
     Rc(.Str) => .Some(usize(get_target_pointer_size_bytes())),
     // Dyn: pointer-aligned (fat pointer {data, vtable}; see get_size_of_type).
-    Rc(.DynT({})) => .Some(usize(get_target_pointer_size_bytes())),
+    Rc(.DynT(_, _, _, _)) => .Some(usize(get_target_pointer_size_bytes())),
     // Struct: reference-semantics (object) → pointer-aligned; newtype →
     // inner field's alignment; otherwise the max field alignment.
     Rc(.Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt })) =>
@@ -4299,7 +4308,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // `size_would_overflow(Dyn(Error), n)` emitted a reference to an
     // undeclared `x` / `type_size`
     // (issues/fixed/sizeof-of-a-dyn-type-is-not-a-compile-time-constant.md).
-    Rc(.DynT({})) => .Some(usize(u32(2) * get_target_pointer_size_bits())),
+    Rc(.DynT(_, _, _, _)) => .Some(usize(u32(2) * get_target_pointer_size_bits())),
     // Struct: reference-semantics (object) → pointer-sized; newtype → inner
     // field's size; otherwise the C-laid-out aggregate size. Value structs get
     // the same cycle backstop as value enums (see `g_size_walk_stack`).

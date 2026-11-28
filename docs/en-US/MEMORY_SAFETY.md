@@ -24,7 +24,7 @@ Everything you'd expect from a modern general-purpose language:
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
 - **Closures and higher-order functions** over safe types.
 - **Generics, traits, GADTs.** All of Yo's type-system features.
-- **Algebraic effects, async/await, comptime.** Full access.
+- **Explicit capabilities and handlers, async/await, comptime.** Full access.
 - **In-place mutation.** Via `name : &mut T` parameters — covered below.
 
 This is the default user experience. No pragma needed, no `addr_of(...)` calls, no `*(T)` types, no `unsafe(...)` wraps:

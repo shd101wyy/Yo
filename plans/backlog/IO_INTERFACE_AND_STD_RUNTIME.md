@@ -160,7 +160,9 @@ impl(
   note.
 - **The effect row `E : Type.Struct` is unchanged.** `io` rides in the bundle
   as it does today, which is what makes the task body's `io` the awaiter's
-  value.
+  value. Whether the row survives once every row is `Io` (after
+  [`ERRORS_AS_VALUES`](ERRORS_AS_VALUES.md) E-3 deletes `IoExn`) is its E-6,
+  `issues/questions/2026-11-28-does-future-keep-an-effect-row.md`.
 
 ### 2.1 What the compiler owns
 

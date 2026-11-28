@@ -55,6 +55,7 @@ After a swallowed trial, a later pass over the now-hollow body can raise a DERIV
 - `YO_DEBUG_ASYNC_LAYOUT=1`: per `io.async` block, each closure parameter's declaration sites and each captured local's id, site and whether it got a state-machine field.
 - `YO_DEBUG_BODY_SUMMARY=1`: `[body-summary] <module> offered=N summarized=M` (see below).
 - `YO_DEBUG_CAPTURE=1`: the closure-capture pipeline (below).
+- `YO_DEBUG_SELF_PATTERN_CHECK=1`: at a generic impl's receiver match (`fmg_spec_ty`, `src/evaluator/values/impl.yo`), substitutes the receiver pattern without the `Self` binding and prints `[self-pattern-mismatch] pattern=… receiver=… keys_equal=… exact=…/… got_key=… recv_key=…` when its `type_key` or exact compatibility (both ways) differs from the receiver's. Zero lines over `check ./src` and `check ./std` is the invariant that one instance has one key however it was presented (`plans/reference/TYPE_IDENTITY.md`, "Recursive types").
 
 ## Evaluator facts that mislead
 
@@ -110,6 +111,6 @@ Emitted C names are position hashes (`yo_id_<hash><occurrence>`). With `YO_DEBUG
 ## Design docs for context
 
 - Drop glue and the cell runtime: `c-codegen.instructions.md` ("Drop glue and the cell runtime")
-- Async/await: `docs/en-US/ASYNC_AWAIT.md`; parallelism: `docs/en-US/PARALLELISM.md`; effects: `docs/en-US/ALGEBRAIC_EFFECTS.md`
+- Async/await: `docs/en-US/ASYNC_AWAIT.md`; parallelism: `docs/en-US/PARALLELISM.md`; handlers (`ctl`, `unwind`): `docs/en-US/ALGEBRAIC_EFFECTS.md`
 - Low-level sys module: `docs/en-US/STD_SYS_MODULE.md`
 - Reference cycles (they leak; `Weak` breaks them): `docs/en-US/MEMORY_SAFETY.md`, `docs/en-US/WEAK.md`

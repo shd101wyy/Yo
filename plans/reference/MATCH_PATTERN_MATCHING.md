@@ -562,6 +562,13 @@ bound as a C variable and the second arm's binds emitted after an unconditional
 4. **Yo's existing permissiveness is kept:** bare `.V` and `.V({})` bind nothing
    even for variants with fields; labeled/curly forms are partial; positional
    form is exact-arity.
+   **Amended 2026-11-26 (VERDICTS-88):** a variant pattern has parentheses
+   exactly when the variant has fields. `.V(..)` (the `..` alone) matches a
+   variant with fields whatever its payload; a bare `.V` on a variant with
+   fields, `.V()`, `.V({})` and parentheses on a fieldless variant are E0626
+   with a `yo fix` repair, a positional count mismatch is E0626 without one,
+   and a `..` anywhere else is E0609. Labeled/curly stay partial; positional
+   stays exact-arity.
 5. **Errors, not warnings, until the warnings channel exists**
    (`src/diagnostics.yo` has `Severity.Warning` but no channel). Unreachable arm
    = error, as `Duplicate pattern value` is today.
@@ -669,6 +676,9 @@ compiled against `T` and the access path records the deref (§4.8).
   "only one `_`, and last" rule is subsumed by "no unreachable arm".
 - **Bare `.V` / `.V({})`** on a variant with fields stays legal (design
   decision recorded in the cheatsheet; more permissive than Rust).
+  **Amended 2026-11-26 (VERDICTS-88):** both are now E0626; `.V(..)` is the
+  one spelling for "this variant, whatever its payload", and compiles to the
+  variant test with no sub-patterns that the bare form compiled to.
 
 ### 4.6 Exhaustiveness and unreachability
 

@@ -3,7 +3,7 @@
 **Severity:** S2 — a function may write its local handler into a caller's `&mut Option(Raise)` or a `&mut` struct's field; calling the handler after its frame returned aborts with "unhandled effect unwind escaped to top level". With F1 (`issues/2026-11-28-a-frame-that-installs-a-handler-catches-an-outer-frames-unwind.md`) a frame that installs a handler of another result type catches the dead handler's unwind and reads its value as its own: S1 then.
 
 - Filed: 2026-11-28, finding F6 of VERDICTS-95 (Fable 5.2, §7), with its probes `q04`, `q05` and `q04b`.
-- Status: open. Closed by K-3's stopgap (a control-bound value cannot be written through a `&mut`), and structurally by K-7 (a handler carries its installer's origin), of [`plans/backlog/CAPABILITIES_AND_HANDLERS.md`](../plans/backlog/CAPABILITIES_AND_HANDLERS.md).
+- Status: open, not fixed: retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
 
 ## Reproducer
 
@@ -51,9 +51,11 @@ As VERDICTS-95 §7 states it: the escape rules enumerate positions (result types
 
 ## Fix
 
+Not built (VERDICTS-96 §5): no statement in `src/` or `std/` has this shape, and E-5 deletes the mechanism. The repair the doc was filed with, K-3 and K-7 of [`plans/archive/CAPABILITIES_AND_HANDLERS.md`](../plans/archive/CAPABILITIES_AND_HANDLERS.md), was:
+
 - K-3 (v0.2.82), the stopgap: a control-bound value cannot be written through a `&mut` (assignment to `slot.*`, to a field or an element reached through one).
 - K-7 (v0.2.83–84, lane A, after N2c–N2f): a handler value carries the origin of its installer, and O3, O4 and O10 replace the enumeration with one structural check, so the store is E0909/E0912 by the existing rules.
 
 ## Test
 
-None in this filing: the bug is open with no fix. The test lands with K-3: the three repros as `comptime_expect_error` cases.
+None: the bug is not fixed. Its reproducer stops compiling at E-5, when `ctl` and `unwind` leave the language.

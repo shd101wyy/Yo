@@ -141,7 +141,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.*.next;
+        cur = &mut n.*.*.next;
       },
       .None => ()
     );
@@ -156,7 +156,7 @@ sum_list :: (fn(list : &List) -> i32)({
       cur,
       .Some(n) => {
         total = (total + n.*.*.value);
-        cur = &n.*.next;
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -169,10 +169,10 @@ first_over :: (fn(list : &List, k : i32) -> i32)({
     match(
       cur,
       .Some(n) => {
-        if(n.*.value > k, {
-          return(n.*.value);
+        if(n.*.*.value > k, {
+          return(n.*.*.value);
         });
-        cur = &n.*.next;
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -449,6 +449,31 @@ comptime_expect_error(
   }),
   "is not yet admitted"
 );
+// VERDICTS-73: a re-point's step into an `Rc`'s payload is written
+// `&h.*.v`, and it takes the check the step deref forwarding synthesized for
+// `&h.v` took (decision 25: the step pins the cell). The unspelled step is
+// E0623; a step through a raw pointer stays P1b (deref-explicit-unsafe).
+_RpCell :: struct(v : i32);
+comptime_expect_error(
+  repoint_through_an_unspelled_rc_rejected :: (fn() -> i32)({
+    x := i32(1);
+    cur := &x;
+    h := Rc.new(_RpCell(v : i32(2)));
+    cur = &h.v;
+    cur.*
+  }),
+  "write `h.*.v`"
+);
+repoint_through_a_spelled_rc :: (fn() -> i32)({
+  x := i32(1);
+  cur := &x;
+  h := Rc.new(_RpCell(v : i32(2)));
+  cur = &h.*.v;
+  cur.*
+});
+test("a re-point through an Rc's payload is spelled `&h.*.v` and takes forwarding's step (VERDICTS-73)", {
+  assert(repoint_through_a_spelled_rc() == i32(2), "the re-point reads the payload's field");
+});
 comptime_expect_error(
   repoint_keeps_the_mode :: (fn() -> unit)({
     l1 := List(head : .None);
@@ -511,7 +536,7 @@ comptime_expect_error(
       match(
         cur,
         .Some(n) => {
-          cur = &mut n.*.next;
+          cur = &mut n.*.*.next;
         },
         .None => ()
       );
@@ -825,7 +850,7 @@ b_append :: (fn(list : &mut BList, v : i32) -> unit)({
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.*.next;
+        cur = &mut n.*.*.next;
       },
       .None => ()
     );
@@ -840,8 +865,8 @@ b_sum :: (fn(list : &BList) -> i32)({
     match(
       cur,
       .Some(n) => {
-        cur = &n.*.next;
-        total = (total + n.*.value);
+        cur = &n.*.*.next;
+        total = (total + n.*.*.value);
       },
       .None => ()
     );
@@ -851,15 +876,15 @@ b_sum :: (fn(list : &BList) -> i32)({
 // `recur(&mut n.next)` passes the field's address, as a named call does
 // (issues/fixed/2026-11-05-recur-of-a-mut-borrowed-field-of-a-match-binding-passes-the-value-not-its-address.md).
 b_last_value :: (fn(slot : &mut Option(Box(BNode))) -> i32)(
-  match(slot, .Some(n) => cond(n.*.next.is_some() => recur(&mut n.*.next), true => n.*.value), .None => i32(-1))
+  match(slot, .Some(n) => cond(n.*.*.next.is_some() => recur(&mut n.*.*.next), true => n.*.*.value), .None => i32(-1))
 );
 // The same recursion writing through the address it was passed.
 b_bump_all :: (fn(slot : &mut Option(Box(BNode))) -> unit)(
   match(
     slot,
     .Some(n) => {
-      n.*.value = (n.*.value + i32(10));
-      recur(&mut n.*.next);
+      n.*.*.value = (n.*.*.value + i32(10));
+      recur(&mut n.*.*.next);
     },
     .None => ()
   )
@@ -891,7 +916,7 @@ comptime_expect_error(
       match(
         cur,
         .Some(n) => {
-          cur = &mut n.*.next;
+          cur = &mut n.*.*.next;
         },
         .None => ()
       );
@@ -941,7 +966,7 @@ comptime_expect_error(
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.*.next;
+        cur = &mut n.*.*.next;
         seen = n.value;
       },
       .None => ()
@@ -981,8 +1006,8 @@ r_sum :: (fn(list : &RList) -> i32)({
     match(
       cur,
       .Some(n) => {
-        total = (total + n.*.value);
-        cur = &n.*.next;
+        total = (total + n.*.*.value);
+        cur = &n.*.*.next;
       },
       .None => ()
     );
@@ -1002,7 +1027,7 @@ comptime_expect_error(
     match(
       cur,
       .Some(n) => {
-        cur = &mut n.*.next;
+        cur = &mut n.*.*.next;
       },
       .None => ()
     );

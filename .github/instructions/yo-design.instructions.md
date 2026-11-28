@@ -61,7 +61,7 @@ Spelling (what parses) lives in `yo-syntax.instructions.md`; this file holds sem
   - A cell payload whose type mentions a type variable (`dyn(Rc.new(<closure>))`, `f : Impl(Fn(...))`) is built by the prelude's compiler-internal `__yo_rc_cell` / `__yo_arc_cell` / `__yo_box_cell` function values bound to the callee node (`_prelude_cell_constructor`, `_dyn_cell_args_recognized`, `src/evaluator/values/dyn.yo`), so no name is looked up. `dyn(Rc.new(<closure>))` / `dyn(Arc.new(<closure>))` are recognized with or without `alloc`; `Rc(T).new(<closure>)` is not (a closure's type cannot be written). An `Impl(Fn(...))` parameter's type variable can dispatch `new` (`_is_open_fn_param_slot`, `values/impl.yo`). These helpers go once the open issue above is fixed.
   - The clone of a `Dyn` over a placed cell (`_emit_dyn_clone_function`) passes the source's owner (`__yo_scope_of_object`) as the fresh cell's allocator.
 - **Auto-dereference (`Deref`, `plans/VALUES_BY_DEFAULT.md` §3.3).** `Box`, `Rc` and `Arc` implement `Deref` (`Target := V`): a member the wrapper lacks is looked up on the payload (`w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively). Spelling, `Deref` owners and `DerefMut`: yo-syntax "`Rc` / `Arc` handles".
-  - A name both the wrapper and its payload have is E0616 (`_reject_wrapper_payload_clash`, `calls/function.yo`; the callee arm of `evaluate_property_access`), naming `Rc.m(w)` and `w.*.m()`; `yo fix` rewrites to `Rc.m(w)`. The check is off while a generic body is specialized (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`). `derive(T, Clone)` spells a `Deref` field's clone `(type_of(self.f) <: Clone).clone(&self.f)`.
+  - A name both the wrapper and its payload have is E0616 (`_reject_wrapper_payload_clash`, `calls/function.yo`; the callee arm of `evaluate_property_access`), naming `Rc.m(w)` and `w.*.m()`; `yo fix` rewrites to `Rc.m(w)`. The check is off while a generic body is specialized (`issues/retired/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`). `derive(T, Clone)` spells a `Deref` field's clone `(type_of(self.f) <: Clone).clone(&self.f)`.
   - Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it replaces the object argument with a `w.*` node from `make_deref_expr` and re-evaluates; in callee position only when the wrapper has no method of that name); the method hook is `_try_find_receiver_method`'s miss path. `deref_target_type` (`trait-checking.yo`) is the one predicate.
   - Outside the prelude a `Deref`/`DerefMut` impl needs an unsized `Target` (`[T]`, `str`, a `Dyn`), else E0622 (`_throw_if_deref_impl_outside_prelude`, `values/impl.yo`).
 
@@ -155,7 +155,8 @@ A literal converts to any runtime integer type at argument positions (`xs.push(1
 
 `assumed` (contracts declared, body never walked) and `outside-subset` (nothing promised, the walk could not enter) PASS a plain `yo verify` by design (gradual adoption, `std/collections` dogfooding), so the exit code alone says nothing about coverage.
 
-- Gate a specification directory with `yo verify <path> --strict` (= `--deny assumed,outside-subset,unproven`), which fails those outcomes in every mode, including `verify+`. Adding `assumed()` to silence a finding is then visible.
+- Gate a specification directory with `yo verify <path> --strict` (= `--deny assumed,outside-subset,unproven,infeasible`), which fails those outcomes in every mode, including `verify+`. Adding `assumed()` to silence a finding is then visible.
+- An `assumed()` contract is probed, not trusted blindly: one no input satisfies is `contradictory` (fails in every mode), a proof that holds only because an assumed `ensures` contradicts the caller's facts is `infeasible` (fails in `verify`, keeps its assert in `verify+`), and an `ok` line names the assumed contracts its proofs rest on (`rests on assumed: …`, JSON `assumes`). `docs/en-US/FORMAL_VERIFICATION.md` §What a proof rests on.
 - Read the summary line, not just the exit code: it prints every outcome count and how many `ok` results were VACUOUS (discharged no obligation). `--format json` carries the same under `summary`. `plans/backlog/SELF_VERIFICATION.md` ratchets on the non-vacuous count.
 - **Laws state claims outside the code:** `name :: law(fn(x : T, requires(p), ensures(q)) -> unit);` (a written-out fn type with clauses, no body). A law is proved from the callee's CONTRACT alone, evaluates to `unit` and is erased in codegen. A non-`unit` return, no `ensures`, `assumed()`, `decreases(...)` or a named alias in place of the fn type are compile errors; `unproven` has no assert fallback for a law (so `--strict` decides); a law is never `outside-subset`; its callee may be imported. Full contract and workflow: `docs/en-US/FORMAL_VERIFICATION.md` §Laws.
 
@@ -188,7 +189,7 @@ register_module :: (fn(comptime(config) : ModuleConfig) -> comptime(unit))({
 });
 ```
 
-## Algebraic effects
+## Handlers (`ctl`, `unwind`)
 
 The core rule (`return(expr)` in a handler resumes, `unwind(expr)` discards the continuation) is in AGENTS.md. Design: `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
@@ -433,6 +434,8 @@ Decided in `plans/archive/STD_API_AUDIT.md` D1. When you add or change a fallibl
 | pure fallible transforms: parsing, decoding, conversion | **`Result(T, TypedError)`** |
 | lookups where absence is not an error | **`Option(T)`** |
 
+**No new `exn` parameter and no new `ctl` type in `std/` or `src/`; a new fallible API returns `Result(T, TypedError)` on any path, the `io` path included.** `ctl` and `unwind` are being deleted and errors become values (`plans/backlog/ERRORS_AS_VALUES.md`): std's `io` path moves to `Result` at E-3 (v0.2.84) and `src/` at E-4. The effects row of the table describes the existing `io` API until then; it is not a style for new code.
+
 Rules that follow from it:
 
 - **`Result(_, String)` is banned.** An error type is a real enum implementing `Error()`: a string error cannot be matched on, downcast or wrapped. The `Error()` marker is enforced: `dyn(Box.new(x))` checks that `x`'s type implements every required trait of the target `Dyn`, so `exn.throw(dyn(Box.new(e)))` on an error enum without `impl(E, Error())` is a compile error at the `dyn(...)` token. `AnyError` is `Box(Dyn(Error, Clone))` (`std/error.yo`), so the type must be `Clone` too (`derive(E, Clone)`; the `Clone` bound is an interim, not a decision). `throw` takes the error BY VALUE: a handler owns the error it catches, keeps it by moving it (`unwind(.Some(e))`, `xs.push(e)`) and lends it with `&e` to a read-only helper.
@@ -521,7 +524,7 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
   `std/string/string.yo` (and anything else `std/assert` reaches) panics with the `__yo_panic` builtin.
 - **`dir/index.yo`** only when a directory holds a single public module whose name would duplicate the directory's (`dir/dir.yo`): users write `import("std/url")`, not `import("std/url/url")`. Examples: `std/url`, `std/regex`.
 - **A flat `.yo` file** for a module with one file and no planned submodules (`std/env.yo`, `std/log.yo`, `std/glob.yo`), not a directory holding only an `index.yo`. Use a directory once the module has companion files (helpers, platform splits, sub-APIs).
-- **No catch-all `index.yo`** for a directory of distinct submodules; users import each one (`import("std/net/tcp")`, `import("std/collections/hash-map")`, `import("std/fs/file")`). This category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
+- **A directory of distinct submodules** (`std/net`, `std/fs`, `std/sync`, `std/time`, `std/collections`) gets a **re-export-only `index.yo`**, so a model's first line `{ HashMap } :: import("std/collections")` resolves, and `import("std/collections/hash-map")` stays the same name. The barrel defines nothing: each module is imported under a `_`-prefixed name and spread into one `export(...(_hash_map), …)` (the shape of `std/string/index.yo` and `std/process/index.yo`); a new module of the directory is added to it, and its `tests/std-barrels.test.yo` row pins the names. A directory that is not in that list (`std/crypto`, `std/encoding`, `std/cli`, `std/testing`) has none: users import each module (`import("std/crypto/random")`). A barrel is never a place for new code.
 - **A primary file plus companions** gets an `index.yo` that re-exports them all:
 
 ```yo

@@ -2,7 +2,7 @@
 
 ## Philosophy
 
-Yo uses **async/await with state machine transformation** via **algebraic effects** for efficient **single-threaded concurrency**. This is a stackless coroutine model similar to JavaScript's event loop - all async code runs on the **same thread** as the caller.
+Yo uses **async/await with state machine transformation** for efficient **single-threaded concurrency**. This is a stackless coroutine model similar to JavaScript's event loop - all async code runs on the **same thread** as the caller.
 
 **Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md`, which describes `Thread(T).spawn` (std/thread) and the worker pool for isolated multi-threaded execution.
 
@@ -58,9 +58,9 @@ thread := Thread(unit).spawn(io => {
 thread.join();
 ```
 
-## Execution Model: Lazy Start via Algebraic Effects
+## Execution Model: Lazy Start
 
-Yo's async uses **algebraic effects** with the `Io` effect type. Async tasks are **lazy** — they don't start until explicitly awaited or spawned:
+Yo's async is a compiler transform over the `Io` capability (`io : Io`). Async tasks are **lazy** — they don't start until explicitly awaited or spawned:
 
 - `io.async(fn)` creates a **cold Future** — the function body is NOT executed yet
 - `io.await(task)` starts a cold task and runs it to completion (sequential)
@@ -123,7 +123,7 @@ export(main);
 5. **Zero-Cost Abstraction**: State machine transformation at compile time
 6. **Familiar Model**: Similar to JavaScript's event loop - proven and intuitive
 7. **No Atomics Needed**: Reference counting doesn't need atomic operations
-8. **Algebraic Effects**: Io capabilities are explicit via `io : Io`
+8. **Explicit capabilities**: Io capabilities are explicit via `io : Io`
 
 ### Why Not Multi-Threaded Async?
 
@@ -301,7 +301,7 @@ export(main);
 
 #### Future with Effects
 
-`Future(T)` can carry algebraic-effect information. The shape is:
+`Future(T)` can carry an effect row, the bundle of capabilities the task receives. The shape is:
 
 ```yo ignore
 Future(T)        // No effects
@@ -546,7 +546,7 @@ change and may be lent.
 
 ### Aborted Futures
 
-When an algebraic effect handler calls `unwind` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
+When a handler calls `unwind` inside an async task, the Future is marked as **aborted** (internal state = -2). The rest of the task does not run and no result is stored.
 
 **With `io.await`**: the abort propagates to the awaiter. Inside an
 `io.async` body the awaiting task is aborted in turn, so a `JoinHandle.await`
@@ -1156,7 +1156,7 @@ What works on WASM:
 - `io.await()` — await futures
 - `io.spawn()` / `JoinHandle.await()` — spawn and join tasks
 - `yield()` — cooperative yielding between tasks
-- Algebraic effects with async
+- Handlers (`ctl`, `unwind`) with async
 - `sleep()` (from `std/sys/timer`) — timer-based delays via sorted timer queue
 - File I/O (`File.open`, `read`, `write` from `std/fs/file` and `std/sys/file`) — via NODERAWFS (Node.js) or Emscripten FS
 
@@ -1848,9 +1848,9 @@ handle.await(io);
 | Non-module (`Io`) type           | Compile-time      | No runtime field      |
 | Non-generic, unresolved handler  | Runtime injection | `void*` capture field |
 
-## Async + Algebraic Effects
+## Async + Handlers
 
-Algebraic effects and async work together: async closures can declare effect
+Handlers and async work together: async closures can declare effect
 parameters via `e : E`, and callers inject handlers at `io.await` or
 `io.spawn` time. This section covers tested scenarios and known limitations.
 
@@ -1888,7 +1888,7 @@ Yo's async/await provides:
 2. **Single-threaded concurrency** — all async runs on one thread
 3. **Concurrent spawn** — `io.spawn(f, e)` starts a cold Future without waiting, returns `JoinHandle(T)`
 4. **No thread safety concerns** — no data races possible
-5. **Algebraic effects** — Io capabilities explicit via `io : Io`
+5. **Explicit capabilities** — Io capabilities explicit via `io : Io`
 6. **State machine transformation** — zero-cost abstraction
 7. **Non-atomic RC** — no synchronization overhead
 8. **Memory efficient** — millions of concurrent tasks (~200 bytes each)

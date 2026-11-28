@@ -1,0 +1,163 @@
+//! The re-export-only barrels `std/collections`, `std/fs`, `std/time`,
+//! `std/sync`, `std/net` and `std/process` (VERDICTS-82 Q2): each name
+//! resolves through the barrel and through its own module to the same type or
+//! function, and the first line a Rust programmer writes,
+//! `{ HashMap } :: import("std/collections")`, binds a usable name.
+{ assert } :: import("std/assert");
+{ HashMap, ArrayList, Deque, PriorityQueue, BTreeMap, HashSet, OrderedMap, MapEntry } :: import("std/collections");
+{ Mutex, Channel, Cond, MemoryOrder, AtomicUsize, RwLock } :: import("std/sync");
+{ Duration, Instant } :: import("std/time");
+{ IpAddr, SocketAddr } :: import("std/net");
+{ File, OpenMode } :: import("std/fs");
+{ Command } :: import("std/process");
+collections :: import("std/collections");
+fs :: import("std/fs");
+time :: import("std/time");
+sync :: import("std/sync");
+net :: import("std/net");
+process :: import("std/process");
+array_list :: import("std/collections/array-list");
+btree_map :: import("std/collections/btree-map");
+deque :: import("std/collections/deque");
+entry :: import("std/collections/entry");
+hash_map :: import("std/collections/hash-map");
+hash_set :: import("std/collections/hash-set");
+ordered_map :: import("std/collections/ordered-map");
+priority_queue :: import("std/collections/priority-queue");
+fs_dir :: import("std/fs/dir");
+fs_file :: import("std/fs/file");
+fs_metadata :: import("std/fs/metadata");
+fs_temp :: import("std/fs/temp");
+fs_walker :: import("std/fs/walker");
+fs_watch :: import("std/fs/watch");
+time_datetime :: import("std/time/datetime");
+time_duration :: import("std/time/duration");
+time_instant :: import("std/time/instant");
+time_sleep :: import("std/time/sleep");
+sync_atomic :: import("std/sync/atomic");
+sync_barrier :: import("std/sync/barrier");
+sync_channel :: import("std/sync/channel");
+sync_cond :: import("std/sync/cond");
+sync_mutex :: import("std/sync/mutex");
+sync_once :: import("std/sync/once");
+sync_refcell :: import("std/sync/refcell");
+sync_rwlock :: import("std/sync/rwlock");
+sync_semaphore :: import("std/sync/semaphore");
+sync_waitgroup :: import("std/sync/waitgroup");
+net_addr :: import("std/net/addr");
+net_dns :: import("std/net/dns");
+net_errors :: import("std/net/errors");
+net_tcp :: import("std/net/tcp");
+net_udp :: import("std/net/udp");
+net_unix :: import("std/net/unix");
+process_command :: import("std/process/command");
+test("std/collections names are the modules' names", {
+  comptime_assert(Type.eq(collections.ArrayList(i32), array_list.ArrayList(i32)));
+  comptime_assert(Type.eq(collections.ArrayListError, array_list.ArrayListError));
+  comptime_assert(Type.eq(collections.BTreeMap(i32, i32), btree_map.BTreeMap(i32, i32)));
+  comptime_assert(Type.eq(collections.Deque(i32), deque.Deque(i32)));
+  comptime_assert(Type.eq(collections.MapEntry(i32, i32), entry.MapEntry(i32, i32)));
+  comptime_assert(Type.eq(collections.MapEntry(i32, i32), hash_map.MapEntry(i32, i32)));
+  comptime_assert(Type.eq(collections.HashMap(i32, i32), hash_map.HashMap(i32, i32)));
+  comptime_assert(Type.eq(collections.HashMapError, hash_map.HashMapError));
+  comptime_assert(Type.eq(collections.HashSet(i32), hash_set.HashSet(i32)));
+  comptime_assert(Type.eq(collections.OrderedMap(i32, i32), ordered_map.OrderedMap(i32, i32)));
+  comptime_assert(Type.eq(collections.PriorityQueue(i32), priority_queue.PriorityQueue(i32)));
+});
+test("std/collections barrel names are usable", {
+  m := HashMap(i32, i32).new();
+  assert(m.len() == usize(0), "an empty HashMap");
+  xs := ArrayList(i32).new();
+  assert(xs.len() == usize(0), "an empty ArrayList");
+  d := Deque(i32).new();
+  assert(d.len() == usize(0), "an empty Deque");
+  s := HashSet(i32).new();
+  assert(s.len() == usize(0), "an empty HashSet");
+  b := BTreeMap(i32, i32).new();
+  assert(b.len() == usize(0), "an empty BTreeMap");
+  o := OrderedMap(i32, i32).new();
+  assert(o.len() == usize(0), "an empty OrderedMap");
+  q := PriorityQueue(i32).new();
+  assert(q.len() == usize(0), "an empty PriorityQueue");
+  comptime_assert(Type.eq(MapEntry(i32, i32), entry.MapEntry(i32, i32)));
+});
+test("std/fs names are the modules' names", {
+  comptime_assert(Type.eq(fs.File, fs_file.File));
+  comptime_assert(Type.eq(fs.OpenMode, fs_file.OpenMode));
+  comptime_assert(Type.eq(fs.OpenOptions, fs_file.OpenOptions));
+  comptime_assert(Type.eq(fs.DirEntry, fs_dir.DirEntry));
+  comptime_assert(Type.eq(fs.Metadata, fs_metadata.Metadata));
+  comptime_assert(Type.eq(fs.TempDir, fs_temp.TempDir));
+  comptime_assert(Type.eq(fs.WalkEntry, fs_walker.WalkEntry));
+  comptime_assert(Type.eq(fs.Watcher, fs_watch.Watcher));
+  comptime_assert(Type.eq(type_of(fs.read_to_string), type_of(fs_file.read_to_string)));
+  comptime_assert(Type.eq(type_of(fs.create_dir), type_of(fs_dir.create_dir)));
+  comptime_assert(Type.eq(type_of(fs.metadata), type_of(fs_metadata.metadata)));
+  comptime_assert(Type.eq(type_of(fs.walk), type_of(fs_walker.walk)));
+  comptime_assert(Type.eq(type_of(fs.watch), type_of(fs_watch.watch)));
+});
+test("std/fs barrel names are usable", {
+  comptime_assert(Type.eq(File, fs_file.File));
+  comptime_assert(Type.eq(OpenMode, fs_file.OpenMode));
+});
+test("std/time names are the modules' names", {
+  comptime_assert(Type.eq(time.Duration, time_duration.Duration));
+  comptime_assert(Type.eq(time.Instant, time_instant.Instant));
+  comptime_assert(Type.eq(time.SystemTime, time_instant.SystemTime));
+  comptime_assert(Type.eq(time.DateTime, time_datetime.DateTime));
+  comptime_assert(Type.eq(time.Interval, time_sleep.Interval));
+  comptime_assert(Type.eq(type_of(time.sleep), type_of(time_sleep.sleep)));
+});
+test("std/time barrel names are usable", {
+  d := Duration.from_secs(i64(2));
+  assert(d.as_secs() == i64(2), "a Duration from the barrel");
+  comptime_assert(Type.eq(Instant, time_instant.Instant));
+});
+test("std/sync names are the modules' names", {
+  comptime_assert(Type.eq(sync.Mutex(i32), sync_mutex.Mutex(i32)));
+  comptime_assert(Type.eq(sync.RawMutex, sync_mutex.RawMutex));
+  comptime_assert(Type.eq(sync.Channel(i32), sync_channel.Channel(i32)));
+  comptime_assert(Type.eq(sync.Sender(i32), sync_channel.Sender(i32)));
+  comptime_assert(Type.eq(sync.Receiver(i32), sync_channel.Receiver(i32)));
+  comptime_assert(Type.eq(sync.TryRecvError, sync_channel.TryRecvError));
+  comptime_assert(Type.eq(sync.Cond, sync_cond.Cond));
+  comptime_assert(Type.eq(sync.Barrier, sync_barrier.Barrier));
+  comptime_assert(Type.eq(sync.RwLock(i32), sync_rwlock.RwLock(i32)));
+  comptime_assert(Type.eq(sync.Semaphore, sync_semaphore.Semaphore));
+  comptime_assert(Type.eq(sync.WaitGroup, sync_waitgroup.WaitGroup));
+  comptime_assert(Type.eq(sync.Once, sync_once.Once));
+  comptime_assert(Type.eq(sync.RefCell(i32), sync_refcell.RefCell(i32)));
+  comptime_assert(Type.eq(sync.AtomicUsize, sync_atomic.AtomicUsize));
+  comptime_assert(Type.eq(sync.MemoryOrder, sync_atomic.MemoryOrder));
+});
+test("std/sync barrel names are usable", {
+  n := AtomicUsize.new(usize(1));
+  assert(n.load(MemoryOrder.SeqCst) == usize(1), "an AtomicUsize from the barrel");
+  m := Mutex(i32).new(i32(3));
+  _ := m;
+  comptime_assert(Type.eq(Channel(i32), sync_channel.Channel(i32)));
+  comptime_assert(Type.eq(Cond, sync_cond.Cond));
+  comptime_assert(Type.eq(RwLock(i32), sync_rwlock.RwLock(i32)));
+});
+test("std/net names are the modules' names", {
+  comptime_assert(Type.eq(net.IpAddr, net_addr.IpAddr));
+  comptime_assert(Type.eq(net.SocketAddr, net_addr.SocketAddr));
+  comptime_assert(Type.eq(net.NetError, net_errors.NetError));
+  comptime_assert(Type.eq(net.DnsError, net_errors.DnsError));
+  comptime_assert(Type.eq(net.TcpStream, net_tcp.TcpStream));
+  comptime_assert(Type.eq(net.TcpListener, net_tcp.TcpListener));
+  comptime_assert(Type.eq(net.UdpSocket, net_udp.UdpSocket));
+  comptime_assert(Type.eq(net.UnixStream, net_unix.UnixStream));
+  comptime_assert(Type.eq(type_of(net.lookup_host), type_of(net_dns.lookup_host)));
+  comptime_assert(Type.eq(IpAddr, net_addr.IpAddr));
+  comptime_assert(Type.eq(SocketAddr, net_addr.SocketAddr));
+});
+test("std/process re-exports Command", {
+  comptime_assert(Type.eq(process.Command, process_command.Command));
+  comptime_assert(Type.eq(Command, process_command.Command));
+});
+test("a barrel exports only public names", {
+  comptime_expect_error(sync.cell_list_len, "cell_list_len");
+  comptime_expect_error(sync.__yo_thread_self, "__yo_thread_self");
+  comptime_expect_error(fs._close_file_state, "_close_file_state");
+});
