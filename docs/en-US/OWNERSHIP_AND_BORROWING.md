@@ -984,8 +984,8 @@ are `Arc(Mutex(T))`, `Arc(RwLock(T))` and the atomics.
 
 ### `std/sync` values
 
-`Mutex(T)`, `RwLock(T)`, `Cond`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`,
-`OnceCell(T)` and the `Atomic*` types are move-only values, as in Rust: a
+`Mutex(T)`, `RwLock(T)`, `Condvar`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`,
+`OnceLock(T)` and the `Atomic*` types are move-only values, as in Rust: a
 copy is E0901, and every method takes `self : &Self`. Threads share one
 through an `Arc`: create it with `Arc.new(...)`, give each thread its own
 `Arc.clone(&...)`, and capture that clone by value.

@@ -66,9 +66,9 @@
 pragma(Pragma.AllowUnsafe);
 
 { Mutex } :: import("./mutex");
-{ Cond } :: import("./cond");
+{ Condvar } :: import("./condvar");
 
-/// Reader-writer lock built on `Mutex` and `Cond`, owning the protected `T`.
+/// Reader-writer lock built on `Mutex` and `Condvar`, owning the protected `T`.
 /// A move-only value with its state in a private `Box`; threads share one as
 /// `Arc(RwLock(T))`.
 ///
@@ -79,8 +79,8 @@ _RwCore :: struct(
   _readers : i32,
   _writer : bool,
   _mutex : Mutex(bool),
-  _read_cv : Cond,
-  _write_cv : Cond
+  _read_cv : Condvar,
+  _write_cv : Condvar
 );
 _RwLockState :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
@@ -148,7 +148,7 @@ _rw_read_unlock :: (fn(c : *_RwCore) -> unit)(
     c.*._mutex._raw_lock();
     consume(c.*._readers = (c.*._readers - i32(1)));
     cond(
-      (c.*._readers == i32(0)) => c.*._write_cv.signal(),
+      (c.*._readers == i32(0)) => c.*._write_cv.notify_one(),
       true => ()
     );
     c.*._mutex._raw_unlock();
@@ -169,14 +169,14 @@ _rw_write_lock :: (fn(c : *_RwCore) -> unit)(
 //
 // Wake BOTH waiting sets. The previous form picked one:
 //
-//     cond((_readers > i32(0)) => _read_cv.broadcast(),
-//          true                => _write_cv.signal());
+//     cond((_readers > i32(0)) => _read_cv.notify_all(),
+//          true                => _write_cv.notify_one());
 //
 // and its reader arm was UNREACHABLE. The exclusion invariant guarantees
 // `_readers == 0` here: `_rw_read_lock` blocks while `_writer` is set, so
 // no reader can have incremented `_readers` while this writer held the lock,
 // and `_rw_write_lock` only proceeds once `_readers == 0`. So the test was
-// always false and only `_write_cv.signal()` ever ran — readers blocked in
+// always false and only `_write_cv.notify_one()` ever ran — readers blocked in
 // `_read_cv.wait` were never woken by the writer at all, and escaped only on
 // a pthread SPURIOUS wakeup, which is what made this look like it worked.
 //
@@ -188,8 +188,8 @@ _rw_write_unlock :: (fn(c : *_RwCore) -> unit)(
   unsafe({
     c.*._mutex._raw_lock();
     consume(c.*._writer = false);
-    c.*._read_cv.broadcast();
-    c.*._write_cv.signal();
+    c.*._read_cv.notify_all();
+    c.*._write_cv.notify_one();
     c.*._mutex._raw_unlock();
   })
 );
@@ -233,8 +233,8 @@ impl(
             _readers : i32(0),
             _writer : false,
             _mutex : Mutex(bool).new(false),
-            _read_cv : Cond.new(),
-            _write_cv : Cond.new()
+            _read_cv : Condvar.new(),
+            _write_cv : Condvar.new()
           ),
           _value : value
         )

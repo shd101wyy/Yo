@@ -1,9 +1,9 @@
-{ OnceCell } :: import("std/sync/once");
+{ OnceLock } :: import("std/sync/once");
 { println } :: import("std/fmt");
 main :: (fn() -> unit)({
   // The initializer reaches the cell through its own `Arc` handle: lending
   // the cell itself to the closure while `get_or_init` borrows it is E0910.
-  cell := Arc.new(OnceCell(i32).new());
+  cell := Arc.new(OnceLock(i32).new());
   v := cell.*.get_or_init({ again : Arc.clone(cell) }() => {
     println(`outer initializer running`);
     inner := again.*.get_or_init(() => i32(1));

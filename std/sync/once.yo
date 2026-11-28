@@ -1,23 +1,23 @@
 //! One-time initialization primitives.
 //!
-//! `Once` runs a side-effecting closure exactly once; `OnceCell(T)` stores the
+//! `Once` runs a side-effecting closure exactly once; `OnceLock(T)` stores the
 //! value that closure produced and hands it back on every later call.
 //!
 //! ## Example
 //!
 //! ```yo
-//! { Once, OnceCell } :: import("std/sync/once");
+//! { Once, OnceLock } :: import("std/sync/once");
 //!
 //! init := Once.new();
 //! // Only the first call executes the function
-//! init.call(() => {
+//! init.call_once(() => {
 //!   println("initialized!");
 //! });
-//! init.call(() => {
+//! init.call_once(() => {
 //!   println("this will NOT run");
 //! });
 //!
-//! cell := OnceCell(i32).new();
+//! cell := OnceLock(i32).new();
 //! a := cell.get_or_init(() => i32(42)); // runs the closure
 //! b := cell.get_or_init(() => i32(99)); // lends the stored 42, closure not run
 //! assert(b.* == i32(42), "get_or_init returns a &T into the cell");
@@ -27,12 +27,8 @@
 //!
 //! unstable — the mechanism is settled (double-checked locking over
 //! `Mutex.with_lock`, concurrently tested in `tests/sync/once.test.yo`),
-//! but one NAME is wrong against the Rust vocabulary the rest of this
-//! library follows: `OnceCell(T)` here is thread-safe, which is Rust's
-//! `OnceLock<T>`, while Rust's `OnceCell<T>` is the single-threaded one.
-//! Renaming it — or adding a genuinely single-threaded cell beside it — is
-//! a live question, so the name is not frozen. `LazyLock`'s counterpart is
-//! also still missing (`plans/archive/STD_API_STABILIZATION_FINDINGS.md` item 10);
+//! and the names are Rust's (`Once.call_once`, the thread-safe
+//! `OnceLock(T)`), but `LazyLock`'s counterpart is still missing (`plans/archive/STD_API_STABILIZATION_FINDINGS.md` item 10);
 //! that one is additive. Neither type has poisoning: an initializer that
 //! exits early leaves the `Once` un-done and the next caller retries.
 pragma(Pragma.AllowUnsafe);
@@ -103,7 +99,7 @@ impl(
   /// `f` cannot throw — a closure cannot capture an `Exception` — so there
   /// is no "the mutex stayed locked" case to worry about; release is
   /// structural through `Mutex.with_lock` either way.
-  call : (fn(self : &Self, f : &mut Impl(FnMut() -> unit)) -> unit)({
+  call_once : (fn(self : &Self, f : &mut Impl(FnMut() -> unit)) -> unit)({
     // Fast path: already done (atomic_bool with Acquire load), no lock taken.
     cond(
       (unsafe(atomic_load_explicit(self._done_ptr(), memory_order_acquire)) == true) => (),
@@ -113,7 +109,7 @@ impl(
       // so the message names this API — and it needs no extra state to
       // clear on an early exit from `f`, which the mutex guard already
       // handles (issues/fixed/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md).
-      self._state.*._mutex._held_by_current_thread() => __yo_panic("Once.call: re-entered from its own initializer"),
+      self._state.*._mutex._held_by_current_thread() => __yo_panic("Once.call_once: re-entered from its own initializer"),
       true =>
         // The closure reaches the flag through the box: the `Once` is
         // move-only, and the box outlives this call.
@@ -137,7 +133,7 @@ impl(
   /// direction that matters: `true` means the initialization is finished
   /// and its writes are visible to this thread. `false` can be stale the
   /// instant it is read — another thread may be inside `f` — so do not use
-  /// it to decide whether `call` will block.
+  /// it to decide whether `call_once` will block.
   is_done : (fn(self : &Self) -> bool)(
     unsafe(atomic_load_explicit(self._done_ptr(), memory_order_acquire)) == true
   ),
@@ -149,38 +145,38 @@ impl(
 /// counterpart of `Once` (Rust's `OnceLock`).
 ///
 /// `Once` itself stores nothing but its completion flag, so it cannot hand a
-/// value back; `OnceCell(T)` adds the storage and reuses `Once` for the
+/// value back; `OnceLock(T)` adds the storage and reuses `Once` for the
 /// double-checked-locking protocol. The Release-store that publishes `_done`
 /// happens after `_value` is written, and every read goes through an
 /// Acquire-load of `_done` first, so a thread that observes an initialized
 /// cell also observes the value the initializer wrote.
 ///
 /// A move-only value with its state in a private `Box`; threads share one as
-/// `Arc(OnceCell(T))`.
-_OnceCellState :: (fn(comptime(T) : Type) -> comptime(Type))(
+/// `Arc(OnceLock(T))`.
+_OnceLockState :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _once : Once,
     _value : Option(T)
   )
 );
-OnceCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  struct(_state : Box(_OnceCellState(T)))
+OnceLock :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  struct(_state : Box(_OnceLockState(T)))
 );
 // SAFETY: `_value` is written once, by the initializer under the `Once`'s
 // mutex, before the Release-store of `_done`; every read follows an
 // Acquire-load of `_done`. So threads may share the cell whenever `T` may be
 // moved between them (the initializing thread's value is read by the others).
-impl(generic(T : Type), where(T <: Send), OnceCell(T), Send());
-impl(generic(T : Type), where(T <: Send), OnceCell(T), Sync());
+impl(generic(T : Type), where(T <: Send), OnceLock(T), Send());
+impl(generic(T : Type), where(T <: Send), OnceLock(T), Sync());
 impl(
   generic(T : Type),
   where(T <: Send),
-  OnceCell(T),
+  OnceLock(T),
   /// Create an empty cell.
   new : (fn() -> Self)(
     Self(
       _state : Box.new(
-        _OnceCellState(T)(
+        _OnceLockState(T)(
           _once : Once.new(),
           _value : Option(T).None
         )
@@ -191,10 +187,10 @@ impl(
   /// across all threads; every other caller blocks until it finishes.
   _init : (fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> unit)({
     // The closure writes the value through a raw pointer to the state: the
-    // receiver is lent to `call` already, and lending it again to the closure
+    // receiver is lent to `call_once` already, and lending it again to the closure
     // would be decision 28's argument exclusivity (E0910).
     st := addr_of(self._state.*);
-    self._state.*._once.call({ st, f : &mut f.* }() => {
+    self._state.*._once.call_once({ st, f : &mut f.* }() => {
       unsafe(consume(st.*._value = Option(T).Some(f())));
     });
   }),
@@ -212,7 +208,7 @@ impl(
     match(
       &self._state.*._value,
       .Some(v) => &v.*,
-      .None => __yo_panic("OnceCell: initialized flag published without a value")
+      .None => __yo_panic("OnceLock: initialized flag published without a value")
     )
   }),
   /// Return a reference to the stored value, or `None` if the cell has not
@@ -229,4 +225,4 @@ impl(
   )
 );
 
-export(Once, OnceCell);
+export(Once, OnceLock);

@@ -1,6 +1,6 @@
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 /// Behavioural coverage for the two runtime primitives the compiler emits for
-/// `Mutex.try_with_lock` / `Cond.wait_timeout` / `RwLock.try_*`:
+/// `Mutex.try_with_lock` / `Condvar.wait_timeout` / `RwLock.try_*`:
 /// `__yo_mutex_trylock` and `__yo_cond_timedwait`.
 ///
 /// Reached through the PUBLIC std surface (`try_with_lock`,
@@ -9,12 +9,12 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 /// plans/reference/MEMBER_VISIBILITY.md), and the public methods are exactly
 /// the callers whose behaviour these primitives must carry.
 ///
-/// `Mutex` and `Cond` are move-only values: a `with_lock` body borrows the
+/// `Mutex` and `Condvar` are move-only values: a `with_lock` body borrows the
 /// ones it waits on through its capture list (`{ &m, &cv }`), and a second
 /// thread shares them through `Arc.clone` (Rust's shape).
 { assert } :: import("std/assert");
 { Mutex } :: import("std/sync/mutex");
-{ Cond } :: import("std/sync/cond");
+{ Condvar } :: import("std/sync/condvar");
 { Channel } :: import("std/sync/channel");
 { Thread } :: import("std/thread");
 { Instant } :: import("std/time/instant");
@@ -54,7 +54,7 @@ test("__yo_cond_timedwait times out, and actually waits that long", {
   // IMMEDIATELY, which looks like a timeout — so "returned false" alone would
   // pass over a broken carry. Only the elapsed time distinguishes them.
   m := Mutex(i64).new(i64(0));
-  cv := Cond.new();
+  cv := Condvar.new();
   start := Instant.now();
   signalled := m.with_lock({ &m, &cv }(_v) => cv.wait_timeout_with(m, Duration.from_nanos(i64(50000000))));
   waited := start.elapsed();
@@ -66,14 +66,14 @@ test("__yo_cond_timedwait times out, and actually waits that long", {
 });
 test("__yo_cond_timedwait returns early when signalled", {
   m := Arc.new(Mutex(i64).new(i64(0)));
-  cv := Arc.new(Cond.new());
+  cv := Arc.new(Condvar.new());
   ready := Channel(i32).new(usize(1));
   signaller := Thread(unit).spawn({ m : Arc.clone(m), cv : Arc.clone(cv), ready : ready.clone() }(io) => {
     // Wait until the main thread is inside the wait, then signal. Taking the
     // mutex is what guarantees that: the waiter releases it atomically on
     // entering the wait, so acquiring it here means the wait has begun.
     ready.recv();
-    m.*.with_lock({ &cv }(_v) => cv.*.*.signal());
+    m.*.with_lock({ &cv }(_v) => cv.*.*.notify_one());
   });
   start := Instant.now();
   signalled := m.*.with_lock({ &m, &cv, &ready }(_v) => {
@@ -92,13 +92,13 @@ test("__yo_cond_timedwait honours a SUB-millisecond timeout", {
   // Rounding up is the only reason this returns a timeout rather than an
   // instant false that happens to look the same.
   m := Mutex(i64).new(i64(0));
-  cv := Cond.new();
+  cv := Condvar.new();
   signalled := m.with_lock({ &m, &cv }(_v) => cv.wait_timeout_with(m, Duration.from_micros(i64(100))));
   assert(!signalled, "an unsignalled sub-millisecond wait still times out");
 });
 test("__yo_cond_timedwait treats a zero and a negative timeout as 'do not block'", {
   m := Mutex(i64).new(i64(0));
-  cv := Cond.new();
+  cv := Condvar.new();
   start := Instant.now();
   m.with_lock({ &m, &cv }(_v) => {
     assert(!cv.wait_timeout_with(m, Duration.zero()), "zero times out");

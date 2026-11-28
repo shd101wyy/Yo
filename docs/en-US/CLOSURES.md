@@ -260,7 +260,7 @@ twice({ n : i32(10) }() => {
   that holds a `&mut` capture is `FnMut(...)` by its captures alone: every std non-escaping
   callback — call-repeatedly (`for_each`, `retain`, `sort_by`, the
   `with_lock` bodies) and call-once alike (the `Option`/`Result`
-  combinators, `RefCell.with`, `Once.call`, the `*_lazy` loggers) — takes
+  combinators, `RefCell.with`, `Once.call_once`, the `*_lazy` loggers) — takes
   `f : &mut Impl(FnMut(...))`, so the write goes through the capture's
   pointer at an `FnMut` slot instead. `Fn` survives only where the callback
   is shared, stored beyond the call, or called from another thread.

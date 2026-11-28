@@ -20,7 +20,7 @@
 //! `plans/archive/STD_API_STABILIZATION.md` §4 "Concurrency" is still open and it
 //! is on this surface: `_raw_lock` / `_raw_unlock` / `_raw_handle_ptr` are
 //! reachable from outside the module and are meant to be removed. They
-//! cannot go yet because `Cond.wait` takes the raw handle they hand out —
+//! cannot go yet because `Condvar.wait` takes the raw handle they hand out —
 //! `Mutex(T)` has no guard to pass instead — so freezing this module waits
 //! on a condvar API that couples to a `Mutex(T)` without exposing its
 //! primitive. There is also no poisoning: a thread that unwinds out of
@@ -162,7 +162,7 @@ _lock_core_unlock :: (fn(c : *_LockCore) -> unit)({
 /// **Misuse traps, on every platform** (rule D5 of
 /// `plans/reference/PARALLELISM_RULES.md`): the lock records the thread that
 /// holds it, so locking it again from that thread, unlocking it from another,
-/// or waiting on a `Cond` with a mutex the caller does not hold is a panic with
+/// or waiting on a `Condvar` with a mutex the caller does not hold is a panic with
 /// a message naming the API — never the platform-dependent deadlock, silent
 /// recursion or undefined behaviour of the OS primitive underneath.
 _MutexState :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -386,7 +386,7 @@ impl(
   _park_begin : (fn(self : &Self) -> unit)({
     c := self._core_ptr();
     cond(
-      !_lock_core_held(c) => __yo_panic("Cond.wait_with: the calling thread does not hold the mutex it passed"),
+      !_lock_core_held(c) => __yo_panic("Condvar.wait_with: the calling thread does not hold the mutex it passed"),
       true => ()
     );
     _lock_core_set_owner(c, usize(0));

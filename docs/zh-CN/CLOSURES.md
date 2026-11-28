@@ -217,7 +217,7 @@ twice({ n : i32(10) }() => {
 - **把持有 `&mut` 捕获的字面量传给 `Fn(...)` 位置是 E0913。** 持有 `&mut` 捕获的字面量仅凭其捕获
   就是 `FnMut(...)`：std 的每个非逃逸回调——可重复调用的
   （`for_each`、`retain`、`sort_by`、`with_lock` 的函数体）和单次调用的（`Option`/`Result` 组合子、
-  `RefCell.with`、`Once.call`、`*_lazy` 日志）——都接受 `f : &mut Impl(FnMut(...))`，写入因此改在
+  `RefCell.with`、`Once.call_once`、`*_lazy` 日志）——都接受 `f : &mut Impl(FnMut(...))`，写入因此改在
   `FnMut` 位置通过捕获的指针进行。`Fn` 只在回调被共享、被存储超出调用、或从其他线程调用时保留。
 
 ## 闭包类型限制

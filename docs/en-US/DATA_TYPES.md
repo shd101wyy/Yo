@@ -489,7 +489,7 @@ The rules that follow from this:
 
 - A type with any private field needs a constructor function (`Counter.new`) for outside callers, and outside code reads such a type only through its methods. The `{ ... }` spread is rejected too, so a private field never leaks through it.
 - To test private members, put the test file **next to the module** (`counter.test.yo` beside `counter.yo`): a sibling may reach them, exactly like Rust's in-file `#[cfg(test)] mod tests`, while tests in another directory exercise the public surface. `yo test <dir>` runs sibling tests; a normal build treats `test(...)` as a no-op.
-- The sibling rule makes a directory a unit: `std/sync/cond.yo` may call the `_raw_handle_ptr` method that `std/sync/mutex.yo` declares, while `std/thread.yo` may not.
+- The sibling rule makes a directory a unit: `std/sync/condvar.yo` may call the `_raw_handle_ptr` method that `std/sync/mutex.yo` declares, while `std/thread.yo` may not.
 - The static form `Counter._bump(c, i32(1))` is checked exactly like the instance call, and methods provided by a generic `impl(generic(T), ...)` count as declared where that impl is written.
 - Names starting with `___` are reserved for compiler-synthesized members and are never private, and positional labels `_0`, `_1`, … (tuple-shaped structs) are not private either.
 - Module-level bindings are unaffected: `export(...)` remains the only control over what a module publishes, whatever the binding is called. Trait *signatures* are not members of a type and are not checked either.

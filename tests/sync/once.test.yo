@@ -2,7 +2,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
 { arch, Arch } :: import("std/process");
 import("std/libc/stdio");
-{ Once, OnceCell } :: import("std/sync/once");
+{ Once, OnceLock } :: import("std/sync/once");
 { ArrayList } :: import("std/collections/array-list");
 { String } :: import("std/string");
 { Thread, ThreadPool, spawn } :: import("std/thread");
@@ -15,25 +15,25 @@ test("Once new is not done", {
   o := Once.new();
   assert(!o.is_done(), "new Once should not be done");
 });
-test("Once call executes function", {
+test("Once call_once executes function", {
   o := Once.new();
   mut(log) := ArrayList(i32).new();
-  o.call({ &mut log }() => {
+  o.call_once({ &mut log }() => {
     log.push(i32(1));
   });
   assert(log.len() == usize(1), "function should have been called");
   assert(o.is_done(), "Once should be done after call");
 });
-test("Once call executes only once", {
+test("Once call_once executes only once", {
   o := Once.new();
   mut(log) := ArrayList(i32).new();
-  o.call({ &mut log }() => {
+  o.call_once({ &mut log }() => {
     log.push(i32(1));
   });
-  o.call({ &mut log }() => {
+  o.call_once({ &mut log }() => {
     log.push(i32(2));
   });
-  o.call({ &mut log }() => {
+  o.call_once({ &mut log }() => {
     log.push(i32(3));
   });
   assert(log.len() == usize(1), "function should have been called exactly once");
@@ -41,16 +41,16 @@ test("Once call executes only once", {
 test("Once is_done after call", {
   o := Once.new();
   assert(!o.is_done(), "should not be done before call");
-  o.call(() => ());
+  o.call_once(() => ());
   assert(o.is_done(), "should be done after call");
 });
 test("Once second call is no-op even with different function", {
   o := Once.new();
   mut(log) := ArrayList(i32).new();
-  o.call({ &mut log }() => {
+  o.call_once({ &mut log }() => {
     log.push(i32(42));
   });
-  o.call({ &mut log }() => {
+  o.call_once({ &mut log }() => {
     log.push(i32(99));
   });
   assert(log.len() == usize(1), "only first function should have run");
@@ -62,7 +62,7 @@ test("Once many calls still executes once", {
   mut(log) := ArrayList(i32).new();
   mut(i) := i32(0);
   while(i < i32(100), {
-    o.call({ &mut log }() => {
+    o.call_once({ &mut log }() => {
       log.push(i32(1));
     });
     i = (i + i32(1));
@@ -70,13 +70,13 @@ test("Once many calls still executes once", {
   assert(log.len() == usize(1), "function should have been called exactly once out of 100 attempts");
   assert(o.is_done(), "should be done");
 });
-test("Once call with side effects", {
+test("Once call_once with side effects", {
   o := Once.new();
   mut(values) := ArrayList(i32).new();
-  o.call({ &mut values }() => {
+  o.call_once({ &mut values }() => {
     values.push(i32(42));
   });
-  o.call({ &mut values }() => {
+  o.call_once({ &mut values }() => {
     values.push(i32(99));
   });
   assert(values.len() == usize(1), "should have exactly one value");
@@ -87,28 +87,28 @@ test("Once call with side effects", {
 // Thread integration (a Once is a move-only value: threads share it, and the
 // counter, through `Arc.clone`, one clone moved into each closure)
 // ============================================================================
-test("Once call from multiple threads executes only once", {
+test("Once call_once from multiple threads executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Arc.new(Once.new());
   counter := Arc.new(AtomicI32.new(i32(0)));
   t1 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t2 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t3 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   // Main thread also tries; its initializer borrows `counter`, which the
   // assertion below still reads.
-  o.*.call({ &counter }() => {
+  o.*.call_once({ &counter }() => {
     counter.*.*.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
   t1.join();
@@ -122,46 +122,46 @@ test("Once is_done visible across threads after call", {
   o := Arc.new(Once.new());
   counter := Arc.new(AtomicI32.new(i32(0)));
   // Main thread calls first
-  o.*.call({ &counter }() => {
+  o.*.call_once({ &counter }() => {
     counter.*.*.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
   t := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     assert(o.*.is_done(), "should see done from other thread");
     // Second call should be no-op
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t.join();
   assert(counter.*.load(MemoryOrder.Relaxed) == i32(1), "function should have executed only once");
 });
-test("Once multiple threads race to call", {
+test("Once multiple threads race to call_once", {
   if(arch == Arch.Wasm32, return(()));
   o := Arc.new(Once.new());
   counter := Arc.new(AtomicI32.new(i32(0)));
   // All threads start at the same time (no sleep)
   t1 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t2 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t3 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t4 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t5 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
@@ -185,19 +185,19 @@ test("Once with pool tasks executes only once", {
   pool := ThreadPool.new(usize(2));
   wg.*.add(i32(3));
   spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.*.done();
   });
   spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.*.done();
   });
   spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
-    o.*.call(() => {
+    o.*.call_once(() => {
       counter.*.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.*.done();
@@ -208,30 +208,30 @@ test("Once with pool tasks executes only once", {
 });
 
 // ============================================================================
-// OnceCell(T) — the value-carrying counterpart of Once (STD_API_AUDIT D7)
+// OnceLock(T) — the value-carrying counterpart of Once (STD_API_AUDIT D7)
 // ============================================================================
 comptime_assert(
-  Type.impls(OnceCell(i32), Send),
-  "OnceCell(i32) should be Send"
+  Type.impls(OnceLock(i32), Send),
+  "OnceLock(i32) should be Send"
 );
 comptime_expect_error({
   NonSendObj :: struct(x : Rc(i32));
-  Bad :: OnceCell(NonSendObj);
+  Bad :: OnceLock(NonSendObj);
 });
-test("OnceCell new is empty", {
-  cell := OnceCell(i32).new();
+test("OnceLock new is empty", {
+  cell := OnceLock(i32).new();
   assert(!cell.is_initialized(), "a fresh cell is not initialized");
   assert(cell.get().is_none(), "get on a fresh cell is None");
 });
-test("OnceCell get_or_init stores and returns the value", {
-  cell := OnceCell(i32).new();
+test("OnceLock get_or_init stores and returns the value", {
+  cell := OnceLock(i32).new();
   got := cell.get_or_init(() => i32(42));
   assert(got.* == i32(42), "get_or_init returns the initializer's value");
   assert(cell.is_initialized(), "the cell is initialized afterwards");
   assert(match(cell.get(), .Some(v) => (v.* == i32(42)), .None => false), "get returns the stored value");
 });
-test("OnceCell get_or_init runs the initializer exactly once", {
-  cell := OnceCell(i32).new();
+test("OnceLock get_or_init runs the initializer exactly once", {
+  cell := OnceLock(i32).new();
   runs := AtomicI32.new(i32(0));
   first := cell.get_or_init({ &runs }() => {
     runs.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -250,20 +250,20 @@ test("OnceCell get_or_init runs the initializer exactly once", {
   assert(second.* == i32(1), "the second call returns the stored value");
   assert(third.* == i32(1), "the third call returns the stored value");
 });
-test("OnceCell holds a value struct", {
+test("OnceLock holds a value struct", {
   Point :: struct(x : i32, y : i32);
   derive(Point, Copy, Clone);
-  cell := OnceCell(Point).new();
+  cell := OnceLock(Point).new();
   p := cell.get_or_init(() => Point(i32(1), i32(2)));
   assert(p.x == i32(1), "the struct value is stored");
   q := cell.get_or_init(() => Point(i32(7), i32(8)));
   assert(q.y == i32(2), "the stored struct is returned, not a new one");
 });
-test("OnceCell get_or_init from multiple threads initializes exactly once", {
+test("OnceLock get_or_init from multiple threads initializes exactly once", {
   if(arch == Arch.Wasm32, return(()));
   // The cell and both counters are move-only values: the racer holds an
   // `Arc.clone` of each, and the main thread keeps the originals to assert on.
-  cell := Arc.new(OnceCell(i32).new());
+  cell := Arc.new(OnceLock(i32).new());
   inits := Arc.new(AtomicI32.new(i32(0)));
   mismatches := Arc.new(AtomicI32.new(i32(0)));
   (racer : Impl(Fn() -> unit)) = ({ cell : Arc.clone(cell), inits : Arc.clone(inits), mismatches : Arc.clone(mismatches) }() => {
@@ -303,15 +303,15 @@ test("a cyclic element type is accepted", {
   CyclicNode :: struct(v : i32, next : Option(Arc(Self)));
   comptime_assert(Type.impls(CyclicNode, Send), "the payload is Send");
   comptime_assert(!Type.impls(CyclicNode, Acyclic), "the payload is cyclic");
-  cell := OnceCell(CyclicNode).new();
+  cell := OnceLock(CyclicNode).new();
   node := cell.get_or_init(() => CyclicNode(v : i32(1), next : .None));
   assert(node.v == i32(1), "the cell holds the node");
   assert(match(cell.get(), .Some(n) => n.next.is_none(), .None => false), "get reads the node in place");
 });
 // `get` and `get_or_init` return references into the cell, as Rust's do, so a
 // move-only value is read in place and never copied out.
-test("OnceCell holds a move-only value and lends it", {
-  cell := OnceCell(String).new();
+test("OnceLock holds a move-only value and lends it", {
+  cell := OnceLock(String).new();
   assert(cell.get().is_none(), "a fresh cell is empty");
   s := cell.get_or_init(() => String.from("a move-only payload"));
   assert(s.* == String.from("a move-only payload"), "get_or_init lends the stored String");
@@ -323,9 +323,9 @@ test("OnceCell holds a move-only value and lends it", {
 // every other non-escaping std callback, and spells its result origin
 // `-> &(T, self)`: the returned reference holds the cell alone, so the
 // initializer's captures are released at the call.
-test("OnceCell get_or_init takes a borrowing initializer literal and releases its captures", {
+test("OnceLock get_or_init takes a borrowing initializer literal and releases its captures", {
   mut(hits) := i32(0);
-  cell := OnceCell(i32).new();
+  cell := OnceLock(i32).new();
   got := cell.get_or_init({ &mut hits }() => {
     hits.* = (hits.* + i32(1));
     i32(5)
@@ -334,10 +334,10 @@ test("OnceCell get_or_init takes a borrowing initializer literal and releases it
   assert(got.* == i32(5), "got is read after the initializer's capture is written");
   assert(hits == i32(11), "the initializer ran once and `hits` was writable while `got` lived");
 });
-test("OnceCell get_or_init lends a named borrowing initializer", {
+test("OnceLock get_or_init lends a named borrowing initializer", {
   mut(n) := i32(0);
   k := i32(5);
-  cell := OnceCell(i32).new();
+  cell := OnceLock(i32).new();
   {
     (mut(g) : Impl(FnMut() -> i32)) = ({ &k, &mut n }() => {
       n.* = (n.* + i32(1));
@@ -355,24 +355,24 @@ test("OnceCell get_or_init lends a named borrowing initializer", {
 // ============================================================================
 // NOTE what this can and cannot show. `f` is an `Impl(Fn() -> unit)` and a
 // closure cannot capture an `Exception` ("Closures cannot capture a value of
-// control-bound type"), so `f` CANNOT throw past `call` — the "an unwind leaves
+// control-bound type"), so `f` CANNOT throw past `call_once` — the "an unwind leaves
 // the mutex held forever" hazard the old NOTE in once.yo described is not
 // reachable, and a test claiming to prove it would be testing nothing. (A
 // first version of this test used `unwind(())` inside the closure and passed
 // against the OLD code, which is how that was caught: `unwind` in a plain
-// closure is a return from the closure, not an unwind past `call`.)
+// closure is a return from the closure, not an unwind past `call_once`.)
 //
 // What IS observable: an `f` that returns early still leaves the mutex
 // released and the `Once` un-done, so the next call can acquire and re-run.
 _early_return_init :: (fn(o : &Once, counter : &AtomicI32) -> unit)({
   // `counter` is already a reference: the closure copies it, `{ counter }`.
-  o.call({ counter }() => {
+  o.call_once({ counter }() => {
     counter.fetch_add(i32(1), MemoryOrder.SeqCst);
-    // Leave the closure before `call` records completion.
+    // Leave the closure before `call_once` records completion.
     unwind(());
   });
 });
-test("Once.call leaves the lock released and the Once un-done when f exits early", {
+test("Once.call_once leaves the lock released and the Once un-done when f exits early", {
   o := Once.new();
   counter := AtomicI32.new(i32(0));
   _early_return_init(&o, &counter);
@@ -380,13 +380,13 @@ test("Once.call leaves the lock released and the Once un-done when f exits early
   assert(!o.is_done(), "an f that did not complete does not mark the Once done");
   // If the mutex had been left held, THIS call would hang instead of running.
   ran_again := AtomicI32.new(i32(0));
-  o.call({ &ran_again }() => {
+  o.call_once({ &ran_again }() => {
     ran_again.fetch_add(i32(1), MemoryOrder.SeqCst);
   });
   assert(ran_again.load(MemoryOrder.SeqCst) == i32(1), "the retry acquired the lock and ran");
   assert(o.is_done(), "and a completed initializer does mark it done");
   // Third call takes the fast path: no lock, no run.
-  o.call({ &ran_again }() => {
+  o.call_once({ &ran_again }() => {
     ran_again.fetch_add(i32(1), MemoryOrder.SeqCst);
   });
   assert(ran_again.load(MemoryOrder.SeqCst) == i32(1), "a done Once never runs f again");

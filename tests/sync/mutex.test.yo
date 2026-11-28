@@ -2,7 +2,7 @@
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
 { Mutex, RawMutex } :: import("std/sync/mutex");
-{ Cond } :: import("std/sync/cond");
+{ Condvar } :: import("std/sync/condvar");
 { Thread } :: import("std/thread");
 { WaitGroup } :: import("std/sync/waitgroup");
 { Channel } :: import("std/sync/channel");
@@ -285,9 +285,9 @@ test("RawMutex records its holder", {
   assert(r.*.try_lock(), "free again");
   r.*.unlock();
 });
-test("Cond.wait_with restores the holder record after the wait", {
+test("Condvar.wait_with restores the holder record after the wait", {
   m := Arc.new(Mutex(i32).new(i32(0)));
-  cv := Arc.new(Cond.new());
+  cv := Arc.new(Condvar.new());
   waiter := Thread(bool).spawn({ m : Arc.clone(m), cv : Arc.clone(cv) }(io) => {
     io;
     // The body borrows this thread's `Arc` handles (`&m`, `&cv`) and lends the
@@ -303,7 +303,7 @@ test("Cond.wait_with restores the holder record after the wait", {
   });
   m.*.with_lock(v => {
     v.* = i32(1);
-    cv.*.broadcast();
+    cv.*.notify_all();
   });
   assert(waiter.join(), "the waiter holds the mutex after wait_with returns");
 });

@@ -42,8 +42,8 @@
 //! device rather than only as a lock. `available_permits` is a snapshot.
 pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./mutex");
-{ Cond } :: import("./cond");
-/// Counting semaphore built on `Mutex` and `Cond`. A move-only value with its
+{ Condvar } :: import("./condvar");
+/// Counting semaphore built on `Mutex` and `Condvar`. A move-only value with its
 /// state in a private `Box`; threads share one as `Arc(Semaphore)`.
 ///
 /// The permit count lives under `_mutex` rather than in an atomic: every
@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
 _SemaphoreState :: struct(
   _permits : i32,
   _mutex : Mutex(bool),
-  _cv : Cond
+  _cv : Condvar
 );
 Semaphore :: struct(_state : Box(_SemaphoreState));
 // SAFETY: every read and write of `_permits` happens under `_mutex`, so
@@ -66,7 +66,7 @@ _semaphore_release :: (fn(st : *_SemaphoreState) -> unit)(
   unsafe({
     st.*._mutex._raw_lock();
     consume(st.*._permits = (st.*._permits + i32(1)));
-    st.*._cv.signal();
+    st.*._cv.notify_one();
     st.*._mutex._raw_unlock();
   })
 );
@@ -99,7 +99,7 @@ impl(
         _SemaphoreState(
           _permits : permits,
           _mutex : Mutex(bool).new(false),
-          _cv : Cond.new()
+          _cv : Condvar.new()
         )
       )
     )
@@ -132,7 +132,7 @@ impl(
   }),
   /// Return one permit, waking one waiter if any is blocked in `acquire`.
   ///
-  /// `signal()` and not `broadcast()`: one permit can satisfy exactly one
+  /// `notify_one()` and not `notify_all()`: one permit can satisfy exactly one
   /// waiter, since `acquire` never takes more than one. A wakeup that loses
   /// the race to a thread that never blocked is harmless — the loser re-tests
   /// `_permits` in its `while` loop and parks again, and the permit it lost

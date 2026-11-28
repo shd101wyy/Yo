@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 //! `WaitGroup` is E0901, the compile-time form of Go's "do not copy" vet
 //! check: it is a move-only value, shared as `Arc(WaitGroup)`.
 { Mutex } :: import("./mutex");
-{ Cond } :: import("./cond");
+{ Condvar } :: import("./condvar");
 {
   atomic_int,
   __yo_atomic_load_int,
@@ -51,12 +51,12 @@ pragma(Pragma.AllowUnsafe);
 /// The internal counter is a C11 atomic (held inline: std is unsafe-capable)
 /// so `count()` can read without acquiring the mutex (matches Rust's mpsc
 /// query-method idiom). Writes to the counter still happen under the mutex
-/// so the `_count == 0` observation that triggers `broadcast()` is
+/// so the `_count == 0` observation that triggers `notify_all()` is
 /// serialized with `wait()`.
 _WaitGroupState :: struct(
   _count : atomic_int,
   _mutex : Mutex(bool),
-  _cv : Cond
+  _cv : Condvar
 );
 WaitGroup :: struct(_state : Box(_WaitGroupState));
 // SAFETY: the counter is written only under `_mutex` and read through C11
@@ -73,7 +73,7 @@ impl(
         _WaitGroupState(
           _count : atomic_int(i32(0)),
           _mutex : Mutex(bool).new(false),
-          _cv : Cond.new()
+          _cv : Condvar.new()
         )
       )
     )
@@ -103,7 +103,7 @@ impl(
     cond(
       (new_count <= i32(0)) => {
         unsafe(__yo_atomic_store_int(p, i32(0), memory_order_release));
-        self._state.*._cv.broadcast();
+        self._state.*._cv.notify_all();
       },
       true => {
         unsafe(__yo_atomic_store_int(p, new_count, memory_order_release));
@@ -120,7 +120,7 @@ impl(
   ///
   /// Returns immediately when the counter is already zero, which includes
   /// the case of a group nothing was ever added to. Several threads may
-  /// wait at once; the zero is announced with a `broadcast`, so all of
+  /// wait at once; the zero is announced with a `notify_all`, so all of
   /// them wake. The predicate is re-checked in a loop, so a spurious
   /// condvar wake cannot end the wait early.
   ///

@@ -80,8 +80,8 @@ every such claim auditable. The rule covers every impl form: a generic impl
 
 ### Sharing a `std/sync` value
 
-`Mutex(T)`, `RawMutex`, `RwLock(T)`, `Cond`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`,
-`OnceCell(T)` and the `Atomic*` types are move-only values, as in Rust. Their state (the OS
+`Mutex(T)`, `RawMutex`, `RwLock(T)`, `Condvar`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`,
+`OnceLock(T)` and the `Atomic*` types are move-only values, as in Rust. Their state (the OS
 primitive, the C11 atomic, the protected data) lives in a private `Box`, and every method takes
 `self : &Self`: the type mutates its own interior. A copy that would leave two owners is E0901.
 Threads share one through an `Arc` (`Arc(Mutex(T))`, `Arc(AtomicUsize)`): create it with
@@ -226,7 +226,7 @@ contention.
 
 Every lock in `std/sync` records its holder, so misuse is a **panic** with a message naming the
 API, on every platform, never the OS primitive's undefined behaviour: locking a mutex again from
-the thread that holds it, unlocking from another thread, `Cond.wait_with(m)` without holding `m`,
+the thread that holds it, unlocking from another thread, `Condvar.wait_with(m)` without holding `m`,
 and a `Once` initializer that re-enters its own `Once` all trap (rule D5 of
 `plans/reference/PARALLELISM_RULES.md`). `try_with_lock` answers `.None` for the holder on
 Windows too, where the underlying `CRITICAL_SECTION` would have recursed.

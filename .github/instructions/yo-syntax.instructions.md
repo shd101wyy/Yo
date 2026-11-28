@@ -509,7 +509,7 @@ main :: (fn() -> unit)({
   `-> &(T, keep)` spelling). A body yielding a place from a parameter the origin does not name is E0923
   (from a local or by-value parameter E0912); an impl's result origin must lie within its trait method's
   (E0923); a `Dyn` call uses the trait's origin. A reference-returning method with a callback slot spells
-  its origin (`OnceCell.get_or_init : (fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> &(T, self))`).
+  its origin (`OnceLock.get_or_init : (fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> &(T, self))`).
 - `Fn(s : &T) -> &U` is a closure trait returning a reference (origin per call, never spelled; `-> &(U, o)`
   there is an error): filled by a named projection or a closure yielding `&place` from its own parameters
   (a captured place is E0923). A projection is callable through a `fn(...) -> &T` value, an
@@ -913,7 +913,7 @@ slot, is E0913. A closure literal takes the trait of its slot.
 - An `FnMut` closure (and `Dyn(FnMut(...))`) is move-only. A `Sync` slot (`Impl(Fn(...), Sync)`) rejects a
   closure that writes a `&mut` capture or its state.
 - Every std non-escaping callback takes `&mut Impl(FnMut(...))` (the `Option`/`Result` combinators,
-  `for_each`, `fold`, `RefCell.with`, `with_lock` bodies, `Once.call`, the `*_lazy` loggers): a closure that
+  `for_each`, `fold`, `RefCell.with`, `with_lock` bodies, `Once.call_once`, the `*_lazy` loggers): a closure that
   holds a reference cannot be moved into a by-value slot (E0909, even `Impl(FnOnce(...))`). `Fn` remains only
   where the callback is shared, stored, or called from another thread (`thread.spawn_blocking`'s `sink(cb)`,
   the http `handler`).

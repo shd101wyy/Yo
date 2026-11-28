@@ -18,7 +18,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Deque } :: import("std/collections/deque");
 { String } :: import("std/string");
 { RwLock } :: import("std/sync/rwlock");
-{ OnceCell } :: import("std/sync/once");
+{ OnceLock } :: import("std/sync/once");
 { RefCell } :: import("std/sync/refcell");
 { Mutex : AsyncMutex } :: import("std/async/mutex");
 
@@ -445,9 +445,9 @@ test("an object holding a cyclic cell behind an Option or a pointer is not Acycl
   comptime_assert(!Type.impls(SsHoldsDirect, Acyclic), "held directly");
   comptime_assert(!Type.impls(SsHoldsOption, Acyclic), "held in an Option");
   comptime_assert(!Type.impls(Arc(Option(SsCyclic)), Acyclic), "Arc(Option(Cyclic))");
-  comptime_assert(!Type.impls(OnceCell(SsCyclic), Acyclic), "OnceCell(Cyclic)");
+  comptime_assert(!Type.impls(OnceLock(SsCyclic), Acyclic), "OnceLock(Cyclic)");
   comptime_assert(!Type.impls(Channel(SsCyclic), Acyclic), "Channel(Cyclic)");
-  comptime_assert(Type.impls(OnceCell(i32), Acyclic) && Type.impls(Channel(i32), Acyclic), "plain data keeps them Acyclic");
+  comptime_assert(Type.impls(OnceLock(i32), Acyclic) && Type.impls(Channel(i32), Acyclic), "plain data keeps them Acyclic");
 });
 // issues/fixed/2026-11-21-an-arc-of-a-generic-type-with-an-explicit-marker-impl-is-rejected-inside-a-type-function.md:
 // a type function's body names `Arc(Mutex(T))` with `T` abstract; the marker

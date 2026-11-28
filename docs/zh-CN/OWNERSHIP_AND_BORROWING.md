@@ -855,7 +855,7 @@ export(main);
 
 ### `std/sync` 值
 
-`Mutex(T)`、`RwLock(T)`、`Cond`、`Barrier`、`Semaphore`、`WaitGroup`、`Once`、`OnceCell(T)` 和
+`Mutex(T)`、`RwLock(T)`、`Condvar`、`Barrier`、`Semaphore`、`WaitGroup`、`Once`、`OnceLock(T)` 和
 `Atomic*` 类型都是只能移动的值，与 Rust 相同：拷贝是 E0901，每个方法都接受 `self : &Self`。
 多个线程通过 `Arc` 共享其中一个：用 `Arc.new(...)` 创建它，给每个线程一个自己的 `Arc.clone(&...)`，
 并按值捕获这个克隆。

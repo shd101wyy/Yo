@@ -36,8 +36,8 @@
 //! party may have arrived.
 pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./mutex");
-{ Cond } :: import("./cond");
-/// Reusable barrier built on `Mutex` and `Cond`. A move-only value with its
+{ Condvar } :: import("./condvar");
+/// Reusable barrier built on `Mutex` and `Condvar`. A move-only value with its
 /// state in a private `Box`; the parties share one as `Arc(Barrier)`.
 ///
 /// `_generation` is what makes the barrier reusable and correct. A waiter
@@ -52,7 +52,7 @@ _BarrierState :: struct(
   _count : i32,
   _generation : i64,
   _mutex : Mutex(bool),
-  _cv : Cond
+  _cv : Condvar
 );
 Barrier :: struct(_state : Box(_BarrierState));
 // SAFETY: every read and write of the counters happens under `_mutex`, so the
@@ -73,7 +73,7 @@ impl(
           _count : i32(0),
           _generation : i64(0),
           _mutex : Mutex(bool).new(false),
-          _cv : Cond.new()
+          _cv : Condvar.new()
         )
       )
     )
@@ -94,7 +94,7 @@ impl(
         unsafe(consume(self._st().*._count = i32(0)));
         unsafe(consume(self._st().*._generation = (self._state.*._generation + i64(1))));
         is_leader = true;
-        self._state.*._cv.broadcast();
+        self._state.*._cv.notify_all();
       },
       true => {
         while(self._state.*._generation == arrival_generation, {
