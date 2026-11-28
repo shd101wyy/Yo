@@ -1,0 +1,12 @@
+{ ArrayList } :: import("std/collections/array-list");
+first_of :: (fn(generic(A : Type), forall(I : Type), sink(it) : I, where(I <: Iterator(Item := &A), A <: Copy)) -> Option(A))({
+  mut(i) := it;
+  match(i.next(), .Some(r) => .Some(r.*), .None => .None)
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(7));
+  x := first_of(xs.iter());
+  assert((x.unwrap() == i32(7)), "first");
+});
+export(main);

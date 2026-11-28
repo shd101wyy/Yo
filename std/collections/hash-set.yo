@@ -6,7 +6,7 @@
 //! to be made twice — the tombstone-reclamation fix genuinely was
 //! (`issues/fixed/hash-tombstones-are-never-reclaimed.md`).
 //!
-//! `unit` is a true ZST as of v0.2.26, so `MapEntry(T, unit)` costs exactly
+//! `unit` is a true ZST as of v0.2.26, so `Tuple(T, unit)` costs exactly
 //! what a bare `T` costs and the map's value slot is free.
 //!
 //! ## Example
@@ -31,9 +31,8 @@
 //! ITERATORS from `union`/`intersection`/`difference` rather than owned sets.
 //! Freezing follows those two decisions.
 pragma(Pragma.AllowUnsafe);
-{ MapEntry } :: import("./entry.yo");
 { AllocError } :: import("../allocator.yo");
-{ HashMap, HashMapError, HashMapIter, HashMapIterPtr } :: import("./hash-map");
+{ HashMap, HashMapError, HashMapIntoIter, HashMapRawIter } :: import("./hash-map");
 mem :: import("../mem.yo");
 { ArrayList } :: import("./array-list.yo");
 /// Error variants for HashSet operations.
@@ -187,7 +186,7 @@ impl(
       (self.len() > other.len()) => false,
       true => {
         mut(is_sub) := true;
-        mut(it) := self.iter();
+        mut(it) := self.iter_raw();
         while(true, {
           match(
             it.next(),
@@ -222,7 +221,7 @@ impl(
     // iterator comes from the smaller side, the membership test from the
     // larger. Neither set is copied (a value set is move-only, B9).
     mut(result) := true;
-    mut(it) := cond((self.len() <= other.len()) => self.iter(), true => other.iter());
+    mut(it) := cond((self.len() <= other.len()) => self.iter_raw(), true => other.iter_raw());
     while(true, {
       match(
         it.next(),
@@ -242,7 +241,7 @@ impl(
   /// Every element of either set.
   union : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
     mut(out) := Self.new();
-    mut(it) := self.iter();
+    mut(it) := self.iter_raw();
     while(true, {
       match(
         it.next(),
@@ -260,7 +259,7 @@ impl(
         }
       );
     });
-    mut(it2) := other.iter();
+    mut(it2) := other.iter_raw();
     while(true, {
       match(
         it2.next(),
@@ -283,7 +282,7 @@ impl(
   /// Elements present in BOTH sets.
   intersection : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
     mut(out) := Self.new();
-    mut(it) := self.iter();
+    mut(it) := self.iter_raw();
     while(true, {
       match(
         it.next(),
@@ -311,7 +310,7 @@ impl(
   /// Elements in `self` that are NOT in `other`.
   difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
     mut(out) := Self.new();
-    mut(it) := self.iter();
+    mut(it) := self.iter_raw();
     while(true, {
       match(
         it.next(),
@@ -339,7 +338,7 @@ impl(
   /// Elements in exactly one of the two sets.
   symmetric_difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
     mut(out) := Self.new();
-    mut(it) := self.iter();
+    mut(it) := self.iter_raw();
     while(true, {
       match(
         it.next(),
@@ -362,7 +361,7 @@ impl(
         }
       );
     });
-    mut(it2) := other.iter();
+    mut(it2) := other.iter_raw();
     while(true, {
       match(
         it2.next(),
@@ -395,19 +394,19 @@ impl(
 ///
 /// The order is arbitrary but reproducible for a set built with `new()`'s
 /// fixed SipHash keys.
-HashSetIter :: (fn(comptime(T) : Type) -> comptime(Type))(
+HashSetIntoIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _inner : HashMapIter(T, unit)
+    _inner : HashMapIntoIter(T, unit)
   )
 );
 impl(
   generic(T : Type),
   where(T <: (Eq(T), Hash)),
-  HashSetIter(T),
+  HashSetIntoIter(T),
   Iterator(
     Item : T,
     next : (fn(self : &mut Self) -> Option(T))(
-      match(self._inner.next(), .Some(entry) => .Some(entry.key), .None => .None)
+      match(self._inner.next(), .Some(entry) => .Some(entry.0), .None => .None)
     )
   )
 );
@@ -417,41 +416,41 @@ impl(
   HashSet(T),
   IntoIterator(
     Item : T,
-    IntoIter : HashSetIter(T),
-    into_iter : (fn(sink(self) : Self) -> HashSetIter(T))({
+    IntoIter : HashSetIntoIter(T),
+    into_iter : (fn(sink(self) : Self) -> HashSetIntoIter(T))({
       // Move the backing map out (B9: a field cannot move out of an owned
       // struct, and a value pattern on this wrapper needs `==`): `replace`
       // leaves an empty map behind, which drops with the spent wrapper.
       mut(me) := self;
       mut(fresh) := HashMap(T, unit).new();
-      HashSetIter(T)(_inner : mem.replace(&mut me._map, fresh).into_iter())
+      HashSetIntoIter(T)(_inner : mem.replace(&mut me._map, fresh).into_iter())
     })
   )
 );
 /// Pointer iterator over a HashSet — yields `*(T)` INTO the backing map's
 /// bucket array, so elements are borrowed rather than dup'd. This is what
-/// `iter()` returns (D14).
+/// `iter_raw()` returns (D14).
 ///
 /// The pointers alias the map's storage: any insert that rehashes, any
 /// `remove`, or `clear` invalidates pointers already yielded. The element is
 /// the entry's KEY, addressed rather than assumed to sit at offset 0. Like
-/// `HashMapIterPtr`, it holds the bucket arrays, not the set (decision 39,
+/// `HashMapRawIter`, it holds the bucket arrays, not the set (decision 39,
 /// B7b): the set must outlive the walk.
-HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+HashSetRawIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _inner : HashMapIterPtr(T, unit)
+    _inner : HashMapRawIter(T, unit)
   )
 );
 impl(
   generic(T : Type),
   where(T <: (Eq(T), Hash)),
-  HashSetIterPtr(T),
+  HashSetRawIter(T),
   Iterator(
     Item : *T,
     next : (fn(self : &mut Self) -> Option(*T))(
       // The entry's KEY is the set's element; take its address rather than
-      // assuming `MapEntry`'s field order puts it at offset 0.
-      match(self._inner.next(), .Some(p) => .Some(addr_of(p.*.key)), .None => .None)
+      // assuming the entry tuple puts it at offset 0.
+      match(self._inner.next(), .Some(p) => .Some(addr_of(p.*.0)), .None => .None)
     )
   )
 );
@@ -462,25 +461,9 @@ impl(
   /// Non-consuming raw iteration, yielding a `*(T)` into the backing
   /// storage — the `pragma(Pragma.AllowUnsafe)` form; safe code reads
   /// elements with `for(&set, x => ...)`.
-  iter : (fn(self : &Self) -> HashSetIterPtr(T))(
-    HashSetIterPtr(T)(_inner : self._map.iter())
+  iter_raw : (fn(self : &Self) -> HashSetRawIter(T))(
+    HashSetRawIter(T)(_inner : self._map.iter_raw())
   )
-);
-impl(
-  generic(T : Type),
-  where(T <: (Eq(T), Hash, Clone)),
-  HashSet(T),
-  /// A clone of every element, in bucket order (the order `into_iter()`
-  /// yields) — the `get_cloned` family's walk of a borrowed set, so a loop
-  /// can walk the elements while it reads and writes the set.
-  ///
-  /// ```yo
-  /// { HashSet } :: import("std/collections/hash-set");
-  /// (mut(s) : HashSet(i32)) = HashSet(i32).new();
-  /// s.insert(i32(7));
-  /// assert(s.items_cloned().len() == usize(1), "one element");
-  /// ```
-  items_cloned : (fn(self : &Self) -> ArrayList(T))(self._map.keys_cloned())
 );
 /// `Default` — the empty set.
 impl(
@@ -497,7 +480,7 @@ impl(
 /// position, yielding each element as a `&(T, p)`. Binding the cursor freezes the
 /// collection for its life (E0911 on a write), which is what makes the borrowed
 /// `for(&xs, x => body)` lower to the value form over `(&xs).into_iter()`.
-HashSetCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
+HashSetIter :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
   struct(
     _coll : &(HashSet(T), p),
     _index : usize
@@ -506,7 +489,7 @@ HashSetCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type)
 impl(
   generic(T : Type, p : Origin),
   where(T <: (Eq(T), Hash)),
-  HashSetCursor(T, p),
+  HashSetIter(T, p),
   Iterator(
     Item : &(T, p),
     next : (fn(self : &mut Self) -> Option(&(T, p)))({
@@ -515,7 +498,7 @@ impl(
         (at >= self._coll._map.capacity) => .None,
         true => {
           self._index = (at + usize(1));
-          .Some(&self._coll._map._data_ptr().add(at).*.key)
+          .Some(&self._coll._map._data_ptr().add(at).*.0)
         }
       )
     })
@@ -527,16 +510,24 @@ impl(
   &(HashSet(T), p),
   IntoIterator(
     Item : &(T, p),
-    IntoIter : HashSetCursor(T, p),
-    into_iter : (fn(self : Self) -> HashSetCursor(T, p))(HashSetCursor(T, p)(_coll : self, _index : usize(0)))
+    IntoIter : HashSetIter(T, p),
+    into_iter : (fn(self : Self) -> HashSetIter(T, p))(HashSetIter(T, p)(_coll : self, _index : usize(0)))
   )
+);
+impl(
+  generic(T : Type),
+  HashSet(T),
+  /// The shared walk, Rust's `iter()`: each element as a `&T` rooted at the
+  /// collection, which stays frozen while the iterator lives. `for(&c, x => …)`
+  /// is the same walk.
+  iter : (fn(self : &Self) -> HashSetIter(T, self))(HashSetIter(T, self)(_coll : self, _index : usize(0)))
 );
 export(
   HashSet,
   HashSetError,
-  HashSetIter,
-  HashSetIterPtr,
-  HashSetCursor
+  HashSetIntoIter,
+  HashSetRawIter,
+  HashSetIter
 );
 /// Build a `HashSet(T)` from any iterator of `T` — the target of
 /// `it.collect(HashSet(T))`. Duplicates collapse, as with `insert`.

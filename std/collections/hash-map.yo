@@ -14,7 +14,7 @@
 //! ## Stability
 //!
 //! unstable — the shape is settled (D9's infallible `insert` + `try_insert`,
-//! D14's pointer `iter()`, the single-probe `entry` API), but four fields of
+//! `iter()` lending and `iter_raw()` walking pointers, the single-probe `entry` API), but four fields of
 //! the backing struct — `ctrl`, `data`, `capacity`, `size` — are still PUBLIC,
 //! and `plans/archive/STD_API_STABILIZATION.md` §4 lists making them private as open
 //! work in this group: `HashSet` already took that change (`capacity()` and
@@ -33,7 +33,6 @@ pragma(Pragma.AllowUnsafe);
 // (the object/heap model is explicitly out of subset).
 pragma(Pragma.Verify);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
-{ MapEntry } :: import("./entry.yo");
 { ArrayList } :: import("./array-list.yo");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
@@ -110,7 +109,7 @@ HashMap :: (
     ctrl : ?*u8,
     /// The bucket array itself, parallel to `ctrl`. An implementation
     /// detail that is public by accident.
-    data : ?*MapEntry(K, V),
+    data : ?*Tuple(K, V),
     /// Number of buckets — always a power of two, because bucket selection
     /// masks the hash. An implementation detail that is public by accident.
     capacity : usize,
@@ -188,12 +187,12 @@ impl(
   // Allocate both buffers for `capacity` buckets from `alloc` (the global
   // allocator when `.None`), every control byte EMPTY.
   _alloc_with_capacity : (fn(capacity : usize, alloc : Option(Allocator)) -> Result(Self, HashMapError))({
-    bucket_size :: size_of(MapEntry(K, V));
+    bucket_size :: size_of(Tuple(K, V));
     // `capacity * bucket_size` is computed in usize and WRAPS, which would hand
     // malloc a tiny size while the map still believes it owns `capacity`
     // buckets. This is the check `CapacityOverflow` was declared for and never
     // performed (issues/fixed/collection-capacity-overflow-unchecked.md).
-    if(size_would_overflow(MapEntry(K, V), capacity), {
+    if(size_would_overflow(Tuple(K, V), capacity), {
       return(.Err(.CapacityOverflow));
     });
     ctrl_size := capacity;
@@ -205,7 +204,7 @@ impl(
       .None => .Err(.AllocError(error : .OutOfMemory)),
       .Some(ctrl_void_ptr) => {
         ctrl_ptr := (*u8)(ctrl_void_ptr);
-        data_result := Self._alloc_buf(alloc, data_size, align_of(MapEntry(K, V)));
+        data_result := Self._alloc_buf(alloc, data_size, align_of(Tuple(K, V)));
         match(
           data_result,
           .None => {
@@ -213,7 +212,7 @@ impl(
             .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
-            data_ptr := (*MapEntry(K, V))(data_void_ptr);
+            data_ptr := (*Tuple(K, V))(data_void_ptr);
             mut(i) := usize(0);
             while(i < capacity, i = (i + usize(1)), {
               (ctrl_ptr.add(i)).* = CTRL_EMPTY;
@@ -362,7 +361,7 @@ impl(
     )
   ),
   /// Get data pointer (unwrapped for internal use)
-  _data_ptr : (fn(self : &Self) -> *MapEntry(K, V))(
+  _data_ptr : (fn(self : &Self) -> *Tuple(K, V))(
     match(
       self.data,
       .Some(ptr) => ptr,
@@ -393,7 +392,7 @@ impl(
           // Compared in place: a copy of the bucket would be E0901 for a
           // move-only `K` or `V`.
           cond(
-            ((data_ptr.add(probe_index)).*.key == key.*) => {
+            ((data_ptr.add(probe_index)).*.0 == key.*) => {
               return(.Some(probe_index));
             },
             true => ()
@@ -446,7 +445,7 @@ impl(
         },
         (ctrl_byte == h2) => {
           cond(
-            ((data_ptr.add(probe_index)).*.key == key.*) => {
+            ((data_ptr.add(probe_index)).*.0 == key.*) => {
               return(BucketProbe.Occupied(index : probe_index));
             },
             true => ()
@@ -519,7 +518,7 @@ impl(
         cond(
           ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
             bucket_ptr := data_ptr.add(i);
-            hash := self._hash(&bucket_ptr.*.key);
+            hash := self._hash(&bucket_ptr.*.0);
             h2 := h2_hash(hash);
             new_index := Self._find_insert_bucket(&new_map, hash);
             new_ctrl_ptr := Self._ctrl_ptr(&new_map);
@@ -543,7 +542,7 @@ impl(
     );
     match(
       self.data,
-      .Some(ptr) => Self._free_buf(owned, (*void)(ptr), self.capacity * size_of(MapEntry(K, V)), align_of(MapEntry(K, V))),
+      .Some(ptr) => Self._free_buf(owned, (*void)(ptr), self.capacity * size_of(Tuple(K, V)), align_of(Tuple(K, V))),
       .None => ()
     );
     self.ctrl = new_map.ctrl;
@@ -574,8 +573,8 @@ impl(
         // field through `addr_of`: a `unit` value (`HashSet`) has no C
         // storage to point at.
         old := __yo_ptr_read(p);
-        __yo_ptr_write(p, MapEntry(K, V)(key : key, value : value));
-        match(old, { key : _, value : old_value } => .Ok(.Some(old_value)))
+        __yo_ptr_write(p, (key, value));
+        match(old, (_, old_value) => .Ok(.Some(old_value)))
       },
       .None => {
         resize_check := cond(
@@ -603,7 +602,7 @@ impl(
               true => ()
             );
             (ctrl_ptr.add(index)).* = h2;
-            new_bucket := MapEntry(K, V)(key : key, value : value);
+            new_bucket := (key, value);
             consume((data_ptr.add(index)).* = new_bucket);
             self.size = (self.size + usize(1));
             .Ok(.None)
@@ -650,7 +649,7 @@ impl(
       true => ()
     );
     (ctrl_ptr.add(slot)).* = h2_hash(hash);
-    new_bucket := MapEntry(K, V)(key : key, value : value);
+    new_bucket := (key, value);
     consume((data_ptr.add(slot)).* = new_bucket);
     self.size = (self.size + usize(1));
     slot
@@ -665,17 +664,17 @@ impl(
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
-      .Some(index) => .Some((Self._data_ptr(self).add(index)).*.value),
+      .Some(index) => .Some((Self._data_ptr(self).add(index)).*.1),
       .None => .None
     )
   }),
   /// Pointer to the LIVE entry for `key`, or `.None` when the key is absent.
   ///
   /// The pointer aliases the map's own bucket array — the same storage
-  /// `iter()` hands out (D14) — so writing `p.*.value` updates the map in
+  /// `iter_raw()` hands out (D14) — so writing `p.*.1` updates the map in
   /// place, and any operation that REHASHES the table (an `insert` that grows
   /// it, `remove`, `clear`) invalidates it.
-  get_entry_ptr : (fn(self : &mut Self, key : &K) -> Option(*MapEntry(K, V)))({
+  get_entry_ptr : (fn(self : &mut Self, key : &K) -> Option(*Tuple(K, V)))({
     cond(
       (self.capacity == usize(0)) => return(.None),
       true => ()
@@ -710,7 +709,7 @@ impl(
   /// Distinct from `get` whenever the key type has equal-but-distinguishable
   /// values (a case-insensitive string key, say): this returns the key the map
   /// actually holds, not the one used to look it up.
-  get_key_value : (fn(self : &Self, key : &K) -> Option(MapEntry(K, V)))({
+  get_key_value : (fn(self : &Self, key : &K) -> Option(Tuple(K, V)))({
     // A read: it looks the bucket up itself rather than through
     // `get_entry_ptr`, which hands out a writable pointer (`self : &mut Self`).
     cond(
@@ -722,25 +721,25 @@ impl(
       Self._find_bucket(self, key, hash),
       .Some(index) => {
         p := Self._data_ptr(self).add(index);
-        Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key, value : p.*.value))
+        Option(Tuple(K, V)).Some((p.*.0, p.*.1))
       },
-      .None => Option(MapEntry(K, V)).None
+      .None => Option(Tuple(K, V)).None
     )
   }),
   /// Remove `key` and return the entry that was stored — Rust's `remove_entry`.
   ///
   /// The entry moves out of its bucket, so nothing is copied: a move-only
   /// key or value works.
-  remove_entry : (fn(self : &mut Self, key : &K) -> Option(MapEntry(K, V)))({
+  remove_entry : (fn(self : &mut Self, key : &K) -> Option(Tuple(K, V)))({
     hash := self._hash(key);
     match(
       Self._find_bucket(self, key, hash),
       .Some(index) => {
         e := __yo_ptr_read(Self._data_ptr(self).add(index));
         self._vacate(index);
-        Option(MapEntry(K, V)).Some(e)
+        Option(Tuple(K, V)).Some(e)
       },
-      .None => Option(MapEntry(K, V)).None
+      .None => Option(Tuple(K, V)).None
     )
   }),
   /// Whether `key` is in the map — O(1) average, and it does not touch the
@@ -772,7 +771,7 @@ impl(
         // match moves its value out and drops its key.
         e := __yo_ptr_read(Self._data_ptr(self).add(index));
         self._vacate(index);
-        match(e, { key : _, value : value } => .Some(value))
+        match(e, (_, value) => .Some(value))
       },
       .None => .None
     )
@@ -826,7 +825,7 @@ impl(
         ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
           bucket_ptr := data_ptr.add(i);
           cond(
-            !keep(&bucket_ptr.*.key, &bucket_ptr.*.value) => {
+            !keep(&bucket_ptr.*.0, &bucket_ptr.*.1) => {
               // Dropped in place: the scan already knows the bucket, so
               // there is nothing to probe for, and nothing is copied.
               drop_in_place(bucket_ptr);
@@ -843,7 +842,7 @@ impl(
   /// `Extend`.
   ///
   /// Takes anything that implements `IntoIterator` over map entries, so a map,
-  /// an `OrderedMap`, a `BTreeMap` or an `ArrayList(MapEntry(K, V))` all work:
+  /// an `OrderedMap`, a `BTreeMap` or an `ArrayList(Tuple(K, V))` all work:
   ///
   /// ```yo
   /// defaults.extend(overrides);
@@ -863,7 +862,7 @@ impl(
       generic(I : Type),
       self : &mut Self,
       sink(iterable) : I,
-      where(I <: IntoIterator(Item := MapEntry(K, V)))
+      where(I <: IntoIterator(Item := Tuple(K, V)))
     ) -> unit
   )({
     mut(it) := iterable.into_iter();
@@ -874,7 +873,7 @@ impl(
           break;
         },
         .Some(e) => {
-          self.insert(e.key, e.value);
+          self.insert(e.0, e.1);
         }
       );
     });
@@ -935,7 +934,7 @@ impl(
     hash := self._hash(key);
     match(
       Self._find_bucket(self, key, hash),
-      .Some(index) => .Some((Self._data_ptr(self).add(index)).*.value.clone()),
+      .Some(index) => .Some((Self._data_ptr(self).add(index)).*.1.clone()),
       .None => .None
     )
   })
@@ -946,7 +945,7 @@ impl(
   HashMap(K, V),
   /// A clone of the stored key and value — `get_key_value` for a key or
   /// value that is not copied implicitly.
-  get_key_value_cloned : (fn(self : &Self, key : &K) -> Option(MapEntry(K, V)))({
+  get_key_value_cloned : (fn(self : &Self, key : &K) -> Option(Tuple(K, V)))({
     cond(
       (self.capacity == usize(0)) => return(.None),
       true => ()
@@ -956,9 +955,9 @@ impl(
       Self._find_bucket(self, key, hash),
       .Some(index) => {
         p := Self._data_ptr(self).add(index);
-        Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key.clone(), value : p.*.value.clone()))
+        Option(Tuple(K, V)).Some((p.*.0.clone(), p.*.1.clone()))
       },
-      .None => Option(MapEntry(K, V)).None
+      .None => Option(Tuple(K, V)).None
     )
   })
 );
@@ -1004,7 +1003,7 @@ impl(
   /// `&mut` place into the map (`get_or_insert`'s and
   /// `get_or_insert_with`'s results).
   _value_at_mut : (fn(self : &mut Self, index : usize) -> &mut V)(
-    addr_of((Self._data_ptr(self).add(index)).*.value)
+    addr_of((Self._data_ptr(self).add(index)).*.1)
   ),
   /// The value for `key` as a `&mut` place into the map, inserting
   /// `default` first when absent — one probe. The key is cloned only on
@@ -1046,7 +1045,7 @@ impl(
       .Some(p) => {
         // The value alone is replaced, as `and_modify` does; the assignment
         // drops the old value.
-        p.*.value = f(&p.*.value);
+        p.*.1 = f(&p.*.1);
         true
       },
       .None => false
@@ -1098,7 +1097,7 @@ impl(
       );
       match(
         self.data,
-        .Some(ptr) => Self._free_buf(owned, (*void)(ptr), self.capacity * size_of(MapEntry(K, V)), align_of(MapEntry(K, V))),
+        .Some(ptr) => Self._free_buf(owned, (*void)(ptr), self.capacity * size_of(Tuple(K, V)), align_of(Tuple(K, V))),
         .None => ()
       );
     })
@@ -1154,7 +1153,7 @@ impl(
   value : (fn(self : &Self, where(V <: Clone)) -> Option(V))(
     match(
       self._slot,
-      .Occupied(index) => Option(V).Some((self._map.*._data_ptr().add(index)).*.value.clone()),
+      .Occupied(index) => Option(V).Some((self._map.*._data_ptr().add(index)).*.1.clone()),
       .Vacant(_) => Option(V).None
     )
   ),
@@ -1171,11 +1170,11 @@ impl(
   or_insert : (fn(self : &mut Self, default : &V, where(K <: Clone, V <: Clone)) -> V)(
     match(
       self._slot,
-      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value.clone(),
+      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.1.clone(),
       .Vacant(index) => {
         slot := self._map.*._insert_at(index, self._hash, self._key.clone(), default.clone());
         self._slot = BucketProbe.Occupied(index : slot);
-        (self._map.*._data_ptr().add(slot)).*.value.clone()
+        (self._map.*._data_ptr().add(slot)).*.1.clone()
       }
     )
   ),
@@ -1186,11 +1185,11 @@ impl(
   or_insert_with : (fn(self : &mut Self, make : &mut Impl(FnMut() -> V), where(K <: Clone, V <: Clone)) -> V)(
     match(
       self._slot,
-      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value.clone(),
+      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.1.clone(),
       .Vacant(index) => {
         slot := self._map.*._insert_at(index, self._hash, self._key.clone(), make());
         self._slot = BucketProbe.Occupied(index : slot);
-        (self._map.*._data_ptr().add(slot)).*.value.clone()
+        (self._map.*._data_ptr().add(slot)).*.1.clone()
       }
     )
   ),
@@ -1211,7 +1210,7 @@ impl(
         p := self._map.*._data_ptr().add(index);
         // The value alone is replaced, so the key is not copied (a move-only
         // `K` works); the assignment drops the old value.
-        p.*.value = f(&p.*.value);
+        p.*.1 = f(&p.*.1);
       },
       .Vacant(_) => ()
     );
@@ -1223,9 +1222,10 @@ impl(
   /// that logic lives in `remove`.
   remove : (fn(self : &mut Self) -> Option(V))(self._map.*.remove(&self._key))
 );
-/// Value iterator over a HashMap — yields each `MapEntry(K, V)` BY VALUE.
+/// Value iterator over a HashMap — yields each `Tuple(K, V)` BY VALUE.
 /// This is what `into_iter()`, and therefore `for(map, ...)`, returns;
-/// `iter()` yields pointers.
+/// `iter()` lends each element and `iter_raw()`
+/// yields pointers.
 ///
 /// It owns the map. When it holds the map's only handle, each entry MOVES
 /// out of its bucket (the bucket is vacated, so dropping the iterator drops
@@ -1237,7 +1237,7 @@ impl(
 ///
 /// It walks the control-byte array from bucket 0, so the order is arbitrary
 /// but reproducible for a map keyed by `new()`'s fixed keys.
-HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+HashMapIntoIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
     _index : usize
@@ -1246,16 +1246,16 @@ HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
-  HashMapIter(K, V),
+  HashMapIntoIter(K, V),
   Iterator(
-    Item : MapEntry(K, V),
-    next : (fn(self : &mut Self) -> Option(MapEntry(K, V)))(
+    Item : Tuple(K, V),
+    next : (fn(self : &mut Self) -> Option(Tuple(K, V)))(
       cond(
         (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
-          mut(result) := Option(MapEntry(K, V)).None;
+          mut(result) := Option(Tuple(K, V)).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
@@ -1284,26 +1284,26 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   IntoIterator(
-    Item : MapEntry(K, V),
-    IntoIter : HashMapIter(K, V),
-    into_iter : (fn(self : Self) -> HashMapIter(K, V))(
-      HashMapIter(K, V)(_map : self, _index : usize(0))
+    Item : Tuple(K, V),
+    IntoIter : HashMapIntoIter(K, V),
+    into_iter : (fn(self : Self) -> HashMapIntoIter(K, V))(
+      HashMapIntoIter(K, V)(_map : self, _index : usize(0))
     )
   )
 );
-/// Pointer iterator over a HashMap — yields `*(MapEntry(K, V))` into the
-/// map's own bucket array. This is what `iter()` returns (D14).
+/// Pointer iterator over a HashMap — yields `*(Tuple(K, V))` into the
+/// map's own bucket array. This is what `iter_raw()` returns (D14).
 ///
 /// A raw view (decision 39, B7b): it holds the control and bucket arrays and
-/// the capacity `iter()` saw, NOT the map, so it keeps nothing alive and is
+/// the capacity `iter_raw()` saw, NOT the map, so it keeps nothing alive and is
 /// meant for `pragma(Pragma.AllowUnsafe)` code. The map must outlive the
 /// walk, and a yielded pointer stays valid only while the table is not
 /// rehashed: an `insert` that grows the map, a `remove` or a `clear` during
 /// the walk leaves it dangling.
-HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+HashMapRawIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _ctrl : ?*u8,
-    _data : ?*MapEntry(K, V),
+    _data : ?*Tuple(K, V),
     _capacity : usize,
     _index : usize
   )
@@ -1311,16 +1311,16 @@ HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
-  HashMapIterPtr(K, V),
+  HashMapRawIter(K, V),
   Iterator(
-    Item : *MapEntry(K, V),
-    next : (fn(self : &mut Self) -> Option(*MapEntry(K, V)))(
+    Item : *Tuple(K, V),
+    next : (fn(self : &mut Self) -> Option(*Tuple(K, V)))(
       cond(
         (self._capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._ctrl.unwrap();
           data_ptr := self._data.unwrap();
-          mut(result) := Option(*MapEntry(K, V)).None;
+          mut(result) := Option(*Tuple(K, V)).None;
           while((self._index < self._capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
@@ -1340,8 +1340,8 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Raw walk over the occupied buckets: yields a `*(MapEntry(K, V))` into
-  /// the map's own bucket array (D14), so nothing is dup'd and `p.*.value`
+  /// Raw walk over the occupied buckets: yields a `*(Tuple(K, V))` into
+  /// the map's own bucket array (D14), so nothing is dup'd and `p.*.1`
   /// can be written in place. `into_iter()` — what `for(map, ...)` uses —
   /// consumes the map and yields entries by value instead; safe code reads
   /// entries in place with `for(&map, (k, v) => ...)`.
@@ -1351,8 +1351,8 @@ impl(
   /// arrays, not the map (decision 39, B7b), so the map must outlive the
   /// walk. Do not insert or remove during it: a rehash invalidates every
   /// pointer already yielded.
-  iter : (fn(self : &Self) -> HashMapIterPtr(K, V))(
-    HashMapIterPtr(K, V)(_ctrl : self.ctrl, _data : self.data, _capacity : self.capacity, _index : usize(0))
+  iter_raw : (fn(self : &Self) -> HashMapRawIter(K, V))(
+    HashMapRawIter(K, V)(_ctrl : self.ctrl, _data : self.data, _capacity : self.capacity, _index : usize(0))
   ),
   /// The first occupied bucket at or after `i`, or `capacity` when there is
   /// none: the borrowed `for`'s cursor step.
@@ -1374,16 +1374,16 @@ impl(
     )
   })
 );
-// NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated
+// NOTE: This held a wrapped `_inner : HashMapIntoIter(K, V)` and delegated
 // `self._inner.next()` — but a method call on a struct FIELD of `self : &mut Self`
 // advances a COPY of the field, so `_index` never moved and manual
 // `it.next()` loops yielded the first key forever (`for(...)` masked it).
-// Scan directly instead, mirroring `HashMapIterPtr`.
+// Scan directly instead, mirroring `HashMapRawIter`.
 /// Iterator over a map's keys, in bucket order — what `keys()` returns. The
 /// iterator owns the map (`keys()` consumes it), so each key moves out of its
 /// bucket and the bucket's value is dropped: nothing is cloned, and a
 /// move-only key works.
-HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+HashMapIntoKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
     _index : usize
@@ -1392,7 +1392,7 @@ HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
-  HashMapKeys(K, V),
+  HashMapIntoKeys(K, V),
   Iterator(
     Item : K,
     next : (fn(self : &mut Self) -> Option(K))(
@@ -1406,11 +1406,11 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                // SAFETY: as in `HashMapIter.next` — the iterator owns the
+                // SAFETY: as in `HashMapIntoIter.next` — the iterator owns the
                 // map, so the entry moves out and the bucket is vacated.
                 e := __yo_ptr_read(data_ptr.add(self._index));
                 self._map._vacate(self._index);
-                result = match(e, { key : key, value : _ } => .Some(key));
+                result = match(e, (key, _) => .Some(key));
               },
               true => ()
             );
@@ -1428,18 +1428,17 @@ impl(
   /// Walk the keys, in bucket order — Rust's `into_keys`. Each key moves out
   /// of the map and each value is dropped.
   ///
-  /// Consumes the map (lookahead D20): `m.clone().keys()` walks a map that is
-  /// read again later. `keys_cloned()` lists the keys of a borrowed map,
-  /// cloning only the keys.
-  keys : (fn(self : Self) -> HashMapKeys(K, V))(
-    HashMapKeys(K, V)(_map : self, _index : usize(0))
+  /// Consumes the map (lookahead D20); `keys()` lends the keys of a borrowed
+  /// map.
+  into_keys : (fn(self : Self) -> HashMapIntoKeys(K, V))(
+    HashMapIntoKeys(K, V)(_map : self, _index : usize(0))
   )
 );
-// NOTE: Same direct-scan structure as `HashMapKeys` — see the note there for
+// NOTE: Same direct-scan structure as `HashMapIntoKeys` — see the note there for
 // why the wrapped-`_inner` delegation form was replaced.
 /// Iterator over a map's values, in bucket order — what `values()` returns.
-/// Each value moves out of its bucket, as `HashMapKeys` moves its keys.
-HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+/// Each value moves out of its bucket, as `HashMapIntoKeys` moves its keys.
+HashMapIntoValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
     _index : usize
@@ -1448,7 +1447,7 @@ HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
-  HashMapValues(K, V),
+  HashMapIntoValues(K, V),
   Iterator(
     Item : V,
     next : (fn(self : &mut Self) -> Option(V))(
@@ -1462,10 +1461,10 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                // SAFETY: as in `HashMapKeys.next`.
+                // SAFETY: as in `HashMapIntoKeys.next`.
                 e := __yo_ptr_read(data_ptr.add(self._index));
                 self._map._vacate(self._index);
-                result = match(e, { key : _, value : value } => .Some(value));
+                result = match(e, (_, value) => .Some(value));
               },
               true => ()
             );
@@ -1483,69 +1482,11 @@ impl(
   /// Walk the values, in bucket order — Rust's `into_values`. Each value
   /// moves out of the map and each key is dropped.
   ///
-  /// Consumes the map (lookahead D20). `values_cloned()` lists the values of
-  /// a borrowed map.
-  values : (fn(self : Self) -> HashMapValues(K, V))(
-    HashMapValues(K, V)(_map : self, _index : usize(0))
+  /// Consumes the map (lookahead D20); `values()` lends the values of a
+  /// borrowed map.
+  into_values : (fn(self : Self) -> HashMapIntoValues(K, V))(
+    HashMapIntoValues(K, V)(_map : self, _index : usize(0))
   )
-);
-impl(
-  generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Clone)),
-  HashMap(K, V),
-  /// A clone of every key, in bucket order (the order `keys()` yields) —
-  /// the `get_cloned` family's walk of a borrowed map. Only the keys are
-  /// cloned, so a loop can walk them while it reads and writes the map.
-  ///
-  /// ```yo
-  /// { HashMap } :: import("std/collections/hash-map");
-  /// (mut(m) : HashMap(i32, i32)) = HashMap(i32, i32).new();
-  /// m.insert(i32(1), i32(10));
-  /// ks := m.keys_cloned();
-  /// m.insert(i32(2), i32(20));
-  /// assert((ks.len() == usize(1)) && (m.len() == usize(2)), "a snapshot");
-  /// ```
-  keys_cloned : (fn(self : &Self) -> ArrayList(K))({
-    mut(out) := ArrayList(K).with_capacity(self.size);
-    mut(it) := self.iter();
-    while(true, {
-      match(
-        it.next(),
-        // SAFETY: `iter()` yields only pointers at occupied buckets of
-        // `self`'s live bucket array; nothing writes the map during the walk.
-        .Some(p) => out.push(unsafe(p.*.key.clone())),
-        .None => break
-      );
-    });
-    out
-  })
-);
-impl(
-  generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash), V <: Clone),
-  HashMap(K, V),
-  /// A clone of every value, in bucket order (the order `values()` yields)
-  /// — the `get_cloned` family's walk of a borrowed map.
-  ///
-  /// ```yo
-  /// { HashMap } :: import("std/collections/hash-map");
-  /// (mut(m) : HashMap(i32, i32)) = HashMap(i32, i32).new();
-  /// m.insert(i32(1), i32(10));
-  /// assert(m.values_cloned().len() == usize(1), "one value");
-  /// ```
-  values_cloned : (fn(self : &Self) -> ArrayList(V))({
-    mut(out) := ArrayList(V).with_capacity(self.size);
-    mut(it) := self.iter();
-    while(true, {
-      match(
-        it.next(),
-        // SAFETY: as in `keys_cloned`.
-        .Some(p) => out.push(unsafe(p.*.value.clone())),
-        .None => break
-      );
-    });
-    out
-  })
 );
 impl(
   generic(K : Type, V : Type),
@@ -1559,7 +1500,7 @@ impl(
         bucket_opt,
         .Some(i) => {
           data_ptr := Self._data_ptr(self);
-          addr_of((data_ptr.add(i)).*.value)
+          addr_of((data_ptr.add(i)).*.1)
         },
         .None => __yo_panic("HashMap: key not found")
       )
@@ -1578,7 +1519,7 @@ impl(
         bucket_opt,
         .Some(i) => {
           data_ptr := Self._data_ptr(self);
-          addr_of((data_ptr.add(i)).*.value)
+          addr_of((data_ptr.add(i)).*.1)
         },
         .None => __yo_panic("HashMap: key not found")
       )
@@ -1600,7 +1541,7 @@ impl(
     mut(result) := Self.new(alloc : alloc);
     result.k0 = self.k0;
     result.k1 = self.k1;
-    mut(it) := self.iter();
+    mut(it) := self.iter_raw();
     mut(running) := true;
     while(running, {
       nxt := it.next();
@@ -1615,8 +1556,8 @@ impl(
           // _data buffer; the buffer is alive while `self` holds
           // the Rc (we received `self : &mut Self` so the caller still
           // owns it across this call).
-          k := unsafe(bucket_ptr.*.key.clone());
-          v := unsafe(bucket_ptr.*.value.clone());
+          k := unsafe(bucket_ptr.*.0.clone());
+          v := unsafe(bucket_ptr.*.1.clone());
           result.insert(k, v);
         }
       );
@@ -1642,13 +1583,13 @@ impl(
   ///
   /// Later duplicates overwrite earlier ones, as `insert` does.
   FromIterator(
-    Elem : MapEntry(K, V),
+    Elem : Tuple(K, V),
     from_iter_new : (fn() -> Self)(
       HashMap(K, V).new()
     ),
-    from_iter_add : (fn(sink(acc) : Self, item : MapEntry(K, V)) -> Self)({
+    from_iter_add : (fn(sink(acc) : Self, item : Tuple(K, V)) -> Self)({
       mut(out) := acc;
-      out.insert(item.key, item.value);
+      out.insert(item.0, item.1);
       out
     })
   )
@@ -1670,7 +1611,7 @@ impl(
 /// freezes the map for its life (E0911 on a write), which is what makes the
 /// borrowed `for(&map, (k, v) => body)` lower to the value form over
 /// `(&map).into_iter()`.
-HashMapCursor :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
   struct(
     _coll : &(HashMap(K, V), p),
     _index : usize
@@ -1679,7 +1620,7 @@ HashMapCursor :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origi
 impl(
   generic(K : Type, V : Type, p : Origin),
   where(K <: (Eq(K), Hash)),
-  HashMapCursor(K, V, p),
+  HashMapIter(K, V, p),
   Iterator(
     Item : Tuple(&(K, p), &(V, p)),
     next : (fn(self : &mut Self) -> Option(Tuple(&(K, p), &(V, p))))({
@@ -1688,7 +1629,7 @@ impl(
         (at >= self._coll.capacity) => .None,
         true => {
           self._index = (at + usize(1));
-          .Some((&HashMap(K, V)._data_ptr(self._coll).add(at).*.key, &HashMap(K, V)._data_ptr(self._coll).add(at).*.value))
+          .Some((&HashMap(K, V)._data_ptr(self._coll).add(at).*.0, &HashMap(K, V)._data_ptr(self._coll).add(at).*.1))
         }
       )
     })
@@ -1700,15 +1641,15 @@ impl(
   &(HashMap(K, V), p),
   IntoIterator(
     Item : Tuple(&(K, p), &(V, p)),
-    IntoIter : HashMapCursor(K, V, p),
-    into_iter : (fn(self : Self) -> HashMapCursor(K, V, p))(HashMapCursor(K, V, p)(_coll : self, _index : usize(0)))
+    IntoIter : HashMapIter(K, V, p),
+    into_iter : (fn(self : Self) -> HashMapIter(K, V, p))(HashMapIter(K, V, p)(_coll : self, _index : usize(0)))
   )
 );
 /// The write walk over a `HashMap` (Rust's `hash_map::IterMut<'a, K, V>`): a `&mut(HashMap(K, V), p)` lend and a
 /// position, yielding each entry as `(&(K, p), &mut(V, p))`: the key is read-only
 /// (a written key would break the map's order), the value is writable. The map is
 /// frozen exclusively while the cursor lives.
-HashMapCursorMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+HashMapIterMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
   struct(
     _coll : &mut(HashMap(K, V), p),
     _index : usize
@@ -1717,7 +1658,7 @@ HashMapCursorMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Or
 impl(
   generic(K : Type, V : Type, p : Origin),
   where(K <: (Eq(K), Hash)),
-  HashMapCursorMut(K, V, p),
+  HashMapIterMut(K, V, p),
   Iterator(
     Item : Tuple(&(K, p), &mut(V, p)),
     next : (fn(self : &mut Self) -> Option(Tuple(&(K, p), &mut(V, p))))({
@@ -1726,7 +1667,7 @@ impl(
         (at >= self._coll.capacity) => .None,
         true => {
           self._index = (at + usize(1));
-          .Some((&HashMap(K, V)._data_ptr(self._coll).add(at).*.key, &mut HashMap(K, V)._data_ptr(self._coll).add(at).*.value))
+          .Some((&HashMap(K, V)._data_ptr(self._coll).add(at).*.0, &mut HashMap(K, V)._data_ptr(self._coll).add(at).*.1))
         }
       )
     })
@@ -1738,20 +1679,91 @@ impl(
   &mut(HashMap(K, V), p),
   IntoIterator(
     Item : Tuple(&(K, p), &mut(V, p)),
-    IntoIter : HashMapCursorMut(K, V, p),
-    into_iter : (fn(self : Self) -> HashMapCursorMut(K, V, p))(HashMapCursorMut(K, V, p)(_coll : self, _index : usize(0)))
+    IntoIter : HashMapIterMut(K, V, p),
+    into_iter : (fn(self : Self) -> HashMapIterMut(K, V, p))(HashMapIterMut(K, V, p)(_coll : self, _index : usize(0)))
   )
+);
+impl(
+  generic(K : Type, V : Type),
+  HashMap(K, V),
+  /// The shared walk, Rust's `iter()`: each element as a `Tuple(&K, &V)` rooted at the
+  /// collection, which stays frozen while the iterator lives. `for(&c, x => …)`
+  /// is the same walk.
+  iter : (fn(self : &Self) -> HashMapIter(K, V, self))(HashMapIter(K, V, self)(_coll : self, _index : usize(0))),
+  /// The write walk, Rust's `iter_mut()`: each element as a `Tuple(&K, &mut V)`.
+  /// `for(&mut c, x => …)` is the same walk.
+  iter_mut : (fn(self : &mut Self) -> HashMapIterMut(K, V, self))(HashMapIterMut(K, V, self)(_coll : self, _index : usize(0)))
+);
+/// The keys of a borrowed map, Rust's `keys()`: each key as a `&K` rooted at
+/// the map, in the order `iter()` walks.
+HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(_inner : HashMapIter(K, V, p))
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  HashMapKeys(K, V, p),
+  Iterator(
+    Item : &(K, p),
+    next : (fn(self : &mut Self) -> Option(&(K, p)))(
+      match(self._inner.next(), .Some(kv) => .Some(kv.0), .None => .None)
+    )
+  )
+);
+/// The values of a borrowed map, Rust's `values()`: each value as a `&V`.
+HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(_inner : HashMapIter(K, V, p))
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  HashMapValues(K, V, p),
+  Iterator(
+    Item : &(V, p),
+    next : (fn(self : &mut Self) -> Option(&(V, p)))(
+      match(self._inner.next(), .Some((_, v)) => .Some(v), .None => .None)
+    )
+  )
+);
+/// The values of an exclusively borrowed map, Rust's `values_mut()`: each
+/// value as a `&mut V`.
+HashMapValuesMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(_inner : HashMapIterMut(K, V, p))
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  HashMapValuesMut(K, V, p),
+  Iterator(
+    Item : &mut(V, p),
+    next : (fn(self : &mut Self) -> Option(&mut(V, p)))(
+      match(self._inner.next(), .Some((_, v)) => .Some(v), .None => .None)
+    )
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMap(K, V),
+  /// Each key as a `&K` (Rust's `keys()`); `into_keys()` moves them out.
+  keys : (fn(self : &Self) -> HashMapKeys(K, V, self))(HashMapKeys(K, V, self)(_inner : self.iter())),
+  /// Each value as a `&V` (Rust's `values()`); `into_values()` moves them out.
+  values : (fn(self : &Self) -> HashMapValues(K, V, self))(HashMapValues(K, V, self)(_inner : self.iter())),
+  /// Each value as a `&mut V` (Rust's `values_mut()`).
+  values_mut : (fn(self : &mut Self) -> HashMapValuesMut(K, V, self))(HashMapValuesMut(K, V, self)(_inner : self.iter_mut()))
 );
 export(
   HashMap,
   HashMapEntry,
   BucketProbe,
   HashMapError,
-  MapEntry,
+  HashMapIntoIter,
+  HashMapRawIter,
+  HashMapIntoKeys,
+  HashMapIntoValues,
   HashMapIter,
-  HashMapIterPtr,
+  HashMapIterMut,
   HashMapKeys,
   HashMapValues,
-  HashMapCursor,
-  HashMapCursorMut
+  HashMapValuesMut
 );

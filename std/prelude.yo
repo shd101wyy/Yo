@@ -11157,8 +11157,9 @@ export(IntoIterator);
 /// The element type is deliberately named `Elem`, NOT `Item`: the assoc-type
 /// registry is keyed by (type id, label) with no trait discrimination, so an
 /// `Item` here would collide with the collection's own `IntoIterator.Item` and
-/// resolve first-wins by load order — benign for `ArrayList`, but genuinely
-/// divergent for `HashMap`, whose `IntoIterator.Item` is `MapEntry(K, V)`.
+/// resolve first-wins by load order — benign for the std collections, whose
+/// two element types agree, but divergent for any collection built from one
+/// element type and walked as another.
 ///
 /// `from_iter_add` takes the accumulator by `own` and RETURNS it, so that one
 /// signature covers reference collections (mutate `acc`, return it — the return
@@ -11735,6 +11736,60 @@ impl(
   )
 );
 export(IterFilterMap);
+// ---------------------------------------------------------------------------
+// IterCloned / IterCopied
+// ---------------------------------------------------------------------------
+/// `&A` as a type function: an associated-type binding `Item := &A` is read
+/// as the local borrow `y := &place`
+/// (issues/2026-11-28-an-associated-type-binding-to-a-reference-type-is-read-as-a-local-borrow.md).
+_RefTo :: (fn(comptime(A) : Type) -> comptime(Type))(&A);
+/// Lazy iterator over an iterator of references that yields a clone of each
+/// referent — Rust's `Cloned`. Created by `.cloned()`:
+/// `m.keys().cloned().collect(ArrayList(K))`.
+IterCloned :: (fn(comptime(I) : Type) -> comptime(Type))(
+  struct(_inner : I)
+);
+derive(generic(I : Type), where(I <: Clone), IterCloned(I), Clone);
+derive(generic(I : Type), where(I <: Copy), IterCloned(I), Copy);
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := _RefTo(A)), A <: Clone),
+  IterCloned(I),
+  Iterator(
+    Item : A,
+    next : (fn(self : &mut Self) -> Option(A))(
+      match(
+        self._inner.next(),
+        .None => .None,
+        .Some(r) => .Some(r.clone())
+      )
+    )
+  )
+);
+export(IterCloned);
+/// Lazy iterator over an iterator of references to `Copy` values that yields
+/// each referent — Rust's `Copied`. Created by `.copied()`.
+IterCopied :: (fn(comptime(I) : Type) -> comptime(Type))(
+  struct(_inner : I)
+);
+derive(generic(I : Type), where(I <: Clone), IterCopied(I), Clone);
+derive(generic(I : Type), where(I <: Copy), IterCopied(I), Copy);
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := _RefTo(A)), A <: Copy),
+  IterCopied(I),
+  Iterator(
+    Item : A,
+    next : (fn(self : &mut Self) -> Option(A))(
+      match(
+        self._inner.next(),
+        .None => .None,
+        .Some(r) => .Some(r.*)
+      )
+    )
+  )
+);
+export(IterCopied);
 // ---------------------------------------------------------------------------
 // IterPeekable
 // ---------------------------------------------------------------------------
@@ -13234,6 +13289,28 @@ impl(
     ) -> IterFilterMap(Self, B, F)
   )(
     IterFilterMap(Self, B, F)(_inner : self, _f : f)
+  ),
+  /// Clone each referent of an iterator of references, producing an
+  /// `IterCloned` iterator — Rust's `cloned()`.
+  cloned : (
+    fn(
+      generic(A : Type),
+      sink(self) : Self,
+      where(Self <: Iterator(Item := _RefTo(A)), A <: Clone)
+    ) -> IterCloned(Self)
+  )(
+    IterCloned(Self)(_inner : self)
+  ),
+  /// Copy each referent of an iterator of references to `Copy` values,
+  /// producing an `IterCopied` iterator — Rust's `copied()`.
+  copied : (
+    fn(
+      generic(A : Type),
+      sink(self) : Self,
+      where(Self <: Iterator(Item := _RefTo(A)), A <: Copy)
+    ) -> IterCopied(Self)
+  )(
+    IterCopied(Self)(_inner : self)
   ),
   /// Wrap in an `IterPeekable`, which adds `peek()`.
   peekable : (

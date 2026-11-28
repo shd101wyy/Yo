@@ -2,7 +2,7 @@
 //!
 //! `OrderedMap(K, V)` preserves the order in which keys were first inserted,
 //! similar to JavaScript's `Map` or Python's `dict` (≥ 3.7). The entries live
-//! in one `ArrayList(MapEntry(K, V))` in insertion order — the ONLY place a
+//! in one `ArrayList(Tuple(K, V))` in insertion order — the ONLY place a
 //! key is stored — beside a hash index from each key's hash to the positions
 //! of the entries whose key hashes to it, so lookup is O(1) average time and
 //! the key is never copied
@@ -47,13 +47,12 @@
 //! `swap_remove` that `indexmap` offers beside it (removing by swapping the
 //! last key into the hole, at the cost of the order) has not been decided.
 //! Adding it would change what `remove`'s cost is worth accepting. Everything
-//! else is settled — D14's pointer `iter()` and the `IntoIterator` that makes
-//! `for(map, ...)` work both landed 2026-09-08.
-// `iter()` yields `*(MapEntry(K, V))` into the entry list's buffer (D14), so
+//! else is settled: `iter()` lends, `iter_raw()` walks pointers, and the
+//! `IntoIterator` impls make `for(map, ...)` work.
+// `iter_raw()` yields `*(Tuple(K, V))` into the entry list's buffer (D14), so
 // this module names a raw pointer type. The pointers come from
 // `ArrayList.ptr` and are never dereferenced outside the in-place readers.
 pragma(Pragma.AllowUnsafe);
-{ MapEntry } :: import("./entry.yo");
 { ArrayList } :: import("./array-list");
 { HashMap, HashMapError } :: import("./hash-map");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
@@ -76,7 +75,7 @@ OrderedMap :: (
 )(
   struct(
     /// The entries, in insertion order. The only home of each key.
-    _entries : ArrayList(MapEntry(K, V)),
+    _entries : ArrayList(Tuple(K, V)),
     /// Each key's hash -> the positions in `_entries` of the entries whose
     /// key hashes to it. A list of positions, because a hash is not a key:
     /// on a lookup every position is compared by key, in place. This is
@@ -88,7 +87,7 @@ OrderedMap :: (
 );
 // A value since B10 (plans/VALUES_BY_DEFAULT.md): cloning clones the entries
 // and the position index, which needs `K <: Clone` and `V <: Clone` (through
-// `MapEntry`'s derived Clone and `HashMap`'s `Clone`).
+// the entry tuple's Clone and `HashMap`'s `Clone`).
 derive(generic(K : Type, V : Type), where(K <: (Eq(K), Hash, Clone), V <: Clone), OrderedMap(K, V), Clone);
 impl(
   generic(K : Type, V : Type),
@@ -97,7 +96,7 @@ impl(
   /// Create an empty `OrderedMap`.
   new : (fn() -> Self)(
     Self(
-      _entries : ArrayList(MapEntry(K, V)).new(),
+      _entries : ArrayList(Tuple(K, V)).new(),
       _index : HashMap(u64, ArrayList(usize)).new()
     )
   ),
@@ -107,7 +106,7 @@ impl(
   is_empty : (fn(self : &Self) -> bool)(self._entries.is_empty()),
   /// The entry buffer, for the in-place readers. Only called with a position
   /// below `len()`, so the buffer exists.
-  _entries_ptr : (fn(self : &Self) -> *MapEntry(K, V))(
+  _entries_ptr : (fn(self : &Self) -> *Tuple(K, V))(
     match(
       self._entries.ptr(),
       .Some(p) => p,
@@ -140,7 +139,7 @@ impl(
       pos := positions(i);
       ep := self._entries_ptr().add(pos);
       cond(
-        (ep.*.key == key.*) => {
+        (ep.*.0 == key.*) => {
           found = Option(usize).Some(pos);
         },
         true => ()
@@ -158,7 +157,7 @@ impl(
   _index_add : (fn(self : &mut Self, h : u64, pos : usize) -> unit)(
     match(
       self._index.get_entry_ptr(&h),
-      .Some(ep) => ep.*.value.push(pos),
+      .Some(ep) => ep.*.1.push(pos),
       .None => {
         mut(fresh) := ArrayList(usize).new();
         fresh.push(pos);
@@ -173,8 +172,8 @@ impl(
       self._index.get_entry_ptr(&h),
       .Some(ep) => {
         match(
-          ep.*.value.index_of(&pos),
-          .Some(i) => consume(ep.*.value.remove(i)),
+          ep.*.1.index_of(&pos),
+          .Some(i) => consume(ep.*.1.remove(i)),
           .None => ()
         );
         ()
@@ -189,10 +188,10 @@ impl(
       self._index.get_entry_ptr(&h),
       .Some(ep) => {
         match(
-          ep.*.value.index_of(&from),
+          ep.*.1.index_of(&from),
           .Some(i) => {
-            consume(ep.*.value.remove(i));
-            ep.*.value.insert(i, to);
+            consume(ep.*.1.remove(i));
+            ep.*.1.insert(i, to);
           },
           .None => ()
         );
@@ -207,7 +206,7 @@ impl(
   get : (fn(self : &Self, key : &K) -> Option(V))(
     match(
       self._find_pos(key),
-      .Some(pos) => Option(V).Some((self._entries_ptr().add(pos)).*.value),
+      .Some(pos) => Option(V).Some((self._entries_ptr().add(pos)).*.1),
       .None => Option(V).None
     )
   ),
@@ -229,14 +228,14 @@ impl(
         // slot (HashMap.try_insert's idiom): nothing is copied, and the key
         // stays where it is.
         p := self._entries_ptr().add(pos);
-        old := __yo_ptr_read(unsafe(addr_of(p.*.value)));
-        __yo_ptr_write(unsafe(addr_of(p.*.value)), value);
+        old := __yo_ptr_read(unsafe(addr_of(p.*.1)));
+        __yo_ptr_write(unsafe(addr_of(p.*.1)), value);
         Result(Option(V), HashMapError).Ok(Option(V).Some(old))
       },
       .None => {
         h := self._hash_key(&key);
         pos := self._entries.len();
-        entry := MapEntry(K, V)(key : key, value : value);
+        entry := (key, value);
         match(
           self._entries.try_push(entry),
           .Err(_) => Result(Option(V), HashMapError).Err(.AllocError(error : .OutOfMemory)),
@@ -272,7 +271,7 @@ impl(
       .None => Option(V).None,
       .Some(pos) => {
         // The stored key's hash, taken while the entry is still in place.
-        h := self._hash_key(&((self._entries_ptr().add(pos)).*.key));
+        h := self._hash_key(&((self._entries_ptr().add(pos)).*.0));
         self._index_drop(h, pos);
         // The whole entry moves out bitwise; a struct-pattern match takes
         // the value and drops the key.
@@ -282,10 +281,10 @@ impl(
         mut(j) := pos;
         n := self._entries.len();
         while(j < n, j = (j + usize(1)), {
-          hj := self._hash_key(&((self._entries_ptr().add(j)).*.key));
+          hj := self._hash_key(&((self._entries_ptr().add(j)).*.0));
           self._index_bump(hj, j + usize(1), j);
         });
-        match(entry, { key : _, value : v } => Option(V).Some(v))
+        match(entry, (_, v) => Option(V).Some(v))
       }
     )
   ),
@@ -302,7 +301,7 @@ impl(
       .None => Option(V).None,
       .Some(pos) => {
         // The stored key's hash, taken while the entry is still in place.
-        h := self._hash_key(&((self._entries_ptr().add(pos)).*.key));
+        h := self._hash_key(&((self._entries_ptr().add(pos)).*.0));
         last := (self._entries.len() - usize(1));
         // The whole entry moves out bitwise; a struct-pattern match takes
         // the value and drops the key.
@@ -314,11 +313,11 @@ impl(
             // The entry that was last now sits at `pos`; move its position
             // record (after the drop above, so a hash it shares with the
             // removed key cannot collide with the old record).
-            hlast := self._hash_key(&((self._entries_ptr().add(pos)).*.key));
+            hlast := self._hash_key(&((self._entries_ptr().add(pos)).*.0));
             self._index_bump(hlast, last, pos);
           }
         );
-        match(entry, { key : _, value : v } => Option(V).Some(v))
+        match(entry, (_, v) => Option(V).Some(v))
       }
     )
   ),
@@ -328,13 +327,13 @@ impl(
   index_of : (fn(self : &Self, key : &K) -> Option(usize))(self._find_pos(key)),
   /// The `(key, value)` pair at position `i` in the iteration order, or
   /// `.None` when `i` is out of range — Rust's `IndexMap::get_index`.
-  get_index : (fn(self : &Self, i : usize) -> Option(MapEntry(K, V)))(
-    // A clone (`MapEntry(K, V) <: Clone`): the list keeps its entry (B8).
+  get_index : (fn(self : &Self, i : usize) -> Option(Tuple(K, V)))(
+    // A clone (`Tuple(K, V) <: Clone`): the list keeps its entry (B8).
     self._entries.get_cloned(i)
   ),
   /// Remove all entries.
   clear : (fn(self : &mut Self) -> unit)({
-    self._entries = ArrayList(MapEntry(K, V)).new();
+    self._entries = ArrayList(Tuple(K, V)).new();
     self._index = HashMap(u64, ArrayList(usize)).new();
   })
 );
@@ -349,7 +348,7 @@ impl(
   get_cloned : (fn(self : &Self, key : &K) -> Option(V))(
     match(
       self._find_pos(key),
-      .Some(pos) => Option(V).Some((self._entries_ptr().add(pos)).*.value.clone()),
+      .Some(pos) => Option(V).Some((self._entries_ptr().add(pos)).*.1.clone()),
       .None => Option(V).None
     )
   )
@@ -361,12 +360,12 @@ impl(
   /// A clone of the `(key, value)` pair at position `i` in the iteration
   /// order, or `.None` when `i` is out of range — `get_index` for a key or
   /// value that is not copied implicitly.
-  get_index_cloned : (fn(self : &Self, i : usize) -> Option(MapEntry(K, V)))(
+  get_index_cloned : (fn(self : &Self, i : usize) -> Option(Tuple(K, V)))(
     self._entries.get_cloned(i)
   )
 );
 /// Iterator over the keys of an `OrderedMap` in insertion order.
-OrderedMapKeys :: (
+OrderedMapIntoKeys :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
@@ -381,11 +380,11 @@ OrderedMapKeys :: (
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash, Clone)),
-  OrderedMapKeys(K, V),
+  OrderedMapIntoKeys(K, V),
   /// Next key in INSERTION order, or `.None` at the end — O(1), straight off
   /// the entry list.
   ///
-  /// Each key is yielded as a clone (`K <: Clone`), as `HashMapKeys` does:
+  /// Each key is yielded as a clone (`K <: Clone`), as `HashMapIntoKeys` does:
   /// the entry list keeps its own (B8). Inserting a
   /// new key during the walk appends to that list and so extends the walk;
   /// removing one shifts everything after the removed entry.
@@ -396,13 +395,13 @@ impl(
       },
       true => ()
     );
-    k := Option(K).Some(self._map._entries(self._index).key.clone());
+    k := Option(K).Some(self._map._entries(self._index).0.clone());
     self._index = (self._index + usize(1));
     return(k);
   })
 );
 /// Iterator over the values of an `OrderedMap` in insertion order.
-OrderedMapValues :: (
+OrderedMapIntoValues :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
@@ -417,7 +416,7 @@ OrderedMapValues :: (
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash), V <: Clone),
-  OrderedMapValues(K, V),
+  OrderedMapIntoValues(K, V),
   /// Next value in the KEYS' insertion order, or `.None` at the end — O(1),
   /// a clone (`V <: Clone`) read off the entry list.
   next : (fn(self : &mut Self) -> Option(V))({
@@ -427,13 +426,13 @@ impl(
       },
       true => ()
     );
-    v := self._map._entries(self._index).value.clone();
+    v := self._map._entries(self._index).1.clone();
     self._index = (self._index + usize(1));
     Option(V).Some(v)
   })
 );
 /// Iterator over `(key, value)` pairs of an `OrderedMap` in insertion order.
-OrderedMapIter :: (
+OrderedMapIntoIter :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
@@ -448,36 +447,36 @@ OrderedMapIter :: (
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash, Clone), V <: Clone),
-  OrderedMapIter(K, V),
+  OrderedMapIntoIter(K, V),
   Iterator(
-    Item : MapEntry(K, V),
-    next : (fn(self : &mut Self) -> Option(MapEntry(K, V)))({
+    Item : Tuple(K, V),
+    next : (fn(self : &mut Self) -> Option(Tuple(K, V)))({
       cond(
         (self._index >= self._map._entries.len()) => {
-          return(Option(MapEntry(K, V)).None);
+          return(Option(Tuple(K, V)).None);
         },
         true => ()
       );
       // A clone of the entry (`K`, `V` <: Clone): the list keeps its own (B8).
       e := self._map._entries(self._index).clone();
       self._index = (self._index + usize(1));
-      Option(MapEntry(K, V)).Some(e)
+      Option(Tuple(K, V)).Some(e)
     })
   )
 );
 /// Pointer iterator over an `OrderedMap`'s `(key, value)` pairs, in insertion
-/// order — what `iter()` returns (D14).
+/// order — what `iter_raw()` returns (D14).
 ///
-/// Each `next` yields a `*(MapEntry(K, V))` straight into the entry list's
+/// Each `next` yields a `*(Tuple(K, V))` straight into the entry list's
 /// buffer, so entries are borrowed rather than rebuilt by value, and writing
-/// `p.*.value` updates the map in place. A raw view (decision 39, B7b): it
-/// holds the entry list's buffer pointer and the length `iter()` saw, NOT the
+/// `p.*.1` updates the map in place. A raw view (decision 39, B7b): it
+/// holds the entry list's buffer pointer and the length `iter_raw()` saw, NOT the
 /// map, so it keeps nothing alive and is meant for
 /// `pragma(Pragma.AllowUnsafe)` code. The map must outlive the walk; any
 /// insertion that grows the buffer reallocates it, and a
 /// `remove`/`swap_remove` shifts entries, so both invalidate or reorder
 /// pointers already yielded.
-OrderedMapIterPtr :: (
+OrderedMapRawIter :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
@@ -485,7 +484,7 @@ OrderedMapIterPtr :: (
   ) -> comptime(Type)
 )(
   struct(
-    _ptr : ?*MapEntry(K, V),
+    _ptr : ?*Tuple(K, V),
     _len : usize,
     _index : usize
   )
@@ -493,13 +492,13 @@ OrderedMapIterPtr :: (
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
-  OrderedMapIterPtr(K, V),
+  OrderedMapRawIter(K, V),
   Iterator(
-    Item : *MapEntry(K, V),
-    next : (fn(self : &mut Self) -> Option(*MapEntry(K, V)))({
+    Item : *Tuple(K, V),
+    next : (fn(self : &mut Self) -> Option(*Tuple(K, V)))({
       cond(
         (self._index >= self._len) => {
-          return(Option(*MapEntry(K, V)).None);
+          return(Option(*Tuple(K, V)).None);
         },
         true => ()
       );
@@ -508,10 +507,10 @@ impl(
         .Some(base) => {
           p := base.add(self._index);
           self._index = (self._index + usize(1));
-          return(Option(*MapEntry(K, V)).Some(p));
+          return(Option(*Tuple(K, V)).Some(p));
         },
         .None => {
-          return(Option(*MapEntry(K, V)).None);
+          return(Option(*Tuple(K, V)).None);
         }
       );
     })
@@ -522,12 +521,12 @@ impl(
   where(K <: (Eq(K), Hash)),
   OrderedMap(K, V),
   IntoIterator(
-    Item : MapEntry(K, V),
-    IntoIter : OrderedMapIter(K, V),
-    /// Iterate `(key, value)` pairs BY VALUE in insertion order — the shape
-    /// `iter()` had before D14, and what `for(map, ...)` expands to.
-    into_iter : (fn(self : Self) -> OrderedMapIter(K, V))(
-      OrderedMapIter(K, V)(_map : self, _index : usize(0))
+    Item : Tuple(K, V),
+    IntoIter : OrderedMapIntoIter(K, V),
+    /// Iterate `(key, value)` pairs BY VALUE in insertion order — what
+    /// `for(map, ...)` expands to.
+    into_iter : (fn(self : Self) -> OrderedMapIntoIter(K, V))(
+      OrderedMapIntoIter(K, V)(_map : self, _index : usize(0))
     )
   )
 );
@@ -537,21 +536,21 @@ impl(
   OrderedMap(K, V),
   /// Iterator over keys in insertion order. Consumes the map (lookahead
   /// D20).
-  keys : (fn(self : Self) -> OrderedMapKeys(K, V))(
-    OrderedMapKeys(K, V)(_map : self, _index : usize(0))
+  into_keys : (fn(self : Self) -> OrderedMapIntoKeys(K, V))(
+    OrderedMapIntoKeys(K, V)(_map : self, _index : usize(0))
   ),
   /// Iterator over values in insertion order. Consumes the map (lookahead
   /// D20).
-  values : (fn(self : Self) -> OrderedMapValues(K, V))(
-    OrderedMapValues(K, V)(_map : self, _index : usize(0))
+  into_values : (fn(self : Self) -> OrderedMapIntoValues(K, V))(
+    OrderedMapIntoValues(K, V)(_map : self, _index : usize(0))
   ),
   /// Iterator over `(key, value)` pairs in insertion order, yielding a
-  /// `*(MapEntry(K, V))` into the map's own storage (D14): the
+  /// `*(Tuple(K, V))` into the map's own storage (D14): the
   /// `pragma(Pragma.AllowUnsafe)` form, whose iterator holds the entry
   /// buffer, not the map (B7b). Use `into_iter()` for the consuming by-value
   /// form and `for(&map, (k, v) => ...)` to read in place.
-  iter : (fn(self : &Self) -> OrderedMapIterPtr(K, V))(
-    OrderedMapIterPtr(K, V)(_ptr : self._entries.ptr(), _len : self._entries.len(), _index : usize(0))
+  iter_raw : (fn(self : &Self) -> OrderedMapRawIter(K, V))(
+    OrderedMapRawIter(K, V)(_ptr : self._entries.ptr(), _len : self._entries.len(), _index : usize(0))
   )
 );
 /// `Default` — the empty map.
@@ -570,7 +569,7 @@ impl(
 /// freezes the map for its life (E0911 on a write), which is what makes the
 /// borrowed `for(&map, (k, v) => body)` lower to the value form over
 /// `(&map).into_iter()`.
-OrderedMapCursor :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+OrderedMapIter :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
   struct(
     _coll : &(OrderedMap(K, V), p),
     _index : usize
@@ -579,7 +578,7 @@ OrderedMapCursor :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Or
 impl(
   generic(K : Type, V : Type, p : Origin),
   where(K <: (Eq(K), Hash)),
-  OrderedMapCursor(K, V, p),
+  OrderedMapIter(K, V, p),
   Iterator(
     Item : Tuple(&(K, p), &(V, p)),
     next : (fn(self : &mut Self) -> Option(Tuple(&(K, p), &(V, p))))({
@@ -588,7 +587,7 @@ impl(
         (at >= self._coll._entries.len()) => .None,
         true => {
           self._index = (at + usize(1));
-          .Some((&self._coll._entries.ptr().unwrap().add(at).*.key, &self._coll._entries.ptr().unwrap().add(at).*.value))
+          .Some((&self._coll._entries.ptr().unwrap().add(at).*.0, &self._coll._entries.ptr().unwrap().add(at).*.1))
         }
       )
     })
@@ -600,15 +599,15 @@ impl(
   &(OrderedMap(K, V), p),
   IntoIterator(
     Item : Tuple(&(K, p), &(V, p)),
-    IntoIter : OrderedMapCursor(K, V, p),
-    into_iter : (fn(self : Self) -> OrderedMapCursor(K, V, p))(OrderedMapCursor(K, V, p)(_coll : self, _index : usize(0)))
+    IntoIter : OrderedMapIter(K, V, p),
+    into_iter : (fn(self : Self) -> OrderedMapIter(K, V, p))(OrderedMapIter(K, V, p)(_coll : self, _index : usize(0)))
   )
 );
 /// The write walk over a `OrderedMap` (Rust's `indexmap::IterMut<'a, K, V>`): a `&mut(OrderedMap(K, V), p)` lend and a
 /// position, yielding each entry as `(&(K, p), &mut(V, p))`: the key is read-only
 /// (a written key would break the map's order), the value is writable. The map is
 /// frozen exclusively while the cursor lives.
-OrderedMapCursorMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+OrderedMapIterMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
   struct(
     _coll : &mut(OrderedMap(K, V), p),
     _index : usize
@@ -617,7 +616,7 @@ OrderedMapCursorMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) :
 impl(
   generic(K : Type, V : Type, p : Origin),
   where(K <: (Eq(K), Hash)),
-  OrderedMapCursorMut(K, V, p),
+  OrderedMapIterMut(K, V, p),
   Iterator(
     Item : Tuple(&(K, p), &mut(V, p)),
     next : (fn(self : &mut Self) -> Option(Tuple(&(K, p), &mut(V, p))))({
@@ -626,7 +625,7 @@ impl(
         (at >= self._coll._entries.len()) => .None,
         true => {
           self._index = (at + usize(1));
-          .Some((&self._coll._entries.ptr().unwrap().add(at).*.key, &mut self._coll._entries.ptr().unwrap().add(at).*.value))
+          .Some((&self._coll._entries.ptr().unwrap().add(at).*.0, &mut self._coll._entries.ptr().unwrap().add(at).*.1))
         }
       )
     })
@@ -638,17 +637,88 @@ impl(
   &mut(OrderedMap(K, V), p),
   IntoIterator(
     Item : Tuple(&(K, p), &mut(V, p)),
-    IntoIter : OrderedMapCursorMut(K, V, p),
-    into_iter : (fn(self : Self) -> OrderedMapCursorMut(K, V, p))(OrderedMapCursorMut(K, V, p)(_coll : self, _index : usize(0)))
+    IntoIter : OrderedMapIterMut(K, V, p),
+    into_iter : (fn(self : Self) -> OrderedMapIterMut(K, V, p))(OrderedMapIterMut(K, V, p)(_coll : self, _index : usize(0)))
   )
+);
+impl(
+  generic(K : Type, V : Type),
+  OrderedMap(K, V),
+  /// The shared walk, Rust's `iter()`: each element as a `Tuple(&K, &V)` rooted at the
+  /// collection, which stays frozen while the iterator lives. `for(&c, x => …)`
+  /// is the same walk.
+  iter : (fn(self : &Self) -> OrderedMapIter(K, V, self))(OrderedMapIter(K, V, self)(_coll : self, _index : usize(0))),
+  /// The write walk, Rust's `iter_mut()`: each element as a `Tuple(&K, &mut V)`.
+  /// `for(&mut c, x => …)` is the same walk.
+  iter_mut : (fn(self : &mut Self) -> OrderedMapIterMut(K, V, self))(OrderedMapIterMut(K, V, self)(_coll : self, _index : usize(0)))
+);
+/// The keys of a borrowed map, Rust's `keys()`: each key as a `&K` rooted at
+/// the map, in the order `iter()` walks.
+OrderedMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(_inner : OrderedMapIter(K, V, p))
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  OrderedMapKeys(K, V, p),
+  Iterator(
+    Item : &(K, p),
+    next : (fn(self : &mut Self) -> Option(&(K, p)))(
+      match(self._inner.next(), .Some(kv) => .Some(kv.0), .None => .None)
+    )
+  )
+);
+/// The values of a borrowed map, Rust's `values()`: each value as a `&V`.
+OrderedMapValues :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(_inner : OrderedMapIter(K, V, p))
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  OrderedMapValues(K, V, p),
+  Iterator(
+    Item : &(V, p),
+    next : (fn(self : &mut Self) -> Option(&(V, p)))(
+      match(self._inner.next(), .Some((_, v)) => .Some(v), .None => .None)
+    )
+  )
+);
+/// The values of an exclusively borrowed map, Rust's `values_mut()`: each
+/// value as a `&mut V`.
+OrderedMapValuesMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(_inner : OrderedMapIterMut(K, V, p))
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  OrderedMapValuesMut(K, V, p),
+  Iterator(
+    Item : &mut(V, p),
+    next : (fn(self : &mut Self) -> Option(&mut(V, p)))(
+      match(self._inner.next(), .Some((_, v)) => .Some(v), .None => .None)
+    )
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  OrderedMap(K, V),
+  /// Each key as a `&K` (Rust's `keys()`); `into_keys()` moves them out.
+  keys : (fn(self : &Self) -> OrderedMapKeys(K, V, self))(OrderedMapKeys(K, V, self)(_inner : self.iter())),
+  /// Each value as a `&V` (Rust's `values()`); `into_values()` moves them out.
+  values : (fn(self : &Self) -> OrderedMapValues(K, V, self))(OrderedMapValues(K, V, self)(_inner : self.iter())),
+  /// Each value as a `&mut V` (Rust's `values_mut()`).
+  values_mut : (fn(self : &mut Self) -> OrderedMapValuesMut(K, V, self))(OrderedMapValuesMut(K, V, self)(_inner : self.iter_mut()))
 );
 export(
   OrderedMap,
-  MapEntry,
+  OrderedMapIntoKeys,
+  OrderedMapIntoValues,
+  OrderedMapIntoIter,
+  OrderedMapRawIter,
+  OrderedMapIter,
+  OrderedMapIterMut,
   OrderedMapKeys,
   OrderedMapValues,
-  OrderedMapIter,
-  OrderedMapIterPtr,
-  OrderedMapCursor,
-  OrderedMapCursorMut
+  OrderedMapValuesMut
 );

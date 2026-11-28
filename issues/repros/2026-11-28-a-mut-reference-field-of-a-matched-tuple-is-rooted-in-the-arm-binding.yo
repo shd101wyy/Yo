@@ -1,0 +1,11 @@
+second :: (fn(generic(p : Origin), o : Option(Tuple(&(i32, p), &mut(i32, p)))) -> Option(&mut(i32, p)))(
+  match(o, .Some(kv) => .Some(kv.1), .None => .None)
+);
+main :: (fn() -> unit)({
+  a := i32(1);
+  mut(b) := i32(2);
+  r := second(.Some((&a, &mut b))).unwrap();
+  r.* = i32(5);
+  assert((b == i32(5)), "b");
+});
+export(main);
