@@ -61,7 +61,7 @@ The E0616 hint says a `where(T <: Trait)` bound selects one. That holds for a bo
 
 `_select_matching_overload` in `src/evaluator/calls/function.yo` applies the where-constraint preference before the ambiguity rule. It reads the enclosing specialization's active bound trait ids (`active_where_trait_ids()`, `src/expr-info.yo`) and, when several matching candidates come from different traits, walks the candidates in the order they were registered (`matching`, the outer loop) and takes the first whose `source_trait_id` is in the active set. It stops there and sets `aw_chosen`. The rule was written for one bound selecting between same-signature impls (`DisambigPoint`, `impl.test.yo`), where "the first match in the set" is the only match in the set. With two traits that both declare the method, both candidates are in the set, so the winner is the earlier-registered impl, the bound's written order is never consulted, and `aw_chosen` then skips the E0616 block (`amb_traits.len() > 1`) that the concrete call reaches.
 
-`issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md` fixed the concrete case and documents the where preference as a tie-breaker, with no case for two bound traits supplying the same name. `issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md` is a different clash.
+`issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md` fixed the concrete case and documents the where preference as a tie-breaker, with no case for two bound traits supplying the same name. `issues/retired/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md` is a different clash.
 
 ## Fix direction
 

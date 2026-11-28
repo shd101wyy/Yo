@@ -310,12 +310,12 @@ reserved_yo_name_help :: (fn() -> String)(
 /// `TokenData.written` is false: `__yo_tpl_N`, ...) as a last line,
 /// `// yo-batch-minted: a b c `, and a binder named there is not a person's.
 _is_declared_minted_in_batch :: (fn(tok : &Token) -> bool)({
-  if(!tok.module_path.*.contains(String.from(".yo_selftest_batch_")), {
+  if(!tok.*.*.module_path.*.contains(String.from(".yo_selftest_batch_")), {
     return(false);
   });
   match(
-    tok.input.*.last_index_of(String.from("\n// yo-batch-minted:")),
-    .Some(at) => tok.input.*.substring(at, tok.input.*.len()).contains(` ${tok.value.*} `),
+    tok.*.*.input.*.last_index_of(String.from("\n// yo-batch-minted:")),
+    .Some(at) => tok.*.*.input.*.substring(at, tok.*.*.input.*.len()).contains(` ${tok.*.*.value.*} `),
     .None => false
   )
 });
@@ -367,17 +367,17 @@ _rename_facts :: (fn(e : &AstExpr, name : &String, renamed : &String, in_export 
   match(
     e,
     Rc(.Atom(_, t)) => {
-      if(t.value.* == renamed.*, {
+      if(t.*.*.value.* == renamed.*, {
         facts.taken = true;
       });
-      if(in_export && (t.value.* == name.*), {
+      if(in_export && (t.*.*.value.* == name.*), {
         facts.exported = true;
       });
     },
     Rc(.FnCall(_, callee, Rc(args), _, _)) => {
       match(
         callee,
-        Rc(.Atom(cid, ct)) => if(ct.value.* == name.*, {
+        Rc(.Atom(cid, ct)) => if(ct.*.*.value.* == name.*, {
           facts.callees.insert(cid.*);
         }),
         Rc(.FnCall(_, _, _, _, _)) => ()
@@ -389,7 +389,7 @@ _rename_facts :: (fn(e : &AstExpr, name : &String, renamed : &String, in_export 
         if(is_brace, {
           match(
             a,
-            Rc(.Atom(aid, at)) => if(at.value.* == name.*, {
+            Rc(.Atom(aid, at)) => if(at.*.*.value.* == name.*, {
               facts.puns.insert(aid.*);
             }),
             Rc(.FnCall(_, _, _, _, _)) => ()
@@ -407,7 +407,7 @@ _parse_for_rename :: (fn(src : &String, module_path : &String, out : &mut ArrayL
   out.push(parse(src, module_path, local_exn));
   true
 });
-_same_position :: (fn(a : &Token, b : &Token) -> bool)((a.row == b.row) && (a.column == b.column));
+_same_position :: (fn(a : &Token, b : &Token) -> bool)((a.*.*.row == b.*.*.row) && (a.*.*.column == b.*.*.column));
 /// The uses of the binder `tok` (a name `reserved_binding_message`
 /// reserves), for E0407's rename repair to `name_`: every atom its syntactic
 /// scope gives that binder (`scoped_atoms_of`, src/expr.yo), member names and
@@ -422,12 +422,12 @@ _same_position :: (fn(a : &Token, b : &Token) -> bool)((a.row == b.row) && (a.co
 ///   brace group spells by pun (`.{ name }` would rename the field);
 /// - an atom the compiler minted, or a file that already spells `name_`.
 _reserved_rename_uses :: (fn(tok : &Token) -> Option(ArrayList(Span)))({
-  name := tok.value.*.clone();
+  name := tok.*.*.value.*.clone();
   if(builtin_type_keyword(&name).is_some(), {
     return(Option(ArrayList(Span)).None);
   });
   parsed := ArrayList(ArrayList(AstExpr)).new();
-  if(!_parse_for_rename(&tok.input.*, &tok.module_path.*, &mut parsed), {
+  if(!_parse_for_rename(&tok.*.*.input.*, &tok.*.*.module_path.*, &mut parsed), {
     return(Option(ArrayList(Span)).None);
   });
   exprs := parsed(usize(0)).clone();
@@ -474,13 +474,13 @@ _reserved_rename_uses :: (fn(tok : &Token) -> Option(ArrayList(Span)))({
     same_binding := match(&sa.scope, .Some(d) => (!top_level && _same_position(d, tok)), .None => top_level);
     if(same_binding && !_same_position(&t, tok) && !atom_is_member_or_label(&roles, ast_expr_id(&sa.atom)), {
       id := ast_expr_id(&sa.atom);
-      if(!t.written || facts.callees.contains(&id) || facts.puns.contains(&id), {
+      if(!t.*.written || facts.callees.contains(&id) || facts.puns.contains(&id), {
         return(Option(ArrayList(Span)).None);
       });
-      at := `${t.row.to_string()}:${t.column.to_string()}`;
+      at := `${t.*.row.to_string()}:${t.*.column.to_string()}`;
       if(!seen.contains(&at), {
         seen.insert(at);
-        uses.push(Span(path : t.module_path.*.clone(), row : usize(t.row), col : usize(t.column), len : name_len));
+        uses.push(Span(path : t.*.module_path.*.clone(), row : usize(t.*.row), col : usize(t.*.column), len : name_len));
       });
     });
   });
@@ -516,12 +516,12 @@ _reserved_rename_uses :: (fn(tok : &Token) -> Option(ArrayList(Span)))({
 /// a call's argument is tried against the callee's signature, and a plain
 /// throw there is swallowed with the trial.
 reject_reserved_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(!tok.written || tok.module_path.*.starts_with(String.from("auto-generated://")), {
+  if(!tok.*.*.written || tok.*.*.module_path.*.starts_with(String.from("auto-generated://")), {
     return(());
   });
-  name := tok.value.*.clone();
+  name := tok.*.*.value.*.clone();
   if(is_yo_namespace_name(&name), {
-    if(!may_bind_yo_namespace_name(&tok.module_path.*, &ctx.std_path) && !_is_declared_minted_in_batch(tok), {
+    if(!may_bind_yo_namespace_name(&tok.*.*.module_path.*, &ctx.std_path) && !_is_declared_minted_in_batch(tok), {
       raise_flow_violation(&format_error_message_with_help(tok, &reserved_yo_name_message(&name), &Option(String).Some(reserved_yo_name_help())), ctx, exn);
     });
     return(());
@@ -548,7 +548,7 @@ reject_reserved_binder :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception)
 /// suffix (issues/fixed/2026-11-27-the-reserved-name-exemption-is-keyed-on-a-path-suffix.md).
 /// A std function's parameters and locals are checked like any other.
 reject_reserved_definition :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(ctx.is_evaluating_function_body_or_async_block.is_none() && is_std_module_path(&tok.module_path.*, &ctx.std_path), {
+  if(ctx.is_evaluating_function_body_or_async_block.is_none() && is_std_module_path(&tok.*.*.module_path.*, &ctx.std_path), {
     return(());
   });
   reject_reserved_binder(tok, ctx, exn);

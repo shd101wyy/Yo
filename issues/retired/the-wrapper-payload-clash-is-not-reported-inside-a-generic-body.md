@@ -2,11 +2,13 @@
 
 **Severity:** S3: an inconsistency in when a diagnostic fires, not a miscompile. In a generic body, a call that is E0616 outside it keeps its pre-decision-32 meaning (the wrapper's member) with no diagnostic.
 
+**Status: RETIRED (2026-11-21).** VERDICTS-73 deleted member forwarding through `Deref`: `w.clone()` on a handle is the handle's own `clone` in and out of a generic body, so there is no clash to report. See the section at the end.
+
 > Found 2026-10-08 while landing `plans/VALUES_BY_DEFAULT.md` decision 32 Generation B (#1268).
 
 ## Reproducer
 
-```rust
+```yo
 _clone_rc :: (fn(generic(T : Type), w : Rc(T), where(T <: Clone)) -> Rc(T))(w.clone());
 main :: (fn() -> unit)({
   e := _clone_rc(rc(i32(2)));
@@ -44,3 +46,10 @@ parameter (`Rc(T)`) and whose payload has the member through its bound
 type into the specialization: the receiver's type before substitution decides.
 The test lands with the fix: `_clone_rc` above as a `comptime_expect_error`,
 next to the existing trait-bound test that must stay green.
+
+## Retired
+
+VERDICTS-73 (v0.2.80) deleted the forwarding this clash guarded: `.` reads a member of the receiver's own type only,
+and `.*` is the only dereference. `w.clone()` with `w : Rc(T)` is the `Rc`'s clone everywhere, and the payload's is
+`w.*.clone()`. `tests/deref-explicit.test.yo` ("w.clone() on a handle is the handle's clone") pins both readings in and
+out of a generic body.

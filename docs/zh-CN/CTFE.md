@@ -390,8 +390,7 @@ if(true, {
 });
 ```
 
-> std 没有 `try` 宏：它会隐藏调用方栈帧内的 `return`，与代数效应冲突。
-> 请改用对 `Result` 的 `match`。
+> std 没有 `try` 宏。请改用对 `Result` 的 `match`。
 
 ## 编译时求值
 

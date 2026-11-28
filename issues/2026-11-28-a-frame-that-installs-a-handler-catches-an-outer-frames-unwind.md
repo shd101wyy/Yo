@@ -3,7 +3,7 @@
 **Severity:** S1 — a synchronous frame that installs its own handler and also forwards an outer frame's handler catches the outer handler's `unwind` and returns its value as its own result: the installer keeps running with a wrong value, and when the two frames' result types differ the program reads one type as another (ASan SEGV in safe code).
 
 - Filed: 2026-11-28, finding F1 of VERDICTS-94 (Fable 5.2, §8), with its probes `p01` and `p01b`.
-- Status: open. Closed by K-1 of [`plans/backlog/CAPABILITIES_AND_HANDLERS.md`](../plans/backlog/CAPABILITIES_AND_HANDLERS.md) (v0.2.82).
+- Status: open, not fixed: retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
 - Related: the same root as `issues/2026-11-28-a-handler-record-built-inline-in-the-call-is-not-an-installation.md` (F4); the method-call case of the install guess was `issues/fixed/2026-10-23-an-unwind-through-a-method-call-is-not-caught-by-the-frame-that-installed-the-handler.md`.
 
 ## Reproducer
@@ -89,8 +89,10 @@ The handler records its identity before raising the flag (`_emit_unwind_target` 
 
 ## Fix
 
+Not built (VERDICTS-96 §5): no statement in `src/` or `std/` has this shape, and E-5 deletes the mechanism. The repair the doc was filed with, K-1 of [`plans/archive/CAPABILITIES_AND_HANDLERS.md`](../plans/archive/CAPABILITIES_AND_HANDLERS.md), was:
+
 K-1: a synchronous frame catches an unwind only when `__yo_unwind_target` is one of its own handler literals (`unwind_catch_condition` over `context.unwind_catches`, as `await.yo` does); otherwise it runs its drops and re-raises. The static `_call_is_handler_installation` guess is deleted.
 
 ## Test
 
-None in this filing: the bug is open with no fix. The test lands with K-1: both repros as run-time tests under ASan (`which=0 -> 100`; the `String` variant prints `outer`'s value with no crash).
+None: the bug is not fixed. Its reproducer stops compiling at E-5, when `ctl` and `unwind` leave the language.

@@ -41,7 +41,9 @@
 { AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr-info.yo");
 { Environment, Variable, get_variables_from_env, variable_value_type } :: import("../env.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_is_borrow, t_slot_pointee } :: import("../types/definitions.yo");
+{ resolve_struct_shell } :: import("../types/creators.yo");
+{ deref_target_type } :: import("../evaluator/trait-checking.yo");
 { type_to_string } :: import("../types/string.yo");
 { EvalValue } :: import("../value.yo");
 { type_id_or_empty, get_type_trait_methods_for_type } :: import("../evaluator/values/type-trait-methods.yo");
@@ -417,15 +419,14 @@ _add_methods :: (
 /// Resolve the receiver type for dot completion from the token before the
 /// dot: best AST candidate's ExprInfo, TypeVal-unwrapped (type-valued exprs
 /// like `Point.` / `Option(i32).`), refined through the env's variable list
-/// like hover, then pointer-deref'd. Pushes (type, deref'd type, env) into
-/// the out lists on success.
+/// like hover, then read through references. Pushes (type, env) into the
+/// out lists on success.
 _receiver_at :: (
   fn(
     target : &Token,
     exprs : &ArrayList(AstExpr),
     info_table : &ExprInfoTable,
     out_recv : &mut ArrayList(TypeValue),
-    out_deref : &mut ArrayList(TypeValue),
     out_env : &mut ArrayList(Environment)
   ) -> unit
 )({
@@ -491,23 +492,66 @@ _receiver_at :: (
       );
     });
   });
-  (deref : TypeValue) = Rc.clone(recv);
-  (guard : usize) = usize(0);
-  while(guard < usize(8), {
+  // `.` reads through references only (VERDICTS-73).
+  (own : TypeValue) = Rc.clone(recv);
+  while(t_slot_is_borrow(&own), {
+    own = t_slot_pointee(&own);
+  });
+  out_recv.push(own);
+  out_env.push(info.env());
+});
+
+/// The places `x.*`, `x.*.*`, … name below a receiver of type `recv`: a raw
+/// pointer's pointee, a `Deref` type's `Target` (a handle's payload, an
+/// owner's view), at most eight deep.
+_star_places :: (fn(recv : &TypeValue, env : &Environment) -> ArrayList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (cur : TypeValue) = Rc.clone(recv);
+  while(out.len() < usize(8), {
+    next := match(
+      Rc.clone(cur),
+      Rc(.Pointer(p)) => Option(TypeValue).Some(Rc.clone(p)),
+      _ => deref_target_type(&resolve_struct_shell(&cur), env)
+    );
     match(
-      Rc.clone(deref),
-      Rc(.Pointer(p)) => {
-        deref = Rc.clone(p);
+      next,
+      .Some(n) => {
+        cur = resolve_struct_shell(&n);
+        out.push(Rc.clone(cur));
       },
-      _ => {
-        guard = usize(8);
+      .None => {
+        return(out);
       }
     );
-    guard = (guard + usize(1));
   });
-  out_recv.push(recv);
-  out_deref.push(deref);
-  out_env.push(info.env());
+  out
+});
+
+/// The members of the place `depth` stars below the receiver: listed after
+/// the receiver's own, each inserting its stars (`*.name`, `*.*.name`), since
+/// `.` reads only the receiver's own members (VERDICTS-73).
+_push_star_place_members :: (
+  fn(place : &TypeValue, depth : usize, env : &Environment, out : &mut ArrayList(JsonValue)) -> unit
+)({
+  tmp := ArrayList(JsonValue).new();
+  seen := HashSet(String).new();
+  _type_member_items(place, &mut tmp, &mut seen);
+  _add_methods(place, place, env, &mut tmp, &mut seen);
+  (stars : String) = String.new();
+  (si : usize) = usize(0);
+  while(si < depth, si = (si + usize(1)), {
+    stars.push_str("*.");
+  });
+  (i : usize) = usize(0);
+  while(i < tmp.len(), i = (i + usize(1)), {
+    (item : JsonValue) = tmp(i).clone();
+    label := match(item.get(&String.from("label")), .Some(.Str(l)) => l, _ => String.new());
+    insert := match(item.get(&String.from("insertText")), .Some(.Str(t)) => t, _ => label.clone());
+    item.insert(String.from("insertText"), JsonValue.Str(`${stars}${insert}`));
+    item.insert(String.from("insertTextFormat"), JsonValue.Int(i64(2)));
+    item.insert(String.from("sortText"), JsonValue.Str(`${depth.to_string()}_${label}`));
+    out.push(item);
+  });
 });
 
 _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
@@ -1180,16 +1224,19 @@ handle_completion :: (
       receiver,
       .Some(rt) => {
         out_recv := ArrayList(TypeValue).new();
-        out_deref := ArrayList(TypeValue).new();
         out_env := ArrayList(Environment).new();
-        _receiver_at(&rt, exprs, info_table, &mut out_recv, &mut out_deref, &mut out_env);
+        _receiver_at(&rt, exprs, info_table, &mut out_recv, &mut out_env);
         if(out_recv.len() > usize(0), {
           recv := Rc.clone(out_recv(usize(0)));
-          deref := Rc.clone(out_deref(usize(0)));
           env := Rc.clone(out_env(usize(0)));
           seen := HashSet(String).new();
-          _type_member_items(&deref, &mut items, &mut seen);
-          _add_methods(&recv, &deref, &env, &mut items, &mut seen);
+          _type_member_items(&recv, &mut items, &mut seen);
+          _add_methods(&recv, &recv, &env, &mut items, &mut seen);
+          places := _star_places(&recv, &env);
+          (pi : usize) = usize(0);
+          while(pi < places.len(), pi = (pi + usize(1)), {
+            _push_star_place_members(&places(pi), pi + usize(1), &env, &mut items);
+          });
         });
       },
       .None => {

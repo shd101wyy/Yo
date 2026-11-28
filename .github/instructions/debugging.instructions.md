@@ -111,6 +111,6 @@ Emitted C names are position hashes (`yo_id_<hash><occurrence>`). With `YO_DEBUG
 ## Design docs for context
 
 - Drop glue and the cell runtime: `c-codegen.instructions.md` ("Drop glue and the cell runtime")
-- Async/await: `docs/en-US/ASYNC_AWAIT.md`; parallelism: `docs/en-US/PARALLELISM.md`; effects: `docs/en-US/ALGEBRAIC_EFFECTS.md`
+- Async/await: `docs/en-US/ASYNC_AWAIT.md`; parallelism: `docs/en-US/PARALLELISM.md`; handlers (`ctl`, `unwind`): `docs/en-US/ALGEBRAIC_EFFECTS.md`
 - Low-level sys module: `docs/en-US/STD_SYS_MODULE.md`
 - Reference cycles (they leak; `Weak` breaks them): `docs/en-US/MEMORY_SAFETY.md`, `docs/en-US/WEAK.md`

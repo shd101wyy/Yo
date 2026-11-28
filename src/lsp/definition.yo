@@ -628,12 +628,11 @@ _member_definition :: (
               Rc(.Atom(_, rt)) => {
                 receiver_name = rt.*.value.*.clone();
                 out_recv := ArrayList(TypeValue).new();
-                out_deref := ArrayList(TypeValue).new();
                 out_env := ArrayList(Environment).new();
-                _receiver_at(&rt, exprs, info_table, &mut out_recv, &mut out_deref, &mut out_env);
+                _receiver_at(&rt, exprs, info_table, &mut out_recv, &mut out_env);
                 if(out_recv.len() > usize(0), {
                   owner = Rc.clone(out_recv(usize(0)));
-                  deref = Rc.clone(out_deref(usize(0)));
+                  deref = Rc.clone(owner);
                   env_opt = Option(Environment).Some(Rc.clone(out_env(usize(0))));
                 });
               },

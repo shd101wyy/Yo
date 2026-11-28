@@ -1,0 +1,27 @@
+// F8 (VERDICTS-96 probe v01): a handler's `unwind(i32(99))` sets the installer's result past its `ensures`.
+{ println } :: import("std/fmt");
+
+Raise :: (ctl(code : i32) -> i32);
+
+leaf :: (fn(x : i32, h : Raise) -> i32)(
+  cond(
+    (x > i32(10)) => h(x),
+    true => x
+  )
+);
+
+clamp :: (
+  fn(x : i32, ensures(r <= i32(10))) -> (r : i32)
+)({
+  (h : Raise) = (code -> unwind(i32(99)));
+  v := leaf(x, h);
+  cond(
+    (v > i32(10)) => i32(10),
+    true => v
+  )
+});
+
+main :: (fn() -> unit)({
+  println(`clamp(50) = ${clamp(i32(50))} (the contract says <= 10)`);
+});
+export(main);

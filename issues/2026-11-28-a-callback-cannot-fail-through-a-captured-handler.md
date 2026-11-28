@@ -3,7 +3,7 @@
 **Severity:** S3 — expressiveness: a closure passed to a higher-order function may not capture a handler even when it cannot escape, so the everyday shape "fail from inside the callback" (`each(xs, x => raise(...))`) is rejected; the workaround is a loop in the handler's own frame or a callback that returns a `Result`.
 
 - Filed: 2026-11-28, finding F7 of VERDICTS-95 (Fable 5.2, §7), with its probe `q10`.
-- Status: open. Closed by K-7 (a handler carries its installer's origin; a non-escaping closure may capture one once P4, second-class closures, lands) of [`plans/backlog/CAPABILITIES_AND_HANDLERS.md`](../plans/backlog/CAPABILITIES_AND_HANDLERS.md) (v0.2.83–84, lane A).
+- Status: open, not fixed: retired with the mechanism at E-5 of [`plans/backlog/ERRORS_AS_VALUES.md`](../plans/backlog/ERRORS_AS_VALUES.md) (VERDICTS-96 §5). `ctl` and `unwind` are deleted, and this doc moves to `issues/retired/` with E-5.
 
 ## Reproducer
 
@@ -71,8 +71,10 @@ As VERDICTS-95 §7 states it, rule 4 of `docs/en-US/ALGEBRAIC_EFFECTS.md` ("Clos
 
 ## Fix
 
+Not built (VERDICTS-96 §5): with errors as values a callback fails by returning a `Result`, and E-5 deletes the mechanism. The repair the doc was filed with, K-7 of [`plans/archive/CAPABILITIES_AND_HANDLERS.md`](../plans/archive/CAPABILITIES_AND_HANDLERS.md), was:
+
 K-7: a handler value carries its installer's origin, so a closure that captures one carries it too, and O3, O4 and O10 reject only the closures that actually escape. With P4 (second-class closures) a non-escaping closure may capture a handler. The diagnostic's help stays valid until then.
 
 ## Test
 
-None in this filing: the limitation is open with no fix. The test lands with K-7: this repro as a run-time test (the unwind at `-2` ends `main`, the handler's install frame, so `sum=` is never printed) and an escaping variant that stays an error.
+None: the limitation is not lifted. Its reproducer stops compiling at E-5, when `ctl` and `unwind` leave the language.
