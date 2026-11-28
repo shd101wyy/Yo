@@ -52,7 +52,8 @@ import("std/fmt");
   E_LOCK_MISMATCH,
   E_STORE_INTEGRITY_MISMATCH,
   E_NO_MATCHING_VERSION,
-  E_INVALID_PACKAGE_NAME
+  E_INVALID_PACKAGE_NAME,
+  E_MEMBER_BEHIND_DEREF
 } :: import("../../src/diagnostics.yo");
 _check_entry :: (fn(e : &Explain, label : &String) -> unit)({
   assert(e.title.len() > usize(0), `${label}: English title empty`);
@@ -105,6 +106,7 @@ test("every code the classifier emits has a registry entry", {
   codes.push(String.from(E_STORE_INTEGRITY_MISMATCH));
   codes.push(String.from(E_NO_MATCHING_VERSION));
   codes.push(String.from(E_INVALID_PACKAGE_NAME));
+  codes.push(String.from(E_MEMBER_BEHIND_DEREF));
   (mut(i) : usize) = usize(0);
   while(i < codes.len(), {
     c := match(

@@ -297,7 +297,7 @@ Filed with this plan:
 - F9 (S2): `issues/2026-11-28-a-verified-function-that-passes-on-a-callees-result-with-a-user-error-enum-gets-a-solver-error.md`;
 - F10 (S2): `issues/2026-11-28-a-bare-variant-at-a-block-tail-is-not-inferred-when-the-function-has-an-ensures.md`;
 - E-6: `issues/questions/2026-11-28-does-future-keep-an-effect-row.md`;
-- generators: `issues/questions/2026-11-28-generators-on-frames.md`.
+- generators: `issues/questions/2026-11-28-generators-on-frames.md`; the design is [`GENERATORS`](GENERATORS.md) (VERDICTS-97).
 
 ## 7. Docs and naming
 

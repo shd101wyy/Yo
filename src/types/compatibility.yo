@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, fn_trait_base_serves } :: import("./definitions.yo");
-{ type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get, type_binding_name } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
 { type_to_string } :: import("./string.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
@@ -31,6 +31,21 @@ pragma(Pragma.AllowUnsafe);
 // Internal helpers
 // ---------------------------------------------------------------------------
 _visited_contains :: (fn(visited : &ArrayList(String), key : &String) -> bool)(visited.contains(key));
+/// Whether two struct ids are two DIFFERENT module-level declarations, one of
+/// them named, for the exact rule (the struct twin of `enum_decls_differ`). A
+/// `struct_decl_` id is the declaration's source position, so two of them are
+/// two declarations, and one that a `::` binding named is identical to no
+/// other type, however alike their fields. The `name` field cannot say so: a
+/// recursive struct's self-shell resolves to the registry final
+/// (`resolve_struct_shell`), built before the binding stamped its name, so
+/// `Node` and `BNode` (both `struct(value : i32, next : Option(Box(Self)))`)
+/// met nameless inside their own fields and compared equal field by field;
+/// the CTFE memo then served `Box(Node)` for `Box(BNode)`. Two anonymous
+/// records and generic instances (type arguments or a constructor id) keep
+/// the structural rule.
+_struct_decls_differ :: (fn(aid : &String, eid : &String, ata_len : usize, eta_len : usize, acfid : &String, ecfid : &String) -> bool)(
+  (aid.* != eid.*) && aid.starts_with("struct_decl_") && eid.starts_with("struct_decl_") && (ata_len == usize(0)) && (eta_len == usize(0)) && acfid.is_empty() && ecfid.is_empty() && (type_binding_name(aid).is_some() || type_binding_name(eid).is_some())
+);
 _is_in_used :: (fn(used : &ArrayList(usize), idx : usize) -> bool)({
   i := usize(0);
   n := used.len();
@@ -1124,6 +1139,9 @@ _compat_impl :: (
       // (aid == eid already returned true above, so
       // reaching here with an empty side means different ids → distinct.)
       ((atypes.len() == usize(0)) || (etypes.len() == usize(0))) => false, 
+      // Two named module-level declarations are two types, whatever their
+      // fields (`_struct_decls_differ`).
+      _struct_decls_differ(aid, eid, ata.len(), eta.len(), acfid, ecfid) => false, 
       // Exact, different ids → structural. But the SEMANTICS KIND must match
       // first: a value `struct`, a reference `object`, an `atomic object`, and
       // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the

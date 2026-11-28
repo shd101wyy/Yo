@@ -1,0 +1,40 @@
+// `Box(Dyn(Iterator(Item := i32)))` stepped by `.next()` (VERDICTS-97 probe p01d).
+// Expected: prints `boxed: 20`. Actual (v0.2.80): `yo check` OK, the C compile fails.
+{ println } :: import("std/fmt");
+
+Evens :: struct(i : i32, n : i32);
+impl(
+  Evens,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))(
+      cond(
+        (self.i < self.n) => {
+          v := self.i;
+          self.i = (self.i + i32(2));
+          .Some(v)
+        },
+        true => .None
+      )
+    )
+  )
+);
+
+main :: (fn() -> unit)({
+  (mut(boxed) : Box(Dyn(Iterator(Item := i32)))) = dyn(Box.new(Evens(i : i32(0), n : i32(10))));
+  mut(sum) := i32(0);
+  while(
+    true,
+    match(
+      boxed.next(),
+      .Some(v) => {
+        sum = (sum + v);
+      },
+      .None => {
+        break;
+      }
+    )
+  );
+  println(`boxed: ${sum}`);
+});
+export(main);
