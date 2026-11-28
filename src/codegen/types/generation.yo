@@ -31,7 +31,7 @@
   can_optimize_as_simple_enum,
   type_key
 } :: import("../utils/index.yo");
-{ BF_DUP, BF_DROP } :: import("../../expr.yo");
+{ BF_DROP } :: import("../../expr.yo");
 /// True when array-wrapper name `a` must be emitted before `b`: shorter
 /// names first (an OUTER wrapper's name is `Array_<child>_<len>` — strictly
 /// longer than its child's name, so length-ascending is dependency order),
@@ -1540,11 +1540,11 @@ _unseen_type_ids :: (fn(context : &CodeGenContext, seen : &mut HashSet(String)) 
   });
   ids
 });
-/// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
+/// Reserved ARC/GC method labels NOT emitted into the dyn vtable (drop/
 /// dispose are generated separately). The destructor trait's own method is
 /// left out by its trait, not its name (`is_destructor_trait_member`).
 _is_reserved_dyn_method :: (fn(label : &String) -> bool)(
-  (label.* == BF_DUP) || (label.* == BF_DROP) || (label.* == "___dispose")
+  (label.* == BF_DROP) || (label.* == "___dispose")
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain

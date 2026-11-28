@@ -8,11 +8,6 @@
 //! no result temp and no dead-code stop. Both concatenate this block's deferred
 //! drops onto the enclosing pending set (so an early return drops every
 //! enclosing scope's locals) and restore on exit.
-//!
-//! DEFERRED (documented, not hit by the no-RC corpus): the deferred-dup rewrite
-//! of the return value (re-emit the last expr into a temp, then dup) — needs
-//! generate_deferred_dup_expressions (Phase 4). The no-RC corpus has no
-//! deferred dups, so the last expression is assigned to the result temp as-is.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
@@ -24,7 +19,7 @@
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _get_deferred_drop_target_variable } :: import("./return.yo");
 { _call_generate_expr, chain_leaf_pointer_code } :: import("./dispatch.yo");
-{ _looks_like_minted_temp, arm_value_with_dups } :: import("./drop-dup.yo");
+{ _looks_like_minted_temp } :: import("./drop-dup.yo");
 { declare_c_var_name, get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, scope_stack_contains } :: import("../utils/index.yo");
 { replace } :: import("std/mem");
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
@@ -336,20 +331,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
             .Some(arg_ei) => {
               note_line_position(&mut context.base.emitter, &arg);
               is_last := (idx == (n - usize(1)));
-              // The value a block yields carries the evaluator's balancing
-              // `___dup` when it is shared out of a binding the block does not
-              // own (an outer-frame local, a borrowed binding): emit it, as a
-              // `match` arm's final expression does. Bare, the result temp
-              // aliased the outer local without a reference of its own, and the
-              // temp's release and the local's both freed the one allocation
-              // (issues/fixed/2026-10-15-a-block-that-yields-an-outer-local-never-takes-its-reference.md).
-              // A single-expression block shares its id with its tail; the
-              // block's consumer owns those dups.
-              result := if(
-                is_last && is_returning && (ast_expr_id(&arg) != ast_expr_id(expr)),
-                match(arm_value_with_dups(&arg, indent2.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(&arg, indent2.clone(), context)),
-                _call_generate_expr(&arg, indent2.clone(), context)
-              );
+              result := _call_generate_expr(&arg, indent2.clone(), context);
               if(
                 !(is_last && is_returning),
                 if(result.len() > usize(0), {

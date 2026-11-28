@@ -12570,17 +12570,9 @@ _evaluate_function_call_unanchored :: (
   // e.g. `recur(...)` passes the enclosing function's value via
   // `evaluate_recur`), use it as the callee instead of evaluating
   // `func_expr` — the callee atom (`recur`) is not a bound variable and an
-  // identifier lookup would throw "Variable recur not found".
-  // `___dup`: both arms yield `func_expr` (the `.None` arm's
-  // `evaluate_expression_raw` returns its input node ALIASED, rc unchanged — a
-  // borrow), but `evaluated_callee` is a separate owning local dropped at scope
-  // end alongside `func_expr`. Without an independent ref the two drops race one
-  // owned ref (the func_box dup) and free the parent-owned callee node in a
-  // specialized body (the stage-2 `check` UAF, node 92024). The two-alias
-  // split (rather than one reassigned variable with one drop) needs the
-  // same-node
-  // incr here. `___dup` (NOT `.clone()`, which mints a new node with the SAME id
-  // → ExprInfo id-collision / heap corruption) keeps the id so
+  // identifier lookup would throw "Variable recur not found". Both arms yield
+  // an owned handle to `func_expr`'s node (`Rc.clone`, or the node
+  // `evaluate_expression_raw` returns), never a new node, so
   // `ast_expr_id(evaluated_callee)` still resolves its ExprInfo.
   // A dot callee (`p.m` in `p.m(x)`) that names no field is a method call;
   // everywhere else a field miss is an error (`is_dot_callee`,
@@ -12589,24 +12581,22 @@ _evaluate_function_call_unanchored :: (
   if(callee_is_marked_dot, {
     mark_dot_callee(ast_expr_id(&func_expr));
   });
-  evaluated_callee := ___dup(
-    match(
-      given_value,
-      .Some(gv) => {
-        gc_info := new_expr_info(env, given_type);
-        gc_info.set_value(Option(EvalValue).Some(Rc.clone(gv.*)));
-        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_expr), &gc_info);
-        Rc.clone(func_expr)
-      },
-      .None => {
-        // A callee is read through, never as a whole value: `f(x)` with
-        // `f : &Impl(Fn(…))`, the index `r(i)` (E0926, N1e-1).
-        deref_exempt_mark(&func_expr);
-        ev_callee := evaluate_expression_raw(&func_expr, env, ctx, exn);
-        deref_exempt_clear();
-        ev_callee
-      }
-    )
+  evaluated_callee := match(
+    given_value,
+    .Some(gv) => {
+      gc_info := new_expr_info(env, given_type);
+      gc_info.set_value(Option(EvalValue).Some(Rc.clone(gv.*)));
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_expr), &gc_info);
+      Rc.clone(func_expr)
+    },
+    .None => {
+      // A callee is read through, never as a whole value: `f(x)` with
+      // `f : &Impl(Fn(…))`, the index `r(i)` (E0926, N1e-1).
+      deref_exempt_mark(&func_expr);
+      ev_callee := evaluate_expression_raw(&func_expr, env, ctx, exn);
+      deref_exempt_clear();
+      ev_callee
+    }
   );
   if(callee_is_marked_dot, {
     unmark_dot_callee();

@@ -197,12 +197,8 @@ evaluate_tuple_element_value :: (
   ctx.expected_type = saved_expected;
   match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(evaluated_rhs_ge), .None => ());
   evaluated_rhs := match(evaluated_rhs_gout.get_cloned(usize(0)), .Some(evaluated_rhs_g) => evaluated_rhs_g, .None => make_err_expr());
-  // Mark the field value copy-semantics: a named RC value moved into the
-  // tuple literal gets a deferred `___dup` (without it the literal aliased
-  // the element's refcount and scope-end drops over-released, rc layer 4).
-  // A lend stores the place's address and copies no ownership: a dup paired
-  // with the place's own scope-end drop would be cancelled as a move, and
-  // the place would leak.
+  // The field takes its value as a store does (`transfer_value_into`). A
+  // lend stores the place's address and copies no ownership.
   if(!is_lend, {
     transfer_value_into(&evaluated_rhs, ctx, exn, "field-store");
   });

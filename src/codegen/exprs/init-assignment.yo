@@ -8,8 +8,8 @@
 //! compile-time variables are skipped (declared elsewhere / no runtime form).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_BEGIN, BK_COND, BK_MATCH, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT, ast_call_is_deref_read } :: import("../../expr.yo");
-{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin, is_chain_ref_binding } :: import("../../expr-info.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_BEGIN, BK_COND, BK_MATCH, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, ast_call_is_deref_read } :: import("../../expr.yo");
+{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin, is_chain_ref_binding } :: import("../../expr-info.yo");
 { Variable, Environment, variable_value_type } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue, TypeValueNode, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -18,8 +18,8 @@
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { _call_generate_expr, call_projection_mode } :: import("./dispatch.yo");
 { lookup_arm_entry_drops, lookup_destructure_lends } :: import("../../pattern.yo");
-{ emit_deferred_dup_or_code, generate_dup_code_for_value, generate_drop_code_for_value } :: import("./drop-dup.yo");
-{ type_contains_rc_cell_or_move_only, type_is_sized } :: import("../../types/utils.yo");
+{ counted_handle_retain_code, generate_drop_code_for_value } :: import("./drop-dup.yo");
+{ type_is_sized } :: import("../../types/utils.yo");
 { get_state_machine_field_name, sm_slot_of, sm_move_flag_of, sm_local_field_name, sm_storage_id } :: import("../async/state-machine-naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -233,7 +233,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
 /// - The PIN (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 B4): when the evaluator
 ///   stamped the `inout(name)` node with `source_variable` (the hidden owning
 ///   local) and `macro_expansion` (the object expression), emit
-///   `Obj* pin = <dup(obj)>;` BEFORE the binding. The pin is an ordinary
+///   `Obj* pin = <retain(obj)>;` BEFORE the binding (`counted_handle_retain_code`). The pin is an ordinary
 ///   owning local of the frame, so the scope-end drop the evaluator already
 ///   scheduled for it releases the `+1` on every exit path.
 /// The task slot of local `v` when it has one (`sm->var_<id>`, or the slot it
@@ -302,7 +302,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
           mut(pin_decl) := indent.clone();
           pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&variable_value_type(&pin_var), pin_var.*.name.clone(), &mut context.base)));
           pin_decl.push_str(" = ");
-          pin_decl.push_string(generate_dup_code_for_value(&pin_code, &variable_value_type(&pin_var), context));
+          pin_decl.push_string(counted_handle_retain_code(&pin_code, &variable_value_type(&pin_var), context));
           pin_decl.push_str(";");
           context.base.emitter.emit_string_line(&pin_decl);
         },
@@ -401,7 +401,7 @@ _is_c_lvalue_chain :: (fn(code : &String) -> bool)({
 });
 /// `cur = &place` / `cur = &mut place` → `cur = &(place);`, after the
 /// step through a reference cell when there is one (plans/VALUES_BY_DEFAULT.md
-/// decision 25): `T* tmp = <dup(cell)>; <drop(step_pin)>; step_pin = tmp;`. The
+/// decision 25): `T* tmp = <retain(cell)>; <drop(step_pin)>; step_pin = tmp;`. The
 /// new cell is taken before the old one is released, since the old cell may
 /// be what keeps the new one alive. Evaluator twin:
 /// `evaluate_local_borrow_repoint` (evaluator/exprs/initialization-assignment.yo),
@@ -423,7 +423,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
           cell_code := _call_generate_expr(&cell_expr, indent.clone(), context);
           tmp := `${sanitize_for_c_identifier(sp.*.name.clone(), false)}_step`;
           context.base.emitter.emit_string_line(`${indent}{`);
-          emit_text1 := `${indent}  ${get_variable_type_string(&variable_value_type(&sp), tmp.clone(), &mut context.base)} = ${generate_dup_code_for_value(&cell_code, &variable_value_type(&sp), context)};`;
+          emit_text1 := `${indent}  ${get_variable_type_string(&variable_value_type(&sp), tmp.clone(), &mut context.base)} = ${counted_handle_retain_code(&cell_code, &variable_value_type(&sp), context)};`;
           context.base.emitter.emit_string_line(&emit_text1);
           emit_text2 := `${indent}  ${generate_drop_code_for_value(sp_slot.clone(), &variable_value_type(&sp), context)};`;
           context.base.emitter.emit_string_line(&emit_text2);
@@ -560,22 +560,14 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
       match(
         _sm_binding_slot(ast_expr_id(&lhs), &ei.env(), var_name.clone(), context),
         .Some(sm_slot) => {
-          // The RHS must go through the deferred-dup chain before it lands
-          // in the slot: compute ONE `rhsCode` through all four
-          // dup-emitting arms and only then pick `sm->field` as the
-          // destination. Returning early with
-          // the raw expression skipped the +1 while the slot's drop was
-          // still emitted, so `element := list(i)` inside an async loop
-          // freed the element out from under the live list.
           rhs_code := _call_generate_expr(&rhs, indent.clone(), context);
           // An alias stored in its owner's slot (`sb := s`, `sm_storage_id`)
           // reads the very slot it binds: the two names are ONE storage that
           // holds one reference, and both scope-end drops release that slot
-          // (the first zeroes it). A dup here was the second reference
-          // nothing released
+          // (the first zeroes it)
           // (issues/fixed/2026-10-16-an-alias-sharing-its-owners-task-slot-is-retained-but-released-once.md).
           if(rhs_code.trim() != sm_slot, {
-            sm_rhs := emit_deferred_dup_or_code(&rhs, &rhs_code, indent.clone(), context);
+            sm_rhs := rhs_code.clone();
             context.base.emitter.emit_string_line(`${indent.clone()}${sm_slot.clone()} = ${sm_rhs.clone()};`);
           });
           _clear_sm_move_flag(&sm_slot, indent.clone(), context);
@@ -587,17 +579,9 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
     if(is_array_type(&lhs_type), {
       // Array initialization (literal or struct copy — copy spills an Rc/temp
       // RHS into its temp variable first).
-      //
-      // A COPY of an array whose element type carries RC must also emit the
-      // RHS's deferred `___dup` (one `__yo_dup_array_element` per slot), the
-      // way every other binding shape does through `emit_deferred_dup_or_code`.
-      // This arm dropped them on the floor, so `out := self` inside
-      // `Array(T, N).clone` aliased the source's element handles while each
-      // `out(i) = …` still DROPPED the old one — the source array's strings
-      // were freed under it ("malloc returned None" on the next allocation).
       rhs_code := if(
         ast_expr_is_fn_call_of(&rhs, BK_ARRAY_VAL, Option(usize).None),
-        emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context),
+        _call_generate_expr(&rhs, indent.clone(), context),
         match(
           context.base.get_expr_info(&rhs),
           .Some(rei) => match(
@@ -632,9 +616,9 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
                   temp_var_name
                 }
               );
-              emit_deferred_dup_or_code(&rhs, &spilled, indent.clone(), context)
+              spilled.clone()
             },
-            .None => emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context)
+            .None => _call_generate_expr(&rhs, indent.clone(), context)
           ),
           .None => _call_generate_expr(&rhs, indent.clone(), context)
         )
@@ -681,7 +665,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
             temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn.*, Option(Environment).Some(rei.env()));
             // Same name as the binding, or a bare atom already named — no temp.
             rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).*.value.*, Option(Environment).Some(rei.env()))));
-            if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), {
+            if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, _call_generate_expr(&rhs, indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
               effective_type := match(expr_info_converted_runtime_type(&rei), .Some(crt) => crt, .None => Rc.clone(rei.ty()));
               // A UNIT-typed RHS has no value to hold. `_call_generate_expr`
@@ -720,36 +704,21 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
                   context.base.emitter.emit_string_line(&line);
                 });
               });
-              emit_deferred_dup_or_code(&rhs, &temp_var_name, indent.clone(), context)
+              temp_var_name.clone()
             })
           },
-          // No temp variable name on the RHS — STILL emit the RHS's
-          // deferred dups here, so the drop this binding will get has a
-          // matching +1. This arm is unreachable for state-machine bindings
-          // (those return early above); it exists for parity with the three
-          // sibling arms, which all already route through this helper.
+          // No temp variable name on the RHS. This arm is unreachable for
+          // state-machine bindings (those return early above).
           .None => {
-            nv_code := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
+            nv_code := _call_generate_expr(&rhs, indent.clone(), context);
             if(binds_no_value, _emit_unbound_rhs(nv_code, indent, context), nv_code)
           }
         ),
-        // No ExprInfo at all — no deferred dups can exist.
         .None => {
           ne_code := _call_generate_expr(&rhs, indent.clone(), context);
           if(binds_no_value, _emit_unbound_rhs(ne_code, indent, context), ne_code)
         }
       );
-      // Raw-pointer-deref RHS (`(p &+ i).*` / `p.*`) of an RC-carrying type:
-      // dup the copy AT THE DEREF SITE (`temp2 = Bucket___dup(temp);`) so the
-      // local's scope/early-return drops are
-      // balanced. The eval dup mark for this shape is pass-fragile
-      // (`.*` PA branches can re-set the table entry without re-marking), so
-      // when NO deferred dup exists on the RHS, apply the struct dup to the
-      // fresh copy after the declaration below (HashMap._find_bucket stole
-      // the map's own key+value on every probe hit — the round-6
-      // `s2 compile main.yo` UAF; see issues/fixed/yo-self-dyn-throw-double-drop.md).
-      rhs_is_deref := (ast_expr_is_fn_call_of(&rhs, BF_DOT, Option(usize).Some(usize(2))) && match(Rc.clone(rhs), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(pe) => ast_expr_is_atom_of(&pe, "*"), .None => false), Rc(.Atom(_, _)) => false));
-      rhs_has_dup := match(context.base.get_expr_info(&rhs), .Some(r2) => match(expr_info_deferred_dup_expressions(&r2), .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
       if(!is_unit_type(&lhs_type) && !rhs_is_void_call, {
         // get_variable_type_string (not get_type_string + manual name append)
         // so the scalar binding's C name is REGISTERED in declared_c_var_names
@@ -765,12 +734,6 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         line.push_string(&rhs_code);
         line.push_str(";");
         context.base.emitter.emit_string_line(&line);
-        if(rhs_is_deref && type_contains_rc_cell_or_move_only(&lhs_type) && !rhs_has_dup, {
-          dup_line := indent.clone();
-          dup_line.push_string(generate_dup_code_for_value(sanitized_var_name.clone(), &lhs_type, context));
-          dup_line.push_str(";");
-          context.base.emitter.emit_string_line(&dup_line);
-        });
       });
     });
     return(Option(String).Some(String.from("")));

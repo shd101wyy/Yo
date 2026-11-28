@@ -9878,7 +9878,14 @@ impl(
   generic(T : ?Sized),
   Rc(T),
   Clone(
-    clone : (fn(self : &Self) -> Self)(___dup(self.*))
+    clone : (fn(self : &Self) -> Self)({
+      // SAFETY: an `Rc` handle is the address of its live cell. The
+      // increment is the count of the handle built here, which owns it
+      // (`__yo_rc_own`: no second one).
+      cell := unsafe(unsafe.cast(self, *T));
+      consume(__yo_incr_rc((*void)(cell)));
+      __yo_rc_own(unsafe(unsafe.cast(&cell, Rc(T))))
+    })
   )
 );
 /// The payload, lent: a `&T` borrowed from the handle, Rust's `Rc::as_ref`.
@@ -10636,7 +10643,14 @@ impl(
   where(T <: (Send, Sync)),
   Arc(T),
   Clone(
-    clone : (fn(self : &Self) -> Self)(___dup(self.*))
+    clone : (fn(self : &Self) -> Self)({
+      // SAFETY: an `Arc` handle is the address of its live cell. The atomic
+      // increment is the count of the handle built here, which owns it
+      // (`__yo_rc_own`: no second one).
+      cell := unsafe(unsafe.cast(self, *T));
+      consume(__yo_incr_rc_atomic((*void)(cell)));
+      __yo_rc_own(unsafe(unsafe.cast(&cell, Arc(T))))
+    })
   )
 );
 /// The payload, lent: a `&T` borrowed from the handle, Rust's `Arc::as_ref`.

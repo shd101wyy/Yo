@@ -465,7 +465,6 @@ ExprInfoRare :: (
     /// FunctionValue implementing the closure body.
     closure_function_value : Option(EvalValue),
     doc_comment : Option(String),
-    deferred_dup_expressions : Option(ArrayList(AstExpr)),
     capture_type : Option(TypeValue),
     macro_expansion : Option(AstExpr),
     original_expr : Option(AstExpr),
@@ -752,26 +751,6 @@ expr_info_set_doc_comment :: (fn(info : &ExprInfo, v : &Option(String)) -> unit)
   _expr_info_rare_put(info, r);
   ()
 });
-_vh_expr_info_deferred_dup_expressions :: (fn(d : &ExprInfoData) -> Option(ArrayList(AstExpr)))(
-  match(
-    &d.rare,
-    .Some(r) => r.*.*.deferred_dup_expressions.clone(),
-    .None => Option(ArrayList(AstExpr)).None
-  )
-);
-expr_info_deferred_dup_expressions :: (fn(info : &ExprInfo) -> Option(ArrayList(AstExpr)))(
-  info.*.*.with(_vh_expr_info_deferred_dup_expressions)
-);
-/// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_deferred_dup_expressions :: (fn(info : &ExprInfo, v : &Option(ArrayList(AstExpr))) -> unit)({
-  if(v.is_none() && info.*.*.with(_vh_ei_rare_is_none), {
-    return(());
-  });
-  mut(r) := _expr_info_rare_take(info);
-  r.deferred_dup_expressions = v.clone();
-  _expr_info_rare_put(info, r);
-  ()
-});
 _vh_expr_info_capture_field_inits :: (fn(d : &ExprInfoData) -> Option(ArrayList(CaptureFieldInit)))(
   match(
     &d.rare,
@@ -1049,7 +1028,6 @@ _fresh_expr_info_rare :: (fn() -> ExprInfoRare)(
     effect_analysis : Option(EffectAnalysisResult).None,
     closure_function_value : Option(EvalValue).None,
     doc_comment : Option(String).None,
-    deferred_dup_expressions : Option(ArrayList(AstExpr)).None,
     capture_type : Option(TypeValue).None,
     macro_expansion : Option(AstExpr).None,
     original_expr : Option(AstExpr).None,
@@ -1510,7 +1488,7 @@ _scope_log :: (fn(id : ExprId, info : &ExprInfo) -> unit)(
     });
   })
 );
-/// The target atom of a deferred drop/dup: `___drop(x)` / `___dup(x)`
+/// The target atom of a deferred drop: `___drop(x)`
 /// (first argument) or `(x.___drop)()` (the receiver).
 _drop_target_atom_of :: (fn(d : &AstExpr) -> Option(AstExpr))(
   match(
@@ -1656,7 +1634,6 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       sv_name := match(info.source_variable(), .Some(sv) => sv.*.name.clone(), .None => String.new());
       match(&info.variable_name(), .Some(vn) => names.push(vn.clone()), .None => ());
       _scope_target_names(&info.deferred_drop_expressions(), &mut names);
-      _scope_target_names(expr_info_deferred_dup_expressions(&info), &mut names);
       _scope_target_names(expr_info_consumed_variable_drop_expressions(&info), &mut names);
       match(g_scope_queried.with_mut(m => m.remove(&id)), .Some(qn) => names.push(qn), .None => ());
       // A closure literal: codegen resolves each capture label through it
@@ -3280,8 +3257,6 @@ export(expr_info_primitive_pattern_values, expr_info_set_primitive_pattern_value
 export(
   expr_info_doc_comment,
   expr_info_set_doc_comment,
-  expr_info_deferred_dup_expressions,
-  expr_info_set_deferred_dup_expressions,
   CaptureFieldInit,
   expr_info_capture_field_inits,
   expr_info_set_capture_field_inits,

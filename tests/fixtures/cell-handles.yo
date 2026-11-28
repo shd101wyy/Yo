@@ -22,8 +22,31 @@ impl(generic(T : Type), TRc(T), Deref(Target : T, deref : (fn(self : &Self) -> &
 impl(generic(T : Type), TArc(T), Deref(Target : T, deref : (fn(self : &Self) -> &Self.Target)(&self.*.*)));
 // Decision 17: a second handle is spelled, `TRc.clone(h)`, a count bump as
 // the prelude's `Rc.clone` is.
-impl(generic(T : Type), TRc(T), Clone(clone : (fn(self : &Self) -> Self)(___dup(self.*))));
-impl(generic(T : Type), TArc(T), Clone(clone : (fn(self : &Self) -> Self)(___dup(self.*))));
+impl(
+  generic(T : Type),
+  TRc(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      // SAFETY: a handle is the address of its live cell; the increment is
+      // the new handle's count (`__yo_rc_own`: no second one).
+      cell := unsafe(unsafe.cast(self, *T));
+      consume(__yo_incr_rc((*void)(cell)));
+      __yo_rc_own(unsafe(unsafe.cast(&cell, TRc(T))))
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  TArc(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      // SAFETY: as `TRc`'s, with the atomic increment.
+      cell := unsafe(unsafe.cast(self, *T));
+      consume(__yo_incr_rc_atomic((*void)(cell)));
+      __yo_rc_own(unsafe(unsafe.cast(&cell, TArc(T))))
+    })
+  )
+);
 /// Replaces the handle's cell: a write to the handle's own field `_cell`, not
 /// through the handle (V5's `make_mut` writes it), so it is not E0919, and
 /// the method-entry borrow assert reads the cell behind `h`.

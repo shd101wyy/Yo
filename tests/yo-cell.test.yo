@@ -12,11 +12,25 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("std/allocator");
 { Thread } :: import("std/thread");
 // A cell needs a drop (its release), so it copies only explicitly: a second
-// handle is spelled `___dup(c)`, a bare `d := c` moves it.
+// handle is a new count, retained and owned as `Rc.clone` does it
+// (`_cell_share`); a bare `d := c` moves it.
+_cell_share :: (fn(generic(V : Type), c : &__yo_cell(V)) -> __yo_cell(V))({
+  // SAFETY: a cell handle is the address of its live cell. The increment is
+  // the count of the handle built here, which owns it (`__yo_rc_own`).
+  cell := unsafe(unsafe.cast(c, *V));
+  consume(__yo_incr_rc((*void)(cell)));
+  __yo_rc_own(unsafe(unsafe.cast(&cell, __yo_cell(V))))
+});
+_atomic_cell_share :: (fn(generic(V : Type), c : &__yo_atomic_cell(V)) -> __yo_atomic_cell(V))({
+  // SAFETY: as `_cell_share`, with the atomic increment.
+  cell := unsafe(unsafe.cast(c, *V));
+  consume(__yo_incr_rc_atomic((*void)(cell)));
+  __yo_rc_own(unsafe(unsafe.cast(&cell, __yo_atomic_cell(V))))
+});
 test("a cell holds its payload, and a second handle shares it", {
   c := __yo_cell(i32)(i32(5), .None);
   assert(c.* == i32(5), "the payload");
-  d := ___dup(c);
+  d := _cell_share(&c);
   assert(d.* == i32(5), "the second handle reads the same payload");
   // A cell is a mutable cell, as a `ref` object is: the write is seen
   // through every handle (only the `Rc` wrapper is read-only, decision 46).
@@ -31,7 +45,7 @@ test("ref_count counts the handles of a cell", {
   w := _CellHolder(h : __yo_cell(i32)(i32(1), .None), n : i32(0));
   assert(ref_count(w.h) == usize(1), "a fresh cell has one handle");
   {
-    w2 := _CellHolder(h : ___dup(w.h), n : w.n);
+    w2 := _CellHolder(h : _cell_share(&w.h), n : w.n);
     assert((ref_count(w.h) == usize(2)) && (ref_count(w2.h) == usize(2)), "a nested-scope copy counts");
   };
   assert(ref_count(w.h) == usize(1), "the nested copy released its count");
@@ -50,6 +64,22 @@ test("a bare copy of a cell, or of a value holding one, moves it", {
     w2 := w;
     _ := (w.n + w2.n);
   }, "use of moved value");
+});
+// E0901's help names the copy the type has: a raw cell has no `clone`, and
+// its second handle is a retained count; a value holding one has no `Clone`
+// either
+// (issues/fixed/2026-11-26-e0901-help-on-a-raw-cell-suggests-a-clone-it-does-not-have.md).
+test("E0901 on a moved cell names the copy it has, not a `.clone()`", {
+  comptime_expect_error({
+    c := __yo_cell(i32)(i32(5), .None);
+    d := c;
+    e := c;
+  }, "raw cell handle, which has no `clone`");
+  comptime_expect_error({
+    w := _CellHolder(h : __yo_cell(i32)(i32(1), .None), n : i32(0));
+    w2 := w;
+    w3 := w;
+  }, "is not `Clone`, so it moves");
 });
 _read_cell :: (fn(c : &__yo_cell(i32)) -> i32)(c.*.*);
 test("__yo_cell(V) is one type wherever it is spelled", {
@@ -84,7 +114,7 @@ test("the last handle's release drops the payload once", {
   drops := usize(0);
   {
     c := __yo_cell(_CellDropCount)(_CellDropCount(p : addr_of(drops)), .None);
-    d := ___dup(c);
+    d := _cell_share(&c);
     {
       e := d;
       assert(ref_count(e) >= usize(1), "a live handle");
@@ -96,7 +126,7 @@ test("the last handle's release drops the payload once", {
 });
 test("an atomic cell is counted atomically and shared across a thread", {
   shared := __yo_atomic_cell(i32)(i32(42), .None);
-  worker := ___dup(shared);
+  worker := _atomic_cell_share(&shared);
   t := Thread(unit).spawn(io => {
     assert(worker.* == i32(42), "the worker reads the cell");
   });
@@ -199,7 +229,7 @@ test("a wrapper over the cell: generic construction with the allocator, copy, co
   {
     w := _wrap_rc(i32(11), alloc : .Some(heap));
     assert(counts.live == usize(1), "the wrapper's cell is in the allocator");
-    v := _WrapRc(i32)(_cell : ___dup(w._cell));
+    v := _WrapRc(i32)(_cell : _cell_share(&w._cell));
     assert(v._cell.* == i32(11), "the payload through the copy");
     assert(ref_count(w._cell) == usize(2), `the copy shares the cell: ${ref_count(w._cell)}`);
     s := _wrap_rc(String.from("text"));

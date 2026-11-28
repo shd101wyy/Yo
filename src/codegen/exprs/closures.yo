@@ -6,9 +6,9 @@
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait-checking.yo");
-{ ExprInfo, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr-info.yo");
+{ ExprInfo, expr_info_closure_function_value, expr_info_capture_type, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr-info.yo");
 { type_is_sized } :: import("../../types/utils.yo");
-{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, element_wise_dup_target, element_wise_dup_elements, sanitize_for_c_identifier, scope_stack_contains, c_field_name, fresh_local_name, unsized_place_fat_code } :: import("../utils/index.yo");
+{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, sanitize_for_c_identifier, scope_stack_contains, c_field_name, fresh_local_name, unsized_place_fat_code } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
 { sm_slot_of, sm_move_flag_of } :: import("../async/state-machine-naming.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures, shadow_binding_c_name } :: import("../functions/context.yo");
@@ -47,29 +47,6 @@ _resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Func
 /// part.
 _deref_place_binding :: (fn(label : &String, code : String, context : &FunctionGenerationContext) -> String)(
   if(match(&context.place_bindings, .Some(ps) => ps.contains(shadow_binding_c_name(context, &sanitize_for_c_identifier(label.clone(), false))), .None => false), `(*${code})`, code)
-);
-/// Hook to drop-dup.yo's `emit_deferred_dup_or_code` (the shared dup-on-store
-/// choke point: emit `expr`'s deferred `___dup`s and return the dup-result
-/// temp's C name, else `fallback_code`). THIS module cannot import drop_dup
-/// directly — types/generation.yo imports resolve_some_type_to_concrete from
-/// here, and drop_dup pulls functions/declarations.yo, so the import closes a
-/// cycle — so codegen-c.yo installs the fn at codegen init, right beside the
-/// SM resolver above. A capture-list field's by-value initializer carries its
-/// RC +1 that way: materialize the initializer, then the dup.
-DeferredDupOrCodeFn :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &mut FunctionGenerationContext) -> String);
-(mut(g_deferred_dup_or_code) : Option(DeferredDupOrCodeFn)) = Option(DeferredDupOrCodeFn).None;
-set_deferred_dup_or_code :: (fn(f : DeferredDupOrCodeFn) -> unit)({
-  g_deferred_dup_or_code = Option(DeferredDupOrCodeFn).Some(f);
-  ()
-});
-_emit_deferred_dup_or_code :: (
-  fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &mut FunctionGenerationContext) -> String
-)(
-  match(
-    g_deferred_dup_or_code,
-    .Some(f) => f(expr, fallback_code, indent, context),
-    .None => fallback_code.clone()
-  )
 );
 /// True if `variable_name` resolves (in `env`, node `key`'s recorded scope) to
 /// a binding at or below the closure's capture frame level — i.e. it is
@@ -296,12 +273,9 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // while type_key collapsed such structs to their sid (the MapEntry visit-fn
     // collision). type_key is the registry's identity here.
     capture_c_name := match(context.base.get_type_c_name(type_key(&capture_ty)), .Some(n) => n, .None => return(codegen_fatal_expr(`Capture type not found for closure ${fid}: ${type_to_string(capture_ty.clone())} (type_key ${type_key(&capture_ty)})`)));
-    // Build `(captureCName){ .label = <value>, ... }`. An RC-typed capture
-    // field uses the evaluator's deferred `___dup(name)` expr as its
-    // initializer (matched by dup TARGET name), so the capture struct holds
-    // its OWN reference — without it, dropping the constructing scope's local
-    // freed the value under the still-pending closure (the Command.status
-    // spawn-storage UAF).
+    // Build `(captureCName){ .label = <value>, ... }`. A by-value capture
+    // moves its value into the field, or is a copy the evaluator allowed
+    // (an implicitly copyable value, or a capture list's `.clone()`).
     data := String.from("(");
     data.push_string(capture_c_name.clone());
     data.push_str("){ ");
@@ -326,16 +300,6 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
               inits.get_cloned(ci),
               .Some(cfi) => if(cfi.label == label, {
                 init_code := _call_generate_expr(&cfi.init, indent.clone(), context);
-                // A by-value RC entry's +1 rides the initializer's own
-                // deferred `___dup` (an atom entry's `___dup(<local>)` expr
-                // renders inline — it carries no deferred list). Route the
-                // value through `emit_deferred_dup_or_code`, the shared
-                // dup-on-store choke point: it materializes the initializer
-                // first (declare-first) and emits the dup. Reusing the dup
-                // expression ALONE as the field code instead referenced an
-                // eval-time temp no generated code declared, and dropped the
-                // initializer call with it ("use of undeclared identifier",
-                // the round-2 defect on `{ first : src(usize(0)) }`).
                 field_code = Option(String).Some(
                   if(
                     cfi.is_borrow,
@@ -343,63 +307,13 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
                     // `v : &[T]` or `&str` captured as `{ v }`) is the fat
                     // pointer the place was read through, not `&` of it.
                     if(match(context.base.get_expr_info(&cfi.init), .Some(cb_ei) => (!type_is_sized(&cb_ei.ty()) || (t_slot_is_borrow(&cb_ei.ty()) && !type_is_sized(&t_slot_pointee(&cb_ei.ty())))), .None => false), unsized_place_fat_code(&init_code), `(&(${init_code}))`),
-                    _emit_deferred_dup_or_code(&cfi.init, &init_code, indent.clone(), context)
+                    init_code.clone()
                   )
                 );
               }),
               .None => ()
             );
             ci = (ci + usize(1));
-          });
-        },
-        .None => ()
-      );
-      // An element-wise dup (a captured tuple or array,
-      // `element_wise_dup_target`) retains the elements of the captured
-      // variable in place and its result is one element: emit its element
-      // dups as statements (`element_wise_dup_elements`), and the field
-      // reads the variable itself below. Matching only the atom form left a
-      // captured tuple without its +1, so dropping the closure freed what
-      // the variable still owned.
-      (ew_dup_emitted : bool) = false;
-      match(
-        expr_info_deferred_dup_expressions(&ei),
-        .Some(dups) => {
-          (di : usize) = usize(0);
-          while((di < dups.len()) && field_code.is_none() && !ew_dup_emitted, {
-            match(
-              dups.get_cloned(di),
-              .Some(de) => match(
-                get_deferred_dup_target_atom_name(&de),
-                .Some(tn) => if(tn == label, {
-                  field_code = Option(String).Some(_call_generate_expr(&de, indent.clone(), context));
-                }),
-                .None => match(
-                  element_wise_dup_target(&de),
-                  .Some(etn) => if(etn == label, {
-                    ew_elems := element_wise_dup_elements(&de);
-                    (ew_i : usize) = usize(0);
-                    while(ew_i < ew_elems.len(), {
-                      match(
-                        ew_elems.get_cloned(ew_i),
-                        .Some(ew_e) => {
-                          ew_code := _call_generate_expr(&ew_e, indent.clone(), context);
-                          if(ew_code.len() > usize(0), {
-                            context.base.emitter.emit_string_line(`${indent.clone()}${ew_code};`);
-                          });
-                        },
-                        .None => ()
-                      );
-                      ew_i = (ew_i + usize(1));
-                    });
-                    ew_dup_emitted = true;
-                  }),
-                  .None => ()
-                )
-              ),
-              .None => ()
-            );
-            di = (di + usize(1));
           });
         },
         .None => ()
@@ -614,4 +528,4 @@ register_impl_closure_call_mappings :: (fn(context : &mut FunctionGenerationCont
     });
   });
 });
-export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, generate_yo_capture_field, register_impl_closure_call_mappings, set_sm_atom_resolver, set_deferred_dup_or_code, closure_capture_counter_reset);
+export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, generate_yo_capture_field, register_impl_closure_call_mappings, set_sm_atom_resolver, closure_capture_counter_reset);

@@ -36,18 +36,13 @@
   BF_YO_RC_OWN,
   BF_YO_RC_FORGET_PAYLOAD,
   BF_YO_DROP_ARRAY_ELEMENT,
-  BF_YO_DUP_ARRAY_ELEMENT,
   BF_YO_DROP_TUPLE_ELEMENT,
-  BF_YO_DUP_TUPLE_ELEMENT,
   BF_YO_CAPTURE_FIELD,
   BF_DROP,
-  BF_DUP,
   BF_YO_DYN_DROP,
-  BF_YO_DYN_DUP,
   BF_YO_INCR_RC_ATOMIC,
   BF_YO_DECR_RC_ATOMIC,
   BF_YO_SOMETYPE_DROP,
-  BF_YO_SOMETYPE_DUP,
   BF_REF_COUNT,
   BF_PANIC,
   BF_ASM,
@@ -100,7 +95,7 @@
   BF_SLICE_PTR,
   BF_SLICE_FROM_RAW_PARTS
 } :: import("../../expr.yo");
-{ has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr-info.yo");
+{ has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr-info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type } :: import("../../types/guards.yo");
 { t_slot_pointee } :: import("../../types/definitions.yo");
@@ -108,7 +103,7 @@
 { set_generate_expr_fn, _call_generate_expr, call_projection_mode } :: import("./dispatch.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
 { generate_atom } :: import("./atom.yo");
-{ generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_ref_count_call } :: import("./rc-fns.yo");
+{ generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_drop, generate_yo_drop_array_element, generate_yo_drop_tuple_element, generate_yo_sometype_drop, generate_ref_count_call } :: import("./rc-fns.yo");
 { generate_panic } :: import("./panic.yo");
 { generate_asm, generate_global_asm } :: import("./asm.yo");
 { generate_dyn_call } :: import("./dyn.yo");
@@ -134,8 +129,7 @@
 { generate_match_expression } :: import("./match.yo");
 { generate_other_function_call, _store_temp_var_to_state_machine_if_needed, sequence_operand } :: import("./other-fn-call.yo");
 { is_closure_construction, generate_closure_construction, generate_yo_capture_field } :: import("./closures.yo");
-{ generate_deferred_dup_expressions, generate_arg_code_with_deferred_dups } :: import("./drop-dup.yo");
-{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, _idx_c_string_literal, get_variable_name_for_codegen_at, type_key } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, _idx_c_string_literal, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { sm_temp_slot_of } :: import("../async/state-machine-naming.yo");
 { is_arg_temp_across_suspension } :: import("../../evaluator/shared/suspension-analysis.yo");
 { guard_site_is_proved, index_unchecked_twin_of } :: import("../../evaluator/builtins/contracts.yo");
@@ -312,8 +306,8 @@ _is_primitive_unary_operator :: (fn(expr : &AstExpr, context : &FunctionGenerati
     Rc(.Atom(_, _)) => false
   )
 );
-/// Generate the C for a builtin-inline-function call: each arg's code, with
-/// deferred-dup rewrite, fed to generate_yo_inline_function_call.
+/// Generate the C for a builtin-inline-function call: each arg's code, fed to
+/// generate_yo_inline_function_call.
 _generate_inline_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
   arg_exprs := match(ei_opt, .Some(ei) => match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())), .None => match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new()));
@@ -324,28 +318,7 @@ _generate_inline_call :: (fn(expr : &AstExpr, indent : &String, context : &mut F
     match(
       arg_exprs.get_cloned(i),
       .Some(arg) => {
-        arg_code := _call_generate_expr(&arg, indent.clone(), context);
-        // The dup's result temp stands in for the argument only when it holds
-        // the argument's type. An ELEMENT-WISE dup (`___dup` of an
-        // `Array(T, N)` or a tuple) lowers to `begin(__yo_dup_array_element(v,
-        // 0), …)`, which retains the elements of `v` in place and whose temp
-        // is the last ELEMENT: adopting it handed `__yo_ptr_write` a `String`
-        // where the pointee is an `Array(String, 2)` (invalid C). The source
-        // value, already retained in place, is the argument then — the same
-        // rule `emit_deferred_dup_or_code` applies
-        // (issues/fixed/2026-10-20-ptr-write-of-an-rc-element-array-emits-invalid-c.md).
-        final_code := match(
-          context.base.get_expr_info(&arg),
-          .Some(aei) => match(
-            expr_info_deferred_dup_expressions(&aei),
-            .Some(dups) => if(dups.len() > usize(0), {
-              generate_deferred_dup_expressions(&arg, indent.clone(), context);
-              match(dups.get_cloned(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(&dei.variable_name(), .Some(dvn) => if(type_key(&dei.ty()) == type_key(&aei.ty()), get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn.*, Option(Environment).Some(dei.env())), arg_code), .None => arg_code), .None => arg_code), arg_code), .None => arg_code)
-            }, arg_code),
-            .None => arg_code
-          ),
-          .None => arg_code
-        );
+        final_code := _call_generate_expr(&arg, indent.clone(), context);
         // Sequenced against the later operands (`sequence_operand`,
         // other-fn-call.yo): `(h.tag + eat(h))` read `h->tag` after `eat(h)`
         // released `h`.
@@ -516,7 +489,7 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
   });
   // The single index argument, decided by `consume_argument_for_parameter`
   // (try_to_call_with_index_trait) exactly as a normal call's argument, and
-  // emitted the same way, with any deferred dup it carries.
+  // emitted the same way.
   index_arg_opt := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.get_cloned(usize(0)),
@@ -524,7 +497,7 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
   );
   index_code := match(
     index_arg_opt,
-    .Some(ix) => generate_arg_code_with_deferred_dups(&ix, indent.clone(), context),
+    .Some(ix) => _call_generate_expr(&ix, indent.clone(), context),
     .None => String.from("0")
   );
   // The receiver argument is its address (`&callee`): the specialized index
@@ -584,7 +557,7 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
 /// value emits `__yo_new_<Enum>_<Variant>()`, which mallocs with
 /// `ref_count = 1`. Inlined at the use site that produces an owned RC object
 /// nothing ever drops — `f(E.UnitVal)` leaks it, because the callee treats the
-/// parameter as borrowed and dups whatever it retains.
+/// parameter as borrowed and retains whatever it keeps.
 ///
 /// When the evaluator recorded such an expression as owning its RC value
 /// (`attach_temp_variable_to_expr(expr, true, ctx)`), it registered a temp
@@ -771,15 +744,14 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
       return(out);
     }
   );
-  // RC drop/dup builtins are lowered by their dedicated generators (generate_drop /
-  // generate_dup), which resolve the operation from the value's TYPE and are
-  // authoritative — they must never be diverted through a macro_expansion.
-  // `(___drop)(x)` / `(___dup)(x)` stay builtin calls all the way to codegen
+  // The `___drop` builtin is lowered by its dedicated generator
+  // (generate_drop), which resolves the operation from the value's TYPE and is
+  // authoritative — it must never be diverted through a macro_expansion.
+  // `(___drop)(x)` stays a builtin call all the way to codegen
   // (see the stub note in evaluator/builtins/drop.yo). Because the
   // builtin expr survives here, a stale id-keyed side-table entry (from a colliding
-  // expr id) could otherwise mis-route it and double-emit `f(x)(x)`. Route them first.
+  // expr id) could otherwise mis-route it and double-emit `f(x)(x)`. Route it first.
   if(ast_expr_is_fn_call_of(expr, BF_DROP, Option(usize).None), return(generate_drop(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_DUP, Option(usize).None), return(generate_dup(expr, indent.clone(), context)));
   // Macro expansion: generate the already-expanded form. Prefer the per-expr
   // ExprInfo; fall back to the durable id-keyed side-table when a later eval
   // pass overwrote this call's ExprInfo without `macro_expansion` (e.g. a macro
@@ -793,7 +765,6 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
       .None => ()
     )
   );
-  // (SomeType-Future ___drop/___dup fast path — Phase 5, omitted.)
   // Closure construction: `(x) => body` used as a value/arg — emit the capture
   // struct construction + register the impl-closure-call mapping.
   if(is_closure_construction(expr, context), return(generate_closure_construction(expr, indent.clone(), context)));
@@ -803,17 +774,13 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
   if(ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN, Option(usize).None), return(generate_yo_rc_own(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_RC_FORGET_PAYLOAD, Option(usize).None), return(generate_yo_rc_forget_payload(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, Option(usize).None), return(generate_yo_drop_array_element(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None), return(generate_yo_dup_array_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_drop_tuple_element(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_dup_tuple_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_CAPTURE_FIELD, Option(usize).None), return(generate_yo_capture_field(expr, indent.clone(), context)));
-  // (BF_DUP / BF_DROP routed above, before the macro_expansion check.)
+  // (BF_DROP routed above, before the macro_expansion check.)
   if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, Option(usize).None), return(generate_yo_dyn_drop(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP, Option(usize).None), return(generate_yo_dyn_dup(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC_ATOMIC, Option(usize).None), return(generate_yo_incr_rc_atomic(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC_ATOMIC, Option(usize).None), return(generate_yo_decr_rc_atomic(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DROP, Option(usize).None), return(generate_yo_sometype_drop(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP, Option(usize).None), return(generate_yo_sometype_dup(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_REF_COUNT, Option(usize).None), return(generate_ref_count_call(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_PANIC, Option(usize).None), return(generate_panic(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_ASM, Option(usize).None), return(generate_asm(expr, indent.clone(), context)));

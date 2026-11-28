@@ -1,8 +1,7 @@
 //! `downcast(dyn_value, T)` and `upcast(dyn_value, Dyn(Tgt))` emitters.
 //!
-//! Safe downcast returning `Option(T)`. Dyn only wraps object types, so the
-//! result is an owned RC reference (we dup, since the Dyn also holds one). The
-//! is-check compares the Dyn's vtable type-id against a per-target static whose
+//! Safe downcast returning `Option(T)`: the Dyn keeps its payload and the
+//! result is a copy of it. The is-check compares the Dyn's vtable type-id against a per-target static whose
 //! address is the canonical type id. If `Option` is nullable-pointer-optimized,
 //! emits `(check) ? cast : NULL`; otherwise the full tagged-union Some/None.
 //!
@@ -12,8 +11,9 @@
 //! - a VALUE/newtype target was auto-boxed at `dyn()` creation — read the value
 //!   out of the Rc found in `dyn_impls` (`wasBoxed`; the
 //!   old note calling this branch unreachable predates
-//!   `issues/fixed/yo-self-downcast-value-type.md`); a move-only value is
-//!   copied with the `clone` of the Dyn's `Clone` evidence, never bitwise;
+//!   `issues/fixed/yo-self-downcast-value-type.md`); a value that owns
+//!   anything is copied with the `clone` of the Dyn's `Clone` evidence, never
+//!   bitwise;
 //! - a VALUE target with NO `dyn_impls` entry for this (Dyn, target) pair — no
 //!   vtable in the program carries its type id, so the is-check can never hold
 //!   and the whole downcast is a constant `.None`
@@ -28,8 +28,7 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
 { type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name, CodegenFunctionEntry, unsized_place_fat_code, box_payload_place_code } :: import("../utils/index.yo");
-{ get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop-dup.yo");
-{ type_contains_rc_cell_or_move_only, type_is_move_only, is_clone_trait_type } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, is_clone_trait_type } :: import("../../types/utils.yo");
 { get_func_type } :: import("../../function-value.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { bind_owning_result_temp } :: import("./other-fn-call.yo");
@@ -117,8 +116,8 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");
   is_check.push_string(&static_var_name);
   // What the result ternary tests. Normally the inline is-check; the
-  // structural-dup path below replaces it with a hoisted flag variable so the
-  // dup can be emitted as STATEMENTS behind the same guard.
+  // clone path below replaces it with a hoisted flag variable so the
+  // clone can be emitted as STATEMENTS behind the same guard.
   (cond_expr : String) = is_check.clone();
   // Extraction. A REFERENCE-struct target is stored directly as the object
   // pointer — cast + incr_rc (the Dyn also holds a reference). A VALUE/newtype
@@ -126,7 +125,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   // `dyn.data` points to an Rc struct `{ header; <value> }` (a ref struct), so
   // casting the pointer straight to the value STRUCT is invalid C
   // ("used type … where arithmetic or pointer type is required"). Extract the
-  // boxed value via the Rc's value field and dup it (the Rc keeps its copy).
+  // boxed value via the Rc's value field and copy it (the Rc keeps its own).
   // Value types ARE boxed into dyns (the dyn_impl records
   // concrete=<value>, data=Rc(<value>)), so this branch — once called
   // "unreachable" — is in fact the live path
@@ -170,7 +169,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     tkey := type_key(&target_type);
     dyn_tkey := type_key(&dyn_ty);
     (box_opt : Option(TypeValue)) = Option(TypeValue).None;
-    // The payload's `clone`, when the Dyn lists `Clone`: a move-only payload
+    // The payload's `clone`, when the Dyn lists `Clone`: an owning payload
     // is copied out through it (below).
     (clone_fid : String) = String.new();
     for(&context.base.dyn_impls, (_dk, de) => {
@@ -200,67 +199,33 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
         extract.push_string(dyn_code.clone());
         extract.push_str(".data)->");
         extract.push_string(&field_c);
-        // Dup the extracted value (the Rc retains its copy).
-        match(
-          get_dup_function_for_type(&target_type, context),
-          .Some(dupfn) => {
-            d := dupfn.clone();
-            d.push_str("(");
-            d.push_string(&extract);
-            d.push_str(")");
-            d
-          },
-          // No USER `___dup` method — and most types have none: `String` (a
-          // newtype over `Option(ArrayList(u8))`), a value enum with RC
-          // payloads and a value struct with RC fields are all dup'd
-          // STRUCTURALLY. The old `.None => extract` fallback handed out an
-          // UN-dup'd copy of a value the Box still owns, so the caller's
-          // scope-end drop and the Box's dispose released the same allocation
-          // — a heap-use-after-free the moment the boxed value's refcount
-          // became exact (it was masked while `box` leaked a reference; see
-          // issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
-          //
-          // `generate_dup_code_for_value` emits its lines through the emitter
-          // and a C ternary cannot hold statements, so hoist a guarded block.
-          // The extraction MUST stay behind the type-id check: reading the
-          // box's value field when the dyn holds a DIFFERENT type reads
-          // foreign memory (a smaller box would be read past its end).
-          .None => cond(
-            !type_contains_rc_cell_or_move_only(&target_type) => extract,
-            true => {
-              uid := fresh_local_name(String.from("u"), &context.base.current_function_name);
-              ok_var := `__yo_dc_ok_${uid}`;
-              val_var := `__yo_dc_val_${uid}`;
-              context.base.emitter.emit_string_line(`${indent.clone()}int ${ok_var} = (${is_check.clone()}) ? 1 : 0;`);
-              context.base.emitter.emit_string_line(`${indent.clone()}${target_type_c_name.clone()} ${val_var} = (${target_type_c_name.clone()}){0};`);
-              context.base.emitter.emit_string_line(`${indent.clone()}if (${ok_var}) {`);
-              if(type_is_move_only(&target_type), {
-                // A move-only payload has no structural dup: a bitwise copy
-                // would leave the Dyn's box and the result owning one value,
-                // dropped twice. It is copied out through its `Clone` impl,
-                // which the evaluator requires the Dyn to list.
-                clone_c := match(
-                  if(clone_fid.is_empty(), Option(CodegenFunctionEntry).None, context.base.get_function_entry(clone_fid.clone())),
-                  .Some(entry) => entry.c_name.clone(),
-                  .None => codegen_fatal_expr(`downcast to the move-only ${target_type_c_name.clone()}: no Clone impl in the Dyn's evidence`)
-                );
-                receiver := if(clone_fn_takes_self_by_ptr(&clone_fid), `&(${extract})`, extract.clone());
-                context.base.emitter.emit_string_line(`${indent.clone()}  ${val_var} = ${clone_c}(${receiver});`);
-              }, {
-                context.base.emitter.emit_string_line(`${indent.clone()}  ${val_var} = ${extract};`);
-                dup_code := generate_dup_code_for_value(val_var.clone(), &target_type, context);
-                // The nullable-pointer and no-RC arms emit their own statement
-                // (or nothing) and hand the value straight back; only a real
-                // dup EXPRESSION needs assigning.
-                if((dup_code.len() > usize(0)) && !(dup_code == val_var), {
-                  context.base.emitter.emit_string_line(`${indent.clone()}  ${val_var} = ${dup_code};`);
-                });
-              });
-              context.base.emitter.emit_string_line(`${indent.clone()}}`);
-              cond_expr = ok_var.clone();
-              val_var
-            }
-          )
+        // A payload that owns anything is copied out through the `clone` of
+        // the Dyn's `Clone` evidence, which the evaluator requires
+        // (evaluate_downcast); any other payload is a bitwise copy. The
+        // clone is hoisted into a guarded block (a C ternary cannot hold
+        // statements), and the extraction stays behind the type-id check:
+        // reading the box's value field when the Dyn holds a DIFFERENT type
+        // reads foreign memory (a smaller box would be read past its end).
+        cond(
+          !type_contains_rc_cell_or_move_only(&target_type) => extract,
+          true => {
+            uid := fresh_local_name(String.from("u"), &context.base.current_function_name);
+            ok_var := `__yo_dc_ok_${uid}`;
+            val_var := `__yo_dc_val_${uid}`;
+            context.base.emitter.emit_string_line(`${indent.clone()}int ${ok_var} = (${is_check.clone()}) ? 1 : 0;`);
+            context.base.emitter.emit_string_line(`${indent.clone()}${target_type_c_name.clone()} ${val_var} = (${target_type_c_name.clone()}){0};`);
+            context.base.emitter.emit_string_line(`${indent.clone()}if (${ok_var}) {`);
+            clone_c := match(
+              if(clone_fid.is_empty(), Option(CodegenFunctionEntry).None, context.base.get_function_entry(clone_fid.clone())),
+              .Some(entry) => entry.c_name.clone(),
+              .None => codegen_fatal_expr(`downcast to ${target_type_c_name.clone()}: no Clone impl in the Dyn's evidence`)
+            );
+            receiver := if(clone_fn_takes_self_by_ptr(&clone_fid), `&(${extract})`, extract.clone());
+            context.base.emitter.emit_string_line(`${indent.clone()}  ${val_var} = ${clone_c}(${receiver});`);
+            context.base.emitter.emit_string_line(`${indent.clone()}}`);
+            cond_expr = ok_var.clone();
+            val_var
+          }
         )
       },
       .None => {

@@ -5,7 +5,7 @@
 //!
 //!   header  = headers ++ dequalified declarations ++ the header-routed code
 //!             ranges (the constructor/traverse block verbatim and the
-//!             per-type RC helpers ___dup/___drop/___dispose — per-TU
+//!             per-type RC helpers ___drop/___dispose — per-TU
 //!             `static`/`static inline` copies, they are the RC hot path and
 //!             their addresses are stored but never compared)
 //!   chunk 0 = the split-static definitions (chunk_globals: typeid chars,
@@ -248,7 +248,7 @@ _ca_dequalify_statics :: (fn(text : &String, header_defined : &HashSet(String)) 
 /// True iff `name` is a per-type RC helper (routed into the shared header —
 /// same predicate as generate_function's `is_rc` linkage branch).
 _ca_is_rc_helper :: (fn(name : &String) -> bool)(
-  name.contains("___drop") || name.contains("___dup") || name.contains("___dispose")
+  name.contains("___drop") || name.contains("___dispose")
 );
 /// True iff the column-0 line at `ls` opens a linkage-qualified or type-level
 /// construct that is NEVER a relocatable external definition.

@@ -1715,7 +1715,7 @@ _evaluate_dyn_erasure :: (
     out_info := new_expr_info(env, ret_type.clone());
     (ne_final_expr : AstExpr) = inner_ne;
     // The dyn takes OWNERSHIP of its payload: mark the inner value's owning
-    // temp CONSUMED (or schedule a deferred dup for a borrowed source).
+    // temp CONSUMED (`transfer_value_into`).
     // Without this the payload temp keeps its scope-end/escape drop AND the
     // dyn's own `.data` drop also fires — a double-drop of the same object on
     // every `exn.throw(dyn(format_error_message(...)))` (the startup heap

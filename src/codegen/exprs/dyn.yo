@@ -19,14 +19,12 @@
 { is_dyn_type, is_boxed_type, is_counted_handle_type, cell_handle_view, unique_box_payload_type, is_unique_box_type } :: import("../../types/guards.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait-checking.yo");
 { type_id_or_empty } :: import("../../evaluator/values/type-trait-methods.yo");
-{ Environment } :: import("../../env.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { DynImplEntry } :: import("../utils/index.yo");
-{ type_key, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at, dyn_concrete_c_name, dyn_impl_key_suffix, element_wise_dup_target } :: import("../utils/index.yo");
+{ type_key, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, dyn_concrete_c_name, dyn_impl_key_suffix } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
-{ generate_deferred_dup_expressions } :: import("./drop-dup.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ ExprInfo, expr_info_dyn_call_trait_values, expr_info_deferred_dup_expressions, unsize_reference_mode } :: import("../../expr-info.yo");
+{ expr_info_dyn_call_trait_values, unsize_reference_mode } :: import("../../expr-info.yo");
 { _pointer_arg_code } :: import("./sizeof.yo");
 /// For a BOXED dyn payload (`Rc(Sq)`), the impl concrete type is the UNDERLYING
 /// type (`Sq`, the box's single `*` field) while the runtime data type stays
@@ -225,31 +223,6 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
         value_code = vn_c;
       });
     },
-    .None => ()
-  );
-  // Dup the inner value (Dyn wrapper holds a reference too). An element-wise
-  // dup's temp is one element (`element_wise_dup_target`): the value,
-  // retained in place, is boxed then.
-  match(
-    expr_info_deferred_dup_expressions(&value_ei),
-    .Some(dups) => if(dups.len() > usize(0), {
-      generate_deferred_dup_expressions(&value_expr, indent.clone(), context);
-      match(
-        dups.get_cloned(usize(0)),
-        .Some(dup_expr) => match(
-          if(element_wise_dup_target(&dup_expr).is_some(), Option(ExprInfo).None, context.base.get_expr_info(&dup_expr)),
-          .Some(dei) => match(
-            &dei.variable_name(),
-            .Some(dvn) => {
-              value_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn.*, Option(Environment).Some(dei.env()));
-            },
-            .None => ()
-          ),
-          .None => ()
-        ),
-        .None => ()
-      );
-    }),
     .None => ()
   );
   temp_var_name := match(&ei.variable_name(), .Some(tv) => tv.clone(), .None => return(String.from("/* Error: dyn() expression missing temp variable name */")));

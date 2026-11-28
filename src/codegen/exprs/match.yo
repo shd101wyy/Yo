@@ -24,7 +24,6 @@
   expr_info_is_primitive_match,
   expr_info_primitive_pattern_values,
   expr_info_consumed_variable_drop_expressions,
-  expr_info_deferred_dup_expressions,
   scope_variables
 } :: import("../../expr-info.yo");
 { is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type, is_box_type, is_newtype_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -33,12 +32,12 @@
 { note_state_machine_binding_id, FunctionGenerationContext, sm_lowering_note_binding_source, shadow_binding_decl_name, shadow_binding_c_name, shadow_binding_push, shadow_binding_pop } :: import("../functions/context.yo");
 { _call_generate_expr, chain_leaf_pointer_code } :: import("./dispatch.yo");
 { Token, TokenKind } :: import("../../token.yo");
-{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop, _looks_like_minted_temp } :: import("./drop-dup.yo");
+{ generate_deferred_drop_expressions, has_pending_emittable_drop, _looks_like_minted_temp } :: import("./drop-dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { _store_temp_var_to_state_machine_if_needed, _sm_lent_temp_slot } :: import("./other-fn-call.yo");
 { _flush_stmt_lent_temp_drops } :: import("./begin.yo");
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state-machine-naming.yo");
-{ declare_c_var_name, get_type_string, pointer_c_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at, box_payload_place_code, unsized_place_fat_code } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, pointer_c_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at, box_payload_place_code, unsized_place_fat_code } :: import("../utils/index.yo");
 { resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings, pattern_binding_atoms, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs, MATCH_MODE_CONSUME } :: import("../../pattern.yo");
@@ -400,8 +399,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
   out
 });
 /// Generate a match/cond case body (begin blocks inline their statements and
-/// yield the final expression). (The begin-final
-/// deferred-dup rewrite is Phase 4 — empty for the no-RC corpus.)
+/// yield the final expression).
 generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     begin_args := _args(body_expr);
@@ -463,8 +461,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
         j = (j + usize(1));
       });
     });
-    // Final expression — deferred-dup rewrite first (a borrowed value leaving
-    // the arm needs its balancing +1; the bare emission was the round-5 UAF).
+    // Final expression.
     if(n > usize(0), {
       match(
         begin_args.get_cloned(n - usize(1)),
@@ -472,7 +469,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
         .None => ()
       );
     });
-    final_code0 := if(n > usize(0), match(begin_args.get_cloned(n - usize(1)), .Some(final_expr) => chain_leaf_pointer_code(&final_expr, match(arm_value_with_dups(&final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(&final_expr, indent.clone(), context)), context), .None => String.from("")), String.from(""));
+    final_code0 := if(n > usize(0), match(begin_args.get_cloned(n - usize(1)), .Some(final_expr) => chain_leaf_pointer_code(&final_expr, _call_generate_expr(&final_expr, indent.clone(), context), context), .None => String.from("")), String.from(""));
     // The block's drops run after its value is taken: a value read from a
     // local the block drops (`{ …; a.n }` with `a` dropped at the end, a
     // consuming `match` arm's binding) is materialized first, as the bare
@@ -514,22 +511,8 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
     prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_drops, &prev_pending));
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_consumed, &prev_consumed));
-    // When the arm value carries deferred `___dup`s (returning a borrowed
-    // value out of the arm — e.g. `.Some(e) => e.ty`),
-    // see arm_value_with_dups in drop-dup.yo.
     note_line_position(&mut context.base.emitter, body_expr);
-    code := chain_leaf_pointer_code(
-      body_expr,
-      match(
-        arm_value_with_dups(body_expr, indent.clone(), context),
-        .Some(fc) => fc,
-        .None => {
-          generate_deferred_dup_expressions(body_expr, indent.clone(), context);
-          _call_generate_expr(body_expr, indent.clone(), context)
-        }
-      ),
-      context
-    );
+    code := chain_leaf_pointer_code(body_expr, _call_generate_expr(body_expr, indent.clone(), context), context);
     // A call nested under an operator in the arm value (`p => (f(tmp) > 0)`)
     // records its argument temps' drops on the BODY node, which no call's
     // post-call flush emits and the caller only assigns `code`: materialize
@@ -2661,23 +2644,6 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
         _store_temp_var_to_state_machine_if_needed(subject_var_name.clone(), indent.clone(), context);
         matched_value_code = subject_var_name.clone();
       });
-      // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom
-      // scrutinee returning a borrowed read — e.g. merge_and_check_envs'
-      // `match(base_var.consumed_at_token, ...)`: the Option value's temp is
-      // dropped at scope end while the FIELD still holds the Rc payload).
-      // Emit the dup here on the DECLARED subject temp —
-      // drift-safe (never trust the recorded atom name; see
-      // generate_case_body / cond.yo _emit_value_arm).
-      match(
-        expr_info_deferred_dup_expressions(&subject_ei),
-        .Some(sdups) => if(sdups.len() > usize(0), {
-          sdline := indent.clone();
-          sdline.push_string(generate_dup_code_for_value(matched_value_code.clone(), &match_value_type, context));
-          sdline.push_str(";");
-          context.base.emitter.emit_string_line(&sdline);
-        }),
-        .None => ()
-      );
       subject_is_own_temp = (!binds_in_place && (matched_value_code == subject_var_name) && !is_pointer_type(&match_value_type));
     },
     // A `&` match over a temporary the evaluator gave no temp: its bindings
@@ -2692,7 +2658,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // A non-place scrutinee is a one-expression block in the evaluator: its
   // temporaries (the `mk(i32(7))` of `match(mk(i32(7)).n, …)`) have their own
   // frame, whose drops ride the subject node. Once the arms read only the
-  // subject's own temp (materialized above, with its dup), nothing reads those
+  // subject's own temp (materialized above), nothing reads those
   // temporaries any more: release them now, before any arm can leave. A call
   // tail's post-call flush already did the same. A subject the arms read
   // through its code (a `mut` match's place, a pointer that may point into a

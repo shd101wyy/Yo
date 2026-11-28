@@ -132,9 +132,9 @@ evaluate_struct_type :: (
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type.clone();
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
-  // RC functions (___drop/___dup) for reference-semantics structs are lowered
+  // RC functions (___drop) for reference-semantics structs are lowered
   // DIRECTLY in codegen (drop-dup.yo: `is_reference_struct_type` →
-  // `__yo_decr_rc`/`__yo_incr_rc`). Evaluator-side ___drop/___dup method
+  // `__yo_decr_rc`). Evaluator-side ___drop method
   // synthesis does not apply: it would need to mutate
   // `SelfType.trait.fields`, and the TypeValue is a value enum with NO
   // per-type trait-field list (trait methods live in a side-registry, see

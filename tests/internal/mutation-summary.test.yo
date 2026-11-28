@@ -1,6 +1,6 @@
-//! The mutation summary of a body that only dups its first parameter (the
-//! prelude's `Rc`/`Arc` `Clone.clone`, `___dup(self)`, the callee of every
-//! decision-17 `Rc.clone(h)`) is known from the body's shape. A
+//! The mutation summary of a body that makes a new handle to its first
+//! parameter's cell (the prelude's `Rc`/`Arc` `Clone.clone`, the callee of
+//! every decision-17 `Rc.clone(h)`) is known from the body's shape. A
 //! specialization's body can have no ExprInfo in the table a caller is
 //! summarized against; the conservative answer there (`all`, not memoized,
 //! and recorded in the caller's touched list) kept every caller of `Rc.clone`
@@ -44,27 +44,49 @@ _register :: (fn(fid : str, label0 : str, label1 : str) -> unit)({
   tys.push(t_i32());
   register_func_type(String.from(fid), t_func_simple(labels, tys, t_unit()));
 });
-/// `<head>(<arg>)` with fresh node ids.
-_call1 :: (fn(head : str, arg : str, id : usize) -> AstExpr)({
-  mut(args) := ArrayList(AstExpr).new();
-  args.push(Rc.new(AstExprNode.Atom(id + usize(2), _tok(arg))));
-  Rc.new(AstExprNode.FnCall(id, Rc.new(AstExprNode.Atom(id + usize(1), _tok(head))), Rc.new(args), false, _tok(head)))
+/// `<name>` with node id `id`.
+_atom :: (fn(name : str, id : usize) -> AstExpr)(Rc.new(AstExprNode.Atom(id, _tok(name))));
+/// `<head>(<args>)` with node id `id` (its head atom takes `id + 1`).
+_call :: (fn(head : str, args : ArrayList(AstExpr), id : usize) -> AstExpr)(
+  Rc.new(AstExprNode.FnCall(id, _atom(head, id + usize(1)), Rc.new(args), false, _tok(head)))
+);
+_one :: (fn(a : AstExpr) -> ArrayList(AstExpr))({
+  mut(v) := ArrayList(AstExpr).new();
+  v.push(a);
+  v
 });
-test("a body that dups its first parameter mutates nothing, even with no ExprInfo for it", {
-  _register("fn_yo_id_test_msp_dup_first", "self", "other");
-  body := _call1("___dup", "self", usize(900001));
-  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_dup_first"), &body, &expr_info_table_new());
-  assert(param_mutation_mask_is_empty(&mask), "`___dup(self)` writes nothing through any parameter");
+_two :: (fn(a : AstExpr, b : AstExpr) -> ArrayList(AstExpr))({
+  mut(v) := ArrayList(AstExpr).new();
+  v.push(a);
+  v.push(b);
+  v
 });
-test("the shape is exact: a dup of another parameter keeps the conservative answer", {
-  _register("fn_yo_id_test_msp_dup_second", "self", "other");
-  body := _call1("___dup", "other", usize(900011));
-  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_dup_second"), &body, &expr_info_table_new());
-  assert(!param_mutation_mask_is_empty(&mask), "an unevaluated body that is not `___dup(<first parameter>)` stays `all`");
+/// The prelude's clone body over parameter `read`, ending in `tail_head(cell)`:
+/// `{ cell := unsafe(unsafe.cast(<read>, T)); consume(__yo_incr_rc(cell)); <tail_head>(cell) }`.
+_share_body :: (fn(read : str, tail_head : str, id : usize) -> AstExpr)({
+  cast := _call("cast", _two(_atom(read, id + usize(10)), _atom("T", id + usize(11))), id + usize(12));
+  bind := _call(":=", _two(_atom("cell", id + usize(20)), _call("unsafe", _one(cast), id + usize(21))), id + usize(23));
+  count := _call("consume", _one(_call("__yo_incr_rc", _one(_atom("cell", id + usize(30))), id + usize(31))), id + usize(33));
+  tail := _call(tail_head, _one(_atom("cell", id + usize(40))), id + usize(41));
+  mut(stmts) := _two(bind, count);
+  stmts.push(tail);
+  _call("begin", stmts, id)
 });
-test("the shape is exact: another call of the first parameter keeps the conservative answer", {
-  _register("fn_yo_id_test_msp_other_call", "self", "other");
-  body := _call1("___drop", "self", usize(900021));
-  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_other_call"), &body, &expr_info_table_new());
-  assert(!param_mutation_mask_is_empty(&mask), "`___drop(self)` is not a dup");
+test("a body that shares its first parameter's cell mutates nothing, even with no ExprInfo for it", {
+  _register("fn_yo_id_test_msp_share_first", "self", "other");
+  body := _share_body("self", "__yo_rc_own", usize(900001));
+  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_share_first"), &body, &expr_info_table_new());
+  assert(param_mutation_mask_is_empty(&mask), "a new handle to `self`'s cell writes nothing through any parameter");
+});
+test("the shape is exact: a handle to another parameter's cell keeps the conservative answer", {
+  _register("fn_yo_id_test_msp_share_second", "self", "other");
+  body := _share_body("other", "__yo_rc_own", usize(900101));
+  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_share_second"), &body, &expr_info_table_new());
+  assert(!param_mutation_mask_is_empty(&mask), "an unevaluated body that does not read the first parameter's cell stays `all`");
+});
+test("the shape is exact: a body whose tail is not an owned handle keeps the conservative answer", {
+  _register("fn_yo_id_test_msp_other_tail", "self", "other");
+  body := _share_body("self", "___drop", usize(900201));
+  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_other_tail"), &body, &expr_info_table_new());
+  assert(!param_mutation_mask_is_empty(&mask), "a `___drop(cell)` tail is not a new handle");
 });

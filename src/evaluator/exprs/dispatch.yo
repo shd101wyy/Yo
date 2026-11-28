@@ -128,7 +128,6 @@ import("std/fmt");
   BF_MACRO_EXPAND,
   BF_CONSUME,
   BF_DROP,
-  BF_DUP,
   BF_VA_START,
   BF_ADDRESS_OF,
   BF_ARRAY_FILL,
@@ -143,15 +142,11 @@ import("std/fmt");
   BF_YO_DECR_RC_ATOMIC,
   BF_YO_INCR_RC_ATOMIC,
   BF_YO_DROP_ARRAY_ELEMENT,
-  BF_YO_DUP_ARRAY_ELEMENT,
   BF_YO_DROP_TUPLE_ELEMENT,
-  BF_YO_DUP_TUPLE_ELEMENT,
   BF_YO_CAPTURE_FIELD,
   BF_YO_RC_OWN,
   BF_YO_DYN_DROP,
-  BF_YO_DYN_DUP,
   BF_YO_SOMETYPE_DROP,
-  BF_YO_SOMETYPE_DUP,
   BF_YO_EXPR_IS_ATOM,
   BF_YO_EXPR_IS_FN_CALL,
   BF_YO_EXPR_GET_CALLEE,
@@ -332,7 +327,6 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_derive_rule } :: import("../builtins/derive-rule.yo");
 { evaluate_downcast, evaluate_upcast } :: import("../builtins/downcast.yo");
 { evaluate_drop } :: import("../builtins/drop.yo");
-{ evaluate_dup } :: import("../builtins/dup.yo");
 {
   evaluate_yo_expr_eq,
   evaluate_yo_expr_get_args,
@@ -354,15 +348,11 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
   evaluate_yo_decr_rc_atomic,
   evaluate_yo_drop_array_element,
   evaluate_yo_drop_tuple_element,
-  evaluate_yo_dup_array_element,
-  evaluate_yo_dup_tuple_element,
   evaluate_yo_dyn_vtable_drop,
-  evaluate_yo_dyn_vtable_dup,
   evaluate_yo_incr_rc,
   evaluate_yo_incr_rc_atomic,
   evaluate_yo_rc_own,
-  evaluate_yo_some_type_drop,
-  evaluate_yo_some_type_dup
+  evaluate_yo_some_type_drop
 } :: import("../builtins/rc-fns.yo");
 { evaluate_size_of, evaluate_size_of_val, evaluate_unsize, evaluate_slice_primitive } :: import("../builtins/sizeof.yo");
 { evaluate_unsafe } :: import("../builtins/unsafe.yo");
@@ -1119,8 +1109,6 @@ _evaluate_expression :: (
           evaluate_consume(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_DROP, .None)) =>
           evaluate_drop(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_DUP, .None)) =>
-          evaluate_dup(expr, env, ctx, exn),
         ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, .None)) =>
           evaluate_yo_decr_rc(expr, env, ctx, exn),
         ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC, .None)) =>
@@ -1131,24 +1119,16 @@ _evaluate_expression :: (
           evaluate_yo_incr_rc_atomic(expr, env, ctx, exn),
         ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, .None)) =>
           evaluate_yo_drop_array_element(expr, env, ctx, exn),
-        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, .None)) =>
-          evaluate_yo_dup_array_element(expr, env, ctx, exn),
         ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, .None)) =>
           evaluate_yo_drop_tuple_element(expr, env, ctx, exn),
-        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, .None)) =>
-          evaluate_yo_dup_tuple_element(expr, env, ctx, exn),
         ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_CAPTURE_FIELD, .None)) =>
           evaluate_yo_capture_field(expr, env, ctx, exn),
         ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN, .None)) =>
           evaluate_yo_rc_own(expr, env, ctx, exn),
         ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, .None)) =>
           evaluate_yo_dyn_vtable_drop(expr, env, ctx, exn),
-        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP, .None)) =>
-          evaluate_yo_dyn_vtable_dup(expr, env, ctx, exn),
         ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DROP, .None)) =>
           evaluate_yo_some_type_drop(expr, env, ctx, exn),
-        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP, .None)) =>
-          evaluate_yo_some_type_dup(expr, env, ctx, exn),
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_QUOTE, .None)) =>
           evaluate_quote(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_GENSYM, .None)) =>

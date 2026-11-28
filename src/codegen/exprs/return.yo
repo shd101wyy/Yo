@@ -8,11 +8,11 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { HashSet } :: import("std/collections/hash-set");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BF_DROP, BF_DOT, BF_UNWIND, BK_RETURN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BF_DROP, BF_DOT, BF_UNWIND, BK_RETURN } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Variable, Environment, variable_moved_at_cleanup_point, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
-{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, arg_move_region_holds } :: import("../../expr-info.yo");
+{ expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, arg_move_region_holds } :: import("../../expr-info.yo");
 { TypeValue, t_slot_pointee, t_slot_is_borrow, fn_result_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
 { type_is_sized } :: import("../../types/utils.yo");
 { FunctionGenerationContext, resolve_var_name_in_context, sm_owns_fnonce_captures } :: import("../functions/context.yo");
@@ -23,9 +23,9 @@
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
 
-{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_early_return_only_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop-dup.yo");
+{ generate_deferred_drop_expressions, generate_early_return_only_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop-dup.yo");
 { is_any_temp_variable_name } :: import("../../utils.yo");
-{ declare_c_var_name, get_type_string, pointer_c_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, type_key, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, pointer_c_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
@@ -490,9 +490,7 @@ generate_pending_deferred_drops :: (fn(indent : &String, context : &mut Function
 /// concat — so the consumed channel must exclude them or the same
 /// `__yo_decr_rc` is emitted twice in one `if (__yo_effect_escaped)` block
 /// (a double free; measured in tests/error.test.yo's "Exception throwing and
-/// catching with String"). The `generate_return` site has always built this
-/// set by hand (`dropped_by_this_return`); the escape-check and unwind sites
-/// share it.
+/// catching with String"). The escape-check and unwind sites share it.
 collect_names_released_by_escape_sequence :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> HashSet(String))({
   names := HashSet(String).new();
   // The scope-channel list the pending emitter draws from at this point — a
@@ -736,109 +734,6 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &mut F
     .None => ()
   )
 );
-/// Deferred-dup handling for an atom return value.
-handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : String, indent : &String, context : &mut FunctionGenerationContext) -> String)(
-  match(
-    context.base.get_expr_info(expr),
-    .Some(ei) => match(
-      expr_info_deferred_dup_expressions(&ei),
-      .Some(dups) => if(dups.len() > usize(0), {
-        generate_deferred_dup_expressions(expr, indent.clone(), context);
-        // The dup's result temp is the returned value only when it holds the
-        // value's type: an ELEMENT-WISE dup (an `Array(T, N)` or a tuple)
-        // retains the elements in place and its temp is the last ELEMENT, so
-        // the source value is returned then — `emit_deferred_dup_or_code`'s
-        // rule (issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md).
-        match(dups.get_cloned(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(&dei.variable_name(), .Some(dvn) => if(type_key(&dei.ty()) == type_key(&ei.ty()), get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn.*, Option(Environment).Some(dei.env())), atom_code), .None => atom_code), .None => atom_code), atom_code), .None => atom_code)
-      }, atom_code),
-      .None => atom_code
-    ),
-    .None => atom_code
-  )
-);
-/// Deferred-dup handling for a function-call return value.
-handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(_call_generate_expr(expr, indent.clone(), context)));
-  match(
-    expr_info_deferred_dup_expressions(&ei),
-    .Some(dups) => if(dups.len() > usize(0), {
-      // The value is generated ONCE. When the evaluator gave the call a temp
-      // variable, that temp is what the caller must read back — the tail of
-      // `pick :: (fn(rows, r, f) -> String)(rows(r)(f))` used to emit
-      // `T temp = <index call>;` for the dup and then `return <index call>`
-      // AGAIN (the fallthrough below regenerated `expr`), evaluating the
-      // expression twice and, for a chained Index call, declaring its
-      // `__yo_idx_tmp_<id>` spill twice — a C redefinition error
-      // (issues/fixed/deferred-dup-return-regenerates-the-call.md).
-      (mut(value_var) : Option(String)) = Option(String).None;
-      match(
-        ei.variable_name(),
-        .Some(saved) => {
-          ei.set_variable_name(Option(String).None);
-          raw_code := _call_generate_expr(expr, indent.clone(), context);
-          ei.set_variable_name(Option(String).Some(saved.clone()));
-          expr_temp_var := get_variable_name_for_codegen_at(ast_expr_id(expr), saved.clone(), Option(Environment).Some(ei.env()));
-          // An atom named after ITSELF (its `variable_name` is the variable,
-          // not a minted temp) has nothing to materialize: its value is its
-          // own rendering. That rendering can differ from the name, a
-          // state-machine slot (`sm->var_…`) under the single-pass async
-          // lowering, and declaring `T name = sm->var_…` then redefined the
-          // binding in its own C scope.
-          self_named := is_self_named_atom(expr, saved.clone());
-          value_var = Option(String).Some(if(self_named, raw_code.clone(), expr_temp_var.clone()));
-          if(!self_named && !(expr_temp_var == raw_code), {
-            mut(line) := indent.clone();
-            rt_ct := get_type_string(&ei.ty(), &mut context.base);
-            line.push_string(rt_ct.clone());
-            line.push_str(" ");
-            line.push_string(expr_temp_var.clone());
-            line.push_str(" = ");
-            // Future-typed tail: cast the initializer to the declared type —
-            // a trait-method thunk's stamped type is the future INTERFACE
-            // struct while the delegated call returns its concrete state
-            // machine (prefix-compatible by design; clang 16+ C hard-errors
-            // on the bare initializer — the windows-arm cross-emit leg).
-            if(type_implements_future(&ei.ty()) && rt_ct.ends_with("*"), {
-              line.push_str("(");
-              line.push_string(rt_ct.clone());
-              line.push_str(")");
-            });
-            line.push_string(&raw_code);
-            line.push_str(";");
-            context.base.emitter.emit_string_line(&line);
-            // Register the declared temp BEFORE the dup pass below — the dup
-            // emitter's undeclared-temp gate silently suppresses the +1 for
-            // names not yet in declared_c_var_names (round-3 field-tail UAF).
-            declare_c_var_name(&context.base, expr_temp_var.clone());
-          });
-        },
-        .None => {
-          raw_code := _call_generate_expr(expr, indent.clone(), context);
-          mut(line) := indent.clone();
-          line.push_string(&raw_code);
-          line.push_str(";");
-          context.base.emitter.emit_string_line(&line);
-        }
-      );
-      generate_deferred_dup_expressions(expr, indent.clone(), context);
-      // Same type rule as `handle_atom_deferred_dup`: an element-wise dup's
-      // temp is an element, and the value below already had its elements
-      // retained in place.
-      match(dups.get_cloned(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(&dei.variable_name(), .Some(dvn) => if(type_key(&dei.ty()) == type_key(&ei.ty()), return(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn.*, Option(Environment).Some(dei.env()))), ()), .None => ()), .None => ()), ()), .None => ());
-      match(
-        value_var,
-        // The declared temp already holds the (now dup'd) value.
-        .Some(vv) => vv,
-        // No temp was assigned by the evaluator: the value statement above
-        // ran for its effects only, and the value is regenerated here.
-        // Kept as is — a second evaluation on this arm is
-        // a suspected sibling with no reproducer yet (see the issue).
-        .None => _call_generate_expr(expr, indent.clone(), context)
-      )
-    }, _call_generate_expr(expr, indent.clone(), context)),
-    .None => _call_generate_expr(expr, indent.clone(), context)
-  )
-});
 /// Generate a `return` statement.
 generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
@@ -853,135 +748,36 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
         return(codegen_fatal_expr(String.from("return expression missing temporary variable name")));
       });
       arg_ei_opt := context.base.get_expr_info(&arg);
-      arg_has_dup := match(&arg_ei_opt, .Some(aei) => match(expr_info_deferred_dup_expressions(&aei.*), .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
-      // Deferred-dup-with-temp materialization:
-      // when the arg has BOTH a variableName and deferred `___dup`s (returning
-      // a borrowed FIELD, e.g. `return(p.inner)`), declare the arg's eval temp
-      // BEFORE emitting the dup — the dup names that temp, and the dup
-      // emitter's undeclared-temp gate silently suppressed the +1 when the
-      // declaration had not been emitted yet (`T temp = p->inner;` was emitted
-      // AFTER the dup pass by the return-temp block below). The caller's scope
-      // drop then over-dropped the field (the round-3 borrowed-field UAF).
       (mut(arg_code) : String) = String.from("");
-      arg_vn_with_dup := if(
-        arg_has_dup,
-        match(&arg_ei_opt, .Some(aei) => aei.variable_name(), .None => Option(String).None),
-        Option(String).None
-      );
+      arg_code = _call_generate_expr(&arg, indent.clone(), context);
+      // A bare `return(<inout binding>)`: when the atom's recorded env
+      // does not contain the binding (measured: for a scalar binding,
+      // whose value cell is comptime-known through the H27 whole-variable
+      // alias, the identifier's recorded env can lack the variable; the
+      // RC-typed case records a live env), generate_atom falls back to
+      // the BARE name — the pointer would be returned as the value. The
+      // evaluator's `source_variable` stamp survives that drift; deref
+      // explicitly from it.
       match(
-        arg_vn_with_dup,
-        .Some(avn) => {
-          aei2 := match(&arg_ei_opt, .Some(a) => Rc.clone(a), .None => return(String.from("// unreachable: arg_vn_with_dup implies Some")));
-          aei2.set_variable_name(Option(String).None);
-          raw_arg_code := _call_generate_expr(&arg, indent.clone(), context);
-          aei2.set_variable_name(Option(String).Some(avn.clone()));
-          arg_temp_var := get_variable_name_for_codegen_at(ast_expr_id(&arg), avn.clone(), Option(Environment).Some(aei2.env()));
-          // Skip the temp declaration when the arg is a ref-param atom —
-          // `T name = (*name);` would shadow the pointer parameter
-          // (issues/fixed/inout-multi-stmt-body-shadow.md).
-          (mut(is_inout_arg_atom) : bool) = false;
-          if(ast_expr_is_atom(&arg), {
-            ia_vars := scope_variables(ast_expr_id(&arg), &aei2.env(), avn.clone());
-            if(ia_vars.len() > usize(0), {
-              match(
-                ia_vars.last_cloned(),
-                .Some(iav) => if(iav.*.is_ref(), {
-                  is_inout_arg_atom = true;
-                }),
-                .None => ()
-              );
+        &arg_ei_opt,
+        .Some(aei_nr) => match(
+          aei_nr.source_variable(),
+          .Some(asv_nr) => {
+            sv_name := get_variable_name_for_codegen(asv_nr.*.name.clone(), Option(Environment).None);
+            // A read of a fat reference as itself (`s` with `s : &str`
+            // returned by a `-> str` body, decision 49 S2) is the pair the
+            // binding holds: no deref.
+            reads_fat_reference := (t_slot_is_borrow(&aei_nr.ty()) && !type_is_sized(&t_slot_pointee(&aei_nr.ty())));
+            if(asv_nr.*.is_ref() && (arg_code == sv_name) && !reads_fat_reference, {
+              arg_code = String.from("(*");
+              arg_code.push_string(&sv_name);
+              arg_code.push_str(")");
             });
-          });
-          // A self-named atom's value is its own rendering, which can be its
-          // state-machine slot: declaring `T name = sm->var_…` would redefine
-          // the binding (see handle_func_call_deferred_dup).
-          arg_self := is_self_named_atom(&arg, avn.clone());
-          if(!is_inout_arg_atom && !arg_self && !(arg_temp_var == raw_arg_code), {
-            mut(dline) := indent.clone();
-            dline.push_string(get_type_string(&aei2.ty(), &mut context.base));
-            dline.push_str(" ");
-            dline.push_string(arg_temp_var.clone());
-            dline.push_str(" = ");
-            dline.push_string(raw_arg_code.clone());
-            dline.push_str(";");
-            context.base.emitter.emit_string_line(&dline);
-            declare_c_var_name(&context.base, arg_temp_var.clone());
-          });
-          arg_code = if(is_inout_arg_atom || arg_self, raw_arg_code, arg_temp_var);
-        },
-        .None => {
-          arg_code = _call_generate_expr(&arg, indent.clone(), context);
-          // A bare `return(<inout binding>)`: when the atom's recorded env
-          // does not contain the binding (measured: for a scalar binding,
-          // whose value cell is comptime-known through the H27 whole-variable
-          // alias, the identifier's recorded env can lack the variable; the
-          // RC-typed case records a live env), generate_atom falls back to
-          // the BARE name — the pointer would be returned as the value. The
-          // evaluator's `source_variable` stamp survives that drift; deref
-          // explicitly from it.
-          match(
-            &arg_ei_opt,
-            .Some(aei_nr) => match(
-              aei_nr.source_variable(),
-              .Some(asv_nr) => {
-                sv_name := get_variable_name_for_codegen(asv_nr.*.name.clone(), Option(Environment).None);
-                // A read of a fat reference as itself (`s` with `s : &str`
-                // returned by a `-> str` body, decision 49 S2) is the pair the
-                // binding holds: no deref.
-                reads_fat_reference := (t_slot_is_borrow(&aei_nr.ty()) && !type_is_sized(&t_slot_pointee(&aei_nr.ty())));
-                if(asv_nr.*.is_ref() && (arg_code == sv_name) && !reads_fat_reference, {
-                  arg_code = String.from("(*");
-                  arg_code.push_string(&sv_name);
-                  arg_code.push_str(")");
-                });
-              },
-              .None => ()
-            ),
-            .None => ()
-          );
-        }
-      );
-      (mut(handled_deferred_dup) : bool) = false;
-      if(arg_has_dup, {
-        generate_deferred_dup_expressions(&arg, indent.clone(), context);
-        match(
-          &arg_ei_opt,
-          .Some(aei) => match(
-            expr_info_deferred_dup_expressions(&aei.*),
-            .Some(dups) => match(
-              dups.get_cloned(usize(0)),
-              .Some(dup_expr) => if(
-                ast_expr_is_fn_call(&dup_expr),
-                match(
-                  context.base.get_expr_info(&dup_expr),
-                  .Some(dei) => match(
-                    &dei.variable_name(),
-                    .Some(dvn) => {
-                      // The dup's temp is the returned value only when it
-                      // holds the argument's type. An ELEMENT-WISE dup (an
-                      // `Array(T, N)` or a tuple) retains the elements in
-                      // place and its temp is the last ELEMENT, so the
-                      // argument itself is returned then; the dup is still
-                      // handled (it already ran)
-                      // (issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md).
-                      if(type_key(&dei.ty()) == type_key(&aei.ty()), {
-                        arg_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn.*, Option(Environment).Some(dei.env()));
-                      });
-                      handled_deferred_dup = true;
-                    },
-                    .None => ()
-                  ),
-                  .None => ()
-                ),
-                ()
-              ),
-              .None => ()
-            ),
-            .None => ()
-          ),
+          },
           .None => ()
-        );
-      });
+        ),
+        .None => ()
+      );
       // The return statement yields the FUNCTION's value, so the return temp's
       // C type is the function's (specialized) return type. When the return
       // expression's OWN recorded type is an unresolved SomeT that lowers to
@@ -990,8 +786,8 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       // prototype), leaving the body's return-expr node at the abstract SomeT
       // (comptime.test.yo `-(f32)`: `void* r = (-(self)); return r;` inside a
       // `float` fn) — resolve it through the function's concrete return type.
-      // Mirrors the deferred-dup / scope-ret tail paths (generation.yo:196,265),
-      // which already type the tail temp from `function_type.Func.result`.
+      // Mirrors the scope-ret tail path (functions/generation.yo), which
+      // already types the tail temp from `function_type.Func.result`.
       return_type := {
         // Async SM: the return temp holds the FUTURE OUTPUT value (what
         // `sm->result` stores) — but the return expr's recorded type here is
@@ -1055,8 +851,8 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       // a shadowing C local whose initializer dereferences ITSELF (in C the
       // declarator is in scope in its own initializer) — "indirection requires
       // pointer operand" whenever the return sits in a nested block, where the
-      // shadow is legal C (issues/fixed/inout-return-in-nested-block-shadows-pointer.md;
-      // the deferred-dup site above has the same guard). Return `(*name)`
+      // shadow is legal C (issues/fixed/inout-return-in-nested-block-shadows-pointer.md).
+      // Return `(*name)`
       // directly instead.
       (mut(arg_is_ref_atom) : bool) = false;
       if(ast_expr_is_atom(&arg), {
@@ -1102,7 +898,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       );
       match(
         &return_temp_var,
-        .Some(rtv) => if(!handled_deferred_dup && !is_unit && !(rtv.* == arg_code), {
+        .Some(rtv) => if(!is_unit && !(rtv.* == arg_code), {
           mut(line) := indent.clone();
           line.push_string(return_type.clone());
           line.push_str(" ");
@@ -1118,59 +914,6 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
           line.push_str(";");
           context.base.emitter.emit_string_line(&line);
         }),
-        .None => ()
-      );
-      // Record which variables THIS return's own deferred drops release, so the
-      // consumed-var escape drops below cannot release any of them a second
-      // time. Same pair `generate_pending_deferred_drops` treats as already
-      // dropped.
-      dropped_by_this_return := HashSet(String).new();
-      match(
-        context.base.get_expr_info(expr),
-        .Some(rei) => {
-          match(
-            &rei.deferred_drop_expressions(),
-            .Some(dds) => {
-              (mut(ddi) : usize) = usize(0);
-              while(ddi < dds.len(), {
-                match(
-                  dds.get_cloned(ddi),
-                  .Some(de) => match(
-                    get_deferred_drop_target_atom_name(&de),
-                    .Some(vn) => {
-                      dropped_by_this_return.insert(vn);
-                    },
-                    .None => ()
-                  ),
-                  .None => ()
-                );
-                ddi = (ddi + usize(1));
-              });
-            },
-            .None => ()
-          );
-          match(
-            expr_info_early_return_only_deferred_drop_expressions(&rei),
-            .Some(eds) => {
-              (mut(edi) : usize) = usize(0);
-              while(edi < eds.len(), {
-                match(
-                  eds.get_cloned(edi),
-                  .Some(de) => match(
-                    get_deferred_drop_target_atom_name(&de),
-                    .Some(vn) => {
-                      dropped_by_this_return.insert(vn);
-                    },
-                    .None => ()
-                  ),
-                  .None => ()
-                );
-                edi = (edi + usize(1));
-              });
-            },
-            .None => ()
-          );
-        },
         .None => ()
       );
       // A state-machine return takes its value into a C temp BEFORE the
@@ -1251,7 +994,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       );
       // Returning a directly-consumed own parameter: skip its pending drop.
       returned_own := if(
-        ast_expr_is_atom(&arg) && !arg_has_dup,
+        ast_expr_is_atom(&arg),
         match(
           context.base.get_expr_info(&arg),
           .Some(aei) => {
@@ -1276,26 +1019,10 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
         Option(HashSet(String)).None
       );
       generate_pending_deferred_drops(indent.clone(), context, expr, false, false, false, &returned_own, Option(String).None);
-      // A variable can appear BOTH in this return's own deferred/early-return
-      // drops and in `consumed_var_pending_drops` — e.g. `return(out)` for an
-      // OWNED local inside a branch: `out` is dup'd for the caller (rc 1->2),
-      // the early-return drop releases the local (2->1, correct), and then the
-      // consumed-var escape drop released it AGAIN (1->0), so the function
-      // returned a FREED pointer. Exclude anything already dropped just above —
-      // a second release of the same variable in one return sequence can only
-      // ever be a double free. See
-      // issues/fixed/yo-return-owned-local-in-branch-double-drop.md (this is
-      // what made tests/fs/dir.test.yo HANG: state-code-gen.yo's
-      // `return(remaining_exprs)` handed back a freed ArrayList, so the async
-      // state machine read `after.len()` as 0 and dropped a while-loop's
-      // post-await tail — including the loop increment).
-      if(handled_deferred_dup, {
-        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, false, Option(HashSet(String)).Some(dropped_by_this_return), Option(String).None);
-      });
       if(is_unit, {
         return(String.from("return"));
       });
-      return_value := if(handled_deferred_dup, arg_code, match(return_temp_var, .Some(rtv) => rtv, .None => arg_code));
+      return_value := match(return_temp_var, .Some(rtv) => rtv, .None => arg_code);
       // DEGRADED return for an UNRESOLVED-SomeT fn return. A cee'd function
       // definition whose Impl(...) return check threw mid-body (the divergent-
       // return validation) leaves a half-registered fn in the mutable
@@ -1369,11 +1096,9 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
     match(
       expr,
       Rc(.Atom(_, _)) => {
-        atom_code := generate_atom(expr, context, indent.clone());
-        final_code := handle_atom_deferred_dup(expr, atom_code, indent.clone(), context);
+        final_code := generate_atom(expr, context, indent.clone());
         // Own-param scope-end drops (function-scope, excluded from the caller's
-        // flush-first — generation.yo non-begin path): AFTER the tail's dup so a
-        // borrowed value leaving the fn keeps its +1, BEFORE the return.
+        // flush-first — generation.yo non-begin path): BEFORE the return.
         generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
         mut(line) := indent.clone();
         line.push_str("return ");
@@ -1409,7 +1134,7 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
         line.push_str(";");
         context.base.emitter.emit_string_line(&line);
       }, {
-        final_code := handle_func_call_deferred_dup(expr, indent.clone(), context);
+        final_code := _call_generate_expr(expr, indent.clone(), context);
         // An EMPTY tail render means the expression emitted as STATEMENTS whose
         // every path already returned (e.g. a tail `match` with returning arms)
         // — a bare `return ;` here is a C constraint violation in a non-void fn
@@ -1759,4 +1484,4 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     }
   )
 });
-export(generate_return, generate_implicit_return_statement, generate_pending_deferred_drops, generate_consumed_var_drops_for_escape, handle_atom_deferred_dup, handle_func_call_deferred_dup, generate_unwind, emit_effect_unwind_check, generate_call_deferred_drops, _get_deferred_drop_target_variable);
+export(generate_return, generate_implicit_return_statement, generate_pending_deferred_drops, generate_consumed_var_drops_for_escape, generate_unwind, emit_effect_unwind_check, generate_call_deferred_drops, _get_deferred_drop_target_variable);

@@ -87,12 +87,9 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
   ast_expr_is_address_of_call,
   BF_UNSAFE,
   BF_DROP,
-  BF_DUP,
   BF_DOT,
   BK_BEGIN,
   BF_YO_AS,
-  BF_YO_DUP_TUPLE_ELEMENT,
-  BF_YO_DUP_ARRAY_ELEMENT,
   ExprId,
   ast_expr_id,
   ast_expr_is_atom,
@@ -413,7 +410,7 @@ CodeGenContext :: struct(
   /// unwind/effect buffers, the argv shim, module-level vars. Their extern
   /// declarations go to the declarations section (the shared header).
   chunk_globals : String,
-  /// C names of the per-type drop / dup functions of tagged value enums
+  /// C names of the per-type drop functions of tagged value enums
   /// already generated (`_value_enum_rc_fn`, exprs/drop-dup.yo). Keyed by
   /// the function's C name, which is derived from the enum's C type name, so
   /// two type keys aliasing onto one C type share one function.
@@ -2215,111 +2212,6 @@ get_variable_name_for_codegen_at :: (fn(key : ExprId, variable_name : &String, e
     .Some(e) => _codegen_name_of_variables(variable_name, scope_variables(key, &e.*, variable_name.clone()))
   )
 );
-/// The variable a one-element dup (`__yo_dup_tuple_element(v, i)` /
-/// `__yo_dup_array_element(v, i)`) retains, when `e` is one.
-_element_dup_target :: (fn(e : &AstExpr) -> Option(String))(
-  match(
-    e,
-    Rc(.FnCall(_, _, Rc(args), _, _)) => if(
-      ast_expr_is_fn_call_of(e, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None),
-      match(args.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0).*.clone()), Option(String).None), .None => Option(String).None),
-      Option(String).None
-    ),
-    Rc(.Atom(_, _)) => Option(String).None
-  )
-);
-/// The variable an ELEMENT-WISE dup retains, when `dup_expr` is one.
-///
-/// `evaluate_dup` lowers `___dup(v)` of a tuple or an `Array(T, N)` holding
-/// counted fields to `begin(__yo_dup_tuple_element(v, 0), …)`: it retains
-/// the elements of `v` IN PLACE, and its result temp is the LAST ELEMENT's,
-/// never a copy of `v`. A site that stores or passes the copy emits the dup
-/// and then reads `v` itself. Adopting the temp stored one element where the
-/// whole value belongs; inside a tuple literal C's brace elision even
-/// compiled it, leaving the other fields zero
-/// (issues/fixed/2026-10-23-a-tuple-copied-into-an-aggregate-keeps-only-its-last-counted-field.md).
-/// The type-agreement guard of `emit_deferred_dup_or_code` and the return
-/// and inline-call sites is the same rule.
-element_wise_dup_target :: (fn(dup_expr : &AstExpr) -> Option(String))(
-  cond(
-    ast_expr_is_fn_call_of(dup_expr, BK_BEGIN, Option(usize).None) => match(
-      dup_expr,
-      Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a0) => _element_dup_target(&a0), .None => Option(String).None),
-      Rc(.Atom(_, _)) => Option(String).None
-    ),
-    true => _element_dup_target(dup_expr)
-  )
-);
-/// The one-element dups an ELEMENT-WISE dup is made of; empty when
-/// `dup_expr` is not one (`element_wise_dup_target`). Each retains its
-/// element in place and is a statement of its own. Emitting the whole
-/// `begin` instead declares its tail temp, which owns the last element's
-/// share and is released at scope end, where nothing took that share.
-element_wise_dup_elements :: (fn(dup_expr : &AstExpr) -> ArrayList(AstExpr))({
-  out := ArrayList(AstExpr).new();
-  if(element_wise_dup_target(dup_expr).is_none(), {
-    return(out);
-  });
-  match(
-    dup_expr,
-    Rc(.FnCall(_, _, Rc(args), _, _)) => if(ast_expr_is_fn_call_of(dup_expr, BK_BEGIN, Option(usize).None), {
-      (i : usize) = usize(0);
-      while(i < args.len(), {
-        match(args.get_cloned(i), .Some(a) => out.push(a), .None => ());
-        i = (i + usize(1));
-      });
-    }, {
-      (whole : AstExpr) = Rc.clone(dup_expr.*);
-      out.push(whole);
-    }),
-    Rc(.Atom(_, _)) => ()
-  );
-  out
-});
-/// Extract the target atom name from a deferred dup expression.
-///   Form 1: `___dup(varName)` — pre-evaluation form (first arg atom).
-///   Form 2: `(varName.___dup)()` — post-evaluation method-style form.
-get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))(
-  match(
-    dup_expr,
-    Rc(.Atom(_, _)) => .None,
-    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
-      // Form 1: first arg is an atom.
-      if(args.len() >= usize(1), {
-        match(
-          args.get_cloned(usize(0)),
-          .Some(first_arg) => {
-            if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, Rc(.Atom(_, tok)) => tok.*.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from(""))));
-            });
-          },
-          .None => ()
-        );
-      });
-      // Form 2: (varName.___dup)() with zero args.
-      if(args.len() == usize(0), {
-        match(
-          func_box,
-          Rc(.FnCall(_, _, Rc(dot_args), _, _)) => {
-            if(ast_expr_is_fn_call_of(&func_box.*, BF_DOT, .Some(usize(2))), {
-              first_ok := match(dot_args.get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
-              second_is_dup := match(
-                dot_args.get_cloned(usize(1)),
-                .Some(a) => match(a, Rc(.Atom(_, tok)) => (tok.*.value.* == BF_DUP), Rc(.FnCall(_, _, _, _, _)) => false),
-                .None => false
-              );
-              if(first_ok && second_is_dup, {
-                return(.Some(match(dot_args.get_cloned(usize(0)), .Some(a) => match(a, Rc(.Atom(_, tok)) => tok.*.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")), .None => String.from(""))));
-              });
-            });
-          },
-          Rc(.Atom(_, _)) => ()
-        );
-      });
-      Option(String).None
-    }
-  )
-);
 /// Extract the target atom name from a deferred drop expression.
 ///   Form A: `varName.drop()` (method-call syntax).
 ///   Form B: `___drop(varName)`.
@@ -2787,9 +2679,6 @@ export(
   can_optimize_as_simple_enum,
   get_variable_name_for_codegen,
   get_variable_name_for_codegen_at,
-  get_deferred_dup_target_atom_name,
-  element_wise_dup_target,
-  element_wise_dup_elements,
   get_deferred_drop_target_atom_name,
   is_deferred_drop_for_closure_capture,
   find_returned_async_block,

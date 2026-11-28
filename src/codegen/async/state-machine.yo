@@ -10,7 +10,7 @@
 { TypeValue, TypeValueNode, no_types, no_labels, no_flags, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
 { is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type, extract_fn_trait_from_type } :: import("../../evaluator/trait-checking.yo");
-{ lookup_macro_expansion, lookup_method_callee_value, expr_info_deferred_dup_expressions, some_resolution, scope_variables, scope_release_note_hard, lookup_local_borrow_step_pin, is_fnonce_capture_drop, emitted_block_statements } :: import("../../expr-info.yo");
+{ lookup_macro_expansion, lookup_method_callee_value, some_resolution, scope_variables, scope_release_note_hard, lookup_local_borrow_step_pin, is_fnonce_capture_drop, emitted_block_statements } :: import("../../expr-info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await-analysis-types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension-analysis-types.yo");
 { is_io_future_type, collect_branch_await_exprs, emit_future_store_into_slot } :: import("./state-code-gen.yo");
@@ -48,7 +48,7 @@
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
 { _call_emit_fused_await } :: import("./fsm.yo");
 { emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async-completion.yo");
-{ generate_drop_code_for_value, arm_value_with_dups } :: import("../exprs/drop-dup.yo");
+{ generate_drop_code_for_value } :: import("../exprs/drop-dup.yo");
 { _flush_stmt_lent_temp_drops } :: import("../exprs/begin.yo");
 { RefCell } :: import("std/sync/refcell");
 { replace } :: import("std/mem");
@@ -1917,11 +1917,7 @@ generate_async_block_resume_function_inline :: (
       body_exprs.get_cloned(bi),
       .Some(bexpr) => {
         is_tail := ((bi == (n_body - usize(1))) && !is_unit_result);
-        // The tail value takes its deferred dups (a borrowed value, such as
-        // an implicit capture the dispose still drops, is retained for the
-        // result), as a sync body's begin epilogue does
-        // (issues/fixed/a-state-machine-returning-a-borrowed-capture-hands-out-the-captures-only-reference.md).
-        bcode := if(is_tail, match(arm_value_with_dups(&bexpr, `  `, context), .Some(c) => c, .None => _call_generate_expr(&bexpr, `  `, context)), _call_generate_expr(&bexpr, `  `, context));
+        bcode := _call_generate_expr(&bexpr, `  `, context);
         if(is_tail, {
           if(bcode.len() > usize(0), {
             context.base.emitter.emit_string_line(`  sm->result = ${bcode};`);

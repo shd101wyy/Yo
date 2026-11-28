@@ -19,7 +19,6 @@
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr, call_projection_mode, unsized_lend_pair_code } :: import("./dispatch.yo");
-{ generate_arg_code_with_deferred_dups } :: import("./drop-dup.yo");
 { get_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { t_refine_inner, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
@@ -163,13 +162,9 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
             );
           });
           index_arg_opt := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None);
-          // A by-value `idx` carries its caller-side share as a deferred dup
-          // (the Index trait's contract since 2026-10-11); emit it and pass
-          // the dup result, exactly as the dispatch path does
-          // (`generate_arg_code_with_deferred_dups`).
           index_code := match(
             index_arg_opt,
-            .Some(ia) => generate_arg_code_with_deferred_dups(&ia, indent.clone(), context),
+            .Some(ia) => _call_generate_expr(&ia, indent.clone(), context),
             .None => String.from("0")
           );
           // Inline the array-index builtin body when possible.

@@ -177,11 +177,9 @@ destroying_builtin_error_message :: (fn(builtin : &String, place : &String) -> S
 To end a value early, call 'drop(x)': it moves 'x' in, and a later use is an error. A file that destroys a slot it owns through a raw pointer declares 'pragma(Pragma.AllowUnsafe);' and calls 'unsafe(drop_in_place(p))'.`
 );
 /// The diagnostic the ownership-accounting builtins raise outside an
-/// unsafe-capable file: `__yo_rc_own`, `__yo_capture_field`, `__yo_incr_rc`,
-/// `__yo_incr_rc_atomic`, `__yo_dyn_dup`, `__yo_sometype_dup`,
-/// `__yo_dup_array_element` and `__yo_dup_tuple_element` add an owner (or a
-/// count) the compiler does not record, so the value is freed twice or
-/// leaked: `b := __yo_rc_own(a)` was a heap use-after-free in a safe file.
+/// unsafe-capable file: `__yo_rc_own`, `__yo_capture_field`, `__yo_incr_rc`
+/// and `__yo_incr_rc_atomic` add an owner (or a count) the compiler does not
+/// record, so the value is freed twice or leaked: `b := __yo_rc_own(a)` was a heap use-after-free in a safe file.
 /// They share the destroying builtins' gate
 /// (`is_destroying_builtin_call_capable`); the compiler's own uses are
 /// parsed from `auto-generated://` code or written in the prelude, which

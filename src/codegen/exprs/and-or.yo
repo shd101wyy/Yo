@@ -21,7 +21,7 @@
 { _call_generate_expr } :: import("./dispatch.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
 { _looks_like_minted_temp } :: import("./drop-dup.yo");
-{ expr_info_deferred_dup_expressions, lookup_skipped_operand_drops } :: import("../../expr-info.yo");
+{ lookup_skipped_operand_drops } :: import("../../expr-info.yo");
 /// Record that the short-circuit family has emitted a drop for `target` in this
 /// function. MONOTONE: never removed. See
 /// `FunctionGenerationContext.short_circuit_emitted_drop_targets`.
@@ -168,40 +168,6 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
             &ei.variable_name(),
             .Some(vn) => {
               result.insert(vn.clone());
-            },
-            .None => ()
-          );
-          // Deferred `___dup` results are temps too — declared next to the
-          // expression they balance (inside this conditional branch) but
-          // living in the ExprInfo side-channel, not the syntactic tree.
-          // Without this, an aliasing-Stage-0 borrow dup on a projection
-          // argument inside a short-circuit RHS (`a && f(w.b)`) left its
-          // scope-end drop at the outer block level — an undeclared C
-          // identifier and an unconditional drop for a conditionally-run
-          // dup.
-          match(
-            expr_info_deferred_dup_expressions(&ei),
-            .Some(dups) => {
-              nd := dups.len();
-              (di : usize) = usize(0);
-              while(di < nd, {
-                match(
-                  dups.get_cloned(di),
-                  .Some(de) => match(
-                    context.base.get_expr_info(&de),
-                    .Some(dei) => match(
-                      &dei.variable_name(),
-                      .Some(dvn) => {
-                        result.insert(dvn.clone());
-                      },
-                      .None => ()
-                    ),
-                    .None => ()
-                  ),
-                  .None => ()
-                );
-                di = (di + usize(1));
-              });
             },
             .None => ()
           );

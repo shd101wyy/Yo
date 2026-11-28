@@ -1,8 +1,4 @@
-//! Anonymous-array + `__yo_array_fill` emitters.
-//!
-//! Per-element deferred-dup emission for moved RC elements (rc
-//! layer 4 — without it every enclosing array literal aliased its element's
-//! refcount and scope-end drops over-released). Temp names use `random_id`
+//! Anonymous-array + `__yo_array_fill` emitters. Temp names use `random_id`
 //! (only uniqueness is needed).
 { String } :: import("std/string");
 { AstExpr } :: import("../../expr.yo");
@@ -12,7 +8,6 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
 { get_type_string, get_variable_type_string, fresh_local_name } :: import("../utils/index.yo");
-{ emit_deferred_dup_or_code } :: import("./drop-dup.yo");
 { sequence_operand } :: import("./other-fn-call.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
 /// when the array has a result variable name. Returns `.None` when the node is
@@ -33,13 +28,7 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &mu
             if(i > usize(0), {
               args_list.push_str(", ");
             });
-            // The element's deferred `___dup` (an element store): the literal
-            // owns its own +1 per RC element, through the store rule every
-            // other store position uses (`emit_deferred_dup_or_code`, the
-            // tuple literal's twin in tuple-fn.yo): a projection's temp is
-            // declared before the dup names it, and an element-wise dup keeps
-            // the source, which it retained in place.
-            elem_code := emit_deferred_dup_or_code(&arg, _call_generate_expr(&arg, indent.clone(), context), indent.clone(), context);
+            elem_code := _call_generate_expr(&arg, indent.clone(), context);
             // Sequenced against the later elements (`sequence_operand`,
             // other-fn-call.yo): C leaves initializers unordered, and a later
             // element's statements run before this literal.

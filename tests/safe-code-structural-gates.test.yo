@@ -245,8 +245,7 @@ test("___drop and the RC-release builtins are rejected in safe code", {
 // The builtins that add an owner or a count the compiler does not record are
 // gated the same way: `b := __yo_rc_own(a)` made `b` a second owner of `a`'s
 // cell with one count (a heap use-after-free), `__yo_capture_field(f, 0)` a
-// second owner of the captured `String` (a double free), and
-// `__yo_dyn_dup(d)` on a `Box(Dyn(...))` a bad free; the `incr`/`dup` forms
+// second owner of the captured `String` (a double free); the `incr` forms
 // leak. Safe code shares with `Rc.clone(h)` or `x.clone()`.
 // issues/fixed/2026-11-21-the-rc-ownership-builtins-are-callable-outside-unsafe.md
 test("the RC-ownership builtins are rejected in safe code", {
@@ -269,25 +268,6 @@ test("the RC-ownership builtins are rejected in safe code", {
     r := Arc.new(i32(5));
     __yo_incr_rc_atomic(r);
   }, "'__yo_incr_rc_atomic(...)' is not available in safe code");
-  comptime_expect_error({
-    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(() => i32(1)));
-    __yo_dyn_dup(d);
-  }, "'__yo_dyn_dup(...)' is not available in safe code");
-  // The gate is raised before the argument is examined, so any place shows it.
-  comptime_expect_error({
-    mut(h) := DropGateHolder(xs : ArrayList(i32).new());
-    __yo_sometype_dup(h.xs);
-  }, "'__yo_sometype_dup(...)' is not available in safe code");
-  comptime_expect_error({
-    cells := Array(Rc(i32), 1)(Rc.new(i32(1)));
-    x := __yo_dup_array_element(cells, usize(0));
-    ref_count(x)
-  }, "'__yo_dup_array_element(...)' is not available in safe code");
-  comptime_expect_error({
-    pair := (Rc.new(i32(1)), i32(2));
-    x := __yo_dup_tuple_element(pair, usize(0));
-    ref_count(x)
-  }, "'__yo_dup_tuple_element(...)' is not available in safe code");
 });
 // The private heap-cell primitives need an unsafe-capable file
 // (plans/VALUES_BY_DEFAULT.md §3.5): safe code shares a value with

@@ -8,8 +8,8 @@
 //! struct assignment; other types emit `<type> lhs = rhs;` (init) or
 //! `lhs = rhs;` (reassignment).
 //!
-//! DEFERRED (documented, not hit by the no-RC / no-async corpus): deferred-dup
-//! rewrite of the RHS (Phase 4); Future/async-block struct-type inference and
+//! DEFERRED (documented, not hit by the no-RC / no-async corpus):
+//! Future/async-block struct-type inference and
 //! state-machine `sm->var_N` save-old-value + sm-var declaration skipping
 //! (Phase 5). The state-machine branches are gated on `in_async_state_machine`
 //! being `.Some` — dead for the corpus.
@@ -26,9 +26,8 @@
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { CapturedVariable } :: import("../../evaluator/async/await-analysis-types.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
-// A field/index/deref store emits the RHS through `emit_deferred_dup_or_code`;
-// the evaluator decided the store (`transfer_value_into`).
-{ emit_deferred_dup_or_code } :: import("./drop-dup.yo");
+// A field/index/deref store emits the RHS as it is; the evaluator decided the
+// store (`transfer_value_into`).
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state-machine-naming.yo");
 { declare_c_var_name, get_type_string, get_variable_type_string, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -361,7 +360,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   );
   // Array assignment uses direct struct copy; everything else is scalar.
   if(is_array_type(&lhs_type), {
-    rhs_code := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
+    rhs_code := _call_generate_expr(&rhs, indent.clone(), context);
     // Same FTT degrade as the scalar arm below.
     if(rhs_code.starts_with("// Failed to transpile"), {
       mut(ftl) := indent.clone();
@@ -409,7 +408,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       context.base.emitter.emit_string_line(&line);
     });
   }, {
-    rhs_code := _reference_value_rhs(&rhs, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), context);
+    rhs_code := _reference_value_rhs(&rhs, _call_generate_expr(&rhs, indent.clone(), context), context);
     // DEGRADED assignment when the RHS render failed to transpile: splicing
     // the comment into `<type> <name> = <comment>;` breaks the C
     // ("unexpected type name", the c03 dyn(rc(closure)) shape). Same

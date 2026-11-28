@@ -4,14 +4,13 @@
 //! evidence-parameter forwarding for `using()`/effects (Phase 3/5).
 { String } :: import("std/string");
 { HashSet } :: import("std/collections/hash-set");
-{ AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id } :: import("../../expr.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
-{ get_variable_name_for_codegen_at, get_type_string, get_variable_type_string, fresh_local_name, element_wise_dup_target } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ expr_info_converted_runtime_type, expr_info_deferred_dup_expressions } :: import("../../expr-info.yo");
-{ generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop-dup.yo");
+{ generate_deferred_drop_expressions } :: import("./drop-dup.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { _apply_ref_amp } :: import("./other-fn-call.yo");
@@ -44,72 +43,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
         match(
           arg_exprs.get_cloned(i),
           .Some(arg) => {
-            arg_code := _call_generate_expr(&arg, indent.clone(), context);
-            // Deferred `___dup` on a recur argument (aliasing Stage 0
-            // projection dups): materialize the argument into its eval temp
-            // FIRST — the dup names that temp, and without the declaration
-            // the emitted C references an undeclared identifier while the
-            // raw projection read is lost (arg_code is replaced by the dup
-            // result below). get_variable_type_string is the
-            // declared_c_var_names choke-point, so the dup emitter's
-            // undeclared-temp gate sees the declaration
-            // (`recur(K, V, h._left, key)` in
-            // std/imm/sorted_map.yo _node_contains surfaced this).
-            match(
-              context.base.get_expr_info(&arg),
-              .Some(aei2) => match(
-                expr_info_deferred_dup_expressions(&aei2),
-                .Some(dups) => if(dups.len() > usize(0), {
-                  match(
-                    &aei2.variable_name(),
-                    .Some(avn) => {
-                      sanitized_arg_temp := get_variable_name_for_codegen_at(ast_expr_id(&arg), avn.clone(), Option(Environment).Some(aei2.env()));
-                      if(!(arg_code == sanitized_arg_temp), {
-                        already_arg := match(&context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
-                        if(!already_arg, {
-                          record_declared_temp_var(context, sanitized_arg_temp.clone());
-                          eff_ty := match(expr_info_converted_runtime_type(&aei2), .Some(ct) => ct, .None => Rc.clone(aei2.ty()));
-                          dline := indent.clone();
-                          dline.push_string(get_variable_type_string(&eff_ty, avn.clone(), &mut context.base));
-                          dline.push_str(" = ");
-                          dline.push_string(arg_code.clone());
-                          dline.push_str(";");
-                          context.base.emitter.emit_string_line(&dline);
-                        });
-                      });
-                    },
-                    .None => ()
-                  );
-                  generate_deferred_dup_expressions(&arg, indent.clone(), context);
-                  // Pass the dup RESULT temp instead of the original, unless
-                  // the dup is element-wise: its temp is one element, and the
-                  // argument itself was retained in place
-                  // (`element_wise_dup_target`).
-                  match(
-                    dups.get_cloned(usize(0)),
-                    .Some(de) => if(
-                      ast_expr_is_fn_call(&de) && element_wise_dup_target(&de).is_none(),
-                      match(
-                        context.base.get_expr_info(&de),
-                        .Some(dei) => match(
-                          &dei.variable_name(),
-                          .Some(dvn) => {
-                            arg_code = get_variable_name_for_codegen_at(ast_expr_id(&de), dvn.clone(), Option(Environment).Some(dei.env()));
-                          },
-                          .None => ()
-                        ),
-                        .None => ()
-                      ),
-                      ()
-                    ),
-                    .None => ()
-                  );
-                }),
-                .None => ()
-              ),
-              .None => ()
-            );
-            arg_codes.push(arg_code);
+            arg_codes.push(_call_generate_expr(&arg, indent.clone(), context));
           },
           .None => ()
         );
@@ -173,7 +107,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       // A unit recur has no result temp, so the flush above never runs:
       // emit the call as a statement and flush after it, as the direct-call
       // unit exit does. Returning the bare call instead lost the balancing
-      // drop of a by-value composite argument's dup — one leaked interior
+      // drop of a by-value composite argument — one leaked interior
       // reference per call (`recur(values(i), out)` in std/encoding/json.yo
       // `_stringify_into`; issues/fixed/unit-recur-never-flushes-its-argument-drops.md).
       if(is_unit_type(&ei.ty()), {

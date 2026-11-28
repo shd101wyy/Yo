@@ -166,7 +166,6 @@ BF_UNSAFE :: "unsafe";
 /// before the prelude loads.
 BF_PRAGMA :: "pragma";
 BF_DROP :: "___drop";
-BF_DUP :: "___dup";
 BF_VA_START :: "va_start";
 /// Phase 0 of plans/backlog/FORMAL_VERIFICATION.md — contract builtins. Evaluated as
 /// no-op markers (their args are evaluated; the call returns `unit`).
@@ -244,9 +243,7 @@ BF_YO_INCR_RC :: "__yo_incr_rc";
 BF_YO_DECR_RC_ATOMIC :: "__yo_decr_rc_atomic";
 BF_YO_INCR_RC_ATOMIC :: "__yo_incr_rc_atomic";
 BF_YO_DROP_ARRAY_ELEMENT :: "__yo_drop_array_element";
-BF_YO_DUP_ARRAY_ELEMENT :: "__yo_dup_array_element";
 BF_YO_DROP_TUPLE_ELEMENT :: "__yo_drop_tuple_element";
-BF_YO_DUP_TUPLE_ELEMENT :: "__yo_dup_tuple_element";
 /// `__yo_capture_field(c, i)`: field `i` of closure `c`'s capture record, read
 /// in place. Only the compiler writes it: the field-wise clone of a closure
 /// (`structural_closure_clone`, evaluator/utils/closure.yo).
@@ -258,9 +255,7 @@ BF_YO_RC_OWN :: "__yo_rc_own";
 /// the only handle (`ref_count(h) == 1`).
 BF_YO_RC_FORGET_PAYLOAD :: "__yo_rc_forget_payload";
 BF_YO_DYN_DROP :: "__yo_dyn_drop";
-BF_YO_DYN_DUP :: "__yo_dyn_dup";
 BF_YO_SOMETYPE_DROP :: "__yo_sometype_drop";
-BF_YO_SOMETYPE_DUP :: "__yo_sometype_dup";
 // Inline operator builtins
 BF_YO_OP_ADD :: "__yo_op_add";
 BF_YO_OP_SUB :: "__yo_op_sub";
@@ -1312,14 +1307,14 @@ export(BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
 export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF, BK_OWN, BK_YO_CELL, BK_YO_ATOMIC_CELL);
 export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL, BF_COMPTIME_READ_FILE, BF_COMPTIME_JSON_PARSE, BF_COMPTIME_TOML_PARSE);
-export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
+export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_VA_START);
 export(BF_REQUIRES, BF_ENSURES, BF_INVARIANT, BF_DECREASES, BF_ASSUMED, BF_LAW, BF_REFINE, BF_GHOST, BF_GHOST_FN, BF_OLD, BF_FORALL, BF_EXISTS, BF_IMPLIES, BF_SEQ_UNIT, BF_SEQ_APPEND, BF_SEQ_LEN, BF_SEQ_NTH, BF_SEQ_OF, BF_PRODUCED, BF_DISTINCT, BF_STR_BYTES, BF_MS_SINGLE, BF_MS_ADD, BF_MS_COUNT, BF_MS_OF, BF_SET_SINGLE, BF_SET_ADD, BF_SET_CONTAINS);
 export(BF_UNSAFE, BF_PRAGMA);
 export(BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_REF_COUNT, BF_THE, BF_DOWNCAST, BF_UPCAST);
 export(BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC);
-export(BF_YO_DROP_ARRAY_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT);
-export(BF_YO_DROP_TUPLE_ELEMENT, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_RC_OWN, BF_YO_RC_FORGET_PAYLOAD, BF_YO_CAPTURE_FIELD);
-export(BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP);
+export(BF_YO_DROP_ARRAY_ELEMENT);
+export(BF_YO_DROP_TUPLE_ELEMENT, BF_YO_RC_OWN, BF_YO_RC_FORGET_PAYLOAD, BF_YO_CAPTURE_FIELD);
+export(BF_YO_DYN_DROP, BF_YO_SOMETYPE_DROP);
 export(BF_YO_OP_ADD, BF_YO_OP_SUB, BF_YO_OP_MUL, BF_YO_OP_DIV, BF_YO_OP_MOD, BF_YO_OP_NEG);
 export(BF_YO_OP_ADD_WRAP, BF_YO_OP_SUB_WRAP, BF_YO_OP_MUL_WRAP);
 export(BF_YO_OP_EQ, BF_YO_OP_NEQ, BF_YO_OP_LT, BF_YO_OP_LTE, BF_YO_OP_GT, BF_YO_OP_GTE);
@@ -2943,9 +2938,8 @@ export(is_function_boundary_arrow);
 export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, note_rewritten_node, note_rewritten_node_as, ast_call_is_deref_read, note_owner_deref, owner_deref_object, make_owner_deref_call, ast_rewritten_node, ast_rewritten_view);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. The wrap gives even a bare-atom body the begin
-/// machinery — in particular the begin-tail ownership pass, so a
-/// borrowed-param tail like `to_string : (...)(self)` receives its balancing
-/// ___dup. Def-time trials route through the expression DISPATCHER (a direct
+/// machinery — in particular the begin-tail ownership pass, which a
+/// borrowed-param tail like `to_string : (...)(self)` goes through. Def-time trials route through the expression DISPATCHER (a direct
 /// begin.yo import from values/ would close an import cycle), so the wrap
 /// happens here at the AST level; a curly body is already a begin call and
 /// passes through untouched.
@@ -2956,9 +2950,7 @@ wrap_body_in_begin :: (fn(body : &AstExpr) -> AstExpr)({
   // result-refine pipeline (io_async corpus). But an atom tail
   // (`(...)(self)`) AND a bare field-access tail (`(fn(p : Pair) ->
   // Krate)(p.inner)`) both return a BORROWED value and miss the begin-tail
-  // ownership pass without the wrap — the field case emitted no balancing
-  // ___dup, so the caller's scope drop over-dropped the field (round-3
-  // borrowed-field-tail UAF). Method-call bodies (`x.f()`) are NOT
+  // ownership pass without the wrap (the round-3 borrowed-field-tail UAF). Method-call bodies (`x.f()`) are NOT
   // 2-arg dot calls (their func is the dot) and stay unwrapped.
   is_bare_field_access := ast_expr_is_fn_call_of(body, BF_DOT, Option(usize).Some(usize(2)));
   if(!(ast_expr_is_atom(body) || is_bare_field_access), {
