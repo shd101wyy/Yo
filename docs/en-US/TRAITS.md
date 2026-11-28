@@ -151,7 +151,7 @@ A type implements a trait at most once, in the whole program
 
 - a second `impl(P, Summary(...))`, in the same module or another one;
 - an impl of a trait that an imported module or the prelude already implements for that type,
-  such as `impl(i32, ToString(...))`;
+  such as `impl(i32, Display(...))`;
 - a blanket impl (`impl(generic(T : Type), where(T <: Bound), T, Summary(...))`) together with a
   concrete impl of `Summary` for a type that satisfies `Bound`, in either order.
 

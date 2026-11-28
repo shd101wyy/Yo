@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { Path } :: import("../path");
 { IoError } :: import("../sys/errors");
 { Exception, IoExn } :: import("../error");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 events :: import("../sys/events");
 { Park, Waker } :: import("../async/waker");
 { Stream } :: import("../async/stream");
@@ -60,14 +60,15 @@ FsEventKind :: enum(
 derive(FsEventKind, Copy, Clone);
 impl(
   FsEventKind,
-  ToString(
-    to_string : (
-      self ->
-        match(
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
           self,
           .Rename => String.from("rename"),
           .Change => String.from("change")
         )
+      )
     )
   )
 );

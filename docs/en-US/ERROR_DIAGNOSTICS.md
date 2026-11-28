@@ -281,7 +281,7 @@ standard library, while checking a call you wrote, is reported at that call,
 with the standard-library location as a note:
 
 ```
-error[E0602]: Type P does not implement required trait ToString.
+error[E0602]: Type P does not implement required trait Display.
   --> main.yo:5:3
   |
 5 |   println(p);

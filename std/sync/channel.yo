@@ -108,7 +108,7 @@ pragma(Pragma.AllowUnsafe);
 { Cond } :: import("./cond");
 { AtomicBool, AtomicUsize, MemoryOrder } :: import("./atomic");
 { assert } :: import("../assert");
-{ ToString } :: import("../fmt/to_string.yo");
+{ Display } :: import("../fmt/to_string.yo");
 { String } :: import("../string");
 /// Why a non-blocking receive came back empty-handed — Rust's
 /// `TryRecvError`.
@@ -128,12 +128,14 @@ derive(TryRecvError, Copy, Clone);
 export(TryRecvError);
 impl(
   TryRecvError,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      match(
-        self,
-        .Empty => String.from("channel empty"),
-        .Disconnected => String.from("channel disconnected")
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        &match(
+          self,
+          .Empty => String.from("channel empty"),
+          .Disconnected => String.from("channel disconnected")
+        )
       )
     )
   )

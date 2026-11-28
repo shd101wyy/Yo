@@ -142,12 +142,12 @@ test("Test Dyn with multiple traits", {
   assert(dog.speak() == 1, "Expected dog.speak() to return 1");
 });
 import("std/string");
-{ ToString, print } :: import("std/fmt");
+{ Display, print } :: import("std/fmt");
 test("Test downcast success", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Box(Dyn(ToString, Clone));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
+  Animal :: Box(Dyn(Display, Clone));
   (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   maybe_cat := downcast(&animal.*, Cat);
   match(
@@ -163,11 +163,11 @@ test("Test downcast success", {
 test("Test downcast failure", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, ToString(to_string : (self -> self.name.clone())));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   Dog :: struct(name : String);
   derive(Dog, Clone);
-  impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Box(Dyn(ToString, Clone));
+  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name))));
+  Animal :: Box(Dyn(Display, Clone));
   (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   maybe_dog := downcast(&animal.*, Dog);
   match(
@@ -183,11 +183,11 @@ test("Test downcast failure", {
 test("Test downcast type check via is_some", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, ToString(to_string : (self -> self.name.clone())));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   Dog :: struct(name : String);
   derive(Dog, Clone);
-  impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Box(Dyn(ToString, Clone));
+  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name))));
+  Animal :: Box(Dyn(Display, Clone));
   (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   assert(downcast(&animal.*, Cat).is_some(), "Expected animal to be a Cat");
   assert(downcast(&animal.*, Dog).is_none(), "Expected animal to not be a Dog");
@@ -204,13 +204,13 @@ test("Test downcast type check via is_some", {
 test("Test downcast to a value type that no dyn() in the program wraps", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, ToString(to_string : (self -> self.name.clone())));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   // A PAYLOAD variant matters: a fieldless enum lowers to a C integer, and the
   // old object-cast fallback then compiled (as a pointer-to-int cast) instead of
   // failing loudly. The struct-shaped variants are what the C compiler rejects.
   NeverDynnedValue :: enum(Boom(code : i32), Bang);
-  impl(NeverDynnedValue, ToString(to_string : (self -> `never`)));
-  Animal :: Box(Dyn(ToString, Clone));
+  impl(NeverDynnedValue, Display(fmt : ((self, f) -> f.write(&`never`))));
+  Animal :: Box(Dyn(Display, Clone));
   (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   assert(downcast(&animal.*, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
   NeverDynnedPoint :: struct(x : i32, y : i32);
@@ -234,8 +234,8 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
 test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Box(Dyn(ToString, Clone));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
+  Animal :: Box(Dyn(Display, Clone));
   comptime_expect_error(downcast(dyn(Box.new(Cat(`shadow`))), Cat), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
   // the same batch:
@@ -247,11 +247,11 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
 test("Test downcast with multiple concrete types", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
-  impl(Cat, ToString(to_string : (self -> self.name.clone())));
+  impl(Cat, Display(fmt : ((self, f) -> f.write(&self.name))));
   Dog :: struct(name : String);
   derive(Dog, Clone);
-  impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Box(Dyn(ToString, Clone));
+  impl(Dog, Display(fmt : ((self, f) -> f.write(&self.name))));
+  Animal :: Box(Dyn(Display, Clone));
   (cat_animal : Animal) = dyn(Box.new(Cat(`kitty`)));
   (dog_animal : Animal) = dyn(Box.new(Dog(`buddy`)));
   // Downcast cat_animal
@@ -465,15 +465,15 @@ test("Test dyn rejects a type that implements none of the Dyn's traits", {
   comptime_expect_error(use_test_dyn(dyn(Box.new(NoImplsValue.Boom))));
 });
 test("Test dyn rejects a type that satisfies only PART of the Dyn's traits", {
-  // `AnyError` is `Dyn(Error)` and `Error` carries `where(Self <: ToString)`, so
-  // `Dyn(Error)`'s required set is (Error, ToString). A ToString-only type used
+  // `AnyError` is `Dyn(Error)` and `Error` carries `where(Self <: Display)`, so
+  // `Dyn(Error)`'s required set is (Error, Display). A Display-only type used
   // to be accepted and dispatched — symptom 2, the silent one: `source` resolved
   // to the trait's `?=` default, so the program ran and printed plausible text.
-  ToStringOnly :: enum(Boom);
-  derive(ToStringOnly, Copy, Clone);
-  impl(ToStringOnly, ToString(to_string : (self -> `boom`)));
+  DisplayOnly :: enum(Boom);
+  derive(DisplayOnly, Copy, Clone);
+  impl(DisplayOnly, Display(fmt : ((self, f) -> f.write(&`boom`))));
   comptime_expect_error({
-    (e : AnyError) = dyn(Box.new(ToStringOnly.Boom));
+    (e : AnyError) = dyn(Box.new(DisplayOnly.Boom));
     e
   });
 });
@@ -485,11 +485,7 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   RefErr :: struct(msg : String);
   impl(
     RefErr,
-    ToString(
-      to_string : (fn(self : &Self) -> String)({
-        return(self.msg.clone());
-      })
-    )
+    Display(fmt : ((self, f) -> f.write(&self.msg)))
   );
   impl(RefErr, Error());
   impl(
@@ -504,23 +500,19 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   derive(ValErr, Copy, Clone);
   impl(
     ValErr,
-    ToString(
-      to_string : (fn(self : &Self) -> String)(
-        match(self, .Boom => `boom`, .Bust => `bust`)
-      )
-    )
+    Display(fmt : ((self, f) -> f.write(&match(self, .Boom => `boom`, .Bust => `bust`))))
   );
   impl(ValErr, Error());
   (re : AnyError) = dyn(Box.new(RefErr(`ref-err`)));
   assert(`${re.*}` == `ref-err`, "Dyn(Error) from a ref struct");
-  assert(`e: ${re.*}!` == `e: ref-err!`, "a Dyn(Error) as a later template part (ToString's append_to)");
+  assert(`e: ${re.*}!` == `e: ref-err!`, "a Dyn(Error) as a later template part (Display's fmt)");
   match(re.*.source(), .Some(_) => assert(false, "default source must be None"), .None => ());
   (ve : AnyError) = dyn(Box.new(ValErr.Bust));
   assert(`${ve.*}` == `bust`, "Dyn(Error) from a value enum (auto-box)");
   match(ve.*.source(), .Some(_) => assert(false, "default source must be None (enum)"), .None => ());
 });
-_use_to_string_dyn :: (fn(v : Box(Dyn(ToString))) -> String)(v.*.to_string());
-_generic_show :: (fn(generic(T : Type), v : &T, where(T <: ToString)) -> String)(_use_to_string_dyn(dyn(Box.new(v.*))));
+_use_to_string_dyn :: (fn(v : Box(Dyn(Display))) -> String)(v.*.to_string());
+_generic_show :: (fn(generic(T : Type), v : &T, where(T <: Display)) -> String)(_use_to_string_dyn(dyn(Box.new(v.*))));
 test("Test dyn inside a generic body whose concrete is still a type variable", {
   // At DEFINITION time `T` is an unbound `SomeT`, so the bound is undecidable —
   // `type_implements_trait` answers `false` for want of a concrete. Rejecting
@@ -554,8 +546,8 @@ test("a dyn of a type variable binds every parameter of a trait default", {
   p := _DynDefP(x : i32(41));
   assert(_dyn_def_generic(&p) == i32(42), "through a dyn of the type variable");
   assert(_dyn_def_use(dyn(Box.new(p))) == i32(42), "through a concrete dyn (which moves `p`)");
-  // ToString's own `append_to` default is one: a later template part calls it.
-  assert(`[${_generic_show(i32(7))}]` == `[7]`, "a Dyn(ToString) rendered inside a template");
+  // Display's `to_string` default is one: it calls `fmt`, whose formatter follows `self`.
+  assert(`[${_generic_show(i32(7))}]` == `[7]`, "a Dyn(Display) rendered inside a template");
 });
 
 // An `extern("Yo", X : Type)` opaque — libc's `FILE` here — was a `SomeT` with
@@ -568,8 +560,8 @@ test("a dyn of a type variable binds every parameter of a trait default", {
 _file_sink :: (fn(x : *FILE) -> usize)(usize(0));
 _widget_sink :: (fn(x : *String) -> usize)(usize(0));
 test("Test a trait object is not accepted where an extern opaque is expected", {
-  comptime_expect_error((fn(p : *Box(Dyn(ToString))) -> usize)(_file_sink(p)));
-  assert(true, "a *(Dyn(ToString)) is rejected for a *(FILE) parameter");
+  comptime_expect_error((fn(p : *Box(Dyn(Display))) -> usize)(_file_sink(p)));
+  assert(true, "a *(Dyn(Display)) is rejected for a *(FILE) parameter");
 });
 test("Test an Option of a pointer-to-trait-object keeps its payload type", {
   // The same vacuity reached `are_types_compatible_exact`, which the CTFE
@@ -579,13 +571,13 @@ test("Test an Option of a pointer-to-trait-object keeps its payload type", {
   // import creates, or the abstract `Option(*(T))` shell. Under the first the
   // payload read back as `*(FILE)`; under the second as a type variable that
   // unified with anything. Either way this `comptime_expect_error` would NOT
-  // have fired, because the payload was not `*(Dyn(ToString))`.
+  // have fired, because the payload was not `*(Dyn(Display))`.
   comptime_expect_error(
-    (fn(o : ?*Box(Dyn(ToString))) -> usize)(
+    (fn(o : ?*Box(Dyn(Display))) -> usize)(
       match(o, .Some(p) => _widget_sink(p), .None => usize(0))
     )
   );
-  assert(true, "the payload is *(Dyn(ToString)), not *(FILE) and not a wildcard");
+  assert(true, "the payload is *(Dyn(Display)), not *(FILE) and not a wildcard");
 });
 // ---------------------------------------------------------------------------
 // Object safety (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.7): a method whose
@@ -628,13 +620,13 @@ test("Dyn: a blanket inherent method on a Dyn receiver is a direct call", {
 // A trait implemented through a GENERIC impl can be put behind a Dyn: the
 // vtable gets the generic impl's methods specialized for the concrete type
 // (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
-_os_show :: (fn(v : Box(Dyn(ToString))) -> String)(v.*.to_string());
+_os_show :: (fn(v : Box(Dyn(Display))) -> String)(v.*.to_string());
 test("Dyn: a trait from a generic impl builds its vtable", {
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
-  assert(_os_show(dyn(Box.new(xs))) == String.from("[1, 2]"), "ArrayList(T)'s blanket ToString");
-  assert(_os_show(dyn(Box.new(Option(i32).Some(i32(5))))) == String.from("Some(5)"), "Option(T)'s blanket ToString");
+  assert(_os_show(dyn(Box.new(xs))) == String.from("[1, 2]"), "ArrayList(T)'s blanket Display");
+  assert(_os_show(dyn(Box.new(Option(i32).Some(i32(5))))) == String.from("Some(5)"), "Option(T)'s blanket Display");
 });
 // No upcasting: a Dyn with more traits is not a Dyn with fewer
 // (docs/en-US/TRAIT_OBJECTS.md, Phase 2.7 decision).
@@ -696,12 +688,12 @@ impl(
     })
   )
 );
-impl(_DcCat, ToString(to_string : (self -> String.from("cat"))));
+impl(_DcCat, Display(fmt : ((self, f) -> f.write(&String.from("cat")))));
 test("Dyn: a downcast or upcast used as a receiver or discarded releases its payload", {
   before := g_dc_disposed;
   (mut(hits) : i32) = i32(0);
   {
-    (animal : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcCat(h : Rc.new(_DcCatVal(n : i32(1))))));
+    (animal : Box(Dyn(Display, Clone))) = dyn(Box.new(_DcCat(h : Rc.new(_DcCatVal(n : i32(1))))));
     (mut(i) : i32) = i32(0);
     while(i < i32(3), {
       if(downcast(&animal.*, _DcCat).is_some(), {
@@ -710,8 +702,8 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
       i = (i + i32(1));
     });
     downcast(&animal.*, _DcCat);
-    assert(upcast(&animal.*, Dyn(ToString)).to_string() == String.from("cat"), "the upcast receiver");
-    upcast(&animal.*, Dyn(ToString));
+    assert(upcast(&animal.*, Dyn(Display)).to_string() == String.from("cat"), "the upcast receiver");
+    upcast(&animal.*, Dyn(Display));
     assert(g_dc_disposed == before, "nothing is released while the Dyn is live");
   };
   assert(hits == i32(3), "every downcast saw the cat");
@@ -724,14 +716,14 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
   };
   assert((g_dyn_payload_disposed - payload_before) == i32(1), "the boxed struct's payload is released");
 });
-test("Dyn: upcast of an AnyError to its ToString supertrait", {
+test("Dyn: upcast of an AnyError to its Display supertrait", {
   (e : AnyError) = dyn(Box.new(_UpErr.Bad));
-  (ts : Box(Dyn(ToString))) = upcast(e, Dyn(ToString));
+  (ts : Box(Dyn(Display))) = upcast(e, Dyn(Display));
   assert(ts.*.to_string() == String.from("bad"), "the supertrait's slot");
 });
 _UpErr :: enum(Bad);
 derive(_UpErr, Copy, Clone);
-impl(_UpErr, ToString(to_string : (self -> String.from("bad"))));
+impl(_UpErr, Display(fmt : ((self, f) -> f.write(&String.from("bad")))));
 impl(_UpErr, Error());
 test("Dyn: an upcast cannot add a trait, and dyn() of a Dyn is rejected", {
   (one : Box(Dyn(_OsSp))) = dyn(Box.new(_OsCat(n : i32(3))));
@@ -751,11 +743,11 @@ test("Dyn: two traits with a same-named method cannot share one Dyn (E0616)", {
 // issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md: this module
 // imports `std/libc/stdio`, whose `Option(*(FILE))` instance the CTFE memo used
 // to hand `ArrayList(Dyn(T))._ptr`, so reading an element back did not compile.
-{ ToString : _AlToString } :: import("std/fmt/to_string");
+{ Display : _AlDisplay } :: import("std/fmt/to_string");
 test("Test an ArrayList of trait objects reads its elements back", {
-  (mut(xs) : ArrayList(Box(Dyn(_AlToString)))) = ArrayList(Box(Dyn(_AlToString))).new();
-  xs.push(dyn(Box.new(i32(7)), _AlToString));
-  xs.push(dyn(Box.new(i32(9)), _AlToString));
+  (mut(xs) : ArrayList(Box(Dyn(_AlDisplay)))) = ArrayList(Box(Dyn(_AlDisplay))).new();
+  xs.push(dyn(Box.new(i32(7)), _AlDisplay));
+  xs.push(dyn(Box.new(i32(9)), _AlDisplay));
   got := xs(usize(1)).*.to_string();
   assert(got == String.from("9"), "index 1 reads back the second trait object");
   assert(xs.len() == usize(2), "both elements are held");
@@ -1252,7 +1244,7 @@ impl(
     })
   )
 );
-impl(_DcFd, ToString(to_string : (fn(self : &Self) -> String)(String.from("fd"))));
+impl(_DcFd, Display(fmt : ((self, f) -> f.write(&String.from("fd")))));
 impl(_DcFd, Error());
 test("an owning downcast moves the box, its payload dropped once", {
   {
@@ -1271,7 +1263,7 @@ test("an owning downcast moves the box, its payload dropped once", {
   assert(g_dc_drops == i32(1), "a mismatch drops no _DcFd");
 });
 test("a view downcast of a move-only payload needs no Clone", {
-  (d : Box(Dyn(ToString))) = dyn(Box.new(_DcFd(n : i32(1))));
+  (d : Box(Dyn(Display))) = dyn(Box.new(_DcFd(n : i32(1))));
   assert(match(downcast(&d.*, _DcFd), .Some(f) => f.n, .None => i32(0)) == i32(1), "viewed in place");
   assert(g_dc_clones == i32(0), "nothing is cloned");
 });
@@ -1311,7 +1303,7 @@ test("a Dyn(Fn) after a Dyn(FnOnce) is its own constructor instance", {
 // written by `CloneInto`), and the payload's `clone` is not reachable through
 // the box at all.
 test("Box(Dyn(T, Clone)).clone() is the box's clone", {
-  (b : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcFd(n : i32(4))));
+  (b : Box(Dyn(Display, Clone))) = dyn(Box.new(_DcFd(n : i32(4))));
   d := b.clone();
   assert(match(downcast(&d.*, _DcFd), .Some(f) => f.n, .None => i32(0)) == i32(4), "an independent payload");
   assert(g_dc_clones == i32(1), "one clone, through the vtable's clone_into");
@@ -1320,7 +1312,7 @@ test("Box(Dyn(T, Clone)).clone() is the box's clone", {
 test("a Dyn's Clone is not a method of the erased value", {
   comptime_expect_error(
     (fn() -> unit)({
-      (b : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcFd(n : i32(4))));
+      (b : Box(Dyn(Display, Clone))) = dyn(Box.new(_DcFd(n : i32(4))));
       _x := b.*.clone();
       ()
     }),
@@ -1347,7 +1339,7 @@ test("a Box(Dyn) and a *Dyn are two words, and a struct holding one is laid out 
 // (issues/fixed/2026-11-15-a-downcast-of-a-boxed-ref-struct-reads-the-payload-slot-as-the-object.md).
 _DrsObjInner :: struct(n : i32);
 _DrsObj :: Rc(_DrsObjInner);
-impl(_DrsObj, ToString(to_string : (fn(self : &Self) -> String)(String.from("drs"))));
+impl(_DrsObj, Display(fmt : ((self, f) -> f.write(&String.from("drs")))));
 impl(_DrsObj, Error());
 _drs_n :: (fn(err : &AnyError) -> i32)(match(downcast(err, _DrsObj), .Some(o) => o.*.*.n, .None => i32(0)));
 test("a downcast of a boxed Rc payload reads the object", {
@@ -1606,7 +1598,7 @@ test("a Dyn that lists Future cannot be made, in every position", {
   comptime_expect_error(ArrayList(Box(Dyn(Future(i32, Io)))).new(), "cannot be made: `Future` has no vtable slot");
   comptime_expect_error(Dyn(Future(i32)), "cannot be made: `Future` has no vtable slot");
   comptime_expect_error(Dyn(Future(i32, Io), Send), "cannot be made: `Future` has no vtable slot");
-  comptime_expect_error(Dyn(ToString, !(Future(i32, Io))), "cannot be made: `Future` has no vtable slot");
+  comptime_expect_error(Dyn(Display, !(Future(i32, Io))), "cannot be made: `Future` has no vtable slot");
   assert(true, "every Dyn(Future(...)) rejected at check time");
 });
 test("an Impl(Future) local reassigned to another future names JoinHandle, not Dyn", {

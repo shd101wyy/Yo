@@ -14,7 +14,7 @@
 { ArrayList, ArrayListIter } :: import("std/collections/array-list");
 { String } :: import("std/string");
 { DefaultHasher, hash_one } :: import("std/hash");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 // issues/fixed/2026-11-05-an-impl-over-a-reference-type-registers-nothing.md:
 // `impl(&Bag, …)` registered nothing, and a `&Bag` receiver silently called
 // `impl(Bag, …)`.
@@ -207,7 +207,7 @@ test("(vii) a user blanket impl(generic(T), where(T <: Show), &T, Show(…))", {
 // lookup on `&Rc(_WhC)` matches the pattern at `T := Rc(_WhC)`, which does
 // not meet `_WhShow`, so `r.wh()` on an `Rc(_WhC)` auto-derefs to the
 // payload's method instead of finding a "method of the Rc" that clashes with
-// it (decision 32's E0616). The shape is std's `ToString(&T)`
+// it (decision 32's E0616). The shape is std's `Display(&T)`
 // (issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
 _WhShow :: trait(wh : (fn(self : &Self) -> i32));
 _WhC :: struct(n : i32);
@@ -482,7 +482,7 @@ test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
 // (Rust's `impl PartialEq<&B> for &A`, `impl Ord for &A`): a reference
 // compares and orders as its referent, so generic code at `T := &U` has the
 // bounds. A move-only referent (`String`) shows nothing is copied. The
-// `Hash(&T)` and `ToString(&T)` blankets follow the same shape (tests at the
+// `Hash(&T)` and `Display(&T)` blankets follow the same shape (tests at the
 // end of this file).
 _g3_same :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);
 _g3_less :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> bool)(a < b);
@@ -612,7 +612,7 @@ test("the prelude's Ord(&T) leaves a generic impl's binder K when `a.cmp(b)` run
   assert(m.lt(&x, &y), "1 < 2 through K.cmp");
   assert(m.entries(&y, &x).is_some(), "entries' element type is _BoEntry(i32)");
 });
-// The prelude's blanket `Hash(&T)` and std/fmt's blanket `ToString(&T)`
+// The prelude's blanket `Hash(&T)` and std/fmt's blanket `Display(&T)`
 // over a sized `&T` (VERDICTS-66's riders): a reference hashes and renders as
 // its referent, so the bounds hold and agree with the prelude's `Eq(&T)` /
 // `Ord(&T)`. Their registration blockers are fixed
@@ -625,13 +625,13 @@ test("the prelude's Ord(&T) leaves a generic impl's binder K when `a.cmp(b)` run
 // issues/fixed/2026-11-21-a-qualified-call-through-a-blanket-bound-at-t-ref-u-passes-check-and-emits-invalid-c.md).
 // These rows pin the registration, the coherence and the reference-receiver
 // semantics.
-test("(riders) ToString(&T): the blanket registers, and a reference renders as its referent", {
+test("(riders) Display(&T): the blanket registers, and a reference renders as its referent", {
   s := String.from("abc");
   rs := &s;
   x := i32(42);
   rx := &x;
-  comptime_assert(Type.impls(&String, ToString), "the blanket registers ToString(&String)");
-  comptime_assert(Type.impls(&i32, ToString), "the blanket registers ToString(&i32)");
+  comptime_assert(Type.impls(&String, Display), "the blanket registers Display(&String)");
+  comptime_assert(Type.impls(&i32, Display), "the blanket registers Display(&i32)");
   assert(rs.to_string() == String.from("abc"), "a &String receiver renders its referent");
   assert(rx.to_string() == String.from("42"), "a &i32 receiver renders its referent");
   assert(`<${rs}>` == String.from("<abc>"), "a reference part renders its referent");
@@ -650,19 +650,19 @@ test("(riders) Hash(&T): the blanket registers, and a reference hashes as its re
   assert(ha.finish() == hash_one(&a), "&String hashes as String");
   assert(ha.finish() == hb.finish(), "equal referents, equal hashes");
 });
-// A user `impl(&C, ToString)` beside the blanket is E0612 naming the covering
+// A user `impl(&C, Display)` beside the blanket is E0612 naming the covering
 // generic impl, as with the prelude's `Eq(&T)` (develop rejected the same
 // program with E0601 "C and &C"). `_RbBag` gains the trait impl here so the
 // blanket's `where` covers `&_RbBag`.
 impl(
   _RbBag,
-  ToString(to_string : (fn(self : &Self) -> String)(String.from("rbag")))
+  Display(fmt : ((self, f) -> f.write(&String.from("rbag"))))
 );
-test("(riders) a user impl(&C, ToString) beside the blanket is E0612", {
+test("(riders) a user impl(&C, Display) beside the blanket is E0612", {
   comptime_expect_error(
     impl(
       &_RbBag,
-      ToString(to_string : (fn(self : &Self) -> String)(String.from("refrbag")))
+      Display(fmt : ((self, f) -> f.write(&String.from("refrbag"))))
     ),
     "by the generic impl at std/fmt/to_string.yo"
   );
@@ -703,7 +703,7 @@ test("(r2) rr.wh() on rr : &&C takes the blanket at the slot &&C, not &rr", {
   assert(rr.*.rr_wh() == usize(7), "one read-through takes the referent's impl");
 });
 // r3: the std helpers at `T := &U` — `hash_one(&ra)` hashes the referent, a
-// `&&String` binding renders through the ToString(&T) blanket — and the
+// `&&String` binding renders through the Display(&T) blanket — and the
 // concrete `&&String` receiver takes the blanket's `&&String` slot directly
 // (issues/fixed/2026-11-21-a-reference-binder-whose-type-is-the-methods-own-slot-is-lent-once-too-often.md).
 test("(r3) hash_one(&ra) == hash_one(&a), and rr.to_string() on rr : &&String renders the referent", {

@@ -34,17 +34,17 @@ Spelling (what parses) lives in `yo-syntax.instructions.md`; this file holds sem
 
 ## Strings
 
-- A `"..."` literal is `str` (a builtin byte view; never use `str` as a name). A template string is a `String` (UTF-8, owned); `${...}` takes any `ToString` value. Literal typing and escapes: yo-syntax "Strings".
+- A `"..."` literal is `str` (a builtin byte view; never use `str` as a name). A template string is a `String` (UTF-8, owned); `${...}` takes any `Display` value. Literal typing and escapes: yo-syntax "Strings".
 - **`String` is a value; copies are explicit `clone()`; copy-on-write is out** (`plans/archive/STRING_VALUE_SEMANTICS.md`).
   - `String` is `newtype(_bytes : ArrayList(u8))`. `t := s` moves (a later use of `s` is E0901 naming `s.clone()`); nothing shares a buffer; `String` is `Send`/`Sync`.
   - Every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`) takes `self : &mut Self` and writes in place.
   - Writing through a borrowed copy (a by-value parameter, a `for`/`match` binding) is E0908: take `x : &mut String`, return the new string, or clone into a local. `for(&mut xs, s => s.push_str("!"))` and `xs(i).push_str("!")` write elements in place.
   - Bytes are copied or moved, never lent: `to_bytes()` (copy), `into_bytes()` (moves out), `from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`; read in place with `len()`, `byte_at(i)`, `get_byte(i) -> Option(u8)`, `bytes()`. `String`'s `Index(usize)` is read-only (`s(i)` reads a byte; `s(i) = b` is an error naming `IndexMut`, since a byte write could break UTF-8).
-  - A template string appends a `String` part by borrow (`ToString.append_to`); only a first part renders through `to_string()`.
+  - A template string of two or more parts is one `Formatter`: every part writes into it through `Display.fmt` (a `String` part by borrow); a one-part template is `to_string()`.
   - Shared text is `Rc(String)`. User docs: `docs/en-US/STRINGS.md` §Writing through a copy of a `String`, `docs/en-US/STRINGS.md`.
 - **String indexing is byte-based everywhere** (`plans/archive/STD_API_AUDIT_D4_PLAN.md`): `len()` is the O(1) byte count; `at`, `substring`, `s(a..b)`, `index_of`, `last_index_of`, the positional arguments of `contains`/`starts_with`/`ends_with` and the `Pattern` trait all use byte offsets, at runtime and for `comptime_str`. `substring` clamps out-of-range but panics on an offset inside a rune; `try_substring` does not panic; `floor_char_boundary`/`ceil_char_boundary` snap offsets. Rune work is `chars()` / `char_indices()`; the rune count is `s.chars().count()` (the O(n) cost stays visible).
 - **`replace` replaces every occurrence** (Rust's `str::replace`); `replacen(pattern, new, count)` is the bounded form. `replace_first` / `replace_all` are deprecated aliases still exported. **`Regex.replace(haystack, rep)` (the method on a `Regex`) replaces the first match**, as in the Rust regex crate; `String.replace(re, rep)` (the `Pattern` dispatch) replaces all.
-- Print with `println` / `print` from `std/fmt` (a template string or any `ToString` value), not `printf`.
+- Print with `println` / `print` from `std/fmt` (a template string or any `Display` value), not `printf`.
 
 ## `Rc`, `Arc` and `Box`
 
@@ -110,7 +110,7 @@ The guarantee is data-race freedom for every program that compiles without `prag
 - **`mut(name)` locals (decision 47 step 2).** Every binding below module level (local, pattern, destructuring, `::`/`comptime(...)`) is immutable unless declared `mut(name)`; parameters take no marker (rebind). The marker is stripped at desugar (`desugar_if_calls`, `_strip_mut_binders`, `src/expr.yo`) and recorded by the declared name's token (`register_mut_binding`, `is_mut_binding`), so env copies and generic re-evaluation keep it; a malformed marker (`mut(x.f)`) is left for `reject_malformed_mut_marker`.
   - No pass writes the tree: a type-directed evaluator rewrite (the reference step of a method receiver, the `dyn(v)` box) records the rewritten node (`note_rewritten_node`); readers go through `ast_rewritten_node` / `ast_rewritten_view`.
   - Writes go through `binding_require_mut` / `place_require_mut` (`src/evaluator/utils.yo`): E0917. Exempt: `src/`, `scripts/`, the root `build.yo`, fetched dependencies (`/store/sha256/`) and `auto-generated://` modules (`is_global_mut_rule_exempt`, `src/evaluator/memory-safety.yo`); `std/` is not. Census: `YO_AUDIT_MUT_BINDINGS`. `yo fix <path>` repairs one write per pass.
-- **D3, no writes through an atomic object.** No `=`, index store, or `&mut` argument whose callee may write (per-parameter mutation mask), rooted in an `Arc` (a `std/sync` value's state is private, behind its `Box`). A read-only `&mut self` method (`ToString`, `Hash`) through an `Arc` stays legal.
+- **D3, no writes through an atomic object.** No `=`, index store, or `&mut` argument whose callee may write (per-parameter mutation mask), rooted in an `Arc` (a `std/sync` value's state is private, behind its `Box`). A read-only `&mut self` method (`Display`, `Hash`) through an `Arc` stays legal.
 - **D8, second-class captures.** A closure may not capture a `&mut` parameter or a control-bound value. A rejection that fires inside a definition-time trial must be flagged with `flag_flow_violation` before it throws, or the trial swallows it; the trial's caller re-raises it with `reraise_flow_violation`, which flags it again, so it survives an enclosing trial (a handler inside an `io.async` body).
 - **D4 + D9, function values.** A function value holds `Send` iff its captures are `Send` AND its code reaches no non-`Send` global; `Acyclic` is the captures alone. The VALUE decides wherever it is known: `function_value_marker` (`src/evaluator/utils/closure.yo`, via `call_function_value_marker`) runs at every where-clause path, both `Impl` argument paths, `Impl` results and captures. A bare `fn(...)` type with no value (a struct field, a `Channel(fn() -> unit)` payload) is NOT `Send`, so a std type that crosses threads holds `Impl(Fn(...), Send)`, never a bare `fn` field. A new site judging a function-typed value for a marker passes the value as the witness.
 - **D6, runtime externs.** Calling a `__yo_*` runtime extern (any `extern` other than `"c"`) by name or through a module value needs the pragma. Expose a runtime entry point as a Yo wrapper function in a pragma'd module, never a bare alias (`get_thread_id :: __yo_get_thread_id;` made every caller call the extern).
@@ -441,7 +441,7 @@ Decided in `plans/archive/STD_API_AUDIT.md` D1. When you add or change a fallibl
 Rules that follow from it:
 
 - **`Result(_, String)` is banned.** An error type is a real enum implementing `Error()`: a string error cannot be matched on, downcast or wrapped. The `Error()` marker is enforced: `dyn(Box.new(x))` checks that `x`'s type implements every required trait of the target `Dyn`, so `exn.throw(dyn(Box.new(e)))` on an error enum without `impl(E, Error())` is a compile error at the `dyn(...)` token. `AnyError` is `Box(Dyn(Error, Clone))` (`std/error.yo`), so the type must be `Clone` too (`derive(E, Clone)`; the `Clone` bound is an interim, not a decision). `throw` takes the error BY VALUE: a handler owns the error it catches, keeps it by moving it (`unwind(.Some(e))`, `xs.push(e)`) and lends it with `&e` to a read-only helper.
-- **Spell an error enum with `derive(T, Error)`, not two hand-written impls.** One message per variant, in DECLARATION ORDER, emits `ToString` and `Error` together; each message is checked against its variant, so a renamed/added/removed/reordered variant is a compile error.
+- **Spell an error enum with `derive(T, Error)`, not two hand-written impls.** One message per variant, in DECLARATION ORDER, emits `Display` and `Error` together; each message is checked against its variant, so a renamed/added/removed/reordered variant is a compile error.
 
   ```yo
   derive(
@@ -454,7 +454,7 @@ Rules that follow from it:
   );
   ```
 
-  The message is ordinary Yo spliced into the arm that binds the payload, so `${pos}` is the variant's own field, not a positional `{0}`. Write the two impls by hand only when the render is not one message per variant (a struct error, a body that needs a local). `Error` carries `where(Self <: ToString)`.
+  The message is ordinary Yo spliced into the arm that binds the payload, so `${pos}` is the variant's own field, not a positional `{0}`. Write the two impls by hand only when the render is not one message per variant (a struct error, a body that needs a local). `Error` carries `where(Self <: Display)`.
 - **Never drop the payload on failure.** `Channel.send` returning `Result(unit, unit)` discarded the value the caller still owned; return it.
 - A constructor that cannot fail should not be fallible: no `Result` "for symmetry".
 - Absence and failure are different: do not model a missing key as an error, or an I/O failure as `None`.
@@ -499,7 +499,7 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
   The compiler keeps the unresolved-name half of this table in `rust_std_name_hint` (`src/diagnostics.yo`: E0401 prints the Yo name and its import) and the float-method import help in `float_method_import_hint` (E0610 on `f32`/`f64`); a divergence added here that a model will write by its Rust name gets a row in that function.
 - A rename sweep also rewrites the `test("<Type>.<method> …")` name strings (and comments) that spell the renamed method: `--test-name-pattern` matches them, so a stale name hides the test (`issues/fixed/collection-test-names-still-use-pre-rename-method-spellings.md`).
 - **`sys/` is plumbing, `std/*` is the product.** Every user-relevant syscall gets a typed wrapper, and an underscore-private name never appears in an `export(...)` list. For struct fields and impl methods the `_` prefix is the visibility rule the compiler enforces (E0405, `plans/reference/MEMBER_VISIBILITY.md`): private to the declaring module and its same-directory siblings. A `_` member another directory needs is an API gap to close with a public method.
-- **Traits are the API.** An inherent method that duplicates a trait method becomes a trait impl, so generic code can dispatch on it. Types that should compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
+- **Traits are the API.** An inherent method that duplicates a trait method becomes a trait impl, so generic code can dispatch on it. Types that should compose get `Eq` / `Ord` / `Hash` / `Clone` / `Display`.
 - **Hashing is Rust-shaped** (`plans/reference/HASHER_REDESIGN.md`). `Hash.hash(self : &Self, hasher : &mut H)` FEEDS bytes; a `Hasher` (`std/hash.yo`: `SipHasher13` = `DefaultHasher`, `Fnv1aHasher`) turns them into the `u64`. Never write a `-> u64` hash method or fold hashes with `* 31`; an impl calls `hasher.write_*` per field (or `derive(T, Hash)`), variable-length data writes a terminator/length, and `hash_one(&v)` is the one-value helper. Maps use FIXED default keys so emitted C and printed maps are reproducible (the fixpoint compares C byte for byte); `HashMap.with_keys` is the per-instance opt-in.
 
 ## UTF-8 lives in exactly one module
@@ -517,7 +517,7 @@ Decided in `plans/archive/STD_API_AUDIT.md` D2: one name per concept across the 
 | test a rune boundary | `is_boundary(b)` / `is_continuation(b)` |
 | check a whole buffer or a sub-range | `validate(bytes)` / `validate_range(bytes, from, to)` |
 
-- **It stays below `std/error` and `std/fmt`**: it imports only `std/string/rune` and `std/collections/array-list`, because `std/string/string.yo` consumes it and `std/error`/`std/fmt` import `std/string`. So `Utf8Error` has inherent `message()`/`index()` instead of `ToString`/`Error()` impls (as `AllocError` has none); a module that wants a throwable UTF-8 error wraps it (`StringError.InvalidUtf8(cause : Utf8Error)`).
+- **It stays below `std/error` and `std/fmt`**: it imports only `std/string/rune` and `std/collections/array-list`, because `std/string/string.yo` consumes it and `std/error`/`std/fmt` import `std/string`. So `Utf8Error` has inherent `message()`/`index()` instead of `Display`/`Error()` impls (as `AllocError` has none); a module that wants a throwable UTF-8 error wraps it (`StringError.InvalidUtf8(cause : Utf8Error)`).
 - **`String.from_bytes` does not validate**: it is the unchecked constructor. Use `String.from_utf8` for bytes of unknown provenance (a file, a socket, a subprocess, a decoded payload); `from_bytes` only when the bytes demonstrably are UTF-8. `String.from_cstr` does not validate either, deliberately.
 
 ## Standard library module organization (`std/`)

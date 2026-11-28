@@ -11,7 +11,7 @@
 //! `std/collections/array-list`. It must stay below `std/error` and `std/fmt`,
 //! because `std/string/string.yo` — which both of those import — is itself a
 //! consumer. That is also why `Utf8Error` carries an inherent `message()`
-//! returning `str` instead of a `ToString`/`Error()` impl: those traits live
+//! returning `str` instead of a `Display`/`Error()` impl: those traits live
 //! above this layer. Callers that need a throwable error wrap it in their own
 //! module's error enum (`StringError.InvalidUtf8` does exactly that).
 //!
@@ -65,7 +65,7 @@
 //! module cannot grow a dependency on `std/error` or `std/fmt` without
 //! breaking the cycle that `std/string` sits in. The one thing a freeze does
 //! NOT promise is `Utf8Error`'s inherent `message() -> str` staying the only
-//! rendering channel; adding `ToString` / `Error()` impls if the layering
+//! rendering channel; adding `Display` / `Error()` impls if the layering
 //! ever permits it is additive, and a caller matching the variants is
 //! unaffected either way.
 { rune } :: import("../string/rune.yo");

@@ -1,6 +1,6 @@
 //! Runtime assertion and panic functions.
 //!
-//! Both `panic` and `assert` accept any type that implements the `ToString`
+//! Both `panic` and `assert` accept any type that implements the `Display`
 //! trait — its `.to_string().to_cstr()` result (a NUL-terminated
 //! `ArrayList(u8)`) is handed to the built-in `__yo_panic` through its data
 //! pointer. The process is terminating via abort; the buffer need not be
@@ -15,7 +15,7 @@
 //!
 //! **stable in shape, with one caveat worth stating before the freeze.**
 //! `panic`, `assert`, `assert_eq`, `assert_ne` and `assert_approx` have the
-//! names and the meanings Rust gives them, they accept any `ToString`, and no
+//! names and the meanings Rust gives them, they accept any `Display`, and no
 //! additions are planned. The caveat is that these are RUNTIME assertions
 //! only: there is no `debug_assert` that compiles out, so every `assert` in a
 //! release build pays for its condition and its message. Adding one later is
@@ -24,12 +24,12 @@
 //! Do not reach for `comptime_assert` as the compile-time counterpart without
 //! reading its own note — it fires only where the condition folds to a
 //! concrete `false`.
-{ ToString } :: import("std/fmt/to_string");
+{ Display } :: import("std/fmt/to_string");
 { String } :: import("std/string");
 /// Terminate the program with a message.
 ///
-/// `msg` must implement `ToString`.
-panic :: (fn(generic(T : ?Sized), msg : &T, where(T <: ToString)) -> never)({
+/// `msg` must implement `Display`.
+panic :: (fn(generic(T : ?Sized), msg : &T, where(T <: Display)) -> never)({
   // __yo_panic comptime-evaluates its message argument, so the pointer has
   // to arrive as a plain *(u8)-typed binding — an Option .unwrap() chain
   // leaves the argument without an ExprInfo and the builtin rejects it.
@@ -42,8 +42,8 @@ panic :: (fn(generic(T : ?Sized), msg : &T, where(T <: ToString)) -> never)({
 });
 /// Runtime assertion. If `flag` is false, call `panic(msg)`.
 ///
-/// `msg` must implement `ToString`.
-assert :: (fn(generic(T : ?Sized), flag : bool, (msg : &T) ?= "Assertion failed.", where(T <: ToString)) -> unit)({
+/// `msg` must implement `Display`.
+assert :: (fn(generic(T : ?Sized), flag : bool, (msg : &T) ?= "Assertion failed.", where(T <: Display)) -> unit)({
   cond(
     flag => (),
     true => panic(msg)
@@ -64,7 +64,7 @@ _ctx :: (fn(msg : &str) -> String)(
 ///   assert_eq(got, i32(42));
 ///   assert_eq(name, `yo`, "config name round-trip");
 assert_eq :: (
-  fn(generic(A : ?Sized), left : &A, right : &A, (msg : &str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+  fn(generic(A : ?Sized), left : &A, right : &A, (msg : &str) ?= "", where(A <: (Eq(A), Display))) -> unit
 )({
   cond(
     (left.* == right.*) => (),
@@ -78,7 +78,7 @@ assert_eq :: (
 });
 /// Assert two values are NOT equal; prints the (shared) value on failure.
 assert_ne :: (
-  fn(generic(A : ?Sized), left : &A, right : &A, (msg : &str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+  fn(generic(A : ?Sized), left : &A, right : &A, (msg : &str) ?= "", where(A <: (Eq(A), Display))) -> unit
 )({
   cond(
     (left.* != right.*) => (),

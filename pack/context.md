@@ -90,11 +90,22 @@ export(main);
 
 ```yo
 { assert } :: import("std/assert");
-{ ToString } :: import("std/fmt"); // brings the ToString derive rule
+{ Display, Debug, Formatter } :: import("std/fmt"); // Debug's derive rule is here
 { String } :: import("std/string");
 
 Point :: struct(x : i32, y : i32);
-derive(Point, Copy, Clone, Eq(Point), ToString);
+derive(Point, Copy, Clone, Eq(Point), Debug);
+// Display is written by hand: `fmt` writes into the Formatter.
+impl(
+  Point,
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+      f.write(&self.x);
+      f.write_str(",");
+      f.write(&self.y);
+    })
+  )
+);
 
 Norm :: trait(
   norm1 : (fn(self : &Self) -> i32)
@@ -109,7 +120,7 @@ impl(
 );
 
 // A generic function: T is inferred from the argument.
-describe :: (fn(generic(T : Type), x : &T, where(T <: ToString)) -> String)(
+describe :: (fn(generic(T : Type), x : &T, where(T <: Display)) -> String)(
   `<${x.to_string()}>`
 );
 
@@ -129,10 +140,11 @@ export(main);
   `Ord`'s `cmp` is a total order (a float NaN is greater than every number);
   code that needs a total order calls `cmp`, since `<` on floats is partial.
 - Derivable: `Copy` (with `Clone`), `Clone`, `Eq(T)`, `Ord(T)`, `Hash`,
-  `Default`, `ToString` and `Debug` (import `std/fmt` first), `Error` (import
-  `std/error`).
+  `Default`, `Debug` (import `std/fmt` first), `Error` (import `std/error`).
+  `Display` (what `println` and `${x}` use) is written by hand; its
+  `to_string()` and `Debug`'s `debug_string()` are provided.
 - `impl(...)` statements end with `;`. A generic impl:
-  `impl(generic(T : Type), where(T <: ToString), Box(T), ...)`.
+  `impl(generic(T : Type), where(T <: Display), ArrayList(T), ...)`.
 - `<:` is the bound operator, read *implements*: `where(T <: Tr)`, several
   `T <: (A, B)`, a function trait grouped `F <: (Fn(x : A) -> B)`. A name's `:`
   takes a type or a kind, never a trait: `where(T : Tr)` and
@@ -346,7 +358,7 @@ export(main);
 
 - `"..."` is a reference to static UTF-8 bytes: a parameter takes
   `s : &str`; a function returning a literal is typed `-> str`. A backtick
-  literal is an owned `String` with `${expr}` interpolation (`ToString`).
+  literal is an owned `String` with `${expr}` interpolation (`Display`).
   `String` is a value (`mut(s)` to `push_str`, `.clone()` to copy); indices
   are byte offsets.
 - `Option(T)` (`.Some(v)` / `.None`) is absence; `Result(T, E)` is a
@@ -361,7 +373,7 @@ export(main);
 
 ```yo
 { assert } :: import("std/assert");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt"); // derive(Error) writes a Display impl
 { Error } :: import("std/error"); // brings the Error derive rule
 
 ParseError :: enum(Empty, BadDigit(at : usize));

@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { Error, Exception } :: import("std/error");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 P :: struct(x : i32, y : i32);
 derive(P, Copy, Clone);
 // ---------- Test 1: forward call within a single impl block ----------
@@ -53,7 +53,7 @@ test("mutual recursion in single impl", {
 // The parser case: methods carry `exn : Exception` and forward-call
 // each other.
 MyErr :: struct(msg : String);
-impl(MyErr, ToString(to_string : (self -> `my err`)));
+impl(MyErr, Display(fmt : ((self, f) -> f.write(&`my err`))));
 impl(MyErr, Error());
 impl(
   MyErr,

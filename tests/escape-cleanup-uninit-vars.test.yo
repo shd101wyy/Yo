@@ -1,7 +1,7 @@
 { assert } :: import("std/assert");
 { String, Pattern } :: import("std/string");
 { Error, Exception } :: import("std/error");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 // Regression for issues/fixed/escape-cleanup-references-uninitialized-vars.md
 //
 // 1. (var : T) = match(opt, .None => exn.throw(...), .Some(v) => v)
@@ -17,9 +17,7 @@
 ParseError :: struct(message : String);
 impl(
   ParseError,
-  ToString(
-    to_string : (self -> `parse error`)
-  )
+  Display(fmt : ((self, f) -> f.write(&`parse error`)))
 );
 impl(ParseError, Error());
 impl(

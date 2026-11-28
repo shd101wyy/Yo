@@ -51,7 +51,7 @@ match(
 ```yo
 { Error, AnyError } :: import("std/error");
 
-// Error trait 要求实现 ToString。`derive(Error)` 只需按声明顺序为每个变体
+// Error trait 要求实现 Display。`derive(Error)` 只需按声明顺序为每个变体
 // 写一条消息，即可同时生成两者：
 MathError :: enum(
   DivisionByZero,

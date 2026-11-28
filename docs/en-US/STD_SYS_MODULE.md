@@ -50,7 +50,7 @@ std/sys/
 ├── copy.yo         — copyfile, sendfile
 ├── dir.yo          — mkdir, unlink, rename, symlink, link, readlink, getdents/readdir
 ├── dns.yo          — getaddrinfo, getnameinfo, addrinfo accessors
-├── errors.yo       — IoError enum with errno mapping, ToString impl
+├── errors.yo       — IoError enum with errno mapping, Display impl
 ├── events.yo       — TTY/poll/FS event constants + FS-event / poll wrappers
 ├── externs.yo      — Runtime helper externs (sync syscalls, accessors, wakers)
 ├── fallocate.yo    — fallocate (pre-allocate file space)
@@ -127,7 +127,7 @@ accessors) are blocking calls and take no `Io`.
 | Socket Constants | `socket.yo`     | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP*\*, NI*\*     |
 | Signals          | `signals.yo`    | ✅ Complete | Platform-aware POSIX signal numbers                      |
 | Events           | `events.yo`     | ✅ Complete | TTY/poll/FS event constants + FS/poll wrappers           |
-| IoError          | `errors.yo`     | ✅ Complete | Enum with errno mapping, ToString impl                   |
+| IoError          | `errors.yo`     | ✅ Complete | Enum with errno mapping, Display impl                   |
 | Future           | `future.yo`     | ✅ Complete | `park`, `yield`, `completed`; `IoFuture` is the prelude's |
 | Externs          | `externs.yo`    | ✅ Complete | Runtime helper externs; operations go through the `Io`   |
 | Statx            | `statx.yo`      | ✅ Complete | File metadata accessor object                            |

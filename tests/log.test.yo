@@ -1,5 +1,5 @@
 //! std/log rewrite (`plans/archive/STD_API_AUDIT.md` §7 log row): Off level,
-//! ToString-generic + target + lazy messages, level filtering. Output goes
+//! Display-generic + target + lazy messages, level filtering. Output goes
 //! to a real fd, so these tests assert on the FILTER behavior (which is
 //! observable without capturing bytes); the format is exercised by the
 //! module's own doc example and manual runs.
@@ -43,10 +43,10 @@ test("lazy closures run only when the level admits them", {
   ran := emitted.*.with(cur => cur.clone());
   assert(ran, "at-or-above-level lazy closure runs");
 });
-test("generic ToString messages and targets compile and emit", {
+test("generic Display messages and targets compile and emit", {
   log.set_level(log.Level.Trace);
   log.set_output(log.LogOutput.Stdout);
-  // Any ToString value — no explicit .to_string() at the call site.
+  // Any Display value — no explicit .to_string() at the call site.
   log.info(i32(7));
   log.debug(true);
   log.warn(`a template ${i32(3)}`);

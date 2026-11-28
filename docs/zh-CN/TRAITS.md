@@ -147,7 +147,7 @@ Pullable :: trait(
 在整个程序中，一个类型最多实现某个 trait 一次（`plans/reference/TRAIT_COHERENCE.md`）。以下情况都是错误 E0612：
 
 - 第二个 `impl(P, Summary(...))`，无论在同一模块还是其他模块；
-- 被导入的模块或 prelude 已经为该类型实现过的 trait，再写一个 impl，例如 `impl(i32, ToString(...))`；
+- 被导入的模块或 prelude 已经为该类型实现过的 trait，再写一个 impl，例如 `impl(i32, Display(...))`；
 - 一揽子 impl（`impl(generic(T : Type), where(T <: Bound), T, Summary(...))`）与某个满足 `Bound` 的类型的 `Summary` 具体 impl 同时存在，无论注册顺序。
 
 Yo 没有特化，更具体的 impl 不会覆盖更一般的 impl；在此规则之前，先注册的 impl 会静默胜出，另一个成为死代码。泛型 trait 的两个实例是不同的 trait（`Eq(String)` 与 `Eq(str)`），约束互不重叠的一揽子 impl 也没有问题。

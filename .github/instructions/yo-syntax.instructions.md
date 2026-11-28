@@ -390,8 +390,8 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   `&obj` / `&mut obj`, never `addr_of(obj)`.
 - Trait declarations follow the dominant impl: a method that writes its receiver (`Hasher.write*`,
   `Iterator.next`, `Index`/`IndexMut`, `ComptimeIndex`, `log.Sink.write_line`) takes `self : &mut Self`; one
-  that only reads it takes `self : &Self`, as in Rust: `Clone.clone`, `ToString.to_string`, `Hash.hash`,
-  `Hasher.finish`, `Debug.debug_string`, `Format.format`, `ToJson.to_json`, `Error.source`, `Reader`,
+  that only reads it takes `self : &Self`, as in Rust: `Clone.clone`, `Display.fmt`, `Hash.hash`,
+  `Hasher.finish`, `Debug.debug_fmt`, `Format.format`, `ToJson.to_json`, `Error.source`, `Reader`,
   `Writer`.
 - `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists writes through a borrowed copy.
 
@@ -1045,9 +1045,10 @@ result :: add1(i32(2)); // 3
 
 ### Derives
 
-- The prelude registers derive rules for `Eq`, `Hash`, `Clone`, `Ord`, `Default` only. `derive(X, ToString)`
-  needs `{ ToString } :: import("std/fmt");` first (rule in `std/fmt/to_string.yo`), `derive(X, Error(...))`
-  `std/error`; otherwise "derive: trait 'ToString' does not have a derive rule".
+- The prelude registers derive rules for `Eq`, `Hash`, `Clone`, `Ord`, `Default` only. `derive(X, Debug)`
+  needs `{ Debug } :: import("std/fmt");` first (rule in `std/fmt/to_string.yo`), `derive(X, Error(...))`
+  `std/error`; otherwise "derive: trait 'Debug' does not have a derive rule". `Display` has no derive rule:
+  write `impl(X, Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(...)))`.
 - A top-level `derive(T, …)` is order-independent like `impl(T, …)`.
 
 ## Modules
@@ -1075,7 +1076,7 @@ node_module :: import("./node.yo"); // whole module
 - **A bare `import("std/fmt");` binds no names**: it registers the module's impls and derive rules, but
   `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401).
 - `assert`/`panic` come from `std/assert` (`{ assert, panic } :: import("std/assert");`). Messages take any
-  `ToString` (template strings included); `assert(cond)` has a default message. The diverging builtin for
+  `Display` (template strings included); `assert(cond)` has a default message. The diverging builtin for
   value-position arms is `__yo_panic("str only")`. Its message is a literal, a `&str` parameter or a local:
   a method call in the argument (`__yo_panic(m.unwrap_or("x"))`) is E0601 against the arm's type, so bind
   it first (`issues/2026-11-24-yo-panic-with-a-method-call-message-reports-a-unify-error-against-the-arm-type.md`).

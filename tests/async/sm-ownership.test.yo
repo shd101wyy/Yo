@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { Error, Exception, IoExn } :: import("std/error");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { Path } :: import("std/path");
 { remove_file, rename } :: import("std/fs/dir");
 { exists } :: import("std/fs/file");
@@ -575,7 +575,7 @@ test("aborting a task after it stored a local in a field releases the local once
 // move-out pair). `keep` shares the payload's Thing: exactly one release
 // leaves its count at 1, a double drop takes it to 0, a leak leaves it at 2.
 Oops :: struct(thing : Thing);
-impl(Oops, ToString(to_string : (self -> String.from("oops"))));
+impl(Oops, Display(fmt : ((self, f) -> f.write(&String.from("oops")))));
 impl(Oops, Error());
 impl(
   Oops,
@@ -1306,10 +1306,10 @@ impl(
     })
   )
 );
-impl(_DcThing, ToString(to_string : (self -> String.from("thing"))));
+impl(_DcThing, Display(fmt : ((self, f) -> f.write(&String.from("thing")))));
 _downcast_across_awaits :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io2 : Io) => {
-    (d : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcThing(h : Rc.new(_DcVal(n : i32(1))))));
+    (d : Box(Dyn(Display, Clone))) = dyn(Box.new(_DcThing(h : Rc.new(_DcVal(n : i32(1))))));
     (mut(hits) : i32) = i32(0);
     if(downcast(&d.*, _DcThing).is_some(), {
       hits = (hits + i32(1));

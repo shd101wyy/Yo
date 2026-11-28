@@ -143,7 +143,7 @@ test("Async test", {
 
 ### Assertion builtins
 
-- `assert(condition, msg)`: runtime; `msg` is any `ToString` (`str`, template string, integer);
+- `assert(condition, msg)`: runtime; `msg` is any `Display` (`str`, template string, integer);
   `assert(condition)` uses a default message.
 - `comptime_assert(condition, "message")`: fires wherever the condition folds to a CONCRETE `false`,
   at module level and inside a function or `test(...)` body. On a condition that is not comptime-known (a

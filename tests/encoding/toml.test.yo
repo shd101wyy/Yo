@@ -6,7 +6,7 @@
 // scanner's forms, and the serializer's round trip.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
 toml :: import("std/encoding/toml");
 { TomlValue, TomlDateTimeKind } :: import("std/encoding/toml");
@@ -842,7 +842,7 @@ name = "banana"`;
   twice := toml.stringify(_doc(&once));
   assert(once == twice, "serialization is deterministic");
 });
-test("ToString renders TOML text; the kind enum compares", {
+test("Display renders TOML text; the kind enum compares", {
   d := _doc(`x = 1`);
   assert(
     d.to_string() ==

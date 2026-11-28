@@ -47,7 +47,7 @@
 //! decisions, not a release count.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
-{ ToString } :: import("../fmt");
+{ Display } :: import("../fmt");
 { Error } :: import("../error");
 { CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
 { localtime_r } :: import("../libc/time");
@@ -340,76 +340,80 @@ impl(
 );
 impl(
   DateTime,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
-      // RFC3339 offset rendering: "Z" only for UTC; a non-zero
-      // `utc_offset_secs` renders as ±HH:MM. This used to hardcode "Z" for
-      // EVERY value, stringifying offset datetimes as if they were UTC
-      // (plans/archive/STD_API_AUDIT.md C4).
-      buf := Array(u8, usize(48)).fill(u8(0));
-      buf_ptr := addr_of(buf(usize(0)));
-      cond(
-        (self.utc_offset_secs == i32(0)) => {
-          unsafe(
-            snprintf(
-              (*char)(buf_ptr),
-              usize(48),
-              "%04d-%02u-%02uT%02u:%02u:%02uZ",
-              self.year,
-              self.month,
-              self.day,
-              self.hour,
-              self.minute,
-              self.second
-            )
-          );
-        },
-        true => {
-          off := self.utc_offset_secs;
-          is_neg := (off < i32(0));
-          abs_off := cond(is_neg => (i32(0) - off), true => off);
-          off_h := (abs_off / i32(3600));
-          off_m := ((abs_off % i32(3600)) / i32(60));
+  Display(
+    fmt : (
+      (self, f) -> f.write(
+        & {
+          // RFC3339 offset rendering: "Z" only for UTC; a non-zero
+          // `utc_offset_secs` renders as ±HH:MM. This used to hardcode "Z" for
+          // EVERY value, stringifying offset datetimes as if they were UTC
+          // (plans/archive/STD_API_AUDIT.md C4).
+          buf := Array(u8, usize(48)).fill(u8(0));
+          buf_ptr := addr_of(buf(usize(0)));
           cond(
-            is_neg => {
+            (self.utc_offset_secs == i32(0)) => {
               unsafe(
                 snprintf(
                   (*char)(buf_ptr),
                   usize(48),
-                  "%04d-%02u-%02uT%02u:%02u:%02u-%02d:%02d",
+                  "%04d-%02u-%02uT%02u:%02u:%02uZ",
                   self.year,
                   self.month,
                   self.day,
                   self.hour,
                   self.minute,
-                  self.second,
-                  off_h,
-                  off_m
+                  self.second
                 )
               );
             },
             true => {
-              unsafe(
-                snprintf(
-                  (*char)(buf_ptr),
-                  usize(48),
-                  "%04d-%02u-%02uT%02u:%02u:%02u+%02d:%02d",
-                  self.year,
-                  self.month,
-                  self.day,
-                  self.hour,
-                  self.minute,
-                  self.second,
-                  off_h,
-                  off_m
-                )
+              off := self.utc_offset_secs;
+              is_neg := (off < i32(0));
+              abs_off := cond(is_neg => (i32(0) - off), true => off);
+              off_h := (abs_off / i32(3600));
+              off_m := ((abs_off % i32(3600)) / i32(60));
+              cond(
+                is_neg => {
+                  unsafe(
+                    snprintf(
+                      (*char)(buf_ptr),
+                      usize(48),
+                      "%04d-%02u-%02uT%02u:%02u:%02u-%02d:%02d",
+                      self.year,
+                      self.month,
+                      self.day,
+                      self.hour,
+                      self.minute,
+                      self.second,
+                      off_h,
+                      off_m
+                    )
+                  );
+                },
+                true => {
+                  unsafe(
+                    snprintf(
+                      (*char)(buf_ptr),
+                      usize(48),
+                      "%04d-%02u-%02uT%02u:%02u:%02u+%02d:%02d",
+                      self.year,
+                      self.month,
+                      self.day,
+                      self.hour,
+                      self.minute,
+                      self.second,
+                      off_h,
+                      off_m
+                    )
+                  );
+                }
               );
             }
           );
+          String.from_cstr(buf_ptr).unwrap()
         }
-      );
-      String.from_cstr(buf_ptr).unwrap()
-    })
+      )
+    )
   )
 );
 

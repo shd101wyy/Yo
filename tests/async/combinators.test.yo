@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
 { IoExn, Exception, Error } :: import("std/error");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { Channel } :: import("std/async/channel");
@@ -1536,7 +1536,7 @@ impl(
 );
 _ArSp :: trait(ar_sp : (fn(self : &Self) -> i32));
 impl(_ArObj, _ArSp(ar_sp : (fn(self : &Self) -> i32)(self.n)));
-impl(_ArObj, ToString(to_string : (fn(self : &Self) -> String)(String.from("ar"))));
+impl(_ArObj, Display(fmt : ((self, f) -> f.write(&String.from("ar")))));
 impl(_ArObj, Error());
 impl(_ArObj, Clone(clone : (fn(self : &Self) -> Self)(_ArObj(n : self.n))));
 _ar_leaf :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => n));

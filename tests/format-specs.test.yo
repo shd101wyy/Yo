@@ -1,9 +1,9 @@
 { assert } :: import("std/assert");
 { rune, String } :: import("std/string");
-{ ToString, FormatSpec, Format } :: import("std/fmt");
+{ Display, FormatSpec, Format } :: import("std/fmt");
 // D3.10 format specs — the `Format` protocol and the spec grammar
 // (plans/archive/STD_API_AUDIT.md). Width/fill/alignment/truncation come from one
-// blanket impl over `ToString`; numerics add radix and sign-aware zero fill.
+// blanket impl over `Display`; numerics add radix and sign-aware zero fill.
 test("width, alignment and fill", {
   assert(String.from("abc").format(">8") == `     abc`, "right align");
   assert(String.from("ab").format("<6") == `ab    `, "left align");
@@ -35,7 +35,7 @@ test("float precision", {
   assert(f64(3.14159).format(".2") == `3.14`, "two decimals");
   assert(f64(-3.14159).format(">10.3") == `    -3.142`, "width applies after precision");
 });
-test("the blanket impl covers every ToString type", {
+test("the blanket impl covers every Display type", {
   // Both in ONE body deliberately: this exact shape used to crash, because the
   // blanket's `inout(self)` lost its by-ref binding when the receiver folded to
   // a comptime constant — issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md.
@@ -112,13 +112,13 @@ test("pad_numeric counts its sign, prefix and digits in RUNES", {
   assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`).len() == usize(11), "eleven bytes, not eight");
 });
 // plans/reference/TRAIT_COHERENCE.md: `Format` has no blanket impl over
-// `ToString` (it overlapped every numeric impl). A user type opts in with the
+// `Display` (it overlapped every numeric impl). A user type opts in with the
 // trait's default `format`, which pads `to_string()`.
 _FmtPoint :: struct(x : i32, y : i32);
 derive(_FmtPoint, Copy, Clone);
-impl(_FmtPoint, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(_FmtPoint, Display(fmt : ((self, f) -> f.write(&`(${self.x}, ${self.y})`))));
 impl(_FmtPoint, Format());
-test("a user ToString type opts into Format with the default member", {
+test("a user Display type opts into Format with the default member", {
   p := _FmtPoint(x : i32(1), y : i32(2));
   assert(p.format(">8") == `  (1, 2)`, "right align through the default");
   assert(`[${p:<7}]` == `[(1, 2) ]`, "template spec through the default");

@@ -129,7 +129,7 @@ bump_by_ten(c.*); // ERROR: cannot pass a &mut argument rooted in atomic object 
 
 A local copy is a value, so `k := c.*; k.bump()` is fine (it mutates the copy);
 `Mutex.with_lock`'s `v : &mut T` is a parameter, so the body may write through `v`; and a
-read-only `&mut self` method — `ToString`'s `${c.*.n}`, `Sender.clone` — is fine, because the
+read-only `&mut self` method — `Display`'s `${c.*.n}`, `Sender.clone` — is fine, because the
 compiler decides by what the callee's body does (`plans/reference/PARALLELISM_RULES.md` D3), not
 by the parameter mode alone.
 
@@ -431,7 +431,7 @@ races under ThreadSanitizer:
   drop runs on the other thread, and the reach walk does not look at drop glue
   (`issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`).
 - **A user impl called back by std.** A thread body that calls a generic std function
-  (`xs.contains(&k)`, `println` of a user type) whose user `Eq` or `ToString` impl writes
+  (`xs.contains(&k)`, `println` of a user type) whose user `Eq` or `Display` impl writes
   the global: the walk stops at a body defined in std
   (`issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`).
 

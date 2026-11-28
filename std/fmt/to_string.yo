@@ -1,43 +1,56 @@
-//! `ToString` and `Debug` — the two rendering channels, and their impls for
-//! every primitive.
+//! `Display`, `Debug` and `Formatter` — the two rendering channels, the sink
+//! they write into, and their impls for every primitive.
 //!
-//! `ToString` is the USER-FACING text (Rust's `Display`): what `println`,
-//! `print` and `${...}` interpolation call, and what an error type's message
-//! is written by hand for. `Debug` is the STRUCTURAL render (Rust's `Debug`):
-//! what `derive(Debug)` emits, variant name and fields included. D15 split
-//! them because `derive(ToString)` used to emit the structural form, which
-//! meant no error enum could derive its own message.
+//! `Display` is the USER-FACING text: what `println`, `print` and `${...}`
+//! interpolation call, and what an error type's message is written by hand
+//! for. `Debug` is the STRUCTURAL render: what `derive(Debug)` emits, variant
+//! name and fields included. Both write into a `Formatter`, which owns the
+//! `String` being built, so a value nested in another one writes its text
+//! straight into the outer result instead of building a `String` of its own.
 //!
-//! Numbers go through one shared `_snprintf_to_string` (a comptime format
-//! literal, a 32-byte stack buffer) rather than a hand-rolled digit loop, so
-//! all eighteen numeric impls share one body.
+//! ```yo
+//! { Display, Formatter } :: import("std/fmt");
+//! Point :: struct(x : i32, y : i32);
+//! impl(
+//!   Point,
+//!   Display(
+//!     fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+//!       f.write_str("(");
+//!       f.write(&self.x);
+//!       f.write_str(", ");
+//!       f.write(&self.y);
+//!       f.write_str(")");
+//!     })
+//!   )
+//! );
+//! ```
+//!
+//! `x.to_string()` is `Display`'s provided method: a fresh `Formatter`, then
+//! `x.fmt`, then the result. `String` and `str` override it to copy their
+//! bytes. `x.debug_string()` is `Debug`'s twin.
+//!
+//! Numbers go through one shared `_snprintf_into` (a comptime format literal,
+//! a 32-byte stack buffer) rather than a hand-rolled digit loop, so all
+//! eighteen numeric impls share one body, and each writes its digits into the
+//! formatter without an intermediate `String`.
 //!
 //! ## Stability
 //!
 //! unstable, for two named reasons rather than a release count.
 //!
-//! `Debug` itself is new — it landed with the D15 split in v0.2.28
-//! (`plans/archive/STD_API_STABILIZATION.md` §2) and its deprecated predecessor
-//! `derive(ToString)` is still accepted for one release as a spelling of the
-//! same structural body. Until that alias is deleted, two names produce the
-//! same render and a reader cannot tell which trait a type was meant to have.
+//! `Formatter` has no format spec yet: `${x:spec}` still renders through
+//! `Format.format` (`./format.yo`), and a `fmt` impl cannot read a width or a
+//! precision.
 //!
-//! And `f64` / `f32` `to_string()` is not yet portable: it hands back the host
-//! C library's `%g` output, so a non-finite value renders `nan` on
-//! glibc/Apple libc and `-nan(ind)` on the MS CRT — a program that logs, JSON-
-//! encodes or fixture-compares a NaN produces different bytes per platform
-//! (`issues/fixed/float-to-string-is-platform-dependent-for-non-finite-values.md`,
-//! OPEN). Rust renders `NaN` / `inf` / `-inf` everywhere because it does not
-//! delegate to libc. Fixing that CHANGES output, so it has to happen before
-//! the module freezes, not after.
-//!
-//! The eighteen integer/bool/`str`/`String` impls are settled.
+//! And `f64` / `f32` rendering is not yet portable: a finite value is the host
+//! C library's `%g` output, so its exact digits are whatever that library
+//! prints.
 //!
 //! This module holds no template literal. A module that holds one gets an
 //! `import("std/fmt")` from the parser, and `std/fmt` imports this module, so
-//! a template here would be an import cycle that leaves `ToString` unbound
-//! while `std/fmt` destructures it. The impls below build their text with
-//! `push_str` and `append_to`, which is what a template lowers to.
+//! a template here would be an import cycle that leaves `Display` unbound
+//! while `std/fmt` destructures it. The impls below write their text with
+//! `write_str` and `write`, which is what a template lowers to.
 pragma(Pragma.AllowUnsafe);
 { String, rune, ParseIntError, ParseFloatError, ParseBoolError } :: import("../string");
 { snprintf } :: import("../libc/stdio");
@@ -47,148 +60,144 @@ utf8 :: import("../encoding/utf8");
 // module registers METHODS on f64/f32 and importing it here would be a cycle
 // for a two-predicate need.
 { isnan : _c_isnan, isinf : _c_isinf } :: import("../libc/math.yo");
-/// Trait for converting values to their `String` representation.
-/// Types implementing this trait can be used with `println`, `print`, and template strings.
-ToString :: trait(
-  /// Render `self` as the text a USER should read — Rust's `Display::fmt`,
-  /// not its `Debug`. Hand-written (or generated by `derive(Error)` from a
-  /// per-variant format string) whenever the structural form would be wrong.
-  to_string : (fn(self : &Self) -> String),
-  /// Append `self`'s `to_string()` rendering to `out`. A template string of
-  /// two or more parts lowers every interpolated part to this call, so each
-  /// part is written into the one result being built instead of being joined
-  /// with `+` (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D10). The default renders
-  /// through `to_string()`; `String` and `str` override it to append their
-  /// bytes by borrow, without the intermediate copy.
-  (append_to : (fn(self : &Self, out : &mut String) -> unit)) ?=
-    ((self, out) -> out.push_string(&self.to_string()))
+/// The sink a `Display` or `Debug` impl writes into: it owns the `String`
+/// being built. `Formatter.new()` starts empty, `finish()` hands the text back.
+///
+/// A template of two or more parts is one formatter: each literal part is a
+/// `write_str`, each interpolated part an `e.fmt(&mut f)`, and the template's
+/// value is `f.finish()`.
+Formatter :: struct(_out : String);
+impl(
+  Formatter,
+  /// An empty formatter. Allocates nothing until the first write.
+  new : (fn() -> Self)(Self(_out : String.new())),
+  /// A formatter that continues `out`: what is written is appended to it.
+  from : (fn(sink(out) : String) -> Self)(Self(_out : out)),
+  /// The text written so far, moved out.
+  finish : (fn(sink(self) : Self) -> String)(
+    match(
+      self,
+      Formatter(_out : o) => o
+    )
+  ),
+  /// Append the bytes of `s`.
+  write_str : (fn(self : &mut Self, s : &str) -> unit)(self._out.push_str(s)),
+  /// Append the UTF-8 encoding of `r`.
+  write_rune : (fn(self : &mut Self, r : rune) -> unit)(self._out.push_rune(r)),
+  /// Append `v`'s `Display` text.
+  write : (fn(generic(T : ?Sized), self : &mut Self, v : &T, where(T <: Display)) -> unit)(T.fmt(v, self)),
+  /// Append `v`'s `Debug` text.
+  write_debug : (fn(generic(T : ?Sized), self : &mut Self, v : &T, where(T <: Debug)) -> unit)(T.debug_fmt(v, self))
 );
-export(ToString);
-/// `Debug` — the STRUCTURAL render of a value (Rust's `std::fmt::Debug`), split
-/// from `ToString` by D15.
-///
-/// `derive(ToString)` used to emit the structural render, which is Rust's
-/// `Debug`, not Rust's `Display`. That conflation meant no error type could
-/// DERIVE its user-facing message — every std error enum hand-writes
-/// `to_string` — while also getting a structural dump for free.
-///
-/// Now the two are separate channels:
+export(Formatter);
+/// `"".formatter()` — a formatter that starts with these bytes. A template of
+/// two or more parts lowers to it: the lowering names only methods, so a
+/// template spliced into another module's scope needs no import.
+impl(
+  str,
+  formatter : (fn(self : &Self) -> Formatter)(Formatter(_out : String.from(self)))
+);
+/// Rendering a value as the text a USER should read: what `println`, `print`
+/// and `${...}` interpolation call.
+Display :: trait(
+  /// Write `self`'s user-facing text into `f`.
+  fmt : (fn(self : &Self, f : &mut Formatter) -> unit),
+  /// `self`'s text as a new `String`: a fresh `Formatter`, then `fmt`.
+  (to_string : (fn(self : &Self) -> String)) ?=
+    (
+      self -> {
+        mut(f) := Formatter.new();
+        self.fmt(&mut f);
+        f.finish()
+      }
+    ),
+  /// Append `self`'s text to `out`.
+  (append_to : (fn(self : &Self, out : &mut String) -> unit)) ?= ((self, out) -> out.push_string(&self.to_string()))
+);
+export(Display);
+/// The STRUCTURAL render of a value: type or variant name plus fields, the
+/// shape `derive(Debug)` emits. Meant for logs, assertion failures and
+/// inspection, never for text a user reads.
 ///
 /// ```yo
 /// MyError :: enum(NotFound(path : String));
-/// derive(MyError, Debug); // "MyError.NotFound(/tmp/x)"  — structural
-/// impl(MyError, ToString(...)); // "no such file: /tmp/x"      — user-facing
+/// derive(MyError, Debug); // "MyError.NotFound(/tmp/x)" — structural
 /// ```
 ///
-/// There is deliberately NO blanket `impl(T <: ToString) Debug for T`: it would
-/// give any type with a hand-written message a `debug_string` that returns that
-/// MESSAGE rather than a structural render, which is exactly the conflation
-/// D15 removes.
+/// There is deliberately NO blanket `impl(T <: Display) Debug for T`: it
+/// would give any type with a hand-written message a `debug_string` that
+/// returns that MESSAGE rather than a structural render.
 Debug :: trait(
-  /// Render `self` STRUCTURALLY — type or variant name plus fields, the shape
-  /// `derive(Debug)` emits. Meant for logs, assertion failures and
-  /// inspection, never for text a user reads.
-  debug_string : (fn(self : &Self) -> String)
+  /// Write `self`'s structural render into `f`.
+  debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit),
+  /// `self`'s structural render as a new `String`.
+  (debug_string : (fn(self : &Self) -> String)) ?=
+    (
+      self -> {
+        mut(f) := Formatter.new();
+        self.debug_fmt(&mut f);
+        f.finish()
+      }
+    )
 );
 export(Debug);
-/// The one shared body behind every numeric `ToString` impl (audit fmt row:
-/// dedupe the snprintf helpers). `fmt` is a `comptime_str` parameter, so it
-/// forwards into the extern call as a literal — no runtime conversion.
-/// 32 bytes covers every `%g`-family rendering (compact, exponent form).
+/// The one shared body behind every numeric `Display` impl. `fmt` is a
+/// `comptime_str` parameter, so it forwards into the extern call as a literal.
+/// 32 bytes covers every `%g`-family rendering (compact, exponent form) and
+/// every 64-bit integer; the digits go into `f` without a `String` of their own.
 _SNPRINTF_BUFFER_SIZE :: usize(32);
-_snprintf_to_string :: (fn(comptime(fmt) : comptime_str, comptime(T) : Type, v : &T) -> String)({
+_snprintf_into :: (fn(comptime(fmt) : comptime_str, comptime(T) : Type, v : &T, f : &mut Formatter) -> unit)({
   buffer := Array(u8, _SNPRINTF_BUFFER_SIZE).fill(0);
   buffer_ptr := addr_of(buffer(0));
-  unsafe(snprintf((*char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v.*));
-  String.from_cstr(buffer_ptr).unwrap()
+  n := unsafe(snprintf((*char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v.*));
+  len := cond(
+    (n < int(0)) => usize(0),
+    (usize(n) >= _SNPRINTF_BUFFER_SIZE) => (_SNPRINTF_BUFFER_SIZE - usize(1)),
+    true => usize(n)
+  );
+  f.write_str(str.from_raw_parts(buffer_ptr, len));
 });
-
-// === Helper function for integer conversion ===
-// Buffer size for integer to string conversion
-// i64 min is -9223372036854775808 (20 chars + null = 21)
-// u64 max is 18446744073709551615 (20 chars + null = 21)
-_INT_BUFFER_SIZE :: usize(24);
 // === Signed Integer Implementations ===
 impl(
   i8,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%hhd", i8, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%hhd", i8, self, f)))
 );
 impl(
   i16,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%hd", i16, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%hd", i16, self, f)))
 );
 impl(
   i32,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%d", i32, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%d", i32, self, f)))
 );
 impl(
   i64,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%lld", i64, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%lld", i64, self, f)))
 );
 impl(
   isize,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%zd", isize, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%zd", isize, self, f)))
 );
 // === Unsigned Integer Implementations ===
 impl(
   u8,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%hhu", u8, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%hhu", u8, self, f)))
 );
 impl(
   u16,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%hu", u16, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%hu", u16, self, f)))
 );
 impl(
   u32,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%u", u32, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%u", u32, self, f)))
 );
 impl(
   u64,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%llu", u64, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%llu", u64, self, f)))
 );
 impl(
   usize,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%zu", usize, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%zu", usize, self, f)))
 );
 // === Floating Point Implementations ===
 /// The platform-independent spelling of a non-finite double, or `.None` when
@@ -223,18 +232,15 @@ _non_finite_str :: (fn(v : f64) -> Option(&(str, static)))(
     true => Option(&(str, static)).None
   )
 );
-// Buffer size for float to string conversion
-// Scientific notation can be long, use generous buffer
-_FLOAT_BUFFER_SIZE :: usize(64);
 impl(
   f32,
   // %g: general format, trailing zeros removed (widened to f64 for varargs)
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(
       match(
         _non_finite_str(f64(self.*)),
-        .Some(t) => String.from(t),
-        .None => _snprintf_to_string("%g", f64, f64(self.*))
+        .Some(t) => f.write_str(t),
+        .None => _snprintf_into("%g", f64, f64(self.*), f)
       )
     )
   )
@@ -242,12 +248,12 @@ impl(
 impl(
   f64,
   // %g: general format, trailing zeros removed
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(
       match(
         _non_finite_str(self.*),
-        .Some(t) => String.from(t),
-        .None => _snprintf_to_string("%g", f64, self)
+        .Some(t) => f.write_str(t),
+        .None => _snprintf_into("%g", f64, self, f)
       )
     )
   )
@@ -255,88 +261,63 @@ impl(
 // === C-interop Integer Implementations (plans/archive/STD_API_AUDIT.md D3.8) ===
 impl(
   int,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%d", int, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%d", int, self, f)))
 );
 impl(
   uint,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%u", uint, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%u", uint, self, f)))
 );
 impl(
   short,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%hd", short, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%hd", short, self, f)))
 );
 impl(
   ushort,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%hu", ushort, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%hu", ushort, self, f)))
 );
 impl(
   long,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%ld", long, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%ld", long, self, f)))
 );
 impl(
   ulong,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%lu", ulong, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%lu", ulong, self, f)))
 );
 impl(
   longlong,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%lld", longlong, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%lld", longlong, self, f)))
 );
 impl(
   ulonglong,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      _snprintf_to_string("%llu", ulonglong, self)
-    )
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(_snprintf_into("%llu", ulonglong, self, f)))
 );
+// Buffer size for long double conversion: scientific notation can be long.
+_FLOAT_BUFFER_SIZE :: usize(64);
 impl(
   longdouble,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
       buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
       buffer_ptr := addr_of(buffer(0));
       // Use %Lg for general format (removes trailing zeros)
-      unsafe(snprintf((*char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%Lg", self.*));
-      String.from_cstr(buffer_ptr).unwrap()
+      n := unsafe(snprintf((*char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%Lg", self.*));
+      len := cond(
+        (n < int(0)) => usize(0),
+        (usize(n) >= _FLOAT_BUFFER_SIZE) => (_FLOAT_BUFFER_SIZE - usize(1)),
+        true => usize(n)
+      );
+      f.write_str(str.from_raw_parts(buffer_ptr, len));
     })
   )
 );
 // === Boolean Implementation ===
 impl(
   bool,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(
       cond(
-        self.* => String.from("true"),
-        true => String.from("false")
+        self.* => f.write_str("true"),
+        true => f.write_str("false")
       )
     )
   )
@@ -344,81 +325,87 @@ impl(
 // === Char Implementation ===
 impl(
   char,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
-      // char is a single byte, create a 2-byte buffer (char + null)
-      mut(buffer) := Array(u8, usize(2)).fill(0);
-      buffer(0) = u8(self.*);
-      buffer_ptr := addr_of(buffer(0));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+  // A C `char` is one byte, written as that byte; NUL writes nothing.
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(
+      cond(
+        (u8(self.*) == u8(0)) => (),
+        true => f._out.push_byte(u8(self.*))
+      )
+    )
   )
 );
-// === String Implementation (identity) ===
+// === String Implementation ===
 impl(
   String,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
-      // An owned result of a borrowed receiver is a copy (B8,
-      // plans/VALUES_BY_DEFAULT.md): `String` owns its buffer. String
-      // interpolation routes a `String` part through here only in a
-      // one-part template (`${s}`); in a longer one every part is appended
-      // by borrow through `append_to` (D10).
-      self.clone()
-    ),
-    // An interpolated `String` part is appended by borrow (D10).
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(f._out.push_string(self)),
+    // An owned result of a borrowed receiver is a copy (B8,
+    // plans/VALUES_BY_DEFAULT.md): `String` owns its buffer.
+    to_string : (fn(self : &Self) -> String)(self.clone()),
     append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_string(self))
   )
 );
 // === str Implementation ===
 impl(
   str,
-  ToString(
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(f.write_str(self)),
     // `String.from` and `push_str` take `&str` and copy the bytes.
     to_string : (fn(self : &Self) -> String)(String.from(self)),
     append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str(self))
   )
 );
 // === A shared reference ===
-/// `ToString` over a shared reference: a reference renders as its referent,
-/// so `${r}` and a generic `show(v : T)` at `T := &U` print the value, never
-/// an address. Both methods are forwarded, so a `&String` part is still
-/// appended by borrow. The bodies are the type-qualified calls, never
-/// `self.*.to_string()`, whose probe would select this impl again
-/// (VERDICTS-49).
+/// `Display` over a shared reference: a reference renders as its referent, so
+/// `${r}` and a generic `show(v : &T)` at `T := &U` print the value, never an
+/// address. Every method is forwarded, so a `&String` is still copied once by
+/// `to_string`. The bodies are the type-qualified calls, never
+/// `self.*.fmt(f)`, whose probe would select this impl again (VERDICTS-49).
 impl(
   generic(T : Type),
-  where(T <: ToString),
+  where(T <: Display),
   &T,
-  ToString(
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(T.fmt(self.*, f)),
     to_string : (fn(self : &Self) -> String)(T.to_string(self.*)),
     append_to : (fn(self : &Self, out : &mut String) -> unit)(T.append_to(self.*, out))
   )
 );
+/// `Debug` over a shared reference: the referent's structural render.
+impl(
+  generic(T : Type),
+  where(T <: Debug),
+  &T,
+  Debug(
+    debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(T.debug_fmt(self.*, f)),
+    debug_string : (fn(self : &Self) -> String)(T.debug_string(self.*))
+  )
+);
 // === Unit ===
-/// `()` prints as "()" — the last D3.8 primitive (plans/archive/STD_API_AUDIT.md).
-/// The `self : &mut Self` receiver of type unit is passed as a null pointer at the
-/// C level (see codegen _apply_ref_amp;
+/// `()` prints as "()". The `self : &Self` receiver of type unit is passed as
+/// a null pointer at the C level (see codegen _apply_ref_amp;
 /// issues/fixed/inout-unit-receiver-void-ref-spill.md).
 impl(
   unit,
-  ToString(
-    to_string : (fn(self : &Self) -> String)(String.from("()"))
-  )
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(f.write_str("()")))
 );
 // === rune Implementation ===
-// Convert Unicode code point to UTF-8 string
 impl(
   rune,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
-      // One shared encoder (std/encoding/utf8) instead of a seventh hand-rolled
-      // copy. `self.char` is a raw u32, so the lossy entry point is the right
-      // one — a `rune` built by hand around a surrogate stringifies as U+FFFD
-      // rather than emitting CESU-8.
+  // One shared encoder (std/encoding/utf8). `self.char` is a raw u32, so the
+  // lossy entry point is the right one: a `rune` built by hand around a
+  // surrogate renders as U+FFFD rather than emitting CESU-8.
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
       mut(out) := ArrayList(u8).with_capacity(usize(4));
       utf8.encode_lossy_into(self.char, &mut out);
-      String.from_bytes(out)
+      n := out.len();
+      (mut(i) : usize) = usize(0);
+      while(i < n, {
+        f._out.push_byte(out(i));
+        i = (i + usize(1));
+      });
     })
   )
 );
@@ -427,19 +414,18 @@ impl(
 /// `${opt}` in template strings compile.
 impl(
   generic(T : Type),
-  where(T <: ToString),
+  where(T <: Display),
   Option(T),
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(
       match(
         self,
         .Some(value) => {
-          mut(out) := String.from("Some(");
-          value.append_to(&mut out);
-          out.push_str(")");
-          out
+          f.write_str("Some(");
+          T.fmt(value, f);
+          f.write_str(")");
         },
-        .None => String.from("None")
+        .None => f.write_str("None")
       )
     )
   )
@@ -447,23 +433,21 @@ impl(
 /// `Result(T, E)` prints as `Ok(<value>)` / `Err(<error>)`.
 impl(
   generic(T : Type, E : Type),
-  where(T <: ToString, E <: ToString),
+  where(T <: Display, E <: Display),
   Result(T, E),
-  ToString(
-    to_string : (fn(self : &Self) -> String)(
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(
       match(
         self,
         .Ok(value) => {
-          mut(out) := String.from("Ok(");
-          value.append_to(&mut out);
-          out.push_str(")");
-          out
+          f.write_str("Ok(");
+          T.fmt(value, f);
+          f.write_str(")");
         },
         .Err(error) => {
-          mut(out) := String.from("Err(");
-          error.append_to(&mut out);
-          out.push_str(")");
-          out
+          f.write_str("Err(");
+          E.fmt(error, f);
+          f.write_str(")");
         }
       )
     )
@@ -473,215 +457,178 @@ impl(
 /// `ArrayList(T)` prints as `[a, b, c]`, so `println(list)` compiles.
 impl(
   generic(T : Type),
-  where(T <: ToString),
+  where(T <: Display),
   ArrayList(T),
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
-      mut(out) := String.from("[");
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+      f.write_str("[");
       (mut(i) : usize) = usize(0);
       n := self.len();
       while(i < n, {
         cond(
           (i > usize(0)) => {
-            out.push_str(", ");
+            f.write_str(", ");
           },
           true => ()
         );
-        self(i).append_to(&mut out);
+        T.fmt(&self(i), f);
         i = (i + usize(1));
       });
-      out.push_str("]");
-      out
+      f.write_str("]");
     })
   )
 );
 /// `Array(T, N)` prints as `[a, b, c]`.
 impl(
   generic(T : Type, N : usize),
-  where(T <: ToString),
+  where(T <: Display),
   Array(T, N),
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
-      mut(out) := String.from("[");
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)({
+      f.write_str("[");
       (mut(i) : usize) = usize(0);
       while(i < N, {
         cond(
           (i > usize(0)) => {
-            out.push_str(", ");
+            f.write_str(", ");
           },
           true => ()
         );
-        self(i).append_to(&mut out);
+        T.fmt(&self(i), f);
         i = (i + usize(1));
       });
-      out.push_str("]");
-      out
+      f.write_str("]");
     })
   )
 );
 /// The D12 parse errors live in `std/string` (below this module, so they
-/// cannot name `ToString` themselves); their renderings live here, the same
+/// cannot name `Display` themselves); their renderings live here, the same
 /// split `impl(String, Error())` uses one layer up.
 impl(
   ParseIntError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .Empty => String.from("cannot parse integer from empty string"),
-          .InvalidDigit => String.from("invalid digit found in string"),
-          .PosOverflow => String.from("number too large to fit in target type"),
-          .NegOverflow => String.from("number too small to fit in target type"),
-          .InvalidRadix => String.from("radix must be between 2 and 36")
-        )
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(
+      match(
+        self,
+        .Empty => f.write_str("cannot parse integer from empty string"),
+        .InvalidDigit => f.write_str("invalid digit found in string"),
+        .PosOverflow => f.write_str("number too large to fit in target type"),
+        .NegOverflow => f.write_str("number too small to fit in target type"),
+        .InvalidRadix => f.write_str("radix must be between 2 and 36")
+      )
     )
   )
 );
 impl(
   ParseFloatError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .Empty => String.from("cannot parse float from empty string"),
-          .Invalid => String.from("invalid float literal")
-        )
+  Display(
+    fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(
+      match(
+        self,
+        .Empty => f.write_str("cannot parse float from empty string"),
+        .Invalid => f.write_str("invalid float literal")
+      )
     )
   )
 );
-impl(ParseBoolError, ToString(to_string : (self -> String.from("provided string was not `true` or `false`"))));
+impl(
+  ParseBoolError,
+  Display(fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(f.write_str("provided string was not `true` or `false`")))
+);
 // ============================================================================
-// Debug for the primitives (D15) — structural and display coincide here.
+// Debug for the primitives: structural and display coincide here.
 // ============================================================================
 /// `Debug` for `i8` — a primitive renders the same either way.
 impl(
   i8,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `i16` — a primitive renders the same either way.
 impl(
   i16,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `i32` — a primitive renders the same either way.
 impl(
   i32,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `i64` — a primitive renders the same either way.
 impl(
   i64,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `u8` — a primitive renders the same either way.
 impl(
   u8,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `u16` — a primitive renders the same either way.
 impl(
   u16,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `u32` — a primitive renders the same either way.
 impl(
   u32,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `u64` — a primitive renders the same either way.
 impl(
   u64,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `usize` — a primitive renders the same either way.
 impl(
   usize,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `isize` — a primitive renders the same either way.
 impl(
   isize,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `f32` — a primitive renders the same either way.
 impl(
   f32,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `f64` — a primitive renders the same either way.
 impl(
   f64,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `bool` — a primitive renders the same either way.
 impl(
   bool,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `char` — a primitive renders the same either way.
 impl(
   char,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `rune` — a primitive renders the same either way.
 impl(
   rune,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `str` — a primitive renders the same either way.
 impl(
   str,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `String` — a primitive renders the same either way.
 impl(
   String,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
 /// `Debug` for `unit` — a primitive renders the same either way.
 impl(
   unit,
-  Debug(
-    debug_string : (fn(self : &Self) -> String)(self.to_string())
-  )
+  Debug(debug_fmt : (fn(self : &Self, f : &mut Formatter) -> unit)(self.fmt(f)))
 );
-// --- derive_rule for ToString ---
+// --- derive_rule for Debug ---
 // Local helpers (not exported from prelude, so defined locally)
 __ts_s2 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str) -> comptime(comptime_str))(a + b);
 __ts_s3 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str) -> comptime(comptime_str))(
@@ -706,71 +653,55 @@ __ts_fold_range :: (
     true => f(recur(n - usize(1), init, f), n - usize(1))
   )
 );
-// Helper: join string parts with + operator, left-to-right parenthesized
-__derive_join_plus :: (fn(comptime(parts) : comptime_str, comptime(new_part) : comptime_str) -> comptime(comptime_str))(
-  cond(
-    (parts == "") => new_part,
-    true => __ts_s5("(", parts, " + ", new_part, ")")
-  )
-);
-/// The structural render shared by `derive(Debug)` and the deprecated
-/// `derive(ToString)` (D15). Returns the BODY EXPRESSION as comptime source;
-/// the caller wraps it in whichever trait impl it wants. `m` is the method
-/// invoked on each field — `".debug_string()"` for Debug, `".to_string()"`
-/// for the legacy ToString rule.
+/// The `debug_fmt` body `derive(Debug)` emits, as comptime source:
+/// `TypeName(field1, field2, …)` for a struct, `TypeName.Variant(…)` for an
+/// enum, each field written through its own `Debug`.
 ///
 /// INVARIANT — the emitted source must contain NO free identifier.
 /// The caller splices it through `.to_expr()`, which re-parses it, so every
 /// name in it resolves in the DERIVING file's scope, not in this module's.
-/// This body therefore builds every literal as `"text".to_string()` — a `str`
-/// literal plus a method call, both resolved by type, never by scope. It used
-/// to emit `String.from("text")`, and any file deriving without `String` in
-/// scope silently got an `abort()` stub while `yo check` reported OK
-/// (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md).
-/// `self`, the `__v_*` arm bindings and the `.`-prefixed variant tags are the
-/// only other names, and all three are bound at the splice site.
+/// The body therefore calls only methods (`f.write_str`, each field's own
+/// `debug_fmt(f)`), with `str` literals, all resolved by type,
+/// never by scope (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md).
+/// `self`, `f`, the `__v_*` arm bindings and the `.`-prefixed variant tags are
+/// the only other names, and all are bound at the splice site.
 /// Regression test: tests/cli-cases/derive-render-without-string-import.
-__derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) -> comptime(comptime_str))({
+__derive_debug_body :: (fn(comptime(T) : Type) -> comptime(comptime_str))({
   type_name :: Type.to_comptime_string(T);
   info :: Type.get_info(T);
   cond(
     info.is_struct() => {
       fields :: Type.get_struct_fields(T);
-      fc :: fields.len();
       cond(
-        (fc == 0) => {
-          label :: __ts_s3("\"", type_name, "()\".to_string()");
-          label
-        },
+        (fields.len() == 0) => __ts_s3("f.write_str(\"", type_name, "()\")"),
         true => {
           body :: __ts_fold_range(
-            fc,
-            __ts_s3("\"", type_name, "(\".to_string()"),
+            fields.len(),
+            __ts_s3("{ f.write_str(\"", type_name, "(\");"),
             (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
               fname :: fields.get(fi).name;
               with_sep :: cond(
                 (fi == 0) => a,
-                true => __derive_join_plus(a, "\", \".to_string()")
+                true => __ts_s2(a, " f.write_str(\", \");")
               );
-              __derive_join_plus(with_sep, __ts_s4("self.", fname, m, ""))
+              __ts_s4(with_sep, " self.", fname, ".debug_fmt(f);")
             })
           );
-          full_body :: __derive_join_plus(body, "\")\".to_string()");
-          full_body
+          __ts_s2(body, " f.write_str(\")\") }")
         }
       )
     },
     info.is_enum() => {
       variants :: Type.get_enum_variants(T);
       vc :: variants.len();
-      ts_branches :: __ts_fold_range(
+      branches :: __ts_fold_range(
         vc,
         "",
         (fn(comptime(acc) : comptime_str, comptime(vi) : usize) -> comptime(comptime_str))({
           v :: variants.get(vi);
           branch :: cond(
             (v.fields.len() == 0) =>
-              __ts_s5(".", v.name, " => \"", type_name, __ts_s3(".", v.name, "\".to_string()")),
+              __ts_s5(".", v.name, " => f.write_str(\"", type_name, __ts_s3(".", v.name, "\")")),
             true => {
               bindings :: __ts_fold_range(
                 v.fields.len(),
@@ -785,17 +716,17 @@ __derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) 
               );
               body :: __ts_fold_range(
                 v.fields.len(),
-                __ts_s5("\"", type_name, ".", v.name, "(\".to_string()"),
+                __ts_s5("{ f.write_str(\"", type_name, ".", v.name, "(\");"),
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   with_sep :: cond(
                     (fi == 0) => a,
-                    true => __derive_join_plus(a, "\", \".to_string()")
+                    true => __ts_s2(a, " f.write_str(\", \");")
                   );
-                  __derive_join_plus(with_sep, __ts_s4("__v_", fname, m, ""))
+                  __ts_s4(with_sep, " __v_", fname, ".debug_fmt(f);")
                 })
               );
-              full_body :: __derive_join_plus(body, "\")\".to_string()");
+              full_body :: __ts_s2(body, " f.write_str(\")\") }");
               __ts_s4(".", v.name, __ts_s3("(", bindings, ") => "), full_body)
             }
           );
@@ -805,40 +736,21 @@ __derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) 
           )
         })
       );
-      match_body :: __ts_s3("match(self,\n    ", ts_branches, "\n  )");
-      match_body
+      __ts_s3("match(self,\n    ", branches, "\n  )")
     },
-    true => {
-      label :: __ts_s3("\"", type_name, "\".to_string()");
-      label
-    }
+    true => __ts_s3("f.write_str(\"", type_name, "\")")
   )
 });
-/// `derive(Debug)` — Rust's structural render, now its OWN trait (D15).
+/// `derive(Debug)` — the structural render, as a `debug_fmt` that writes each
+/// part into the formatter.
 __derive_debug :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
-  body :: __derive_structural_body(T, ".debug_string()");
+  body :: __derive_debug_body(T);
   ctx.make_impl(
     quote(
       Debug(
-        debug_string : (self -> unquote(body.to_expr()))
+        debug_fmt : ((self, f) -> unquote(body.to_expr()))
       )
     )
   )
 });
 derive_rule(Debug, __derive_debug);
-/// `derive(ToString)` — DEPRECATED (D15), kept for one release. It emits the
-/// same STRUCTURAL render, which is Rust's `Debug`, not Rust's `Display`: that
-/// conflation is why no error enum could derive its user-facing message and
-/// every std error enum hand-writes `to_string`. Use `derive(Debug)` for the
-/// structural form and hand-write `ToString` for the message.
-__derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
-  body :: __derive_structural_body(T, ".to_string()");
-  ctx.make_impl(
-    quote(
-      ToString(
-        to_string : (self -> unquote(body.to_expr()))
-      )
-    )
-  )
-});
-derive_rule(ToString, __derive_tostring);

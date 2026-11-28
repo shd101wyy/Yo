@@ -8,7 +8,7 @@
 // `exn.throw(dyn(make_err(...)))` double-dropped the payload (the pre-existing
 // stage-2 startup heap corruption). See
 // issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "done live=0".
-{ ToString, println } :: import("std/fmt");
+{ Display, println } :: import("std/fmt");
 { String } :: import("std/string");
 { Error, Exception } :: import("std/error");
 // A ref-struct error, counted when made and when dropped, built by a helper
@@ -27,7 +27,7 @@ impl(
 );
 impl(
   ErrObj,
-  ToString(to_string : (self -> self.msg.clone()))
+  Display(fmt : ((self, f) -> f.write(&self.msg)))
 );
 impl(ErrObj, Error());
 impl(

@@ -6,7 +6,7 @@ pragma(Pragma.SkipWasm32Wasi);
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Error, Exception, IoExn } :: import("std/error");
-{ ToString } :: import("std/fmt");
+{ Display } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { yield, timeout } :: import("std/async");
@@ -145,7 +145,7 @@ test("cancelling a task blocked on a channel releases it", {
 
 // issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md
 Boom :: struct(msg : String);
-impl(Boom, ToString(to_string : (self -> self.msg.clone())));
+impl(Boom, Display(fmt : ((self, f) -> f.write(&self.msg))));
 impl(Boom, Error());
 derive(Boom, Clone);
 _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
@@ -419,11 +419,7 @@ test("an index result passed to an async call in a task is released", {
 _SmErr :: struct(n : i32);
 impl(
   _SmErr,
-  ToString(
-    to_string : (fn(self : &Self) -> String)({
-      return(String.from("sm error"));
-    })
-  )
+  Display(fmt : ((self, f) -> f.write_str("sm error")))
 );
 impl(_SmErr, Error());
 impl(
