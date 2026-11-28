@@ -102,6 +102,13 @@ Hardening (branch `ci/release-tail-hardening`): bump moved to its own
 lever added, v0.2.14→v0.2.15 pins bumped manually via PR. Remaining USER
 ACTION: add the Workflows permission to `RELEASE_PAT`.
 
+## Seed-gated follow-up (2026-11-28): `derive(Clone)` and `derive(Hash)` drop their four `Deref` arms (VERDICTS-73 §4)
+
+Measured on `wip/v0281-derive-deref-arms` rebased onto develop d014c8bdd (F2, #2132): `yo build --std-path ./std` with the v0.2.80 seed fails with E0616 deriving `Clone` on `Regex` (`std/regex/index.yo:67`, a `self._group_names.clone()` on an `Rc(ArrayList(GroupNameEntry))` field). The error is raised by stage 1, which the seed compiles while it evaluates the tree's prelude, and the seed still carries decision 32's wrapper/payload clash rule; the tree compiler no longer does (`_reject_wrapper_payload_clash` has no caller after F2).
+
+- **Generation A (F2, #2132, v0.2.81):** the clash rule is not called; a `Deref` wrapper's members are not forwarded to its payload.
+- **Generation B:** the four `Type.impls(..., Deref)` arms leave `__derive_clone` and `__derive_hash` in `std/prelude.yo` (+2/-16), at `SEED_VERSION` >= v0.2.81. Parked on `wip/v0281-derive-deref-arms`, not reverted; it merges after the v0.2.81 seed bump.
+
 ## Seed-gated follow-up (2026-11-13): decision 49 S2's two prelude spellings the v0.2.77 seed cannot read
 
 Measured on the S2 draft (`vbd/d49-s2`) with the installed v0.2.77 seed,
