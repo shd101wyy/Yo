@@ -44,3 +44,14 @@ The working spelling today is `___dup(c)` (`tests/yo-cell.test.yo`, `tests/cell-
 ## Fix direction
 
 VERDICTS-70 row 12 settles how a raw cell is copied (it rewrites the `___dup(c)` spellings in `tests/yo-cell.test.yo` and `tests/fixtures/cell-handles.yo`). The help must then name that spelling. Either the cell gets the method the help names, or the help names the cell's own copy when the type has no `Clone`. The test for the fix is a `comptime_expect_error` row in `tests/yo-cell.test.yo` that matches the corrected help text.
+
+## Fix
+
+Fixed in VERDICTS-70 row 12 (`wip/v0281-dupdrop-r12`). Row 12 deletes `___dup`, so a raw cell's second handle is spelled the way the prelude's `Rc.clone` makes one: `consume(__yo_incr_rc((*void)(cell)))` retains the cell, and `__yo_rc_own(...)` makes the new handle own that count (`_cell_share` in `tests/yo-cell.test.yo`, the `TRc`/`TArc` `Clone` impls in `tests/fixtures/cell-handles.yo`).
+
+`move_only_help` now picks its text from the copy the type has:
+
+- a raw cell (`is_cell_primitive_type`) gets a note that names the retain and `__yo_rc_own`, and no `.clone()`;
+- any other explicit-copy type that is not `Clone` (`type_lacks_clone`), such as a struct over a raw cell, is told to give the type a `Clone` impl.
+
+The test is `E0901 on a moved cell names the copy it has, not a .clone()` in `tests/yo-cell.test.yo`.

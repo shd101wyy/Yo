@@ -158,7 +158,7 @@ guards it; `plans/archive/FMT_PAREN_ELISION.md`). Write the bare forms directly.
   `align_of` `type_id` `addr_of` `runtime` `unwind` `recur` `consume` `unsafe` `pragma` `asm` `global_asm`
   `macro_expand` `va_start` `comptime_assert` `comptime_fn` `comptime_print` `comptime_eval`
   `comptime_read_file` `comptime_json_parse` `comptime_toml_parse` `requires` `ensures` `invariant`
-  `decreases` `assumed` `___drop` `___dup` `dyn` `the` `as` `clone` `quote` `downcast` `upcast` `ref_count`
+  `decreases` `assumed` `___drop` `dyn` `the` `as` `clone` `quote` `downcast` `upcast` `ref_count`
   `begin` `tuple` `array` `mut` `__yo_cell` `__yo_atomic_cell`. `std/prelude.yo` is exempt.
 - **`__yo_` is the compiler's namespace** (VERDICTS-72): an `extern(...)` member of either ABI, or a
   `c_include(...)` member labelled with one, named `__yo_…` and declared outside the std tree is E0407;

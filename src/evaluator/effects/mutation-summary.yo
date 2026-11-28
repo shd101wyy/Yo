@@ -239,10 +239,10 @@ _ms_body_shares_first_param_cell :: (fn(fid : &String, body : &AstExpr) -> bool)
   tail := match(_ms_call_arg(body, usize(2)), .Some(b) => b, .None => return(false));
   // `cell := unsafe(unsafe.cast(<p0>, …))`
   cell_name := match(_ms_call_arg(&bind, usize(0)), .Some(c) => if(ast_expr_is_atom(&c), ast_expr_text(&c).*.clone(), return(false)), .None => return(false));
-  cast := match(_ms_call_arg(&bind, usize(1)), .Some(u) => if(ast_expr_is_fn_call_of(&u, "unsafe", Option(usize).Some(usize(1))), _ms_call_arg(&u, usize(0)), .None), .None => .None);
+  (cast : Option(AstExpr)) = match(_ms_call_arg(&bind, usize(1)), .Some(u) => if(ast_expr_is_fn_call_of(&u, "unsafe", Option(usize).Some(usize(1))), _ms_call_arg(&u, usize(0)), Option(AstExpr).None), .None => Option(AstExpr).None);
   cast_reads_p0 := match(cast, .Some(c) => match(_ms_call_arg(&c, usize(0)), .Some(a) => (ast_expr_is_atom(&a) && (ast_expr_text(&a).* == p0)), .None => false), .None => false);
   // `consume(__yo_incr_rc(...))` / `consume(__yo_incr_rc_atomic(...))`
-  count := match(_ms_call_arg(&incr, usize(0)), .Some(c) => if(ast_expr_is_fn_call_of(&incr, "consume", Option(usize).Some(usize(1))), Option(AstExpr).Some(c), .None), .None => .None);
+  (count : Option(AstExpr)) = match(_ms_call_arg(&incr, usize(0)), .Some(c) => if(ast_expr_is_fn_call_of(&incr, "consume", Option(usize).Some(usize(1))), Option(AstExpr).Some(c), Option(AstExpr).None), .None => Option(AstExpr).None);
   counts_once := match(count, .Some(c) => (ast_expr_is_fn_call_of(&c, "__yo_incr_rc", Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&c, "__yo_incr_rc_atomic", Option(usize).Some(usize(1)))), .None => false);
   ast_expr_is_fn_call_of(&bind, ":=", Option(usize).Some(usize(2))) && !cell_name.is_empty() && cast_reads_p0 && counts_once && ast_expr_is_fn_call_of(&tail, "__yo_rc_own", Option(usize).Some(usize(1)))
 });
