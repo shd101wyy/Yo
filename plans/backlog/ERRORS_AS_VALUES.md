@@ -12,16 +12,6 @@ verdicts and their probes are in the coordinator's directory
 `v95-probes/`, `v96-probes/`); the fact base is `origin/develop` `06c6306f3`
 and the released v0.2.80.
 
-Related: [`STD_RUST_ALIGNMENT`](STD_RUST_ALIGNMENT.md) (L-1, `try(expr)`, is
-E-1), [`ALLOCATION_FREE_ASYNC`](ALLOCATION_FREE_ASYNC.md) (AFA-3 ports no
-unwind; AFA-7 waits for E-5),
-[`IO_INTERFACE_AND_STD_RUNTIME`](IO_INTERFACE_AND_STD_RUNTIME.md) (`Io` as an
-interface value; the effect row, E-6),
-[`DEFAULT_ON_VERIFICATION`](DEFAULT_ON_VERIFICATION.md) (S5's exit paths are
-E-1v), [`SELF_VERIFICATION`](SELF_VERIFICATION.md) (lever L2 withdrawn),
-[`SPEC_AND_PROOF`](SPEC_AND_PROOF.md) (the false-proof rules F8 joins),
-[`POST_VBD_PLAN`](POST_VBD_PLAN.md) (the release map).
-
 ## Why `ctl` and `unwind` are removed
 
 The maintainer's three concerns (2026-11-28): the mechanism "introduces too
@@ -112,6 +102,16 @@ behind it.
    - L-1 showing that an early exit with live temporaries is as defect-prone as
      the unwind path was. `return` inside a `match` arm ships today, so this is
      not expected.
+
+Related: [`STD_RUST_ALIGNMENT`](STD_RUST_ALIGNMENT.md) (L-1, `try(expr)`, is
+E-1), [`ALLOCATION_FREE_ASYNC`](ALLOCATION_FREE_ASYNC.md) (AFA-3 ports no
+unwind; AFA-7 waits for E-5),
+[`IO_INTERFACE_AND_STD_RUNTIME`](IO_INTERFACE_AND_STD_RUNTIME.md) (`Io` as an
+interface value; the effect row, E-6),
+[`DEFAULT_ON_VERIFICATION`](DEFAULT_ON_VERIFICATION.md) (S5's exit paths are
+E-1v), [`SELF_VERIFICATION`](SELF_VERIFICATION.md) (lever L2 withdrawn),
+[`SPEC_AND_PROOF`](SPEC_AND_PROOF.md) (the false-proof rules F8 joins),
+[`POST_VBD_PLAN`](POST_VBD_PLAN.md) (the release map).
 
 ## 1. The target
 
@@ -278,8 +278,8 @@ converts; E-5 starts when they are 0 in `src/` and `std/`.
 
 | Item | Decision (VERDICTS-96 §5) |
 | --- | --- |
-| VERDICTS-89 PR A (E0627) | Merged in v0.2.81. It closes an S1 in shipped compilers by rejecting programs, is evaluator-only and emit-identical, and files the `-> never` issues and the parked question. It moves `issues/2026-11-25-a-generic-ctl-handler-that-resumes-with-its-resume-value-loses-it-at-a-non-scalar-resume-type.md` to `issues/fixed/` |
-| VERDICTS-89 PR B (no fall-through) | Merged after the v0.2.81 cut only if its Tier 1 is green as it stands; otherwise the branch is closed. No further work goes into it |
+| VERDICTS-89 PR A (E0627) | Merge in v0.2.81. It closes an S1 in shipped compilers by rejecting programs, is evaluator-only and emit-identical, and files the `-> never` issues and the parked question. It moves `issues/2026-11-25-a-generic-ctl-handler-that-resumes-with-its-resume-value-loses-it-at-a-non-scalar-resume-type.md` to `issues/fixed/` |
+| VERDICTS-89 PR B (no fall-through) | Merge after the v0.2.81 cut only if its Tier 1 is green as it stands; otherwise the branch is closed. No further work goes into it |
 | F1–F7 | Not fixed. Each doc says so and moves to `issues/retired/` with E-5. A census finds no statement in `src/` or `std/` that can reach F1, F4 or F5; F2, F3 and F6 need a program that moves a handler out of its frame. A user program on v0.2.81–85 can still meet F1 or F5, and the roadmap withholds the soundness claim while an S1 is open |
 | F8 | Fixed in v0.2.82 as a contract fix (E-0b) |
 | F9 | Fixed by E-1v |
