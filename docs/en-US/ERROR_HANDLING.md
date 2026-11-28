@@ -1,8 +1,8 @@
 # Error Handling
 
 How a Yo program reports and handles failure: `Result` values, the `Error`
-trait and `AnyError`, and the `Exception` and `ResumableException` effects.
-Effects in general are in [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md); the
+trait and `AnyError`, and the `Exception` and `ResumableException` handlers.
+Handlers in general are in [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md); the
 runtime aborts (overflow, out-of-bounds) are in
 [SYNTAX.md](./SYNTAX.md#arithmetic-and-failure-semantics).
 
@@ -11,7 +11,7 @@ runtime aborts (overflow, out-of-bounds) are in
 Yo provides two approaches to error handling:
 
 1. **Result ADT** — explicit `Result(T, E)` values with pattern matching
-2. **Exception / ResumableException** — algebraic effects for exception-like control flow
+2. **Exception / ResumableException** — handlers passed as parameters, for exception-like control flow
 
 ## Result Type
 

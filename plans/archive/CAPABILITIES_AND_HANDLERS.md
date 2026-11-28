@@ -1,5 +1,14 @@
 # Capabilities and handlers: keep `ctl` and `unwind`, make them correct, then make handlers real
 
+> **Archived 2026-11-28: superseded by VERDICTS-96 (Fable 5.2) before anything
+> in it was built.** The maintainer adopted VERDICTS-96 the same day: `ctl` and
+> `unwind` are deleted and errors are values. The plan of record is
+> [`ERRORS_AS_VALUES`](../backlog/ERRORS_AS_VALUES.md). None of the K-items is
+> built, and the seven findings of §3 are retired with the mechanism at E-5.
+> §5 (handlers on frames, T1–T9) is the record a generators question starts
+> from (`issues/questions/2026-11-28-generators-on-frames.md`). The text below
+> is frozen as it stood on 2026-11-28.
+
 **Status: BACKLOG — decided 2026-11-28 by VERDICTS-95 (Fable 5.2) and adopted
 under the maintainer's rule of the same day: "If Fable still suggests we delete
 ctl/unwind then lets just plan to delete them, and lets stop fixing their bugs.
@@ -11,15 +20,15 @@ built. The seven findings of the two verdicts are filed with this plan (§3).**
 The fact base is `origin/develop` `c1f2221be` and the installed v0.2.80; the
 verdicts' probes are in the coordinator's `v94-probes/` and `v95-probes/`.
 
-Related: [`ALLOCATION_FREE_ASYNC`](ALLOCATION_FREE_ASYNC.md) (the frame
+Related: [`ALLOCATION_FREE_ASYNC`](../backlog/ALLOCATION_FREE_ASYNC.md) (the frame
 protocol the real handlers reuse; AFA-3 carries K-8),
-[`STD_RUST_ALIGNMENT`](STD_RUST_ALIGNMENT.md) (L-1, `try(expr)`, is E-1),
-[`IO_INTERFACE_AND_STD_RUNTIME`](IO_INTERFACE_AND_STD_RUNTIME.md) (`Io` as an
-interface value; the effect row), [`REFERENCES_AND_ORIGINS`](REFERENCES_AND_ORIGINS.md)
+[`STD_RUST_ALIGNMENT`](../backlog/STD_RUST_ALIGNMENT.md) (L-1, `try(expr)`, is E-1),
+[`IO_INTERFACE_AND_STD_RUNTIME`](../backlog/IO_INTERFACE_AND_STD_RUNTIME.md) (`Io` as an
+interface value; the effect row), [`REFERENCES_AND_ORIGINS`](../backlog/REFERENCES_AND_ORIGINS.md)
 (O3, O4, O5, O10, which K-7 applies to handlers),
-[`BORROW_CHECKER_COMPLETENESS`](BORROW_CHECKER_COMPLETENESS.md) (P4,
-second-class closures), [`SELF_VERIFICATION`](SELF_VERIFICATION.md) (lever L2,
-which is K-12), [`POST_VBD_PLAN`](POST_VBD_PLAN.md) (lanes and release map).
+[`BORROW_CHECKER_COMPLETENESS`](../backlog/BORROW_CHECKER_COMPLETENESS.md) (P4,
+second-class closures), [`SELF_VERIFICATION`](../backlog/SELF_VERIFICATION.md) (lever L2,
+which is K-12), [`POST_VBD_PLAN`](../backlog/POST_VBD_PLAN.md) (lanes and release map).
 VERDICTS-89 (the generic-resume rule, PR A and PR B) is upstream of K-5.
 
 ## 1. The decision and why
@@ -76,7 +85,7 @@ reading the code (S up to two days, M up to a week, L one to two weeks).
 
 | # | What | Closes | Size | Release | Depends on |
 | --- | --- | --- | --- | --- | --- |
-| — | VERDICTS-89 PR A (the resume rule R1, R2's `return` half) and PR B (R2's fall-through half and its sweep) | `issues/2026-11-25-a-generic-ctl-handler-that-resumes-with-its-resume-value-loses-it-at-a-non-scalar-resume-type.md` (S1); the fall-through abort | S; S–M | v0.2.81; v0.2.81–82 | — (unchanged by this plan) |
+| — | VERDICTS-89 PR A (the resume rule R1, R2's `return` half) and PR B (R2's fall-through half and its sweep) | `issues/fixed/2026-11-25-a-generic-ctl-handler-cannot-resume-with-a-value-at-any-type.md` (S1); the fall-through abort | S; S–M | v0.2.81; v0.2.81–82 | — (unchanged by this plan) |
 | **K-1** | A synchronous frame catches an unwind only when `__yo_unwind_target` is one of its own handler literals (`unwind_catch_condition` over `context.unwind_catches`, as `await.yo` does). `_call_is_handler_installation` is deleted | F1 (S1), F4 (S2) | M | v0.2.82 | — |
 | **K-2** | A frame saves the in-flight unwind's value and target before it runs drops on an escape path and restores them after, wherever it re-arms the flag today | F5 (S1); the docs' "do not unwind from a `Drop` impl" caveat | M | v0.2.82 | VBD row 14 (implicit drop deleted) |
 | **K-3** | A `ctl` value is not an `fn`; a closure at a `ctl` slot is an error; a control-bound value cannot be written through a `&mut` (F6's stopgap). A call through a plain function value never unwinds, so the may-unwind decision is exact | F3, F2, F6; a hello-world's 26 flag tests go to 0 | M | v0.2.82 | — |
@@ -297,12 +306,12 @@ item that is not ready slides to the next row.
 6. **The open `issues/questions/` docs** are answered by this plan, as
    VERDICTS-95 §3.1 maps them, and each is closed by the PR that implements its
    answer:
-   - `issues/questions/2026-10-14-effect-operation-contracts.md`: operation
+   - `issues/retired/2026-10-14-effect-operation-contracts.md`: operation
      contracts, VERDICTS-95 §2.6;
-   - `issues/questions/by-value-effect-rows-with-ctl-carrying-handlers.md`: K-7;
+   - `issues/retired/by-value-effect-rows-with-ctl-carrying-handlers.md`: K-7;
    - `issues/questions/with-lock-and-with-permit-cannot-see-an-unwind.md`: H-2's
      code after the resume;
-   - `issues/questions/2026-10-23-should-a-test-whose-unwind-escaped-the-body-fail.md`:
+   - `issues/retired/2026-10-23-should-a-test-whose-unwind-escaped-the-body-fail.md`:
      yes.
 7. **Verification of handlers.** A `handle` expression, a clause with `k` and a
    generator need a protocol specification (Dafny's `iterator`, Hazel in Iris)

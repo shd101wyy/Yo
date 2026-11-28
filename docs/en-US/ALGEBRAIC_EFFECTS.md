@@ -1,11 +1,16 @@
-# Algebraic Effects and Handlers
+# Handlers: `ctl` and `unwind`
 
 ## Overview
 
-Yo supports **algebraic effects** — one-shot delimited continuations
-for control flow. Effects are regular function parameters whose
-handler bodies may use `unwind(value)` to discard the continuation, or
-`return(value)` to resume it.
+Yo's capabilities are explicit: a function that can fail or perform I/O
+takes the capability as a parameter, and its caller passes it by name. A
+**handler** is a function passed as such a parameter; its type is a
+control function, `ctl(args) -> ret`. Inside a handler, `return(value)`
+answers the call, and the caller continues with `value`.
+`unwind(value)` ends the function that built the handler, with `value`
+as that function's result. No continuation is captured: a handler runs
+as an ordinary call, and an unwind returns through the frames between
+the handler and the function that built it.
 
 The code generation strategy is **evidence passing** — handler
 function pointers are passed as extra C parameters.
@@ -16,7 +21,7 @@ function pointers are passed as extra C parameters.
 | ---------------------- | -------------------------------------------------------- |
 | Explicit parameters    | Every fn parameter is passed at every call site          |
 | Evidence passing       | Handler fn pointers as C params                          |
-| One-shot continuations | `return` resumes, `unwind` discards                      |
+| Answer or exit         | `return` answers the call, `unwind` ends the installer   |
 | Handler type           | `ctl(args) -> ret` parallel to `fn(args) -> ret`         |
 | Escape discipline      | Type-level check via `type_is_control_bound`                |
 | Effect polymorphism    | `generic(E : Type.Struct)` + `e : E`                     |

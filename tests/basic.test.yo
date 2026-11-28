@@ -1434,14 +1434,13 @@ test("Test 'match'", {
         (w * h)
     )
   );
-  // Bare `.Variant` (and `.Variant({})`) is allowed even for variants WITH
-  // fields: it matches the variant and binds none of its fields.
+  // `.Variant(..)` matches a variant WITH fields whatever its payload and
+  // binds none of its fields; `.Variant(_, _)` is the exact form.
   shape_kind :: (fn(shape : Shape) -> i32)(
     match(
       shape,
-      .Circle => 0,
-      // bind nothing
-      .Rectangle({}) => 1 // empty-curly: bind nothing
+      .Circle(..) => 0,
+      .Rectangle(_, _) => 1
     )
   );
   assert(shape_kind(Shape.Circle(3)) == 0);

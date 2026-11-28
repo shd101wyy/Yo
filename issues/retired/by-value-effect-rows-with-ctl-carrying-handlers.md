@@ -5,6 +5,8 @@ while landing the effect-rows-by-value flip on the marker-sweep PR
 (`tests/algebraic_effects.test.yo`, the `Yield :: (ctl(v : i32) -> i32)`
 family around line 1017).
 
+**Status:** RETIRED 2026-11-28 — moot: VERDICTS-96 deletes `ctl` and `unwind` ([`plans/backlog/ERRORS_AS_VALUES.md`](../../plans/backlog/ERRORS_AS_VALUES.md), E-5), so no row carries a `ctl` handler. Whether a future keeps an effect row at all is E-6, `issues/questions/2026-11-28-does-future-keep-an-effect-row.md`.
+
 ## The situation
 
 The maintainer ruled (2026-10-11): effect records go by value — the prelude's

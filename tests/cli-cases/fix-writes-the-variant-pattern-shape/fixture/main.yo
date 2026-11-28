@@ -1,0 +1,9 @@
+Shape :: enum(Circle(r : i32), Rect(w : i32, h : i32), Empty);
+Point :: struct(x : i32, y : i32);
+kind :: (fn(s : &Shape) -> i32)(
+  match(s, .Circle => i32(1), .Rect() => i32(2), .Empty(..) => i32(3))
+);
+width :: (fn(s : &Shape) -> i32)(match(s, .Rect(w, ..) => w.*, _ => i32(0)));
+first :: (fn(t : Tuple(i32, i32, i32)) -> i32)(match(t, (1, ..) => i32(1), _ => i32(0)));
+on_axis :: (fn(p : Point) -> bool)(match(p, Point(x : 0, ..) => true, _ => false));
+export(kind, width, first, on_axis);

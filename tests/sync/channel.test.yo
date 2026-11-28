@@ -661,3 +661,41 @@ test("Sender implements Send and Clone, Receiver implements Send", {
   assert_send(Receiver(i32));
   assert_clone(Sender(i32));
 });
+// The queue is freed with its LAST handle, and its `Drop` releases each value
+// still queued exactly once (the values a receive moved out are the
+// receiver's to drop).
+(mut(g_queued_dropped) : i32) = i32(0);
+_Queued :: struct(n : i32);
+impl(
+  _Queued,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_queued_dropped = (g_queued_dropped + i32(1));
+    })
+  )
+);
+test("dropping the last handle drops every value still queued, once", {
+  before := g_queued_dropped;
+  ch := Channel(_Queued).new(usize(4));
+  other := ch.clone();
+  assert(ch.send(_Queued(n : i32(1))).is_ok(), "queued 1");
+  assert(ch.send(_Queued(n : i32(2))).is_ok(), "queued 2");
+  assert(other.send(_Queued(n : i32(3))).is_ok(), "queued 3");
+  drop(ch);
+  assert(g_queued_dropped == before, "a handle is left, so the queue and its values live on");
+  drop(other);
+  assert(g_queued_dropped == (before + i32(3)), "the last handle's drop released all three");
+});
+test("a value received out is not dropped again with the queue", {
+  before := g_queued_dropped;
+  ch := Channel(_Queued).new(usize(4));
+  assert(ch.send(_Queued(n : i32(1))).is_ok(), "queued 1");
+  assert(ch.send(_Queued(n : i32(2))).is_ok(), "queued 2");
+  assert(ch.send(_Queued(n : i32(3))).is_ok(), "queued 3");
+  first := ch.recv();
+  assert(g_queued_dropped == before, "receiving drops nothing");
+  drop(first);
+  assert(g_queued_dropped == (before + i32(1)), "the receiver dropped its one value");
+  drop(ch);
+  assert(g_queued_dropped == (before + i32(3)), "the queue dropped the two still queued, no more");
+});

@@ -70,4 +70,4 @@ Tests: `tests/borrow-spelling.test.yo`, "a lend to a method's by-value reference
 
 - The static (UFCS) form `Option(&i32).replace(&mut islot, &y)` is still rejected with E0601 ("Expected `&i32`,
   given `i32`"): the Yo-callee (`FuncVal`) arm of `evaluate_function_call` peels the marker but has no T9 typing.
-  Filed as `issues/2026-11-23-a-lend-to-a-by-value-reference-parameter-in-a-static-method-call-is-e0601.md`.
+  Filed as `issues/fixed/2026-11-23-a-lend-to-a-by-value-reference-parameter-in-a-static-method-call-is-e0601.md`.

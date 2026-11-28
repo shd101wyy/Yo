@@ -1,7 +1,7 @@
 # 错误处理
 
 Yo 程序如何报告与处理失败：`Result` 值、`Error` trait 与 `AnyError`，以及
-`Exception` 与 `ResumableException` 效应。效应的一般说明见
+`Exception` 与 `ResumableException` 处理器。处理器的一般说明见
 [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md)；运行时中止（溢出、越界）见
 [SYNTAX.md](./SYNTAX.md#算术与失败语义)。
 
@@ -10,7 +10,7 @@ Yo 程序如何报告与处理失败：`Result` 值、`Error` trait 与 `AnyErro
 Yo 提供了两种错误处理方式：
 
 1. **Result ADT** — 使用模式匹配的显式 `Result(T, E)` 值
-2. **Exception / ResumableException** — 基于代数效应的异常式控制流
+2. **Exception / ResumableException** — 作为参数传入的处理器，用于异常式控制流
 
 ## Result 类型
 
