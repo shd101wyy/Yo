@@ -1,0 +1,16 @@
+// F8 (VERDICTS-96 probe v11): an early `return(...)` that breaks the `ensures` is not checked at run time.
+{ println } :: import("std/fmt");
+
+clamp_early :: (
+  fn(x : i32, ensures(r <= i32(10))) -> (r : i32)
+)({
+  if(x > i32(10), {
+    return(i32(99));
+  });
+  x
+});
+
+main :: (fn() -> unit)({
+  println(`clamp_early(50) = ${clamp_early(i32(50))} (the contract says <= 10)`);
+});
+export(main);

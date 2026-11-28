@@ -81,8 +81,9 @@ value: unchanged; `&mut` and reference handles: may change); add
 `modifies(...)` only as a narrowing clause; and require every `assumed()`
 contract to be explicit about each reference-typed parameter it does not
 change, so the trusted base carries no convention. Decide together with
-`issues/questions/2026-10-14-effect-operation-contracts.md`, which relies
-on the purity frame rule staying as it is for effect operations.
+`issues/retired/2026-10-14-effect-operation-contracts.md`, which relied
+on the purity frame rule staying as it is for effect operations (retired
+2026-11-28: VERDICTS-96 deletes the operations).
 
 ## Update (2026-10-23): the convention now covers only checked frames
 

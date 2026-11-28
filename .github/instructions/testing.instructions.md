@@ -811,6 +811,10 @@ every `.yo` file you create or modify; `yo fmt --check <file>` verifies. Gate wi
   `LIBUV_CFLAGS`/`LIBUV_LIBS` without pkg-config) are informational. Take medians (`REPS=7`) on a shared
   box. On WSL2 loopback TCP costs ~300 µs per round trip for every runtime: socketpair rows measure the
   runtime, TCP rows the kernel.
+- Async lowering cost: `YO=$(which yo) YO_STD=$PWD/std bash scripts/bench-async-chain.sh` prints user-space
+  instructions per iteration (perf, else callgrind) for a two-await await chain, `select`, `timeout`,
+  spawn + join and a channel round trip (`scripts/bench/async-chain.yo`, `BENCH_MODE`/`BENCH_COUNT`). A
+  count, so it is stable on a shared box; the plan's baseline table is `plans/backlog/ALLOCATION_FREE_ASYNC.md` §5.
 - Nothing in the Linux pipeline links liburing (the ring layer is vendored).
 
 ## macOS async-runtime testing and prototyping

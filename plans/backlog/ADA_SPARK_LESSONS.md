@@ -150,7 +150,7 @@ type_invariant(Span, _span_ok); // proved at exits of public fns returning Span 
 - Coded warnings, lint tables, GNATcheck: Rust T2 settles it (`RUST_ADOPTION_CANDIDATES.md:333-344`).
 - ACATS-style traceability: `tests/internal/diagnostics_registry_examples.test.yo` already does it.
 - Structural variants and Always_Terminates: F8 and D12.
-- Exceptional_Cases: `issues/questions/2026-10-14-effect-operation-contracts.md`.
+- Exceptional_Cases: `issues/retired/2026-10-14-effect-operation-contracts.md`.
 - Floats, Relaxed_Initialization, Abstract_State: non-goals (`FORMAL_VERIFICATION.md:115`).
 - MC/DC and DO-333 credit: Yo has no certification goal.
 - Alire-style index, per-function SPARK_Mode: not needed for a single user; Yo decided on per-file modes (MEMORY_SAFETY Q10).
