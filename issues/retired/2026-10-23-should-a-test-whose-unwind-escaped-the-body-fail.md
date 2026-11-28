@@ -2,7 +2,9 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** open. Filed 2026-10-23 while fixing
+**Status:** RETIRED 2026-11-28 — moot: VERDICTS-96 deletes `unwind` ([`plans/backlog/ERRORS_AS_VALUES.md`](../../plans/backlog/ERRORS_AS_VALUES.md), E-5). With errors as values a test fails through its result or a panic, and no unwind can escape a test body.
+
+**Filed:** 2026-10-23 while fixing
 `issues/fixed/2026-10-23-an-unwind-through-a-method-call-is-not-caught-by-the-frame-that-installed-the-handler.md`.
 
 ## The question

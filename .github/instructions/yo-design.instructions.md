@@ -189,7 +189,7 @@ register_module :: (fn(comptime(config) : ModuleConfig) -> comptime(unit))({
 });
 ```
 
-## Algebraic effects
+## Handlers (`ctl`, `unwind`)
 
 The core rule (`return(expr)` in a handler resumes, `unwind(expr)` discards the continuation) is in AGENTS.md. Design: `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
@@ -433,6 +433,8 @@ Decided in `plans/archive/STD_API_AUDIT.md` D1. When you add or change a fallibl
 | I/O, and anything on the `io` path (fs, net, http, process) | **effects** — `exn : Exception` / `IoExn` |
 | pure fallible transforms: parsing, decoding, conversion | **`Result(T, TypedError)`** |
 | lookups where absence is not an error | **`Option(T)`** |
+
+**No new `exn` parameter and no new `ctl` type in `std/` or `src/`; a new fallible API returns `Result(T, TypedError)` on any path, the `io` path included.** `ctl` and `unwind` are being deleted and errors become values (`plans/backlog/ERRORS_AS_VALUES.md`): std's `io` path moves to `Result` at E-3 (v0.2.84) and `src/` at E-4. The effects row of the table describes the existing `io` API until then; it is not a style for new code.
 
 Rules that follow from it:
 

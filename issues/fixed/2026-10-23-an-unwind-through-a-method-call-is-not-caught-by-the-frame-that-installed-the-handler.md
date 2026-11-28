@@ -144,4 +144,4 @@ result, so a failing shape yields its leaked value (1..9) instead of
 101..109. The test fails with the v0.2.68 seed (exit 6) and passes with the
 fix. The
 batch-boundary clearing is raised in
-`issues/questions/2026-10-23-should-a-test-whose-unwind-escaped-the-body-fail.md`.
+`issues/retired/2026-10-23-should-a-test-whose-unwind-escaped-the-body-fail.md`.
