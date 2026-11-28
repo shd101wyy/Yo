@@ -155,11 +155,10 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
             line.push_str(";");
             context.base.emitter.emit_string_line(&line);
             // Deferred drops on the recur node — flushed AFTER the call is
-            // emitted (aliasing Stage 0 attaches the balancing drop of a
-            // projection-arg dup here; flushing BEFORE the call freed the
-            // argument the recursion was about to consume — the stage-2
-            // dup-for-value UAF, gmalloc-traced: clone at +5276, freed at
-            // +5320, consumed at +5340). Expression-level flush: skip
+            // emitted (flushing BEFORE the call freed an argument the
+            // recursion was about to consume — the stage-2 dup-for-value UAF,
+            // gmalloc-traced: clone at +5276, freed at +5320, consumed at
+            // +5340). Expression-level flush: skip
             // param-targeted drops (drop-dup.yo _drop_target_is_parameter).
             generate_call_deferred_drops(expr, indent.clone(), context, true);
             // Escape propagation (see generate_recur's doc comment): drops

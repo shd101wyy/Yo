@@ -319,6 +319,8 @@ Out-of-language measurement (extract the case to a standalone `.yo` with `main` 
 - **Errors in `test(...)` bodies are swallowed unless `--test-bodies` is passed**
   (`src/evaluator/exprs/test.yo`). Gate an edited `*.test.yo` with `yo check <file> --test-bodies`
   (its trial has known false positives: it takes a different generic-inference path than the real batch).
+  A tree-wide sweep or oracle that runs `check` over test files needs `--test-bodies` too, one file per
+  call: without it, every site inside a `test(...)` body is skipped.
 
 ### The incremental loop: `check --watch`, `build --watch`, chunks, in-process tests
 
@@ -512,6 +514,11 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
   `YO=<binary> bash scripts/origins-unsound.sh` inside the nix shell (clang on `PATH`). A negative that
   passes `check` is compiled under ASan and run; every positive twin must run ASan-clean. `SHARD=i/n` runs
   one stripe of the byte-sorted program list (CI runs four).
+- **A change to what `check` accepts gates the whole corpus with the binary built from its final head.**
+  A sweep or delta gate that runs only the programs each merge changed, or that runs an older binary,
+  misses a program that reached develop in between: that is how a G-B row broke develop after VERDICTS-73
+  F2 (#2136). Re-run `origins-corpus.sh today`, `origins-unsound.sh` and `model-corpus` over every program
+  after the last develop merge.
 - G-D, the generator: `YO=<binary> python3 -I scripts/origins-gen.py` renders borrow programs (families
   `slot`, `args`, `valpos`, `join`) plus rustc twins and minimizes each use-after-free or rustc
   disagreement into `tests/origins/gen-findings/`. `YO_GEN_SEED=<n>` replays, `--sig <signature>` runs

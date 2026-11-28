@@ -21,7 +21,7 @@ string_binding_named_like_capture :: (fn(o : &Option(String), io : Io) -> Impl(F
     r := match(
       &owned_o,
       .Some(x) => {
-        e.io.await(sleep(u64(1)), e.io);
+        e.io.await(sleep(u64(1), e.io), e.io);
         x.len()
       },
       .None => usize(0)
@@ -42,12 +42,12 @@ scalar_binding_named_like_capture :: (fn(o : Option(usize), io : Io) -> Impl(Fut
     r := match(
       o,
       .Some(n) => {
-        e.io.await(sleep(u64(1)), e.io);
+        e.io.await(sleep(u64(1), e.io), e.io);
         n * usize(10)
       },
       .None => usize(0)
     );
-    e.io.await(sleep(u64(1)), e.io);
+    e.io.await(sleep(u64(1), e.io), e.io);
     return(before + r + n);
   })
 });
@@ -64,7 +64,7 @@ nested_closure_param_named_like_capture :: (fn(io : Io) -> Impl(Future(usize, Io
   x := usize(7);
   io.async(e => {
     a := x;
-    e.io.await(sleep(u64(1)), e.io);
+    e.io.await(sleep(u64(1), e.io), e.io);
     (f : Impl(Fn(x : usize) -> usize)) = (x => (x + usize(100)));
     return(a + f(usize(1)));
   })
@@ -79,7 +79,7 @@ alias_reassigned_from_block_local :: (fn(io : Io) -> Impl(Future(usize, IoExn)))
   };
   s := String.from("cdefgh");
   io.async(e => {
-    e.io.await(sleep(u64(1)), e.io);
+    e.io.await(sleep(u64(1), e.io), e.io);
     return((sb.len() * usize(10)) + s.len());
   })
 });

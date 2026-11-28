@@ -13,7 +13,7 @@
 //!
 //! // The waiter: create the park, hand its waker to whoever will signal,
 //! // then suspend. Nothing may await between those three steps.
-//! p := Park.new();
+//! p := Park.new(io);
 //! waiters.push(p.waker());
 //! io.await(p.wait(io), io);
 //!
@@ -48,10 +48,8 @@
 //! on, and the one `std/async`'s combinators will move to when they become
 //! futures (phase A1 of `plans/archive/ASYNC_IO_API_AUDIT.md`).
 pragma(Pragma.AllowUnsafe);
-{ IoFuture } :: import("../sys/future.yo");
+IO_future :: import("../sys/future.yo");
 {
-  __yo_async_park_start,
-  __yo_async_yield_start,
   __yo_waker_new,
   __yo_waker_clone,
   __yo_waker_wake,
@@ -142,8 +140,8 @@ Park :: struct(
 );
 impl(
   Park,
-  /// A fresh, unwoken park.
-  new : (fn() -> Self)(Self(_future : unsafe(__yo_async_park_start()))),
+  /// A fresh, unwoken park on `io`'s loop.
+  new : (fn(io : Io) -> Self)(Self(_future : IO_future.park(io))),
   /// A token that will resume whoever is waiting on this park. Call it before
   /// `wait`, and as many times as there are signallers.
   waker : (fn(self : &Self) -> Waker)(
@@ -165,7 +163,7 @@ impl(
 /// itself.
 park :: (fn(register : &Impl(Fn(w : Waker) -> unit), io : Io) -> Impl(Future(unit, Io)))(
   io.async({ register : &register.* }(io : Io) => {
-    p := Park.new();
+    p := Park.new(io);
     register(p.waker());
     io.await(p.wait(io), io);
     ()
@@ -192,7 +190,7 @@ park :: (fn(register : &Impl(Fn(w : Waker) -> unit), io : Io) -> Impl(Future(uni
 /// (issues/fixed/build-smoke-hangs-registry-perturbation.md).
 yield_now :: (fn(io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
-    _r := io.await(unsafe(__yo_async_yield_start()), io);
+    _r := io.await(IO_future.yield(io), io);
     ()
   })
 );

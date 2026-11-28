@@ -337,7 +337,7 @@ Element access is split in two, as in Rust.
 - **Read-only elements.** A type that implements `Index` without `IndexMut` has read-only elements, and a write through `x(i)` is a compile error naming the missing `IndexMut`.
 - **A writable receiver.** `index_mut` takes `self : &mut Self`, so writing `x(i)` through a read-only borrow of `x` (a `x : &T` parameter) is E0908.
 - **One `Output`.** `Index` and `IndexMut` of the same index type must agree on `Output`.
-- **`Deref` and `DerefMut` are chosen the same way.** `w.*` on an owner (`Array(T, N)`, a user type over a `[T]`) is the place its `deref` projection yields, and every write through it calls `deref_mut` instead; a type with `Deref` and no `DerefMut` has a read-only `.*` ([Auto-dereference](#auto-dereference)).
+- **`Deref` and `DerefMut` are chosen the same way.** `w.*` on an owner (`Array(T, N)`, a user type over a `[T]`) is the place its `deref` projection yields, and every write through it calls `deref_mut` instead; a type with `Deref` and no `DerefMut` has a read-only `.*` ([Dereference](#dereference)).
 
 #### Projections
 
@@ -627,7 +627,7 @@ match(
 );
 ```
 
-## Auto-dereference
+## Dereference
 
 The prelude's `Deref` trait names the place `w.*` stands for, and
 `DerefMut` is its write half:
@@ -642,50 +642,100 @@ while a write, a `&mut` lend, a `self : &mut Self` receiver and `addr_of` call
 `deref_mut`. A type with `Deref` and no `DerefMut` has a read-only `.*`, and
 the two impls share one `Target`.
 
+`x.*` is the only dereference: a reference's referent, a raw pointer's
+pointee, a handle's payload, an owner's `deref` view. `Deref` and `DerefMut`
+define `.*` and nothing else. Three rules name the implicit steps that stay:
+
+- **Reference transparency.** `.` reaches what the receiver's own type names.
+  `&T` and `&mut T` are transparent for it — they name no members, and no
+  impl can give them any — so a field read, a method call and an index call
+  read through any number of them without `.*`, in every receiver form: a
+  binding, a field, a call result, a temporary. Every user-defined
+  indirection — a `Deref`/`DerefMut` type, a raw pointer, an owner —
+  requires the written `.*` (E0623 below). A whole-value read, borrow or
+  write of a reference still spells `.*` (E0926) for a named binding, and no
+  coercion turns `&&T` into `&T`.
+- **Receiver auto-borrow.** A method receiver follows its slot's declared
+  mode: `x.m(...)` passes `x` to `self` as the impl declares it — a by-value
+  receiver consumes (or copies, `Copy`), a `&Self` slot lends `x` read-only
+  for the call, and a `&mut Self` slot lends it exclusively until the call
+  returns. A receiver that is itself a reference value needs no borrow: the
+  reference is the slot's value. The written form `(&x).m(...)` /
+  `(&mut x).m(...)` means the same call. The declared mode is the contract;
+  `yo context <type> <method>` prints it.
+- **Twin selection by written context.** `x.*` and `x(i)` in a read position
+  dispatch `deref` / `index`; the mut twin is selected exactly when the
+  written syntax sends a write or an exclusive lend through the place — an
+  assignment target, a `&mut` argument or receiver, `addr_of` — and by
+  nothing else. The twins share one `Target` / `Output`, and a type with
+  only the read twin is read-only (E0908).
+
 `Box`, `Rc` and `Arc` are **handles**: `w.*` is the payload their pointer
 names, read natively, and their `deref` is `&self.*.*`. `Rc` and `Arc` have
-no `DerefMut`, because their payload is read-only through the handle. On a
-`Deref` type, a field or method the wrapper does not have is looked up on the
-payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
+no `DerefMut`, because their payload is read-only through the handle. A
+payload member is written with one star per layer:
 
 ```yo
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
 p := Rc.new(Point(x : 3, y : 4));
-assert(p.x == 3); // p.*.x
-assert(p.norm1() == 7); // p.*.norm1()
+assert(p.*.x == 3);
+assert(p.*.norm1() == 7);
+assert(p.*.norm1() == 7);
 pp := Rc.new(Rc.new(Point(x : 1, y : 2)));
-assert(pp.y == 2); // nested wrappers: pp.*.*.y
+assert(pp.*.*.y == 2); // one star per handle
+assert(pp.*.*.y == 2); // one star per handle
 mut(b) := Box.new(Point(x : 3, y : 4));
-b.x = 5; // a place: writes b.*.x — only Box has DerefMut
-assert(b.norm1() == 9);
+b.*.x = 5; // a place: only Box has DerefMut
+assert(b.*.norm1() == 9);
 ```
 
-- **A name both have is an error (E0616).** `Point` derives `Clone` and so
-  does `Rc`, so `p.clone()` could mean either. Write `Rc.clone(p)` for the
-  `Rc`'s own `clone` (a new `Rc`) or `p.*.clone()` for the payload's (a
-  `Point`); `yo fix` rewrites the call to `Rc.clone(p)`. A name only one of
-  them has needs no choice, and `p.*` is always the payload itself. A call
-  inside a generic body, `x.clone()` under `where(T <: Clone)`, is the
-  bound's method even when `T` is an `Rc`.
-- **Places.** On a `Box`, a forwarded field is a place: `b.x = v` and a
-  `&mut self` call such as `b.items.push(v)` write the payload. Through an
+- **A payload member read with `.` alone is error E0623.** Its help spells
+  the whole chain (`pp.*.*.y`, `x.*.*.value`), and `yo fix` inserts the
+  stars:
+
+  ```yo expect=E0623
+  Point :: struct(x : i32, y : i32);
+  impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
+  main :: (fn() -> unit)({
+    p := Rc.new(Point(x : 3, y : 4));
+    n := p.norm1();
+  });
+  export(main);
+  ```
+
+  ```text
+  error[E0623]: `p` has type `Rc(Point)`, which has no member "norm1"; its payload `Point` has one. `.` does not read through a handle.
+  help: write `p.*.norm1(...)`: `p.*` names the payload (`yo fix` applies this)
+  ```
+
+  When no type in the chain has the name, the error says so:
+  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
+  field "z" either.`` (E0406; E0610 for a method).
+- **`w.clone()` is the handle's own `clone`**, in and out of a generic body:
+  a second handle for `Rc` and `Arc`, a new cell for `Box`. `Rc.clone(w)` is
+  the same call, and `w.*.clone()` is the payload's.
+- **Callee position.** `h.*.items(i)` indexes the payload's `items`, and
+  `h.*.f(x)` calls a payload field that holds a function.
+- **A reference to a handle takes two stars.** `x : &Box(Node)`, such as a
+  `for(&xs, x => …)` element or a `match(&self.next, .Some(b) => …)`
+  binding, reaches the payload as `x.*.*.value`: the first star is the
+  reference's, the second the handle's. The idiomatic forms are the `Box(n)`
+  pattern (`.Some(Box(n)) => n.total()`) and `x.as_ref().value`.
+- **Raw pointers.** `q.*.x` reads a field of the pointee of `q : *P` in
+  unsafe code; `q.add(1)` is the pointer's own method.
+- **Places.** On a `Box`, a payload member is a place: `b.*.x = v` and a
+  `&mut self` call such as `b.*.items.push(v)` write the payload. Through an
   `Rc` the same spellings are E0919 (below): an `Rc` has no `DerefMut`, so
   its payload is read-only through the handle. In a file without
   `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is likewise
-  rejected (`a.n = v`, `a.bump()` with `self : &mut Self`): mutate an
+  rejected (`a.*.n = v`, `a.*.bump()` with `self : &mut Self`): mutate an
   `Arc`'s payload through a `Mutex` or an atomic.
 - **Outside the prelude, `Deref` needs an unsized `Target`.** A `Deref` or
   `DerefMut` impl outside the prelude is accepted when its `Target` is
   `[T]`, `str`, a `Dyn(...)` or a tail-unsized struct. A sized `Target` and
   an open type variable are error E0622: a wrapper over a sized payload
   exposes it through its own fields and methods.
-- When neither the wrapper nor its payload has the name, the error says so:
-  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
-  field "z" either.`` (E0406; E0610 for a method).
-- **Callee position.** `p.items(i)` indexes the payload's `items`, and
-  `p.f(x)` calls a payload field that holds a function. A wrapper method
-  and a payload field of the same name are the same E0616.
 - **The whole payload as a reference: `as_ref`.** `Rc`, `Box` and `Arc`
   have `as_ref : (fn(self : &Self) -> &T)`, Rust's name: `h.as_ref()` lends
   the payload where a `&T` is wanted, such as an argument to a `&T`
@@ -710,9 +760,10 @@ main :: (fn() -> unit)({
   mut(r) := Ring(items : Array(i32, 3)(1, 2, 3));
   v := &r.*; // r.deref(): a view rooted at r
   assert(count(v) == usize(3));
-  assert(r.len() == usize(30)); // the owner's own len
+  assert(r.len() == usize(30)); // Ring's len
+  assert(r.len() == usize(30)); // Ring's len
   assert(r.*.len() == usize(3)); // the view's
-  assert(!r.is_empty()); // only the view has it: r.*.is_empty()
+  assert(!r.*.is_empty()); // a member only the view has
   w := &mut r.*; // r.deref_mut(): exclusive while w lives
   assert(count(w) == usize(3));
 });
@@ -722,10 +773,11 @@ export(main);
 - `&w.*` is `w.deref()`, `&mut w.*` is `w.deref_mut()`, and anywhere else
   `w.*` is that call's place. The view borrows the owner, so while it is
   live the owner cannot be written, moved or lent `&mut` (E0911).
-- **The owner's own member wins.** A member only the view has is reached
-  through `.*`; a member the owner has is the owner's, so `r.len()` above is
-  `Ring`'s and `r.*.len()` the view's. Adding a member to an owner therefore re-resolves calls that reached
-  the view's member of that name.
+- `r.len()` above is `Ring`'s and `r.*.len()` the view's. `r.is_empty()` is
+  E0623: only the view has `is_empty`, and `r.*` names the view.
 - **Nothing else dereferences.** A `&Ring` does not fill a `&[i32]`
   parameter: `count(&r)` is E0601, whose help names `count(&r.*)`. An
-  operator operand is never dereferenced either.
+  operator operand is never dereferenced (`h.* + 1`). Indexing and iteration
+  are not either: `h(i)` on `h : Rc(ArrayList(T))` is E0606, whose help
+  names `h.*(i)`, and `for(&h, …)` is E0623, whose help names
+  `for(&h.*, …)`.

@@ -405,15 +405,19 @@ export(main);
 ## Sharing: Box, Rc, Arc, Weak, RefCell, std/sync
 
 - `Box(T)` is a unique heap cell (`Option(Box(Self))`). `Rc(T)` (one thread) and `Arc(T)` (threads) share one cell; a second handle
-  is `Rc.clone(&h)`. Members forward (`h.x`, `h.len()`; `h.*` is the
-  payload), which is read-only (E0919): mutate through `RefCell(T)` (`with`,
-  `with_mut`), `Rc.make_mut(&mut h)` or `Rc.get_mut(&mut h)`.
+  is `h.clone()` (`Rc.clone(&h)`). `h.*` is the payload: `.` never reads
+  through a handle, so a payload member is `h.*.x` / `h.*.len()` (`h.x` is
+  E0623, whose `yo fix` repair inserts the star), and a `&Box(T)` binding
+  takes two stars, `b.*.*.x`. The payload is read-only (E0919): mutate
+  through `RefCell(T)` (`h.*.with`, `h.*.with_mut`), `Rc.make_mut(&mut h)` or
+  `Rc.get_mut(&mut h)`.
 - A cycle of strong handles leaks; put a `Weak` on the back edge
   (`Rc.downgrade(&h)`, `w.upgrade()`).
 - `Mutex(T)`, `RwLock(T)`, `WaitGroup`, the `Atomic*` types and the other
   `std/sync` types are move-only values. Share one across threads as
   `Arc(Mutex(T))`: give each thread its own `Arc.clone(&a)`, captured by
-  value. `RefCell` is single-threaded.
+  value; `a.*` names the `Mutex` (`a.*.with_lock(v => ...)`). `RefCell` is
+  single-threaded.
 - `Dyn(Trait)` lives behind `Box`, `Rc` or `&`: `dyn(Box.new(v))`.
 
 ```yo
@@ -425,20 +429,20 @@ export(main);
 main :: (fn() -> unit)({
   shared := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(&shared); // a second handle to the same cell
-  other.with_mut(v => {
+  other.*.with_mut(v => {
     v.* = (v.* + i32(1)); // written through the RefCell door
   });
-  seen := shared.with(v => v.*);
+  seen := shared.*.with(v => v.*);
 
   total := Arc.new(Mutex(i32).new(i32(0)));
   mine := Arc.clone(&total); // the spawned thread's own handle
   t := Thread(unit).spawn({ mine }(io : Io) => {
-    mine.with_lock(v => {
+    mine.*.with_lock(v => {
       v.* = (v.* + i32(1));
     });
   });
   t.join();
-  assert((seen == i32(1)) && (total.with_lock(v => v.*) == i32(1)), "shared");
+  assert((seen == i32(1)) && (total.*.with_lock(v => v.*) == i32(1)), "shared");
 });
 export(main);
 ```
@@ -473,6 +477,11 @@ export(main);
 
 - std's exception effect: `exn := Exception(throw : (e -> unwind(.None)));`
   catches what `exn.throw(dyn(Box.new(err)))` raises (`std/error`).
+- A `ctl` type parameter may only be the whole result,
+  `ctl(generic(R : Type), ps) -> R` (as `Exception.throw`): the operation does
+  not resume, and a `return(...)` in its handler (`return(())` too) is E0627.
+  To resume with a value, fix the type when the record is built
+  (`comptime(R)` on its constructor, as `ResumableException(T)` does).
 - Async runs on ONE event-loop thread per thread and a task never migrates:
   async state needs no mutexes or atomics (blocking work goes to
   `spawn_blocking`). `io.async((io : Io) => body)` builds a lazy future that
@@ -483,6 +492,14 @@ export(main);
   async `Mutex` and channels too); a bundled future viewed as `Future(T)` is
   E0605. `Dyn(Future(...))` is E0614: keep different tasks as
   `ArrayList(JoinHandle(T))` (`io.spawn` each; `join_all`, `race`).
+- `io : Io` is a value, the event loop as `{ ctx, vtable }` (like
+  `Allocator`): `main`, a `Thread` and a pool task are handed their thread's
+  native one, a task body sees the one in its bundle. Everything that suspends
+  or submits takes it (`File.open`, `sleep`, `Park.new(io)`, `watch(p, opts,
+  io, exn)`, every `std/sys` operation as its last argument:
+  `io.await(IO_file.read(fd, buf, n, off, io), io)`); blocking calls do not
+  (`println`, `Instant.now`). Pass `io` on, never build one: `Io.native()`
+  needs `pragma(Pragma.AllowUnsafe)`.
 
 ```yo
 { assert } :: import("std/assert");

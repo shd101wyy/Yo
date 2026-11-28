@@ -1,10 +1,9 @@
-// expect: accept
-// guard-off: DIRTY heap-use-after-free
+// expect: DIRTY heap-use-after-free
 // A user newtype over a cell (`TRc`, tests/fixtures/cell-handles.yo) as a list
 // element: a receiver reached through it, and a `&` argument through it,
 // outlive a closure that empties the list through the fixture's unchecked
-// second name (`talias`/`tclear`, unsafe-capable code). The guard's +1 on the
-// handle is what keeps the cell alive (tests/cell-handles.test.yo). A `&`
+// second name (`talias`/`tclear`, unsafe-capable code, outside claim (S)).
+// Nothing keeps the cell alive: no count is taken for a lend. A `&`
 // parameter is a copy of the caller's value, so the probe reads the payload's
 // heap buffer (`s`), which the cell's destruction frees.
 { String } :: import("std/string");

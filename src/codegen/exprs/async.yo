@@ -57,7 +57,7 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await-analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid, is_fnonce_capture_struct } :: import("../../function-value.yo");
-{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_consumed_variable_drop_expressions, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup, is_call_scoped_share_dup, emitted_block_statements } :: import("../../expr-info.yo");
+{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_consumed_variable_drop_expressions, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, emitted_block_statements } :: import("../../expr-info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -1667,6 +1667,7 @@ generate_async_block_constructor :: (
   context.base.emitter.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
   emit_text5 := `  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
   context.base.emitter.emit_string_line(&emit_text5);
+  context.base.emitter.emit_string_line(`  __YO_ASYNC_STAT(__YO_AS_SM_CELLS);`);
   context.base.emitter.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
   context.base.emitter.emit_string_line(`  ${struct_name.clone()}_init_move_flags((struct ${struct_name.clone()}_struct*)sm);`);
   context.base.emitter.emit_line("");
@@ -1766,11 +1767,10 @@ _sm_capture_moved_out :: (fn(sm_code : &String, context : &mut FunctionGeneratio
 /// Every field's reference is taken exactly once
 /// (issues/fixed/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md):
 /// - a capture list's by-value entry is a field store the evaluator already
-///   decided (`set_expr_as_needs_to_call_dup`): a copy carries its own deferred
-///   dup, a move carries none and consumes its source. Its field is settled by
-///   its initializer.
+///   decided (`transfer_value_into`): a move consumes its source, a copy is
+///   bitwise. Its field is settled by its initializer.
 /// - an implicit capture that is not implicitly copyable was MOVED by the
-///   evaluator (`generate_captured_variable_dup_expressions`: no dup, the
+///   evaluator (`transfer_captured_variables`: no dup, the
 ///   variable is consumed and never dropped), so retaining it leaked the value
 ///   once per capture. Unless the evaluator gave it a dup anyway (a caller-owned
 ///   `sink` closure parameter), it takes no retain.
@@ -2537,27 +2537,6 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
   });
   tail
 });
-/// Does `arg` carry a share taken for this call: the one a by-value parameter
-/// takes of it (`is_by_value_param_share_dup`), or Aliasing Stage 0's
-/// caller-owned +1 of a borrowed projection or of an argument a `&mut`
-/// argument of the same call aliases (`is_call_scoped_share_dup`; its
-/// post-call drop is the call's)? Its other deferred dups are not emitted in
-/// a state machine: the slot moves with the task.
-_fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)({
-  ei := match(context.base.get_expr_info(arg), .Some(e) => e, .None => return(false));
-  dl := match(expr_info_deferred_dup_expressions(&ei), .Some(d) => d, .None => return(false));
-  (mut(i) : usize) = usize(0);
-  while(i < dl.len(), i = (i + usize(1)), {
-    match(
-      dl.get_cloned(i),
-      .Some(d) => if(is_by_value_param_share_dup(ast_expr_id(&d)) || is_call_scoped_share_dup(ast_expr_id(&d)), {
-        return(true);
-      }),
-      .None => ()
-    );
-  });
-  false
-});
 /// The caller's scope at a fused site, set aside while the wrapper is emitted.
 _CallerScope :: struct(
   shadowed : Option(HashSet(String)),
@@ -2634,6 +2613,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
     .None => ()
   );
   context.base.emitter.emit_string_line(`${indent}// fused await (plans/reference/ASYNC_AWAIT_SITE_FUSION.md): the wrapper runs here`);
+  context.base.emitter.emit_string_line(`${indent}__YO_ASYNC_STAT(__YO_AS_FUSED_AWAITS);`);
   // Or a C local, declared outside the site's block, when no suspension
   // separates the await from its statement's use of the value.
   (mut(outer_local) : String) = String.from("");
@@ -2651,14 +2631,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
       .None => ()
     )
   );
-  // 1. The call's arguments, evaluated in the caller as the call would. A
-  // by-value parameter is the wrapper's to drop, so an argument carrying
-  // that parameter's share takes it here, on its own spelling, as a call in
-  // a state machine does (`_materialize_arg`, other-fn-call.yo)
-  // (issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md);
-  // so does an argument carrying a call-scoped share, which the call's own
-  // drops below release
-  // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
+  // 1. The call's arguments, evaluated in the caller as the call would.
   rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(&cei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   mut(arg_codes) := ArrayList(String).new();
   // Each argument is sequenced against the later ones (`sequence_operand`,
@@ -2672,8 +2645,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
       rargs.get_cloned(ai),
       .Some(a) => {
         code := _call_generate_expr(&a, indent.clone(), context);
-        owned := if(_fused_arg_carries_call_share(&a, context), emit_deferred_dup_or_code(&a, &code, indent, context), code);
-        arg_codes.push(sequence_operand(&a, owned, &rargs, ai, match(fused_abi_ptr.get(ai), .Some(r) => r, .None => false), indent, context));
+        arg_codes.push(sequence_operand(&a, code, &rargs, ai, match(fused_abi_ptr.get(ai), .Some(r) => r, .None => false), indent, context));
       },
       .None => ()
     );
@@ -4314,6 +4286,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &mut context.base);
   emit_text11 := `${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
   context.base.emitter.emit_string_line(&emit_text11);
+  context.base.emitter.emit_string_line(`${indent.clone()}__YO_ASYNC_STAT(__YO_AS_SYNC_CELLS);`);
   context.base.emitter.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
   context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u;`);
   tid := context.base.dispose_type_id_for(dispose_function_name.clone());

@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory-safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, lend_place_reference_type, local_borrows_active, loans_active, local_borrow_place_of, access_place, LocalBorrowAccess, local_borrow_place_text, local_borrow_require_writable, local_borrow_root_is_shared_reference, legacy_box_dyn_lend } :: import("../utils.yo");
+{ transfer_value_into, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, lend_place_reference_type, local_borrows_active, loans_active, local_borrow_place_of, access_place, LocalBorrowAccess, local_borrow_place_text, local_borrow_require_writable, local_borrow_root_is_shared_reference, legacy_box_dyn_lend } :: import("../utils.yo");
 { shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
@@ -440,7 +440,7 @@ try_to_call_type_with_arguments :: (
     // copied, so no dup
     // (issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md).
     if(!t9_field_is_reference, {
-      set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
+      transfer_value_into(&evaluated_arg, ctx, exn, "field-store");
     });
     env_adopt(&env, &arg_info.env());
     // Convert comptime type → runtime type unless the field type is comptime-only.

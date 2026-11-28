@@ -9784,8 +9784,8 @@ impl(
 export(Result);
 /// Rc — a heap-allocated, reference-counted cell for a single value: the
 /// shared, counted cell's name under plans/VALUES_BY_DEFAULT.md (§3.2,
-/// decision 1). Copying a handle shares one heap value and bumps its count,
-/// as with Rust's `Rc<T>`; `w.*` names the payload, and `w.field` /
+/// decision 1). Cloning a handle (`Rc.clone(h)`) shares one heap value and
+/// bumps its count, as with Rust's `Rc<T>`; `w.*` names the payload, and `w.field` /
 /// `w.method()` reach it through auto-dereference (`Deref`).
 ///
 /// `Rc(V)` is the canonical shared cell (V1 step 1, Generation B): the one
@@ -13328,29 +13328,142 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
 impl(generic(T : Type), JoinHandle(T), !Send());
 impl(generic(T : Type), JoinHandle(T), !Sync());
 export(JoinHandle);
-/// Io module — the async runtime effect.
-///
-/// Provides `io.async`, `io.await`, `io.spawn`, and `io.state` operations.
-/// Automatically injected into `main` when declared with `io : Io`.
-Io :: struct(
-  /// Create a `Future` from an async closure. The effect row goes by value
-  /// (#1312's rule: `io : Io`, `e : E`, never `&`; the generic rows kept the
-  /// borrow until 2026-10-11).
-  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
-  /// Await a `Future`, suspending until its result is ready.
-  await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  /// Inspect the current state of a `Future` without blocking.
-  state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
-  /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
-  spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+/// The opaque C type behind `IoFuture`: an operation's future, laid out like
+/// an async state machine (`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md`
+/// §3).
+extern(
+  "Yo",
+  __yo_io_future_t : Type
 );
-// Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
-// is per-thread (per AGENTS.md). Sending Io across a thread boundary would
-// reference a scheduler on the wrong thread.
-// `Io` is plain data (four `fn` values), so it is `Copy`: decision 36's flip
-// makes every plain-data type without `Copy` explicit-copy. Its derived
-// `Clone` calls `.clone()` on `fn` fields, which the structural clone
-// resolves (it needed a seed carrying #1269).
+export(__yo_io_future_t);
+/// A pending (or already finished) I/O operation, resolved with `io.await`.
+///
+/// `Impl(Concrete(__yo_io_future_t), Future(i32))`: an opaque C struct laid
+/// out like an async state machine, so `await` reads its `state` and `result`
+/// the same way it reads a Yo `async` block's. `state` 0 means still in
+/// flight, `-1` already completed (the common case on macOS and Windows,
+/// where most file operations run synchronously and are handed back finished)
+/// and `-2` aborted.
+///
+/// It resolves to a raw `i32`: a non-negative syscall result (an fd, a byte
+/// count, or 0) or a NEGATIVE errno, on every platform (the Windows runtime
+/// maps Winsock's codes to errno). `sys/dns` resolves to its own `DNS_ERR_*`
+/// codes. `io.state` reads an in-flight operation as `Running`: it was
+/// submitted when it was created, so it is never `Cold`. The operations that
+/// make one are the `IoVTable` entries, reached through `std/sys`.
+///
+/// The memory given to an operation (a buffer, an address or its length)
+/// must stay valid until its future is terminal. Dropping a pending
+/// `IoFuture` releases the handle but does not cancel the operation: it keeps
+/// running and may still write into that memory. So a started operation is
+/// awaited before the memory it was given goes away, and std above `std/sys`
+/// awaits every operation where it is made.
+IoFuture :: Impl(Concrete(__yo_io_future_t), Future(i32));
+export(IoFuture);
+/// The operations behind an `Io`: an immortal table of functions, each
+/// taking the `Io`'s `ctx` first (`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md`
+/// §2). `std/sys` is the one caller: every operation there takes `io` and
+/// calls `io.vtable.*.<op>(io.ctx, …)`. The native table is the compiler's
+/// (`Io.native()`); the entries below are the ones it fills.
+///
+/// The executor entries take a task's future prefix pointer (§3): `spawn`
+/// starts a cold future as a task on this loop, `run_until` drives this loop
+/// until the future is terminal (an await from a sync context). Both only
+/// forward the pointer: they never read, retain or free the task themselves.
+IoVTable :: struct(
+  // Executor
+  /// Start a cold future as a task on this loop.
+  spawn : (fn(ctx : ?*void, fut : *void) -> unit),
+  /// Drive this loop until `fut` is terminal: an await from `main` or a plain
+  /// function.
+  run_until : (fn(ctx : ?*void, fut : *void) -> unit),
+  /// The loop's monotonic clock, in nanoseconds.
+  now : (fn(ctx : ?*void) -> u64),
+  /// A timer that resolves after `milliseconds`.
+  sleep : (fn(ctx : ?*void, milliseconds : u64) -> IoFuture),
+  /// A future only a `Waker` completes (`std/async/waker`).
+  park : (fn(ctx : ?*void) -> IoFuture),
+  /// A future completed by the loop's next ready-task drain: one turn of the
+  /// loop, with an I/O poll in between.
+  yield : (fn(ctx : ?*void) -> IoFuture),
+  // Files
+  openat : (fn(ctx : ?*void, dirfd : i32, path : *u8, flags : i32, mode : i32) -> IoFuture),
+  read : (fn(ctx : ?*void, fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture),
+  write : (fn(ctx : ?*void, fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture),
+  close : (fn(ctx : ?*void, fd : i32) -> IoFuture),
+  statx : (fn(ctx : ?*void, dirfd : i32, path : *u8, flags : i32, mask : u32, statxbuf : *u8) -> IoFuture),
+  fsync : (fn(ctx : ?*void, fd : i32) -> IoFuture),
+  fdatasync : (fn(ctx : ?*void, fd : i32) -> IoFuture),
+  ftruncate : (fn(ctx : ?*void, fd : i32, length : i64) -> IoFuture),
+  // Directories
+  mkdirat : (fn(ctx : ?*void, dirfd : i32, path : *u8, mode : i32) -> IoFuture),
+  unlinkat : (fn(ctx : ?*void, dirfd : i32, path : *u8, flags : i32) -> IoFuture),
+  renameat : (fn(ctx : ?*void, olddirfd : i32, oldpath : *u8, newdirfd : i32, newpath : *u8) -> IoFuture),
+  symlinkat : (fn(ctx : ?*void, target : *u8, newdirfd : i32, linkpath : *u8) -> IoFuture),
+  linkat : (fn(ctx : ?*void, olddirfd : i32, oldpath : *u8, newdirfd : i32, newpath : *u8, flags : i32) -> IoFuture),
+  getdents : (fn(ctx : ?*void, fd : i32, buf : *u8, buf_size : u32) -> IoFuture),
+  scandir : (fn(ctx : ?*void, dirfd : i32, path : *u8) -> IoFuture),
+  opendir : (fn(ctx : ?*void, path : *u8) -> IoFuture),
+  readdir : (fn(ctx : ?*void, dir : *u8, entries : *u8, max_entries : usize) -> IoFuture),
+  closedir : (fn(ctx : ?*void, dir : *u8) -> IoFuture),
+  // Sockets
+  socket : (fn(ctx : ?*void, domain : i32, sock_type : i32, protocol : i32) -> IoFuture),
+  bind : (fn(ctx : ?*void, sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture),
+  listen : (fn(ctx : ?*void, sockfd : i32, backlog : i32) -> IoFuture),
+  accept : (fn(ctx : ?*void, sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture),
+  connect : (fn(ctx : ?*void, sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture),
+  send : (fn(ctx : ?*void, sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture),
+  stream_write : (fn(ctx : ?*void, sockfd : i32, buf : *u8, len : usize) -> IoFuture),
+  recv : (fn(ctx : ?*void, sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture),
+  sendto : (fn(ctx : ?*void, sockfd : i32, buf : *u8, len : usize, flags : i32, dest_addr : *u8, addrlen : u32) -> IoFuture),
+  recvfrom : (fn(ctx : ?*void, sockfd : i32, buf : *u8, len : usize, flags : i32, src_addr : *u8, addrlen : *u32) -> IoFuture),
+  shutdown : (fn(ctx : ?*void, sockfd : i32, how : i32) -> IoFuture),
+  setsockopt : (fn(ctx : ?*void, sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> IoFuture),
+  getsockopt : (fn(ctx : ?*void, sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> IoFuture),
+  // Processes
+  /// Spawn with a working directory (`.None` inherits the parent's).
+  spawn_cwd : (fn(ctx : ?*void, file : *u8, argv : *?*u8, envp : ?*?*u8, stdin_fd : i32, stdout_fd : i32, stderr_fd : i32, cwd : ?*u8) -> IoFuture),
+  waitpid : (fn(ctx : ?*void, pid : i32, options : i32) -> IoFuture),
+  // DNS
+  getaddrinfo : (fn(ctx : ?*void, node : *u8, service : ?*u8, hints : ?*u8, result : *?*u8) -> IoFuture),
+  getnameinfo : (fn(ctx : ?*void, addr : *u8, addrlen : u32, host : *u8, hostlen : usize, service : *u8, servlen : usize, flags : i32) -> IoFuture),
+  // Watch registrations: a callback the loop calls from its tick
+  poll_init : (fn(ctx : ?*void, fd : i32) -> *u8),
+  poll_start : (fn(ctx : ?*void, handle : *u8, events : i32, callback : *u8, user_data : *u8) -> i32),
+  poll_stop : (fn(ctx : ?*void, handle : *u8) -> i32),
+  poll_close : (fn(ctx : ?*void, handle : *u8) -> unit),
+  fs_event_init : (fn(ctx : ?*void) -> *u8),
+  fs_event_start : (fn(ctx : ?*void, handle : *u8, path : *u8, flags : u32, callback : *u8, user_data : *u8) -> i32),
+  fs_event_stop : (fn(ctx : ?*void, handle : *u8) -> i32),
+  fs_event_close : (fn(ctx : ?*void, handle : *u8) -> unit)
+);
+// Plain data (function pointers), so a table is copied whole: a decorator
+// starts from the native one and replaces the entries it overrides.
+derive(IoVTable, Copy, Clone);
+export(IoVTable);
+/// The event loop and its reactor, as a value: an opaque context plus an
+/// immortal table of operations (`IoVTable`), the way `Allocator` is an
+/// allocator (`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md` §2).
+///
+/// `main` receives the calling thread's native `Io` when it declares
+/// `io : Io`; a `Thread` or pool task is handed its worker's; a task body sees
+/// the `io` its awaiter passed in the effect bundle. Every operation that
+/// suspends a task or submits work to the reactor takes it (`File.open`,
+/// `TcpListener.accept`, `sleep`, `io.spawn`); a blocking call does not
+/// (`println`, `Instant.now`, `sleep_blocking`).
+///
+/// An `Io` is valid only on the thread whose loop `ctx` names, which is what
+/// `!Send` and `!Sync` enforce. In safe code it is an opaque handle: it is
+/// passed and copied, never constructed.
+Io :: struct(
+  /// The loop this `Io` names, opaque to everyone but its table.
+  ctx : ?*void,
+  /// The operations, each called with `ctx` first.
+  vtable : *IoVTable
+);
+// Io is NOT Send: the event loop it names is per-thread (AGENTS.md), so an Io
+// sent to another thread would submit to a loop that thread does not run.
+// It is two words of plain data, so it is `Copy` (decision 36).
 derive(Io, Copy, Clone);
 impl(Io, !Send());
 impl(Io, !Sync());
@@ -13360,17 +13473,31 @@ extern(
   __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
   __yo_io_await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   __yo_io_state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
-  __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+  __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T)),
+  __yo_io_native : (fn() -> Io)
 );
-/// Built-in Io module instance. Automatically injected for `main` functions
-/// with `io : Io`.
-__yo_builtin_io :: Io(
+impl(
+  Io,
+  /// Create a `Future` from an async closure. Nothing runs until the future
+  /// is awaited or spawned. The effect row goes by value (`io : Io`,
+  /// `e : E`, never `&`).
   async : __yo_io_async,
+  /// Await a `Future`, suspending the task until its result is ready. From
+  /// `main` or a plain function it drives this `Io`'s loop until the future
+  /// is terminal (`IoVTable.run_until`).
   await : __yo_io_await,
+  /// Inspect the current state of a `Future` without blocking.
   state : __yo_io_state,
-  spawn : __yo_io_spawn
+  /// Spawn a `Future` as an independent task on this `Io`'s loop
+  /// (`IoVTable.spawn`), returning a `JoinHandle`.
+  spawn : __yo_io_spawn,
+  /// The calling thread's native `Io`: its loop and the compiler's native
+  /// table. It is what `main`, a `Thread` and a pool worker are handed, and
+  /// what a program that drives async code from a sync `main` builds. It is a
+  /// runtime entry point: a file that calls it declares
+  /// `pragma(Pragma.AllowUnsafe)`; everything else takes `io` as an argument.
+  native : __yo_io_native
 );
-export(__yo_builtin_io);
 /// JoinHandle methods — defined after Io so `io : Io` resolves.
 extern(
   "Yo",

@@ -52,8 +52,8 @@ pragma(Pragma.AllowUnsafe);
 { Display } :: import("../fmt");
 import("../string");
 IO_timer :: import("../sys/timer");
-{ __yo_async_yield_start, __yo_join_wait_new, __yo_join_wait_add } :: import("../sys/externs.yo");
-{ IoFuture } :: import("../sys/future.yo");
+{ __yo_join_wait_add } :: import("../sys/externs.yo");
+IO_future :: import("../sys/future.yo");
 /// Suspend the current async task until the next event-loop turn: drain the
 /// ready queue, then poll (and, when idle with pending I/O, block in) I/O.
 ///
@@ -81,7 +81,7 @@ IO_timer :: import("../sys/timer");
 /// leaves the C stack.
 yield :: (fn(io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
-    _r := io.await(unsafe(__yo_async_yield_start()), io);
+    _r := io.await(IO_future.yield(io), io);
     ()
   })
 );
@@ -103,7 +103,7 @@ impl(
   /// joined task: it keeps running (abort it first if its work is unwanted).
   join : (fn(self : Self, io : Io) -> Impl(Future(Option(T), Io)))(
     io.async({ self }(io : Io) => {
-      w := unsafe(__yo_join_wait_new());
+      w := IO_future.park(io);
       unsafe(__yo_join_wait_add(&w, self.as_ptr()));
       _w := io.await(w, io);
       // Terminal now: this read returns without driving the loop.
@@ -123,8 +123,8 @@ _task_ptrs :: (fn(generic(T : Type), handles : &ArrayList(JoinHandle(T))) -> Arr
 });
 /// A wait that resolves when ANY of `tasks` is terminal. Tasks that are
 /// terminal already resolve it at once.
-_wait_any :: (fn(tasks : &ArrayList(*void)) -> IoFuture)({
-  w := unsafe(__yo_join_wait_new());
+_wait_any :: (fn(tasks : &ArrayList(*void), io : Io) -> IoFuture)({
+  w := IO_future.park(io);
   (mut(i) : usize) = usize(0);
   while(i < tasks.len(), i = (i + usize(1)), {
     unsafe(__yo_join_wait_add(&w, tasks(i)));
@@ -176,7 +176,7 @@ race :: (
   io.async({ handles }(io : Io) => {
     hs := handles;
     tasks := _task_ptrs(&hs);
-    _w := io.await(_wait_any(&tasks), io);
+    _w := io.await(_wait_any(&tasks, io), io);
     (mut(winner) : Option(usize)) = Option(usize).None;
     (mut(i) : usize) = usize(0);
     while((i < hs.len()) && winner.is_none(), i = (i + usize(1)), {
@@ -222,7 +222,7 @@ any :: (
           decided = true;
         },
         true => {
-          _w := io.await(_wait_any(&pending), io);
+          _w := io.await(_wait_any(&pending, io), io);
         }
       );
     });
@@ -331,6 +331,15 @@ _scoped_wait_on :: (fn(generic(U : Type), s : &_Scoped(U), w : &IoFuture) -> uni
     unsafe(__yo_join_wait_add(w, s._p));
   })
 );
+/// A join wait over two scoped tasks: it resolves when either one is
+/// terminal (at once when one already is). The caller awaits it where it is
+/// made: `io.await(_scoped_wait_either(&a, &b, io), io)`.
+_scoped_wait_either :: (fn(generic(U : Type, V : Type), a : &_Scoped(U), b : &_Scoped(V), io : Io) -> IoFuture)({
+  w := IO_future.park(io);
+  _scoped_wait_on(a, &w);
+  _scoped_wait_on(b, &w);
+  w
+});
 /// Join the scoped task: its result, or `.None` if it was aborted. Called
 /// once, after which the task is no longer scoped (the join owns it).
 _scoped_join :: (fn(generic(U : Type), s : &mut _Scoped(U), io : Io) -> Impl(Future(Option(U), Io)))(
@@ -413,15 +422,12 @@ timeout :: (
     // still holds the armed timer (issues/fixed/pending-io-future-local-drop-uaf.md);
     // inside a task the await machinery owns it correctly on every path.
     deadline_fut := io.async((io : Io) => {
-      io.await(IO_timer.sleep(ms.*), io);
+      io.await(IO_timer.sleep(ms.*, io), io);
       return(());
     });
     mut(deadline) := _scope(io.spawn(deadline_fut, io));
     // One wait over the operand and the deadline: resolves when either ends.
-    w := unsafe(__yo_join_wait_new());
-    _scoped_wait_on(&child, &w);
-    _scoped_wait_on(&deadline, &w);
-    _w := io.await(w, io);
+    _w := io.await(_scoped_wait_either(&child, &deadline, io), io);
     // Which arm ended the wait — the ONLY place the two failure modes are
     // distinguishable. Afterwards the join reports `.None` for a deadline
     // abort and a self-abort alike.
@@ -505,7 +511,7 @@ select :: (
         true => {
           // Wait on the operands still running: an aborted one would resolve
           // the wait at once.
-          w := unsafe(__yo_join_wait_new());
+          w := IO_future.park(io);
           if(sa != FutureState.Aborted, {
             _scoped_wait_on(&a, &w);
           });
@@ -536,4 +542,4 @@ select :: (
 export(yield, join_all, race, race_first, any, any_first, timeout, TimeoutError, select, Selected);
 // The scoped-child helpers, for std modules that race a task of their own
 // (`std/http/client`'s deadline). Not part of the public API.
-export(_scope, _scoped_state, _scoped_abort, _scoped_wait_on, _scoped_join);
+export(_scope, _scoped_state, _scoped_abort, _scoped_wait_either, _scoped_join);

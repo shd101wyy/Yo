@@ -18,11 +18,11 @@ test("mkdtemp creates and removes directory", {
   unsafe(printf("  mkdtemp = %d\n", mk));
   assert(mk == i32(0));
   open_flags := (O_RDONLY | O_DIRECTORY);
-  open_dir := io.await(file.openat(AT_FDCWD, template_path, open_flags, i32(0)), io);
+  open_dir := io.await(file.openat(AT_FDCWD, template_path, open_flags, i32(0), io), io);
   unsafe(printf("  open dir = %d\n", open_dir));
   assert(open_dir >= i32(0));
-  io.await(file.close(open_dir), io);
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, AT_REMOVEDIR), io);
+  io.await(file.close(open_dir, io), io);
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, AT_REMOVEDIR, io), io);
   unsafe(printf("  rmdir = %d\n", rm));
   assert(rm == i32(0));
 });
@@ -34,9 +34,9 @@ test("mkstemp creates and removes file", {
   fd := temp_io.mkstemp(template_path);
   unsafe(printf("  mkstemp = %d\n", fd));
   assert(fd >= i32(0));
-  close_result := io.await(file.close(fd), io);
+  close_result := io.await(file.close(fd, io), io);
   assert(close_result == i32(0));
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0), io), io);
   unsafe(printf("  unlink = %d\n", rm));
   assert(rm == i32(0));
 });

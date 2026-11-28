@@ -25,19 +25,19 @@ test("pipe read/write", {
   assert(write_fd >= i32(0));
   data := (*u8)("hello pipe");
   data_len := u32(10);
-  wr := io.await(file.write(write_fd, data, data_len, u64(0)), io);
+  wr := io.await(file.write(write_fd, data, data_len, u64(0), io), io);
   unsafe(printf("  write = %d\n", wr));
   assert(wr == i32(data_len));
   mut(buf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf := (*u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
+  rd := io.await(file.read(read_fd, buf, u32(16), u64(0), io), io);
   unsafe(printf("  read = %d\n", rd));
   assert(rd == i32(data_len));
   assert((buf.add(usize(0))).* == u8(104));
   assert((buf.add(usize(6))).* == u8(112));
   assert((buf.add(usize(9))).* == u8(101));
-  c1 := io.await(file.close(read_fd), io);
-  c2 := io.await(file.close(write_fd), io);
+  c1 := io.await(file.close(read_fd, io), io);
+  c2 := io.await(file.close(write_fd, io), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
 });
@@ -51,20 +51,20 @@ test("dup reads from original pipe", {
   dup_fd := pipe_io.dup(read_fd);
   unsafe(printf("  dup = %d\n", dup_fd));
   assert(dup_fd >= i32(0));
-  close_read := io.await(file.close(read_fd), io);
+  close_read := io.await(file.close(read_fd, io), io);
   assert(close_read == i32(0));
   data := (*u8)("dup test");
   data_len := u32(8);
-  wr := io.await(file.write(write_fd, data, data_len, u64(0)), io);
+  wr := io.await(file.write(write_fd, data, data_len, u64(0), io), io);
   assert(wr == i32(data_len));
   mut(buf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf := (*u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(dup_fd, buf, u32(16), u64(0)), io);
+  rd := io.await(file.read(dup_fd, buf, u32(16), u64(0), io), io);
   assert(rd == i32(data_len));
   assert((buf.add(usize(0))).* == u8(100));
   assert((buf.add(usize(7))).* == u8(116));
-  c1 := io.await(file.close(dup_fd), io);
-  c2 := io.await(file.close(write_fd), io);
+  c1 := io.await(file.close(dup_fd, io), io);
+  c2 := io.await(file.close(write_fd, io), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
 });
@@ -84,22 +84,22 @@ test("dup2 redirects to target fd", {
   dup2_fd := pipe_io.dup2(write_fd_src, write_fd_dst);
   unsafe(printf("  dup2 = %d\n", dup2_fd));
   assert(dup2_fd == write_fd_dst);
-  c1 := io.await(file.close(write_fd_src), io);
-  c2 := io.await(file.close(read_fd_b), io);
+  c1 := io.await(file.close(write_fd_src, io), io);
+  c2 := io.await(file.close(read_fd_b, io), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
   data := (*u8)("dup2 ok");
   data_len := u32(7);
-  wr := io.await(file.write(write_fd_dst, data, data_len, u64(0)), io);
+  wr := io.await(file.write(write_fd_dst, data, data_len, u64(0), io), io);
   assert(wr == i32(data_len));
   mut(buf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf := (*u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
+  rd := io.await(file.read(read_fd, buf, u32(16), u64(0), io), io);
   assert(rd == i32(data_len));
   assert((buf.add(usize(0))).* == u8(100));
   assert((buf.add(usize(6))).* == u8(107));
-  c3 := io.await(file.close(read_fd), io);
-  c4 := io.await(file.close(write_fd_dst), io);
+  c3 := io.await(file.close(read_fd, io), io);
+  c4 := io.await(file.close(write_fd_dst, io), io);
   assert(c3 == i32(0));
   assert(c4 == i32(0));
 });
@@ -130,13 +130,13 @@ test("two concurrent async reads on one pipe end both complete", {
       read_a := Rc.new(RefCell(i32).new(-99));
       read_b := Rc.new(RefCell(i32).new(-99));
       task_a := io.async({ buf_a, read_a : Rc.clone(read_a), read_fd }(io : Io) => {
-        n := io.await(file.read(read_fd, buf_a, u32(8), u64(0)), io);
+        n := io.await(file.read(read_fd, buf_a, u32(8), u64(0), io), io);
         read_a.*.with_mut(cur => {
           cur.* = n;
         });
       });
       task_b := io.async({ buf_b, read_b : Rc.clone(read_b), read_fd }(io : Io) => {
-        n := io.await(file.read(read_fd, buf_b, u32(8), u64(0)), io);
+        n := io.await(file.read(read_fd, buf_b, u32(8), u64(0), io), io);
         read_b.*.with_mut(cur => {
           cur.* = n;
         });
@@ -144,21 +144,21 @@ test("two concurrent async reads on one pipe end both complete", {
       handle_a := io.spawn(task_a, io);
       handle_b := io.spawn(task_b, io);
       // Let both tasks reach their would-block and register.
-      io.await(sleep(u64(20)), io);
+      io.await(sleep(u64(20), io), io);
       data := (*u8)("hi!\n");
-      wr := io.await(file.write(write_fd, data, u32(4), u64(0)), io);
+      wr := io.await(file.write(write_fd, data, u32(4), u64(0), io), io);
       assert(wr == i32(4));
-      io.await(sleep(u64(20)), io);
+      io.await(sleep(u64(20), io), io);
       // One 4-byte write serves one reader; closing the write end hands the
       // other reader its EOF so BOTH complete.
-      cw := io.await(file.close(write_fd), io);
+      cw := io.await(file.close(write_fd, io), io);
       assert(cw == i32(0));
       ra := handle_a.await(io);
       rb := handle_b.await(io);
       unsafe(printf("  concurrent reads: a=%d b=%d\n", read_a.*.with(cur => cur.*), read_b.*.with(cur => cur.*)));
       assert((read_a.*.with(cur => cur.*) >= i32(0)) && (read_b.*.with(cur => cur.*) >= i32(0)));
       assert((read_a.*.with(cur => cur.*) + read_b.*.with(cur => cur.*)) == i32(4));
-      cr := io.await(file.close(read_fd), io);
+      cr := io.await(file.close(read_fd, io), io);
       assert(cr == i32(0));
     },
     true => ()
@@ -181,7 +181,7 @@ _frame_reader :: (fn(fd : i32, mode : i32, io : Io) -> Impl(Future(i32, Io)))(
     mut(b_uninit) := MaybeUninit(Array(u8, usize(256))).new();
     b := (*u8)(b_uninit.as_ptr());
     if(mode == i32(0), {
-      n := e.await(file.read(fd, b, u32(256), u64.MAX), e);
+      n := e.await(file.read(fd, b, u32(256), u64.MAX, e), e);
       n + i32(b.*)
     }, {
       (mut(i) : usize) = usize(0);
@@ -220,8 +220,8 @@ _aborted_read_does_not_write_into_a_released_frame :: (fn(io : Io) -> unit)({
     bad = (bad + io.await(_frame_reader(rfd, i32(1), io), io));
   });
   assert(bad == i32(0), "no byte of a live task's buffer was overwritten by an aborted read");
-  io.await(file.close(rfd), io);
-  io.await(file.close(wfd), io);
+  io.await(file.close(rfd, io), io);
+  io.await(file.close(wfd, io), io);
 });
 test("an aborted task's queued read does not write into its released frame", {
   cond(
@@ -242,7 +242,7 @@ test("an aborted task's queued read does not write into its released frame (epol
 // bytes into the caller's buffer after `select` had handed it back — visible
 // with or without a sanitizer.
 _read_into :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((e : Io) => e.await(file.read(fd, buf, u32(256), u64.MAX), e))
+  io.async((e : Io) => e.await(file.read(fd, buf, u32(256), u64.MAX, e), e))
 );
 _ready_now :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => i32(1)));
 _select_loser_read_does_not_write_after_select :: (fn(io : Io) -> unit)({
@@ -276,8 +276,8 @@ _select_loser_read_does_not_write_after_select :: (fn(io : Io) -> unit)({
     _d := unsafe(read(int(rfd), (*void)((*u8)(d_uninit.as_ptr())), usize(4096)));
   });
   assert(bad == i32(0), "the losing read wrote nothing after select returned");
-  io.await(file.close(rfd), io);
-  io.await(file.close(wfd), io);
+  io.await(file.close(rfd, io), io);
+  io.await(file.close(wfd, io), io);
 });
 test("a read select aborted while queued does not write after select returns", {
   cond(
@@ -303,7 +303,7 @@ test("a read select aborted while queued does not write after select returns (ep
 // (issues/fixed/2026-11-25-aborting-a-task-that-awaits-timeout-or-select-returns-its-join-while-the-operands-read-is-in-flight.md).
 _nap_long :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    e.await(sleep(u64(1000)), e);
+    e.await(sleep(u64(1000), e), e);
     i32(0)
   })
 );
@@ -358,8 +358,8 @@ _aborted_holder_read_does_not_write_after_its_join :: (fn(kind : i32, io : Io) -
     _d := unsafe(read(int(rfd), (*void)((*u8)(d_uninit.as_ptr())), usize(4096)));
   });
   assert(bad == i32(0), "the operand's read wrote nothing after the aborted holder was joined");
-  io.await(file.close(rfd), io);
-  io.await(file.close(wfd), io);
+  io.await(file.close(rfd, io), io);
+  io.await(file.close(wfd, io), io);
 });
 test("aborting a task that awaits select returns its join after the operand's read retired", {
   cond(
@@ -415,7 +415,7 @@ impl(
 _holds_counted :: (fn(hits : Rc(RefCell(i32)), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ hits }(e : Io) => {
     c := _Counted(hits : Rc.clone(hits));
-    e.await(sleep(u64(10000)), e);
+    e.await(sleep(u64(10000), e), e);
     c.hits.*.with(h => h.*)
   })
 );
@@ -442,7 +442,7 @@ _ticker :: (fn(ticks : Rc(RefCell(i32)), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ ticks }(e : Io) => {
     (mut(i) : i32) = i32(0);
     while(i < i32(50), i = (i + i32(1)), {
-      e.await(sleep(u64(2)), e);
+      e.await(sleep(u64(2), e), e);
       ticks.*.with_mut(t => {
         t.* = (t.* + i32(1));
       });
@@ -453,10 +453,10 @@ _ticker :: (fn(ticks : Rc(RefCell(i32)), io : Io) -> Impl(Future(i32, Io)))(
 _select_operands_stop_at_the_abort :: (fn(io : Io) -> unit)({
   ticks := Rc.new(RefCell(i32).new(i32(0)));
   h := io.spawn(select(_ticker(Rc.clone(ticks), io), _nap_long(io), io), io);
-  io.await(sleep(u64(5)), io);
+  io.await(sleep(u64(5), io), io);
   h.abort();
   at_abort := ticks.*.with(t => t.*);
-  io.await(sleep(u64(20)), io);
+  io.await(sleep(u64(20), io), io);
   assert(ticks.*.with(t => t.*) == at_abort, "no operand ran after the select task was aborted");
   _r := h.await(io);
 });

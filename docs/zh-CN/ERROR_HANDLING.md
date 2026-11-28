@@ -104,7 +104,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
 (exn : Exception) = Exception(
   throw : (
     err -> {
-      println(`Error: ${err}`); // 打印 "Error: Division by zero"
+      println(`Error: ${err.*}`); // 打印 "Error: Division by zero"
       unwind(()); // 丢弃续延，从外围函数返回
     }
   )
@@ -116,8 +116,8 @@ safe_divide(10, 0, exn); // 处理器触发，unwind — 之后的代码不会�
 
 `Exception` 的处理器不能带着值恢复 throw。`throw` 的恢复类型是一个由每个
 throw 点各自选定的类型变量，所以处理器只能 `unwind`、发散，或以 `()` 结束。
-返回固定类型值的处理器（例如 `err -> { return(i32(7)); }`）是编译错误，
-错误信息会指向 `ResumableException`：
+`return` 的处理器（带值，如 `err -> { return(i32(7)); }`，或带 `()`）
+是 E0627，错误信息会指向 `ResumableException`。
 
 ## ResumableException
 
@@ -137,7 +137,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
 (exn : ResumableException(i32)) = ResumableException(i32)(
   throw : (
     err -> {
-      println(`Error: ${err}`);
+      println(`Error: ${err.*}`);
       return(i32(0)); // 以恢复值 0 恢复续延
     }
   )

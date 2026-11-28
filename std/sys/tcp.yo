@@ -48,8 +48,7 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
-{ IoFuture } :: import("./future.yo");
-{ __yo_async_socket_start, __yo_async_bind_start, __yo_async_listen_start, __yo_async_accept_start, __yo_async_connect_start, __yo_async_send_start, __yo_async_stream_write_start, __yo_async_recv_start, __yo_async_shutdown_start, __yo_async_setsockopt_start, __yo_async_getsockopt_start, __yo_async_close_start, __yo_sockaddr_set_family, __yo_sockaddr_get_family, __yo_sockaddr_in_set_port, __yo_sockaddr_in_get_port, __yo_sockaddr_in_set_addr, __yo_sockaddr_in_get_addr, __yo_sockaddr_in6_set_port, __yo_sockaddr_in6_get_port, __yo_sockaddr_in6_set_addr, __yo_sockaddr_in6_get_addr, __yo_inet_pton, __yo_inet_ntop, __yo_htons, __yo_ntohs, __yo_htonl, __yo_ntohl } :: import("./externs.yo");
+{ __yo_sockaddr_set_family, __yo_sockaddr_get_family, __yo_sockaddr_in_set_port, __yo_sockaddr_in_get_port, __yo_sockaddr_in_set_addr, __yo_sockaddr_in_get_addr, __yo_sockaddr_in6_set_port, __yo_sockaddr_in6_get_port, __yo_sockaddr_in6_set_addr, __yo_sockaddr_in6_get_addr, __yo_inet_pton, __yo_inet_ntop, __yo_htons, __yo_ntohs, __yo_htonl, __yo_ntohl } :: import("./externs.yo");
 { AF_INET, AF_INET6, SOCK_STREAM, sockaddr_in_size, sockaddr_in6_size } :: import("./socket.yo");
 // ============================================================================
 // SockAddr - Socket address buffer with pointer and length
@@ -83,22 +82,22 @@ export(SockAddr);
 /// so the datagram ops' inline fast path reports `-EAGAIN` instead of
 /// parking the event loop (the io_uring backend completes the would-block
 /// case through `IORING_OP_SENDMSG`/`RECVMSG`).
-socket :: (fn(domain : i32, sock_type : i32, protocol : i32) -> IoFuture)(
-  __yo_async_socket_start(domain, sock_type, protocol)
+socket :: (fn(domain : i32, sock_type : i32, protocol : i32, io : Io) -> IoFuture)(
+  io.vtable.*.socket(io.ctx, domain, sock_type, protocol)
 );
 /// Bind the socket to a local address — POSIX `bind(2)`. Resolves to 0, or a
 /// negative error code (`-EADDRINUSE` when the port is taken, which is what
 /// `SO_REUSEADDR` is for). Binding to port 0 asks the kernel to choose; read
 /// the choice back with `std/sys/sockinfo`'s `getsockname`.
-bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
-  __yo_async_bind_start(sockfd, addr, addrlen)
+bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32, io : Io) -> IoFuture)(
+  io.vtable.*.bind(io.ctx, sockfd, addr, addrlen)
 );
 /// Mark the socket as accepting connections — POSIX `listen(2)`. Resolves to
 /// 0, or a negative error code. `backlog` bounds the queue of connections the
 /// kernel completes before `accept` has taken them; on Linux it is capped by
 /// `somaxconn`, so a large value is a request rather than a guarantee.
-listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
-  __yo_async_listen_start(sockfd, backlog)
+listen :: (fn(sockfd : i32, backlog : i32, io : Io) -> IoFuture)(
+  io.vtable.*.listen(io.ctx, sockfd, backlog)
 );
 /// Take the next completed connection off a listening socket's queue —
 /// POSIX `accept(2)`. Resolves to the NEW connection's fd, or a negative
@@ -109,8 +108,8 @@ listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
 /// four genuinely asynchronous operations: io_uring on Linux, kqueue on
 /// macOS, and `AcceptEx` on Windows — which is an `AF_INET`/`AF_INET6`
 /// extension, so a Unix-domain listener there takes a different path.
-accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture)(
-  __yo_async_accept_start(sockfd, addr, addrlen)
+accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32, io : Io) -> IoFuture)(
+  io.vtable.*.accept(io.ctx, sockfd, addr, addrlen)
 );
 /// Connect to a remote address — POSIX `connect(2)`. Resolves to 0, or a
 /// negative error code (`-ECONNREFUSED`, `-ETIMEDOUT`).
@@ -120,8 +119,8 @@ accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture)(
 /// unreachable peer stalls every other task in the program there. There is
 /// also no timeout parameter: the kernel's is the only one, and
 /// `std/async`'s `timeout` is the way to bound it.
-connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
-  __yo_async_connect_start(sockfd, addr, addrlen)
+connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32, io : Io) -> IoFuture)(
+  io.vtable.*.connect(io.ctx, sockfd, addr, addrlen)
 );
 /// Send from `buf` on a connected socket — POSIX `send(2)`. Resolves to the
 /// number of bytes ACCEPTED, which may be fewer than `len` (loop, or use
@@ -132,8 +131,8 @@ connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
 /// closed will KILL the process unless you either pass `std/sys/socket`'s
 /// `MSG_NOSIGNAL` (the per-platform value) or install a handler with
 /// `std/sys/signal`. `std/net`'s streams write through `stream_write` below.
-send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
-  __yo_async_send_start(sockfd, buf, len, flags)
+send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.send(io.ctx, sockfd, buf, len, flags)
 );
 /// Write from `buf` on a connected stream socket that `std/net` owns — the
 /// cheapest write entry point per platform: `write(2)` on macOS,
@@ -146,16 +145,16 @@ send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
 /// Every socket the runtime creates or accepts is non-blocking; `std/net` sets
 /// `SO_NOSIGPIPE` when it creates a stream. Use `send` with `MSG_NOSIGNAL` on a
 /// socket nobody configured.
-stream_write :: (fn(sockfd : i32, buf : *u8, len : usize) -> IoFuture)(
-  __yo_async_stream_write_start(sockfd, buf, len)
+stream_write :: (fn(sockfd : i32, buf : *u8, len : usize, io : Io) -> IoFuture)(
+  io.vtable.*.stream_write(io.ctx, sockfd, buf, len)
 );
 /// Receive into `buf` on a connected socket — POSIX `recv(2)`. Resolves to
 /// the number of bytes read, or a negative error code. **0 means the peer
 /// performed an orderly shutdown**, not "nothing available yet" — this
 /// runtime never resolves a recv with `EAGAIN`, it suspends instead. `flags`
 /// is normally 0.
-recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
-  __yo_async_recv_start(sockfd, buf, len, flags)
+recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, io : Io) -> IoFuture)(
+  io.vtable.*.recv(io.ctx, sockfd, buf, len, flags)
 );
 /// Shut down one or both directions of a connection — POSIX `shutdown(2)`.
 /// Resolves to 0, or a negative error code. `how` is `SHUT_RD` (0),
@@ -165,14 +164,14 @@ recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
 /// end-of-stream, while still letting you read their reply — which `close`
 /// cannot do. Unlike `close` it affects the CONNECTION, not the descriptor,
 /// so a `dup`ed fd is shut down too.
-shutdown :: (fn(sockfd : i32, how : i32) -> IoFuture)(
-  __yo_async_shutdown_start(sockfd, how)
+shutdown :: (fn(sockfd : i32, how : i32, io : Io) -> IoFuture)(
+  io.vtable.*.shutdown(io.ctx, sockfd, how)
 );
 /// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
 /// error code. Do not retry on `-EINTR`: the descriptor is gone either way,
 /// and retrying can close an unrelated fd that has since taken the number.
-close :: (fn(fd : i32) -> IoFuture)(
-  __yo_async_close_start(fd)
+close :: (fn(fd : i32, io : Io) -> IoFuture)(
+  io.vtable.*.close(io.ctx, fd)
 );
 // ============================================================================
 // Socket Options
@@ -182,14 +181,14 @@ close :: (fn(fd : i32) -> IoFuture)(
 /// synchronous form of the same syscall). Resolves to 0, or a negative error
 /// code. `level` and `optname` come from `std/sys/socket`; `optval`/`optlen`
 /// must match what the option expects, and nothing here checks that.
-setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> IoFuture)(
-  __yo_async_setsockopt_start(sockfd, level, optname, optval, optlen)
+setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32, io : Io) -> IoFuture)(
+  io.vtable.*.setsockopt(io.ctx, sockfd, level, optname, optval, optlen)
 );
 /// Read a socket option into raw bytes — POSIX `getsockopt(2)`, the
 /// future-returning form. Resolves to 0, or a negative error code. `optlen`
 /// is in/out: set it to the buffer capacity and read back the size written.
-getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> IoFuture)(
-  __yo_async_getsockopt_start(sockfd, level, optname, optval, optlen)
+getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32, io : Io) -> IoFuture)(
+  io.vtable.*.getsockopt(io.ctx, sockfd, level, optname, optval, optlen)
 );
 // ============================================================================
 // Socket Address Helpers

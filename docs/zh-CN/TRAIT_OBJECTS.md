@@ -29,7 +29,7 @@ main :: (fn() -> unit)({
   (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(4)))); // owned
   m := speak_via(&b.*); // lend the boxed object
   (s : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(5)))); // shared
-  total := (a + m + s.speak() + c.n);
+  total := (a + m + s.*.speak() + c.n);
   println(&total);
 });
 export(main);
@@ -111,8 +111,8 @@ int32_t r = d.vtable->speak(d.data);
 ```yo ignore
 Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));
 (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
-d.speak(); // OK: `Self` only as the receiver
-d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
+d.*.speak(); // OK: `Self` only as the receiver
+d.*.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
 基于 trait 约束的一揽子固有方法（`impl(generic(E), where(E <: Named), E, shout : ...)`）同样接受 `Dyn(Named)` 接收者。它不是 trait 成员，没有虚表槽位：这个调用是对该方法（针对 `Dyn` 特化）的普通调用，而方法内部的 `self.name()` 通过虚表分派。
@@ -244,10 +244,10 @@ impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
 main :: (fn() -> unit)({
   (d : Box(Dyn(Speak, Clone))) = dyn(Box.new(Cat(n : i32(3))));
   e := d.clone(); // an independent payload: d and e share nothing
-  both := (d.speak() + e.speak());
+  both := (d.*.speak() + e.*.speak());
   println(&both);
   f := d; // the last use of d: a move
-  one := f.speak();
+  one := f.*.speak();
   println(&one);
 });
 export(main);
@@ -260,7 +260,7 @@ trait 列表中的 `Clone` 不会给 `Dyn` 增加自己的方法槽位，因为�
 ```yo ignore
 (d : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(3))));
 e := d; // value moved here
-d.speak(); // error[E0901]: use of moved value: `d`
+d.*.speak(); // error[E0901]: use of moved value: `d`
 ```
 
 从无法交出值的存储中复制，会在复制处直接被拒绝。这类存储包括字段或元素、解引用、模块级绑定、`&mut` 借用、`&T` 参数以及闭包的捕获。附注会说明适用的修复：若 `Dyn` 列出了 `Clone`，就用 `d.clone()`；否则建议移动该值、借出它、在 trait 列表中加入 `Clone`，或通过 `Rc(Dyn(...))` 共享。在不含 `Clone` 的拥有型 `Dyn` 集合上调用复制型访问器（`xs.get(i)`、`xs.last()`）会在调用处报 E0901：请通过下标读取元素（`xs(i).m()`），或把它移出（`xs.pop()`）。
@@ -339,7 +339,7 @@ Shape :: trait(area : (fn(self : &Self) -> f64));
 mut(shapes) := ArrayList(Box(Dyn(Shape))).new();
 shapes.push(dyn(Box.new(Circle(r : f64(1.0)))));
 shapes.push(dyn(Box.new(Square(side : f64(2.0)))));
-for(&shapes, s => println(s.area()));
+for(&shapes, s => println(s.*.*.area()));
 ```
 
 trait 必须是对象安全的（接收者是 `&Self` 或 `&mut Self`、签名中没有其他

@@ -3400,23 +3400,6 @@ unmark_node_preevaluated :: (fn(id : usize) -> unit)({
   _u := g_preevaluated_node_ids.with_mut(s => s.remove(&id));
 });
 node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.with(s => s.contains(&id)));
-/// Dups that share a still implicitly copyable argument into a by-value
-/// parameter (`_mark_by_value_param_shares`, evaluator/calls/helper.yo). The
-/// +1 is the callee's, so a state-machine slot argument still emits it
-/// (`_arg_carries_call_share`, codegen/exprs/other-fn-call.yo).
-(g_by_value_param_share_dup_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
-mark_by_value_param_share_dup :: (fn(id : usize) -> unit)({
-  _m := g_by_value_param_share_dup_ids.with_mut(s => s.insert(id));
-});
-is_by_value_param_share_dup :: (fn(id : usize) -> bool)(g_by_value_param_share_dup_ids.with(s => s.contains(&id)));
-/// The caller-owned +1 an aliased argument takes for one call (Aliasing
-/// Stage 0, `set_expr_as_needs_to_call_dup_for_borrowed_projection`,
-/// evaluator/utils.yo). Its own post-call `___drop` balances it.
-(g_call_scoped_share_dup_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
-mark_call_scoped_share_dup :: (fn(id : usize) -> unit)({
-  _m := g_call_scoped_share_dup_ids.with_mut(s => s.insert(id));
-});
-is_call_scoped_share_dup :: (fn(id : usize) -> bool)(g_call_scoped_share_dup_ids.with(s => s.contains(&id)));
 /// The operands of a written `&r` / `&mut r` (a lend marker over a bare
 /// name), recorded before the operand is evaluated
 /// (`note_self_lend_operand`). Where `r` is a reference binding (outside
@@ -3451,18 +3434,6 @@ mark_reference_self_place :: (fn(id : usize) -> unit)({
   _m := g_reference_self_place_ids.with_mut(s => s.insert(id));
 });
 is_reference_self_place :: (fn(id : usize) -> bool)((g_reference_self_place_ids.with(_vh_usize_set_len) > usize(0)) && g_reference_self_place_ids.with(s => s.contains(&id)));
-/// The post-call `___drop` that balances a call-scoped share
-/// (`mark_call_scoped_share_dup`). An exit taken while the call's later
-/// arguments are evaluated (`return`, `break`, an unwind) skips the post-call
-/// flush, so codegen puts these drops on the pending list for the call's
-/// argument evaluation, where every exit releases the share once its dup has
-/// been emitted
-/// (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
-(g_call_scoped_share_drop_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
-mark_call_scoped_share_drop :: (fn(id : usize) -> unit)({
-  _m := g_call_scoped_share_drop_ids.with_mut(s => s.insert(id));
-});
-is_call_scoped_share_drop :: (fn(id : usize) -> bool)(g_call_scoped_share_drop_ids.with(s => s.contains(&id)));
 /// The `___drop(name)` nodes the function-body drop pass schedules for an
 /// `FnOnce` closure's capture frame (decision 37): codegen skips every other
 /// drop of a capture name inside a closure body, because the closure owns its
@@ -3602,7 +3573,6 @@ print_spec_report_if_requested :: (fn() -> unit)({
   });
 });
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
-export(mark_by_value_param_share_dup, is_by_value_param_share_dup, mark_call_scoped_share_dup, is_call_scoped_share_dup, mark_call_scoped_share_drop, is_call_scoped_share_drop);
 export(note_self_lend_operand, self_lend_operand_mode, note_self_lend_forced, is_self_lend_forced, mark_reference_self_place, is_reference_self_place);
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated, mark_fnonce_capture_drop, is_fnonce_capture_drop, mark_fnonce_post_call_release, is_fnonce_post_call_release);
 export(record_macro_expansion, lookup_macro_expansion);

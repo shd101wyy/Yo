@@ -48,8 +48,8 @@ DeferredAsyncBlockData :: struct(
   result_type : TypeValue,
   result_type_c_name : String,
   capture_type : Option(TypeValue),
-  /// The evaluator's capture dups (`generate_captured_variable_dup_expressions`):
-  /// which implicit captures are copies. A fused await site builds the
+  /// The deferred dups on the `io.async` closure argument: which implicit
+  /// captures are copies. A fused await site builds the
   /// capture after the wrapper's own emission took them off the closure.
   capture_dups : ArrayList(AstExpr),
   analysis : AwaitAnalysisResult,
@@ -276,7 +276,7 @@ FunctionGenerationContext :: struct(
   /// emitted-once guard for the node-list drop flushes (drop-dup.yo
   /// generate_deferred_drop_expressions, begin.yo _emit_deferred_drops). A
   /// shared single-expression begin node carries BOTH the begin's scope-end
-  /// drops and the tail call's Stage-0 balancing drops (evaluator begin.yo
+  /// drops and the tail call's own drops (evaluator begin.yo
   /// preserves both), and such a node is flushed from more than one point —
   /// the call emitter's post-call flush and the enclosing arm/body-level
   /// flush (match.yo's arm flush). The emitters do NOT remove-on-emit:
