@@ -461,7 +461,10 @@ export(main);
   `ctl(generic(R : Type), ps) -> R` (as `Exception.throw`): the operation does
   not resume: a `return(...)` in its handler (`return(())` too) is E0627, and
   so is a handler that can reach its end. End every path with `unwind(v)` or
-  `panic(msg)` (`assert(false, msg);` has type `()`).
+  `panic(msg)`, and make a diverging call (or a `cond` whose arms all
+  diverge) the handler's value: `panic(msg);` with a `;` leaves the block's
+  value `()` (only `unwind(v);` may keep its `;`), and `assert(false, msg)`
+  has type `()` anyway.
   To resume with a value, fix the type when the record is built
   (`comptime(R)` on its constructor, as `ResumableException(T)` does).
 - Async runs on ONE event-loop thread per thread and a task never migrates:
