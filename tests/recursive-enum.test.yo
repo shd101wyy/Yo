@@ -338,8 +338,8 @@ test("Two same-shaped recursive structs: each Box(Self) is its own instance", {
   mut(s) := Option(Box(_SameB)).None;
   _same_b_push(&mut s, i32(3));
   assert(a.value == i32(1), "the first struct");
-  assert(match(&c, .Some(b) => (b.*.value == i32(2)), .None => false), "the second struct");
-  assert(match(&s, .Some(b) => (b.*.value == i32(3)), .None => false), "written through the slot");
+  assert(match(&c, .Some(b) => (b.*.*.value == i32(2)), .None => false), "the second struct");
+  assert(match(&s, .Some(b) => (b.*.*.value == i32(3)), .None => false), "written through the slot");
 });
 test("Two same-shaped recursive structs: each Mutex(Self) is its own instance", {
   a := Arc.new(Mutex(_SameLockA).new(_SameLockA(id : i32(1), peer : .None)));
